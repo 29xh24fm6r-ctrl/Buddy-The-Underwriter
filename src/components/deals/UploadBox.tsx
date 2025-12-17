@@ -6,7 +6,12 @@ import BorrowerWowCard from "@/components/deals/BorrowerWowCard";
 import FinancialStatementWowCard from "@/components/deals/FinancialStatementWowCard";
 
 import MoodyPnlSpreadCard from "@/components/deals/MoodyPnlSpreadCard";
+import DocumentCoverageCard from "@/components/deals/DocumentCoverageCard";
+import CreditMemoView from "@/components/deals/CreditMemoView";
 import buildMoodyPnlPackageFromC4 from "@/lib/finance/normalize/normalizePnlFromC4";
+import { analyzeDocumentCoverage } from "@/lib/finance/underwriting/documentCoverage";
+import { buildCreditMemoSkeleton } from "@/lib/creditMemo/buildCreditMemo";
+import type { CreditMemoV1 } from "@/lib/creditMemo/creditMemoTypes";
 
 
 
@@ -247,6 +252,9 @@ export default function UploadBox({ dealId }: Props) {
   const [tab, setTab] = useState<ResultTab>("text");
   const [textSearch, setTextSearch] = useState("");
   const [copyToast, setCopyToast] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"documents" | "credit-memo">("documents");
+  const [memo, setMemo] = useState<CreditMemoV1 | null>(null);
+  const [memoBusy, setMemoBusy] = useState(false);
 
   const pollingAliveRef = useRef(false);
   const safeDealId = useMemo(() => encodeURIComponent(dealId), [dealId]);
@@ -434,6 +442,46 @@ if (!res.ok || !data?.ok) {
     }
   }
 
+  async function handleRunMemoResearch() {
+    if (!memo) return;
+
+    setMemoBusy(true);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/memo/research`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entityName: memo.executive_summary?.request_summary ?? "" }),
+      });
+
+      const json: unknown = await res.json();
+      if (!res.ok || typeof json !== "object" || json === null) {
+        throw new Error("Research failed");
+      }
+
+      const obj = json as Record<string, unknown>;
+      if (obj.ok !== true) {
+        throw new Error(typeof obj.error === "string" ? obj.error : "Research failed");
+      }
+
+      const research = (obj.research ?? {}) as CreditMemoV1["research"];
+
+      setMemo((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          research: {
+            ...(prev.research ?? {}),
+            ...(research ?? {}),
+          },
+        };
+      });
+    } catch (e: unknown) {
+      setUiError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMemoBusy(false);
+    }
+  }
+
   async function copyToClipboard(text: string) {
     try {
       await navigator.clipboard.writeText(text);
@@ -463,6 +511,55 @@ if (!res.ok || !data?.ok) {
       return null;
     }
   }, [dealId, activeJobDisplay?.job_id, activeResult?.c4]);
+
+  const documentCoverage = useMemo(() => {
+    if (!jobs.length) return null;
+    try {
+      // Transform jobs into the expected results format
+      const results: Record<string, unknown> = {};
+      const taxYears: number[] = [];
+      
+      for (const job of jobs) {
+        if (job.result && typeof job.result === 'object') {
+          results[job.job_id] = job.result;
+          // Extract tax years from classifications
+          const result = job.result as Record<string, unknown>;
+          const classification = result.classification as Record<string, unknown> | undefined;
+          if (classification?.tax_year) {
+            const year = parseInt(String(classification.tax_year));
+            if (!isNaN(year) && !taxYears.includes(year)) {
+              taxYears.push(year);
+            }
+          }
+        }
+      }
+      
+      return analyzeDocumentCoverage(results as Record<string, any>, taxYears);
+    } catch {
+      return null;
+    }
+  }, [jobs]);
+
+  const creditMemo = useMemo(() => {
+    if (!documentCoverage) return null;
+    try {
+      return buildCreditMemoSkeleton({
+        dealId,
+        coverage: documentCoverage,
+        underwritingSummary: {
+          dscr: null,
+          policyMin: 1.25,
+          flags: documentCoverage.missingDocuments,
+        },
+      });
+    } catch {
+      return null;
+    }
+  }, [dealId, documentCoverage]);
+
+  useEffect(() => {
+    setMemo(creditMemo);
+  }, [creditMemo]);
 
 
 
@@ -653,7 +750,32 @@ if (!res.ok || !data?.ok) {
 
       {/* Right */}
       <div className="rounded-lg border p-4">
-        <div className="mb-2 text-lg font-semibold">Extraction Results</div>
+        <div className="mb-4 flex items-center justify-between">
+          <div className="text-lg font-semibold">
+            {viewMode === "documents" ? "Extraction Results" : "Credit Memo"}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={`rounded px-3 py-1 text-sm ${
+                viewMode === "documents" ? "bg-black text-white" : "border hover:bg-gray-50"
+              }`}
+              onClick={() => setViewMode("documents")}
+            >
+              Documents
+            </button>
+            <button
+              type="button"
+              className={`rounded px-3 py-1 text-sm ${
+                viewMode === "credit-memo" ? "bg-black text-white" : "border hover:bg-gray-50"
+              }`}
+              onClick={() => setViewMode("credit-memo")}
+            >
+              Credit Memo
+            </button>
+          </div>
+        </div>
+
         <div className="mb-4 text-sm text-gray-600">OCR output, tables, and raw JSON.</div>
 
         {copyToast && <div className="mb-3 rounded border bg-white p-2 text-sm">{copyToast}</div>}
@@ -909,6 +1031,31 @@ if (!res.ok || !data?.ok) {
                     {rawJsonStr}
                   </pre>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {viewMode === "credit-memo" && (
+          <div className="space-y-4">
+            {documentCoverage && <DocumentCoverageCard coverage={documentCoverage} />}
+            {creditMemo ? (
+              <div className="space-y-4">
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
+                    disabled={memoBusy}
+                    onClick={handleRunMemoResearch}
+                  >
+                    {memoBusy ? "Running Research..." : "Run Research"}
+                  </button>
+                </div>
+                <CreditMemoView memo={creditMemo} />
+              </div>
+            ) : (
+              <div className="rounded border p-4 text-center text-gray-600">
+                Building credit memo...
               </div>
             )}
           </div>
