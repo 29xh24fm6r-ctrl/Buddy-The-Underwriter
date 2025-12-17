@@ -1,16 +1,16 @@
+// src/app/deals/[dealId]/page.tsx
+"use client";
+
+import UploadBox from "@/components/deals/UploadBox";
 import Link from "next/link";
+import { useParams, useSearchParams } from "next/navigation";
 
-export default async function DealWorkspace({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ dealId: string }> | { dealId: string };
-  searchParams?: Promise<Record<string, string>> | Record<string, string>;
-}) {
-  const p = params instanceof Promise ? await params : params;
-  const sp = searchParams instanceof Promise ? await searchParams : searchParams;
+export default function DealWorkspace() {
+  const params = useParams<{ dealId: string }>();
+  const searchParams = useSearchParams();
 
-  const dealName = sp?.name ?? "Untitled Deal";
+  const dealId = params?.dealId || "";
+  const dealName = searchParams.get("name") || "Untitled Deal";
 
   return (
     <main className="min-h-screen p-10">
@@ -19,34 +19,19 @@ export default async function DealWorkspace({
           <Link href="/deals" className="text-sm text-gray-600 hover:underline">
             ← Back to Deals
           </Link>
+
           <h1 className="text-3xl font-bold">{dealName}</h1>
-          <p className="text-sm text-gray-500 font-mono">
-            Deal ID: {p.dealId}
-          </p>
+          <p className="text-sm text-gray-500">Deal ID: {dealId || "(missing)"}</p>
         </header>
 
-        <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          <div className="rounded-xl border bg-white p-6">
-            <h2 className="text-lg font-semibold">Document Uploads</h2>
-            <p className="text-sm text-gray-600 mt-1">
-              Upload tax returns, PFS, financials, leases.
-            </p>
-
-            <div className="mt-4 rounded-lg border border-dashed p-6 text-sm text-gray-500">
-              Upload UI coming next.
+        <section>
+          {dealId ? (
+            <UploadBox dealId={dealId} />
+          ) : (
+            <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+              Missing dealId — route params not found.
             </div>
-          </div>
-
-          <div className="rounded-xl border bg-white p-6">
-            <h2 className="text-lg font-semibold">Extraction Results</h2>
-            <p className="text-sm text-gray-600 mt-1">
-              OCR output, confidence, and QC flags.
-            </p>
-
-            <div className="mt-4 rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
-              No results yet.
-            </div>
-          </div>
+          )}
         </section>
       </div>
     </main>

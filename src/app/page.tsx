@@ -9,8 +9,7 @@ export default function HomePage() {
             Buddy The Underwriter
           </h1>
           <p className="text-gray-600">
-            Upload documents. Extract truth. Stress reality. Produce
-            committee-ready credit decisions.
+            Upload documents → extract truth → spread deterministically → memo.
           </p>
         </header>
 
@@ -28,16 +27,6 @@ export default function HomePage() {
             New Deal
           </Link>
         </div>
-
-        <section className="rounded-xl border bg-white p-6">
-          <h2 className="text-lg font-semibold">Prime Directive</h2>
-          <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-gray-700">
-            <li>Buddy does not guess.</li>
-            <li>Every number is traceable.</li>
-            <li>Failure modes come first.</li>
-            <li>Survivability beats optimism.</li>
-          </ul>
-        </section>
       </div>
     </main>
   );
