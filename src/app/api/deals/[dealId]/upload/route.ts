@@ -33,6 +33,7 @@ export async function POST(req: Request, { params }: Ctx) {
 
     const form = await req.formData();
     const file = form.get("file");
+    const packId = form.get("pack_id") as string | null;
 
     if (!file || !(file instanceof File)) {
       return jsonError(400, "MISSING_FILE", "Missing file in form-data (key: file)");
@@ -76,6 +77,7 @@ export async function POST(req: Request, { params }: Ctx) {
       stored_path: storedPath,
       size: bytes.length,
       mime_type: file.type,
+      pack_id: packId,
     });
   } catch (e: any) {
     console.error("[upload] error", {
