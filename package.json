@@ -6,13 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "guard:admin": "node scripts/admin-routes-guard.mjs"
   },
   "dependencies": {
     "@azure/ai-form-recognizer": "^5.1.0",
+    "@clerk/nextjs": "^6.36.3",
+    "@supabase/supabase-js": "^2.88.0",
     "next": "16.0.10",
+    "pdf-lib": "^1.17.1",
     "react": "19.2.1",
-    "react-dom": "19.2.1"
+    "react-dom": "19.2.1",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

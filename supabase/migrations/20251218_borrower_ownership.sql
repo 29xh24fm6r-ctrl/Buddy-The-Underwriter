@@ -1,0 +1,3 @@
+-- OBSOLETE: Replaced by 20251218_deal_participants.sql
+-- This migration is kept for historical reference only.
+-- Use deal_participants table for role-based deal ownership instead.

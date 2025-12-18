@@ -29,6 +29,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     }
 
     const storedName = body?.file_name;
+    const packId = body?.pack_id;
     if (!storedName || typeof storedName !== "string") {
       return json(400, { ok: false, error: "Missing file_name" });
     }
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       job_id: jobId,
       deal_id: dealId,
       stored_name: storedName, // 🔑 THIS IS THE FIX
+      pack_id: packId,
       status: "queued",
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

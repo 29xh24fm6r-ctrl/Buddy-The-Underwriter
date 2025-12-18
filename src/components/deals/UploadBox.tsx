@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { v4 as uuidv4 } from "uuid";
 import BorrowerWowCard from "@/components/deals/BorrowerWowCard";
 import FinancialStatementWowCard from "@/components/deals/FinancialStatementWowCard";
 
@@ -11,7 +12,14 @@ import CreditMemoView from "@/components/deals/CreditMemoView";
 import buildMoodyPnlPackageFromC4 from "@/lib/finance/normalize/normalizePnlFromC4";
 import { analyzeDocumentCoverage } from "@/lib/finance/underwriting/documentCoverage";
 import { buildCreditMemoSkeleton } from "@/lib/creditMemo/buildCreditMemo";
+import { buildPackIndex, type PackIndex } from "@/lib/deals/pack/buildPackIndex";
 import type { CreditMemoV1 } from "@/lib/creditMemo/creditMemoTypes";
+import type { PackScope } from "@/lib/packs/types";
+import PackDetailPanel from "@/components/deals/PackDetailPanel";
+import DocumentPreviewPanel from "@/components/deals/DocumentPreviewPanel";
+import PackCoverageCard from "@/components/deals/PackCoverageCard";
+import { buildMissingDocsEmail } from "@/lib/packs/requirements/requestEmail";
+import type { DealKind } from "@/lib/packs/requirements/defaults";
 
 
 
@@ -61,6 +69,7 @@ type OcrJob = {
   deal_id: string;
   stored_name?: string;
   file_name?: string;
+  pack_id?: string;
   status: "queued" | "processing" | "succeeded" | "failed" | string;
   created_at: string;
   updated_at: string;
@@ -242,6 +251,7 @@ export default function UploadBox({ dealId }: Props) {
   const [jobs, setJobs] = useState<OcrJob[]>([]);
   const [busyUpload, setBusyUpload] = useState(false);
   const [busyOcr, setBusyOcr] = useState<string | null>(null);
+  const [busyOcrAll, setBusyOcrAll] = useState(false);
 
   const [uiError, setUiError] = useState<string | null>(null);
 
@@ -253,8 +263,15 @@ export default function UploadBox({ dealId }: Props) {
   const [textSearch, setTextSearch] = useState("");
   const [copyToast, setCopyToast] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"documents" | "credit-memo">("documents");
+  const [leftViewMode, setLeftViewMode] = useState<"jobs" | "pack">("jobs");
+  const [packIndex, setPackIndex] = useState<PackIndex | null>(null);
+  const [selectedScope, setSelectedScope] = useState<PackScope>({ kind: "ALL" });
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewMimeType, setPreviewMimeType] = useState<string | null>(null);
   const [memo, setMemo] = useState<CreditMemoV1 | null>(null);
   const [memoBusy, setMemoBusy] = useState(false);
+  const [packUploadQueue, setPackUploadQueue] = useState<Array<{ file: File; status: 'pending' | 'uploading' | 'completed' | 'failed'; packId: string }>>([]);
 
   const pollingAliveRef = useRef(false);
   const safeDealId = useMemo(() => encodeURIComponent(dealId), [dealId]);
@@ -366,13 +383,16 @@ if (!res.ok || !data?.ok) {
     return () => clearTimeout(t);
   }, [copyToast]);
 
-  async function handleUpload(file: File) {
+  async function handleUpload(file: File, packId?: string) {
     setUiError(null);
     setBusyUpload(true);
 
     try {
       const fd = new FormData();
       fd.append("file", file);
+      if (packId) {
+        fd.append("pack_id", packId);
+      }
 
       const res = await fetch(`/api/deals/${safeDealId}/upload`, {
         method: "POST",
@@ -390,6 +410,41 @@ if (!res.ok || !data?.ok) {
       setUiError(e?.message ?? String(e));
     } finally {
       setBusyUpload(false);
+    }
+  }
+
+  async function handleBulkUpload(files: File[]) {
+    if (files.length === 0) return;
+    
+    // Limit to 200 files max
+    const limitedFiles = files.slice(0, 200);
+    const packId = uuidv4();
+    
+    // Initialize queue
+    const queueItems = limitedFiles.map(file => ({
+      file,
+      status: 'pending' as const,
+      packId
+    }));
+    
+    setPackUploadQueue(queueItems);
+    
+    // Upload files sequentially
+    for (let i = 0; i < queueItems.length; i++) {
+      setPackUploadQueue(prev => prev.map((item, idx) => 
+        idx === i ? { ...item, status: 'uploading' as const } : item
+      ));
+      
+      try {
+        await handleUpload(queueItems[i].file, packId);
+        setPackUploadQueue(prev => prev.map((item, idx) => 
+          idx === i ? { ...item, status: 'completed' as const } : item
+        ));
+      } catch (error) {
+        setPackUploadQueue(prev => prev.map((item, idx) => 
+          idx === i ? { ...item, status: 'failed' as const } : item
+        ));
+      }
     }
   }
 
@@ -439,6 +494,39 @@ if (!res.ok || !data?.ok) {
       setUiError(e?.message ?? String(e));
     } finally {
       setBusyOcr(null);
+    }
+  }
+
+  async function handleRunOcrAll() {
+    setUiError(null);
+    setBusyOcrAll(true);
+
+    try {
+      const res = await fetch(`/api/deals/${safeDealId}/uploads/ocr-all`, {
+        method: "POST",
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        throw new Error(
+          data?.error ?? `OCR enqueue failed (${res.status})`
+        );
+      }
+
+      alert(
+        `✅ OCR queued: ${data.enqueued}\n` +
+        `� Requeued failed: ${data.requeued_failed}\n` +
+        `�📄 Eligible files: ${data.eligible}\n` +
+        `✓ Already had job: ${data.already_had_job}\n` +
+        `⏭ Skipped (not OCR-compatible): ${data.skipped}`
+      );
+
+      await refreshJobs();
+      await refreshUploads();
+    } catch (e: any) {
+      setUiError(e?.message ?? String(e));
+    } finally {
+      setBusyOcrAll(false);
     }
   }
 
@@ -561,6 +649,76 @@ if (!res.ok || !data?.ok) {
     setMemo(creditMemo);
   }, [creditMemo]);
 
+  useEffect(() => {
+    const index = buildPackIndex(jobs);
+    setPackIndex(index);
+  }, [jobs]);
+
+  useEffect(() => {
+    setSelectedDocId(null);
+  }, [selectedScope.kind, (selectedScope as any).year]);
+
+  function getDocsForScope(packIndex: any, scope: PackScope) {
+    if (!packIndex) return [];
+
+    if (scope.kind === "ALL") return packIndex.allDocs ?? [];
+
+    if (scope.kind === "TAX_YEAR") {
+      const key = String(scope.year);
+      return packIndex.taxReturns?.byYear?.[key]?.docs ?? [];
+    }
+
+    if (scope.kind === "PFS") return packIndex.pfs?.docs ?? [];
+    if (scope.kind === "BUSINESS_FINANCIALS") return packIndex.businessFinancials?.docs ?? [];
+    return packIndex.other?.docs ?? [];
+  }
+
+  const scopedDocs = useMemo(
+    () => getDocsForScope(packIndex, selectedScope),
+    [packIndex, selectedScope]
+  );
+
+  const selectedDoc = useMemo(() => {
+    if (!selectedDocId) return null;
+    return scopedDocs.find((d: any) => d.doc_id === selectedDocId) ?? null;
+  }, [scopedDocs, selectedDocId]);
+
+  const taxYearsForCoverage = useMemo(() => {
+    const years = Object.keys(packIndex?.taxReturns?.byYear ?? {}).map((y) => Number(y)).filter(Boolean);
+    years.sort((a, b) => b - a);
+    return years.slice(0, 2);
+  }, [packIndex]);
+
+  useEffect(() => {
+    if (selectedDoc?.source?.file_id) {
+      // Create a blob URL from the file response
+      fetch(`/api/files/signed-url?file_id=${selectedDoc.source.file_id}`)
+        .then(res => {
+          if (res.ok) {
+            const contentType = res.headers.get('content-type') || '';
+            return res.blob().then(blob => ({
+              url: URL.createObjectURL(blob),
+              mimeType: contentType
+            }));
+          } else {
+            throw new Error('Failed to fetch file');
+          }
+        })
+        .then(({ url, mimeType }) => {
+          setPreviewUrl(url);
+          setPreviewMimeType(mimeType);
+        })
+        .catch(err => {
+          console.error("Failed to get file:", err);
+          setPreviewUrl(null);
+          setPreviewMimeType(null);
+        });
+    } else {
+      setPreviewUrl(null);
+      setPreviewMimeType(null);
+    }
+  }, [selectedDoc]);
+
 
 
   const filteredText = useMemo(() => {
@@ -629,10 +787,22 @@ if (!res.ok || !data?.ok) {
           </div>
         )}
 
-        <div className="rounded border border-dashed p-4">
-          <div className="text-sm font-medium">Upload PDF or image</div>
+        <div className="rounded border border-dashed p-4" 
+             onDragOver={(e) => {
+               e.preventDefault();
+               e.stopPropagation();
+             }}
+             onDrop={(e) => {
+               e.preventDefault();
+               e.stopPropagation();
+               const files = Array.from(e.dataTransfer.files);
+               if (files.length > 0) {
+                 handleBulkUpload(files);
+               }
+             }}>
+          <div className="text-sm font-medium">Upload PDF or image files</div>
           <div className="mt-1 text-xs text-gray-500">
-            Files are stored in Codespace (v1). Next: Azure Document Intelligence.
+            Drag & drop multiple files or click to select. Files are stored in Codespace (v1). Next: Azure Document Intelligence.
           </div>
 
           <div className="mt-3 flex items-center gap-3">
@@ -641,24 +811,68 @@ if (!res.ok || !data?.ok) {
                 type="file"
                 className="hidden"
                 accept=".pdf,image/*"
+                multiple
                 disabled={busyUpload}
                 onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleUpload(f);
+                  const files = Array.from(e.target.files || []);
+                  if (files.length > 0) {
+                    handleBulkUpload(files);
+                  }
                   e.currentTarget.value = "";
                 }}
               />
-              {busyUpload ? "Uploading..." : "Choose File"}
+              {busyUpload ? "Uploading..." : "Choose Files"}
             </label>
           </div>
         </div>
 
+        {packUploadQueue.length > 0 && (
+          <div className="mt-4 rounded border p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="font-semibold">Pack Upload Queue</div>
+              <div className="text-xs text-gray-500">
+                {packUploadQueue.filter(item => item.status === 'completed').length} / {packUploadQueue.length} completed
+              </div>
+            </div>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {packUploadQueue.map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between rounded border p-2 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{item.file.name}</div>
+                    <div className="text-xs text-gray-500">
+                      {humanBytes(item.file.size)} • Pack: {item.packId.slice(0, 8)}...
+                    </div>
+                  </div>
+                  <div className={`text-xs px-2 py-1 rounded ${
+                    item.status === 'completed' ? 'bg-green-100 text-green-800' :
+                    item.status === 'failed' ? 'bg-red-100 text-red-800' :
+                    item.status === 'uploading' ? 'bg-blue-100 text-blue-800' :
+                    'bg-gray-100 text-gray-800'
+                  }`}>
+                    {item.status}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 rounded border p-3">
           <div className="mb-2 flex items-center justify-between">
             <div className="font-semibold">Uploaded Files</div>
-            <button className="text-sm underline" onClick={refreshUploads} type="button">
-              Refresh
-            </button>
+            <div className="flex gap-2">
+              <button
+                className="rounded border bg-black px-3 py-1 text-sm text-white disabled:opacity-60"
+                disabled={busyOcrAll || uploads.length === 0}
+                onClick={handleRunOcrAll}
+                type="button"
+              >
+                {busyOcrAll ? "Queuing OCR..." : "Run OCR on All"}
+              </button>
+              <button className="text-sm underline" onClick={refreshUploads} type="button">
+                Refresh
+              </button>
+            </div>
           </div>
 
           {uploads.length === 0 ? (
@@ -746,45 +960,305 @@ if (!res.ok || !data?.ok) {
             </div>
           )}
         </div>
+
+        {/* Pack Navigator */}
+        <div className="mt-4 rounded border p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="font-semibold">Pack Navigator</div>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                className={`rounded px-2 py-1 text-xs ${
+                  leftViewMode === "jobs" ? "bg-black text-white" : "border hover:bg-gray-50"
+                }`}
+                onClick={() => setLeftViewMode("jobs")}
+              >
+                Jobs
+              </button>
+              <button
+                type="button"
+                className={`rounded px-2 py-1 text-xs ${
+                  leftViewMode === "pack" ? "bg-black text-white" : "border hover:bg-gray-50"
+                }`}
+                onClick={() => setLeftViewMode("pack")}
+              >
+                Pack View
+              </button>
+            </div>
+          </div>
+
+          {leftViewMode === "jobs" ? (
+            <div className="text-sm text-gray-600">
+              Showing individual OCR jobs above. Switch to Pack View to see organized document categories.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {!packIndex ? (
+                <div className="text-sm text-gray-600">
+                  No pack data available. Upload and process documents to see pack organization.
+                </div>
+              ) : (
+                <>
+                  {packIndex.taxReturns && Object.keys(packIndex.taxReturns.byYear).length > 0 && (
+                    <div>
+                      <div className="mb-2 font-medium text-sm">Tax Returns</div>
+                      <div className="space-y-1">
+                        {Object.entries(packIndex.taxReturns.byYear).map(([year, docs]) => (
+                          <button
+                            key={year}
+                            type="button"
+                            className={`w-full rounded border p-2 text-left hover:bg-gray-50 ${
+                              selectedScope.kind === "TAX_YEAR" && selectedScope.year === parseInt(year)
+                                ? "border-gray-400 bg-gray-50"
+                                : ""
+                            }`}
+                            onClick={() => {
+                              setSelectedScope({ kind: "TAX_YEAR", year: parseInt(year) });
+                            }}
+                          >
+                            <div className="font-medium">{year}</div>
+                            <div className="text-xs text-gray-600">
+                              {(docs as any).docs.length} document{(docs as any).docs.length !== 1 ? 's' : ''}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {packIndex.pfs && packIndex.pfs.docs.length > 0 && (
+                    <div>
+                      <div className="mb-2 font-medium text-sm">Personal Financial Statements</div>
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          className={`w-full rounded border p-2 text-left hover:bg-gray-50 ${
+                            selectedScope.kind === "PFS" ? "border-gray-400 bg-gray-50" : ""
+                          }`}
+                          onClick={() => {
+                            setSelectedScope({ kind: "PFS" });
+                          }}
+                        >
+                          <div className="truncate">{packIndex.pfs.docs.length} PFS document{packIndex.pfs.docs.length !== 1 ? 's' : ''}</div>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {packIndex.businessFinancials && packIndex.businessFinancials.docs.length > 0 && (
+                    <div>
+                      <div className="mb-2 font-medium text-sm">Business Financials</div>
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          className={`w-full rounded border p-2 text-left hover:bg-gray-50 ${
+                            selectedScope.kind === "BUSINESS_FINANCIALS" ? "border-gray-400 bg-gray-50" : ""
+                          }`}
+                          onClick={() => {
+                            setSelectedScope({ kind: "BUSINESS_FINANCIALS" });
+                          }}
+                        >
+                          <div className="truncate">{packIndex.businessFinancials.docs.length} financial document{packIndex.businessFinancials.docs.length !== 1 ? 's' : ''}</div>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {packIndex.other && packIndex.other.docs.length > 0 && (
+                    <div>
+                      <div className="mb-2 font-medium text-sm">Other Documents</div>
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          className={`w-full rounded border p-2 text-left hover:bg-gray-50 ${
+                            selectedScope.kind === "OTHER" ? "border-gray-400 bg-gray-50" : ""
+                          }`}
+                          onClick={() => {
+                            setSelectedScope({ kind: "OTHER" });
+                          }}
+                        >
+                          <div className="truncate">{packIndex.other.docs.length} other document{packIndex.other.docs.length !== 1 ? 's' : ''}</div>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Right */}
       <div className="rounded-lg border p-4">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="text-lg font-semibold">
-            {viewMode === "documents" ? "Extraction Results" : "Credit Memo"}
+        {leftViewMode === "pack" ? (
+          <div className="space-y-4">
+            <div className="text-lg font-semibold">Pack View</div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  {scopedDocs.length === 0 ? (
+                    <div className="rounded bg-neutral-50 p-3 text-sm text-neutral-600">
+                      No documents in this section yet.
+                    </div>
+                  ) : (
+                    scopedDocs.map((d: any) => (
+                      <button
+                        key={d.doc_id}
+                        onClick={() => setSelectedDocId(d.doc_id)}
+                        className={[
+                          "w-full rounded border p-2 text-left hover:bg-neutral-50",
+                          selectedDocId === d.doc_id ? "border-neutral-400 bg-neutral-50" : ""
+                        ].join(" ")}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-medium">
+                            {d.title ?? d.file_name ?? "Document"}
+                          </div>
+                          <div className="text-xs text-neutral-500">
+                            {Math.round((d.confidence ?? 0) * 100)}%
+                          </div>
+                        </div>
+                        <div className="mt-1 text-xs text-neutral-500">
+                          {d.doc_type}
+                          {d.year ? ` • ${d.year}` : ""}
+                          {d.pages ? ` • ${d.pages} pages` : ""}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <PackCoverageCard
+                  packIndex={packIndex}
+                  dealKind={"CRE" as DealKind}
+                  taxYears={taxYearsForCoverage}
+                  borrowerName="Borrower"
+                  dealName="Sample Deal"
+                  onJumpToDocType={(docType, year) => {
+                    // map docType -> scope (simple version)
+                    if (docType === "IRS_1040" || docType === "IRS_1120" || docType === "IRS_1120S" || docType === "IRS_1065") {
+                      if (year) setSelectedScope({ kind: "TAX_YEAR", year });
+                      else setSelectedScope({ kind: "ALL" });
+                      return;
+                    }
+                    if (docType === "PFS") setSelectedScope({ kind: "PFS" });
+                    else if (docType === "FINANCIAL_STATEMENT") setSelectedScope({ kind: "BUSINESS_FINANCIALS" });
+                    else setSelectedScope({ kind: "OTHER" });
+                  }}
+                />
+
+                <div className="rounded border bg-white p-3">
+                  <div className="text-sm font-semibold">Preview</div>
+
+                  {!selectedDoc ? (
+                    <div className="mt-2 rounded bg-neutral-50 p-3 text-sm text-neutral-600">
+                      Select a document to preview.
+                    </div>
+                  ) : (
+                    <div className="mt-2 space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="text-sm font-semibold">
+                            {selectedDoc.title ?? selectedDoc.file_name ?? "Document"}
+                          </div>
+                          <div className="text-xs text-neutral-500">{selectedDoc.doc_type}</div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="text-xs text-neutral-500">
+                            {Math.round((selectedDoc.confidence ?? 0) * 100)}%
+                          </div>
+                          {(selectedDoc.confidence ?? 0) < 0.65 && (
+                            <div className="mt-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+                              Needs review
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Preview by mime type */}
+                      <div className="rounded border bg-neutral-50 p-3">
+                        {previewUrl ? (
+                          previewMimeType?.startsWith("image/") ? (
+                            <img
+                              src={previewUrl}
+                              alt="Document preview"
+                              className="max-h-96 w-full object-contain"
+                            />
+                          ) : previewMimeType === "application/pdf" ? (
+                            <iframe
+                              src={previewUrl}
+                              className="h-96 w-full border-0"
+                              title="PDF Preview"
+                            />
+                          ) : (
+                            <div className="text-sm text-neutral-700">
+                              Preview not available for this file type: {previewMimeType}
+                            </div>
+                          )
+                        ) : (
+                          <div className="text-sm text-neutral-700">
+                            Loading preview...
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded border p-2">
+                        <div className="text-xs font-semibold text-neutral-600">
+                          Why Buddy classified this:
+                        </div>
+                        <ul className="mt-1 list-disc pl-5 text-xs text-neutral-600">
+                          {(selectedDoc.reasons ?? []).slice(0, 6).map((r: string, i: number) => (
+                            <li key={i}>{r}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className={`rounded px-3 py-1 text-sm ${
-                viewMode === "documents" ? "bg-black text-white" : "border hover:bg-gray-50"
-              }`}
-              onClick={() => setViewMode("documents")}
-            >
-              Documents
-            </button>
-            <button
-              type="button"
-              className={`rounded px-3 py-1 text-sm ${
-                viewMode === "credit-memo" ? "bg-black text-white" : "border hover:bg-gray-50"
-              }`}
-              onClick={() => setViewMode("credit-memo")}
-            >
-              Credit Memo
-            </button>
-          </div>
-        </div>
-
-        <div className="mb-4 text-sm text-gray-600">OCR output, tables, and raw JSON.</div>
-
-        {copyToast && <div className="mb-3 rounded border bg-white p-2 text-sm">{copyToast}</div>}
-
-        {!activeJobDisplay ? (
-          <div className="rounded border p-3 text-sm text-gray-600">No results yet.</div>
         ) : (
-          <div className="space-y-3">
-            <div className="rounded border p-3">
+          <div className="space-y-4">
+          <div className="mb-4 flex items-center justify-between">
+              <div className="text-lg font-semibold">
+                {viewMode === "documents" ? "Extraction Results" : "Credit Memo"}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={`rounded px-3 py-1 text-sm ${
+                    viewMode === "documents" ? "bg-black text-white" : "border hover:bg-gray-50"
+                  }`}
+                  onClick={() => setViewMode("documents")}
+                >
+                  Documents
+                </button>
+                <button
+                  type="button"
+                  className={`rounded px-3 py-1 text-sm ${
+                    viewMode === "credit-memo" ? "bg-black text-white" : "border hover:bg-gray-50"
+                  }`}
+                  onClick={() => setViewMode("credit-memo")}
+                >
+                  Credit Memo
+                </button>
+              </div>
+            </div>
+
+            <div className="mb-4 text-sm text-gray-600">OCR output, tables, and raw JSON.</div>
+
+            {copyToast && <div className="mb-3 rounded border bg-white p-2 text-sm">{copyToast}</div>}
+
+            {!activeJobDisplay ? (
+              <div className="rounded border p-3 text-sm text-gray-600">No results yet.</div>
+            ) : (
+              <div className="space-y-3">
+                  <div className="rounded border p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="text-sm">
                   <div className="font-semibold">Status</div>
@@ -1059,6 +1533,8 @@ if (!res.ok || !data?.ok) {
               </div>
             )}
           </div>
+        )}
+      </div>
         )}
       </div>
     </div>
