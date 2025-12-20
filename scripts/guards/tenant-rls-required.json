@@ -1,0 +1,10 @@
+{
+  "required_tables": [
+    "deal_conditions",
+    "deal_condition_events",
+    "deal_mitigants"
+  ],
+  "membership_table": "bank_memberships",
+  "membership_bank_id": "bank_id",
+  "membership_user_id": "user_id"
+}

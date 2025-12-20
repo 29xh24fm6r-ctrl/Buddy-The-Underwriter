@@ -7,17 +7,24 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "guard:admin": "node scripts/admin-routes-guard.mjs"
+    "guard:admin": "node scripts/admin-routes-guard.mjs",
+    "guard:canonical": "node scripts/guard-no-deal-files.mjs && node scripts/guard-no-legacy-reminder-fields.mjs && node scripts/guard-reminder-subscriptions-canonical.mjs",
+    "guard:reminders": "node scripts/guard-no-legacy-reminder-fields.mjs && node scripts/guard-reminder-subscriptions-canonical.mjs",
+    "guard:tenant-rls": "node scripts/guards/guard-tenant-rls.mjs",
+    "gen:tenant-sql": "node scripts/generate-tenant-sql.mjs"
   },
   "dependencies": {
     "@azure/ai-form-recognizer": "^5.1.0",
     "@clerk/nextjs": "^6.36.3",
     "@supabase/supabase-js": "^2.88.0",
+    "framer-motion": "^12.23.26",
     "next": "16.0.10",
     "pdf-lib": "^1.17.1",
     "react": "19.2.1",
     "react-dom": "19.2.1",
-    "uuid": "^13.0.0"
+    "recharts": "^3.6.0",
+    "uuid": "^13.0.0",
+    "zod": "^4.2.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

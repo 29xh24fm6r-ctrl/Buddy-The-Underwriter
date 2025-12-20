@@ -4,36 +4,51 @@ import { useEffect, useState } from "react";
 
 interface Deal {
   id: string;
-  borrower_name: string;
+  borrower_name?: string;
+  name?: string;
   borrower_entity_type?: string;
   status?: string;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 interface DealHeaderCardProps {
   dealId: string;
+  dealName?: string;
 }
 
-export default function DealHeaderCard({ dealId }: DealHeaderCardProps) {
+export default function DealHeaderCard({ dealId, dealName }: DealHeaderCardProps) {
   const [deal, setDeal] = useState<Deal | null>(null);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
+    let mounted = true;
+
     const fetchDeal = async () => {
+      setErr(null);
       try {
-        const res = await fetch(`/api/deals/${dealId}`);
-        if (!res.ok) throw new Error("Failed to fetch deal");
-        const data = await res.json();
-        setDeal(data.deal);
-      } catch (err) {
-        console.error("Error fetching deal:", err);
+        const res = await fetch(`/api/deals/${dealId}`, { cache: "no-store" });
+        const text = await res.text();
+
+        if (!res.ok) {
+          throw new Error(`GET /api/deals/${dealId} → ${res.status} ${res.statusText}: ${text}`);
+        }
+
+        const data = JSON.parse(text);
+        if (mounted) setDeal(data.deal ?? null);
+      } catch (e: any) {
+        if (mounted) setErr(e?.message || "Failed to fetch deal");
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
 
-    fetchDeal();
+    if (dealId) fetchDeal();
+
+    return () => {
+      mounted = false;
+    };
   }, [dealId]);
 
   if (loading) {
@@ -47,6 +62,17 @@ export default function DealHeaderCard({ dealId }: DealHeaderCardProps) {
     );
   }
 
+  if (err) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <p className="text-sm text-red-600 font-semibold mb-2">Error loading deal</p>
+        <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+          {err}
+        </div>
+      </div>
+    );
+  }
+
   if (!deal) {
     return (
       <div className="bg-white rounded-lg border border-gray-200 p-4">
@@ -55,7 +81,10 @@ export default function DealHeaderCard({ dealId }: DealHeaderCardProps) {
     );
   }
 
+  const displayName = deal.name || deal.borrower_name || dealName || "Untitled Deal";
+
   const timeSinceUpdate = () => {
+    if (!deal.updated_at) return "Unknown";
     const now = new Date();
     const updated = new Date(deal.updated_at);
     const diffMs = now.getTime() - updated.getTime();
@@ -73,7 +102,7 @@ export default function DealHeaderCard({ dealId }: DealHeaderCardProps) {
     <div className="bg-white rounded-lg border border-gray-200 p-4">
       {/* Deal Identity */}
       <div className="mb-4">
-        <h2 className="font-semibold text-lg mb-1">{deal.borrower_name}</h2>
+        <h2 className="font-semibold text-lg mb-1">{displayName}</h2>
         {deal.borrower_entity_type && (
           <p className="text-sm text-gray-600">{deal.borrower_entity_type}</p>
         )}

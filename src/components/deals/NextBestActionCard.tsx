@@ -15,15 +15,24 @@ export default function NextBestActionCard({ dealId }: NextBestActionCardProps) 
   const [signals, setSignals] = useState<DealSignals | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   const fetchSignals = async () => {
+    setErr(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/signals`);
-      if (!res.ok) throw new Error("Failed to fetch signals");
-      const data = await res.json();
+      const res = await fetch(`/api/deals/${dealId}/signals`, { cache: "no-store" });
+      const text = await res.text();
+
+      if (!res.ok) {
+        throw new Error(
+          `GET /api/deals/${dealId}/signals → ${res.status} ${res.statusText}: ${text}`
+        );
+      }
+
+      const data = JSON.parse(text);
       setSignals(data);
-    } catch (err) {
-      console.error("Error fetching signals:", err);
+    } catch (e: any) {
+      setErr(e?.message || "Failed to fetch signals");
     } finally {
       setLoading(false);
     }
@@ -57,7 +66,7 @@ export default function NextBestActionCard({ dealId }: NextBestActionCardProps) 
       }
     } catch (err) {
       console.error("CTA error:", err);
-      alert("Action failed. Please try again.");
+      setErr("Action failed. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -69,6 +78,17 @@ export default function NextBestActionCard({ dealId }: NextBestActionCardProps) 
         <div className="animate-pulse space-y-3">
           <div className="h-4 bg-gray-200 rounded w-1/2"></div>
           <div className="h-8 bg-gray-200 rounded"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (err) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <p className="text-sm text-red-600 font-semibold mb-2">Error loading signals</p>
+        <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+          {err}
         </div>
       </div>
     );

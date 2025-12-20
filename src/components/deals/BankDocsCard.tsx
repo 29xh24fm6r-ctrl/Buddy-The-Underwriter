@@ -4,13 +4,17 @@ import React, { useEffect, useState } from "react";
 
 export default function BankDocsCard({ dealId }: { dealId: string }) {
   const [docs, setDocs] = useState<any[]>([]);
-  const [bankId, setBankId] = useState<string | null>(null);
+  const [bankId, setBankId] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function loadBank() {
     const r = await fetch(`/api/deals/${dealId}/bank`);
     const j = await r.json();
-    setBankId(j?.bank_id ?? null);
+    // Bank always exists by FK constraint
+    if (j?.ok && j?.bank_id) {
+      setBankId(j.bank_id);
+    }
   }
 
   async function refresh() {
@@ -20,8 +24,8 @@ export default function BankDocsCard({ dealId }: { dealId: string }) {
   }
 
   async function generate(template_key: string) {
-    if (!bankId) return alert("No bank linked to this deal.");
     setBusy(true);
+    setError(null);
     try {
       const r = await fetch(`/api/deals/${dealId}/bank-docs/generate`, {
         method: "POST",
@@ -29,9 +33,11 @@ export default function BankDocsCard({ dealId }: { dealId: string }) {
         body: JSON.stringify({ bank_id: bankId, template_key, flatten: false }),
       });
       const j = await r.json();
-      if (!j?.ok) return alert(j?.error ?? "Generate failed");
+      if (!j?.ok) {
+        setError(j?.error ?? "Generate failed");
+        return;
+      }
       await refresh();
-      alert("Generated.");
     } finally {
       setBusy(false);
     }
@@ -62,6 +68,12 @@ export default function BankDocsCard({ dealId }: { dealId: string }) {
           Refresh
         </button>
       </div>
+
+      {error ? (
+        <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+          {error}
+        </div>
+      ) : null}
 
       <div className="flex gap-2 flex-wrap">
         <button className="border rounded px-3 py-1" disabled={busy} onClick={() => generate("PFS")}>
