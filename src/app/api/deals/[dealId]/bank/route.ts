@@ -1,20 +1,10 @@
 // src/app/api/deals/[dealId]/bank/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-type DealBankLinkRow = {
-  deal_id: string;
-  bank_id: string | null;
-};
-
-type BankProfileRow = {
-  id: string;
-  [key: string]: any;
-};
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
   try {
@@ -24,33 +14,30 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: st
       return NextResponse.json({ ok: false, error: "missing_dealId" }, { status: 400 });
     }
 
-    const supabase = supabaseAdmin();
+    const supabase = getSupabaseServerClient();
 
-    // 1) Find the bank link for the deal (typed to avoid `never`)
-    const { data: link, error: e1 } = await supabase
-      .from("deal_bank_links")
-      .select("deal_id, bank_id")
-      .eq("deal_id", dealId)
-      .maybeSingle<DealBankLinkRow>();
+    // Read bank_id directly from deals table (always exists by FK constraint)
+    const { data: deal, error: e1 } = await supabase
+      .from("deals")
+      .select("bank_id")
+      .eq("id", dealId)
+      .single();
 
     if (e1) throw e1;
-
-    const bankId = (link as DealBankLinkRow | null)?.bank_id ?? null;
-
-    if (!bankId) {
-      return NextResponse.json({ ok: true, bank_id: null, bank: null });
+    if (!deal) {
+      return NextResponse.json({ ok: false, error: "deal_not_found" }, { status: 404 });
     }
 
-    // 2) Load the bank profile record
+    // Load the bank record (guaranteed to exist by FK)
     const { data: bank, error: e2 } = await supabase
-      .from("bank_profiles")
+      .from("banks")
       .select("*")
-      .eq("id", bankId)
-      .maybeSingle<BankProfileRow>();
+      .eq("id", deal.bank_id)
+      .single();
 
     if (e2) throw e2;
 
-    return NextResponse.json({ ok: true, bank_id: bankId, bank: bank ?? null });
+    return NextResponse.json({ ok: true, bank_id: deal.bank_id, bank });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: String(err?.message ?? err ?? "unknown_error") },

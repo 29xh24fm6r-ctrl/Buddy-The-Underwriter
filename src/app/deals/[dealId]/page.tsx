@@ -3,15 +3,16 @@ import DealWorkspaceClient from "./DealWorkspaceClient";
 
 export const dynamic = "force-dynamic";
 
-export default function DealPage({
+export default async function DealPage({
   params,
   searchParams,
 }: {
-  params: { dealId: string };
-  searchParams?: Record<string, string | string[] | undefined>;
+  params: Promise<{ dealId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const dealId = params?.dealId ?? "";
-  const dealNameRaw = searchParams?.name;
+  const { dealId } = await params;
+  const searchParamsResolved = searchParams ? await searchParams : {};
+  const dealNameRaw = searchParamsResolved?.name;
 
   const dealName =
     typeof dealNameRaw === "string"
@@ -19,6 +20,16 @@ export default function DealPage({
       : Array.isArray(dealNameRaw)
       ? dealNameRaw[0] ?? "Untitled Deal"
       : "Untitled Deal";
+
+  if (!dealId) {
+    return (
+      <main className="min-h-screen p-10">
+        <div className="mx-auto max-w-6xl text-red-600">
+          Missing dealId — route params not found.
+        </div>
+      </main>
+    );
+  }
 
   return <DealWorkspaceClient dealId={dealId} dealName={dealName} />;
 }

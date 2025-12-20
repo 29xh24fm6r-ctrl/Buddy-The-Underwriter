@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireBorrowerToken } from "@/lib/borrower/token";
-import { runSbaPreflight } from "@/lib/sbaPreflight/runPreflight";
+import { runPreflight } from "@/lib/sbaPreflight/runPreflight";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ export async function POST(_: Request, context: { params: Promise<{ token: strin
     const answersObj: Record<string, any> = {};
     for (const a of answers ?? []) answersObj[a.question_key] = a.value;
 
-    const result = runSbaPreflight({
+    const result = await runPreflight({
       answers: answersObj,
       formPayload: forms?.payload,
       requirements: reqs,

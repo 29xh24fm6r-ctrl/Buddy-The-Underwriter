@@ -16,12 +16,12 @@ export default function BankFormsCard({ dealId }: BankFormsCardProps) {
   async function loadTemplates() {
     setBusy(true);
     try {
-      // Fetch bank for deal
+      // Fetch bank for deal (guaranteed to exist by FK)
       const bankRes = await fetch(`/api/deals/${dealId}/bank`);
       const bankData = await bankRes.json();
 
-      if (!bankData.ok || !bankData.bank_id) {
-        alert("No bank assigned to deal");
+      if (!bankData.ok) {
+        console.error("Failed to load bank:", bankData.error);
         return;
       }
 

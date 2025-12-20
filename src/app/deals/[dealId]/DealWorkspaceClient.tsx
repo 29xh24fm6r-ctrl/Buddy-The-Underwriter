@@ -5,13 +5,22 @@ import UploadBox from "@/components/deals/UploadBox";
 import DealAssigneesCard from "@/components/deals/DealAssigneesCard";
 import BankFormsCard from "@/components/deals/BankFormsCard";
 import NextBestActionCard from "@/components/deals/NextBestActionCard";
+import NextActionsCard from "@/components/deals/NextActionsCard";
 import DealHeaderCard from "@/components/deals/DealHeaderCard";
 import DealSetupCard from "@/components/deals/DealSetupCard";
 import PackNavigatorCard from "@/components/deals/PackNavigatorCard";
 import DocumentInsightsCard from "@/components/deals/DocumentInsightsCard";
 import DraftMessagesCard from "@/components/deals/DraftMessagesCard";
 import MissingDocsCard from "@/components/deals/MissingDocsCard";
+import { ConditionsCard } from "@/components/deals/ConditionsCard";
+import SbaPackageBuilderCard from "@/components/deals/SbaPackageBuilderCard";
+import PolicyLensCard from "@/components/deals/PolicyLensCard";
+import ConditionsToCloseCard from "@/components/deals/ConditionsToCloseCard";
+import BorrowerPortalControlsCard from "@/components/deals/BorrowerPortalControlsCard";
+import UploadInboxCard from "@/components/deals/UploadInboxCard";
 import DealModals from "@/components/deals/DealModals";
+import ApplyTemplatesButton from "@/components/deals/ApplyTemplatesButton";
+import { BorrowerPackIntelligence } from "@/components/deals/BorrowerPackIntelligence";
 import Link from "next/link";
 
 export default function DealWorkspaceClient({
@@ -76,22 +85,43 @@ export default function DealWorkspaceClient({
 
           {/* RIGHT RAIL */}
           <div className="col-span-12 space-y-4 lg:col-span-3">
+            <NextActionsCard dealId={dealId} />
+
+            {/* Borrower Pack Intelligence */}
+            <div id="pack-intelligence" className="scroll-mt-24">
+              <BorrowerPackIntelligence dealId={dealId} />
+            </div>
+
+            {/* Apply Templates Button */}
+            <ApplyTemplatesButton dealId={dealId} />
+
+            <div id="borrower-portal" className="scroll-mt-24">
+              <BorrowerPortalControlsCard dealId={dealId} />
+            </div>
+
+            <div id="upload-inbox" className="scroll-mt-24">
+              <UploadInboxCard dealId={dealId} />
+            </div>
+
             <NextBestActionCard dealId={dealId} />
 
             {/* Banker-ready: copy/paste missing docs + portal link */}
             <MissingDocsCard dealId={dealId} />
 
-            <div
-              id="conditions"
-              className="scroll-mt-24 rounded-lg border border-gray-200 bg-white p-4"
-            >
-              <h3 className="mb-3 text-sm font-semibold">Conditions to Close</h3>
-              <p className="mb-4 text-xs text-gray-600">
-                Deterministic checklist + AI explanations
-              </p>
-              <p className="text-sm italic text-gray-500">
-                Full conditions view coming soon
-              </p>
+            <div id="conditions" className="scroll-mt-24">
+              <ConditionsCard dealId={dealId} />
+            </div>
+
+            <div id="policy-lens" className="scroll-mt-24">
+              <PolicyLensCard dealId={dealId} />
+            </div>
+
+            <div id="conditions-to-close" className="scroll-mt-24">
+              <ConditionsToCloseCard dealId={dealId} />
+            </div>
+
+            <div id="sba-package" className="scroll-mt-24">
+              <SbaPackageBuilderCard dealId={dealId} />
             </div>
 
             <div id="messages" className="scroll-mt-24">

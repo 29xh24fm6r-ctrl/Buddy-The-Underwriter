@@ -1,6 +1,5 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
-import { processMissingDocsOutbound } from "@/lib/outbound/outboundOrchestrator";
 
 type SupabaseAdmin = any; // Use any to avoid type conflicts with different Supabase client types
 
@@ -407,11 +406,7 @@ export async function reconcileConditionsFromOcrResult(args: {
 
   // 9. MEGA STEP 12: Auto-update missing docs outbound (draft + optional auto-send)
   //    Non-fatal: log errors but don't fail reconciliation
-  try {
-    await processMissingDocsOutbound({ sb, dealId, trigger: "reconcile" });
-  } catch (e: any) {
-    console.error("[RECONCILE:OUTBOUND:ERROR]", dealId, e?.message ?? String(e));
-  }
+  //    TODO: Wire this when processMissingDocsOutbound is implemented
 
   return { matched: applicable.length, satisfied: satisfiedCount };
 }

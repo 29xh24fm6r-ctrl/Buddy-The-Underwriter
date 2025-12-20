@@ -12,7 +12,7 @@ function superAdminAllowlist(userId: string) {
 }
 
 export async function getCurrentRole(): Promise<{ userId: string; role: BuddyRole | null }> {
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) throw new Error("unauthorized");
 
   // Phase 0 always wins

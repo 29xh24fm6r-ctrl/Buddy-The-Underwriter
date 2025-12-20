@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { useDealRealtimeRefresh } from "@/hooks/useDealRealtimeRefresh";
 
 type MissingDoc = {
   key: string;
@@ -22,6 +23,7 @@ type SendResponse = {
 };
 
 export default function MissingDocsCard({ dealId }: { dealId: string }) {
+  const { refreshKey } = useDealRealtimeRefresh(dealId);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,7 +120,7 @@ export default function MissingDocsCard({ dealId }: { dealId: string }) {
     if (!dealId) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dealId]);
+  }, [dealId, refreshKey]);
 
   return (
     <section className="rounded-xl border bg-white p-4 shadow-sm">
