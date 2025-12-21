@@ -24,6 +24,7 @@ export function ScreenViewClient(props: ScreenViewClientProps) {
   const [showExport, setShowExport] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [continuePrompt, setContinuePrompt] = useState("");
+  const [continueRole, setContinueRole] = useState<string>("");
   const [showContinue, setShowContinue] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -70,7 +71,7 @@ export function ScreenViewClient(props: ScreenViewClientProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: continuePrompt.trim(),
-          role: initialScreen.role,
+          role: continueRole || null,
         }),
       });
 
@@ -79,6 +80,12 @@ export function ScreenViewClient(props: ScreenViewClientProps) {
       if (res.status === 401) {
         // Redirect to auth
         window.location.href = data.redirect || `/auth?next=/s/${screenId}`;
+        return;
+      }
+
+      if (res.status === 402 || res.status === 403) {
+        // Upgrade required
+        window.location.href = data.redirect || "/upgrade";
         return;
       }
 
@@ -194,6 +201,24 @@ export function ScreenViewClient(props: ScreenViewClientProps) {
                 className="mt-4 h-24 w-full rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
                 disabled={loading}
               />
+
+              {/* Role selection */}
+              <div className="mt-4">
+                <label className="text-sm text-slate-300">
+                  Role (optional - improves generation)
+                </label>
+                <select
+                  value={continueRole}
+                  onChange={(e) => setContinueRole(e.target.value)}
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-black/20 px-4 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
+                  disabled={loading}
+                >
+                  <option value="">No role — keep generic</option>
+                  <option value="Banker">Banker</option>
+                  <option value="Borrower">Borrower</option>
+                  <option value="Underwriter">Underwriter</option>
+                </select>
+              </div>
 
               <div className="mt-4 flex justify-end gap-2">
                 <button

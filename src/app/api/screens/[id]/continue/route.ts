@@ -3,8 +3,12 @@ import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { isValidScreenId, generateScreenId } from "@/lib/screens/idgen";
 import { generateScreenFromPrompt } from "@/lib/screens/templates";
+import {
+  checkContinueLimit,
+  incrementContinueUsage,
+} from "@/lib/usage/limits";
 
-export const runtime = "edge";
+export const runtime = "nodejs"; // Changed from edge for usage tracking
 
 /**
  * POST /api/screens/:id/continue
@@ -52,6 +56,20 @@ export async function POST(
       );
     }
 
+    // Check usage limits
+    const limitCheck = await checkContinueLimit(user.id);
+
+    if (!limitCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: "Continue limit reached",
+          redirect: "/upgrade",
+          usage: limitCheck.usage,
+        },
+        { status: 402 } // Payment Required
+      );
+    }
+
     // Generate new screen
     const { title, layoutType, content } = generateScreenFromPrompt({
       prompt,
@@ -83,11 +101,19 @@ export async function POST(
       );
     }
 
+    // Increment usage for free users (fire and forget for pro)
+    if (limitCheck.usage.plan === "free") {
+      incrementContinueUsage(user.id).catch((err) =>
+        console.error("Failed to increment usage:", err)
+      );
+    }
+
     const shareUrl = `/s/${newId}`;
 
     return NextResponse.json({
       id: newId,
       shareUrl,
+      usage: limitCheck.usage,
     });
   } catch (err) {
     console.error("Continue error:", err);

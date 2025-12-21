@@ -239,16 +239,74 @@ curl -X POST http://localhost:3000/api/generate \
 5. **URL-Safe IDs**: Clean, shareable links
 6. **View Counting**: Analytics without tracking users
 
+## Version History
+
+### v1.3 - Usage Limits + Upgrade Boundary (Dec 21, 2025)
+**Added:**
+- Usage tracking table (`user_usage`)
+- Free plan: 3 continues limit
+- Pro plan: Unlimited continues
+- Upgrade paywall at `/upgrade`
+- Usage check in continue endpoint
+- 402 status code for limit exceeded
+- Usage API endpoint (`GET /api/usage`)
+
+**Database:**
+- `user_usage` table with plan tracking
+- `increment_continue_usage()` function
+- RLS policies for user access
+
+**UI:**
+- Upgrade page with pricing comparison
+- Free vs Pro feature comparison
+- FAQ section
+- Stub Stripe integration
+
+**API Changes:**
+- Continue endpoint checks usage limits
+- Returns 402 + redirect on limit
+- Increments usage counter on success
+- Returns usage info in response
+
+### v1.2 - Role-based Continuation (Dec 21, 2025)
+**Added:**
+- Role picker in Continue modal
+- Options: Banker, Borrower, Underwriter, or generic
+- Role affects template selection
+- Improves generation quality without friction
+
+**UI Changes:**
+- Continue modal includes role dropdown
+- Role is optional (can skip)
+- Role passed to continue API
+
+**Behavior:**
+- Role-specific templates preferred when role selected
+- Falls back to prompt-based detection if no role
+- Enhances banker/borrower/underwriter screens
+
+### v1.0 - Initial Release (Dec 21, 2025)
+**Features:**
+- Anonymous screen generation
+- 4 deterministic templates
+- Public shareable links
+- Auth gates on Save/Continue
+- Export modal with copy link
+- Generic ScreenRenderer
+- Magic link authentication
+
 ## Next Steps
 
-1. Deploy database migration
-2. Test full flow in production
-3. Monitor view_count analytics
-4. Gather user feedback on templates
-5. Plan v2 with AI generation
+1. Deploy database migrations (v1.2 + v1.3)
+2. Test usage limit enforcement
+3. Integrate Stripe for Pro upgrades
+4. Monitor conversion rates (free → pro)
+5. A/B test continue limits (2 vs 3)
+6. Add usage dashboard for users
+7. Plan v2 with AI generation
 
 ---
 
-**Status**: ✅ Production Ready  
+**Status**: ✅ Production Ready (v1.3)  
 **Date**: December 21, 2025  
-**Contract**: Fully implements cursor-ready spec
+**Contract**: Fully implements cursor-ready spec v1.0 + v1.2 + v1.3
