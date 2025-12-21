@@ -2,7 +2,14 @@ import { SignIn } from "@clerk/nextjs";
 
 export const dynamic = "force-dynamic";
 
-export default function SignInPage() {
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ next?: string }>;
+}) {
+  const params = await searchParams;
+  const next = params?.next ?? "/deals";
+
   return (
     <div className="min-h-screen bg-[radial-gradient(900px_500px_at_20%_-10%,rgba(59,130,246,0.18),transparent_55%),radial-gradient(900px_500px_at_80%_0%,rgba(16,185,129,0.12),transparent_55%),linear-gradient(to_bottom,rgba(2,6,23,1),rgba(2,6,23,1))]">
       <div className="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-6">
@@ -17,7 +24,12 @@ export default function SignInPage() {
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
-            <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" />
+            <SignIn
+              routing="path"
+              path="/sign-in"
+              signUpUrl="/sign-up"
+              redirectUrl={next}
+            />
           </div>
         </div>
       </div>

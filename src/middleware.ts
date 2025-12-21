@@ -11,6 +11,11 @@ const isPublicRoute = createRouteMatcher([
   "/borrower/(.*)", // Borrower portal public entry
   "/portal/invite(.*)", // Portal invite public
   "/portal/public(.*)",
+  "/s(.*)",                    // public shareable screen links
+  "/generate(.*)",             // public screen generator page
+  "/api/generate(.*)",         // public screen generation API
+  "/api/screens(.*)",          // public screen view/claim/continue APIs
+  "/upgrade(.*)",              // upgrade page
 ]);
 
 const isBankSelectionRoute = createRouteMatcher([
