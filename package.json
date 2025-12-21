@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "postinstall": "node src/scripts/copy-pdf-worker.mjs",
     "guard:admin": "node scripts/admin-routes-guard.mjs",
     "guard:canonical": "node scripts/guard-no-deal-files.mjs && node scripts/guard-no-legacy-reminder-fields.mjs && node scripts/guard-reminder-subscriptions-canonical.mjs",
     "guard:reminders": "node scripts/guard-no-legacy-reminder-fields.mjs && node scripts/guard-reminder-subscriptions-canonical.mjs",
@@ -20,11 +21,14 @@
     "framer-motion": "^12.23.26",
     "next": "16.0.10",
     "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.4.449",
     "react": "19.2.1",
     "react-dom": "19.2.1",
+    "react-pdf": "^10.2.0",
     "recharts": "^3.6.0",
     "uuid": "^13.0.0",
-    "zod": "^4.2.1"
+    "zod": "^4.2.1",
+    "zustand": "^5.0.9"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

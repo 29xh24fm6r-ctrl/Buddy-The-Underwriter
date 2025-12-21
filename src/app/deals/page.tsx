@@ -1,86 +1,70 @@
 // src/app/deals/page.tsx
-import Link from "next/link";
+import { redirect } from "next/navigation";
+import { auth } from "@clerk/nextjs/server";
+import { CommandBridgeShell } from "@/components/home/CommandBridgeShell";
+import { CommandBridgeV3 } from "@/components/home/CommandBridgeV3";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default async function DealsPage() {
+export default async function DealsHomePage() {
+  // Require authentication
+  const { userId } = auth();
+  if (!userId) redirect("/sign-in");
+
+  // Get active bank
   const pick = await tryGetCurrentBankId();
-
+  
   if (!pick.ok) {
-    const reason = pick.reason;
-
+    // Cinematic no-bank state
     return (
-      <div className="container mx-auto p-6 max-w-2xl">
-        <h1 className="text-3xl font-bold">Deals</h1>
-        <p className="text-muted-foreground mt-2">
-          {reason === "not_authenticated"
-            ? "Sign in to continue."
-            : reason === "multiple_memberships"
-            ? "Select a bank workspace to continue."
-            : reason === "no_memberships"
-            ? "Create a bank or request access."
-            : "We couldn't load your workspace right now."}
-        </p>
-
-        <div className="mt-6 rounded-2xl border p-5">
-          <div className="text-sm font-semibold">Tenant Gate</div>
-          <div className="text-sm text-muted-foreground mt-2 break-words">
-            {reason === "profile_lookup_failed" ? (pick.detail ?? "profile_lookup_failed") : reason}
+      <CommandBridgeShell>
+        <div className="relative flex min-h-[70vh] items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-white/5 px-8 text-center">
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute left-1/2 top-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-500/10 blur-3xl animate-pulse" />
+            <div className="absolute left-1/2 top-1/2 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            {reason === "not_authenticated" ? (
-              <Link className="rounded-xl border px-4 py-2 text-sm font-semibold bg-primary text-primary-foreground" href="/sign-in">
-                Sign in
-              </Link>
-            ) : reason === "multiple_memberships" ? (
-              <Link className="rounded-xl border px-4 py-2 text-sm font-semibold bg-primary text-primary-foreground" href="/tenant/select">
-                Select bank
-              </Link>
-            ) : (
-              <>
-                <Link className="rounded-xl border px-4 py-2 text-sm font-semibold bg-primary text-primary-foreground" href="/tenant/create">
-                  Create bank
-                </Link>
-                <Link className="rounded-xl border px-4 py-2 text-sm font-semibold" href="/tenant/select">
-                  Select bank
-                </Link>
-              </>
-            )}
+          <div className="relative z-10 max-w-2xl">
+            <div className="mb-4 text-xs uppercase tracking-widest text-slate-300">AI Credit Intelligence</div>
+            <h1 className="text-4xl font-semibold tracking-tight text-white">Meet Buddy.</h1>
+            <p className="mt-3 text-lg text-slate-200">Your underwriting command center.</p>
+            <p className="mt-4 text-sm text-slate-300 leading-relaxed">
+              Choose your institution so Buddy can tailor evidence, portal, and underwriting workflows to your bank.
+            </p>
 
-            <Link className="rounded-xl border px-4 py-2 text-sm font-semibold" href="/ops">
-              Ops
-            </Link>
+            <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+              <a
+                href="/tenant/select"
+                className="rounded-xl bg-white px-6 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-100 transition"
+              >
+                Enter Command Bridge →
+              </a>
+
+              <a href="/ops" className="text-sm text-slate-300 hover:text-white transition">
+                Manage institutions
+              </a>
+            </div>
           </div>
         </div>
-      </div>
+      </CommandBridgeShell>
     );
   }
 
-  // If we get here, tenant is resolved (including auto-select)
+  // Get bank name
+  const sb = supabaseAdmin();
+  const { data: bank } = await sb
+    .from("banks")
+    .select("id, name")
+    .eq("id", pick.bankId)
+    .maybeSingle();
+
+  const bankName = bank?.name ?? "Your Bank";
+
   return (
-    <div className="container mx-auto p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Deals</h1>
-          <p className="text-muted-foreground mt-1">
-            Bank workspace: <span className="font-semibold">{pick.bankId}</span>
-          </p>
-        </div>
-
-        <Link
-          href="/deals/new"
-          className="rounded-xl border px-4 py-2 text-sm font-semibold bg-primary text-primary-foreground"
-        >
-          New Deal
-        </Link>
-      </div>
-
-      <div className="mt-6 rounded-2xl border p-6 text-sm text-muted-foreground">
-        Deals list UI goes here (tenant-safe now).
-      </div>
-    </div>
+    <CommandBridgeShell>
+      <CommandBridgeV3 bankId={pick.bankId} bankName={bankName} />
+    </CommandBridgeShell>
   );
 }

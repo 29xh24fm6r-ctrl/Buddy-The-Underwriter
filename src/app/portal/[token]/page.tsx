@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { BorrowerEvidenceWidget } from "@/components/borrower/BorrowerEvidenceWidget";
 
 type ReqRow = {
   id: string;
@@ -129,6 +130,9 @@ export default function BorrowerPortalPage() {
   const SECONDARY_CTA_TEXT = "Message my banker";
   const SECONDARY_CTA_HREF = "#"; // replace with your portal message page route
 
+  // ---------- deal ID from invite ----------
+  const [dealId, setDealId] = useState<string | null>(null);
+
   // ---------- live checklist ----------
   const [requests, setRequests] = useState<ReqRow[]>([]);
   const [reqLoading, setReqLoading] = useState(true);
@@ -194,6 +198,11 @@ export default function BorrowerPortalPage() {
     try {
       const res = await fetch(`/api/portal/${encodeURIComponent(token)}/status`, { cache: "no-store" });
       const json = await res.json();
+      
+      // Extract dealId from status response if not already set
+      if (!dealId && json?.deal_id) {
+        setDealId(json.deal_id);
+      }
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to load status");
 
       setStatus(json as PortalStatus);
@@ -431,6 +440,9 @@ export default function BorrowerPortalPage() {
           Drop everything at once. Watch your checklist clear and see the next step ETA.
         </div>
       </div>
+
+      {/* EVIDENCE WIDGET: "Why Buddy thinks this" with proof chips */}
+      {dealId ? <BorrowerEvidenceWidget dealId={dealId} inviteToken={token} /> : null}
 
       {/* STATUS TIMELINE + ETA */}
       <div className="rounded-2xl border bg-white p-6 shadow-sm">

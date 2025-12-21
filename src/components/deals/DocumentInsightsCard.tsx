@@ -1,106 +1,140 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useDealRealtimeRefresh } from "@/hooks/useDealRealtimeRefresh";
+import { EvidenceChips } from "@/components/evidence/EvidenceChips";
 
-interface OcrResult {
+type DocIntelRow = {
   id: string;
-  attachment_id: string;
-  extracted_text?: string;
-  extracted_tables?: any;
-  confidence_score?: number;
+  file_id: string;
+  doc_type: string;
+  tax_year: string | null;
+  extracted_json: any;
+  quality_json: any;
+  confidence: number | null; // 0..100
+  evidence_json: any;
   created_at: string;
-}
+};
 
-interface DocumentInsightsCardProps {
-  dealId: string;
-}
+export default function DocumentInsightsCard({ dealId }: { dealId: string }) {
+  const { refreshKey } = useDealRealtimeRefresh(dealId);
 
-export default function DocumentInsightsCard({ dealId }: DocumentInsightsCardProps) {
-  const [results, setResults] = useState<OcrResult[]>([]);
+  const [results, setResults] = useState<DocIntelRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchResults = async () => {
+    if (!dealId) return;
+
+    let alive = true;
+
+    (async () => {
+      setLoading(true);
+      setErr(null);
       try {
-        // TODO: Create proper API endpoint for OCR results by deal
-        // For now, this is a placeholder
-        const res = await fetch(`/api/deals/${dealId}/ocr/results`);
-        if (res.ok) {
-          const data = await res.json();
-          setResults(data.results || []);
-        }
-      } catch (err) {
-        console.error("Error fetching OCR results:", err);
+        const r = await fetch(`/api/deals/${dealId}/doc-intel/results`, { cache: "no-store" });
+        const j = await r.json().catch(() => null);
+        if (!r.ok || !j?.ok) throw new Error(j?.error || "doc_intel_load_failed");
+        if (alive) setResults(j.results || []);
+      } catch (e: any) {
+        if (alive) setErr(e?.message || "doc_intel_load_failed");
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
+    })();
+
+    return () => {
+      alive = false;
     };
+  }, [dealId, refreshKey]);
 
-    fetchResults();
-  }, [dealId]);
+  const latest = results.slice(0, 5);
 
-  if (loading) {
-    return (
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-sm mb-1">Document Insights</h3>
+          <p className="text-xs text-gray-600">AI classification, extraction, and quality checks</p>
+        </div>
+
+        <EvidenceChips
+          dealId={dealId}
+          scope="doc_intel"
+          action="classify_extract_quality"
+          label="Why these classifications?"
+          limit={10}
+        />
+      </div>
+
+      {loading ? (
         <div className="animate-pulse space-y-3">
           <div className="h-4 bg-gray-200 rounded w-1/2"></div>
           <div className="h-8 bg-gray-200 rounded"></div>
         </div>
-      </div>
-    );
-  }
-
-  const latestResults = results.slice(0, 5);
-
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4">
-      <div className="mb-3">
-        <h3 className="font-semibold text-sm mb-1">Document Insights</h3>
-        <p className="text-xs text-gray-600">Latest OCR results & extracted data</p>
-      </div>
-
-      {latestResults.length === 0 ? (
+      ) : err ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          {err}
+        </div>
+      ) : latest.length === 0 ? (
         <div className="text-center py-8">
-          <p className="text-sm text-gray-500 mb-2">No OCR results yet</p>
-          <p className="text-xs text-gray-400">Upload documents and run OCR to see insights</p>
+          <p className="text-sm text-gray-500 mb-2">No document intelligence yet</p>
+          <p className="text-xs text-gray-400">Upload documents and run OCR/doc intel to see insights</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {latestResults.map((result) => (
-            <div key={result.id} className="p-3 rounded border border-gray-200 bg-gray-50">
-              <div className="flex items-start justify-between mb-2">
-                <span className="text-xs font-medium text-gray-700">
-                  Doc {result.attachment_id.substring(0, 8)}...
-                </span>
-                {result.confidence_score && (
-                  <span className="text-xs text-gray-600">
-                    {Math.round(result.confidence_score * 100)}% confidence
-                  </span>
-                )}
+          {latest.map((row) => (
+            <div key={row.id} className="p-3 rounded border border-gray-200 bg-gray-50">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="text-xs font-medium text-gray-800">
+                  {row.doc_type || "Unknown"}{" "}
+                  {row.tax_year ? <span className="text-gray-500">• {row.tax_year}</span> : null}
+                </div>
+
+                <div className="text-xs text-gray-600">
+                  {typeof row.confidence === "number" ? `${Math.round(row.confidence)}% confidence` : "—"}
+                </div>
               </div>
 
-              {result.extracted_text && (
-                <p className="text-xs text-gray-600 line-clamp-3">
-                  {result.extracted_text.substring(0, 200)}
-                  {result.extracted_text.length > 200 ? "..." : ""}
-                </p>
-              )}
+              {row.quality_json ? (
+                <div className="text-[11px] text-gray-600">
+                  Quality:{" "}
+                  <span className="font-medium">
+                    {row.quality_json.legible === false ? "Not legible" : "Legible"}
+                  </span>
+                  {" • "}
+                  <span className="font-medium">
+                    {row.quality_json.complete === false ? "Incomplete" : "Complete"}
+                  </span>
+                  {row.quality_json.signed === null ? null : (
+                    <>
+                      {" • "}
+                      <span className="font-medium">
+                        {row.quality_json.signed ? "Signed" : "Unsigned"}
+                      </span>
+                    </>
+                  )}
+                </div>
+              ) : null}
 
-              {result.extracted_tables && (
-                <div className="mt-2 text-xs text-blue-600">
-                  ✓ Tables extracted ({JSON.stringify(result.extracted_tables).length} bytes)
+              {row.extracted_json && Object.keys(row.extracted_json || {}).length ? (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-gray-700">
+                    View extracted fields
+                  </summary>
+                  <pre className="mt-2 overflow-auto rounded-md bg-white p-2 text-[11px] text-gray-800">
+{JSON.stringify(row.extracted_json, null, 2)}
+                  </pre>
+                </details>
+              ) : (
+                <div className="mt-2 text-xs text-gray-500 italic">
+                  No structured fields extracted yet.
                 </div>
               )}
             </div>
           ))}
         </div>
       )}
-
-      {/* Highlights Placeholder */}
-      <div className="mt-4 pt-4 border-t border-gray-200">
-        <p className="text-xs font-medium text-gray-700 mb-2">Key Findings</p>
-        <p className="text-xs text-gray-500 italic">AI insights coming soon</p>
-      </div>
     </div>
   );
 }

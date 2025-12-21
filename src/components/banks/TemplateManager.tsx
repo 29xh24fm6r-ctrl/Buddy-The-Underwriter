@@ -141,11 +141,11 @@ export default function TemplateManager({ bankId }: { bankId: string }) {
   }
 
   async function del(t: Template) {
-    if (!confirm(\`Delete template "\${t.title}"?\`)) return;
+    if (!confirm(`Delete template "${t.title}"?`)) return;
     try {
-      const res = await fetch(\`/api/banks/\${bankId}/templates/\${t.id}\`, { method: "DELETE" });
+      const res = await fetch(`/api/banks/${bankId}/templates/${t.id}`, { method: "DELETE" });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || \`HTTP \${res.status}\`);
+      if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
       setToast("Deleted.");
       await load();
     } catch (e: any) {

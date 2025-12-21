@@ -1,5 +1,6 @@
 // src/app/deals/[dealId]/page.tsx
 import DealWorkspaceClient from "./DealWorkspaceClient";
+import { DealEvidenceDeepLinkHandler } from "@/components/evidence/DealEvidenceDeepLinkHandler";
 
 export const dynamic = "force-dynamic";
 
@@ -31,5 +32,10 @@ export default async function DealPage({
     );
   }
 
-  return <DealWorkspaceClient dealId={dealId} dealName={dealName} />;
+  return (
+    <>
+      <DealEvidenceDeepLinkHandler dealId={dealId} />
+      <DealWorkspaceClient dealId={dealId} dealName={dealName} />
+    </>
+  );
 }

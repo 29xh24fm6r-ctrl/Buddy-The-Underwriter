@@ -1,6 +1,10 @@
+// src/app/page.tsx
 import { redirect } from "next/navigation";
 
-export default function HomePage() {
-  // Redirect to deals (which will handle bank selection gating)
-  redirect("/deals");
+export const dynamic = "force-dynamic";
+
+export default function RootPage() {
+  // Middleware handles the redirect to /sign-in
+  // This is a fallback that should rarely be hit
+  redirect("/sign-in");
 }

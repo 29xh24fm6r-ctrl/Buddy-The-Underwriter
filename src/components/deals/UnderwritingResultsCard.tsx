@@ -7,6 +7,7 @@ import { computeUnderwritingResults } from "@/lib/finance/underwriting/computeRe
 import { DEFAULT_POLICY } from "@/lib/finance/underwriting/policy";
 import { generateUnderwritingNarrative } from "@/lib/finance/underwriting/narrative";
 import { computeUnderwritingVerdict } from "@/lib/finance/underwriting/computeVerdict";
+import { EvidenceChips } from "@/components/evidence/EvidenceChips";
 
 function fmtMoney(n: number | null): string {
   if (n === null) return "—";
@@ -32,12 +33,14 @@ function levelFromWorst(worst: number | null, min: number): "green" | "amber" | 
 }
 
 export default function UnderwritingResultsCard({
+  dealId,
   spreadsByYear,
   adsStr,
   setAdsStr,
   annualDebtService,
   selectedYear,
 }: {
+  dealId?: string;
   spreadsByYear: Record<number, TaxSpread>;
   adsStr: string;
   setAdsStr: (v: string) => void;
@@ -57,10 +60,20 @@ export default function UnderwritingResultsCard({
 
   return (
     <div className="rounded-lg border p-4">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between gap-3">
         <div className="text-sm font-semibold">Underwriting Results</div>
-        <div className={["rounded-full border px-2 py-1 text-xs", badge(lvl)].join(" ")}>
-          Policy: {res.policy_min_dscr.toFixed(2)}x
+        <div className="flex items-center gap-2">
+          {dealId ? (
+            <EvidenceChips
+              dealId={dealId}
+              scope="uw_copilot"
+              label="Why Buddy flagged these?"
+              limit={10}
+            />
+          ) : null}
+          <div className={["rounded-full border px-2 py-1 text-xs", badge(lvl)].join(" ")}>
+            Policy: {res.policy_min_dscr.toFixed(2)}x
+          </div>
         </div>
       </div>
 

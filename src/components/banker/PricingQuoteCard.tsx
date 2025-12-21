@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { EvidenceChips } from "@/components/evidence/EvidenceChips";
 
 export function PricingQuoteCard(props: { dealId: string }) {
   const [productType, setProductType] = React.useState("SBA_7A");
@@ -37,8 +38,20 @@ export function PricingQuoteCard(props: { dealId: string }) {
 
   return (
     <div className="rounded-2xl border bg-white p-5">
-      <div className="text-base font-semibold">Risk-based pricing</div>
-      <div className="mt-1 text-sm text-gray-600">Banker-only. Audited. Deterministic policy + overrides.</div>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-base font-semibold">Risk-based pricing</div>
+          <div className="mt-1 text-sm text-gray-600">Banker-only. Audited. Deterministic policy + overrides.</div>
+        </div>
+
+        <EvidenceChips
+          dealId={props.dealId}
+          scope="pricing"
+          action="quote"
+          label="Why this pricing?"
+          limit={10}
+        />
+      </div>
 
       {error ? <div className="mt-3 text-sm text-red-700">{error}</div> : null}
 
