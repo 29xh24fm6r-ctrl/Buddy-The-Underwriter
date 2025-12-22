@@ -2,37 +2,53 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-const isPublicRoute = createRouteMatcher([
+// Routes that require authentication
+const isProtectedRoute = createRouteMatcher([
+  "/deals(.*)",
+  "/underwriting(.*)",
+  "/api/deals(.*)",
+  "/api/evidence(.*)",
+  "/api/ownership(.*)",
+  "/api/pack(.*)",
+  "/api/conditions(.*)",
+  "/api/timeline(.*)",
+  "/api/command(.*)",
+  "/api/intelligence(.*)",
+]);
+
+// Auth pages (sign-in/sign-up)
+const isAuthRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
+]);
+
+// Public routes that don't require auth
+const isPublicRoute = createRouteMatcher([
   "/api/health(.*)",
   "/api/ping(.*)",
   "/clerk-test(.*)",
   "/borrower/(.*)", // Borrower portal public entry
   "/portal/invite(.*)", // Portal invite public
   "/portal/public(.*)",
-  "/s(.*)",                    // public shareable screen links
-  "/generate(.*)",             // public screen generator page
-  "/api/generate(.*)",         // public screen generation API
-  "/api/screens(.*)",          // public screen view/claim/continue APIs
-  "/upgrade(.*)",              // upgrade page
-]);
-
-const isBankSelectionRoute = createRouteMatcher([
-  "/select-bank(.*)",
-]);
-
-const isBankSelectionAPI = createRouteMatcher([
-  "/api/banks(.*)",
-  "/api/profile/bank(.*)",
+  "/s(.*)", // public shareable screen links
+  "/share(.*)", // Stitch public share
+  "/stitch-login(.*)", // Stitch login demo
+  "/stitch-generate(.*)", // Stitch generate demo
+  "/generate(.*)", // public screen generator page
+  "/api/generate(.*)", // public screen generation API
+  "/api/screens(.*)", // public screen view/claim/continue APIs
   "/api/borrower/(.*)", // Borrower API public
+  "/upgrade(.*)", // upgrade page
+  "/select-bank(.*)", // bank selection flow
+  "/api/banks(.*)", // bank selection API
+  "/api/profile/bank(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
   const { userId } = await auth();
   const { pathname } = req.nextUrl;
 
-  // Root should always go to /sign-in if unauth, else /deals
+  // Handle root: redirect based on auth status
   if (pathname === "/") {
     if (!userId) {
       return NextResponse.redirect(new URL("/sign-in", req.url));
@@ -49,16 +65,21 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.redirect(new URL("/sign-in", req.url));
   }
 
-  // Public routes and bank selection flow don't require auth
-  if (isPublicRoute(req) || isBankSelectionRoute(req) || isBankSelectionAPI(req)) {
-    return NextResponse.next();
+  // Protect application routes - redirect to sign-in with return URL
+  if (isProtectedRoute(req) && !userId) {
+    const signInUrl = new URL("/sign-in", req.url);
+    signInUrl.searchParams.set("redirect_url", pathname + req.nextUrl.search);
+    return NextResponse.redirect(signInUrl);
   }
 
-  // Protect all other routes - redirect unauth to sign-in
-  if (!userId) {
-    const url = new URL("/sign-in", req.url);
-    url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
+  // Keep signed-in users out of auth pages
+  if (isAuthRoute(req) && userId) {
+    return NextResponse.redirect(new URL("/deals", req.url));
+  }
+
+  // Public routes - allow through
+  if (isPublicRoute(req)) {
+    return NextResponse.next();
   }
 
   return NextResponse.next();

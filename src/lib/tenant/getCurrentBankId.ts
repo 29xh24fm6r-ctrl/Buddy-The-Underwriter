@@ -1,47 +1,62 @@
 // src/lib/tenant/getCurrentBankId.ts
-import { supabaseServer } from "@/lib/supabase/server";
+import { auth } from "@clerk/nextjs/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 type BankPick =
   | { ok: true; bankId: string }
   | { ok: false; reason: "not_authenticated" | "no_memberships" | "multiple_memberships" | "profile_lookup_failed"; detail?: string };
 
-async function getUserOrThrow() {
-  const sb = await supabaseServer();
-  const { data, error } = await sb.auth.getUser();
-  if (error) throw new Error(`auth_failed: ${error.message}`);
-  if (!data?.user) throw new Error("not_authenticated");
-  return { sb, userId: data.user.id };
-}
-
 /**
- * Option A:
- * - If profiles.bank_id exists -> return it.
- * - Else read memberships:
- *    - 0 -> no_memberships
- *    - 1 -> auto-select (write profiles.bank_id) and return it
- *    - 2+ -> multiple_memberships (user must choose)
+ * Get current bank ID using Clerk userId
+ * - Uses Clerk for authentication (single source of truth)
+ * - Uses Supabase admin client for data lookups (no session required)
+ * - Prevents redirect loops by separating auth from tenant resolution
  */
 export async function getCurrentBankId(): Promise<string> {
-  const { sb, userId } = await getUserOrThrow();
+  const { userId } = auth();
+  
+  if (!userId) {
+    throw new Error("not_authenticated");
+  }
 
-  // 1) profiles.bank_id already set?
-  const prof = await sb.from("profiles").select("bank_id").eq("id", userId).maybeSingle();
-  if (prof.error) throw new Error(`profile_lookup_failed: ${prof.error.message}`);
-  if (prof.data?.bank_id) return String(prof.data.bank_id);
+  const sb = supabaseAdmin();
 
-  // 2) memberships
+  // 1) Check if user has a bank_id set in profiles
+  const prof = await sb
+    .from("profiles")
+    .select("bank_id")
+    .eq("clerk_user_id", userId)
+    .maybeSingle();
+
+  if (prof.error) {
+    throw new Error(`profile_lookup_failed: ${prof.error.message}`);
+  }
+
+  if (prof.data?.bank_id) {
+    return String(prof.data.bank_id);
+  }
+
+  // 2) Check bank_memberships for this Clerk user
   const mem = await sb
     .from("bank_memberships")
     .select("bank_id")
-    .eq("user_id", userId);
+    .eq("clerk_user_id", userId);
 
-  if (mem.error) throw new Error(`profile_lookup_failed: ${mem.error.message}`);
+  if (mem.error) {
+    throw new Error(`profile_lookup_failed: ${mem.error.message}`);
+  }
 
   const bankIds = (mem.data ?? []).map((r: any) => String(r.bank_id));
-  if (bankIds.length === 0) throw new Error("no_memberships");
-  if (bankIds.length > 1) throw new Error("multiple_memberships");
+  
+  if (bankIds.length === 0) {
+    throw new Error("no_memberships");
+  }
+  
+  if (bankIds.length > 1) {
+    throw new Error("multiple_memberships");
+  }
 
-  // 3) auto-select the only bank
+  // 3) Auto-select the only bank and save to profile
   const bankId = bankIds[0];
 
   const up = await sb
@@ -51,9 +66,11 @@ export async function getCurrentBankId(): Promise<string> {
       last_bank_id: bankId,
       bank_selected_at: new Date().toISOString(),
     })
-    .eq("id", userId);
+    .eq("clerk_user_id", userId);
 
-  if (up.error) throw new Error(`profile_lookup_failed: ${up.error.message}`);
+  if (up.error) {
+    throw new Error(`profile_lookup_failed: ${up.error.message}`);
+  }
 
   return bankId;
 }

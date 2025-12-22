@@ -1,6 +1,5 @@
 // src/app/deals/page.tsx
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
 import { CommandBridgeShell } from "@/components/home/CommandBridgeShell";
 import { CommandBridgeV3 } from "@/components/home/CommandBridgeV3";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
@@ -9,15 +8,17 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 
 export default async function DealsHomePage() {
-  // Require authentication
-  const { userId } = auth();
-  if (!userId) redirect("/sign-in");
-
+  // Auth is handled by middleware - we can assume user is authenticated here
   // Get active bank
   const pick = await tryGetCurrentBankId();
   
   if (!pick.ok) {
-    // Cinematic no-bank state
+    // If no bank is set, redirect to bank selection
+    if (pick.reason === "no_memberships" || pick.reason === "multiple_memberships") {
+      redirect("/select-bank");
+    }
+    
+    // For other errors, show error state
     return (
       <CommandBridgeShell>
         <div className="relative flex min-h-[70vh] items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-white/5 px-8 text-center">
@@ -36,7 +37,7 @@ export default async function DealsHomePage() {
 
             <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
               <a
-                href="/tenant/select"
+                href="/select-bank"
                 className="rounded-xl bg-white px-6 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-100 transition"
               >
                 Enter Command Bridge →

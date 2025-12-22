@@ -1,10 +1,10 @@
 // src/app/page.tsx
 import { redirect } from "next/navigation";
+import { auth } from "@clerk/nextjs/server";
 
 export const dynamic = "force-dynamic";
 
 export default function RootPage() {
-  // Middleware handles the redirect to /sign-in
-  // This is a fallback that should rarely be hit
-  redirect("/sign-in");
+  const { userId } = auth();
+  redirect(userId ? "/deals" : "/sign-in");
 }
