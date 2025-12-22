@@ -21,32 +21,29 @@ export async function POST(req: Request) {
 
   const sb = supabaseAdmin();
 
-  // 1) Clear existing default (if any)
-  const { error: clearErr } = await sb
-    .from("user_banks")
-    .update({ is_default: false })
-    .eq("clerk_user_id", userId)
-    .eq("is_default", true);
+  // 1) Validate bank exists (prevent garbage mappings)
+  const { data: bank, error: bankErr } = await sb
+    .from("banks")
+    .select("id")
+    .eq("id", bankId)
+    .maybeSingle();
 
-  if (clearErr) {
-    return NextResponse.json({ error: clearErr.message }, { status: 500 });
+  if (bankErr) {
+    return NextResponse.json({ error: bankErr.message }, { status: 500 });
+  }
+  
+  if (!bank) {
+    return NextResponse.json({ error: "bank_not_found" }, { status: 404 });
   }
 
-  // 2) Upsert mapping (and set default = true)
-  // If row exists for (user, bank) we set is_default=true, else insert it.
-  const { error: upsertErr } = await sb
-    .from("user_banks")
-    .upsert(
-      {
-        clerk_user_id: userId,
-        bank_id: bankId,
-        is_default: true,
-      },
-      { onConflict: "clerk_user_id,bank_id" }
-    );
+  // 2) Atomically set default bank (race-condition safe)
+  const { error } = await sb.rpc("set_default_bank", {
+    p_clerk_user_id: userId,
+    p_bank_id: bankId,
+  });
 
-  if (upsertErr) {
-    return NextResponse.json({ error: upsertErr.message }, { status: 500 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

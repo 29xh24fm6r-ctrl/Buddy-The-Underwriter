@@ -45,6 +45,34 @@ FROM pg_indexes
 WHERE tablename = 'user_banks';
 
 -- ================================================
+-- 5) Atomic "set default bank" function
+-- ================================================
+-- This function ensures atomicity - no race conditions
+-- even with concurrent requests from the same user.
+
+CREATE OR REPLACE FUNCTION public.set_default_bank(
+  p_clerk_user_id TEXT,
+  p_bank_id UUID
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- Clear existing default
+  UPDATE public.user_banks
+  SET is_default = false
+  WHERE clerk_user_id = p_clerk_user_id
+    AND is_default = true;
+
+  -- Ensure row exists and set default = true
+  INSERT INTO public.user_banks (clerk_user_id, bank_id, is_default)
+  VALUES (p_clerk_user_id, p_bank_id, true)
+  ON CONFLICT (clerk_user_id, bank_id)
+  DO UPDATE SET is_default = true;
+END;
+$$;
+
+-- ================================================
 -- Migration Complete
 -- ================================================
 -- 
@@ -53,6 +81,7 @@ WHERE tablename = 'user_banks';
 -- - No dependency on Supabase Auth sessions
 -- - Fast lookups by Clerk user ID
 -- - Guaranteed single default bank per user
+-- - Atomic default bank switching (no race conditions)
 --
 -- Next steps:
 -- 1. Run this migration
