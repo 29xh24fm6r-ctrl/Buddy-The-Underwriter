@@ -1,0 +1,43 @@
+import { NextResponse } from "next/server";
+import { runUnderwritingDecision } from "@/ai/orchestrator/run";
+import { auth } from "@clerk/nextjs/server";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(req: Request) {
+  const { userId } = await auth();
+  if (!userId) {
+    return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const narrative = body?.narrative as string | undefined;
+  const deep = Boolean(body?.deep_reasoning);
+  const dealId = body?.dealId as string | undefined;
+  const borrowerName = body?.borrowerName as string | undefined;
+
+  if (!narrative) {
+    return NextResponse.json({ error: "narrative_required" }, { status: 400 });
+  }
+
+  try {
+    const result = await runUnderwritingDecision({
+      task: deep ? "deep_reasoning" : "default",
+      input: {
+        dealId,
+        borrowerName,
+        narrative,
+      },
+      userId,
+    });
+
+    return NextResponse.json({ result });
+  } catch (error) {
+    console.error("[API /ai/underwrite] Error:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "AI processing failed" },
+      { status: 500 }
+    );
+  }
+}

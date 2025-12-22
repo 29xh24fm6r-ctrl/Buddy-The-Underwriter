@@ -1,7 +1,7 @@
 import StitchFrame from "@/components/stitch/StitchFrame";
 
 const TITLE = "Underwriting Results Display - Buddy The Underwriter";
-const FONT_LINKS = [];
+const FONT_LINKS: string[] = [];
 const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
 const TAILWIND_CONFIG_JS = `tailwind.config = {
         darkMode: "class",
@@ -27,7 +27,7 @@ const TAILWIND_CONFIG_JS = `tailwind.config = {
           },
         },
       }`;
-const STYLES = [
+const STYLES: string[] = [
   "body {\n            font-family: 'Inter', sans-serif;\n        }\n        .material-symbols-outlined {\n            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;\n        }"
 ];
 const BODY_HTML = `<!-- Top Navigation -->

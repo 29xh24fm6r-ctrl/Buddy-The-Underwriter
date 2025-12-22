@@ -1,0 +1,504 @@
+import StitchFrame from "@/components/stitch/StitchFrame";
+
+const TITLE = "Buddy - Deal Output";
+const FONT_LINKS = [];
+const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
+const TAILWIND_CONFIG_JS = `</script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#136dec",
+                        "background-light": "#f6f7f8", // Not used in this dark-only context but kept for config
+                        "background-dark": "#0f1115",
+                        "panel-dark": "#161b22",
+                        "surface-dark": "#1c2128",
+                        "border-dark": "#30363d",
+                        "accent-blue": "#38bdf8",
+                        "accent-green": "#4ade80",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                },
+            },
+        }`;
+const STYLES = [
+  "/* Custom scrollbar for a cleaner look */\n        ::-webkit-scrollbar {\n            width: 6px;\n            height: 6px;\n        }\n        ::-webkit-scrollbar-track {\n            background: #161b22; \n        }\n        ::-webkit-scrollbar-thumb {\n            background: #30363d; \n            border-radius: 3px;\n        }\n        ::-webkit-scrollbar-thumb:hover {\n            background: #586069; \n        }\n        .glass-panel {\n            background: rgba(22, 27, 34, 0.85);\n            backdrop-filter: blur(8px);\n        }"
+];
+const BODY_HTML = `<!-- Left Rail -->
+<aside class="w-[280px] flex-shrink-0 flex flex-col border-r border-border-dark bg-panel-dark h-full">
+<!-- Branding -->
+<div class="h-16 flex items-center px-4 border-b border-border-dark flex-shrink-0">
+<div class="flex items-center gap-3">
+<div class="bg-primary/20 p-1.5 rounded-lg">
+<span class="material-symbols-outlined text-primary" style="font-size: 24px;">token</span>
+</div>
+<div class="flex flex-col">
+<h1 class="text-white text-base font-bold leading-none">Buddy</h1>
+<p class="text-slate-500 text-xs font-medium mt-0.5">The Underwriter</p>
+</div>
+</div>
+</div>
+<!-- Scrollable Nav Content -->
+<div class="flex-1 overflow-y-auto py-4 flex flex-col gap-6">
+<!-- Main Nav -->
+<nav class="px-3 flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/10 text-white group hover:bg-primary/20 transition-colors" href="#">
+<span class="material-symbols-outlined text-primary" style="font-size: 20px;">work</span>
+<span class="text-sm font-medium">Deals</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors" href="#">
+<span class="material-symbols-outlined" style="font-size: 20px;">inbox</span>
+<span class="text-sm font-medium">Intake</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors" href="#">
+<span class="material-symbols-outlined" style="font-size: 20px;">folder_open</span>
+<span class="text-sm font-medium">Portfolio</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors" href="#">
+<span class="material-symbols-outlined" style="font-size: 20px;">groups</span>
+<span class="text-sm font-medium">Committee</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors" href="#">
+<span class="material-symbols-outlined" style="font-size: 20px;">bar_chart</span>
+<span class="text-sm font-medium">Reporting</span>
+</a>
+</nav>
+<!-- Deal Artifacts -->
+<div class="px-4">
+<h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 px-2">Deal Artifacts</h3>
+<div class="flex flex-col gap-2">
+<label class="flex items-center gap-3 p-3 rounded-lg border border-primary/40 bg-primary/5 cursor-pointer transition-all hover:bg-primary/10">
+<div class="relative flex items-center justify-center w-4 h-4">
+<input checked="" class="peer appearance-none w-4 h-4 border border-slate-500 rounded-full bg-transparent checked:border-primary checked:border-2" name="artifact" type="radio"/>
+<div class="hidden peer-checked:block w-2 h-2 bg-primary rounded-full absolute"></div>
+</div>
+<div class="flex flex-col">
+<span class="text-white text-sm font-medium">Credit Memo</span>
+<span class="text-primary text-xs">Viewing</span>
+</div>
+</label>
+<label class="flex items-center gap-3 p-3 rounded-lg border border-border-dark hover:border-slate-500 bg-surface-dark/50 cursor-pointer transition-colors group">
+<div class="relative flex items-center justify-center w-4 h-4">
+<input class="peer appearance-none w-4 h-4 border border-slate-600 rounded-full bg-transparent" name="artifact" type="radio"/>
+</div>
+<span class="text-slate-400 text-sm font-medium group-hover:text-slate-300">Spreads</span>
+</label>
+<label class="flex items-center gap-3 p-3 rounded-lg border border-border-dark hover:border-slate-500 bg-surface-dark/50 cursor-pointer transition-colors group">
+<div class="relative flex items-center justify-center w-4 h-4">
+<input class="peer appearance-none w-4 h-4 border border-slate-600 rounded-full bg-transparent" name="artifact" type="radio"/>
+</div>
+<span class="text-slate-400 text-sm font-medium group-hover:text-slate-300">Term Sheet</span>
+</label>
+<label class="flex items-center gap-3 p-3 rounded-lg border border-border-dark hover:border-slate-500 bg-surface-dark/50 cursor-pointer transition-colors group">
+<div class="relative flex items-center justify-center w-4 h-4">
+<input class="peer appearance-none w-4 h-4 border border-slate-600 rounded-full bg-transparent" name="artifact" type="radio"/>
+</div>
+<span class="text-slate-400 text-sm font-medium group-hover:text-slate-300">Conditions</span>
+</label>
+<label class="flex items-center gap-3 p-3 rounded-lg border border-border-dark hover:border-slate-500 bg-surface-dark/50 cursor-pointer transition-colors group">
+<div class="relative flex items-center justify-center w-4 h-4">
+<input class="peer appearance-none w-4 h-4 border border-slate-600 rounded-full bg-transparent" name="artifact" type="radio"/>
+</div>
+<span class="text-slate-400 text-sm font-medium group-hover:text-slate-300">Sources &amp; Evidence</span>
+</label>
+</div>
+</div>
+<!-- Status Chips -->
+<div class="px-6 flex flex-col gap-3">
+<div class="flex items-center gap-2 text-slate-400 text-xs py-1">
+<span class="material-symbols-outlined text-slate-500" style="font-size: 16px;">lock</span>
+                    Snapshot v1.0 (Locked)
+                </div>
+<div class="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 w-fit">
+<span class="material-symbols-outlined text-emerald-500" style="font-size: 14px;">check_circle</span>
+<span class="text-emerald-400 text-xs font-medium">Approved w/ Cond.</span>
+</div>
+<p class="text-slate-500 text-[11px]">Last Updated: Today 09:42 AM</p>
+</div>
+</div>
+<!-- Export Queue -->
+<div class="p-4 border-t border-border-dark">
+<button class="flex items-center justify-between w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-colors group">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-500 group-hover:text-white transition-colors" style="font-size: 20px;">download_for_offline</span>
+<span class="text-sm text-slate-400 group-hover:text-white font-medium transition-colors">Export Queue</span>
+</div>
+<span class="bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">0</span>
+</button>
+</div>
+</aside>
+<!-- Center Pane: Credit Memo Viewer -->
+<main class="flex-1 flex flex-col h-full bg-background-dark relative overflow-hidden">
+<!-- Sticky Header -->
+<header class="h-16 flex items-center justify-between px-8 border-b border-border-dark bg-background-dark/95 backdrop-blur z-20 sticky top-0 flex-shrink-0">
+<div class="flex flex-col">
+<div class="flex items-center gap-3">
+<h2 class="text-white text-lg font-bold tracking-tight">Project Atlas — Mixed Use Acquisition</h2>
+<span class="px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/20">Approved</span>
+</div>
+<div class="flex items-center gap-4 text-xs text-slate-400 mt-1">
+<span class="flex items-center gap-1"><span class="text-slate-600">ID:</span> DL-24901</span>
+<span class="w-1 h-1 rounded-full bg-slate-700"></span>
+<span class="flex items-center gap-1"><span class="text-slate-600">Loc:</span> 200 Congress Ave, Austin, TX</span>
+<span class="w-1 h-1 rounded-full bg-slate-700"></span>
+<span class="flex items-center gap-1"><span class="text-slate-600">Sponsor:</span> Titan Equities</span>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<!-- Jump to Section -->
+<div class="relative group">
+<button class="flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-slate-300 transition-colors">
+<span class="material-symbols-outlined" style="font-size: 16px;">list</span>
+                        Jump to Section
+                        <span class="material-symbols-outlined" style="font-size: 16px;">expand_more</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Memo Content Scrollable Area -->
+<div class="flex-1 overflow-y-auto px-8 py-8 bg-[#0d0f12]">
+<!-- Document Container -->
+<div class="max-w-[800px] mx-auto min-h-screen bg-surface-dark border border-border-dark rounded-xl shadow-2xl overflow-hidden relative">
+<!-- Confidence Header -->
+<div class="bg-primary/5 border-b border-primary/10 px-8 py-3 flex items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" style="font-size: 16px;">verified</span>
+<span class="text-xs font-medium text-primary-300">Evidence Coverage: <span class="text-white font-bold">93%</span></span>
+</div>
+<span class="text-slate-700 text-xs">|</span>
+<div class="flex items-center gap-2">
+<span class="text-xs text-slate-400">OCR Verified: <span class="text-slate-200">9 docs</span></span>
+</div>
+</div>
+<span class="text-xs text-emerald-400 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        Exceptions: 0 open
+                     </span>
+</div>
+<!-- Document Body -->
+<div class="p-10 text-slate-300">
+<!-- Title Section -->
+<div class="border-b border-border-dark pb-6 mb-8">
+<p class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Internal Credit Memorandum</p>
+<h1 class="text-3xl font-bold text-white mb-2">Project Atlas</h1>
+<p class="text-lg text-slate-400 font-light">$42,500,000 Senior Acquisition Loan</p>
+</div>
+<!-- Executive Summary -->
+<section class="mb-10">
+<h3 class="text-white font-bold text-lg mb-3 flex items-center gap-2">
+                            1. Executive Summary
+                        </h3>
+<p class="text-sm leading-relaxed mb-4">
+                            Titan Equities ("Sponsor") requests a $42.5MM senior bridge loan to finance the acquisition of 200 Congress Ave ("Property"), a 240-unit Class A mixed-use asset in downtown Austin, TX. The loan represents 65% LTC. The Sponsor intends to execute a light value-add strategy, renovating common areas and 20% of unit interiors to bring rents to market levels ($2.85/sf).
+                        </p>
+<p class="text-sm leading-relaxed">
+                            The Property is currently 94% occupied with strong historical collections. The retail component (15,000 sf) is anchored by a local grocery tenant with 7 years remaining on term. The transaction is time-sensitive due to a 1031 exchange requirement on the Sponsor's side.
+                        </p>
+</section>
+<!-- Sponsor Overview -->
+<section class="mb-10">
+<h3 class="text-white font-bold text-lg mb-3 flex items-center gap-2">
+                            2. Sponsor Overview
+                        </h3>
+<div class="grid grid-cols-3 gap-4 mb-4">
+<div class="bg-background-dark p-3 rounded border border-border-dark">
+<p class="text-[10px] text-slate-500 uppercase font-semibold">Net Worth</p>
+<p class="text-sm font-medium text-white">$145MM</p>
+</div>
+<div class="bg-background-dark p-3 rounded border border-border-dark">
+<p class="text-[10px] text-slate-500 uppercase font-semibold">Liquidity</p>
+<p class="text-sm font-medium text-white">$12.5MM</p>
+</div>
+<div class="bg-background-dark p-3 rounded border border-border-dark">
+<p class="text-[10px] text-slate-500 uppercase font-semibold">REO Schedule</p>
+<p class="text-sm font-medium text-white">14 Assets / $420MM AUM</p>
+</div>
+</div>
+<p class="text-sm leading-relaxed">
+                            Titan Equities is a vertically integrated Austin-based firm with 15 years of experience in the MSA. Principals have personally guaranteed the loan (Bad Boy Carveouts + 25% Completion Guarantee). Background checks revealed no material litigation or credit issues.
+                        </p>
+</section>
+<!-- Risk / Mitigants -->
+<section class="mb-10">
+<h3 class="text-white font-bold text-lg mb-3 flex items-center gap-2">
+                            3. Risk &amp; Mitigants
+                        </h3>
+<div class="flex flex-col gap-3">
+<div class="flex gap-4 p-3 bg-red-500/5 border border-red-500/10 rounded-lg">
+<div class="text-red-400 font-bold text-xs uppercase w-24 shrink-0 pt-0.5">Risk</div>
+<div class="text-sm text-slate-300">Retail tenant rollover (25% of GLA) within 24 months creates potential vacancy risk.</div>
+</div>
+<div class="flex gap-4 p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-lg">
+<div class="text-emerald-400 font-bold text-xs uppercase w-24 shrink-0 pt-0.5">Mitigant</div>
+<div class="text-sm text-slate-300">Structuring includes an upfront TI/LC reserve of $750k. Sponsor has LOI from national coffee chain for 50% of expiring space.</div>
+</div>
+<div class="flex gap-4 p-3 bg-red-500/5 border border-red-500/10 rounded-lg mt-2">
+<div class="text-red-400 font-bold text-xs uppercase w-24 shrink-0 pt-0.5">Risk</div>
+<div class="text-sm text-slate-300">Floating rate exposure in rising rate environment.</div>
+</div>
+<div class="flex gap-4 p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-lg">
+<div class="text-emerald-400 font-bold text-xs uppercase w-24 shrink-0 pt-0.5">Mitigant</div>
+<div class="text-sm text-slate-300">Borrower required to purchase Interest Rate Cap at strike of 2.50% for initial term. DSCR constrained at stress rate.</div>
+</div>
+</div>
+</section>
+<!-- Recommendation -->
+<section class="mb-10">
+<h3 class="text-white font-bold text-lg mb-3 flex items-center gap-2">
+                            4. Recommendation
+                        </h3>
+<p class="text-sm leading-relaxed">
+                            Based on the Sponsor's strong local track record, the asset's prime location, and conservative leverage point (65%), we recommend approval of the requested loan amount subject to the conditions outlined in Section 5.
+                        </p>
+</section>
+<!-- Conditions to Close (Summary) -->
+<section class="mb-6">
+<h3 class="text-white font-bold text-lg mb-3 flex items-center gap-2">
+                            5. Conditions to Close
+                        </h3>
+<ul class="list-disc list-outside ml-4 text-sm space-y-2 text-slate-400">
+<li>Receipt of final Estoppels covering &gt;90% of commercial GLA.</li>
+<li>Final zoning report confirming compliance for proposed density.</li>
+<li>Satisfactory review of Management Agreement.</li>
+<li>Proof of insurance with Lender listed as Loss Payee.</li>
+</ul>
+</section>
+</div>
+</div>
+<div class="h-20"></div> <!-- Spacer -->
+</div>
+</main>
+<!-- Right Pane: Spreads & Pricing Cockpit -->
+<aside class="w-[440px] flex-shrink-0 border-l border-border-dark bg-panel-dark h-full flex flex-col overflow-hidden">
+<!-- Header -->
+<div class="h-12 border-b border-border-dark flex items-center px-4 justify-between flex-shrink-0 bg-panel-dark">
+<h3 class="text-xs font-bold text-slate-400 uppercase tracking-wide">Pricing &amp; Returns Cockpit</h3>
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="text-[10px] text-primary font-medium">Live Model</span>
+</div>
+</div>
+<!-- Scrollable Modules -->
+<div class="flex-1 overflow-y-auto p-4 space-y-4">
+<!-- Module A: Pricing & Coupon -->
+<div class="bg-surface-dark border border-border-dark rounded-xl p-4 shadow-sm relative overflow-hidden">
+<div class="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-primary/10 to-transparent rounded-bl-full -mr-4 -mt-4"></div>
+<div class="flex justify-between items-center mb-4">
+<h4 class="text-white font-semibold text-sm">Pricing &amp; Coupon</h4>
+<span class="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">Changed since comm.</span>
+</div>
+<div class="grid grid-cols-2 gap-x-4 gap-y-3">
+<div>
+<p class="text-[10px] text-slate-500 uppercase font-semibold">Base Index (SOFR 1M)</p>
+<p class="text-base text-slate-300 font-mono">5.32%</p>
+</div>
+<div>
+<p class="text-[10px] text-slate-500 uppercase font-semibold">Spread</p>
+<p class="text-base text-slate-300 font-mono">+ 275 bps</p>
+</div>
+<div>
+<p class="text-[10px] text-slate-500 uppercase font-semibold">Floor</p>
+<p class="text-base text-slate-300 font-mono">0.50%</p>
+</div>
+<div>
+<p class="text-[10px] text-slate-500 uppercase font-semibold">Origination Fee</p>
+<p class="text-base text-slate-300 font-mono">1.00%</p>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-border-dark flex items-end justify-between">
+<div>
+<p class="text-[10px] text-slate-500 uppercase font-semibold">Rate Type</p>
+<p class="text-xs text-white">Floating</p>
+</div>
+<div class="text-right">
+<p class="text-[10px] text-primary uppercase font-bold mb-0.5">All-in Coupon</p>
+<p class="text-2xl text-white font-bold font-mono tracking-tight text-primary-gradient">8.07%</p>
+</div>
+</div>
+<div class="mt-2 text-[10px] text-slate-500 flex items-center gap-1">
+<span class="material-symbols-outlined" style="font-size: 12px;">info</span>
+                    Extension: 2 x 6 mo (25 bps each)
+                 </div>
+</div>
+<!-- Module B: Returns -->
+<div class="bg-surface-dark border border-border-dark rounded-xl p-4 shadow-sm">
+<div class="flex justify-between items-center mb-4">
+<h4 class="text-white font-semibold text-sm">Returns (Annualized)</h4>
+<span class="material-symbols-outlined text-slate-500" style="font-size: 16px;">trending_up</span>
+</div>
+<div class="grid grid-cols-2 gap-2 mb-4">
+<div class="bg-background-dark p-2 rounded border border-border-dark/50">
+<p class="text-[10px] text-slate-500 uppercase">Gross Yield</p>
+<p class="text-sm text-white font-mono">8.45%</p>
+</div>
+<div class="bg-background-dark p-2 rounded border border-border-dark/50">
+<p class="text-[10px] text-slate-500 uppercase">Net Yield</p>
+<p class="text-sm text-white font-mono">7.82%</p>
+</div>
+<div class="bg-background-dark p-2 rounded border border-border-dark/50">
+<p class="text-[10px] text-slate-500 uppercase">Fee Income</p>
+<p class="text-sm text-white font-mono">$425k</p>
+</div>
+<div class="bg-background-dark p-2 rounded border border-border-dark/50 relative overflow-hidden">
+<div class="absolute inset-0 bg-primary/5"></div>
+<p class="text-[10px] text-primary uppercase font-bold relative z-10">Levered ROE</p>
+<p class="text-sm text-primary font-bold font-mono relative z-10">14.50%</p>
+</div>
+</div>
+<!-- Mini Chart Visualization -->
+<div>
+<p class="text-[10px] text-slate-500 uppercase mb-2">Net Interest Income Projection</p>
+<div class="h-12 flex items-end gap-1">
+<div class="bg-slate-700/50 hover:bg-primary/50 w-full rounded-t-sm h-[40%]" title="Y1"></div>
+<div class="bg-slate-700/50 hover:bg-primary/50 w-full rounded-t-sm h-[55%]" title="Y2"></div>
+<div class="bg-slate-700/50 hover:bg-primary/50 w-full rounded-t-sm h-[70%]" title="Y3"></div>
+<div class="bg-slate-700/50 hover:bg-primary/50 w-full rounded-t-sm h-[85%]" title="Y4"></div>
+<div class="bg-primary w-full rounded-t-sm h-[100%]" title="Y5"></div>
+</div>
+</div>
+</div>
+<!-- Module C: Sensitivity Toggles -->
+<div class="bg-surface-dark border border-border-dark rounded-xl p-4 shadow-sm">
+<h4 class="text-white font-semibold text-sm mb-3">Sensitivity Scenarios</h4>
+<div class="flex flex-wrap gap-2">
+<button class="px-3 py-1.5 rounded-full border border-border-dark bg-background-dark text-xs text-slate-400 hover:text-white hover:border-slate-500 transition-colors">
+                        +100 bps SOFR
+                    </button>
+<button class="px-3 py-1.5 rounded-full border border-border-dark bg-background-dark text-xs text-slate-400 hover:text-white hover:border-slate-500 transition-colors">
+                        Extension Exercised
+                    </button>
+<button class="px-3 py-1.5 rounded-full border border-primary text-xs text-primary bg-primary/10 font-medium">
+                        Stabilization Delayed 6mo
+                    </button>
+<button class="px-3 py-1.5 rounded-full border border-border-dark bg-background-dark text-xs text-slate-400 hover:text-white hover:border-slate-500 transition-colors">
+                        -5% Rental Rate
+                    </button>
+</div>
+</div>
+<!-- Module D: Capital Stack -->
+<div class="bg-surface-dark border border-border-dark rounded-xl p-4 shadow-sm">
+<h4 class="text-white font-semibold text-sm mb-3">Capital Stack</h4>
+<div class="flex h-6 w-full rounded-md overflow-hidden mb-3">
+<div class="bg-blue-600 h-full w-[65%] border-r border-background-dark" title="Senior Loan"></div>
+<div class="bg-purple-500 h-full w-[8%] border-r border-background-dark" title="Mezzanine"></div>
+<div class="bg-slate-500 h-full w-[27%]" title="Sponsor Equity"></div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between items-center text-xs">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-blue-600"></span>
+<span class="text-slate-300">Senior Loan</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-slate-400">$42.5M</span>
+<span class="text-white font-mono font-medium">65% LTC</span>
+</div>
+</div>
+<div class="flex justify-between items-center text-xs">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-purple-500"></span>
+<span class="text-slate-300">Mezzanine</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-slate-400">$5.0M</span>
+<span class="text-white font-mono font-medium">--</span>
+</div>
+</div>
+<div class="flex justify-between items-center text-xs">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-slate-500"></span>
+<span class="text-slate-300">Sponsor Equity</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-slate-400">$18.0M</span>
+<span class="text-white font-mono font-medium">--</span>
+</div>
+</div>
+<div class="pt-2 mt-2 border-t border-border-dark flex justify-between items-center">
+<span class="text-xs font-bold text-slate-500 uppercase">Total Cost</span>
+<span class="text-sm font-bold text-white font-mono">$65.5MM</span>
+</div>
+</div>
+</div>
+<!-- Module E: Covenants -->
+<div class="bg-surface-dark border border-border-dark rounded-xl p-4 shadow-sm mb-20">
+<h4 class="text-white font-semibold text-sm mb-3">Covenants &amp; Triggers</h4>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<tbody class="text-xs">
+<tr class="border-b border-border-dark/50">
+<td class="py-2 text-slate-400 pl-1">DSCR Trigger</td>
+<td class="py-2 text-white font-mono text-right pr-1">&lt; 1.15x (Cash Trap)</td>
+</tr>
+<tr class="border-b border-border-dark/50">
+<td class="py-2 text-slate-400 pl-1">Cash Sweep</td>
+<td class="py-2 text-white font-mono text-right pr-1">&lt; 1.05x</td>
+</tr>
+<tr class="border-b border-border-dark/50">
+<td class="py-2 text-slate-400 pl-1">LTV Covenant</td>
+<td class="py-2 text-white font-mono text-right pr-1">&lt; 70%</td>
+</tr>
+<tr class="border-b border-border-dark/50">
+<td class="py-2 text-slate-400 pl-1">Debt Yield</td>
+<td class="py-2 text-white font-mono text-right pr-1">&gt; 8.0%</td>
+</tr>
+<tr>
+<td class="py-2 text-slate-400 pl-1">Reporting</td>
+<td class="py-2 text-white font-mono text-right pr-1">Quarterly + Annual</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<!-- Sticky Bottom Action Bar -->
+<div class="absolute bottom-0 w-full border-t border-border-dark p-4 bg-panel-dark/95 backdrop-blur z-30">
+<button class="w-full bg-primary hover:bg-blue-600 text-white font-medium py-2.5 rounded-lg shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 transition-all mb-3">
+<span class="material-symbols-outlined" style="font-size: 20px;">picture_as_pdf</span>
+                Export Credit Memo (PDF)
+            </button>
+<div class="flex gap-2">
+<button class="flex-1 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-medium py-2 rounded-lg border border-border-dark flex items-center justify-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined" style="font-size: 16px;">grid_on</span>
+                    Spreads.xlsx
+                </button>
+<button class="flex-1 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-medium py-2 rounded-lg border border-border-dark flex items-center justify-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined" style="font-size: 16px;">description</span>
+                    Term Sheet
+                </button>
+</div>
+<div class="flex justify-between items-center mt-3 pt-2 border-t border-border-dark/50">
+<button class="text-[10px] text-slate-500 hover:text-primary flex items-center gap-1 transition-colors">
+<span class="material-symbols-outlined" style="font-size: 14px;">link</span>
+                    Copy Share Link
+                 </button>
+<button class="text-[10px] text-slate-500 hover:text-white flex items-center gap-1 transition-colors">
+<span class="material-symbols-outlined" style="font-size: 14px;">lock_person</span>
+                    Lock Snapshot
+                 </button>
+</div>
+</div>
+</aside>`;
+
+export default function Page() {
+  return (
+    <StitchFrame
+      title={TITLE}
+      fontLinks={FONT_LINKS}
+      tailwindCdnSrc={TAILWIND_CDN}
+      tailwindConfigJs={TAILWIND_CONFIG_JS}
+      styles={STYLES}
+      bodyHtml={BODY_HTML}
+    />
+  );
+}

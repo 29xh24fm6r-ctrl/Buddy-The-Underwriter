@@ -13,7 +13,7 @@ type BankPick =
  * - Prevents redirect loops by separating auth from tenant resolution
  */
 export async function getCurrentBankId(): Promise<string> {
-  const { userId } = auth();
+  const { userId } = await auth();
   
   if (!userId) {
     throw new Error("not_authenticated");

@@ -1,0 +1,393 @@
+import StitchFrame from "@/components/stitch/StitchFrame";
+
+const TITLE = "Credit Committee View - Buddy the Underwriter";
+const FONT_LINKS = [];
+const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
+const TAILWIND_CONFIG_JS = `tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#136dec",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#101822",
+                        "surface-dark": "#1c2431",
+                        "surface-darker": "#161e29",
+                        "border-dark": "#2a3441",
+                        "text-secondary": "#9da8b9",
+                        "success": "#22c55e",
+                        "warning": "#f59e0b",
+                        "danger": "#ef4444",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "mono": ["Roboto Mono", "monospace"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }`;
+const STYLES = [
+  "body {\n            font-family: 'Inter', sans-serif;\n        }\n        .scrollbar-hide::-webkit-scrollbar {\n            display: none;\n        }\n        .glass-panel {\n            background: rgba(28, 36, 49, 0.7);\n            backdrop-filter: blur(8px);\n        }\n        .status-badge {\n            font-size: 0.75rem;\n            font-weight: 700;\n            letter-spacing: 0.05em;\n            text-transform: uppercase;\n            padding: 0.25rem 0.6rem;\n            border-radius: 4px;\n        }"
+];
+const BODY_HTML = `<!-- Global Header -->
+<header class="sticky top-0 z-50 flex items-center justify-between whitespace-nowrap border-b border-solid border-border-dark bg-[#111418]/95 backdrop-blur-md px-8 py-3 h-16">
+<div class="flex items-center gap-8">
+<div class="flex items-center gap-3 text-white">
+<div class="size-6 text-primary">
+<svg fill="none" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path d="M24 45.8096C19.6865 45.8096 15.4698 44.5305 11.8832 42.134C8.29667 39.7376 5.50128 36.3314 3.85056 32.3462C2.19985 28.361 1.76794 23.9758 2.60947 19.7452C3.451 15.5145 5.52816 11.6284 8.57829 8.5783C11.6284 5.52817 15.5145 3.45101 19.7452 2.60948C23.9758 1.76795 28.361 2.19986 32.3462 3.85057C36.3314 5.50129 39.7376 8.29668 42.134 11.8833C44.5305 15.4698 45.8096 19.6865 45.8096 24L24 24L24 45.8096Z" fill="currentColor"></path>
+</svg>
+</div>
+<h2 class="text-white text-base font-bold tracking-tight">Buddy</h2>
+</div>
+<nav class="flex items-center gap-6">
+<a class="text-text-secondary hover:text-white text-sm font-medium transition-colors" href="#">Deals</a>
+<a class="text-text-secondary hover:text-white text-sm font-medium transition-colors" href="#">Portfolio</a>
+<a class="text-white text-sm font-medium transition-colors border-b-2 border-primary py-4" href="#">Committee</a>
+<a class="text-text-secondary hover:text-white text-sm font-medium transition-colors" href="#">Reporting</a>
+</nav>
+</div>
+<div class="flex items-center gap-6">
+<div class="relative w-64">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary material-symbols-outlined text-[20px]">search</span>
+<input class="w-full bg-surface-darker border border-border-dark rounded-md py-1.5 pl-10 pr-4 text-sm text-white placeholder-text-secondary focus:outline-none focus:border-primary transition-colors" placeholder="Search deals, entities, or docs..."/>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-text-secondary hover:text-white transition-colors relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-0 right-0 size-2 bg-primary rounded-full border-2 border-[#111418]"></span>
+</button>
+<div class="bg-surface-dark border border-border-dark rounded-full size-8 bg-center bg-cover" data-alt="User profile avatar" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuCCbp83HLeYoaToCjcX41xeZ5jF0PNwhqXw0AXo0WtSnydzzP4i3Sx1lhu0jKr0VYkV5B6K2uiTOJeQ8fNhU6a1x9DRpHVTbq3kPK2pZoktJ0BSy5FfXrba_THSn_AQzUIhp6qG4oXzlOs4XXVnkgQCxmWFk4p4zeSHBtGdlA10k7sl9qspZsODojihCtwWtl4KJgnrQnlQtM0oW1hNAq7AIcy1mpKtmErGW62pPOMxhhgx-LFtrUbphMlaFihZZokVQRU3RU70L1k");'></div>
+</div>
+</div>
+</header>
+<main class="flex-1 flex justify-center py-8 px-6 lg:px-12 pb-24">
+<div class="w-full max-w-[1200px] flex flex-col gap-6">
+<!-- Section A: Deal Identity + Recommendation -->
+<section class="bg-surface-dark border border-border-dark rounded-lg p-6 shadow-xl">
+<div class="flex justify-between items-start mb-6 border-b border-border-dark pb-6">
+<div class="flex flex-col gap-2">
+<div class="flex items-center gap-3">
+<h1 class="text-3xl font-bold text-white tracking-tight">Project Atlas — Mixed Use Acquisition</h1>
+<span class="bg-blue-500/10 text-blue-400 text-xs font-semibold px-2 py-0.5 rounded border border-blue-500/20">DL-24901</span>
+</div>
+<div class="flex items-center gap-4 text-text-secondary text-sm">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">location_on</span> 200 Congress Ave, Austin, TX</span>
+<span class="w-1 h-1 bg-text-secondary rounded-full"></span>
+<span>Value-Add Acquisition</span>
+<span class="w-1 h-1 bg-text-secondary rounded-full"></span>
+<span>Packet v3.2 (Updated 2h ago)</span>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<button class="flex items-center gap-2 px-4 py-2 bg-[#2a3441] hover:bg-[#344050] text-white text-sm font-medium rounded transition-colors border border-border-dark">
+<span class="material-symbols-outlined text-[18px]">folder_open</span>
+                            View Evidence
+                        </button>
+<button class="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-blue-600 text-white text-sm font-medium rounded transition-colors shadow-[0_0_15px_rgba(19,109,236,0.3)]">
+<span class="material-symbols-outlined text-[18px]">picture_as_pdf</span>
+                            Export Packet
+                        </button>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+<div class="p-4 bg-surface-darker rounded border border-border-dark flex flex-col justify-between h-28 relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-5xl text-success">verified</span>
+</div>
+<span class="text-text-secondary text-xs uppercase font-semibold tracking-wider">Recommendation</span>
+<div class="flex flex-col">
+<span class="text-success font-bold text-lg leading-tight">APPROVE w/ CONDITIONS</span>
+<span class="text-xs text-text-secondary mt-1">Primary Analyst: J. Carter</span>
+</div>
+</div>
+<div class="p-4 bg-surface-darker rounded border border-border-dark flex flex-col justify-between h-28">
+<div class="flex justify-between items-start">
+<span class="text-text-secondary text-xs uppercase font-semibold tracking-wider">Risk Rating</span>
+<span class="text-warning text-xs font-bold bg-warning/10 px-1.5 py-0.5 rounded">Watch</span>
+</div>
+<div class="flex items-end gap-2">
+<span class="text-white font-bold text-2xl">RR-4</span>
+<span class="text-text-secondary text-sm mb-1">Stable Outlook</span>
+</div>
+</div>
+<div class="p-4 bg-surface-darker rounded border border-border-dark flex flex-col justify-between h-28">
+<span class="text-text-secondary text-xs uppercase font-semibold tracking-wider">Approval Probability</span>
+<div class="w-full bg-border-dark rounded-full h-1.5 mb-2 mt-auto">
+<div class="bg-primary h-1.5 rounded-full" style="width: 78%"></div>
+</div>
+<span class="text-white font-bold text-2xl leading-none mt-1">78%</span>
+</div>
+<div class="p-4 bg-surface-darker rounded border border-border-dark flex flex-col justify-between h-28">
+<span class="text-text-secondary text-xs uppercase font-semibold tracking-wider">Target Close</span>
+<div class="flex items-center gap-2 mt-auto">
+<span class="material-symbols-outlined text-text-secondary">calendar_today</span>
+<span class="text-white font-bold text-xl">Oct 15, 2024</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Section B: Executive Summary -->
+<section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<div class="lg:col-span-2 flex flex-col gap-6">
+<div class="bg-surface-dark border border-border-dark rounded-lg p-6">
+<h3 class="text-white text-sm font-bold uppercase tracking-wider mb-4 border-l-4 border-primary pl-3">Executive Summary</h3>
+<div class="prose prose-invert max-w-none text-gray-300 text-sm leading-relaxed font-normal">
+<p class="mb-3">
+<strong class="text-white">Request:</strong> Titan Equities (Sponsor) requests a <span class="text-white font-mono">$42.5MM</span> senior bridge loan to acquire and renovate "Project Atlas," a 210-unit mixed-use asset in Austin's CBD. The sponsor is acquiring the asset at a basis of $215k/unit, approx. 20% below replacement cost.
+                            </p>
+<p class="mb-3">
+<strong class="text-white">Merits:</strong> The asset is located in a prime growth corridor with 98% market occupancy. Sponsor has a strong track record in the Austin market (4 successful exits &gt;20% IRR). The floating rate structure allows for a flexible exit via refi or sale upon stabilization in 24-36 months.
+                            </p>
+<p>
+<strong class="text-white">Risks &amp; Mitigants:</strong> Key risk is the current occupancy (72%) due to ongoing renovation turnover. Mitigated by an upfront <span class="text-white font-mono">$2.5MM</span> interest reserve and a structured earnout of <span class="text-white font-mono">$4.0MM</span> conditioned on achieving 1.25x DSCR for two consecutive quarters.
+                            </p>
+</div>
+</div>
+<!-- Section C: Key Metrics -->
+<div class="bg-surface-dark border border-border-dark rounded-lg overflow-hidden">
+<div class="px-6 py-4 border-b border-border-dark flex justify-between items-center">
+<h3 class="text-white text-sm font-bold uppercase tracking-wider">Key Metrics &amp; Policy Thresholds</h3>
+<span class="text-xs text-text-secondary italic">Data as of T-12 Adjustment</span>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-sm text-left">
+<thead class="text-xs text-text-secondary uppercase bg-surface-darker border-b border-border-dark">
+<tr>
+<th class="px-6 py-3 font-semibold">Metric</th>
+<th class="px-6 py-3 font-semibold text-right">Deal Value</th>
+<th class="px-6 py-3 font-semibold text-right">Policy Limit</th>
+<th class="px-6 py-3 font-semibold text-center">Status</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-border-dark">
+<tr class="hover:bg-surface-darker/50">
+<td class="px-6 py-3 text-white font-medium">Loan Amount</td>
+<td class="px-6 py-3 text-right text-white font-mono">$42,500,000</td>
+<td class="px-6 py-3 text-right text-text-secondary font-mono">$50MM Max</td>
+<td class="px-6 py-3 text-center"><span class="w-2.5 h-2.5 rounded-full bg-success inline-block"></span></td>
+</tr>
+<tr class="hover:bg-surface-darker/50">
+<td class="px-6 py-3 text-white font-medium">LTV (As-Is)</td>
+<td class="px-6 py-3 text-right text-white font-mono">62.0%</td>
+<td class="px-6 py-3 text-right text-text-secondary font-mono">65.0% Max</td>
+<td class="px-6 py-3 text-center"><span class="w-2.5 h-2.5 rounded-full bg-success inline-block"></span></td>
+</tr>
+<tr class="hover:bg-surface-darker/50 bg-warning/5">
+<td class="px-6 py-3 text-white font-medium">DSCR (In-Place)</td>
+<td class="px-6 py-3 text-right text-warning font-bold font-mono">1.15x</td>
+<td class="px-6 py-3 text-right text-text-secondary font-mono">1.20x Min</td>
+<td class="px-6 py-3 text-center"><span class="w-2.5 h-2.5 rounded-full bg-warning inline-block"></span></td>
+</tr>
+<tr class="hover:bg-surface-darker/50">
+<td class="px-6 py-3 text-white font-medium">Debt Yield</td>
+<td class="px-6 py-3 text-right text-white font-mono">8.5%</td>
+<td class="px-6 py-3 text-right text-text-secondary font-mono">8.0% Min</td>
+<td class="px-6 py-3 text-center"><span class="w-2.5 h-2.5 rounded-full bg-success inline-block"></span></td>
+</tr>
+<tr class="hover:bg-surface-darker/50">
+<td class="px-6 py-3 text-white font-medium">Sponsor Net Worth</td>
+<td class="px-6 py-3 text-right text-white font-mono">$124MM</td>
+<td class="px-6 py-3 text-right text-text-secondary font-mono">1.0x Loan Amt</td>
+<td class="px-6 py-3 text-center"><span class="w-2.5 h-2.5 rounded-full bg-success inline-block"></span></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Section E: Risks & Mitigants -->
+<div class="bg-surface-dark border border-border-dark rounded-lg p-6">
+<h3 class="text-white text-sm font-bold uppercase tracking-wider mb-4 border-l-4 border-warning pl-3">Key Risks &amp; Mitigants</h3>
+<div class="flex flex-col gap-4">
+<div class="grid grid-cols-[auto_1fr_auto_1fr] gap-4 items-center p-3 bg-surface-darker rounded border border-border-dark">
+<span class="status-badge bg-warning/10 text-warning border border-warning/20">Watch</span>
+<p class="text-sm text-white">Renovation delays may extend stabilization timeline beyond 24 months.</p>
+<span class="material-symbols-outlined text-text-secondary">arrow_right_alt</span>
+<p class="text-sm text-text-secondary">Completion guarantee from Sponsor + 6-month extension option available with 25bps fee.</p>
+</div>
+<div class="grid grid-cols-[auto_1fr_auto_1fr] gap-4 items-center p-3 bg-surface-darker rounded border border-border-dark">
+<span class="status-badge bg-danger/10 text-danger border border-danger/20">Critical</span>
+<p class="text-sm text-white">Appraisal variance on "As-Stabilized" value impacts LTV ceiling.</p>
+<span class="material-symbols-outlined text-text-secondary">arrow_right_alt</span>
+<p class="text-sm text-text-secondary">Sponsor to contribute additional equity ($1.2MM) at closing to bring LTV within policy.</p>
+</div>
+<div class="grid grid-cols-[auto_1fr_auto_1fr] gap-4 items-center p-3 bg-surface-darker rounded border border-border-dark">
+<span class="status-badge bg-blue-500/10 text-blue-400 border border-blue-500/20">Advisory</span>
+<p class="text-sm text-white">Pending litigation regarding property boundary easement.</p>
+<span class="material-symbols-outlined text-text-secondary">arrow_right_alt</span>
+<p class="text-sm text-text-secondary">Title insurance endorsement secured; $50k escrow holdback until resolved.</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Structure & Conditions -->
+<div class="flex flex-col gap-6">
+<!-- Section D: Structure -->
+<div class="bg-surface-dark border border-border-dark rounded-lg p-6">
+<h3 class="text-white text-sm font-bold uppercase tracking-wider mb-4 border-l-4 border-primary pl-3">Structure &amp; Terms</h3>
+<div class="space-y-4">
+<div class="flex justify-between border-b border-border-dark pb-2">
+<span class="text-text-secondary text-sm">Product</span>
+<span class="text-white text-sm font-medium">Senior Bridge Loan</span>
+</div>
+<div class="flex justify-between border-b border-border-dark pb-2">
+<span class="text-text-secondary text-sm">Rate</span>
+<span class="text-white text-sm font-medium">SOFR + 275 bps</span>
+</div>
+<div class="flex justify-between border-b border-border-dark pb-2">
+<span class="text-text-secondary text-sm">Term</span>
+<span class="text-white text-sm font-medium">24 Months (+12)</span>
+</div>
+<div class="flex justify-between border-b border-border-dark pb-2">
+<span class="text-text-secondary text-sm">Amortization</span>
+<span class="text-white text-sm font-medium">Interest Only</span>
+</div>
+<div class="flex justify-between border-b border-border-dark pb-2">
+<span class="text-text-secondary text-sm">Recourse</span>
+<span class="text-white text-sm font-medium text-right max-w-[150px]">Non-Recourse<br/><span class="text-xs text-text-secondary">Standard Carve-outs</span></span>
+</div>
+<div class="flex justify-between border-b border-border-dark pb-2">
+<span class="text-text-secondary text-sm">Prepayment</span>
+<span class="text-white text-sm font-medium">12-mo Spread Maint.</span>
+</div>
+</div>
+</div>
+<!-- Section F: Conditions to Close -->
+<div class="bg-surface-dark border border-border-dark rounded-lg p-6 flex-1">
+<div class="flex justify-between items-center mb-4">
+<h3 class="text-white text-sm font-bold uppercase tracking-wider border-l-4 border-purple-500 pl-3">Conditions to Close</h3>
+<span class="text-xs text-text-secondary">4 Pending</span>
+</div>
+<div class="space-y-5">
+<div>
+<h4 class="text-xs font-bold text-text-secondary uppercase mb-2">Credit &amp; Underwriting</h4>
+<div class="space-y-2">
+<div class="flex items-start gap-3">
+<div class="mt-0.5 size-4 rounded border border-border-dark bg-surface-darker flex items-center justify-center">
+<span class="material-symbols-outlined text-success text-[14px]">check</span>
+</div>
+<div>
+<p class="text-sm text-text-secondary line-through">Final Site Inspection</p>
+</div>
+</div>
+<div class="flex items-start gap-3">
+<div class="mt-0.5 size-4 rounded border border-warning bg-warning/10 flex items-center justify-center"></div>
+<div class="flex flex-col">
+<p class="text-sm text-white">Review of GC Contract</p>
+<span class="text-xs text-text-secondary">Owner: Legal • Due: Oct 12</span>
+</div>
+</div>
+</div>
+</div>
+<div>
+<h4 class="text-xs font-bold text-text-secondary uppercase mb-2">Third-Party Reports</h4>
+<div class="space-y-2">
+<div class="flex items-start gap-3">
+<div class="mt-0.5 size-4 rounded border border-border-dark bg-surface-darker flex items-center justify-center">
+<span class="material-symbols-outlined text-success text-[14px]">check</span>
+</div>
+<div>
+<p class="text-sm text-text-secondary line-through">Appraisal Review</p>
+</div>
+</div>
+<div class="flex items-start gap-3">
+<div class="mt-0.5 size-4 rounded border border-warning bg-warning/10 flex items-center justify-center"></div>
+<div class="flex flex-col">
+<p class="text-sm text-white">Final ESA Phase I</p>
+<span class="text-xs text-text-secondary">Owner: Risk • Due: Oct 10</span>
+</div>
+</div>
+</div>
+</div>
+<div>
+<h4 class="text-xs font-bold text-text-secondary uppercase mb-2">Legal &amp; Insurance</h4>
+<div class="space-y-2">
+<div class="flex items-start gap-3">
+<div class="mt-0.5 size-4 rounded border border-warning bg-warning/10 flex items-center justify-center"></div>
+<div class="flex flex-col">
+<p class="text-sm text-white">Flood Cert Verification</p>
+<span class="text-xs text-text-secondary">Owner: Ops • Due: Oct 14</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Section G: Decision & Voting -->
+<section class="bg-surface-darker border border-border-dark rounded-lg p-0 overflow-hidden shadow-2xl mt-4">
+<div class="bg-surface-dark p-4 border-b border-border-dark flex justify-between items-center">
+<div class="flex items-center gap-3">
+<div class="size-8 rounded-full bg-surface-darker flex items-center justify-center border border-border-dark">
+<span class="material-symbols-outlined text-white text-[18px]">gavel</span>
+</div>
+<h3 class="text-white text-lg font-bold">Committee Decision</h3>
+</div>
+<div class="flex items-center gap-4 text-sm text-text-secondary">
+<span>Quorum: 3/5 Present</span>
+<span class="text-border-dark">|</span>
+<span>Threshold: Majority</span>
+</div>
+</div>
+<div class="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+<div class="flex flex-col justify-center border-r border-border-dark pr-6">
+<span class="text-xs text-text-secondary uppercase font-bold mb-2">Current Status</span>
+<div class="flex items-center gap-3 mb-2">
+<span class="relative flex h-3 w-3">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-warning opacity-75"></span>
+<span class="relative inline-flex rounded-full h-3 w-3 bg-warning"></span>
+</span>
+<span class="text-2xl font-bold text-white">Voting In Progress</span>
+</div>
+<p class="text-sm text-text-secondary">Session started: Oct 08, 09:30 AM EST</p>
+</div>
+<!-- Voter 1 -->
+<div class="flex items-center gap-4">
+<div class="bg-center bg-cover rounded-full size-12 border-2 border-success" data-alt="Sarah Vance Avatar" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuC3ln_fstG3Wxj1TcXMqRuHZxs_L5jrJCDLF8R7phTl1aOjVrnMrEmIxrzQC1pM4zaeLcv0Y52bZC8EIOc-7wA_YJ_oMXdkIQ2NB2822hVJLbdi1u9ko3agM7s99N9zmPGzVhas3VOEE_c-jKqNhSpt8xAoQKmwmEWU7b7V_iy0hCSmuLJbGMa612HKVXUDG4E-PSKbJ90ZssnIrUZ6CGSHXrTu8f1RB4JvlOUSQZtpxGQ6hP0oHa7t3K_XP9e-hhF20Q_vjgsP8Zs");'></div>
+<div>
+<p class="text-white font-bold text-sm">Sarah Vance</p>
+<p class="text-xs text-text-secondary mb-1">Chief Credit Officer</p>
+<span class="text-xs font-bold text-success bg-success/10 px-2 py-0.5 rounded border border-success/20">APPROVED</span>
+</div>
+</div>
+<!-- Voter 2 -->
+<div class="flex items-center gap-4">
+<div class="bg-center bg-cover rounded-full size-12 border-2 border-success" data-alt="Marcus Chen Avatar" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuDiQ7mOvPcSa8Jw_OyLhCRunkq5k_GW4lfGCsSOT4-u1u_WVOXJy8Hhwuqqy9_9TrUVK-gnxYA0C1PD26JKas_I4DCF5DqtEnCy-o_XcHT5weTkcSMNNMsm-5qCrFnRANl7AWhpKaFvMlbm637pbofh8ZEjRNSLMj8T5dDzkvrxhSB8W9rmZ0TlcvLMs0ZDWIl8oxXph5JH812gkSwMIwgit6f8A_jBp7oIJTZLWtnS2qpdl2exfbfncOikd7YPmr0YudRfwkpV6Q0");'></div>
+<div>
+<p class="text-white font-bold text-sm">Marcus Chen</p>
+<p class="text-xs text-text-secondary mb-1">Head of Capital Mkts</p>
+<span class="text-xs font-bold text-success bg-success/10 px-2 py-0.5 rounded border border-success/20">APPROVED</span>
+</div>
+</div>
+<!-- Voter 3 -->
+<div class="flex items-center gap-4 opacity-70">
+<div class="bg-center bg-cover rounded-full size-12 border-2 border-text-secondary grayscale" data-alt="Elena Rodriguez Avatar" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuCteR4LmRqbK3SUOnQLc_Hkdi4BZKvOfL5e7pGbSxL8TpQCZj716ciCOElSJP2rY9O3HgU9HeUYXkYgtrCID0BRm-qdElmzLsiI__KrFi9irqmyKnyvGWjUSw3Y7_8zJMACIZwJWfVOJEPhcRuSD1deqx6PVOPszwDTUWCnLsuBBRWPLo-SatySZ5ljIPVVR0-E7HRoCl_P4jBBgYyb804Div-Q6a3nJ_tv4xl9bXgTXA3czYlLPT_pEY1t3nP6xN11UzY9lcyO2Ac");'></div>
+<div>
+<p class="text-white font-bold text-sm">Elena Rodriguez</p>
+<p class="text-xs text-text-secondary mb-1">Senior Underwriter</p>
+<span class="text-xs font-bold text-text-secondary bg-surface-darker px-2 py-0.5 rounded border border-border-dark">PENDING</span>
+</div>
+</div>
+</div>
+<div class="bg-[#111418] px-6 py-2 border-t border-border-dark flex justify-between items-center">
+<span class="text-[10px] font-mono text-text-secondary uppercase">Audit Log: User S. Vance confirmed vote at 09:42:11 AM EST via IP 10.2.4.19</span>
+<button class="text-primary text-xs hover:text-white transition-colors">View Full Audit History</button>
+</div>
+</section>
+</div>
+</main>`;
+
+export default function Page() {
+  return (
+    <StitchFrame
+      title={TITLE}
+      fontLinks={FONT_LINKS}
+      tailwindCdnSrc={TAILWIND_CDN}
+      tailwindConfigJs={TAILWIND_CONFIG_JS}
+      styles={STYLES}
+      bodyHtml={BODY_HTML}
+    />
+  );
+}

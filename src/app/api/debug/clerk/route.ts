@@ -5,6 +5,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const { userId, sessionId } = auth();
+  const { userId, sessionId } = await auth();
   return NextResponse.json({ userId, sessionId });
 }

@@ -1,7 +1,7 @@
 import StitchFrame from "@/components/stitch/StitchFrame";
 
 const TITLE = "Buddy Login";
-const FONT_LINKS = [];
+const FONT_LINKS: string[] = [];
 const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
 const TAILWIND_CONFIG_JS = `tailwind.config = {
             darkMode: "class",
@@ -20,7 +20,7 @@ const TAILWIND_CONFIG_JS = `tailwind.config = {
                 },
             },
         }`;
-const STYLES = [];
+const STYLES: string[] = [];
 const BODY_HTML = `<!-- Top Navigation (Minimal) -->
 <header class="w-full px-6 py-4 sm:px-10 flex items-center justify-between absolute top-0 left-0 z-10">
 <div class="flex items-center gap-2">

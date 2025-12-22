@@ -1,0 +1,574 @@
+import StitchFrame from "@/components/stitch/StitchFrame";
+
+const TITLE = "Buddy - Audit &amp; Compliance Ledger";
+const FONT_LINKS = [];
+const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
+const TAILWIND_CONFIG_JS = `tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#136dec",
+                        "primary-dark": "#0b52b8",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#0f131a",
+                        "surface-dark": "#1a212e",
+                        "surface-hover": "#242e3f",
+                        "border-dark": "#2d3646",
+                        "text-main": "#e2e8f0",
+                        "text-muted": "#94a3b8",
+                        "success": "#10b981",
+                        "warning": "#f59e0b",
+                        "danger": "#ef4444",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "mono": ["JetBrains Mono", "monospace"],
+                    },
+                    fontSize: {
+                        "2xs": "0.65rem",
+                    }
+                },
+            },
+        }`;
+const STYLES = [
+  "/* Custom scrollbar for high density data feeling */\n        ::-webkit-scrollbar {\n            width: 8px;\n            height: 8px;\n        }\n        ::-webkit-scrollbar-track {\n            background: #0f131a;\n        }\n        ::-webkit-scrollbar-thumb {\n            background: #2d3646;\n            border-radius: 4px;\n        }\n        ::-webkit-scrollbar-thumb:hover {\n            background: #3e4a5e;\n        }\n        .shimmer {\n            background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0) 100%);\n            animation: shimmer 2s infinite;\n        }\n        @keyframes shimmer {\n            0% { transform: translateX(-100%); }\n            100% { transform: translateX(100%); }\n        }"
+];
+const BODY_HTML = `<!-- Global Header -->
+<header class="flex-none flex items-center justify-between whitespace-nowrap border-b border-border-dark bg-[#111418] px-6 py-3 z-20">
+<div class="flex items-center gap-8">
+<!-- Brand -->
+<div class="flex items-center gap-3 text-white">
+<div class="size-6 text-primary">
+<svg fill="none" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_6_330)">
+<path clip-rule="evenodd" d="M24 0.757355L47.2426 24L24 47.2426L0.757355 24L24 0.757355ZM21 35.7574V12.2426L9.24264 24L21 35.7574Z" fill="currentColor" fill-rule="evenodd"></path>
+</g>
+<defs>
+<clippath id="clip0_6_330"><rect fill="white" height="48" width="48"></rect></clippath>
+</defs>
+</svg>
+</div>
+<h2 class="text-white text-lg font-bold tracking-tight">Buddy</h2>
+</div>
+<!-- Nav -->
+<nav class="hidden xl:flex items-center gap-6">
+<a class="text-text-muted hover:text-white text-sm font-medium transition-colors" href="#">Deals</a>
+<a class="text-text-muted hover:text-white text-sm font-medium transition-colors" href="#">Intake</a>
+<a class="text-text-muted hover:text-white text-sm font-medium transition-colors" href="#">Portfolio</a>
+<a class="text-text-muted hover:text-white text-sm font-medium transition-colors" href="#">Committee</a>
+<a class="text-text-muted hover:text-white text-sm font-medium transition-colors" href="#">Reporting</a>
+<a class="text-text-muted hover:text-white text-sm font-medium transition-colors" href="#">Servicing</a>
+<a class="text-text-muted hover:text-white text-sm font-medium transition-colors" href="#">Workout</a>
+<a class="text-text-muted hover:text-white text-sm font-medium transition-colors" href="#">Legal</a>
+<a class="text-white text-sm font-bold border-b-2 border-primary py-4 -my-4" href="#">Admin</a>
+</nav>
+</div>
+<div class="flex items-center justify-end gap-6">
+<!-- Search -->
+<div class="relative w-64">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-[20px]">search</span>
+<input class="w-full h-9 bg-surface-dark border border-border-dark rounded text-sm pl-10 pr-4 text-white placeholder-text-muted focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary" placeholder="Global search..." type="text"/>
+</div>
+<!-- Actions -->
+<button class="text-text-muted hover:text-white transition-colors relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-0 right-0 size-2 bg-danger rounded-full border-2 border-[#111418]"></span>
+</button>
+<div class="size-8 rounded-full bg-gradient-to-tr from-primary to-purple-500 border border-border-dark relative" data-alt="User avatar gradient">
+<span class="absolute bottom-0 right-0 size-2.5 bg-success rounded-full border-2 border-[#111418]"></span>
+</div>
+</div>
+</header>
+<!-- Main Content Grid -->
+<main class="flex flex-1 overflow-hidden">
+<!-- LEFT COLUMN: Filters & Scope -->
+<aside class="w-[300px] flex-none border-r border-border-dark bg-[#131820] flex flex-col overflow-y-auto z-10">
+<!-- Integrity Status -->
+<div class="p-4 border-b border-border-dark bg-gradient-to-b from-surface-dark to-[#131820]">
+<div class="flex items-start justify-between mb-3">
+<h3 class="text-xs font-bold uppercase tracking-wider text-text-muted">Ledger Integrity</h3>
+<span class="flex items-center gap-1.5 text-[11px] font-mono text-success bg-success/10 px-2 py-0.5 rounded border border-success/20">
+<span class="material-symbols-outlined text-[14px]">verified</span> VERIFIED
+                    </span>
+</div>
+<div class="space-y-2 mb-4">
+<div class="flex justify-between items-center text-xs">
+<span class="text-text-muted">Hash Chain</span>
+<span class="text-white font-medium">Healthy</span>
+</div>
+<div class="flex justify-between items-center text-xs">
+<span class="text-text-muted">Last Seal</span>
+<span class="text-white font-medium font-mono">10:55 AM ET</span>
+</div>
+<div class="w-full bg-border-dark h-1 rounded overflow-hidden">
+<div class="bg-success w-full h-full"></div>
+</div>
+</div>
+<button class="w-full flex items-center justify-center gap-2 h-8 bg-surface-dark hover:bg-surface-hover border border-border-dark rounded text-xs font-medium text-text-main transition-colors">
+<span class="material-symbols-outlined text-[16px]">download</span> Export Seal Certificate
+                </button>
+</div>
+<!-- Context Search -->
+<div class="p-4 border-b border-border-dark">
+<label class="block text-xs font-medium text-text-muted mb-2">Filter Scope</label>
+<div class="relative">
+<input class="w-full h-9 bg-surface-dark border border-border-dark rounded text-xs pl-3 pr-3 text-white placeholder-text-muted focus:outline-none focus:border-primary" placeholder="Search user, event, hash..." type="text"/>
+</div>
+</div>
+<!-- Facet Filters -->
+<div class="flex-1 overflow-y-auto">
+<div class="flex flex-col">
+<!-- Saved Views -->
+<div class="p-4 pb-2">
+<h4 class="text-xs font-bold uppercase tracking-wider text-text-muted mb-3">Saved Views</h4>
+<div class="space-y-1">
+<button class="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-surface-dark text-left group">
+<span class="text-xs text-text-main">Regulatory Exports</span>
+<span class="bg-border-dark text-text-muted text-[10px] px-1.5 py-0.5 rounded font-mono group-hover:bg-[#2d3646]">12</span>
+</button>
+<button class="w-full flex items-center justify-between px-2 py-1.5 rounded bg-primary/10 border border-primary/20 text-left">
+<span class="text-xs text-primary font-medium">High-Risk Actions</span>
+<span class="bg-primary text-white text-[10px] px-1.5 py-0.5 rounded font-mono">4</span>
+</button>
+<button class="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-surface-dark text-left group">
+<span class="text-xs text-text-main">Access Denied Logs</span>
+<span class="bg-border-dark text-text-muted text-[10px] px-1.5 py-0.5 rounded font-mono group-hover:bg-[#2d3646]">8</span>
+</button>
+</div>
+</div>
+<!-- Scope Accordions -->
+<div class="border-t border-border-dark">
+<details class="group px-4 py-3 border-b border-border-dark" open="">
+<summary class="flex items-center justify-between cursor-pointer list-none">
+<span class="text-xs font-medium text-text-main">Time Range</span>
+<span class="material-symbols-outlined text-text-muted text-[16px] group-open:rotate-180 transition-transform">expand_more</span>
+</summary>
+<div class="pt-3">
+<div class="flex items-center gap-2 text-xs bg-surface-dark border border-border-dark rounded p-2">
+<span class="material-symbols-outlined text-text-muted text-[16px]">calendar_today</span>
+<span class="text-white">Last 30 Days</span>
+</div>
+</div>
+</details>
+<details class="group px-4 py-3 border-b border-border-dark" open="">
+<summary class="flex items-center justify-between cursor-pointer list-none">
+<span class="text-xs font-medium text-text-main">Severity</span>
+<span class="material-symbols-outlined text-text-muted text-[16px] group-open:rotate-180 transition-transform">expand_more</span>
+</summary>
+<div class="pt-3 space-y-2">
+<label class="flex items-center gap-2 cursor-pointer">
+<input class="rounded border-border-dark bg-surface-dark text-primary focus:ring-0 size-3.5" type="checkbox"/>
+<span class="text-xs text-text-muted">Critical (4)</span>
+</label>
+<label class="flex items-center gap-2 cursor-pointer">
+<input class="rounded border-border-dark bg-surface-dark text-primary focus:ring-0 size-3.5" type="checkbox"/>
+<span class="text-xs text-text-muted">Watch (12)</span>
+</label>
+<label class="flex items-center gap-2 cursor-pointer">
+<input checked="" class="rounded border-border-dark bg-surface-dark text-primary focus:ring-0 size-3.5" type="checkbox"/>
+<span class="text-xs text-text-white">Info (All)</span>
+</label>
+</div>
+</details>
+<details class="group px-4 py-3 border-b border-border-dark">
+<summary class="flex items-center justify-between cursor-pointer list-none">
+<span class="text-xs font-medium text-text-main">Domain</span>
+<span class="material-symbols-outlined text-text-muted text-[16px] group-open:rotate-180 transition-transform">expand_more</span>
+</summary>
+<!-- Content placeholder -->
+</details>
+<details class="group px-4 py-3 border-b border-border-dark">
+<summary class="flex items-center justify-between cursor-pointer list-none">
+<span class="text-xs font-medium text-text-main">Event Type</span>
+<span class="material-symbols-outlined text-text-muted text-[16px] group-open:rotate-180 transition-transform">expand_more</span>
+</summary>
+<!-- Content placeholder -->
+</details>
+</div>
+</div>
+</div>
+</aside>
+<!-- CENTER COLUMN: Audit Ledger Table -->
+<section class="flex-1 flex flex-col min-w-0 bg-[#0f131a] relative z-0">
+<!-- Table Header / Controls -->
+<div class="h-16 flex-none border-b border-border-dark px-6 flex items-center justify-between bg-[#111418]">
+<div class="flex items-center gap-4">
+<h1 class="text-lg font-bold text-white tracking-tight">Audit Ledger</h1>
+<div class="h-4 w-px bg-border-dark"></div>
+<div class="flex items-center gap-2">
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox" value=""/>
+<div class="w-8 h-4 bg-border-dark peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary"></div>
+<span class="ms-2 text-xs font-medium text-text-muted">Show material changes only</span>
+</label>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<button class="h-8 px-3 flex items-center gap-2 bg-surface-dark hover:bg-surface-hover border border-border-dark rounded text-xs font-medium text-text-main transition-colors">
+<span class="material-symbols-outlined text-[16px]">table_view</span> Collapse similar
+                    </button>
+<button class="h-8 px-3 flex items-center gap-2 bg-surface-dark hover:bg-surface-hover border border-border-dark rounded text-xs font-medium text-text-main transition-colors">
+<span class="material-symbols-outlined text-[16px]">ios_share</span> Export CSV
+                    </button>
+<button class="h-8 px-3 flex items-center gap-2 bg-primary hover:bg-primary-dark rounded text-xs font-bold text-white transition-colors shadow-lg shadow-primary/20">
+<span class="material-symbols-outlined text-[16px]">shield</span> Generate Regulator Pack
+                    </button>
+</div>
+</div>
+<!-- Table Container -->
+<div class="flex-1 overflow-auto relative">
+<table class="w-full text-left border-collapse">
+<thead class="bg-[#161b24] sticky top-0 z-10 shadow-sm ring-1 ring-border-dark/50">
+<tr>
+<th class="py-2.5 px-4 text-[11px] font-semibold text-text-muted uppercase tracking-wider border-b border-border-dark w-40">Timestamp (UTC)</th>
+<th class="py-2.5 px-4 text-[11px] font-semibold text-text-muted uppercase tracking-wider border-b border-border-dark w-48">Actor</th>
+<th class="py-2.5 px-4 text-[11px] font-semibold text-text-muted uppercase tracking-wider border-b border-border-dark w-32">Domain</th>
+<th class="py-2.5 px-4 text-[11px] font-semibold text-text-muted uppercase tracking-wider border-b border-border-dark">Event &amp; Object</th>
+<th class="py-2.5 px-4 text-[11px] font-semibold text-text-muted uppercase tracking-wider border-b border-border-dark w-24">Severity</th>
+<th class="py-2.5 px-4 text-[11px] font-semibold text-text-muted uppercase tracking-wider border-b border-border-dark w-32 text-right">Integrity</th>
+</tr>
+</thead>
+<tbody class="text-xs font-medium divide-y divide-border-dark/50">
+<!-- High Risk Event (Selected) -->
+<tr class="bg-primary/5 hover:bg-primary/10 transition-colors group border-l-2 border-l-primary cursor-pointer">
+<td class="py-3 px-4 font-mono text-text-muted">2023-10-27 14:02:45</td>
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="text-white">J. Smith</span>
+<span class="text-[10px] text-text-muted">Sr. Underwriter</span>
+</div>
+</td>
+<td class="py-3 px-4 text-text-muted">Underwriting</td>
+<td class="py-3 px-4">
+<div class="flex flex-col gap-1">
+<span class="text-white font-semibold">POLICY_OVERRIDE_GRANTED</span>
+<span class="text-text-muted flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">description</span> 
+                                        Loan-44582: Max LTV Exceeded
+                                    </span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-danger/10 text-danger border border-danger/20">
+                                    CRITICAL
+                                </span>
+</td>
+<td class="py-3 px-4 text-right">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono text-success bg-success/5 border border-success/10">
+<span class="material-symbols-outlined text-[12px]">verified</span> 0x8a2f...91
+                                </span>
+</td>
+</tr>
+<!-- Standard Event -->
+<tr class="hover:bg-surface-hover transition-colors border-l-2 border-l-transparent">
+<td class="py-3 px-4 font-mono text-text-muted">2023-10-27 13:58:12</td>
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="text-white">System (OCR)</span>
+<span class="text-[10px] text-text-muted">Service Account</span>
+</div>
+</td>
+<td class="py-3 px-4 text-text-muted">Ingestion</td>
+<td class="py-3 px-4">
+<div class="flex flex-col gap-1">
+<span class="text-text-main">FIELD_MAPPING_UPDATED</span>
+<span class="text-text-muted">Confidence Score: 98.5%</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-text-muted/10 text-text-muted border border-text-muted/20">
+                                    INFO
+                                </span>
+</td>
+<td class="py-3 px-4 text-right">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono text-success bg-success/5 border border-success/10">
+<span class="material-symbols-outlined text-[12px]">verified</span> 0x7b1c...44
+                                </span>
+</td>
+</tr>
+<!-- Watch Event -->
+<tr class="hover:bg-surface-hover transition-colors border-l-2 border-l-transparent">
+<td class="py-3 px-4 font-mono text-text-muted">2023-10-27 13:45:33</td>
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="text-white">M. Davis</span>
+<span class="text-[10px] text-text-muted">Compliance Officer</span>
+</div>
+</td>
+<td class="py-3 px-4 text-text-muted">Access Control</td>
+<td class="py-3 px-4">
+<div class="flex flex-col gap-1">
+<span class="text-text-main">PERMISSION_CHANGED</span>
+<span class="text-text-muted">User: K. Lee added to 'Approval Committee'</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-warning/10 text-warning border border-warning/20">
+                                    WATCH
+                                </span>
+</td>
+<td class="py-3 px-4 text-right">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono text-success bg-success/5 border border-success/10">
+<span class="material-symbols-outlined text-[12px]">verified</span> 0x3d9e...21
+                                </span>
+</td>
+</tr>
+<!-- Standard Event -->
+<tr class="hover:bg-surface-hover transition-colors border-l-2 border-l-transparent">
+<td class="py-3 px-4 font-mono text-text-muted">2023-10-27 13:12:05</td>
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="text-white">API Gateway</span>
+<span class="text-[10px] text-text-muted">System</span>
+</div>
+</td>
+<td class="py-3 px-4 text-text-muted">Credit</td>
+<td class="py-3 px-4">
+<div class="flex flex-col gap-1">
+<span class="text-text-main">CREDIT_REPORT_PULLED</span>
+<span class="text-text-muted">Provider: Equifax, Case-9921</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-text-muted/10 text-text-muted border border-text-muted/20">
+                                    INFO
+                                </span>
+</td>
+<td class="py-3 px-4 text-right">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono text-success bg-success/5 border border-success/10">
+<span class="material-symbols-outlined text-[12px]">verified</span> 0x1f4a...88
+                                </span>
+</td>
+</tr>
+<!-- Standard Event -->
+<tr class="hover:bg-surface-hover transition-colors border-l-2 border-l-transparent">
+<td class="py-3 px-4 font-mono text-text-muted">2023-10-27 12:55:00</td>
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="text-white">L. Chen</span>
+<span class="text-[10px] text-text-muted">Servicing Mgr</span>
+</div>
+</td>
+<td class="py-3 px-4 text-text-muted">Servicing</td>
+<td class="py-3 px-4">
+<div class="flex flex-col gap-1">
+<span class="text-text-main">RATE_RESET_CONFIRMED</span>
+<span class="text-text-muted">Loan-44582: SOFR + 250bps</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-text-muted/10 text-text-muted border border-text-muted/20">
+                                    INFO
+                                </span>
+</td>
+<td class="py-3 px-4 text-right">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono text-success bg-success/5 border border-success/10">
+<span class="material-symbols-outlined text-[12px]">verified</span> 0x9c2b...10
+                                </span>
+</td>
+</tr>
+<!-- More filler rows for density -->
+<tr class="hover:bg-surface-hover transition-colors border-l-2 border-l-transparent">
+<td class="py-3 px-4 font-mono text-text-muted">2023-10-27 11:30:11</td>
+<td class="py-3 px-4"><div class="flex flex-col"><span class="text-white">System</span><span class="text-[10px] text-text-muted">Auto-job</span></div></td>
+<td class="py-3 px-4 text-text-muted">Legal</td>
+<td class="py-3 px-4"><div class="flex flex-col gap-1"><span class="text-text-main">DOC_GENERATION_COMPLETE</span><span class="text-text-muted">Closing Package v2</span></div></td>
+<td class="py-3 px-4"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-text-muted/10 text-text-muted border border-text-muted/20">INFO</span></td>
+<td class="py-3 px-4 text-right"><span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono text-success bg-success/5 border border-success/10"><span class="material-symbols-outlined text-[12px]">verified</span> 0x5e1d...99</span></td>
+</tr>
+<tr class="hover:bg-surface-hover transition-colors border-l-2 border-l-transparent">
+<td class="py-3 px-4 font-mono text-text-muted">2023-10-27 10:15:42</td>
+<td class="py-3 px-4"><div class="flex flex-col"><span class="text-white">R. Vance</span><span class="text-[10px] text-text-muted">Admin</span></div></td>
+<td class="py-3 px-4 text-text-muted">Configuration</td>
+<td class="py-3 px-4"><div class="flex flex-col gap-1"><span class="text-text-main">WORKFLOW_STEP_ADDED</span><span class="text-text-muted">Pre-funding Review</span></div></td>
+<td class="py-3 px-4"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-warning/10 text-warning border border-warning/20">WATCH</span></td>
+<td class="py-3 px-4 text-right"><span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono text-success bg-success/5 border border-success/10"><span class="material-symbols-outlined text-[12px]">verified</span> 0x2a8f...77</span></td>
+</tr>
+<tr class="hover:bg-surface-hover transition-colors border-l-2 border-l-transparent">
+<td class="py-3 px-4 font-mono text-text-muted">2023-10-27 09:44:01</td>
+<td class="py-3 px-4"><div class="flex flex-col"><span class="text-white">Credit Comm.</span><span class="text-[10px] text-text-muted">Board</span></div></td>
+<td class="py-3 px-4 text-text-muted">Decisioning</td>
+<td class="py-3 px-4"><div class="flex flex-col gap-1"><span class="text-text-main">VOTE_CAST_APPROVED</span><span class="text-text-muted">Unanimous consent</span></div></td>
+<td class="py-3 px-4"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-text-muted/10 text-text-muted border border-text-muted/20">INFO</span></td>
+<td class="py-3 px-4 text-right"><span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono text-success bg-success/5 border border-success/10"><span class="material-symbols-outlined text-[12px]">verified</span> 0x4b3c...12</span></td>
+</tr>
+<tr class="hover:bg-surface-hover transition-colors border-l-2 border-l-transparent">
+<td class="py-3 px-4 font-mono text-text-muted">2023-10-27 08:22:19</td>
+<td class="py-3 px-4"><div class="flex flex-col"><span class="text-white">J. Smith</span><span class="text-[10px] text-text-muted">Sr. Underwriter</span></div></td>
+<td class="py-3 px-4 text-text-muted">Intake</td>
+<td class="py-3 px-4"><div class="flex flex-col gap-1"><span class="text-text-main">FILE_UPLOADED</span><span class="text-text-muted">Tax_Returns_2022.pdf</span></div></td>
+<td class="py-3 px-4"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-text-muted/10 text-text-muted border border-text-muted/20">INFO</span></td>
+<td class="py-3 px-4 text-right"><span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono text-success bg-success/5 border border-success/10"><span class="material-symbols-outlined text-[12px]">verified</span> 0x1d9e...55</span></td>
+</tr>
+<tr class="hover:bg-surface-hover transition-colors border-l-2 border-l-transparent">
+<td class="py-3 px-4 font-mono text-text-muted">2023-10-27 08:15:00</td>
+<td class="py-3 px-4"><div class="flex flex-col"><span class="text-white">System</span><span class="text-[10px] text-text-muted">Login</span></div></td>
+<td class="py-3 px-4 text-text-muted">Auth</td>
+<td class="py-3 px-4"><div class="flex flex-col gap-1"><span class="text-text-main">SESSION_STARTED</span><span class="text-text-muted">MFA Successful</span></div></td>
+<td class="py-3 px-4"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-text-muted/10 text-text-muted border border-text-muted/20">INFO</span></td>
+<td class="py-3 px-4 text-right"><span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono text-success bg-success/5 border border-success/10"><span class="material-symbols-outlined text-[12px]">verified</span> 0x8a1b...22</span></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- RIGHT COLUMN: Event Detail Drawer -->
+<aside class="w-[380px] flex-none border-l border-border-dark bg-[#131820] flex flex-col z-10 shadow-xl">
+<!-- Header -->
+<div class="h-16 flex-none px-6 border-b border-border-dark flex items-center justify-between bg-surface-dark">
+<div>
+<h2 class="text-sm font-bold text-white leading-tight">Event Details</h2>
+<p class="text-[10px] text-text-muted font-mono mt-0.5">ID: evt_882910023a</p>
+</div>
+<button class="text-text-muted hover:text-white">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<!-- Content Scroll -->
+<div class="flex-1 overflow-y-auto p-6 space-y-6">
+<!-- Severity & Title -->
+<div class="flex items-start gap-4">
+<div class="size-10 rounded bg-danger/10 border border-danger/20 flex items-center justify-center flex-none">
+<span class="material-symbols-outlined text-danger">warning</span>
+</div>
+<div>
+<h3 class="text-base font-bold text-white mb-1">POLICY_OVERRIDE_GRANTED</h3>
+<p class="text-xs text-text-muted leading-relaxed">
+                            A critical policy exception was manually approved by an authorized user.
+                        </p>
+</div>
+</div>
+<!-- Object Context -->
+<div class="space-y-3">
+<h4 class="text-[11px] font-bold text-text-muted uppercase tracking-wider">Object Context</h4>
+<div class="bg-surface-dark border border-border-dark rounded p-3 space-y-2">
+<div class="flex justify-between items-center text-xs">
+<span class="text-text-muted">Target Object</span>
+<a class="text-primary hover:underline flex items-center gap-1" href="#">
+                                Loan-44582 <span class="material-symbols-outlined text-[12px]">open_in_new</span>
+</a>
+</div>
+<div class="w-full h-px bg-border-dark"></div>
+<div class="flex justify-between items-center text-xs">
+<span class="text-text-muted">Policy Ref</span>
+<span class="text-white">CredPol_v4.2 (LTV Cap)</span>
+</div>
+</div>
+</div>
+<!-- Actor Info -->
+<div class="space-y-3">
+<h4 class="text-[11px] font-bold text-text-muted uppercase tracking-wider">Actor Information</h4>
+<div class="grid grid-cols-2 gap-3">
+<div class="bg-surface-dark border border-border-dark rounded p-2.5">
+<div class="text-[10px] text-text-muted mb-1">Name</div>
+<div class="text-xs text-white font-medium truncate">Jason Smith</div>
+</div>
+<div class="bg-surface-dark border border-border-dark rounded p-2.5">
+<div class="text-[10px] text-text-muted mb-1">Role</div>
+<div class="text-xs text-white font-medium truncate">Sr. Underwriter</div>
+</div>
+<div class="bg-surface-dark border border-border-dark rounded p-2.5">
+<div class="text-[10px] text-text-muted mb-1">IP Address</div>
+<div class="text-xs text-white font-mono truncate">192.168.4.22</div>
+</div>
+<div class="bg-surface-dark border border-border-dark rounded p-2.5">
+<div class="text-[10px] text-text-muted mb-1">MFA Status</div>
+<div class="text-xs text-success font-medium flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">lock</span> Hardware Key
+                            </div>
+</div>
+</div>
+</div>
+<!-- Change Diff -->
+<div class="space-y-3">
+<div class="flex items-center justify-between">
+<h4 class="text-[11px] font-bold text-text-muted uppercase tracking-wider">State Diff</h4>
+<span class="text-[10px] text-warning bg-warning/10 px-1.5 py-0.5 rounded border border-warning/20">Material Change</span>
+</div>
+<div class="bg-[#0b0e14] border border-border-dark rounded overflow-hidden text-xs font-mono">
+<div class="flex border-b border-border-dark">
+<div class="w-1/2 p-2 bg-red-900/10 text-red-300 border-r border-border-dark">
+<div class="text-[10px] opacity-50 mb-1">BEFORE</div>
+                                 "max_ltv": "75.00%"
+                             </div>
+<div class="w-1/2 p-2 bg-green-900/10 text-green-300">
+<div class="text-[10px] opacity-50 mb-1">AFTER</div>
+                                "max_ltv": "80.00%"
+                            </div>
+</div>
+</div>
+</div>
+<!-- Evidence -->
+<div class="space-y-3">
+<h4 class="text-[11px] font-bold text-text-muted uppercase tracking-wider">Evidence Artifacts</h4>
+<div class="space-y-2">
+<a class="flex items-center gap-3 p-2 rounded hover:bg-surface-dark border border-transparent hover:border-border-dark transition-all group" href="#">
+<div class="size-8 rounded bg-red-500/20 text-red-400 flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px]">picture_as_pdf</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="text-xs text-white font-medium truncate group-hover:text-primary transition-colors">approval_memo_v2.pdf</div>
+<div class="text-[10px] text-text-muted">Added 2023-10-27 14:01</div>
+</div>
+<span class="material-symbols-outlined text-text-muted text-[16px]">download</span>
+</a>
+</div>
+</div>
+<!-- Integrity Module -->
+<div class="space-y-3 pt-2">
+<div class="bg-gradient-to-br from-[#0f131a] to-[#161b24] border border-border-dark rounded-lg p-3 relative overflow-hidden">
+<div class="absolute top-0 right-0 p-3 opacity-10 pointer-events-none">
+<span class="material-symbols-outlined text-[64px]">fingerprint</span>
+</div>
+<h4 class="text-[11px] font-bold text-white uppercase tracking-wider mb-3 flex items-center gap-2">
+<span class="material-symbols-outlined text-success text-[16px]">verified_user</span> Cryptographic Proof
+                        </h4>
+<div class="space-y-2">
+<div>
+<div class="text-[10px] text-text-muted mb-0.5">Event Hash (SHA-256)</div>
+<div class="text-[10px] text-white font-mono break-all bg-black/30 p-1.5 rounded border border-white/5">
+                                    8a2f3c9e...91b2c4d5e6f7g8h9i0j1k2l3m4n5o6p7
+                                </div>
+</div>
+<div class="flex gap-4">
+<div>
+<div class="text-[10px] text-text-muted mb-0.5">Chain Index</div>
+<div class="text-xs text-white font-mono">#4,291,002</div>
+</div>
+<div>
+<div class="text-[10px] text-text-muted mb-0.5">Previous Hash</div>
+<div class="text-xs text-white font-mono">0x7b1c...44</div>
+</div>
+</div>
+</div>
+<button class="mt-3 w-full h-7 bg-[#1e293b] hover:bg-[#283548] border border-border-dark rounded text-[11px] font-medium text-success transition-colors flex items-center justify-center gap-2">
+                            Verify Chain Consistency
+                        </button>
+</div>
+</div>
+</div>
+<!-- Footer Actions -->
+<div class="p-4 border-t border-border-dark bg-[#111418] grid grid-cols-2 gap-3">
+<button class="h-9 flex items-center justify-center gap-2 bg-surface-dark hover:bg-surface-hover border border-border-dark rounded text-xs font-bold text-text-main transition-colors">
+<span class="material-symbols-outlined text-[16px]">content_copy</span> Copy ID
+                </button>
+<button class="h-9 flex items-center justify-center gap-2 bg-surface-dark hover:bg-surface-hover border border-border-dark rounded text-xs font-bold text-text-main transition-colors">
+<span class="material-symbols-outlined text-[16px]">data_object</span> Event JSON
+                </button>
+</div>
+</aside>
+</main>`;
+
+export default function Page() {
+  return (
+    <StitchFrame
+      title={TITLE}
+      fontLinks={FONT_LINKS}
+      tailwindCdnSrc={TAILWIND_CDN}
+      tailwindConfigJs={TAILWIND_CONFIG_JS}
+      styles={STYLES}
+      bodyHtml={BODY_HTML}
+    />
+  );
+}

@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Merge Field Registry - Buddy the Underwriter</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#136dec",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#101822", // Deep Navy/Charcoal base
+                        "surface-dark": "#1c2027",    // Slightly lighter panel
+                        "surface-highlight": "#282f39", // Hover/Input bg
+                        "border-dark": "#3b4554",
+                        "text-secondary": "#9da8b9",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "mono": ["JetBrains Mono", "monospace"],
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        /* Custom Scrollbar for dense UI */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #111418; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3b4554; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4b5563; 
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-white font-display h-screen flex flex-col overflow-hidden">
+<!-- Global Header -->
+<header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-border-dark bg-[#111418] px-6 py-3 shrink-0 z-20">
+<div class="flex items-center gap-8">
+<div class="flex items-center gap-3 text-white">
+<div class="size-6 text-primary">
+<svg fill="none" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path clip-rule="evenodd" d="M24 0.757355L47.2426 24L24 47.2426L0.757355 24L24 0.757355ZM21 35.7574V12.2426L9.24264 24L21 35.7574Z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+<h2 class="text-white text-lg font-bold leading-tight tracking-tight">Buddy</h2>
+</div>
+<nav class="hidden xl:flex items-center gap-6">
+<a class="text-text-secondary hover:text-white text-sm font-medium transition-colors" href="#">Deals</a>
+<a class="text-text-secondary hover:text-white text-sm font-medium transition-colors" href="#">Intake</a>
+<a class="text-text-secondary hover:text-white text-sm font-medium transition-colors" href="#">Portfolio</a>
+<a class="text-text-secondary hover:text-white text-sm font-medium transition-colors" href="#">Committee</a>
+<a class="text-text-secondary hover:text-white text-sm font-medium transition-colors" href="#">Reporting</a>
+<a class="text-white text-sm font-bold border-b-2 border-primary py-4 -my-4" href="#">Admin</a>
+</nav>
+</div>
+<div class="flex flex-1 justify-end items-center gap-4">
+<div class="relative w-64 hidden lg:block">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text-secondary">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</div>
+<input class="block w-full rounded-lg border-none bg-surface-highlight py-2 pl-10 pr-3 text-sm text-white placeholder-text-secondary focus:ring-1 focus:ring-primary" placeholder="Global Search..." type="text"/>
+</div>
+<button class="relative text-text-secondary hover:text-white">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-[#111418]"></span>
+</button>
+<div class="flex items-center gap-2 pl-2 border-l border-border-dark">
+<div class="bg-center bg-no-repeat bg-cover rounded-full size-8 ring-2 ring-border-dark" data-alt="User Avatar" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuAyAKJS4XjxN8kHPh1bWTmBKoAirANmIonmloFkkom5gL6_PrZA13_hH2Vfljrd9rS_RocVEVBPG7OeP0_LVGCoBAPN8SsQ401dh9JGhJkV-qP-RvJYq-8M1WyLO2578V_sU9lpbUfgadRC-2vXZIK95TP6MHuAketbkqB4PcOX1Q-wOGYLy69PoNqnYlYp0Fa0Mlyi8nGGmwR-bmTIAqSFFTbpAk-T4mMVyqcOLMSB7BPUu5we-r39LQ51hF-nPAgCiOm79G7WGqw");'></div>
+<div class="hidden lg:block text-xs">
+<div class="font-medium text-white">Alex Chen</div>
+<div class="text-text-secondary">Lead Underwriter</div>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Layout: 3 Columns -->
+<main class="flex flex-1 overflow-hidden">
+<!-- LEFT COLUMN: Admin Nav + Filters + Stats -->
+<aside class="w-[320px] bg-[#161b22] border-r border-border-dark flex flex-col overflow-y-auto shrink-0 z-10">
+<!-- Admin Navigation -->
+<div class="p-4 border-b border-border-dark">
+<h3 class="text-xs font-bold text-text-secondary uppercase tracking-wider mb-3 px-2">Admin Navigation</h3>
+<nav class="flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-text-secondary hover:text-white hover:bg-surface-highlight transition-colors" href="#">
+<span class="material-symbols-outlined text-[18px]">description</span>
+                        Templates
+                    </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-white bg-primary/10 border-l-2 border-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[18px] text-primary">data_object</span>
+                        Merge Fields
+                    </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-text-secondary hover:text-white hover:bg-surface-highlight transition-colors" href="#">
+<span class="material-symbols-outlined text-[18px]">branding_watermark</span>
+                        Branding &amp; Letterhead
+                    </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-text-secondary hover:text-white hover:bg-surface-highlight transition-colors" href="#">
+<span class="material-symbols-outlined text-[18px]">verified_user</span>
+                        Permissions
+                    </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-text-secondary hover:text-white hover:bg-surface-highlight transition-colors" href="#">
+<span class="material-symbols-outlined text-[18px]">history</span>
+                        Audit Log
+                    </a>
+</nav>
+</div>
+<!-- Filters -->
+<div class="p-4 border-b border-border-dark space-y-4">
+<h3 class="text-xs font-bold text-text-secondary uppercase tracking-wider px-1">Registry Filters</h3>
+<div class="relative">
+<span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text-secondary">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+</span>
+<input class="w-full bg-surface-dark border border-border-dark rounded-md py-2 pl-9 pr-3 text-sm text-white focus:ring-1 focus:ring-primary focus:border-primary placeholder-text-secondary" placeholder="Search fields..."/>
+</div>
+<div class="space-y-3">
+<label class="block">
+<span class="text-xs text-text-secondary mb-1 block">Domain</span>
+<select class="w-full bg-surface-dark border border-border-dark rounded-md py-1.5 px-3 text-sm text-white focus:ring-1 focus:ring-primary">
+<option>All Domains</option>
+<option>Borrower</option>
+<option>Property</option>
+<option>Loan</option>
+<option>Workout</option>
+</select>
+</label>
+<label class="block">
+<span class="text-xs text-text-secondary mb-1 block">Status</span>
+<select class="w-full bg-surface-dark border border-border-dark rounded-md py-1.5 px-3 text-sm text-white focus:ring-1 focus:ring-primary">
+<option>All Statuses</option>
+<option>Mapped</option>
+<option>Partial</option>
+<option>Missing</option>
+<option>Deprecated</option>
+</select>
+</label>
+</div>
+</div>
+<!-- Coverage Summary Card -->
+<div class="p-4 flex-1">
+<div class="bg-surface-dark border border-border-dark rounded-lg p-4 shadow-sm">
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-sm font-semibold text-white">Coverage Summary</h3>
+<button class="text-xs text-primary hover:text-blue-400 font-medium">Export CSV</button>
+</div>
+<div class="mb-4">
+<div class="flex justify-between text-xs mb-1.5">
+<span class="text-text-secondary">Template Coverage</span>
+<span class="text-white font-mono">98%</span>
+</div>
+<div class="w-full bg-gray-700 rounded-full h-1.5">
+<div class="bg-primary h-1.5 rounded-full" style="width: 98%"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-3">
+<div class="bg-surface-highlight/50 p-2 rounded border border-border-dark/50">
+<div class="text-[10px] text-text-secondary uppercase">Total Fields</div>
+<div class="text-lg font-bold text-white">186</div>
+</div>
+<div class="bg-emerald-900/20 p-2 rounded border border-emerald-900/40">
+<div class="text-[10px] text-emerald-400 uppercase">Mapped</div>
+<div class="text-lg font-bold text-emerald-400">171</div>
+</div>
+<div class="bg-amber-900/20 p-2 rounded border border-amber-900/40">
+<div class="text-[10px] text-amber-400 uppercase">Partial</div>
+<div class="text-lg font-bold text-amber-400">9</div>
+</div>
+<div class="bg-red-900/20 p-2 rounded border border-red-900/40">
+<div class="text-[10px] text-red-400 uppercase">Missing</div>
+<div class="text-lg font-bold text-red-400">6</div>
+</div>
+</div>
+<div class="mt-3 text-xs text-text-secondary flex gap-2 items-center">
+<span class="material-symbols-outlined text-[14px]">info</span>
+<span>14 Deprecated fields hidden</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- CENTER COLUMN: Registry Table -->
+<section class="flex-1 flex flex-col min-w-0 bg-[#111418]">
+<!-- Toolbar -->
+<div class="flex items-center justify-between px-6 py-4 border-b border-border-dark bg-[#111418] shrink-0">
+<div>
+<h1 class="text-xl font-bold text-white tracking-tight">Merge Field Registry</h1>
+<p class="text-sm text-text-secondary">Canonical definitions and source mapping for document generation.</p>
+</div>
+<div class="flex items-center gap-3">
+<button class="flex items-center gap-2 px-3 py-2 rounded-md bg-surface-highlight border border-border-dark text-white text-sm hover:bg-border-dark transition-colors">
+<span class="material-symbols-outlined text-[18px]">upload</span>
+                        Import
+                    </button>
+<button class="flex items-center gap-2 px-3 py-2 rounded-md bg-surface-highlight border border-border-dark text-white text-sm hover:bg-border-dark transition-colors">
+<span class="material-symbols-outlined text-[18px]">verified</span>
+                        Validate
+                    </button>
+<button class="flex items-center gap-2 px-3 py-2 rounded-md bg-primary text-white text-sm font-medium hover:bg-blue-600 transition-colors shadow-lg shadow-blue-900/20">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                        Create Field
+                    </button>
+</div>
+</div>
+<!-- Table Container -->
+<div class="flex-1 overflow-auto">
+<table class="w-full text-left border-collapse">
+<thead class="bg-[#161b22] sticky top-0 z-10 shadow-sm">
+<tr>
+<th class="px-6 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wider border-b border-border-dark">Field Key</th>
+<th class="px-6 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wider border-b border-border-dark">Label / Domain</th>
+<th class="px-6 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wider border-b border-border-dark">Type</th>
+<th class="px-6 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wider border-b border-border-dark">Status</th>
+<th class="px-6 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wider border-b border-border-dark">Primary Source</th>
+<th class="px-6 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wider border-b border-border-dark text-right">Updated</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-border-dark/50">
+<!-- Row 1: Mapped -->
+<tr class="group hover:bg-surface-highlight/40 cursor-pointer transition-colors">
+<td class="px-6 py-3">
+<span class="font-mono text-xs text-blue-300 bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-900/30">borrower.legal_name</span>
+</td>
+<td class="px-6 py-3">
+<div class="text-sm font-medium text-white">Legal Name</div>
+<div class="text-xs text-text-secondary">Borrower</div>
+</td>
+<td class="px-6 py-3 text-sm text-text-secondary">String</td>
+<td class="px-6 py-3">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+<span class="material-symbols-outlined text-[14px]">check_circle</span>
+                                    Mapped
+                                </span>
+</td>
+<td class="px-6 py-3 text-sm text-white">CRM (Salesforce)</td>
+<td class="px-6 py-3 text-xs text-text-secondary text-right font-mono">2h ago</td>
+</tr>
+<!-- Row 2: Selected (Active) -->
+<tr class="bg-primary/5 border-l-2 border-primary cursor-pointer">
+<td class="px-6 py-3">
+<span class="font-mono text-xs text-blue-300 bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-900/30">template.signatory.title</span>
+</td>
+<td class="px-6 py-3">
+<div class="text-sm font-medium text-white">Signatory Title</div>
+<div class="text-xs text-text-secondary">Template</div>
+</td>
+<td class="px-6 py-3 text-sm text-text-secondary">String</td>
+<td class="px-6 py-3">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+<span class="material-symbols-outlined text-[14px]">warning</span>
+                                    Partial
+                                </span>
+</td>
+<td class="px-6 py-3 text-sm text-white">User Input</td>
+<td class="px-6 py-3 text-xs text-text-secondary text-right font-mono">1d ago</td>
+</tr>
+<!-- Row 3: Mapped -->
+<tr class="group hover:bg-surface-highlight/40 cursor-pointer transition-colors">
+<td class="px-6 py-3">
+<span class="font-mono text-xs text-blue-300 bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-900/30">metrics.dscr_in_place</span>
+</td>
+<td class="px-6 py-3">
+<div class="text-sm font-medium text-white">DSCR (In-Place)</div>
+<div class="text-xs text-text-secondary">Metrics</div>
+</td>
+<td class="px-6 py-3 text-sm text-text-secondary">Float (0.00x)</td>
+<td class="px-6 py-3">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+<span class="material-symbols-outlined text-[14px]">check_circle</span>
+                                    Mapped
+                                </span>
+</td>
+<td class="px-6 py-3 text-sm text-white">UW Model (Excel)</td>
+<td class="px-6 py-3 text-xs text-text-secondary text-right font-mono">5d ago</td>
+</tr>
+<!-- Row 4: Missing -->
+<tr class="group hover:bg-surface-highlight/40 cursor-pointer transition-colors">
+<td class="px-6 py-3">
+<span class="font-mono text-xs text-blue-300 bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-900/30">workout.forbearance.term</span>
+</td>
+<td class="px-6 py-3">
+<div class="text-sm font-medium text-white">Forbearance Term</div>
+<div class="text-xs text-text-secondary">Workout</div>
+</td>
+<td class="px-6 py-3 text-sm text-text-secondary">Integer (Days)</td>
+<td class="px-6 py-3">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">
+<span class="material-symbols-outlined text-[14px]">error</span>
+                                    Missing
+                                </span>
+</td>
+<td class="px-6 py-3 text-sm text-text-secondary italic">-- None --</td>
+<td class="px-6 py-3 text-xs text-text-secondary text-right font-mono">1w ago</td>
+</tr>
+<!-- Row 5: Deprecated -->
+<tr class="group hover:bg-surface-highlight/40 cursor-pointer transition-colors opacity-60">
+<td class="px-6 py-3">
+<span class="font-mono text-xs text-gray-500 bg-gray-900/20 px-1.5 py-0.5 rounded border border-gray-700/30 line-through">loan.old_rate</span>
+</td>
+<td class="px-6 py-3">
+<div class="text-sm font-medium text-gray-400">Interest Rate (Legacy)</div>
+<div class="text-xs text-text-secondary">Loan</div>
+</td>
+<td class="px-6 py-3 text-sm text-text-secondary">Percent</td>
+<td class="px-6 py-3">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-700/30 text-gray-400 border border-gray-600/30">
+<span class="material-symbols-outlined text-[14px]">block</span>
+                                    Deprecated
+                                </span>
+</td>
+<td class="px-6 py-3 text-sm text-text-secondary italic">See loan.interest_rate</td>
+<td class="px-6 py-3 text-xs text-text-secondary text-right font-mono">3mo ago</td>
+</tr>
+<!-- Filler Row -->
+<tr class="group hover:bg-surface-highlight/40 cursor-pointer transition-colors">
+<td class="px-6 py-3">
+<span class="font-mono text-xs text-blue-300 bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-900/30">property.address.full</span>
+</td>
+<td class="px-6 py-3">
+<div class="text-sm font-medium text-white">Full Address</div>
+<div class="text-xs text-text-secondary">Property</div>
+</td>
+<td class="px-6 py-3 text-sm text-text-secondary">String</td>
+<td class="px-6 py-3">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+<span class="material-symbols-outlined text-[14px]">check_circle</span>
+                                    Mapped
+                                </span>
+</td>
+<td class="px-6 py-3 text-sm text-white">Encompass (LOS)</td>
+<td class="px-6 py-3 text-xs text-text-secondary text-right font-mono">1h ago</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- RIGHT COLUMN: Inspector / Editor -->
+<aside class="w-[400px] bg-[#161b22] border-l border-border-dark flex flex-col overflow-y-auto shrink-0 z-10 shadow-xl">
+<!-- Header -->
+<div class="px-5 py-4 border-b border-border-dark flex items-center justify-between sticky top-0 bg-[#161b22] z-20">
+<h2 class="text-sm font-bold text-white uppercase tracking-wide">Field Configuration</h2>
+<button class="text-text-secondary hover:text-white">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<div class="p-5 space-y-6">
+<!-- Field Details Panel -->
+<div class="space-y-4">
+<div class="flex items-center justify-between">
+<div class="inline-flex items-center gap-2">
+<span class="material-symbols-outlined text-text-secondary text-lg">data_object</span>
+<span class="text-white font-mono font-medium text-sm">template.signatory.title</span>
+</div>
+<button class="text-xs text-primary hover:underline">Edit Key</button>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<label class="block">
+<span class="text-xs text-text-secondary mb-1 block">Label</span>
+<input class="w-full bg-surface-dark border border-border-dark rounded px-2 py-1.5 text-sm text-white focus:ring-1 focus:ring-primary" value="Signatory Title"/>
+</label>
+<label class="block">
+<span class="text-xs text-text-secondary mb-1 block">Type</span>
+<select class="w-full bg-surface-dark border border-border-dark rounded px-2 py-1.5 text-sm text-white focus:ring-1 focus:ring-primary">
+<option>String</option>
+<option>Integer</option>
+<option>Float</option>
+</select>
+</label>
+</div>
+</div>
+<hr class="border-border-dark"/>
+<!-- Source Mapping -->
+<div class="space-y-3">
+<div class="flex items-center justify-between">
+<h3 class="text-sm font-bold text-white">Mapping Logic</h3>
+<span class="text-[10px] bg-amber-900/30 text-amber-400 px-1.5 py-0.5 rounded border border-amber-900/50">Partial</span>
+</div>
+<div class="bg-surface-dark border border-border-dark rounded-lg p-3 space-y-3">
+<div class="flex items-start gap-3">
+<div class="mt-1 size-5 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold border border-primary/30">1</div>
+<div class="flex-1 space-y-2">
+<label class="block">
+<span class="text-[10px] text-text-secondary uppercase tracking-wider">Primary Source</span>
+<select class="w-full bg-[#111418] border border-border-dark rounded mt-1 py-1.5 px-2 text-sm text-white">
+<option>Contact Object</option>
+<option>Deal Object</option>
+</select>
+</label>
+<label class="block">
+<span class="text-[10px] text-text-secondary uppercase tracking-wider">Field Path</span>
+<div class="flex items-center gap-2 mt-1">
+<span class="font-mono text-xs text-text-secondary">contact.</span>
+<input class="flex-1 bg-[#111418] border border-border-dark rounded py-1 px-2 text-sm text-white font-mono" value="job_title"/>
+</div>
+</label>
+<div class="flex items-center gap-2 mt-2">
+<span class="text-[10px] text-text-secondary uppercase tracking-wider bg-surface-highlight px-1.5 py-0.5 rounded">Transform</span>
+<span class="text-xs text-white">Title Case</span>
+</div>
+</div>
+</div>
+</div>
+<div class="flex justify-center">
+<span class="material-symbols-outlined text-text-secondary text-lg rotate-180">arrow_downward</span>
+</div>
+<div class="bg-surface-dark border border-dashed border-border-dark rounded-lg p-3 opacity-80">
+<div class="flex items-start gap-3">
+<div class="mt-1 size-5 rounded-full bg-gray-700/50 flex items-center justify-center text-gray-400 text-xs font-bold border border-gray-600/30">2</div>
+<div class="flex-1 space-y-1">
+<div class="flex justify-between items-center">
+<span class="text-[10px] text-text-secondary uppercase tracking-wider">Fallback Source</span>
+<button class="text-xs text-primary">+ Add Rule</button>
+</div>
+<p class="text-xs text-text-secondary italic">If primary returns null...</p>
+<input class="w-full bg-[#111418] border border-border-dark rounded py-1.5 px-2 text-sm text-white font-mono placeholder-gray-600" placeholder="e.g. deal.lead_sponsor.title"/>
+</div>
+</div>
+</div>
+</div>
+<!-- Test Console -->
+<div class="bg-[#0d1117] rounded-lg border border-border-dark overflow-hidden">
+<div class="bg-[#1c2027] px-3 py-2 border-b border-border-dark flex items-center justify-between">
+<span class="text-xs font-bold text-white flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm text-primary">science</span>
+                            Test Console
+                         </span>
+</div>
+<div class="p-3 space-y-3">
+<div class="flex gap-2">
+<input class="flex-1 bg-[#111418] border border-border-dark rounded py-1.5 px-2 text-xs text-white" placeholder="Enter Deal ID..." value="DL-2023-8492"/>
+<button class="bg-surface-highlight hover:bg-border-dark border border-border-dark text-white p-1.5 rounded transition-colors">
+<span class="material-symbols-outlined text-sm">play_arrow</span>
+</button>
+</div>
+<div class="space-y-1">
+<span class="text-[10px] text-text-secondary uppercase">Resolved Value</span>
+<div class="font-mono text-sm text-amber-400 bg-amber-900/10 border border-amber-900/30 p-2 rounded flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">warning</span>
+<span>null</span>
+</div>
+<p class="text-[10px] text-amber-500 mt-1">Warning: Primary source returned empty string.</p>
+</div>
+</div>
+</div>
+<!-- Impact Analysis -->
+<div class="space-y-3 pt-2">
+<h3 class="text-sm font-bold text-white">Impact Analysis</h3>
+<div class="bg-surface-dark border border-border-dark rounded-lg p-3">
+<div class="flex items-center gap-2 mb-3">
+<span class="material-symbols-outlined text-amber-500 text-lg">warning_amber</span>
+<span class="text-xs text-white">Affects <strong class="text-white">3 Active Templates</strong></span>
+</div>
+<ul class="space-y-2">
+<li class="flex items-center justify-between text-xs p-2 bg-surface-highlight/30 rounded">
+<span class="text-text-secondary">Term Sheet v4</span>
+<span class="text-amber-400">High Risk</span>
+</li>
+<li class="flex items-center justify-between text-xs p-2 bg-surface-highlight/30 rounded">
+<span class="text-text-secondary">LOI Standard</span>
+<span class="text-amber-400">Med Risk</span>
+</li>
+<li class="flex items-center justify-between text-xs p-2 bg-surface-highlight/30 rounded">
+<span class="text-text-secondary">Guaranty Agreement</span>
+<span class="text-emerald-400">Safe</span>
+</li>
+</ul>
+<div class="mt-3 pt-3 border-t border-border-dark text-xs">
+<div class="flex justify-between items-center mb-1">
+<span class="text-text-secondary">Render Warnings (Last 20)</span>
+<span class="text-white font-mono">4</span>
+</div>
+<div class="text-emerald-400 flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">trending_down</span>
+<span>Expected to drop to 0</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer Actions -->
+<div class="pt-4 pb-10 flex gap-3">
+<button class="flex-1 bg-primary hover:bg-blue-600 text-white py-2 rounded-md text-sm font-semibold shadow-lg shadow-blue-900/20 transition-all">Save Mapping</button>
+<button class="px-3 bg-surface-highlight border border-border-dark text-white rounded-md hover:bg-border-dark transition-colors" title="View Logs">
+<span class="material-symbols-outlined text-[20px]">history</span>
+</button>
+</div>
+</div>
+</aside>
+</main>
+</body></html>

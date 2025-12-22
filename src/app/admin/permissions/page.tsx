@@ -1,0 +1,530 @@
+import StitchFrame from "@/components/stitch/StitchFrame";
+
+const TITLE = "Buddy the Underwriter - Roles &amp; Permissions";
+const FONT_LINKS = [];
+const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
+const TAILWIND_CONFIG_JS = `tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#136dec",
+                        "primary-dark": "#1d4ed8",
+                        "danger": "#ef4444",
+                        "warning": "#f59e0b",
+                        "success": "#10b981",
+                        "background-dark": "#111418",
+                        "surface-dark": "#1a2027",
+                        "surface-lighter": "#282f39",
+                        "border-color": "#3b4554",
+                        "text-secondary": "#9da8b9",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    fontSize: {
+                        "xxs": "0.65rem",
+                    }
+                },
+            },
+        }`;
+const STYLES = [
+  "/* Custom scrollbar for high density tables */\n        ::-webkit-scrollbar {\n            width: 6px;\n            height: 6px;\n        }\n        ::-webkit-scrollbar-track {\n            background: #111418; \n        }\n        ::-webkit-scrollbar-thumb {\n            background: #3b4554; \n            border-radius: 3px;\n        }\n        ::-webkit-scrollbar-thumb:hover {\n            background: #4b5563; \n        }\n        \n        .toggle-checkbox:checked {\n            right: 0;\n            border-color: #136dec;\n        }\n        .toggle-checkbox:checked + .toggle-label {\n            background-color: #136dec;\n        }\n        \n        /* High density table utilities */\n        .cell-hover:hover {\n            background-color: rgba(255, 255, 255, 0.03);\n        }"
+];
+const BODY_HTML = `<!-- Global Header -->
+<header class="flex items-center justify-between shrink-0 h-14 border-b border-border-color bg-background-dark px-5 z-20">
+<div class="flex items-center gap-8">
+<!-- Logo Area -->
+<div class="flex items-center gap-3 text-white">
+<div class="size-5 text-primary">
+<svg fill="currentColor" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path d="M24 45.8096C19.6865 45.8096 15.4698 44.5305 11.8832 42.134C8.29667 39.7376 5.50128 36.3314 3.85056 32.3462C2.19985 28.361 1.76794 23.9758 2.60947 19.7452C3.451 15.5145 5.52816 11.6284 8.57829 8.5783C11.6284 5.52817 15.5145 3.45101 19.7452 2.60948C23.9758 1.76795 28.361 2.19986 32.3462 3.85057C36.3314 5.50129 39.7376 8.29668 42.134 11.8833C44.5305 15.4698 45.8096 19.6865 45.8096 24L24 24L24 45.8096Z"></path>
+</svg>
+</div>
+<h2 class="text-white text-base font-bold tracking-tight">Buddy the Underwriter</h2>
+</div>
+<!-- Navigation -->
+<nav class="flex items-center gap-1 h-full">
+<a class="px-3 py-1 text-sm font-medium text-text-secondary hover:text-white transition-colors rounded-md" href="#">Deals</a>
+<a class="px-3 py-1 text-sm font-medium text-text-secondary hover:text-white transition-colors rounded-md" href="#">Intake</a>
+<a class="px-3 py-1 text-sm font-medium text-text-secondary hover:text-white transition-colors rounded-md" href="#">Portfolio</a>
+<a class="px-3 py-1 text-sm font-medium text-text-secondary hover:text-white transition-colors rounded-md" href="#">Committee</a>
+<a class="px-3 py-1 text-sm font-medium text-text-secondary hover:text-white transition-colors rounded-md" href="#">Reporting</a>
+<a class="px-3 py-1 text-sm font-medium text-white bg-surface-lighter rounded-md" href="#">Admin</a>
+</nav>
+</div>
+<div class="flex items-center gap-5">
+<!-- Search -->
+<div class="relative group">
+<div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-text-secondary">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</div>
+<input class="bg-surface-lighter border-none text-white text-sm rounded h-8 pl-10 w-64 focus:ring-1 focus:ring-primary placeholder-text-secondary/60" placeholder="Global search..." type="text"/>
+</div>
+<!-- User/Notifications -->
+<button class="text-text-secondary hover:text-white relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-0 right-0 size-2 bg-danger rounded-full border-2 border-background-dark"></span>
+</button>
+<div class="size-8 rounded-full bg-cover bg-center border border-border-color" data-alt="User avatar - professional headshot of a man in a suit" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBu-lKgqDKKUOibcRqgf5v1qcH7X1xURol_MRB8CHEYrHkOczSPndxkYbY-tGeNEx8NCxElo2fOGipZlCUUyPH_8ev0zsGoPD5q4xAYaNfMKjIfeAbTRB7qbIjEWU99VnIUl4qu6ONpaP8v0kHzaFDZbC6hlPt2GxhmDrbOZvU5CyMx7r51noJDMbUv6vrVqxRiMNJtyJlXzsG_fl3701Wz2t_TEd6dp4u1n1GQ_YMpjmJlCSx1r0dvVHRWel9tOzuSQjU3SQJTagU');"></div>
+</div>
+</header>
+<!-- Governance Bridge (Main Layout) -->
+<main class="flex flex-1 overflow-hidden relative">
+<!-- LEFT COLUMN: Roles & Filters -->
+<aside class="w-[280px] shrink-0 flex flex-col border-r border-border-color bg-surface-dark/50">
+<!-- Header -->
+<div class="px-4 py-3 border-b border-border-color">
+<h3 class="text-white font-bold text-sm tracking-wide">ROLES &amp; FILTERS</h3>
+</div>
+<!-- Roles List (Scrollable) -->
+<div class="flex-1 overflow-y-auto p-3 space-y-1">
+<div class="text-xs font-semibold text-text-secondary mb-2 uppercase tracking-wider px-2">Role List</div>
+<!-- Role Item: Active -->
+<button class="w-full flex items-center justify-between px-3 py-2 bg-primary/20 border border-primary/40 rounded text-left group transition-all">
+<span class="text-sm font-medium text-white">Credit Officer</span>
+<span class="bg-primary/30 text-primary-300 text-xs px-1.5 py-0.5 rounded font-mono">9</span>
+</button>
+<!-- Role Item -->
+<button class="w-full flex items-center justify-between px-3 py-2 hover:bg-surface-lighter border border-transparent hover:border-border-color rounded text-left group transition-all">
+<span class="text-sm font-medium text-text-secondary group-hover:text-white">Banker</span>
+<span class="bg-surface-lighter text-text-secondary text-xs px-1.5 py-0.5 rounded font-mono">42</span>
+</button>
+<!-- Role Item -->
+<button class="w-full flex items-center justify-between px-3 py-2 hover:bg-surface-lighter border border-transparent hover:border-border-color rounded text-left group transition-all">
+<span class="text-sm font-medium text-text-secondary group-hover:text-white">Senior Underwriter</span>
+<span class="bg-surface-lighter text-text-secondary text-xs px-1.5 py-0.5 rounded font-mono">18</span>
+</button>
+<!-- Role Item -->
+<button class="w-full flex items-center justify-between px-3 py-2 hover:bg-surface-lighter border border-transparent hover:border-border-color rounded text-left group transition-all">
+<span class="text-sm font-medium text-text-secondary group-hover:text-white">Committee Member</span>
+<span class="bg-surface-lighter text-text-secondary text-xs px-1.5 py-0.5 rounded font-mono">7</span>
+</button>
+<!-- Role Item -->
+<button class="w-full flex items-center justify-between px-3 py-2 hover:bg-surface-lighter border border-transparent hover:border-border-color rounded text-left group transition-all">
+<span class="text-sm font-medium text-text-secondary group-hover:text-white">Special Assets</span>
+<span class="bg-surface-lighter text-text-secondary text-xs px-1.5 py-0.5 rounded font-mono">6</span>
+</button>
+<!-- Role Item -->
+<button class="w-full flex items-center justify-between px-3 py-2 hover:bg-surface-lighter border border-transparent hover:border-border-color rounded text-left group transition-all">
+<span class="text-sm font-medium text-text-secondary group-hover:text-white">Legal</span>
+<span class="bg-surface-lighter text-text-secondary text-xs px-1.5 py-0.5 rounded font-mono">4</span>
+</button>
+<!-- Role Item -->
+<button class="w-full flex items-center justify-between px-3 py-2 hover:bg-surface-lighter border border-transparent hover:border-border-color rounded text-left group transition-all">
+<span class="text-sm font-medium text-text-secondary group-hover:text-white">Admin</span>
+<span class="bg-surface-lighter text-text-secondary text-xs px-1.5 py-0.5 rounded font-mono">3</span>
+</button>
+</div>
+<!-- Filters Section -->
+<div class="p-4 border-t border-border-color bg-surface-dark">
+<div class="mb-4">
+<label class="block text-xs font-medium text-text-secondary mb-1.5">Filter Domain</label>
+<select class="form-select w-full bg-surface-lighter border-border-color text-white text-xs rounded focus:ring-0 focus:border-primary py-1.5">
+<option>All Domains</option>
+<option>Origination</option>
+<option selected="">Credit Decisioning</option>
+<option>Servicing</option>
+<option>Admin</option>
+</select>
+</div>
+<div>
+<label class="block text-xs font-medium text-text-secondary mb-1.5">Risk Level</label>
+<div class="flex gap-2">
+<label class="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
+<input checked="" class="rounded border-border-color bg-surface-lighter text-primary focus:ring-0" type="checkbox"/>
+                            High
+                        </label>
+<label class="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
+<input checked="" class="rounded border-border-color bg-surface-lighter text-primary focus:ring-0" type="checkbox"/>
+                            Med
+                        </label>
+<label class="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
+<input checked="" class="rounded border-border-color bg-surface-lighter text-primary focus:ring-0" type="checkbox"/>
+                            Low
+                        </label>
+</div>
+</div>
+</div>
+<!-- Role Actions -->
+<div class="p-3 border-t border-border-color grid grid-cols-2 gap-2 bg-surface-dark">
+<button class="flex items-center justify-center gap-1 bg-surface-lighter hover:bg-[#323b47] text-white text-xs font-medium py-1.5 px-2 rounded border border-border-color transition-colors">
+<span class="material-symbols-outlined text-[14px]">content_copy</span> Duplicate
+                </button>
+<button class="flex items-center justify-center gap-1 bg-surface-lighter hover:bg-[#323b47] text-white text-xs font-medium py-1.5 px-2 rounded border border-border-color transition-colors">
+<span class="material-symbols-outlined text-[14px]">edit</span> Rename
+                </button>
+</div>
+</aside>
+<!-- CENTER COLUMN: Permission Matrix -->
+<section class="flex-1 flex flex-col min-w-0 bg-background-dark relative">
+<!-- Toolbar -->
+<div class="flex items-center justify-between px-6 py-3 border-b border-border-color bg-surface-dark/30">
+<div class="flex flex-col">
+<h1 class="text-lg font-bold text-white tracking-tight">Permission Matrix</h1>
+<p class="text-xs text-text-secondary">Viewing Effective Permissions for <span class="text-white font-medium">Credit Officer</span></p>
+</div>
+<div class="flex items-center gap-4">
+<!-- Toggles -->
+<label class="inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox" value=""/>
+<div class="relative w-9 h-5 bg-surface-lighter peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+<span class="ms-2 text-xs font-medium text-text-secondary">Show effective</span>
+</label>
+<label class="inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox" value=""/>
+<div class="relative w-9 h-5 bg-surface-lighter peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-danger"></div>
+<span class="ms-2 text-xs font-medium text-text-secondary">Highlight High-Risk</span>
+</label>
+<div class="h-6 w-px bg-border-color mx-2"></div>
+<button class="text-text-secondary hover:text-white flex items-center gap-1">
+<span class="material-symbols-outlined text-[18px]">download</span>
+<span class="text-xs font-medium">Export CSV</span>
+</button>
+</div>
+</div>
+<!-- Matrix Table -->
+<div class="flex-1 overflow-auto pb-20">
+<table class="w-full text-left border-collapse">
+<thead class="bg-surface-lighter/50 sticky top-0 z-10 backdrop-blur-sm">
+<tr>
+<th class="py-2.5 px-6 text-xs font-semibold text-text-secondary uppercase tracking-wider w-[40%] border-b border-border-color">Permission Name</th>
+<th class="py-2.5 px-4 text-xs font-semibold text-text-secondary uppercase tracking-wider w-[15%] border-b border-border-color">Risk Level</th>
+<th class="py-2.5 px-4 text-xs font-semibold text-text-secondary uppercase tracking-wider w-[20%] border-b border-border-color">Access Control</th>
+<th class="py-2.5 px-4 text-xs font-semibold text-text-secondary uppercase tracking-wider w-[25%] border-b border-border-color">Conditions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-border-color">
+<!-- Group Header -->
+<tr class="bg-surface-lighter/20">
+<td class="py-1.5 px-6 text-xs font-bold text-primary uppercase tracking-wider" colspan="4">Credit Authority</td>
+</tr>
+<!-- Row: High Risk, Conditional -->
+<tr class="group hover:bg-surface-lighter/40 transition-colors border-l-2 border-l-transparent hover:border-l-primary cursor-pointer bg-primary/5">
+<td class="py-3 px-6">
+<div class="flex flex-col">
+<span class="text-sm text-white font-medium">Approve Credit</span>
+<span class="text-xs text-text-secondary truncate">Final decisioning authority for commercial loans</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-danger/10 text-danger border border-danger/20">
+<span class="material-symbols-outlined text-[12px] filled">warning</span> High
+                                </span>
+</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-2">
+<button class="size-6 rounded flex items-center justify-center bg-warning/20 text-warning border border-warning/30 hover:bg-warning/30 transition-colors">
+<span class="material-symbols-outlined text-[16px]">change_history</span>
+</button>
+<span class="text-xs text-warning font-medium">Conditional</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="text-xs text-text-secondary font-mono bg-surface-lighter px-1.5 py-0.5 rounded">Limit ≤ $25MM</span>
+</td>
+</tr>
+<!-- Row: High Risk, Deny -->
+<tr class="group hover:bg-surface-lighter/40 transition-colors border-l-2 border-l-transparent hover:border-l-primary cursor-pointer">
+<td class="py-3 px-6">
+<div class="flex flex-col">
+<span class="text-sm text-white font-medium">Override Policy Thresholds</span>
+<span class="text-xs text-text-secondary truncate">Allow exceptions to credit policy matrix</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-danger/10 text-danger border border-danger/20">
+<span class="material-symbols-outlined text-[12px] filled">warning</span> High
+                                </span>
+</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-2">
+<button class="size-6 rounded flex items-center justify-center bg-surface-lighter text-text-secondary border border-border-color hover:bg-danger/20 hover:text-danger hover:border-danger/30 transition-colors">
+<span class="material-symbols-outlined text-[16px]">close</span>
+</button>
+<span class="text-xs text-text-secondary">Deny</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="text-xs text-text-secondary italic">-</span>
+</td>
+</tr>
+<!-- Row: Med Risk, Allow -->
+<tr class="group hover:bg-surface-lighter/40 transition-colors border-l-2 border-l-transparent hover:border-l-primary cursor-pointer">
+<td class="py-3 px-6">
+<div class="flex flex-col">
+<span class="text-sm text-white font-medium">Vote in Committee</span>
+<span class="text-xs text-text-secondary truncate">Cast binding vote in senior credit committee</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-warning/10 text-warning border border-warning/20">
+                                    Med
+                                </span>
+</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-2">
+<button class="size-6 rounded flex items-center justify-center bg-success/20 text-success border border-success/30 hover:bg-success/30 transition-colors">
+<span class="material-symbols-outlined text-[16px]">check</span>
+</button>
+<span class="text-xs text-success font-medium">Allow</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="text-xs text-text-secondary italic">All Committees</span>
+</td>
+</tr>
+<!-- Group Header -->
+<tr class="bg-surface-lighter/20">
+<td class="py-1.5 px-6 text-xs font-bold text-primary uppercase tracking-wider" colspan="4">Operational</td>
+</tr>
+<!-- Row: Low Risk, Allow -->
+<tr class="group hover:bg-surface-lighter/40 transition-colors border-l-2 border-l-transparent hover:border-l-primary cursor-pointer">
+<td class="py-3 px-6">
+<div class="flex flex-col">
+<span class="text-sm text-white font-medium">View Deals</span>
+<span class="text-xs text-text-secondary truncate">Read-only access to deal pipeline</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-lighter text-text-secondary border border-border-color">
+                                    Low
+                                </span>
+</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-2">
+<button class="size-6 rounded flex items-center justify-center bg-success/20 text-success border border-success/30 hover:bg-success/30 transition-colors">
+<span class="material-symbols-outlined text-[16px]">check</span>
+</button>
+<span class="text-xs text-success font-medium">Allow</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="text-xs text-text-secondary italic">-</span>
+</td>
+</tr>
+<!-- Row: Low Risk, Inherited -->
+<tr class="group hover:bg-surface-lighter/40 transition-colors border-l-2 border-l-transparent hover:border-l-primary cursor-pointer">
+<td class="py-3 px-6">
+<div class="flex flex-col">
+<span class="text-sm text-white font-medium">Upload Borrower Documents</span>
+<span class="text-xs text-text-secondary truncate">Add files to document repository</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-lighter text-text-secondary border border-border-color">
+                                    Low
+                                </span>
+</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-2">
+<div class="size-6 rounded flex items-center justify-center bg-surface-lighter text-text-secondary border border-border-color opacity-50">
+<span class="material-symbols-outlined text-[16px]">check</span>
+</div>
+<span class="text-xs text-text-secondary font-medium">Inherited</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="text-xs text-text-secondary italic">From "Employee"</span>
+</td>
+</tr>
+<!-- Row: High Risk, Deny -->
+<tr class="group hover:bg-surface-lighter/40 transition-colors border-l-2 border-l-transparent hover:border-l-primary cursor-pointer">
+<td class="py-3 px-6">
+<div class="flex flex-col">
+<span class="text-sm text-white font-medium">Edit Underwriting Model</span>
+<span class="text-xs text-text-secondary truncate">Modify formulas in cash flow engine</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-danger/10 text-danger border border-danger/20">
+<span class="material-symbols-outlined text-[12px] filled">warning</span> High
+                                </span>
+</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-2">
+<button class="size-6 rounded flex items-center justify-center bg-surface-lighter text-text-secondary border border-border-color hover:bg-danger/20 hover:text-danger hover:border-danger/30 transition-colors">
+<span class="material-symbols-outlined text-[16px]">close</span>
+</button>
+<span class="text-xs text-text-secondary">Deny</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="text-xs text-text-secondary italic">-</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Sticky Bottom Action Bar -->
+<div class="absolute bottom-0 left-0 right-0 h-14 bg-surface-dark border-t border-border-color flex items-center justify-between px-6 z-30 shadow-2xl">
+<div class="flex items-center gap-2 text-warning">
+<span class="material-symbols-outlined text-[18px]">info</span>
+<span class="text-xs font-medium">Permission changes are logged and may require approval.</span>
+</div>
+<div class="flex items-center gap-3">
+<button class="text-text-secondary hover:text-white text-sm font-medium px-3 py-1.5 transition-colors">Revert Draft</button>
+<button class="bg-primary hover:bg-primary-dark text-white text-sm font-bold px-4 py-2 rounded shadow-lg transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">save</span> Save Changes
+                    </button>
+</div>
+</div>
+</section>
+<!-- RIGHT COLUMN: Role Detail & Governance -->
+<aside class="w-[340px] shrink-0 flex flex-col border-l border-border-color bg-surface-dark/50">
+<!-- Panel Header -->
+<div class="px-5 py-3 border-b border-border-color bg-surface-lighter/20">
+<h3 class="text-white font-bold text-sm tracking-wide">PERMISSION DETAIL</h3>
+</div>
+<div class="flex-1 overflow-y-auto p-5 space-y-6 pb-20">
+<!-- Selected Permission Info -->
+<div class="space-y-3">
+<div class="flex items-start justify-between">
+<h4 class="text-lg font-bold text-white leading-tight">Approve Credit</h4>
+<span class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-bold bg-danger/10 text-danger border border-danger/20">
+                            HIGH RISK
+                        </span>
+</div>
+<p class="text-xs text-text-secondary leading-relaxed">
+                        Authority to grant final approval for credit facilities. This permission triggers SOX controls #421 and #892.
+                    </p>
+<div class="grid grid-cols-2 gap-y-2 gap-x-4 pt-2">
+<div class="flex flex-col">
+<span class="text-[10px] uppercase text-text-secondary font-semibold">Requires Justification</span>
+<span class="text-xs text-white">Yes</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] uppercase text-text-secondary font-semibold">2nd Approver</span>
+<span class="text-xs text-white">Yes</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] uppercase text-text-secondary font-semibold">Audit Trail</span>
+<span class="text-xs text-white">Strict</span>
+</div>
+</div>
+</div>
+<div class="h-px bg-border-color w-full"></div>
+<!-- Conditions Editor -->
+<div class="space-y-4">
+<div class="flex items-center justify-between">
+<h5 class="text-sm font-bold text-white">Conditions Editor</h5>
+<span class="text-xs text-warning flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">lock</span> Active
+                        </span>
+</div>
+<div class="space-y-3">
+<div>
+<label class="block text-xs font-medium text-text-secondary mb-1.5">Approval Limit (USD)</label>
+<div class="relative">
+<span class="absolute left-3 top-1.5 text-text-secondary text-xs">$</span>
+<input class="w-full bg-background-dark border border-border-color rounded text-white text-sm py-1.5 pl-6 pr-3 focus:ring-1 focus:ring-warning focus:border-warning font-mono" type="text" value="25,000,000"/>
+</div>
+</div>
+<div>
+<label class="block text-xs font-medium text-text-secondary mb-1.5">Asset Type Restrictions</label>
+<select class="w-full bg-background-dark border border-border-color rounded text-white text-xs py-1.5 pl-2 pr-8 focus:ring-1 focus:ring-warning focus:border-warning">
+<option>Commercial Real Estate (CRE)</option>
+<option>C&amp;I</option>
+<option>SBA 7(a)</option>
+<option>All Asset Types</option>
+</select>
+</div>
+<div class="flex items-center justify-between pt-1">
+<span class="text-xs text-white">Dual Control Required</span>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox" value=""/>
+<div class="w-8 h-4 bg-surface-lighter peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-success"></div>
+</label>
+</div>
+</div>
+</div>
+<div class="h-px bg-border-color w-full"></div>
+<!-- User Assignments -->
+<div class="space-y-3">
+<div class="flex items-center justify-between">
+<h5 class="text-sm font-bold text-white">Assigned Users (9)</h5>
+<button class="text-primary text-xs font-medium hover:underline">+ Add</button>
+</div>
+<div class="border border-border-color rounded overflow-hidden">
+<table class="w-full text-left">
+<thead class="bg-surface-lighter">
+<tr>
+<th class="px-3 py-1.5 text-[10px] uppercase text-text-secondary font-medium">Name</th>
+<th class="px-3 py-1.5 text-[10px] uppercase text-text-secondary font-medium text-right">Limit</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-border-color bg-background-dark">
+<tr>
+<td class="px-3 py-2">
+<div class="flex flex-col">
+<span class="text-xs text-white">Sarah Jenkins</span>
+<span class="text-[10px] text-text-secondary">SVP, Credit</span>
+</div>
+</td>
+<td class="px-3 py-2 text-right">
+<span class="text-xs text-white font-mono">$25M</span>
+</td>
+</tr>
+<tr>
+<td class="px-3 py-2">
+<div class="flex flex-col">
+<span class="text-xs text-white">Michael Ross</span>
+<span class="text-[10px] text-text-secondary">VP, Risk</span>
+</div>
+</td>
+<td class="px-3 py-2 text-right">
+<span class="text-xs text-white font-mono">$15M</span>
+</td>
+</tr>
+<tr>
+<td class="px-3 py-2">
+<div class="flex flex-col">
+<span class="text-xs text-white">Elena Rodriguez</span>
+<span class="text-[10px] text-text-secondary">VP, Credit</span>
+</div>
+</td>
+<td class="px-3 py-2 text-right">
+<span class="text-xs text-white font-mono">$10M</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="h-px bg-border-color w-full"></div>
+<!-- Compact Audit -->
+<div class="space-y-3">
+<h5 class="text-sm font-bold text-white">Recent Activity</h5>
+<div class="space-y-3 pl-2 border-l border-border-color ml-1">
+<div class="relative pl-4">
+<div class="absolute -left-[5px] top-1 size-2.5 rounded-full bg-border-color border-2 border-background-dark"></div>
+<p class="text-[11px] text-text-secondary">
+<span class="text-white font-medium">J. Doe</span> increased limit to <span class="text-white font-mono">$25M</span>
+</p>
+<span class="text-[10px] text-text-secondary block mt-0.5">2 hrs ago • Ticket #8821</span>
+</div>
+<div class="relative pl-4">
+<div class="absolute -left-[5px] top-1 size-2.5 rounded-full bg-border-color border-2 border-background-dark"></div>
+<p class="text-[11px] text-text-secondary">
+<span class="text-white font-medium">System</span> flagged permission as <span class="text-danger">High Risk</span>
+</p>
+<span class="text-[10px] text-text-secondary block mt-0.5">Yesterday • Auto-Audit</span>
+</div>
+</div>
+</div>
+</div>
+</aside>
+</main>`;
+
+export default function Page() {
+  return (
+    <StitchFrame
+      title={TITLE}
+      fontLinks={FONT_LINKS}
+      tailwindCdnSrc={TAILWIND_CDN}
+      tailwindConfigJs={TAILWIND_CONFIG_JS}
+      styles={STYLES}
+      bodyHtml={BODY_HTML}
+    />
+  );
+}

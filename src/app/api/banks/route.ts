@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const { userId } = auth();
+  const { userId } = await auth();
   
   if (!userId) {
     return NextResponse.json({ ok: false, error: "not_authenticated" }, { status: 401 });

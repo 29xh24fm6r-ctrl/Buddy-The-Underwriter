@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Borrower Control Record - Trust &amp; Compliance Console</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#136dec",
+                        "background-light": "#f6f7f8", // Not used per user request for dark cockpit but kept for config
+                        "background-dark": "#0f172a", // Deepest Navy
+                        "surface-dark": "#1e293b", // Slightly lighter for cards
+                        "surface-hover": "#334155",
+                        "border-dark": "#334155",
+                        "text-secondary": "#94a3b8",
+                        "danger": "#ef4444",
+                        "warning": "#f59e0b",
+                        "success": "#10b981",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "mono": ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "monospace"],
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .audit-tooltip { font-size: 0.65rem; color: #64748b; margin-top: 0.125rem; display: block; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-background-dark text-white h-screen flex flex-col overflow-hidden">
+<!-- Top Navbar -->
+<header class="h-14 flex items-center justify-between border-b border-border-dark bg-[#111418] px-6 shrink-0 z-20">
+<div class="flex items-center gap-8">
+<div class="flex items-center gap-3">
+<div class="size-6 text-primary">
+<svg fill="none" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path clip-rule="evenodd" d="M24 0.757355L47.2426 24L24 47.2426L0.757355 24L24 0.757355ZM21 35.7574V12.2426L9.24264 24L21 35.7574Z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+<h2 class="text-white text-lg font-bold tracking-tight">Buddy</h2>
+</div>
+<!-- Global Navigation Links -->
+<nav class="flex gap-6">
+<a class="text-text-secondary hover:text-white text-sm font-medium transition-colors" href="#">Deals</a>
+<a class="text-text-secondary hover:text-white text-sm font-medium transition-colors" href="#">Intake</a>
+<a class="text-text-secondary hover:text-white text-sm font-medium transition-colors" href="#">Portfolio</a>
+<a class="text-text-secondary hover:text-white text-sm font-medium transition-colors" href="#">Committee</a>
+<a class="text-text-secondary hover:text-white text-sm font-medium transition-colors" href="#">Reporting</a>
+</nav>
+</div>
+<div class="flex items-center flex-1 justify-center max-w-xl mx-8">
+<div class="relative w-full">
+<span class="absolute inset-y-0 left-0 flex items-center pl-3 text-text-secondary">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</span>
+<input class="w-full bg-[#1e293b] border border-border-dark text-white text-sm rounded-lg focus:ring-1 focus:ring-primary focus:border-primary block pl-10 p-2 placeholder-text-secondary" placeholder="Search borrowers, principals, entities, docs…" type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-text-secondary hover:text-white relative">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+<span class="absolute top-0 right-0 size-2 bg-danger rounded-full border-2 border-[#111418]"></span>
+</button>
+<div class="size-8 bg-center bg-cover rounded-full border border-border-dark" data-alt="User Avatar" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuAtXhHlNE-_oNxmcB8YsxVLSPOUIHNPwrGaBxWMU4Lw9o7H-aRQ_hA7RETqgPFpUPvbLiwLBUt1CCgmvcegp17YvBy55aO3IV_IxW8iuDCXXZoOnMPr5TGeUKcDEbTwKWbmzfB691ttEc8k5GZIl6T4y5eTgj5bhQpdmw7lNumveOkxK5CntvrIBJFC0PipLxjDhVQNoWwwuWufLj2R0ZAk_y-9n9LiKugQ3wIqEG-a2ZG8F2PXX2N7kxxiWb8X3_Vgx2pt2KEYyoQ');"></div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 flex overflow-hidden">
+<!-- Left Column: Identity & Navigation -->
+<aside class="w-[300px] flex flex-col bg-[#111418] border-r border-border-dark overflow-y-auto shrink-0 scrollbar-hide">
+<!-- Identity Card -->
+<div class="p-5 border-b border-border-dark">
+<div class="flex items-start gap-4 mb-4">
+<div class="size-16 bg-surface-dark rounded-lg flex items-center justify-center border border-border-dark shrink-0" data-alt="Company Logo Placeholder" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCULbJ8rxiJw4EMrlZUw6dkDhvpipxuhjPe2-e_Mx3UNDxL803ah4p-GpwhyV_9hXg2n9XZ-b7FRoLXohLVE9UzpWAevqkieqSeqOfNvKSRiLI5PtPn_j36x45lw_CTc8IoT0CyqLPkyl5QUAipKrRNenR8P6HJ86lvqZmR3ul4j5kvKRJ1P8z1KfSBSZm11-vYGLtC4RA6jdakSS7mtz5VPG1tl_cv5Wj-TLJhZ406vd65h7xa9JhVjckYNOcVZU_j6OBtzbqpRiM');">
+</div>
+<div>
+<h1 class="text-lg font-bold leading-tight">Highland Capital Partners LLC</h1>
+<p class="text-xs text-text-secondary mt-1">ID: HCP-4920</p>
+</div>
+</div>
+<div class="grid grid-cols-1 gap-y-3">
+<div class="flex justify-between items-center pb-2 border-b border-white/5">
+<span class="text-xs text-text-secondary">Relationship Tier</span>
+<span class="text-xs font-semibold bg-primary/20 text-primary px-2 py-0.5 rounded">Tier 1</span>
+</div>
+<div class="flex justify-between items-center pb-2 border-b border-white/5">
+<span class="text-xs text-text-secondary">Primary Banker</span>
+<span class="text-xs text-white">Sarah Jenkins</span>
+</div>
+<div>
+<p class="text-xs text-text-secondary mb-1">Entity Type</p>
+<p class="text-sm font-medium">LLC • Delaware, USA</p>
+</div>
+<div>
+<p class="text-xs text-text-secondary mb-1">Formed Date</p>
+<p class="text-sm font-medium font-mono">2008-04-12 <span class="text-[10px] text-text-secondary ml-1">(SoS API)</span></p>
+</div>
+<div>
+<p class="text-xs text-text-secondary mb-1">EIN</p>
+<p class="text-sm font-medium font-mono">**-***4491 <span class="text-[10px] text-success ml-1">Verified IRS</span></p>
+</div>
+</div>
+</div>
+<!-- Compliance Quick Flags -->
+<div class="p-4 border-b border-border-dark bg-[#161e29]">
+<h3 class="text-xs font-bold text-text-secondary uppercase tracking-wider mb-3">Compliance Flags</h3>
+<div class="space-y-2">
+<div class="flex items-center justify-between bg-warning/10 border border-warning/20 p-2 rounded">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-warning text-[18px]">warning</span>
+<span class="text-xs text-warning font-medium">2 Missing Items</span>
+</div>
+<span class="material-symbols-outlined text-warning/50 text-[16px]">chevron_right</span>
+</div>
+<div class="flex items-center justify-between bg-surface-dark border border-border-dark p-2 rounded">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-text-secondary text-[18px]">schedule</span>
+<span class="text-xs text-white">1 Expiring ≤ 30d</span>
+</div>
+</div>
+<div class="flex items-center justify-between bg-surface-dark border border-border-dark p-2 rounded">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-success text-[18px]">check_circle</span>
+<span class="text-xs text-white">Sanctions: Clear</span>
+</div>
+</div>
+<div class="flex items-center justify-between bg-surface-dark border border-border-dark p-2 rounded">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-text-secondary text-[18px]">group</span>
+<span class="text-xs text-white">BO: 100% ID'd</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Sticky Section Nav -->
+<nav class="flex-1 p-3 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 text-white" href="#">
+<span class="material-symbols-outlined text-[20px] text-primary">dashboard</span>
+<span class="text-sm font-medium">Overview</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-secondary hover:bg-surface-dark hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">corporate_fare</span>
+<span class="text-sm font-medium">Ownership &amp; Control</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-secondary hover:bg-surface-dark hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">verified_user</span>
+<span class="text-sm font-medium">KYC / AML</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-secondary hover:bg-surface-dark hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">account_balance</span>
+<span class="text-sm font-medium">Financials</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-secondary hover:bg-surface-dark hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">gavel</span>
+<span class="text-sm font-medium">Guarantees</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-secondary hover:bg-surface-dark hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">description</span>
+<span class="text-sm font-medium">Documents</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-secondary hover:bg-surface-dark hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">history</span>
+<span class="text-sm font-medium">Activity / Audit</span>
+</a>
+</nav>
+</aside>
+<!-- Center Column: Control Record -->
+<section class="flex-1 bg-background-dark overflow-y-auto min-w-[500px] border-r border-border-dark flex flex-col">
+<!-- Trust Status Strip -->
+<div class="p-6 border-b border-border-dark bg-[#111418]">
+<div class="flex justify-between items-center mb-4">
+<h2 class="text-base font-bold text-white uppercase tracking-wider">Trust Status &amp; KPI</h2>
+<span class="text-xs text-text-secondary">Updated: Just now</span>
+</div>
+<div class="grid grid-cols-4 gap-4">
+<!-- KPI Card 1 -->
+<div class="bg-surface-dark border border-border-dark p-3 rounded-lg">
+<div class="flex justify-between items-start mb-1">
+<span class="text-xs text-text-secondary font-medium">Trust Score</span>
+<span class="material-symbols-outlined text-primary text-[16px]">shield</span>
+</div>
+<div class="text-xl font-bold text-white">88<span class="text-sm text-text-secondary font-normal">/100</span></div>
+<span class="audit-tooltip">Buddy AI • Oct 24</span>
+</div>
+<!-- KPI Card 2 -->
+<div class="bg-surface-dark border border-border-dark p-3 rounded-lg">
+<div class="flex justify-between items-start mb-1">
+<span class="text-xs text-text-secondary font-medium">KYC Status</span>
+<span class="material-symbols-outlined text-success text-[16px]">check_circle</span>
+</div>
+<div class="text-sm font-bold text-success mt-1">Verified</div>
+<span class="audit-tooltip">LexisNexis • 2d ago</span>
+</div>
+<!-- KPI Card 3 -->
+<div class="bg-surface-dark border border-border-dark p-3 rounded-lg">
+<div class="flex justify-between items-start mb-1">
+<span class="text-xs text-text-secondary font-medium">OFAC / Sanctions</span>
+<span class="material-symbols-outlined text-success text-[16px]">gpp_good</span>
+</div>
+<div class="text-sm font-bold text-success mt-1">Clear</div>
+<span class="audit-tooltip">Bridger • 4h ago</span>
+</div>
+<!-- KPI Card 4 -->
+<div class="bg-surface-dark border border-border-dark p-3 rounded-lg relative overflow-hidden">
+<div class="absolute top-0 right-0 p-1">
+<div class="size-2 bg-danger rounded-full animate-pulse"></div>
+</div>
+<div class="flex justify-between items-start mb-1">
+<span class="text-xs text-text-secondary font-medium">UBO KYC</span>
+<span class="material-symbols-outlined text-danger text-[16px]">error</span>
+</div>
+<div class="text-sm font-bold text-danger mt-1">Expired</div>
+<span class="audit-tooltip">Internal • 1d ago</span>
+</div>
+</div>
+</div>
+<!-- Ownership & Control Panel -->
+<div class="p-6 border-b border-border-dark">
+<div class="flex justify-between items-end mb-4">
+<div>
+<h2 class="text-lg font-bold text-white">Ownership &amp; Control Reality</h2>
+<p class="text-sm text-text-secondary mt-1">Verified Beneficial Owners (≥25%) and Control Persons</p>
+</div>
+<button class="text-primary text-xs font-bold hover:underline flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">history</span> View Diff
+                    </button>
+</div>
+<div class="bg-surface-dark border border-border-dark rounded-lg overflow-hidden">
+<table class="w-full text-left text-sm">
+<thead class="bg-[#111418] border-b border-border-dark text-xs text-text-secondary font-medium uppercase">
+<tr>
+<th class="px-4 py-3">Principal Name</th>
+<th class="px-4 py-3">Role</th>
+<th class="px-4 py-3 text-right">Ownership %</th>
+<th class="px-4 py-3">KYC Status</th>
+<th class="px-4 py-3">Last Verified</th>
+<th class="px-4 py-3">Flags</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-border-dark">
+<tr class="hover:bg-white/5 transition-colors group">
+<td class="px-4 py-3 font-medium text-white">James Sterling</td>
+<td class="px-4 py-3 text-text-secondary">Managing Member</td>
+<td class="px-4 py-3 text-right font-mono text-white">45.00%</td>
+<td class="px-4 py-3">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-success/10 text-success text-xs font-medium border border-success/20">
+                                        Verified
+                                    </span>
+</td>
+<td class="px-4 py-3 text-text-secondary text-xs">Oct 12, 2023 <br/><span class="text-[10px] opacity-60">LexisNexis</span></td>
+<td class="px-4 py-3 text-text-secondary">-</td>
+</tr>
+<tr class="hover:bg-white/5 transition-colors group">
+<td class="px-4 py-3 font-medium text-white">Sterling Family Trust</td>
+<td class="px-4 py-3 text-text-secondary">Entity Member</td>
+<td class="px-4 py-3 text-right font-mono text-white">55.00%</td>
+<td class="px-4 py-3">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-danger/10 text-danger text-xs font-medium border border-danger/20">
+                                        Expired
+                                    </span>
+</td>
+<td class="px-4 py-3 text-text-secondary text-xs">Sep 01, 2022 <br/><span class="text-[10px] opacity-60">Internal</span></td>
+<td class="px-4 py-3">
+<span class="material-symbols-outlined text-warning text-[18px]" title="Doc Missing">warning</span>
+</td>
+</tr>
+</tbody>
+</table>
+<div class="bg-warning/10 px-4 py-2 border-t border-warning/20 flex items-center gap-2">
+<span class="material-symbols-outlined text-warning text-[16px]">info</span>
+<p class="text-xs text-warning">Changes detected since last Credit Committee approval.</p>
+</div>
+</div>
+</div>
+<!-- Borrower Obligations Queue -->
+<div class="p-6 flex-1">
+<h2 class="text-lg font-bold text-white mb-4">Borrower Obligations Queue</h2>
+<div class="space-y-3">
+<!-- Obligation Item 1 -->
+<div class="flex items-center justify-between bg-surface-dark border-l-4 border-l-danger border-y border-r border-border-dark p-3 rounded-r-lg">
+<div class="flex gap-4 items-center">
+<div class="flex flex-col">
+<span class="text-sm font-bold text-white">UBO KYC Refresh Required</span>
+<span class="text-xs text-text-secondary mt-0.5">Due: <span class="text-danger font-medium">Overdue (2d)</span> • Owner: Compliance</span>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<a class="text-xs text-primary hover:text-white underline decoration-primary/50" href="#">Evidence</a>
+<button class="px-3 py-1.5 bg-primary text-white text-xs font-medium rounded hover:bg-blue-600 transition-colors">Action</button>
+</div>
+</div>
+<!-- Obligation Item 2 -->
+<div class="flex items-center justify-between bg-surface-dark border-l-4 border-l-warning border-y border-r border-border-dark p-3 rounded-r-lg">
+<div class="flex gap-4 items-center">
+<div class="flex flex-col">
+<span class="text-sm font-bold text-white">Proof of Insurance Renewal</span>
+<span class="text-xs text-text-secondary mt-0.5">Due: <span class="text-warning font-medium">In 5 Days</span> • Owner: S. Jenkins</span>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<a class="text-xs text-primary hover:text-white underline decoration-primary/50" href="#">Evidence</a>
+<button class="px-3 py-1.5 bg-[#282f39] text-white text-xs font-medium rounded hover:bg-white/10 border border-border-dark transition-colors">Remind</button>
+</div>
+</div>
+<!-- Relationship Snapshot Table (Low Emphasis) -->
+<div class="mt-8 pt-6 border-t border-border-dark">
+<h4 class="text-xs font-bold text-text-secondary uppercase mb-3">Relationship Snapshot</h4>
+<div class="grid grid-cols-4 gap-4">
+<div>
+<p class="text-xs text-text-secondary">Total Active Exposure</p>
+<p class="text-sm font-mono font-bold text-white">$12,500,000</p>
+</div>
+<div>
+<p class="text-xs text-text-secondary">Annualized Profitability</p>
+<p class="text-sm font-mono font-bold text-success">$420,000</p>
+</div>
+<div>
+<p class="text-xs text-text-secondary">Active Loans</p>
+<p class="text-sm font-mono font-bold text-white">2</p>
+</div>
+<div>
+<p class="text-xs text-text-secondary">Active Deals</p>
+<p class="text-sm font-mono font-bold text-white">1</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Right Column: Risk Synthesis & Actions -->
+<aside class="w-[360px] flex flex-col bg-[#111418] shrink-0 overflow-y-auto">
+<!-- Risk Synthesis -->
+<div class="p-5 border-b border-border-dark">
+<h3 class="text-sm font-bold text-white mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-danger">report</span>
+                    Risk Synthesis
+                </h3>
+<div class="space-y-3">
+<div class="bg-danger/10 border border-danger/20 p-3 rounded-lg">
+<div class="flex items-start gap-2 mb-1">
+<span class="material-symbols-outlined text-danger text-[18px] shrink-0 mt-0.5">block</span>
+<p class="text-sm font-bold text-white">UBO KYC Expired</p>
+</div>
+<p class="text-xs text-text-secondary ml-6 mb-2">Sterling Family Trust verification lapsed &gt; 90 days ago. Funding is automatically restricted.</p>
+<div class="ml-6 flex gap-2">
+<span class="text-[10px] bg-black/20 px-1.5 py-0.5 rounded text-danger border border-danger/20">Critical Blocker</span>
+</div>
+</div>
+<div class="bg-surface-dark border border-border-dark p-3 rounded-lg">
+<div class="flex items-start gap-2 mb-1">
+<span class="material-symbols-outlined text-warning text-[18px] shrink-0 mt-0.5">trending_down</span>
+<p class="text-sm font-bold text-white">DSCR Degradation</p>
+</div>
+<p class="text-xs text-text-secondary ml-6">Recent financials indicate a drop in DSCR from 1.25x to 1.15x over the last quarter.</p>
+</div>
+</div>
+</div>
+<!-- Next Best Actions -->
+<div class="p-5 border-b border-border-dark flex-1">
+<h3 class="text-sm font-bold text-white mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">bolt</span>
+                    Next Best Actions
+                </h3>
+<div class="space-y-3">
+<button class="w-full text-left bg-surface-dark hover:bg-surface-hover border border-border-dark p-3 rounded-lg group transition-all">
+<div class="flex justify-between items-start mb-1">
+<span class="text-xs font-bold text-primary group-hover:text-white uppercase tracking-wider">High Urgency</span>
+<span class="text-[10px] text-text-secondary">Due Today</span>
+</div>
+<p class="text-sm font-medium text-white mb-1">Request Updated PFS</p>
+<p class="text-xs text-text-secondary">From James Sterling</p>
+</button>
+<button class="w-full text-left bg-surface-dark hover:bg-surface-hover border border-border-dark p-3 rounded-lg group transition-all">
+<div class="flex justify-between items-start mb-1">
+<span class="text-xs font-bold text-warning group-hover:text-white uppercase tracking-wider">Medium</span>
+<span class="text-[10px] text-text-secondary">Due in 2 days</span>
+</div>
+<p class="text-sm font-medium text-white mb-1">Send KYC Refresh Link</p>
+<p class="text-xs text-text-secondary">To Sterling Family Trust</p>
+</button>
+</div>
+<!-- Activity & Audit Trail -->
+<div class="mt-8">
+<div class="flex justify-between items-center mb-4">
+<h3 class="text-sm font-bold text-white">Activity Trail</h3>
+<div class="flex gap-1">
+<span class="px-2 py-0.5 text-[10px] bg-surface-dark text-white rounded-full border border-border-dark cursor-pointer">All</span>
+<span class="px-2 py-0.5 text-[10px] bg-transparent text-text-secondary hover:text-white cursor-pointer">Comp</span>
+</div>
+</div>
+<div class="relative pl-4 border-l border-border-dark space-y-6">
+<!-- Timeline Item -->
+<div class="relative">
+<div class="absolute -left-[21px] top-1 size-2.5 rounded-full bg-border-dark border-2 border-[#111418]"></div>
+<p class="text-xs text-text-secondary mb-0.5">Today, 09:42 AM</p>
+<p class="text-sm text-white font-medium">Compliance Alert: UBO Expired</p>
+<p class="text-xs text-text-secondary">System triggered auto-lock.</p>
+</div>
+<!-- Timeline Item -->
+<div class="relative">
+<div class="absolute -left-[21px] top-1 size-2.5 rounded-full bg-primary border-2 border-[#111418]"></div>
+<p class="text-xs text-text-secondary mb-0.5">Yesterday, 4:15 PM</p>
+<p class="text-sm text-white font-medium">Doc Uploaded: 2023 Tax Returns</p>
+<p class="text-xs text-text-secondary">By Sarah Jenkins (Banker)</p>
+</div>
+<!-- Timeline Item -->
+<div class="relative">
+<div class="absolute -left-[21px] top-1 size-2.5 rounded-full bg-border-dark border-2 border-[#111418]"></div>
+<p class="text-xs text-text-secondary mb-0.5">Oct 20, 11:00 AM</p>
+<p class="text-sm text-white font-medium">Deal Created: Expansion Loan</p>
+<p class="text-xs text-text-secondary">ID: DL-9210</p>
+</div>
+</div>
+</div>
+</div>
+</aside>
+</main>
+<!-- Sticky Footer Action Bar -->
+<footer class="h-16 shrink-0 bg-[#111418] border-t border-border-dark flex items-center justify-between px-6 z-30">
+<div class="flex items-center gap-4">
+<!-- Funding Blocked Banner -->
+<div class="flex items-center gap-3 bg-danger/10 border border-danger/20 px-3 py-1.5 rounded">
+<span class="material-symbols-outlined text-danger text-[20px]">lock</span>
+<div>
+<p class="text-sm font-bold text-danger leading-none">Funding Blocked</p>
+<p class="text-[10px] text-danger/80 mt-0.5">Critical compliance blockers present.</p>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<button class="flex items-center justify-center h-9 px-4 rounded bg-surface-dark border border-border-dark text-text-secondary text-sm font-medium hover:text-white hover:bg-surface-hover transition-colors">
+                Log Note
+            </button>
+<button class="flex items-center justify-center h-9 px-4 rounded bg-surface-dark border border-border-dark text-text-secondary text-sm font-medium hover:text-white hover:bg-surface-hover transition-colors">
+                Add Exception
+            </button>
+<button class="flex items-center justify-center gap-2 h-9 px-4 rounded bg-surface-dark border border-border-dark text-text-secondary text-sm font-medium hover:text-white hover:bg-surface-hover transition-colors">
+<span class="material-symbols-outlined text-[18px]">picture_as_pdf</span>
+                Borrower Packet
+            </button>
+<div class="h-6 w-px bg-border-dark mx-1"></div>
+<!-- Disabled Primary Action -->
+<div class="relative group">
+<button class="flex items-center justify-center h-9 px-6 rounded bg-primary/50 text-white/50 text-sm font-bold cursor-not-allowed" disabled="">
+                    Proceed to Deal Creation
+                </button>
+<!-- Tooltip for disabled state -->
+<div class="absolute bottom-full mb-2 right-0 hidden group-hover:block w-48 p-2 bg-black border border-border-dark text-xs text-white rounded shadow-xl z-50">
+                    Cannot proceed while "UBO KYC" is expired. Resolve blockers to enable.
+                </div>
+</div>
+</div>
+</footer>
+</body></html>

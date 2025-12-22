@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 // Routes that require authentication
 const isProtectedRoute = createRouteMatcher([
+  "/home(.*)",
   "/deals(.*)",
   "/underwriting(.*)",
   "/api/deals(.*)",
@@ -48,14 +49,6 @@ export default clerkMiddleware(async (auth, req) => {
   const { userId } = await auth();
   const { pathname } = req.nextUrl;
 
-  // Handle root: redirect based on auth status
-  if (pathname === "/") {
-    if (!userId) {
-      return NextResponse.redirect(new URL("/sign-in", req.url));
-    }
-    return NextResponse.redirect(new URL("/deals", req.url));
-  }
-
   // Invite-only gate: block /sign-up when BUDDY_INVITE_ONLY=true
   if (
     process.env.BUDDY_INVITE_ONLY === "true" &&
@@ -65,6 +58,11 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.redirect(new URL("/sign-in", req.url));
   }
 
+  // Public routes - allow through (check early to avoid footguns)
+  if (isPublicRoute(req)) {
+    return NextResponse.next();
+  }
+
   // Protect application routes - redirect to sign-in with return URL
   if (isProtectedRoute(req) && !userId) {
     const signInUrl = new URL("/sign-in", req.url);
@@ -72,14 +70,11 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.redirect(signInUrl);
   }
 
-  // Keep signed-in users out of auth pages
+  // Keep signed-in users out of auth pages - redirect to intended destination
   if (isAuthRoute(req) && userId) {
-    return NextResponse.redirect(new URL("/deals", req.url));
-  }
-
-  // Public routes - allow through
-  if (isPublicRoute(req)) {
-    return NextResponse.next();
+    const redirectUrl = req.nextUrl.searchParams.get("redirect_url");
+    const safeTarget = redirectUrl?.startsWith("/") ? redirectUrl : "/";
+    return NextResponse.redirect(new URL(safeTarget, req.url));
   }
 
   return NextResponse.next();

@@ -27,6 +27,74 @@ a {
   text-decoration: none;
 }
 
+/* Deals Command Bridge Glass Panels */
+.glass-panel {
+  background: rgba(26, 29, 36, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+.glass-header {
+  background: rgba(15, 17, 21, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.nav-active-glow {
+  position: relative;
+}
+.nav-active-glow::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10%;
+  height: 80%;
+  width: 3px;
+  background: #136dec;
+  border-radius: 0 4px 4px 0;
+  box-shadow: 0 0 8px rgba(19, 109, 236, 0.6);
+}
+
+/* Custom Scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.sparkline path {
+  vector-effect: non-scaling-stroke;
+}
+
+.table-row-hover:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+.table-row-hover:hover .quick-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Toggle Switch */
+.toggle-checkbox:checked {
+  right: 0;
+  border-color: #136dec;
+}
+.toggle-checkbox:checked + .toggle-label {
+  background-color: #136dec;
+}
+
 @layer components {
   .card {
     border-radius: 1rem;

@@ -1,7 +1,7 @@
 import StitchFrame from "@/components/stitch/StitchFrame";
 
 const TITLE = "Buddy The Underwriter - Generate Screen";
-const FONT_LINKS = [];
+const FONT_LINKS: string[] = [];
 const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
 const TAILWIND_CONFIG_JS = `tailwind.config = {
             darkMode: "class",
@@ -26,7 +26,7 @@ const TAILWIND_CONFIG_JS = `tailwind.config = {
                 },
             },
         }`;
-const STYLES = [];
+const STYLES: string[] = [];
 const BODY_HTML = `<!-- Header -->
 <header class="w-full bg-surface-light dark:bg-surface-dark border-b border-border-light dark:border-gray-800 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
 <div class="flex items-center gap-3 text-text-main dark:text-white">
