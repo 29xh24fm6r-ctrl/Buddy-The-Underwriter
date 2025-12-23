@@ -11,19 +11,15 @@ function json(status: number, body: any) {
   return NextResponse.json(body, { status });
 }
 
-// TODO: Replace with actual Supabase client
-// For now, using file-based fallback
-async function getSupabaseClient(): Promise<any> {
-  // Stub: Replace with your actual Supabase initialization
-  // import { createClient } from '@supabase/supabase-js'
-  // return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!)
-  return null;
-}
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /**
  * GET /api/deals/[dealId]/entities
  * List all entities for a deal
  */
+async function getSupabaseClient() {
+  return supabaseAdmin();
+}
 export async function GET(req: NextRequest, { params }: Ctx) {
   try {
     const p = params instanceof Promise ? await params : params;

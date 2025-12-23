@@ -46,7 +46,9 @@ export async function sendPortalNotification(message: QueuedMessage): Promise<Se
   }
 }
 
-// EMAIL adapter (stub - logs and queues for future provider)
+// EMAIL adapter (uses configured email provider)
+import { getEmailProvider } from "@/lib/email/getProvider";
+
 export async function sendEmailNotification(message: QueuedMessage): Promise<SendResult> {
   try {
     const sb = supabaseAdmin();
@@ -62,32 +64,44 @@ export async function sendEmailNotification(message: QueuedMessage): Promise<Sen
       throw new Error("No contact email found for application");
     }
 
-    // TODO: Integrate with email provider (SendGrid, Resend, etc.)
-    // For now, log and mark as QUEUED for manual review
-    console.log(`📧 EMAIL QUEUED: ${app.contact_email}`);
-    console.log(`Subject: ${message.subject}`);
-    console.log(`Body: ${message.body.substring(0, 100)}...`);
-
-    // Log to email_queue table for future processing
-    await (sb as any).from("email_queue").insert({
-      to_email: app.contact_email,
-      subject: message.subject,
-      body: message.body,
-      priority: message.priority,
-      status: "QUEUED",
-      metadata: {
-        message_id: message.id,
-        application_id: message.application_id,
-        condition_id: message.condition_id,
-      },
-    });
-
-    return {
-      success: true,
-      messageId: message.id!,
-      channel: "EMAIL",
-      provider_response: { status: "QUEUED", note: "Email provider not yet configured" },
-    };
+    // Use real email provider
+    const provider = getEmailProvider();
+    const from = process.env.EMAIL_FROM || "noreply@buddy.com";
+    
+    try {
+      await provider.send({
+        to: app.contact_email,
+        from,
+        subject: message.subject || "Notification",
+        text: message.body,
+      });
+      
+      console.log(`📧 EMAIL SENT: ${app.contact_email}`);
+      
+      return {
+        success: true,
+        messageId: message.id!,
+        channel: "EMAIL",
+        provider_response: { status: "SENT" },
+      };
+    } catch (providerError: any) {
+      // Log to email_queue table for retry
+      await (sb as any).from("email_queue").insert({
+        to_email: app.contact_email,
+        subject: message.subject,
+        body: message.body,
+        priority: message.priority,
+        status: "FAILED",
+        metadata: {
+          message_id: message.id,
+          application_id: message.application_id,
+          condition_id: message.condition_id,
+          error: providerError.message,
+        },
+      });
+      
+      throw providerError;
+    }
   } catch (error: any) {
     return {
       success: false,

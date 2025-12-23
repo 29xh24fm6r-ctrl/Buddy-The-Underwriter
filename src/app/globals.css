@@ -135,3 +135,33 @@ a {
 [data-pdf-viewport="true"][data-focus-mode="off"] [data-pdf-viewport-inner="true"] {
   transform: translate(0px, 0px) scale(1);
 }
+
+/* Print styles for PDF generation */
+@media print {
+  body { 
+    background: white !important;
+    color: black !important;
+  }
+  .no-print { 
+    display: none !important; 
+  }
+  table { 
+    page-break-inside: auto; 
+  }
+  tr { 
+    page-break-inside: avoid; 
+    page-break-after: auto; 
+  }
+  thead { 
+    display: table-header-group; 
+  }
+  tfoot { 
+    display: table-footer-group; 
+  }
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+  }
+  img {
+    page-break-inside: avoid;
+  }
+}

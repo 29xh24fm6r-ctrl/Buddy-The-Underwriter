@@ -2,6 +2,8 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 
+import { supabaseAdmin } from "@/lib/supabase/admin";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -13,8 +15,8 @@ function json(status: number, body: any) {
   return NextResponse.json(body, { status });
 }
 
-async function getSupabaseClient(): Promise<any> {
-  return null; // Stub for now
+async function getSupabaseClient() {
+  return supabaseAdmin();
 }
 
 /**

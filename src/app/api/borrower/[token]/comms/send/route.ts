@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireBorrowerToken } from "@/lib/borrower/token";
+import { getEmailProvider } from "@/lib/email/getProvider";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,32 +22,60 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       );
     }
 
-    // Log communication (HUMAN APPROVAL REQUIRED for actual send)
+    // Check if immediate send or requires approval
+    const shouldSendNow = body.requires_approval === false;
+    
+    let emailSent = false;
+    let emailError = null;
+
+    // If immediate send, use email provider
+    if (shouldSendNow && application.contact_email) {
+      try {
+        const provider = getEmailProvider();
+        const from = process.env.EMAIL_FROM || "noreply@buddy.com";
+        await provider.send({
+          to: application.contact_email,
+          from,
+          subject: body.subject,
+          text: body.body,
+        });
+        emailSent = true;
+      } catch (error: any) {
+        console.error("[comms/send] email error:", error);
+        emailError = error.message;
+      }
+    }
+
+    // Log communication
     await (sb as any).from("borrower_comms").insert({
       application_id: application.id,
       channel: "EMAIL",
       subject: body.subject,
       body: body.body,
       priority: body.priority || "NORMAL",
-      requires_approval: body.requires_approval ?? true,
-      status: body.requires_approval !== false ? "PENDING_APPROVAL" : "SENT",
-      sent_at: body.requires_approval === false ? new Date().toISOString() : null,
+      requires_approval: !shouldSendNow,
+      status: emailSent ? "SENT" : shouldSendNow ? "FAILED" : "PENDING_APPROVAL",
+      sent_at: emailSent ? new Date().toISOString() : null,
       metadata: {
         draft_source: body.draft_source || "MANUAL",
         agent_confidence: body.agent_confidence,
+        email_error: emailError,
       },
     });
 
-    // TODO: If requires_approval === false, actually send email here
-    // await sendEmail({ to: application.email, subject, body });
+    if (shouldSendNow && !emailSent) {
+      return NextResponse.json(
+        { ok: false, error: emailError || "Failed to send email" },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       ok: true,
-      status: body.requires_approval !== false ? "PENDING_APPROVAL" : "SENT",
-      message:
-        body.requires_approval !== false
-          ? "Email drafted and awaiting approval"
-          : "Email sent successfully",
+      status: emailSent ? "SENT" : "PENDING_APPROVAL",
+      message: emailSent
+        ? "Email sent successfully"
+        : "Email drafted and awaiting approval",
     });
   } catch (err: any) {
     return NextResponse.json(

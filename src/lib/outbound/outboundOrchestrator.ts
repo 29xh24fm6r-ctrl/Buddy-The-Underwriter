@@ -55,18 +55,44 @@ export async function sendOutbound(
       return { ok: true, id: eventId };
     }
 
-    // TODO: Wire real providers here
-    // - email: SendGrid / Postmark
-    // - sms: Twilio
-    // For now: mark as sent immediately (placeholder)
+    // Wire real providers
+    let sendSuccess = false;
+    let sendError = null;
+
+    try {
+      if (msg.channel === "email") {
+        const { getEmailProvider } = await import("@/lib/email/getProvider");
+        const provider = getEmailProvider();
+        const from = process.env.EMAIL_FROM || "noreply@buddy.com";
+        await provider.send({
+          to: msg.to,
+          from,
+          subject: msg.subject || "Notification",
+          text: msg.body,
+        });
+        sendSuccess = true;
+      } else if (msg.channel === "sms") {
+        // SMS via Twilio - implement when ready
+        sendError = "SMS provider not configured";
+      }
+    } catch (e: any) {
+      sendError = e.message;
+    }
+
+    // Update event status
     if (eventId) {
       await sb
         .from("deal_reminder_events")
-        .update({ status: "sent" })
+        .update({ 
+          status: sendSuccess ? "sent" : "failed",
+          error: sendError,
+        })
         .eq("id", eventId);
     }
 
-    return { ok: true, id: eventId };
+    return sendSuccess 
+      ? { ok: true, id: eventId }
+      : { ok: false, error: sendError || "Send failed", id: eventId };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "Outbound send failed." };
   }

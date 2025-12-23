@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/requireRole";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getEmailProvider } from "@/lib/email/getProvider";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,10 +73,55 @@ export async function POST(
     });
   }
 
-  // TODO: Actually deliver message (email/portal notification)
-  // For now: SENT status means "approved and ready for delivery"
+  // Deliver message via email
+  let deliverySuccess = false;
+  let deliveryError = null;
 
-  return NextResponse.json({ ok: true, message_id: messageId });
+  try {
+    // Get application contact email
+    const { data: app } = await supabase
+      .from("applications")
+      .select("contact_email")
+      .eq("id", dealId)
+      .maybeSingle();
+
+    if (app?.contact_email) {
+      const provider = getEmailProvider();
+      const from = process.env.EMAIL_FROM || "noreply@buddy.com";
+      await provider.send({
+        to: app.contact_email,
+        from,
+        subject: (msg as any).subject || "Message from your lender",
+        text: (msg as any).body,
+      });
+      deliverySuccess = true;
+    } else {
+      deliveryError = "No contact email found for application";
+    }
+  } catch (error: any) {
+    deliveryError = error.message;
+    console.error(`[messages/send] delivery error:`, error);
+  }
+
+  // Update message with delivery status
+  if (!deliverySuccess && deliveryError) {
+    await (supabase as any)
+      .from("condition_messages")
+      .update({ 
+        metadata: { 
+          ...((msg as any).metadata || {}),
+          delivery_error: deliveryError 
+        }
+      })
+      .eq("id", messageId);
+  }
+
+  return NextResponse.json({ 
+    ok: true, 
+    message_id: messageId,
+    delivered: deliverySuccess,
+    delivery_error: deliveryError || undefined,
+  });
 }
 
 /**

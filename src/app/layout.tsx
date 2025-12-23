@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { ConditionalHeroBar } from "@/components/nav/ConditionalHeroBar";
 import "./globals.css";
 
 const inter = Inter({
@@ -24,8 +25,8 @@ export default function RootLayout({
     <ClerkProvider
       signInUrl="/sign-in"
       signUpUrl="/sign-up"
-      afterSignInUrl="/home"
-      afterSignUpUrl="/home"
+      afterSignInUrl="/deals"
+      afterSignUpUrl="/deals"
     >
       <html lang="en" className="dark">
         <head>
@@ -36,6 +37,7 @@ export default function RootLayout({
           />
         </head>
         <body className={`${inter.variable} font-inter bg-bg-dark text-white antialiased`}>
+          <ConditionalHeroBar />
           {children}
         </body>
       </html>

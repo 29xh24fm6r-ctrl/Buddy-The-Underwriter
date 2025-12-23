@@ -1,6 +1,7 @@
 // src/app/api/borrower/[token]/load/route.ts
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,33 +27,49 @@ export async function GET(req: NextRequest, { params }: Ctx) {
       return json(400, { ok: false, error: "Missing token" });
     }
 
-    // TODO: In production, query Supabase
-    // For now, return mock data for development
-    
-    const mockApplication = {
-      id: 'app-123',
-      access_token: token,
-      status: 'IN_PROGRESS',
-      application_type: 'SBA_7A',
-      business_name: null,
-      loan_amount: null,
-      sba_eligible: null,
-      created_at: new Date().toISOString(),
-    };
+    const sb = supabaseAdmin();
 
-    const mockApplicants: any[] = [];
-    const mockAnswers: any[] = [];
-    const mockUploads: any[] = [];
+    // Query real data from Supabase
+    const { data: application, error: appError } = await sb
+      .from("applications")
+      .select("*")
+      .eq("access_token", token)
+      .maybeSingle();
+
+    if (appError) {
+      console.error("[borrower/load] application query error:", appError);
+      return json(500, { ok: false, error: appError.message });
+    }
+
+    if (!application) {
+      return json(404, { ok: false, error: "Application not found" });
+    }
+
+    // Load related data
+    const { data: applicants } = await sb
+      .from("applicants")
+      .select("*")
+      .eq("application_id", application.id);
+
+    const { data: answers } = await sb
+      .from("borrower_answers")
+      .select("*")
+      .eq("application_id", application.id);
+
+    const { data: uploads } = await sb
+      .from("borrower_uploads")
+      .select("*")
+      .eq("application_id", application.id);
 
     return json(200, {
       ok: true,
-      application: mockApplication,
-      applicants: mockApplicants,
-      answers: mockAnswers,
-      uploads: mockUploads,
+      application,
+      applicants: applicants || [],
+      answers: answers || [],
+      uploads: uploads || [],
     });
   } catch (e: any) {
-    console.error('[borrower/load] error:', e);
+    console.error("[borrower/load] error:", e);
     return json(500, { ok: false, error: e.message });
   }
 }

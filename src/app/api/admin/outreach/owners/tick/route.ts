@@ -5,12 +5,18 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// TODO: Replace with your real email provider send function
+import { getEmailProvider } from "@/lib/email/getProvider";
+
 async function sendEmail(to: string, subject: string, body: string) {
-  // Implement with your existing provider (Resend, Postmark, SendGrid, SES, etc.)
-  // Must run server-side only.
-  console.log(`[EMAIL STUB] To: ${to}, Subject: ${subject}`);
-  return { ok: true };
+  try {
+    const provider = getEmailProvider();
+    const from = process.env.EMAIL_FROM || "noreply@buddy.com";
+    await provider.send({ to, from, subject, text: body });
+    return { ok: true };
+  } catch (error: any) {
+    console.error(`[EMAIL ERROR] To: ${to}, Error: ${error.message}`);
+    return { ok: false, error: error.message };
+  }
 }
 
 export async function POST(req: Request) {

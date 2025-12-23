@@ -1,33 +1,29 @@
 import { EmailProvider, SendEmailArgs, SendEmailResult } from "@/lib/email/provider";
+import { Resend } from "resend";
 
 export class ResendProvider implements EmailProvider {
-  private apiKey: string;
+  private resend: Resend;
 
   constructor(apiKey: string) {
-    this.apiKey = apiKey;
+    this.resend = new Resend(apiKey);
   }
 
   async send(args: SendEmailArgs): Promise<SendEmailResult> {
-    const r = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    try {
+      const { data, error } = await this.resend.emails.send({
         from: args.from,
         to: [args.to],
         subject: args.subject,
         text: args.text,
-      }),
-    });
+      });
 
-    const j = await r.json().catch(() => ({}));
+      if (error) {
+        throw new Error(`resend_error: ${error.message}`);
+      }
 
-    if (!r.ok) {
-      throw new Error(`resend_failed: ${r.status} ${JSON.stringify(j)}`);
+      return { provider: "resend", provider_message_id: data?.id ?? null };
+    } catch (error: any) {
+      throw new Error(`resend_failed: ${error.message}`);
     }
-
-    return { provider: "resend", provider_message_id: j?.id ?? null };
   }
 }
