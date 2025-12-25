@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/portal/seed-requests/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -10,7 +10,10 @@ export const dynamic = "force-dynamic";
  * - Creates borrower_document_requests for open deal_conditions and open deal_mitigants
  * - Idempotent: matches by (deal_id, title)
  */
-export async function POST(_req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  _req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
@@ -20,7 +23,8 @@ export async function POST(_req: Request, ctx: { params: Promise<{ dealId: strin
     .eq("id", dealId)
     .single();
 
-  if (dealErr || !deal) return NextResponse.json({ error: "Deal not found" }, { status: 404 });
+  if (dealErr || !deal)
+    return NextResponse.json({ error: "Deal not found" }, { status: 404 });
 
   const { data: conditions = [] } = await sb
     .from("deal_conditions")
@@ -35,7 +39,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ dealId: strin
     .neq("status", "satisfied");
 
   const desired = [
-    ...conditions.map((c: any) => ({
+    ...(conditions ?? []).map((c: any) => ({
       deal_id: dealId,
       bank_id: deal.bank_id,
       title: c.title,
@@ -44,7 +48,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ dealId: strin
       status: "requested",
       due_at: c.due_at ?? null,
     })),
-    ...mitigants.map((m: any) => ({
+    ...(mitigants ?? []).map((m: any) => ({
       deal_id: dealId,
       bank_id: deal.bank_id,
       title: m.title,
@@ -61,13 +65,21 @@ export async function POST(_req: Request, ctx: { params: Promise<{ dealId: strin
     .select("id,title")
     .eq("deal_id", dealId);
 
-  const existingTitles = new Set((existing || []).map((r: any) => String(r.title)));
+  const existingTitles = new Set(
+    (existing || []).map((r: any) => String(r.title)),
+  );
 
   const toInsert = desired.filter((r) => !existingTitles.has(String(r.title)));
 
   if (toInsert.length) {
-    const { error } = await sb.from("borrower_document_requests").insert(toInsert);
-    if (error) return NextResponse.json({ error: "Failed to seed requests" }, { status: 500 });
+    const { error } = await sb
+      .from("borrower_document_requests")
+      .insert(toInsert);
+    if (error)
+      return NextResponse.json(
+        { error: "Failed to seed requests" },
+        { status: 500 },
+      );
   }
 
   return NextResponse.json({

@@ -20,6 +20,9 @@ export async function POST(req: Request) {
     await bankerMarkDealRead({ dealId: body.dealId, bankerUserId });
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

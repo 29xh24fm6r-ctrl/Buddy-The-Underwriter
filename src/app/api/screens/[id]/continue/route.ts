@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { isValidScreenId, generateScreenId } from "@/lib/screens/idgen";
 import { generateScreenFromPrompt } from "@/lib/screens/templates";
-import {
-  checkContinueLimit,
-  incrementContinueUsage,
-} from "@/lib/usage/limits";
+import { checkContinueLimit, incrementContinueUsage } from "@/lib/usage/limits";
 
 export const runtime = "nodejs"; // Changed from edge for usage tracking
 
@@ -16,19 +13,16 @@ export const runtime = "nodejs"; // Changed from edge for usage tracking
  */
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   try {
     const id = params.id;
 
     if (!isValidScreenId(id)) {
-      return NextResponse.json(
-        { error: "Invalid screen ID" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid screen ID" }, { status: 400 });
     }
 
-    const sb = await createClient();
+    const sb = await getSupabaseServerClient();
 
     // Check auth
     const {
@@ -41,7 +35,7 @@ export async function POST(
           error: "Authentication required",
           redirect: `/auth?next=/s/${id}`,
         },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -52,7 +46,7 @@ export async function POST(
     if (!prompt) {
       return NextResponse.json(
         { error: "Prompt is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -66,7 +60,7 @@ export async function POST(
           redirect: "/upgrade",
           usage: limitCheck.usage,
         },
-        { status: 402 } // Payment Required
+        { status: 402 }, // Payment Required
       );
     }
 
@@ -97,14 +91,14 @@ export async function POST(
       console.error("Insert error:", insertError);
       return NextResponse.json(
         { error: "Failed to create screen" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     // Increment usage for free users (fire and forget for pro)
     if (limitCheck.usage.plan === "free") {
       incrementContinueUsage(user.id).catch((err) =>
-        console.error("Failed to increment usage:", err)
+        console.error("Failed to increment usage:", err),
       );
     }
 
@@ -119,7 +113,7 @@ export async function POST(
     console.error("Continue error:", err);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

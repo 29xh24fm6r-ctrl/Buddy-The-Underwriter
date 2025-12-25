@@ -1,13 +1,21 @@
 // src/app/api/deals/[dealId]/portal/uploads/suggest-ranked/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { loadEvidenceForUpload, normalizeDocType, tokens, uniqStrings } from "@/lib/portal/evidence";
+import {
+  loadEvidenceForUpload,
+  normalizeDocType,
+  tokens,
+  uniqStrings,
+} from "@/lib/portal/evidence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function norm(s: string) {
-  return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return (s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 type RequestRow = {
@@ -18,14 +26,21 @@ type RequestRow = {
   status: string;
 };
 
-function scoreFilename(filename: string, req: RequestRow): { score: number; hits: string[] } {
+function scoreFilename(
+  filename: string,
+  req: RequestRow,
+): { score: number; hits: string[] } {
   const f = norm(filename);
   const title = norm(req.title);
   const desc = norm(req.description || "");
   const cat = norm(req.category || "");
 
   const fTokens = new Set(f.split(" ").filter(Boolean));
-  const reqTokens = new Set([...title.split(" "), ...desc.split(" "), ...cat.split(" ")].filter(Boolean));
+  const reqTokens = new Set(
+    [...title.split(" "), ...desc.split(" "), ...cat.split(" ")].filter(
+      Boolean,
+    ),
+  );
 
   let hits: string[] = [];
   let score = 0;
@@ -83,7 +98,10 @@ function overlapCount(a: string[], b: string[]) {
   return n;
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
@@ -97,27 +115,40 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
   const { data: upload, error: upErr } = await sb
     .from("borrower_uploads")
-    .select("id,deal_id,bank_id,original_filename,request_id,storage_path,storage_bucket,mime_type")
+    .select(
+      "id,deal_id,bank_id,original_filename,request_id,storage_path,storage_bucket,mime_type",
+    )
     .eq("id", uploadId)
     .single();
 
-  if (upErr || !upload) return NextResponse.json({ error: "Upload not found" }, { status: 404 });
-  if (upload.deal_id !== dealId) return NextResponse.json({ error: "Upload not in deal" }, { status: 400 });
+  if (upErr || !upload)
+    return NextResponse.json({ error: "Upload not found" }, { status: 404 });
+  if (upload.deal_id !== dealId)
+    return NextResponse.json({ error: "Upload not in deal" }, { status: 400 });
 
   const { data: requests = [], error: rqErr } = await sb
     .from("borrower_document_requests")
     .select("id,title,description,category,status")
     .eq("deal_id", dealId);
 
-  if (rqErr) return NextResponse.json({ error: "Failed to load requests" }, { status: 500 });
+  if (rqErr)
+    return NextResponse.json(
+      { error: "Failed to load requests" },
+      { status: 500 },
+    );
 
   const ev = await loadEvidenceForUpload(sb, upload);
   const evDocType = normalizeDocType(ev?.docType ?? null);
   const evYear = ev?.year ?? null;
 
   const uploadNameTokens = tokens(upload.original_filename);
-  const evKeywords = Array.isArray(ev?.keywords) ? ev!.keywords!.map((k) => String(k)) : [];
-  const uploadSignalTokens = uniqStrings([...uploadNameTokens, ...evKeywords]).slice(0, 100);
+  const evKeywords = Array.isArray(ev?.keywords)
+    ? ev!.keywords!.map((k) => String(k))
+    : [];
+  const uploadSignalTokens = uniqStrings([
+    ...uploadNameTokens,
+    ...evKeywords,
+  ]).slice(0, 100);
 
   // Deal-level hints
   const { data: hints, error: hintErr } = await sb
@@ -152,7 +183,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     }
   }
 
-  function scoreLearning(req: RequestRow): { dealBump: number; bankBump: number; hits: string[] } {
+  function scoreLearning(req: RequestRow): {
+    dealBump: number;
+    bankBump: number;
+    hits: string[];
+  } {
     const dealRows = hintsByRequest.get(req.id) || [];
     const reqCat = (req.category || "").toLowerCase() || "_none_";
     const bankRows = bankHintsByCategory.get(reqCat) || [];
@@ -168,7 +203,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       const hYear = h.year ?? null;
 
       if (evDocType && hDocType && evDocType === hDocType) {
-        dealBump += 0.20 * s;
+        dealBump += 0.2 * s;
         hits.push(`deal_doc_type:${evDocType}(x${h.hit_count || 1})`);
       }
 
@@ -187,7 +222,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       const ht = Array.isArray(h.filename_tokens) ? h.filename_tokens : [];
       const overlapFn = overlapCount(uploadNameTokens, ht);
       if (overlapFn >= 2) {
-        dealBump += Math.min(0.10, overlapFn * 0.02) * s;
+        dealBump += Math.min(0.1, overlapFn * 0.02) * s;
         hits.push(`deal_filename:${overlapFn}(x${h.hit_count || 1})`);
       }
     }
@@ -204,7 +239,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       }
 
       if (evYear && hYear && evYear === hYear) {
-        bankBump += 0.10 * s;
+        bankBump += 0.1 * s;
         hits.push(`bank_year:${evYear}(x${h.hit_count || 1})`);
       }
 
@@ -224,7 +259,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     }
 
     dealBump = Math.max(0, Math.min(0.55, dealBump));
-    bankBump = Math.max(0, Math.min(0.30, bankBump));
+    bankBump = Math.max(0, Math.min(0.3, bankBump));
 
     return { dealBump, bankBump, hits: hits.slice(0, 12) };
   }
@@ -234,7 +269,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       const f = scoreFilename(upload.original_filename, r);
       const l = scoreLearning(r);
 
-      const total = Math.max(0, Math.min(0.99, f.score + l.dealBump + l.bankBump));
+      const total = Math.max(
+        0,
+        Math.min(0.99, f.score + l.dealBump + l.bankBump),
+      );
 
       return {
         requestId: r.id,

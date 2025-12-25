@@ -19,18 +19,53 @@ export async function POST(req: Request) {
     // Create active policy
     const { data: pol, error: pErr } = await sb
       .from("pricing_policies")
-      .insert({ name: "Policy v1", status: "active", effective_date: new Date().toISOString().slice(0, 10), notes: "Seeded by API" })
+      .insert({
+        name: "Policy v1",
+        status: "active",
+        effective_date: new Date().toISOString().slice(0, 10),
+        notes: "Seeded by API",
+      })
       .select("*")
       .single();
     if (pErr) throw pErr;
 
     // Minimal grid examples (you will replace)
     const rows = [
-      { product_type: "SBA_7A", risk_grade: "1", term_min_months: 1, term_max_months: 60, base_spread_bps: 250 },
-      { product_type: "SBA_7A", risk_grade: "1", term_min_months: 61, term_max_months: 120, base_spread_bps: 275 },
-      { product_type: "SBA_7A", risk_grade: "6", term_min_months: 1, term_max_months: 60, base_spread_bps: 325 },
-      { product_type: "SBA_7A", risk_grade: "6", term_min_months: 61, term_max_months: 120, base_spread_bps: 350 },
-      { product_type: "CLOC", risk_grade: "6", term_min_months: 1, term_max_months: 60, base_spread_bps: 400 },
+      {
+        product_type: "SBA_7A",
+        risk_grade: "1",
+        term_min_months: 1,
+        term_max_months: 60,
+        base_spread_bps: 250,
+      },
+      {
+        product_type: "SBA_7A",
+        risk_grade: "1",
+        term_min_months: 61,
+        term_max_months: 120,
+        base_spread_bps: 275,
+      },
+      {
+        product_type: "SBA_7A",
+        risk_grade: "6",
+        term_min_months: 1,
+        term_max_months: 60,
+        base_spread_bps: 325,
+      },
+      {
+        product_type: "SBA_7A",
+        risk_grade: "6",
+        term_min_months: 61,
+        term_max_months: 120,
+        base_spread_bps: 350,
+      },
+      {
+        product_type: "CLOC",
+        risk_grade: "6",
+        term_min_months: 1,
+        term_max_months: 60,
+        base_spread_bps: 400,
+      },
     ].map((r) => ({ ...r, policy_id: pol.id }));
 
     const { error: gErr } = await sb.from("pricing_grid_rows").insert(rows);
@@ -38,6 +73,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, policyId: pol.id, rows: rows.length });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

@@ -8,31 +8,30 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST /api/deals/[dealId]/conditions/reconcile
- * 
+ *
  * Manual condition reconciliation endpoint (for testing/debugging)
- * 
+ *
  * Simulates OCR/classify completion with mock payload
  * Useful for:
  * - Testing condition match rules
  * - Debugging auto-satisfaction logic
  * - Live demo of reconciliation engine
- * 
+ *
  * Body:
  * {
  *   doc_type: "BANK_STATEMENT",
  *   confidence: 0.95,
  *   reasons?: ["found account numbers", "detected monthly transactions"]
  * }
- * 
+ *
  * Returns: { ok: true, matched: number, satisfied: number }
  */
 export async function POST(
   req: NextRequest,
-  ctx: { params: Promise<{ dealId: string }> }
+  ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
     const { dealId } = await ctx.params;
-
     // Enforce underwriter access
     await requireUnderwriterOnDeal(dealId);
 
@@ -43,7 +42,7 @@ export async function POST(
     if (!doc_type) {
       return NextResponse.json(
         { ok: false, error: "doc_type is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -51,7 +50,7 @@ export async function POST(
     const sb = createClient(
       process.env.SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
+      { auth: { persistSession: false } },
     );
 
     // Run reconciliation with mock payload
@@ -80,7 +79,7 @@ export async function POST(
     console.error("Manual reconcile error:", err);
     return NextResponse.json(
       { ok: false, error: err?.message ?? String(err) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

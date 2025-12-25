@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { evaluateTriggers } from "@/lib/conditions/messaging/triggers";
 import { checkThrottle } from "@/lib/conditions/messaging/throttle";
@@ -8,24 +8,36 @@ import { queueMessage, skipMessage } from "@/lib/conditions/messaging/queue";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(_: Request, context: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  _: Request,
+  context: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await context.params;
     const sb = supabaseAdmin();
 
     // Load conditions and context
-    const [{ data: conditions }, { data: attachments }, { data: requirements }] =
-      await Promise.all([
-        (sb as any).from("conditions_to_close").select("*").eq("application_id", dealId),
-        (sb as any).from("borrower_attachments").select("*").eq("application_id", dealId),
-        (sb as any)
-          .from("borrower_requirements_snapshots")
-          .select("*")
-          .eq("application_id", dealId)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .single(),
-      ]);
+    const [
+      { data: conditions },
+      { data: attachments },
+      { data: requirements },
+    ] = await Promise.all([
+      (sb as any)
+        .from("conditions_to_close")
+        .select("*")
+        .eq("application_id", dealId),
+      (sb as any)
+        .from("borrower_attachments")
+        .select("*")
+        .eq("application_id", dealId),
+      (sb as any)
+        .from("borrower_requirements_snapshots")
+        .select("*")
+        .eq("application_id", dealId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single(),
+    ]);
 
     if (!conditions || conditions.length === 0) {
       return NextResponse.json({
@@ -39,9 +51,11 @@ export async function POST(_: Request, context: { params: Promise<{ dealId: stri
     // Calculate summary
     const total = conditions.length;
     const satisfied = conditions.filter((c: any) => c.satisfied).length;
-    const required = conditions.filter((c: any) => c.severity === "REQUIRED").length;
+    const required = conditions.filter(
+      (c: any) => c.severity === "REQUIRED",
+    ).length;
     const requiredSatisfied = conditions.filter(
-      (c: any) => c.severity === "REQUIRED" && c.satisfied
+      (c: any) => c.severity === "REQUIRED" && c.satisfied,
     ).length;
 
     const summary = {
@@ -66,7 +80,7 @@ export async function POST(_: Request, context: { params: Promise<{ dealId: stri
       const throttle = await checkThrottle(
         dealId,
         trigger.condition_id,
-        trigger.trigger_type
+        trigger.trigger_type,
       );
 
       if (!throttle.eligible) {
@@ -86,7 +100,7 @@ export async function POST(_: Request, context: { params: Promise<{ dealId: stri
               ai_explanation: "",
             },
           },
-          { status: "DRAFT" }
+          { status: "DRAFT" },
         );
 
         await skipMessage(messageId, throttle.reason!, {
@@ -103,7 +117,9 @@ export async function POST(_: Request, context: { params: Promise<{ dealId: stri
       }
 
       // Find condition details
-      const condition = conditions.find((c: any) => c.id === trigger.condition_id);
+      const condition = conditions.find(
+        (c: any) => c.id === trigger.condition_id,
+      );
       if (!condition) continue;
 
       // AI draft message (explain only, no state changes)
@@ -113,10 +129,15 @@ export async function POST(_: Request, context: { params: Promise<{ dealId: stri
       });
 
       // Queue as DRAFT (requires approval by default)
-      const messageId = await queueMessage(dealId, trigger.condition_id, draft, {
-        requiresApproval: true,
-        status: "DRAFT",
-      });
+      const messageId = await queueMessage(
+        dealId,
+        trigger.condition_id,
+        draft,
+        {
+          requiresApproval: true,
+          status: "DRAFT",
+        },
+      );
 
       drafts.push({
         message_id: messageId,
@@ -141,7 +162,7 @@ export async function POST(_: Request, context: { params: Promise<{ dealId: stri
     console.error("Message planning failed:", err);
     return NextResponse.json(
       { ok: false, error: err?.message ?? "planning_failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

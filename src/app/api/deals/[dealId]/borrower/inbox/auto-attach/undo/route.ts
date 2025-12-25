@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -12,7 +12,10 @@ export const dynamic = "force-dynamic";
  * - only allows undo within 15 minutes of run.created_at
  * - reverts request + inbox states using run_items snapshots
  */
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
@@ -28,7 +31,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       .single();
 
     if (runRes.error) throw new Error(runRes.error.message);
-    if (String(runRes.data.deal_id) !== String(dealId)) throw new Error("run_deal_mismatch");
+    if (String(runRes.data.deal_id) !== String(dealId))
+      throw new Error("run_deal_mismatch");
 
     const createdAt = new Date(runRes.data.created_at as string).getTime();
     const now = Date.now();
@@ -36,8 +40,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
     if (now - createdAt > ttlMs) {
       return NextResponse.json(
-        { ok: false, error: "undo_window_expired", created_at: runRes.data.created_at },
-        { status: 400 }
+        {
+          ok: false,
+          error: "undo_window_expired",
+          created_at: runRes.data.created_at,
+        },
+        { status: 400 },
       );
     }
 
@@ -52,7 +60,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
     const items = itemsRes.data || [];
     if (items.length === 0) {
-      return NextResponse.json({ ok: true, run_id: runId, totals: { items: 0, reverted: 0, failed: 0 }, results: [] });
+      return NextResponse.json({
+        ok: true,
+        run_id: runId,
+        totals: { items: 0, reverted: 0, failed: 0 },
+        results: [],
+      });
     }
 
     let reverted = 0;
@@ -104,7 +117,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
         if (updInbox.error) throw new Error(updInbox.error.message);
 
         reverted++;
-        results.push({ upload_inbox_id: uploadInboxId, request_id: requestId, ok: true, action: "reverted" });
+        results.push({
+          upload_inbox_id: uploadInboxId,
+          request_id: requestId,
+          ok: true,
+          action: "reverted",
+        });
       } catch (e: any) {
         failed++;
         results.push({
@@ -124,6 +142,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       results,
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "undo_failed" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "undo_failed" },
+      { status: 400 },
+    );
   }
 }

@@ -15,8 +15,7 @@ export type MatchEventInput = {
   metadata?: Record<string, any>;
 };
 
-export async function recordMatchEvent(input: MatchEventInput): Promise<string> {
-  const sb = supabaseAdmin();
+export async function recordMatchEvent(sb: any, input: MatchEventInput): Promise<string> {
 
   const { data, error } = await sb
     .from("borrower_pack_match_events")

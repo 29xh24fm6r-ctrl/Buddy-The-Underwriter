@@ -30,13 +30,16 @@ export async function POST() {
           computed_at: new Date().toISOString(),
           model_version: "rules_v1",
         },
-        { onConflict: "deal_id" }
+        { onConflict: "deal_id" },
       );
       if (up.error) throw up.error;
     }
 
     return NextResponse.json({ ok: true, refreshed: openDeals.length });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Unknown error" },
+      { status: 500 },
+    );
   }
 }

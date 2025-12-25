@@ -4,12 +4,12 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 /**
  * GET /api/banks/policy/chunks?asset_id=uuid
- * 
+ *
  * List all chunks for a specific asset (or all chunks if no asset_id provided).
- * 
+ *
  * Query params:
  * - asset_id: UUID (optional)
- * 
+ *
  * Returns:
  * {
  *   "chunks": [...chunk objects with asset info]
@@ -27,7 +27,8 @@ export async function GET(req: NextRequest) {
 
     let query = supabaseAdmin()
       .from("bank_policy_chunks")
-      .select(`
+      .select(
+        `
         id,
         asset_id,
         chunk_index,
@@ -41,7 +42,8 @@ export async function GET(req: NextRequest) {
           title,
           kind
         )
-      `)
+      `,
+      )
       .eq("bank_id", bankId)
       .order("asset_id", { ascending: true })
       .order("chunk_index", { ascending: true });
@@ -53,10 +55,7 @@ export async function GET(req: NextRequest) {
     const { data: chunks, error } = await query;
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ chunks: chunks || [] });
@@ -64,19 +63,19 @@ export async function GET(req: NextRequest) {
     console.error("[/api/banks/policy/chunks] Error:", err);
     return NextResponse.json(
       { error: err.message || "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 /**
  * DELETE /api/banks/policy/chunks?asset_id=uuid
- * 
+ *
  * Delete all chunks for a specific asset.
- * 
+ *
  * Query params:
  * - asset_id: UUID (required)
- * 
+ *
  * Returns:
  * {
  *   "deleted": 42
@@ -90,10 +89,7 @@ export async function DELETE(req: NextRequest) {
     const assetId = searchParams.get("asset_id");
 
     if (!assetId) {
-      return NextResponse.json(
-        { error: "asset_id required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "asset_id required" }, { status: 400 });
     }
 
     // Delete all chunks for this asset
@@ -105,10 +101,7 @@ export async function DELETE(req: NextRequest) {
       .select();
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -118,7 +111,7 @@ export async function DELETE(req: NextRequest) {
     console.error("[/api/banks/policy/chunks DELETE] Error:", err);
     return NextResponse.json(
       { error: err.message || "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

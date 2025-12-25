@@ -2,9 +2,20 @@
 import { NextRequest } from "next/server";
 import { getAuthedSupabase } from "@/lib/supabase/serverAuthed";
 import { InterviewFactCreateSchema } from "@/lib/interview/validators";
-import { jsonBadRequest, jsonCreated, jsonNotFound, jsonOk, jsonServerError, jsonUnauthorized } from "@/lib/interview/http";
+import {
+  jsonBadRequest,
+  jsonCreated,
+  jsonNotFound,
+  jsonOk,
+  jsonServerError,
+  jsonUnauthorized,
+} from "@/lib/interview/http";
 
-async function assertSessionAccessible(supabase: any, dealId: string, sessionId: string) {
+async function assertSessionAccessible(
+  supabase: any,
+  dealId: string,
+  sessionId: string,
+) {
   const { data, error } = await supabase
     .from("deal_interview_sessions")
     .select("id, deal_id, status")
@@ -17,7 +28,10 @@ async function assertSessionAccessible(supabase: any, dealId: string, sessionId:
   return { ok: true as const, session: data };
 }
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: string; sessionId: string }> }) {
+export async function GET(
+  _req: NextRequest,
+  ctx: { params: Promise<{ dealId: string; sessionId: string }> },
+) {
   try {
     const { dealId, sessionId } = await ctx.params;
     const { supabase } = await getAuthedSupabase();
@@ -41,7 +55,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: st
   }
 }
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string; sessionId: string }> }) {
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ dealId: string; sessionId: string }> },
+) {
   try {
     const { dealId, sessionId } = await ctx.params;
     const { supabase } = await getAuthedSupabase();
@@ -51,7 +68,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
 
     const body = await req.json().catch(() => ({}));
     const parsed = InterviewFactCreateSchema.safeParse(body);
-    if (!parsed.success) return jsonBadRequest("invalid_body", parsed.error.flatten());
+    if (!parsed.success)
+      return jsonBadRequest("invalid_body", parsed.error.flatten());
 
     const {
       field_key,

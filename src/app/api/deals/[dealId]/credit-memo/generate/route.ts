@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/requireRole";
 import { aiJson } from "@/lib/ai/openai";
@@ -7,16 +7,30 @@ import { recordAiEvent } from "@/lib/ai/audit";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(_req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  _req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   await requireRole(["super_admin", "bank_admin", "underwriter"]);
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
   // Pull top doc intel + ownership + discovery summaries (adjust selectors as needed)
   const [docs, owners, disc] = await Promise.all([
-    sb.from("doc_intel_results").select("file_id, doc_type, tax_year, extracted_json, evidence_json, confidence, created_at").eq("deal_id", dealId).order("created_at", { ascending: false }).limit(20),
+    sb
+      .from("doc_intel_results")
+      .select(
+        "file_id, doc_type, tax_year, extracted_json, evidence_json, confidence, created_at",
+      )
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .limit(20),
     sb.from("ownership_entities").select("*").eq("deal_id", dealId).limit(50),
-    sb.from("credit_discovery_sessions").select("*").eq("deal_id", dealId).maybeSingle(),
+    sb
+      .from("credit_discovery_sessions")
+      .select("*")
+      .eq("deal_id", dealId)
+      .maybeSingle(),
   ]);
 
   if (docs.error) throw docs.error;
@@ -72,12 +86,15 @@ export async function POST(_req: Request, ctx: { params: Promise<{ dealId: strin
     action: "generate_with_citations",
     input_json: { dealId },
     output_json: ai.ok ? ai.result : { error: ai.error },
-    confidence: ai.ok ? Number(ai.result?.confidence ?? ai.confidence ?? 50) : null,
+    confidence: ai.ok
+      ? Number(ai.result?.confidence ?? ai.confidence ?? 50)
+      : null,
     evidence_json: ai.ok ? { blocks: ai.result?.blocks ?? [] } : null,
     requires_human_review: true,
   });
 
-  if (!ai.ok) return NextResponse.json({ ok: false, error: ai.error }, { status: 500 });
+  if (!ai.ok)
+    return NextResponse.json({ ok: false, error: ai.error }, { status: 500 });
 
   // Insert memo
   const memoIns = await sb

@@ -1,11 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/requireRole";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ dealId: string; memoId: string }> }) {
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ dealId: string; memoId: string }> },
+) {
   await requireRole(["super_admin", "bank_admin", "underwriter"]);
 
   const { dealId, memoId } = await ctx.params;
@@ -17,6 +20,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ dealId: string
     .eq("memo_draft_id", memoId)
     .order("created_at", { ascending: true });
 
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (error)
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
   return NextResponse.json({ ok: true, citations: data || [] });
 }

@@ -1,19 +1,19 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(
-  _req: Request,
-  { params }: { params: { dealId: string; docId: string } }
+  _req: NextRequest,
+  ctx: { params: Promise<{ dealId: string; docId: string }> },
 ) {
   const supabase = supabaseAdmin();
 
   const { data: doc, error } = await supabase
     .from("generated_documents")
     .select("id, deal_id, pdf_storage_path")
-    .eq("id", params.docId)
+    .eq("id", docId)
     .single();
 
-  if (error || !doc || doc.deal_id !== params.dealId || !doc.pdf_storage_path) {
+  if (error || !doc || doc.deal_id !== dealId || !doc.pdf_storage_path) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
@@ -23,7 +23,10 @@ export async function GET(
     .createSignedUrl(doc.pdf_storage_path, 60 * 10); // 10 minutes
 
   if (signErr || !data?.signedUrl) {
-    return NextResponse.json({ error: signErr?.message ?? "Sign failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: signErr?.message ?? "Sign failed" },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ url: data.signedUrl });

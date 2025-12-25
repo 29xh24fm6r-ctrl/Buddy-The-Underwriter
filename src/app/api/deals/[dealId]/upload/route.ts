@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -10,23 +10,30 @@ function safeName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-function getRequestId(req: Request) {
+function getRequestId(req: NextRequest) {
   return req.headers.get("x-request-id") ?? crypto.randomUUID();
 }
 
-function jsonError(status: number, code: string, message: string, details?: any) {
-  return NextResponse.json({ ok: false, error: { code, message, details } }, { status });
+function jsonError(
+  status: number,
+  code: string,
+  message: string,
+  details?: any,
+) {
+  return NextResponse.json(
+    { ok: false, error: { code, message, details } },
+    { status },
+  );
 }
 
-type Ctx = { params: Promise<{ dealId: string }> | { dealId: string } };
+type Ctx = { params: Promise<{ dealId: string }> };
 
-export async function POST(req: Request, { params }: Ctx) {
+export async function POST(req: NextRequest, ctx: Ctx) {
   const requestId = getRequestId(req);
 
   try {
-    const p = params instanceof Promise ? await params : params;
+    const p = await ctx.params;
     const dealId = p?.dealId;
-
     if (!dealId) {
       return jsonError(400, "MISSING_DEAL_ID", "Missing dealId in URL");
     }
@@ -36,7 +43,11 @@ export async function POST(req: Request, { params }: Ctx) {
     const packId = form.get("pack_id") as string | null;
 
     if (!file || !(file instanceof File)) {
-      return jsonError(400, "MISSING_FILE", "Missing file in form-data (key: file)");
+      return jsonError(
+        400,
+        "MISSING_FILE",
+        "Missing file in form-data (key: file)",
+      );
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
@@ -44,10 +55,15 @@ export async function POST(req: Request, { params }: Ctx) {
     // Guardrail: prevent someone from uploading a 2GB file and nuking memory
     const MAX_BYTES = 50 * 1024 * 1024; // 50MB
     if (bytes.length > MAX_BYTES) {
-      return jsonError(413, "FILE_TOO_LARGE", "File exceeds max upload size (50MB).", {
-        size: bytes.length,
-        max: MAX_BYTES,
-      });
+      return jsonError(
+        413,
+        "FILE_TOO_LARGE",
+        "File exceeds max upload size (50MB).",
+        {
+          size: bytes.length,
+          max: MAX_BYTES,
+        },
+      );
     }
 
     const baseDir = path.join("/tmp/buddy_uploads", dealId);
@@ -87,9 +103,14 @@ export async function POST(req: Request, { params }: Ctx) {
       stack: e?.stack,
     });
 
-    return jsonError(500, "UPLOAD_UNHANDLED", "Internal server error during upload.", {
-      message: e?.message ?? String(e),
-      name: e?.name,
-    });
+    return jsonError(
+      500,
+      "UPLOAD_UNHANDLED",
+      "Internal server error during upload.",
+      {
+        message: e?.message ?? String(e),
+        name: e?.name,
+      },
+    );
   }
 }

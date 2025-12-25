@@ -18,7 +18,10 @@ type UploadResult = {
   error?: string;
 };
 
-export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ token: string }> },
+) {
   const { token } = await ctx.params;
   const sb = supabaseAdmin();
 
@@ -43,8 +46,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
     if (files.length === 0) throw new Error("missing_file");
 
-    const hinted_doc_type = (form.get("hinted_doc_type") as string | null) || null;
-    const hinted_category = (form.get("hinted_category") as string | null) || null;
+    const hinted_doc_type =
+      (form.get("hinted_doc_type") as string | null) || null;
+    const hinted_category =
+      (form.get("hinted_category") as string | null) || null;
 
     // requests (once)
     const reqsRes = await sb
@@ -103,7 +108,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         // compute match
         const match = computeMatch(
           { id: inbox.id, deal_id, hinted_doc_type, hinted_category, filename },
-          requestRows as any
+          requestRows as any,
         );
 
         if (match.requestId && match.confidence >= CONFIDENCE_THRESHOLD) {
@@ -118,7 +123,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
               received_mime: mime,
               received_at: now,
               updated_at: now,
-              evidence: { auto_matched: true, match_confidence: match.confidence, match_reason: match.reason },
+              evidence: {
+                auto_matched: true,
+                match_confidence: match.confidence,
+                match_reason: match.reason,
+              },
             })
             .eq("id", match.requestId);
 
@@ -178,7 +187,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
             receivedBy: null, // borrower upload has no banker userId
           }).catch(() => null); // soft-fail to not break upload flow
 
-          results.push({ ok: true, filename, storage_path: path, matched: true, match });
+          results.push({
+            ok: true,
+            filename,
+            storage_path: path,
+            matched: true,
+            match,
+          });
         } else {
           await sb
             .from("borrower_upload_inbox")
@@ -219,7 +234,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
             });
           }
 
-          results.push({ ok: true, filename, storage_path: path, matched: false, match });
+          results.push({
+            ok: true,
+            filename,
+            storage_path: path,
+            matched: false,
+            match,
+          });
         }
       } catch (e: any) {
         results.push({
@@ -237,6 +258,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       results,
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "upload_failed" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "upload_failed" },
+      { status: 400 },
+    );
   }
 }

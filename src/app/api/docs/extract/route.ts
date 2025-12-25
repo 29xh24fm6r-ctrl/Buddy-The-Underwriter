@@ -13,7 +13,8 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const docId = String(body?.docId ?? "").trim();
-    if (!docId) return NextResponse.json({ error: "Missing docId" }, { status: 400 });
+    if (!docId)
+      return NextResponse.json({ error: "Missing docId" }, { status: 400 });
 
     const { doc, result } = await extractByDocType(docId);
 
@@ -30,6 +31,9 @@ export async function POST(req: Request) {
     setDocStatus(doc.id, "REVIEWED");
     return NextResponse.json({ ok: true, doc, extract });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Extraction failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message ?? "Extraction failed" },
+      { status: 500 },
+    );
   }
 }

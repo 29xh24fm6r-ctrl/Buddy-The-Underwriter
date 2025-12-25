@@ -7,13 +7,13 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/deals/[dealId]/messages
- * 
+ *
  * Returns messages for a deal, optionally filtered by status
  * Query params: ?status=DRAFT
  */
 export async function GET(
   req: NextRequest,
-  ctx: { params: Promise<{ dealId: string }> }
+  ctx: { params: Promise<{ dealId: string }> },
 ) {
   await requireRole(["underwriter", "bank_admin", "super_admin"]);
   const { dealId } = await ctx.params;
@@ -35,7 +35,10 @@ export async function GET(
   const { data, error } = await query;
 
   if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ ok: true, messages: data ?? [] });

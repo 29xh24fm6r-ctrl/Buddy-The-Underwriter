@@ -16,7 +16,7 @@ const OCR_MIME_OK = new Set([
   "image/webp",
 ]);
 
-type Ctx = { params: Promise<{ dealId: string }> | { dealId: string } };
+type Ctx = { params: Promise<{ dealId: string }> };
 
 function json(status: number, body: any) {
   return NextResponse.json(body, { status });
@@ -24,15 +24,15 @@ function json(status: number, body: any) {
 
 /**
  * POST /api/deals/[dealId]/uploads/ocr-all
- * 
+ *
  * Enqueue OCR jobs for all eligible uploads (durable Postgres queue)
  * Replaces /tmp fragility with race-proof DB-backed jobs
- * 
+ *
  * Returns: { ok: true, enqueued: number, already_queued: number, skipped: number }
  */
-export async function POST(_req: NextRequest, { params }: Ctx) {
+export async function POST(_req: NextRequest, ctx: Ctx) {
   try {
-    const p = params instanceof Promise ? await params : params;
+    const p = await ctx.params;
     const dealId = p?.dealId;
 
     if (!dealId) return json(400, { ok: false, error: "Missing dealId" });
@@ -58,7 +58,9 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
     }
 
     // Filter to OCR-eligible files
-    const eligible = attachments.filter((a: any) => OCR_MIME_OK.has(a.mime_type));
+    const eligible = attachments.filter((a: any) =>
+      OCR_MIME_OK.has(a.mime_type),
+    );
 
     if (eligible.length === 0) {
       return json(200, {
@@ -85,7 +87,7 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
             status: "QUEUED",
             next_run_at: new Date().toISOString(),
           },
-          { onConflict: "attachment_id,job_type", ignoreDuplicates: true }
+          { onConflict: "attachment_id,job_type", ignoreDuplicates: true },
         );
 
       if (insertErr) {

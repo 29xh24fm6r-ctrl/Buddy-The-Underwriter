@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/requireRole";
 import { ensurePageMapForAttachment } from "@/lib/evidence/pageMap";
@@ -6,7 +6,10 @@ import { ensurePageMapForAttachment } from "@/lib/evidence/pageMap";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ dealId: string; attachmentId: string }> }) {
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ dealId: string; attachmentId: string }> },
+) {
   await requireRole(["super_admin", "bank_admin", "underwriter"]);
 
   const { dealId, attachmentId } = await ctx.params;
@@ -20,6 +23,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ dealId: string
     .eq("attachment_id", attachmentId)
     .order("page_number", { ascending: true });
 
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (error)
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
   return NextResponse.json({ ok: true, pages: data || [] });
 }

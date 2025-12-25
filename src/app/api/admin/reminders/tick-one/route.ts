@@ -28,7 +28,9 @@ export async function POST(req: Request) {
 
   // Accept in query or JSON
   const qId = url.searchParams.get("subscription_id");
-  const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
+  const force =
+    url.searchParams.get("force") === "1" ||
+    url.searchParams.get("force") === "true";
 
   let bodyId: string | null = null;
   try {
@@ -42,7 +44,7 @@ export async function POST(req: Request) {
   if (!subscriptionId) {
     return NextResponse.json(
       { ok: false, error: "missing_subscription_id" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -59,13 +61,20 @@ export async function POST(req: Request) {
 
   if (subRes.error) {
     return NextResponse.json(
-      { ok: false, error: "subscription_fetch_failed", detail: subRes.error.message },
-      { status: 500 }
+      {
+        ok: false,
+        error: "subscription_fetch_failed",
+        detail: subRes.error.message,
+      },
+      { status: 500 },
     );
   }
 
   if (!subRes.data) {
-    return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+    return NextResponse.json(
+      { ok: false, error: "not_found" },
+      { status: 404 },
+    );
   }
 
   const sub = subRes.data as SubscriptionRow;
@@ -81,7 +90,11 @@ export async function POST(req: Request) {
       meta: { force },
     } satisfies ReminderRunInsert);
 
-    return NextResponse.json({ ok: true, status: "skipped", reason: "inactive" });
+    return NextResponse.json({
+      ok: true,
+      status: "skipped",
+      reason: "inactive",
+    });
   }
 
   // stop_after passed => deactivate + skip
@@ -103,7 +116,7 @@ export async function POST(req: Request) {
 
       return NextResponse.json(
         { ok: false, error: "deactivate_failed", detail: deact.error.message },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -116,7 +129,11 @@ export async function POST(req: Request) {
       meta: { stop_after: sub.stop_after },
     } satisfies ReminderRunInsert);
 
-    return NextResponse.json({ ok: true, status: "skipped", reason: "stop_after_reached" });
+    return NextResponse.json({
+      ok: true,
+      status: "skipped",
+      reason: "stop_after_reached",
+    });
   }
 
   // Compute next_run_at
@@ -132,7 +149,9 @@ export async function POST(req: Request) {
   // Idempotency guard:
   // If not forcing, ensure it was due (<= now) and only advance if next_run_at unchanged.
   if (!force) {
-    const dueMs = dueAtIso ? new Date(dueAtIso).getTime() : Number.POSITIVE_INFINITY;
+    const dueMs = dueAtIso
+      ? new Date(dueAtIso).getTime()
+      : Number.POSITIVE_INFINITY;
     if (!(Number.isFinite(dueMs) && dueMs <= now.getTime())) {
       await sb.from("deal_reminder_runs").insert({
         subscription_id: sub.id,
@@ -143,7 +162,11 @@ export async function POST(req: Request) {
         meta: { now: nowIso },
       } satisfies ReminderRunInsert);
 
-      return NextResponse.json({ ok: true, status: "skipped", reason: "not_due" });
+      return NextResponse.json({
+        ok: true,
+        status: "skipped",
+        reason: "not_due",
+      });
     }
   }
 
@@ -172,7 +195,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(
       { ok: false, error: "advance_failed", detail: adv.error.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
@@ -186,7 +209,11 @@ export async function POST(req: Request) {
       meta: { attempted_next: nextRunAtIso, force },
     } satisfies ReminderRunInsert);
 
-    return NextResponse.json({ ok: true, status: "skipped", reason: "race_lost" });
+    return NextResponse.json({
+      ok: true,
+      status: "skipped",
+      reason: "race_lost",
+    });
   }
 
   // Winner logs sent

@@ -36,7 +36,9 @@ export async function POST(req: Request) {
       .insert({
         name: String(body.name ?? "New Policy"),
         status: String(body.status ?? "draft"),
-        effective_date: String(body.effectiveDate ?? new Date().toISOString().split("T")[0]),
+        effective_date: String(
+          body.effectiveDate ?? new Date().toISOString().split("T")[0],
+        ),
         notes: body.notes ? String(body.notes) : null,
       })
       .select("*")

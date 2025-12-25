@@ -6,16 +6,18 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const authHeader = req.headers.get("authorization");
     if (!authHeader) throw new Error("Missing authorization header");
     const token = authHeader.replace(/^Bearer\s+/i, "");
-    
+
     const invite = await requireValidInvite(token);
     const sb = supabaseAdmin();
     const { dealId } = await ctx.params;
-
     // Verify deal matches invite
     if (invite.deal_id !== dealId) throw new Error("Deal ID mismatch");
 
@@ -29,16 +31,22 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string 
     if (error) throw error;
     return NextResponse.json({ ok: true, messages: data ?? [] });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const authHeader = req.headers.get("authorization");
     if (!authHeader) throw new Error("Missing authorization header");
     const token = authHeader.replace(/^Bearer\s+/i, "");
-    
+
     const invite = await requireValidInvite(token);
     const sb = supabaseAdmin();
     const { dealId } = await ctx.params;
@@ -72,6 +80,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

@@ -6,12 +6,17 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  _req: NextRequest,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await ctx.params;
-
     if (!dealId) {
-      return NextResponse.json({ ok: false, error: "missing_dealId" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "missing_dealId" },
+        { status: 400 },
+      );
     }
 
     const supabase = getSupabaseServerClient();
@@ -25,7 +30,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: st
 
     if (e1) throw e1;
     if (!deal) {
-      return NextResponse.json({ ok: false, error: "deal_not_found" }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "deal_not_found" },
+        { status: 404 },
+      );
     }
 
     // Load the bank record (guaranteed to exist by FK)
@@ -41,7 +49,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: st
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: String(err?.message ?? err ?? "unknown_error") },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

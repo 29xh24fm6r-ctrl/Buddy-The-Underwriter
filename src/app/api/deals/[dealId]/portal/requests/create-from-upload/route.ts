@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/portal/requests/create-from-upload/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { upsertDealHint, upsertBankPrior } from "@/lib/portal/learning";
 
@@ -15,7 +15,10 @@ type Body = {
   actorName?: string | null;
 };
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
@@ -29,18 +32,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
   }
 
   const actorName =
-    typeof body.actorName === "string" && body.actorName.trim() ? body.actorName.trim() : "Lending Team";
+    typeof body.actorName === "string" && body.actorName.trim()
+      ? body.actorName.trim()
+      : "Lending Team";
 
   const { data: upload, error: upErr } = await sb
     .from("borrower_uploads")
-    .select("id,deal_id,bank_id,request_id,original_filename,storage_path,storage_bucket,mime_type,file_key,classified_doc_type,extracted_year,ocr_text")
+    .select(
+      "id,deal_id,bank_id,request_id,original_filename,storage_path,storage_bucket,mime_type,file_key,classified_doc_type,extracted_year,ocr_text",
+    )
     .eq("id", body.uploadId)
     .single();
 
-  if (upErr || !upload) return NextResponse.json({ error: "Upload not found" }, { status: 404 });
-  if (upload.deal_id !== dealId) return NextResponse.json({ error: "Upload not in deal" }, { status: 400 });
+  if (upErr || !upload)
+    return NextResponse.json({ error: "Upload not found" }, { status: 404 });
+  if (upload.deal_id !== dealId)
+    return NextResponse.json({ error: "Upload not in deal" }, { status: 400 });
 
-  const category = typeof body.category === "string" ? body.category.trim() : null;
+  const category =
+    typeof body.category === "string" ? body.category.trim() : null;
 
   // Ad-hoc requests don't have template_id
   const { data: reqRow, error: createErr } = await sb
@@ -49,7 +59,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       deal_id: dealId,
       bank_id: upload.bank_id,
       title: body.title.trim(),
-      description: typeof body.description === "string" ? body.description.trim() : null,
+      description:
+        typeof body.description === "string" ? body.description.trim() : null,
       category: category,
       status: "uploaded",
       due_at: body.dueAt ?? null,
@@ -57,10 +68,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     .select("id,title")
     .single();
 
-  if (createErr || !reqRow) return NextResponse.json({ error: "Failed to create request" }, { status: 500 });
+  if (createErr || !reqRow)
+    return NextResponse.json(
+      { error: "Failed to create request" },
+      { status: 500 },
+    );
 
-  const { error: assignErr } = await sb.from("borrower_uploads").update({ request_id: reqRow.id }).eq("id", upload.id);
-  if (assignErr) return NextResponse.json({ error: "Failed to assign upload" }, { status: 500 });
+  const { error: assignErr } = await sb
+    .from("borrower_uploads")
+    .update({ request_id: reqRow.id })
+    .eq("id", upload.id);
+  if (assignErr)
+    return NextResponse.json(
+      { error: "Failed to assign upload" },
+      { status: 500 },
+    );
 
   sb.from("borrower_upload_matches")
     .upsert(
@@ -71,9 +93,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
         bank_id: upload.bank_id,
         confidence: 1,
         method: "manual",
-        evidence: { hits: ["created_request_from_upload"], actor: actorName, filename: upload.original_filename },
+        evidence: {
+          hits: ["created_request_from_upload"],
+          actor: actorName,
+          filename: upload.original_filename,
+        },
       },
-      { onConflict: "upload_id,request_id" }
+      { onConflict: "upload_id,request_id" },
     )
     .then(() => null);
 
@@ -83,7 +109,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       deal_id: dealId,
       bank_id: upload.bank_id,
       type: "matched",
-      payload: { request_id: reqRow.id, method: "manual", actor: actorName, created_request: true },
+      payload: {
+        request_id: reqRow.id,
+        method: "manual",
+        actor: actorName,
+        created_request: true,
+      },
     })
     .then(() => null);
 
@@ -96,18 +127,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       type: "info",
       title: "Created request from upload",
       body: `Created request "${reqRow.title}" and assigned "${upload.original_filename}".`,
-      data: { upload_id: upload.id, request_id: reqRow.id, created_request: true },
+      data: {
+        upload_id: upload.id,
+        request_id: reqRow.id,
+        created_request: true,
+      },
     })
     .then(() => null);
 
   // ✅ Learning loop: deal + bank priors (no template_id for ad-hoc requests)
-  await upsertDealHint(sb, { dealId, bankId: upload.bank_id, requestId: reqRow.id, upload }).catch(() => null);
-  await upsertBankPrior(sb, { 
-    bankId: upload.bank_id, 
+  await upsertDealHint(sb, {
+    dealId,
+    bankId: upload.bank_id,
+    requestId: reqRow.id,
+    upload,
+  }).catch(() => null);
+  await upsertBankPrior(sb, {
+    bankId: upload.bank_id,
     templateId: null, // Ad-hoc requests use label-based learning
-    requestTitle: body.title.trim(), 
-    requestCategory: category, 
-    upload 
+    requestTitle: body.title.trim(),
+    requestCategory: category,
+    upload,
   }).catch(() => null);
 
   return NextResponse.json({ ok: true, requestId: reqRow.id });

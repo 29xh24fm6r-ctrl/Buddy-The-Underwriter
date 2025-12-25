@@ -10,21 +10,26 @@ export const dynamic = "force-dynamic";
 
 function authzError(err: any) {
   const msg = String(err?.message ?? err);
-  if (msg === "unauthorized") return { status: 401, body: { ok: false, error: "unauthorized" } };
-  if (msg === "forbidden") return { status: 403, body: { ok: false, error: "forbidden" } };
+  if (msg === "unauthorized")
+    return { status: 401, body: { ok: false, error: "unauthorized" } };
+  if (msg === "forbidden")
+    return { status: 403, body: { ok: false, error: "forbidden" } };
   return null;
 }
 
 /**
  * POST /api/deals/[dealId]/forms/generate
- * 
+ *
  * Generates filled PDF from a fill run
  * Requires underwriter role on deal
- * 
+ *
  * Body: { fill_run_id: string, flatten?: boolean }
  * Returns: { ok: true, document_id: string, download_url: string }
  */
-export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   requireSuperAdmin();
   const { dealId } = await ctx.params;
   const supabase = supabaseAdmin();
@@ -40,7 +45,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     if (!fill_run_id) {
       return NextResponse.json(
         { ok: false, error: "fill_run_id required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -56,14 +61,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     if (!fillRun) {
       return NextResponse.json(
         { ok: false, error: "Fill run not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
     // Fetch template file bytes
     const templatePath = fillRun.bank_document_templates.storage_path;
-    const { data: fileData, error: e2 } = await (supabase as any)
-      .storage
+    const { data: fileData, error: e2 } = await (supabase as any).storage
       .from("bank-documents")
       .download(templatePath);
 
@@ -75,7 +79,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     const fillResult = await fillPdfTemplate(
       templateBytes,
       fillRun.field_values,
-      { flatten }
+      { flatten },
     );
 
     if (!fillResult.ok) {
@@ -91,7 +95,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
 
       return NextResponse.json(
         { ok: false, error: fillResult.error },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -99,8 +103,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `${dealId}/filled_${fillRun.bank_document_templates.document_type}_${timestamp}.pdf`;
 
-    const { error: e3 } = await (supabase as any)
-      .storage
+    const { error: e3 } = await (supabase as any).storage
       .from("bank-documents")
       .upload(filename, fillResult.pdfBytes, {
         contentType: "application/pdf",
@@ -133,8 +136,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
       .eq("id", fill_run_id);
 
     // Generate signed download URL (1 hour expiry)
-    const { data: urlData } = await (supabase as any)
-      .storage
+    const { data: urlData } = await (supabase as any).storage
       .from("bank-documents")
       .createSignedUrl(filename, 3600);
 
@@ -149,7 +151,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     if (a) return NextResponse.json(a.body, { status: a.status });
     return NextResponse.json(
       { ok: false, error: err?.message ?? String(err) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

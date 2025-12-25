@@ -8,13 +8,13 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST /api/deals/[dealId]/messages/[messageId]/send
- * 
+ *
  * Approve and send a draft message (DRAFT → SENT)
  * Updates throttle records
  */
 export async function POST(
   _req: NextRequest,
-  ctx: { params: Promise<{ dealId: string; messageId: string }> }
+  ctx: { params: Promise<{ dealId: string; messageId: string }> },
 ) {
   await requireRole(["underwriter", "bank_admin", "super_admin"]);
   const { dealId, messageId } = await ctx.params;
@@ -29,11 +29,17 @@ export async function POST(
     .single();
 
   if (e1 || !msg) {
-    return NextResponse.json({ ok: false, error: "message_not_found" }, { status: 404 });
+    return NextResponse.json(
+      { ok: false, error: "message_not_found" },
+      { status: 404 },
+    );
   }
 
   if ((msg as any).status !== "DRAFT") {
-    return NextResponse.json({ ok: false, error: "not_draft" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "not_draft" },
+      { status: 400 },
+    );
   }
 
   // 2) Update message status
@@ -107,17 +113,17 @@ export async function POST(
   if (!deliverySuccess && deliveryError) {
     await (supabase as any)
       .from("condition_messages")
-      .update({ 
-        metadata: { 
+      .update({
+        metadata: {
           ...((msg as any).metadata || {}),
-          delivery_error: deliveryError 
-        }
+          delivery_error: deliveryError,
+        },
       })
       .eq("id", messageId);
   }
 
-  return NextResponse.json({ 
-    ok: true, 
+  return NextResponse.json({
+    ok: true,
     message_id: messageId,
     delivered: deliverySuccess,
     delivery_error: deliveryError || undefined,
@@ -126,12 +132,12 @@ export async function POST(
 
 /**
  * DELETE /api/deals/[dealId]/messages/[messageId]
- * 
+ *
  * Delete a draft message
  */
 export async function DELETE(
   _req: NextRequest,
-  ctx: { params: Promise<{ dealId: string; messageId: string }> }
+  ctx: { params: Promise<{ dealId: string; messageId: string }> },
 ) {
   await requireRole(["underwriter", "bank_admin", "super_admin"]);
   const { dealId, messageId } = await ctx.params;
@@ -144,7 +150,10 @@ export async function DELETE(
     .eq("application_id", dealId);
 
   if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ ok: true });

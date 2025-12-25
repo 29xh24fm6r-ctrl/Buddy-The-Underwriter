@@ -1,273 +1,34 @@
-"use client";
+import StitchFrame from "@/components/stitch/StitchFrame";
 
-import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase/client";
-import { SnapshotPicker } from "@/components/deals/pricing-memo/SnapshotPicker";
-import { RiskFactsCard } from "@/components/deals/pricing-memo/RiskFactsCard";
-import { PricingQuoteEditor } from "@/components/deals/pricing-memo/PricingQuoteEditor";
-import { MemoGenerator } from "@/components/deals/pricing-memo/MemoGenerator";
-import { OutputsList } from "@/components/deals/pricing-memo/OutputsList";
-
-type Tab = "snapshot" | "facts" | "quote" | "memo" | "outputs";
-
-export default function PricingMemoPage({ params }: { params: { dealId: string } }) {
-  const { dealId } = params;
-  
-  const [activeTab, setActiveTab] = useState<Tab>("snapshot");
-  const [loading, setLoading] = useState(true);
-  
-  // Data state
-  const [dealName, setDealName] = useState<string>("Loading...");
-  const [snapshots, setSnapshots] = useState<any[]>([]);
-  const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
-  const [riskFacts, setRiskFacts] = useState<any | null>(null);
-  const [pricingQuote, setPricingQuote] = useState<any | null>(null);
-  const [generatedDocs, setGeneratedDocs] = useState<any[]>([]);
-
-  // Load initial data
-  useEffect(() => {
-    loadInitialData();
-  }, [dealId]);
-
-  const loadInitialData = async () => {
-    setLoading(true);
-    try {
-      // Load deal
-      const { data: deal } = await supabase
-        .from("deals")
-        .select("name")
-        .eq("id", dealId)
-        .single();
-
-      if (deal) setDealName(deal.name);
-
-      // Load snapshots
-      const { data: snaps } = await supabase
-        .from("deal_context_snapshots")
-        .select("id, version, created_at, context")
-        .eq("deal_id", dealId)
-        .order("created_at", { ascending: false });
-
-      if (snaps && snaps.length > 0) {
-        setSnapshots(snaps);
-        setSelectedSnapshotId(snaps[0].id);
-        
-        // Load risk facts for latest snapshot
-        await loadRiskFacts(snaps[0].id);
-      }
-
-      // Load generated documents
-      await loadGeneratedDocs();
-    } catch (error) {
-      console.error("Error loading data:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadRiskFacts = async (snapshotId: string) => {
-    const { data } = await supabase
-      .from("risk_facts")
-      .select("*")
-      .eq("snapshot_id", snapshotId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    setRiskFacts(data);
-
-    // Load pricing quote if facts exist
-    if (data) {
-      const { data: quote } = await supabase
-        .from("pricing_quotes")
-        .select("*")
-        .eq("risk_facts_id", data.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      setPricingQuote(quote);
-    }
-  };
-
-  const loadGeneratedDocs = async () => {
-    const { data } = await supabase
-      .from("generated_documents")
-      .select("*")
-      .eq("deal_id", dealId)
-      .order("created_at", { ascending: false });
-
-    if (data) setGeneratedDocs(data);
-  };
-
-  const handleSnapshotChange = (snapshotId: string) => {
-    setSelectedSnapshotId(snapshotId);
-    loadRiskFacts(snapshotId);
-  };
-
-  const handleRiskFactsGenerated = (facts: any) => {
-    setRiskFacts(facts);
-    setPricingQuote(null); // Reset quote when facts change
-    setActiveTab("facts");
-  };
-
-  const handleQuoteCreated = (quote: any) => {
-    setPricingQuote(quote);
-    setActiveTab("quote");
-  };
-
-  const handleQuoteUpdated = (quote: any) => {
-    setPricingQuote(quote);
-  };
-
-  const handleMemoGenerated = (doc: any) => {
-    setGeneratedDocs([doc, ...generatedDocs]);
-    loadGeneratedDocs(); // Refresh full list
-  };
-
-  const tabs: Array<{ id: Tab; label: string; badge?: number }> = [
-    { id: "snapshot", label: "Snapshot" },
-    { id: "facts", label: "Risk Facts", badge: riskFacts ? 1 : 0 },
-    { id: "quote", label: "Pricing Quote", badge: pricingQuote ? 1 : 0 },
-    { id: "memo", label: "Memo Generator" },
-    { id: "outputs", label: "Outputs", badge: generatedDocs.length },
-  ];
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-black">
-        <div className="text-white">Loading...</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-black">
-      {/* Header */}
-      <div className="border-b border-white/10 bg-black/70 backdrop-blur-sm">
-        <div className="mx-auto max-w-7xl px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-white">Pricing + Memo</h1>
-              <p className="mt-1 text-sm text-gray-400">{dealName}</p>
-            </div>
-            <div className="flex gap-2">
-              {selectedSnapshotId && (
-                <span className="rounded-full bg-blue-500/20 px-3 py-1 text-xs font-medium text-blue-300">
-                  v{snapshots.find(s => s.id === selectedSnapshotId)?.version ?? "?"}
-                </span>
-              )}
-              {riskFacts && (
-                <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-medium text-green-300">
-                  Facts Ready
-                </span>
-              )}
-              {pricingQuote && (
-                <span className="rounded-full bg-purple-500/20 px-3 py-1 text-xs font-medium text-purple-300">
-                  Quote {pricingQuote.status}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="mx-auto max-w-7xl px-6 py-6">
-        <div className="flex gap-6">
-          {/* Left Rail - Tabs */}
-          <div className="w-64 flex-shrink-0">
-            <nav className="sticky top-6 space-y-1 rounded-lg border border-white/10 bg-black/50 p-2 backdrop-blur-sm">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm font-medium transition-colors ${
-                    activeTab === tab.id
-                      ? "bg-blue-600 text-white"
-                      : "text-gray-300 hover:bg-white/5 hover:text-white"
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  {tab.badge !== undefined && tab.badge > 0 && (
-                    <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs">
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </nav>
-          </div>
-
-          {/* Main Panel */}
-          <div className="flex-1">
-            <div className="rounded-lg border border-white/10 bg-black/50 p-6 backdrop-blur-sm">
-              {activeTab === "snapshot" && (
-                <div className="space-y-6">
-                  <SnapshotPicker
-                    snapshots={snapshots}
-                    selectedId={selectedSnapshotId}
-                    onSelect={handleSnapshotChange}
-                  />
-                  
-                  {selectedSnapshotId && (
-                    <div className="rounded-lg border border-white/10 bg-black/30 p-4">
-                      <h4 className="mb-2 text-sm font-medium text-white">Snapshot Context</h4>
-                      <pre className="max-h-96 overflow-auto text-xs text-gray-400">
-                        {JSON.stringify(
-                          snapshots.find(s => s.id === selectedSnapshotId)?.context,
-                          null,
-                          2
-                        )}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTab === "facts" && (
-                <RiskFactsCard
-                  dealId={dealId}
-                  snapshotId={selectedSnapshotId}
-                  riskFacts={riskFacts}
-                  onGenerated={handleRiskFactsGenerated}
-                />
-              )}
-
-              {activeTab === "quote" && (
-                <PricingQuoteEditor
-                  dealId={dealId}
-                  snapshotId={selectedSnapshotId}
-                  riskFactsId={riskFacts?.id ?? null}
-                  quote={pricingQuote}
-                  onCreated={handleQuoteCreated}
-                  onUpdated={handleQuoteUpdated}
-                />
-              )}
-
-              {activeTab === "memo" && (
-                <MemoGenerator
-                  dealId={dealId}
-                  snapshotId={selectedSnapshotId}
-                  riskFactsId={riskFacts?.id ?? null}
-                  pricingQuoteId={pricingQuote?.id ?? null}
-                  documents={generatedDocs.filter(d => d.doc_type === "credit_memo")}
-                  onGenerated={handleMemoGenerated}
-                />
-              )}
-
-              {activeTab === "outputs" && (
-                <OutputsList dealId={dealId} documents={generatedDocs} />
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* LEGACY STITCH IMPLEMENTATION - Kept for reference
-const LEGACY_STITCH_BODY_HTML = `<!-- 1. Global Header -->
+const TITLE = "Buddy - The Underwriter | Pricing + Memo Command Center";
+const FONT_LINKS: string[] = [];
+const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
+const TAILWIND_CONFIG_JS = `tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#136dec",
+                        "primary-dark": "#0f5bbd",
+                        "background-light": "#f6f7f8", // Not used per request spec but kept for config
+                        "background-dark": "#0B0E14",
+                        "panel-dark": "#151B26",
+                        "surface-dark": "#1e2532",
+                        "border-dark": "#2d3646",
+                        "text-dim": "#94a3b8",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "mono": ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", "monospace"],
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "sm": "0.125rem", "md": "0.25rem", "lg": "0.375rem", "xl": "0.5rem", "full": "9999px"},
+                },
+            },
+        }`;
+const STYLES = [
+  "body { font-family: 'Inter', sans-serif; }\n        /* Custom scrollbar for dense data panels */\n        .custom-scrollbar::-webkit-scrollbar {\n            width: 6px;\n            height: 6px;\n        }\n        .custom-scrollbar::-webkit-scrollbar-track {\n            background: #151B26; \n        }\n        .custom-scrollbar::-webkit-scrollbar-thumb {\n            background: #2d3646; \n            border-radius: 3px;\n        }\n        .custom-scrollbar::-webkit-scrollbar-thumb:hover {\n            background: #475569; \n        }"
+];
+const BODY_HTML = `<!-- 1. Global Header -->
 <header class="h-14 shrink-0 border-b border-[#282f39] bg-[#111418] flex items-center justify-between px-6 z-20">
 <!-- Left: Branding & Deal Context -->
 <div class="flex items-center gap-6">
@@ -657,4 +418,9 @@ export default function Page() {
       title={TITLE}
       fontLinks={FONT_LINKS}
       tailwindCdnSrc={TAILWIND_CDN}
-*/
+      tailwindConfigJs={TAILWIND_CONFIG_JS}
+      styles={STYLES}
+      bodyHtml={BODY_HTML}
+    />
+  );
+}

@@ -1,7 +1,7 @@
 import StitchFrame from "@/components/stitch/StitchFrame";
 
 const TITLE = "Buddy the Underwriter - Exceptions Review";
-const FONT_LINKS = [];
+const FONT_LINKS: string[] = [];
 const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
 const TAILWIND_CONFIG_JS = `</script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
@@ -25,7 +25,7 @@ const TAILWIND_CONFIG_JS = `</script>
           },
         },
       }`;
-const STYLES = [];
+const STYLES: string[] = [];
 const BODY_HTML = `<!-- Background Layer (Portfolio Command Bridge) -->
 <!-- We apply a visual dimming effect via an overlay div later, but this is the structural content -->
 <div class="flex-1 flex flex-col h-full w-full relative z-0">

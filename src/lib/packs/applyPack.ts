@@ -48,7 +48,7 @@ export async function applyBestPackToDeal(
 
   if (!chosenPackId) {
     // No packs available; still a valid outcome.
-    return { dealId: deal.id, bankId: deal.bank_id, chosenPackId: null, createdRequests: 0, existingRequests: 0 };
+    return { dealId: deal.id, bankId: deal.bank_id, chosenPackId: null, matchEventId: null, createdRequests: 0, existingRequests: 0 };
   }
 
   // Persist chosen pack to deal
@@ -118,7 +118,7 @@ export async function applyBestPackToDeal(
         )
       : 100;
 
-    matchEventId = await recordMatchEvent({
+    matchEventId = await recordMatchEvent(sb, {
       bankId: deal.bank_id,
       dealId,
       packId: chosenPackId,

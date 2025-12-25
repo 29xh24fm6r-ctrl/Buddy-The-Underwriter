@@ -19,7 +19,10 @@ export async function POST(req: Request) {
   const ack = Boolean(body?.ack);
 
   if (!id) {
-    return NextResponse.json({ ok: false, error: "missing_id" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "missing_id" },
+      { status: 400 },
+    );
   }
 
   const patch = ack
@@ -28,7 +31,10 @@ export async function POST(req: Request) {
 
   const { error } = await sb.from("ops_incidents").update(patch).eq("id", id);
   if (error) {
-    return NextResponse.json({ ok: false, error: "ack_failed", detail: error.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "ack_failed", detail: error.message },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ ok: true });

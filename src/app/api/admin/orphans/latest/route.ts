@@ -14,8 +14,13 @@ export async function GET() {
     .limit(1)
     .maybeSingle();
 
-  if (run.error) return NextResponse.json({ ok: false, error: run.error.message }, { status: 500 });
-  if (!run.data) return NextResponse.json({ ok: true, run: null, findings: [] });
+  if (run.error)
+    return NextResponse.json(
+      { ok: false, error: run.error.message },
+      { status: 500 },
+    );
+  if (!run.data)
+    return NextResponse.json({ ok: true, run: null, findings: [] });
 
   const findings = await sb
     .from("orphan_findings")
@@ -24,7 +29,15 @@ export async function GET() {
     .order("created_at", { ascending: false })
     .limit(200);
 
-  if (findings.error) return NextResponse.json({ ok: false, error: findings.error.message }, { status: 500 });
+  if (findings.error)
+    return NextResponse.json(
+      { ok: false, error: findings.error.message },
+      { status: 500 },
+    );
 
-  return NextResponse.json({ ok: true, run: run.data, findings: findings.data || [] });
+  return NextResponse.json({
+    ok: true,
+    run: run.data,
+    findings: findings.data || [],
+  });
 }

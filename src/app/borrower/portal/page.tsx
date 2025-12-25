@@ -19,18 +19,19 @@ export default function BorrowerPortalPage() {
   const { state, load, derived } = usePortalRequests(token);
 
   return (
+    <div className="min-h-screen bg-[#0b0d10] text-white">
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-2xl font-semibold tracking-tight">Secure document portal</div>
-          <div className="mt-1 text-sm text-muted-foreground">
+          <div className="text-2xl font-semibold tracking-tight text-white">Secure document portal</div>
+          <div className="mt-1 text-sm text-white/60">
             Upload documents and track progress in real time.
           </div>
         </div>
 
         <button
           type="button"
-          className="rounded-xl border px-3 py-2 text-sm font-semibold hover:bg-muted"
+          className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-white hover:bg-white/10"
           onClick={() => void load()}
           disabled={state.status === "loading"}
         >
@@ -39,21 +40,21 @@ export default function BorrowerPortalPage() {
       </div>
 
       {!token && (
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.35)]">
           <div className="text-sm font-semibold">Missing portal token</div>
-          <div className="mt-2 text-sm text-muted-foreground">
+          <div className="mt-2 text-sm text-white/60">
             Please open the portal link provided by your banker. It contains a secure token.
           </div>
         </div>
       )}
 
       {token && state.status === "error" && (
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.35)]">
           <div className="text-sm font-semibold">Couldn't load your portal</div>
-          <div className="mt-2 text-sm text-muted-foreground">{state.error}</div>
+          <div className="mt-2 text-sm text-white/60">{state.error}</div>
           <button
             type="button"
-            className="mt-4 rounded-xl bg-foreground px-4 py-2 text-sm font-semibold text-background hover:opacity-90"
+            className="mt-4 rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15 border border-white/10"
             onClick={() => void load()}
           >
             Try again
@@ -62,9 +63,9 @@ export default function BorrowerPortalPage() {
       )}
 
       {token && (state.status === "loading" || state.status === "idle") && (
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.35)]">
           <div className="text-sm font-semibold">Loading…</div>
-          <div className="mt-2 text-sm text-muted-foreground">Preparing your checklist and recommendations.</div>
+          <div className="mt-2 text-sm text-white/60">Preparing your checklist and recommendations.</div>
         </div>
       )}
 
@@ -94,5 +95,6 @@ export default function BorrowerPortalPage() {
         </div>
       )}
     </div>
+  </div>
   );
 }

@@ -1,21 +1,19 @@
 // src/app/api/deals/[dealId]/ocr/jobs/route.ts
 import "server-only";
-import { NextResponse } from "next/server";
-
+import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Ctx = { params: Promise<{ dealId: string }> | { dealId: string } };
+type Ctx = { params: Promise<{ dealId: string }> };
 
 function json(status: number, body: any) {
   return NextResponse.json(body, { status });
 }
 
-export async function GET(req: Request, { params }: Ctx) {
+export async function GET(req: NextRequest, ctx: Ctx) {
   try {
-    const p = params instanceof Promise ? await params : params;
+    const p = await ctx.params;
     const dealId = p?.dealId;
-
     if (!dealId) return json(400, { ok: false, error: "Missing dealId" });
 
     const url = new URL(req.url);
@@ -57,7 +55,7 @@ export async function GET(req: Request, { params }: Ctx) {
           const full = path.join(jobsDir, name);
           const raw = await fs.readFile(full, "utf-8");
           return JSON.parse(raw);
-        })
+        }),
     );
 
     jobs.sort((a, b) => {

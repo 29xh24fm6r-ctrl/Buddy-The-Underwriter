@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
-    const { share, dealId, checklistItemIds } = await requireValidShareToken(req);
+    const { share, dealId, checklistItemIds } =
+      await requireValidShareToken(req);
     const sb = supabaseAdmin();
 
     // Pull borrower-safe checklist item labels (only scoped IDs)
@@ -23,7 +24,11 @@ export async function GET(req: Request) {
     // Deal display (best-effort; borrower-safe)
     let dealName = "Application";
     try {
-      const { data: d } = await sb.from("deals").select("id, name").eq("id", dealId).maybeSingle();
+      const { data: d } = await sb
+        .from("deals")
+        .select("id, name")
+        .eq("id", dealId)
+        .maybeSingle();
       if (d?.name) dealName = d.name;
     } catch {
       // ignore
@@ -39,11 +44,16 @@ export async function GET(req: Request) {
           description: x.description ? String(x.description) : null,
         })),
         note: share.note ? String(share.note) : null,
-        recipientName: share.recipient_name ? String(share.recipient_name) : null,
+        recipientName: share.recipient_name
+          ? String(share.recipient_name)
+          : null,
         expiresAt: String(share.expires_at),
       },
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

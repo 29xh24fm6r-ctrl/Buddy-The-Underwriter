@@ -13,7 +13,7 @@
  * ✔ Reversible
  */
 
-import { createServerClient } from "@/lib/supabase/server";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { recordLearningEvent } from "./recordLearningEvent";
 import { recordMatchEvent } from "./recordMatchEvent";
 
@@ -33,7 +33,7 @@ export type AutoApplyResult = {
 export async function autoApplyTopRankedPack(
   dealId: string
 ): Promise<AutoApplyResult> {
-  const sb = createServerClient();
+  const sb = getSupabaseServerClient();
 
   try {
     // 1. Get deal details

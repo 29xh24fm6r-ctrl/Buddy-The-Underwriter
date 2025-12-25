@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/status/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { upsertDealStatusAndLog, DealStage } from "@/lib/deals/status";
 
@@ -8,7 +8,10 @@ export const dynamic = "force-dynamic";
 
 // TODO: swap this to your real auth (Clerk/session) + assignee check.
 // Minimal safe default: require "x-user-id" header AND user is assigned banker via deal_assignees.
-async function requireBankerUserIdOrThrow(req: Request, dealId: string): Promise<string> {
+async function requireBankerUserIdOrThrow(
+  req: Request,
+  dealId: string,
+): Promise<string> {
   const userId = req.headers.get("x-user-id");
   if (!userId) throw new Error("Missing x-user-id header.");
 
@@ -21,7 +24,8 @@ async function requireBankerUserIdOrThrow(req: Request, dealId: string): Promise
     .maybeSingle();
 
   if (error) throw error;
-  if (!data) throw new Error("Not authorized (not a banker/assignee on this deal).");
+  if (!data)
+    throw new Error("Not authorized (not a banker/assignee on this deal).");
 
   return userId;
 }
@@ -32,7 +36,10 @@ type Body = {
   etaNote?: string | null;
 };
 
-export async function PATCH(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function PATCH(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await ctx.params;
     const actorUserId = await requireBankerUserIdOrThrow(req, dealId);
@@ -51,7 +58,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ dealId: strin
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e?.message ?? "Unknown error" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 }

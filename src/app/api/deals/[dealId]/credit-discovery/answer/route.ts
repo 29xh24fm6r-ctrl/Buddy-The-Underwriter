@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/credit-discovery/answer/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { answerAndAdvance } from "@/lib/creditDiscovery/engine";
 
@@ -13,7 +13,10 @@ const BodySchema = z.object({
   actorUserId: z.string().uuid().optional().nullable(),
 });
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await ctx.params;
     const body = BodySchema.parse(await req.json());
@@ -26,6 +29,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     });
     return NextResponse.json({ ok: true, ...out });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "answer failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "answer failed" },
+      { status: 500 },
+    );
   }
 }

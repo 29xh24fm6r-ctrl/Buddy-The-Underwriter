@@ -1,12 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runUploadIntel } from "@/lib/intel/run-upload-intel";
 
 export const runtime = "nodejs";
 
-export async function POST(_req: Request, ctx: { params: { dealId: string } }) {
+export async function POST(
+  _req: NextRequest,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
-    const dealId = String(ctx.params.dealId);
+    const { dealId } = await ctx.params;
     const sb = supabaseAdmin();
 
     const up = await sb
@@ -19,12 +22,18 @@ export async function POST(_req: Request, ctx: { params: { dealId: string } }) {
 
     if (up.error) throw new Error(up.error.message);
     if (!up.data?.id) {
-      return NextResponse.json({ ok: false, error: "No uploads found for this deal" }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "No uploads found for this deal" },
+        { status: 404 },
+      );
     }
 
     const out = await runUploadIntel(up.data.id);
     return NextResponse.json(out);
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Deal intel run failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Deal intel run failed" },
+      { status: 500 },
+    );
   }
 }

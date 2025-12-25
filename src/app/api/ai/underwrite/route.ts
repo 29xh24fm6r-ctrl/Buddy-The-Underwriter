@@ -36,8 +36,10 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("[API /ai/underwrite] Error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "AI processing failed" },
-      { status: 500 }
+      {
+        error: error instanceof Error ? error.message : "AI processing failed",
+      },
+      { status: 500 },
     );
   }
 }

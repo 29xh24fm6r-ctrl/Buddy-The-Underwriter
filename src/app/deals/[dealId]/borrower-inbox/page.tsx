@@ -1,840 +1,393 @@
-"use client";
-
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "next/navigation";
-
-type InboxRow = {
-  id: string;
-  filename: string;
-  mime: string | null;
-  bytes: number;
-  storage_path: string;
-  status: string;
-  matched_request_id: string | null;
-  match_confidence: number | null;
-  match_reason: string | null;
-  created_at: string | null;
-};
-
-type ReqRow = {
-  id: string;
-  title: string;
-  category: string | null;
-  doc_type: string | null;
-  status: string;
-};
-
-function formatBytes(n?: number) {
-  if (!n || n <= 0) return "";
-  const kb = n / 1024;
-  if (kb < 1024) return `${Math.round(kb)} KB`;
-  const mb = kb / 1024;
-  if (mb < 1024) return `${mb.toFixed(1)} MB`;
-  return `${(mb / 1024).toFixed(2)} GB`;
-}
-
-function norm(s?: string | null) {
-  return String(s || "").trim().toLowerCase();
-}
-
-function isPdf(mime: string | null, filename: string) {
-  const m = (mime || "").toLowerCase();
-  if (m.includes("pdf")) return true;
-  return filename.toLowerCase().endsWith(".pdf");
-}
-
-function isImage(mime: string | null, filename: string) {
-  const m = (mime || "").toLowerCase();
-  if (m.startsWith("image/")) return true;
-  const f = filename.toLowerCase();
-  return f.endsWith(".png") || f.endsWith(".jpg") || f.endsWith(".jpeg") || f.endsWith(".webp") || f.endsWith(".gif");
-}
-
-function Chip({ text }: { text: string }) {
-  return (
-    <span className="rounded-full border px-2 py-1 text-[11px] font-semibold text-muted-foreground">
-      {text}
-    </span>
-  );
-}
-
-export default function BorrowerInboxPage() {
-  const params = useParams<{ dealId: string }>();
-  const dealId = params.dealId;
-
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-
-  const [inbox, setInbox] = useState<InboxRow[]>([]);
-  const [requests, setRequests] = useState<ReqRow[]>([]);
-
-  // Controls
-  const [uploadQ, setUploadQ] = useState("");
-  const [minConf, setMinConf] = useState<number>(0);
-
-  const [reqQ, setReqQ] = useState("");
-  const [includeReceived, setIncludeReceived] = useState(false);
-  const [reqCategory, setReqCategory] = useState<string>("");
-
-  // suggested-only per upload
-  const [suggestedOnlyByUploadId, setSuggestedOnlyByUploadId] = useState<Record<string, boolean>>({});
-  function getSuggestedOnly(uploadId: string) {
-    return suggestedOnlyByUploadId[uploadId] !== false;
-  }
-  function toggleSuggestedOnly(uploadId: string) {
-    setSuggestedOnlyByUploadId((prev) => {
-      const current = prev[uploadId] !== false;
-      return { ...prev, [uploadId]: !current };
-    });
-  }
-
-  // Preview modal
-  const [previewBusyId, setPreviewBusyId] = useState<string | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [preview, setPreview] = useState<{
-    uploadInboxId: string;
-    filename: string;
-    mime: string | null;
-    signedUrl: string;
-  } | null>(null);
-
-  // Modal attach panel state
-  const [modalReqQ, setModalReqQ] = useState("");
-  const [modalReqCategory, setModalReqCategory] = useState<string>("");
-  const [modalIncludeReceived, setModalIncludeReceived] = useState(false);
-  const modalBodyRef = useRef<HTMLDivElement | null>(null);
-
-  // Attach busy
-  const [attachBusy, setAttachBusy] = useState<string | null>(null);
-
-  // WOW: Auto-clear summary + undo
-  const [autoBusy, setAutoBusy] = useState(false);
-  const [undoBusy, setUndoBusy] = useState(false);
-  const [autoSummary, setAutoSummary] = useState<null | {
-    threshold: number;
-    totals: { eligible: number; attached: number; skipped: number; failed: number };
-    run: { id: string; created_at: string; expires_at: string } | null;
-  }>(null);
-
-  const [nowTick, setNowTick] = useState(Date.now());
-  useEffect(() => {
-    const t = window.setInterval(() => setNowTick(Date.now()), 1000);
-    return () => window.clearInterval(t);
-  }, []);
-
-  function msToClock(ms: number) {
-    const s = Math.max(0, Math.floor(ms / 1000));
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return `${m}:${String(r).padStart(2, "0")}`;
-  }
-
-  async function load() {
-    setLoading(true);
-    setErr(null);
-
-    try {
-      const u = new URL(`/api/deals/${encodeURIComponent(dealId)}/borrower/inbox`, window.location.origin);
-      if (uploadQ.trim()) u.searchParams.set("q", uploadQ.trim());
-      if (minConf > 0) u.searchParams.set("min_conf", String(minConf));
-      if (includeReceived) u.searchParams.set("include_received", "1");
-      if (reqQ.trim()) u.searchParams.set("req_q", reqQ.trim());
-      if (reqCategory.trim()) u.searchParams.set("req_category", reqCategory.trim());
-
-      const res = await fetch(u.toString(), { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to load inbox");
-
-      setInbox(json.inbox || []);
-      setRequests(json.requests || []);
-    } catch (e: any) {
-      setErr(e?.message || "Failed to load inbox");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dealId]);
-
-  useEffect(() => {
-    const t = window.setTimeout(() => void load(), 250);
-    return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uploadQ, minConf, reqQ, includeReceived, reqCategory]);
-
-  useEffect(() => {
-    if (!previewOpen) return;
-
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setPreviewOpen(false);
-        setPreview(null);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-
-    setTimeout(() => {
-      try {
-        modalBodyRef.current?.focus();
-      } catch {}
-    }, 0);
-
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [previewOpen]);
-
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of requests) {
-      const c = (r.category || "").trim();
-      if (c) set.add(c);
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [requests]);
-
-  const requestsById = useMemo(() => {
-    const m = new Map<string, ReqRow>();
-    for (const r of requests) m.set(r.id, r);
-    return m;
-  }, [requests]);
-
-  const filteredRequests = useMemo(() => {
-    const q = norm(reqQ);
-    return (requests || []).filter((r) => {
-      if (!includeReceived && norm(r.status) === "received") return false;
-      if (reqCategory && (r.category || "") !== reqCategory) return false;
-      if (q && !norm(r.title).includes(q)) return false;
-      return true;
-    });
-  }, [requests, reqQ, includeReceived, reqCategory]);
-
-  function getSuggestedRequest(u: InboxRow): ReqRow | null {
-    const id = u.matched_request_id;
-    if (id && requestsById.has(id)) return requestsById.get(id)!;
-    return null;
-  }
-
-  function buildSuggestedSet(u: InboxRow, reqs: ReqRow[]): ReqRow[] {
-    const suggested = getSuggestedRequest(u);
-    const ids = new Set<string>();
-    const list: ReqRow[] = [];
-
-    if (suggested) {
-      ids.add(suggested.id);
-      list.push(suggested);
-    }
-
-    const suggestedCategory = suggested?.category || null;
-    if (suggestedCategory) {
-      for (const r of reqs) {
-        if (r.category === suggestedCategory && !ids.has(r.id)) {
-          ids.add(r.id);
-          list.push(r);
-          if (list.length >= 5) break;
-        }
-      }
-    }
-
-    if (list.length < 3) {
-      for (const r of reqs) {
-        if (!ids.has(r.id)) {
-          ids.add(r.id);
-          list.push(r);
-          if (list.length >= 5) break;
-        }
-      }
-    }
-
-    return list;
-  }
-
-  function whySuggested(upload: InboxRow, suggested: ReqRow | null) {
-    if (!suggested) return "No top match yet";
-    if (upload.matched_request_id === suggested.id) return "Top match from auto-match engine";
-    return "Suggested by similarity";
-  }
-
-  async function attach(uploadInboxId: string, requestId: string, opts?: { closeModal?: boolean }) {
-    setAttachBusy(uploadInboxId);
-    setErr(null);
-
-    try {
-      const res = await fetch(`/api/deals/${encodeURIComponent(dealId)}/borrower/inbox/attach`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ upload_inbox_id: uploadInboxId, request_id: requestId }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Attach failed");
-
-      if (opts?.closeModal) {
-        setPreviewOpen(false);
-        setPreview(null);
-      }
-
-      await load();
-    } catch (e: any) {
-      setErr(e?.message || "Attach failed");
-    } finally {
-      setAttachBusy(null);
-    }
-  }
-
-  async function openPreviewModal(upload: InboxRow) {
-    setPreviewBusyId(upload.id);
-    setErr(null);
-
-    try {
-      const res = await fetch(`/api/deals/${encodeURIComponent(dealId)}/borrower/inbox/preview`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ upload_inbox_id: upload.id }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Preview failed");
-
-      const url = String(json.signedUrl || "");
-      if (!url) throw new Error("missing_signed_url");
-
-      setPreview({
-        uploadInboxId: upload.id,
-        filename: upload.filename,
-        mime: upload.mime,
-        signedUrl: url,
-      });
-
-      // Modal defaults
-      setModalReqQ(reqQ);
-      setModalReqCategory(reqCategory);
-      setModalIncludeReceived(includeReceived);
-
-      setPreviewOpen(true);
-    } catch (e: any) {
-      setErr(e?.message || "Preview failed");
-    } finally {
-      setPreviewBusyId(null);
-    }
-  }
-
-  async function autoAttachBatch() {
-    setAutoBusy(true);
-    setErr(null);
-
-    try {
-      const threshold = 85;
-      const res = await fetch(`/api/deals/${encodeURIComponent(dealId)}/borrower/inbox/auto-attach`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ threshold }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Auto-clear failed");
-
-      setAutoSummary({ threshold: json.threshold, totals: json.totals, run: json.run || null });
-      await load();
-    } catch (e: any) {
-      setErr(e?.message || "Auto-clear failed");
-    } finally {
-      setAutoBusy(false);
-    }
-  }
-
-  async function undoAutoClear() {
-    if (!autoSummary?.run?.id) return;
-    setUndoBusy(true);
-    setErr(null);
-
-    try {
-      const res = await fetch(`/api/deals/${encodeURIComponent(dealId)}/borrower/inbox/auto-attach/undo`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ run_id: autoSummary.run.id }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Undo failed");
-
-      setAutoSummary(null);
-      await load();
-    } catch (e: any) {
-      setErr(e?.message || "Undo failed");
-    } finally {
-      setUndoBusy(false);
-    }
-  }
-
-  const modalUpload: InboxRow | null = useMemo(() => {
-    if (!preview) return null;
-    return inbox.find((x) => x.id === preview.uploadInboxId) || null;
-  }, [preview, inbox]);
-
-  const modalSuggested: ReqRow | null = useMemo(() => {
-    if (!modalUpload) return null;
-    return getSuggestedRequest(modalUpload);
-  }, [modalUpload, requestsById]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const modalFilteredRequests = useMemo(() => {
-    const q = norm(modalReqQ);
-    return (requests || []).filter((r) => {
-      if (!modalIncludeReceived && norm(r.status) === "received") return false;
-      if (modalReqCategory && (r.category || "") !== modalReqCategory) return false;
-      if (q && !norm(r.title).includes(q)) return false;
-      return true;
-    });
-  }, [requests, modalReqQ, modalIncludeReceived, modalReqCategory]);
-
-  const modalSuggestedOnly = useMemo(() => {
-    if (!modalUpload) return true;
-    return getSuggestedOnly(modalUpload.id);
-  }, [modalUpload, suggestedOnlyByUploadId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const modalAttachChoices = useMemo(() => {
-    if (!modalUpload) return [];
-    return modalSuggestedOnly ? buildSuggestedSet(modalUpload, modalFilteredRequests) : modalFilteredRequests.slice(0, 18);
-  }, [modalUpload, modalFilteredRequests, modalSuggestedOnly]);
-
-  const remainingCount = inbox.length;
-
-  const undoAvailable = useMemo(() => {
-    if (!autoSummary?.run?.expires_at) return false;
-    return Date.parse(autoSummary.run.expires_at) > nowTick;
-  }, [autoSummary, nowTick]);
-
-  const undoCountdown = useMemo(() => {
-    if (!autoSummary?.run?.expires_at) return null;
-    const ms = Date.parse(autoSummary.run.expires_at) - nowTick;
-    return msToClock(ms);
-  }, [autoSummary, nowTick]);
-
-  return (
-    <div className="mx-auto max-w-6xl space-y-6 p-6">
-      {/* Summary banner with Undo */}
-      {autoSummary ? (
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="text-sm font-semibold">Auto-Clear Complete</div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                Threshold: <span className="font-semibold text-foreground">{autoSummary.threshold}%</span> · Eligible{" "}
-                <span className="font-semibold text-foreground">{autoSummary.totals.eligible}</span> · Attached{" "}
-                <span className="font-semibold text-foreground">{autoSummary.totals.attached}</span> · Skipped{" "}
-                <span className="font-semibold text-foreground">{autoSummary.totals.skipped}</span> · Failed{" "}
-                <span className="font-semibold text-foreground">{autoSummary.totals.failed}</span>
-              </div>
-
-              {autoSummary.run ? (
-                <div className="mt-2 text-xs text-muted-foreground">
-                  Undo window:{" "}
-                  {undoAvailable ? (
-                    <span className="font-semibold text-foreground">{undoCountdown} remaining</span>
-                  ) : (
-                    <span className="font-semibold text-foreground">expired</span>
-                  )}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {autoSummary.run && undoAvailable ? (
-                <button
-                  className="rounded-xl border px-3 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60"
-                  onClick={() => void undoAutoClear()}
-                  disabled={undoBusy}
-                  title="Undo the auto-clear batch (15 minutes)"
-                >
-                  {undoBusy ? "Undoing…" : `Undo (${undoCountdown})`}
-                </button>
-              ) : null}
-
-              <button
-                className="rounded-xl border px-3 py-2 text-sm font-semibold hover:bg-muted"
-                onClick={() => setAutoSummary(null)}
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Preview Modal (kept simple + evidence chips) */}
-      {previewOpen && preview ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) {
-              setPreviewOpen(false);
-              setPreview(null);
-            }
-          }}
-        >
-          <div className="w-full max-w-6xl overflow-hidden rounded-2xl border bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-4 border-b p-4">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold">{preview.filename}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {preview.mime ? preview.mime : "unknown type"} · Signed link (short-lived)
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <a
-                  href={preview.signedUrl}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-muted"
-                >
-                  Open
-                </a>
-
-                <button
-                  type="button"
-                  className="rounded-xl bg-foreground px-3 py-2 text-xs font-semibold text-background hover:opacity-90"
-                  onClick={() => {
-                    setPreviewOpen(false);
-                    setPreview(null);
-                  }}
-                  title="Close (Esc)"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-
-            <div ref={modalBodyRef} tabIndex={-1} className="outline-none">
-              <div className="grid grid-cols-1 gap-0 lg:grid-cols-12">
-                <div className="lg:col-span-8 border-b lg:border-b-0 lg:border-r p-4">
-                  {isPdf(preview.mime, preview.filename) ? (
-                    <div className="h-[72vh] w-full overflow-hidden rounded-xl border">
-                      <iframe title="PDF Preview" src={preview.signedUrl} className="h-full w-full" />
-                    </div>
-                  ) : isImage(preview.mime, preview.filename) ? (
-                    <div className="flex h-[72vh] items-center justify-center rounded-xl border bg-white">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={preview.signedUrl}
-                        alt={preview.filename}
-                        className="max-h-[70vh] max-w-full object-contain"
-                      />
-                    </div>
-                  ) : (
-                    <div className="rounded-2xl border bg-white p-6 shadow-sm">
-                      <div className="text-sm font-semibold">Preview not supported</div>
-                      <div className="mt-2 text-sm text-muted-foreground">Use Open to view/download.</div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="lg:col-span-4 p-4">
-                  <div className="text-sm font-semibold">Attach panel</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Why suggested + evidence chips</div>
-
-                  <div className="mt-4 rounded-2xl border p-4">
-                    <div className="text-xs font-semibold text-muted-foreground">Suggested</div>
-                    <div className="mt-1 truncate text-sm font-semibold">
-                      {modalSuggested ? modalSuggested.title : "No suggestion"}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {modalUpload ? whySuggested(modalUpload, modalSuggested) : "—"}
-                    </div>
-
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {modalUpload && modalUpload.match_confidence !== null && modalUpload.match_confidence !== undefined ? (
-                        <Chip text={`${Math.round(modalUpload.match_confidence)}% confidence`} />
-                      ) : (
-                        <Chip text="No confidence" />
-                      )}
-                      {modalUpload?.match_reason ? <Chip text={`Why: ${modalUpload.match_reason}`} /> : <Chip text="No reason" />}
-                      {modalSuggested?.category ? <Chip text={`Category: ${modalSuggested.category}`} /> : null}
-                      {modalSuggested?.doc_type ? <Chip text={`Doc: ${modalSuggested.doc_type}`} /> : null}
-                      {modalSuggested?.status ? <Chip text={`Status: ${String(modalSuggested.status).replaceAll("_", " ")}`} /> : null}
-                    </div>
-
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-60"
-                        disabled={!modalUpload || !modalSuggested || !!attachBusy}
-                        onClick={() => {
-                          if (!modalUpload || !modalSuggested) return;
-                          void attach(modalUpload.id, modalSuggested.id, { closeModal: true });
-                        }}
-                      >
-                        {attachBusy && modalUpload?.id === attachBusy ? "Attaching…" : "Attach"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 rounded-2xl border p-4">
-                    <div className="text-xs font-semibold text-muted-foreground">Find request</div>
-                    <input
-                      value={modalReqQ}
-                      onChange={(e) => setModalReqQ(e.target.value)}
-                      placeholder="Search requests…"
-                      className="mt-2 w-full rounded-xl border px-3 py-2 text-sm"
-                    />
-
-                    <div className="mt-2 grid grid-cols-1 gap-2">
-                      <select
-                        value={modalReqCategory}
-                        onChange={(e) => setModalReqCategory(e.target.value)}
-                        className="w-full rounded-xl border px-3 py-2 text-sm"
-                      >
-                        <option value="">All categories</option>
-                        {categories.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
-                      </select>
-
-                      <label className="flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm">
-                        <span className="text-sm">Include received</span>
-                        <input
-                          type="checkbox"
-                          checked={modalIncludeReceived}
-                          onChange={(e) => setModalIncludeReceived(e.target.checked)}
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <div className="text-xs font-semibold text-muted-foreground">Attach to</div>
-                    <div className="mt-2 max-h-[34vh] overflow-auto rounded-2xl border p-3">
-                      <div className="flex flex-col gap-2">
-                        {modalAttachChoices.map((r) => (
-                          <button
-                            key={r.id}
-                            type="button"
-                            className="w-full rounded-xl border px-3 py-2 text-left text-xs font-semibold hover:bg-muted disabled:opacity-60"
-                            disabled={!modalUpload || !!attachBusy}
-                            onClick={() => {
-                              if (!modalUpload) return;
-                              void attach(modalUpload.id, r.id, { closeModal: true });
-                            }}
-                          >
-                            <div className="truncate">{r.title}</div>
-                            <div className="mt-1 text-[11px] text-muted-foreground">
-                              {r.category ? r.category : "—"} {r.doc_type ? `· ${r.doc_type}` : ""} ·{" "}
-                              {String(r.status || "").replaceAll("_", " ")}
-                            </div>
-                          </button>
-                        ))}
-
-                        {modalAttachChoices.length === 0 ? (
-                          <div className="rounded-xl border p-3 text-xs text-muted-foreground">No matching requests.</div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 rounded-2xl border bg-white p-4">
-                    <div className="text-xs font-semibold text-muted-foreground">Safety</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      Auto-Clear only touches uploads with confidence ≥ 85%. Undo is available for 15 minutes.
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Rail */}
-      <div className="sticky top-0 z-20 -mx-6 border-b bg-white/95 p-4 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-start justify-between gap-4 px-6">
-          <div className="min-w-0">
-            <div className="flex items-center gap-3">
-              <div className="rounded-full border px-3 py-1 text-xs font-semibold">
-                Unmatched left: {remainingCount}
-              </div>
-              <div className="text-sm font-semibold">Borrower Upload Inbox</div>
-            </div>
-            <div className="mt-2 text-xs text-muted-foreground">
-              One click clears the obvious. You only review the ambiguous.
-            </div>
-          </div>
-
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <a
-              href={`/deals/${encodeURIComponent(dealId)}`}
-              className="rounded-xl border px-3 py-2 text-sm font-semibold hover:bg-muted"
-            >
-              Back to deal
-            </a>
-
-            <button
-              className="rounded-xl border px-3 py-2 text-sm font-semibold hover:bg-muted"
-              onClick={() => void load()}
-              disabled={loading}
-            >
-              {loading ? "Refreshing…" : "Refresh"}
-            </button>
-
-            <button
-              className="rounded-xl bg-foreground px-3 py-2 text-sm font-semibold text-background hover:opacity-90 disabled:opacity-60"
-              onClick={() => void autoAttachBatch()}
-              disabled={autoBusy || loading || !!attachBusy || !!previewBusyId}
-              title="Auto-attach all uploads with confidence ≥ 85%"
-            >
-              {autoBusy ? "Auto-Clearing…" : "Auto-Clear (≥85%)"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="rounded-2xl border bg-white p-5 shadow-sm">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <div className="lg:col-span-5">
-            <div className="text-xs font-semibold text-muted-foreground">Search uploads</div>
-            <input
-              value={uploadQ}
-              onChange={(e) => setUploadQ(e.target.value)}
-              placeholder="Search by filename…"
-              className="mt-2 w-full rounded-xl border px-3 py-2 text-sm"
-            />
-            <div className="mt-2 flex items-center gap-3">
-              <div className="text-xs text-muted-foreground">Min confidence</div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={minConf}
-                onChange={(e) => setMinConf(Number(e.target.value))}
-                className="w-full"
-              />
-              <div className="w-12 text-right text-xs font-semibold">{minConf}%</div>
-            </div>
-          </div>
-
-          <div className="lg:col-span-7">
-            <div className="text-xs font-semibold text-muted-foreground">Filter requests</div>
-            <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-3">
-              <input
-                value={reqQ}
-                onChange={(e) => setReqQ(e.target.value)}
-                placeholder="Search requests…"
-                className="w-full rounded-xl border px-3 py-2 text-sm"
-              />
-
-              <select
-                value={reqCategory}
-                onChange={(e) => setReqCategory(e.target.value)}
-                className="w-full rounded-xl border px-3 py-2 text-sm"
-              >
-                <option value="">All categories</option>
-                {categories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-
-              <label className="flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm">
-                <span className="text-sm">Include received</span>
-                <input
-                  type="checkbox"
-                  checked={includeReceived}
-                  onChange={(e) => setIncludeReceived(e.target.checked)}
-                />
-              </label>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {err ? (
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <div className="text-sm font-semibold">Error</div>
-          <div className="mt-2 text-sm text-muted-foreground">{err}</div>
-        </div>
-      ) : null}
-
-      {loading ? (
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <div className="text-sm font-semibold">Loading…</div>
-          <div className="mt-2 text-sm text-muted-foreground">Fetching inbox and requests.</div>
-        </div>
-      ) : inbox.length === 0 ? (
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <div className="text-sm font-semibold">All clear</div>
-          <div className="mt-2 text-sm text-muted-foreground">No unmatched borrower uploads right now.</div>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {inbox.map((u) => {
-            const suggested = getSuggestedRequest(u);
-            const suggestedOnly = getSuggestedOnly(u.id);
-            const attachChoices = suggestedOnly ? buildSuggestedSet(u, filteredRequests) : filteredRequests.slice(0, 12);
-
-            return (
-              <div key={u.id} className="rounded-2xl border bg-white p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold">{u.filename}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {formatBytes(u.bytes)} {u.mime ? `· ${u.mime}` : ""}{" "}
-                      {u.created_at ? `· ${new Date(u.created_at).toLocaleString()}` : ""}
-                    </div>
-
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {u.match_confidence !== null ? <Chip text={`${Math.round(u.match_confidence)}%`} /> : <Chip text="No confidence" />}
-                      {u.match_reason ? <Chip text={u.match_reason} /> : <Chip text="No reason" />}
-                      {suggested ? <Chip text={`Suggested: ${suggested.title}`} /> : <Chip text="No suggested request" />}
-                    </div>
-
-                    <div className="mt-2 text-xs text-muted-foreground">{whySuggested(u, suggested)}</div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="rounded-xl border px-3 py-1 text-xs font-semibold hover:bg-muted disabled:opacity-60"
-                      onClick={() => void openPreviewModal(u)}
-                      disabled={!!attachBusy || !!previewBusyId}
-                    >
-                      {previewBusyId === u.id ? "Opening…" : "Preview"}
+import StitchFrame from "@/components/stitch/StitchFrame";
+
+const TITLE = "Borrower Portal — Document Upload &amp; Review";
+const FONT_LINKS: string[] = [];
+const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
+const TAILWIND_CONFIG_JS = `tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#136dec",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#101822",
+                        "surface-light": "#ffffff",
+                        "surface-dark": "#1a2430",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "body": ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }`;
+const STYLES = [
+  "body {\n            font-family: 'Inter', sans-serif;\n        }\n        /* Custom scrollbar for cleaner look */\n        .custom-scrollbar::-webkit-scrollbar {\n            width: 6px;\n            height: 6px;\n        }\n        .custom-scrollbar::-webkit-scrollbar-track {\n            background: transparent;\n        }\n        .custom-scrollbar::-webkit-scrollbar-thumb {\n            background-color: #d1d5db;\n            border-radius: 20px;\n        }"
+];
+const BODY_HTML = `<!-- Top Navigation -->
+<header class="flex-shrink-0 bg-white border-b border-[#f0f2f4] h-16 px-6 flex items-center justify-between z-20">
+<div class="flex items-center gap-4">
+<div class="size-8 flex items-center justify-center bg-primary/10 rounded-lg text-primary">
+<span class="material-symbols-outlined">description</span>
+</div>
+<div>
+<h1 class="text-lg font-bold leading-tight tracking-tight text-[#111418]">Buddy Portal</h1>
+<p class="text-xs text-gray-500 font-medium">1234 Market Street Refinance</p>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<button class="text-sm font-semibold text-gray-500 hover:text-primary transition-colors">Save &amp; Exit</button>
+<div class="flex items-center gap-3 pl-6 border-l border-gray-100">
+<div class="text-right hidden sm:block">
+<p class="text-sm font-bold text-[#111418]">Alex Mercer</p>
+<p class="text-xs text-gray-500">Highland Capital</p>
+</div>
+<div class="bg-gray-200 bg-center bg-no-repeat bg-cover rounded-full size-10 border-2 border-white shadow-sm" data-alt="Portrait of a user" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuDzQt9_v636iW7YPvLnFzupDGo2iVU-vf8kq2FQ_GNwEjO3IDOBJjtLFKWK3bhGz_eIXshelNa_VFXaR6QwEhXl3rVGgeJWqV1crPceAVXLDlONbMhS7pR1hevwy2YrE5OOaJE23ShvfqAGPZCRX_XjfSjx4kO_PngnwiB9tfTbHqqXSLI_YEwXBt6Op3FdI8PdYKztOZC4vE5DuoFJ3CCrKhovnrxofJvoKnJijQgYrMUBAqKg75BAHu3-4JZX1oT4pBYzvkaBn-E");'>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Content Area (3 Columns) -->
+<main class="flex-1 flex overflow-hidden">
+<!-- LEFT COLUMN: Document Navigator -->
+<aside class="w-[320px] flex-shrink-0 bg-white border-r border-[#f0f2f4] flex flex-col z-10">
+<div class="p-5 border-b border-[#f0f2f4]">
+<h2 class="text-[#111418] text-lg font-bold mb-4">Your Documents</h2>
+<!-- Upload Area -->
+<div class="border-2 border-dashed border-gray-200 rounded-xl bg-gray-50 p-4 flex flex-col items-center justify-center text-center gap-2 hover:border-primary/50 transition-colors cursor-pointer group">
+<div class="size-10 bg-white rounded-full flex items-center justify-center shadow-sm text-primary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined">cloud_upload</span>
+</div>
+<div>
+<p class="text-sm font-bold text-gray-900">Upload New Document</p>
+<p class="text-xs text-gray-500 mt-1">PDF, Excel, Word (Max 50MB)</p>
+</div>
+</div>
+</div>
+<!-- Document List -->
+<div class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
+<!-- Active Item -->
+<div class="flex flex-col gap-2 p-3 rounded-lg bg-primary/5 border border-primary/20 cursor-pointer shadow-sm">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-3 overflow-hidden">
+<div class="flex items-center justify-center rounded-lg bg-white shrink-0 size-10 text-primary border border-primary/10">
+<span class="material-symbols-outlined">table_chart</span>
+</div>
+<div class="flex flex-col min-w-0">
+<p class="text-[#111418] text-sm font-bold truncate">2023 T-12 Statement</p>
+<p class="text-gray-500 text-xs truncate">Oct 24, 2023 • XLSX</p>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between mt-1 pl-[52px]">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-100">
+<span class="size-1.5 rounded-full bg-amber-500"></span>
+                            Needs Input
+                        </span>
+<span class="material-symbols-outlined text-primary text-[18px]">arrow_forward_ios</span>
+</div>
+</div>
+<!-- Completed Item -->
+<div class="flex flex-col gap-2 p-3 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-100 cursor-pointer transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-3 overflow-hidden">
+<div class="flex items-center justify-center rounded-lg bg-[#f0f2f4] shrink-0 size-10 text-gray-600">
+<span class="material-symbols-outlined">picture_as_pdf</span>
+</div>
+<div class="flex flex-col min-w-0">
+<p class="text-[#111418] text-sm font-medium truncate">Rent Roll - Q3 2023</p>
+<p class="text-gray-500 text-xs truncate">Oct 24, 2023 • PDF</p>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between mt-1 pl-[52px]">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-50 text-green-700 border border-green-100">
+<span class="material-symbols-outlined text-[12px]">check</span>
+                            Confirmed
+                        </span>
+</div>
+</div>
+<!-- Processing Item -->
+<div class="flex flex-col gap-2 p-3 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-100 cursor-pointer transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-3 overflow-hidden">
+<div class="flex items-center justify-center rounded-lg bg-[#f0f2f4] shrink-0 size-10 text-gray-600">
+<span class="material-symbols-outlined">description</span>
+</div>
+<div class="flex flex-col min-w-0">
+<p class="text-[#111418] text-sm font-medium truncate">Appraisal Report</p>
+<p class="text-gray-500 text-xs truncate">Just now • PDF</p>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between mt-1 pl-[52px]">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600 border border-gray-200">
+<span class="material-symbols-outlined text-[12px] animate-spin">progress_activity</span>
+                            Processing...
+                        </span>
+</div>
+</div>
+<!-- Pending Review -->
+<div class="flex flex-col gap-2 p-3 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-100 cursor-pointer transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-3 overflow-hidden">
+<div class="flex items-center justify-center rounded-lg bg-[#f0f2f4] shrink-0 size-10 text-gray-600">
+<span class="material-symbols-outlined">description</span>
+</div>
+<div class="flex flex-col min-w-0">
+<p class="text-[#111418] text-sm font-medium truncate">Org Chart 2023</p>
+<p class="text-gray-500 text-xs truncate">Oct 22, 2023 • PDF</p>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between mt-1 pl-[52px]">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-100">
+<span class="size-1.5 rounded-full bg-blue-500"></span>
+                            Ready for Review
+                        </span>
+</div>
+</div>
+</div>
+</aside>
+<!-- CENTER COLUMN: Document Preview + Extraction -->
+<section class="flex-1 flex flex-col bg-background-light overflow-hidden relative">
+<!-- Document Toolbar -->
+<div class="h-12 bg-white border-b border-[#f0f2f4] flex items-center justify-between px-4 shrink-0 shadow-sm z-10">
+<div class="flex items-center gap-2">
+<span class="text-sm font-semibold text-gray-700">2023 T-12 Statement.xlsx</span>
+</div>
+<div class="flex items-center gap-2 bg-[#f0f2f4] rounded-md p-0.5">
+<button class="p-1 hover:bg-white rounded text-gray-600 hover:text-[#111418]"><span class="material-symbols-outlined text-[18px]">remove</span></button>
+<span class="text-xs font-medium px-2 text-gray-600">100%</span>
+<button class="p-1 hover:bg-white rounded text-gray-600 hover:text-[#111418]"><span class="material-symbols-outlined text-[18px]">add</span></button>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-xs text-gray-500 font-medium">Page 1 of 4</span>
+<div class="flex gap-1">
+<button class="p-1 hover:bg-[#f0f2f4] rounded text-gray-400"><span class="material-symbols-outlined text-[18px]">chevron_left</span></button>
+<button class="p-1 hover:bg-[#f0f2f4] rounded text-gray-600"><span class="material-symbols-outlined text-[18px]">chevron_right</span></button>
+</div>
+</div>
+</div>
+<!-- Scrollable Container for Preview + Data -->
+<div class="flex-1 overflow-y-auto custom-scrollbar p-6">
+<div class="max-w-4xl mx-auto flex flex-col gap-6">
+<!-- PDF/Doc Preview Area -->
+<div class="w-full bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden relative group">
+<!-- Simulated Spreadsheet Header -->
+<div class="h-8 bg-gray-50 border-b border-gray-200 flex items-center px-4 gap-4">
+<div class="w-full h-2 bg-gray-200 rounded-full opacity-50"></div>
+</div>
+<!-- Document Image Representation -->
+<div class="relative bg-white p-8 min-h-[400px] flex flex-col gap-4 select-none">
+<!-- Abstract Spreadsheet Lines -->
+<div class="flex justify-between items-center pb-4 border-b border-gray-100">
+<div class="w-1/3 h-6 bg-gray-800 rounded opacity-80"></div>
+<div class="w-1/6 h-4 bg-gray-300 rounded"></div>
+</div>
+<div class="space-y-3">
+<!-- Row 1 -->
+<div class="flex gap-4">
+<div class="w-1/4 h-3 bg-gray-200 rounded"></div>
+<div class="flex-1"></div>
+<div class="w-1/6 h-3 bg-gray-200 rounded"></div>
+<div class="w-1/6 h-3 bg-gray-200 rounded"></div>
+</div>
+<!-- Row 2 -->
+<div class="flex gap-4">
+<div class="w-1/3 h-3 bg-gray-200 rounded"></div>
+<div class="flex-1"></div>
+<div class="w-1/6 h-3 bg-gray-200 rounded"></div>
+<div class="w-1/6 h-3 bg-gray-200 rounded"></div>
+</div>
+<!-- Row 3 (Highlighted) -->
+<div class="flex gap-4 relative">
+<div class="absolute -inset-2 bg-blue-50/50 border border-blue-200 rounded pointer-events-none"></div>
+<div class="w-1/4 h-3 bg-gray-800 rounded"></div>
+<div class="flex-1"></div>
+<div class="w-1/6 h-3 bg-gray-800 rounded"></div>
+<div class="w-1/6 h-3 bg-blue-100 rounded border border-blue-200"></div> <!-- Extracted Value -->
+</div>
+<!-- Row 4 -->
+<div class="flex gap-4">
+<div class="w-1/5 h-3 bg-gray-200 rounded"></div>
+<div class="flex-1"></div>
+<div class="w-1/6 h-3 bg-gray-200 rounded"></div>
+<div class="w-1/6 h-3 bg-gray-200 rounded"></div>
+</div>
+<!-- Row 5 (Highlighted) -->
+<div class="flex gap-4 relative mt-4">
+<div class="absolute -inset-2 bg-amber-50/50 border border-amber-200 rounded pointer-events-none"></div>
+<div class="w-1/3 h-4 bg-gray-800 rounded"></div>
+<div class="flex-1"></div>
+<div class="w-1/6 h-4 bg-amber-100 rounded border border-amber-200"></div> <!-- Warning Value -->
+</div>
+</div>
+</div>
+</div>
+<!-- "What We Read" Extraction Summary -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+<div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+<h3 class="font-bold text-[#111418] flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">auto_awesome</span>
+                                What We Read
+                            </h3>
+<span class="text-xs text-gray-500">Based on Buddy's analysis</span>
+</div>
+<div class="divide-y divide-gray-100">
+<!-- Field 1: OK -->
+<div class="grid grid-cols-12 gap-4 px-6 py-4 items-center group hover:bg-gray-50 transition-colors">
+<div class="col-span-4">
+<label class="text-sm font-medium text-gray-600">Property Name</label>
+</div>
+<div class="col-span-5">
+<div class="text-[#111418] font-semibold">Highland Park Apartments</div>
+</div>
+<div class="col-span-3 flex justify-end">
+<label class="flex items-center gap-2 cursor-pointer select-none">
+<input checked="" class="rounded text-green-600 focus:ring-green-500 border-gray-300 size-4" type="checkbox"/>
+<span class="text-sm text-gray-600">Looks correct</span>
+</label>
+</div>
+</div>
+<!-- Field 2: OK -->
+<div class="grid grid-cols-12 gap-4 px-6 py-4 items-center group hover:bg-gray-50 transition-colors">
+<div class="col-span-4">
+<label class="text-sm font-medium text-gray-600">Reporting Period</label>
+</div>
+<div class="col-span-5">
+<div class="text-[#111418] font-semibold">Jan 1, 2023 — Dec 31, 2023</div>
+</div>
+<div class="col-span-3 flex justify-end">
+<label class="flex items-center gap-2 cursor-pointer select-none">
+<input checked="" class="rounded text-green-600 focus:ring-green-500 border-gray-300 size-4" type="checkbox"/>
+<span class="text-sm text-gray-600">Looks correct</span>
+</label>
+</div>
+</div>
+<!-- Field 3: OK -->
+<div class="grid grid-cols-12 gap-4 px-6 py-4 items-center group hover:bg-gray-50 transition-colors">
+<div class="col-span-4">
+<label class="text-sm font-medium text-gray-600">Gross Potential Rent</label>
+</div>
+<div class="col-span-5">
+<div class="text-[#111418] font-semibold">$4,200,000</div>
+</div>
+<div class="col-span-3 flex justify-end">
+<label class="flex items-center gap-2 cursor-pointer select-none">
+<input checked="" class="rounded text-green-600 focus:ring-green-500 border-gray-300 size-4" type="checkbox"/>
+<span class="text-sm text-gray-600">Looks correct</span>
+</label>
+</div>
+</div>
+<!-- Field 4: Needs Input -->
+<div class="grid grid-cols-12 gap-4 px-6 py-4 items-center bg-amber-50/40 relative">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-amber-400"></div>
+<div class="col-span-4">
+<label class="text-sm font-bold text-gray-800">Net Operating Income</label>
+</div>
+<div class="col-span-5">
+<div class="flex items-center gap-2">
+<input class="w-full text-sm rounded border-amber-300 bg-white focus:border-amber-500 focus:ring-amber-500 text-gray-900 font-semibold" placeholder="Enter value" type="text" value="$2,350,00"/>
+</div>
+<p class="text-xs text-amber-700 mt-1">Please verify this value matches the document.</p>
+</div>
+<div class="col-span-3 flex justify-end">
+<button class="text-sm font-medium text-primary hover:text-primary/80 underline decoration-dotted">Edit value</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Spacer for scroll -->
+<div class="h-10"></div>
+</div>
+</div>
+</section>
+<!-- RIGHT COLUMN: Review & Confirm -->
+<aside class="w-[360px] flex-shrink-0 bg-white border-l border-[#f0f2f4] flex flex-col z-10 shadow-[0_0_15px_rgba(0,0,0,0.05)]">
+<div class="p-6 flex-1 overflow-y-auto custom-scrollbar">
+<h2 class="text-[#111418] text-xl font-bold mb-6">Review &amp; Confirm</h2>
+<!-- Progress Status -->
+<div class="mb-8">
+<div class="flex justify-between items-end mb-2">
+<span class="text-sm font-medium text-gray-600">Confirmation Progress</span>
+<span class="text-sm font-bold text-primary">3 of 5 Docs</span>
+</div>
+<div class="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+<div class="h-full bg-primary w-3/5 rounded-full"></div>
+</div>
+<p class="text-xs text-gray-400 mt-2">Finish confirming all documents to submit.</p>
+</div>
+<!-- Action Needed Card -->
+<div class="rounded-xl bg-amber-50 border border-amber-100 p-4 mb-6">
+<div class="flex items-start gap-3">
+<span class="material-symbols-outlined text-amber-600 mt-0.5">info</span>
+<div>
+<h3 class="text-sm font-bold text-amber-900">Fields Needing Attention</h3>
+<p class="text-sm text-amber-800 mt-1 leading-relaxed">
+                                We couldn't confidently read the <span class="font-bold">Net Operating Income</span>. Please confirm the value in the center panel.
+                            </p>
+<button class="mt-3 text-xs font-bold text-amber-700 hover:text-amber-900 flex items-center gap-1">
+                                Go to field <span class="material-symbols-outlined text-[14px]">arrow_downward</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Friendly Guidance -->
+<div class="mb-8 text-sm text-gray-600 space-y-3">
+<p>Please review the highlighted fields in the center panel. You can edit anything that doesn't look right.</p>
+<p>Once you are comfortable with the extracted data, click confirm below.</p>
+</div>
+<!-- Main Actions -->
+<div class="space-y-3">
+<button class="w-full flex items-center justify-center gap-2 bg-primary hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg shadow-sm transition-all transform active:scale-[0.98]">
+<span class="material-symbols-outlined">check_circle</span>
+                        Confirm &amp; Submit Document
                     </button>
+<div class="grid grid-cols-2 gap-3">
+<button class="w-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium py-2 px-4 rounded-lg text-sm">
+                            Save for later
+                        </button>
+<button class="w-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium py-2 px-4 rounded-lg text-sm">
+                            Upload new version
+                        </button>
+</div>
+</div>
+</div>
+<!-- Footer Helper -->
+<div class="bg-gray-50 p-5 border-t border-gray-100">
+<p class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Your Relationship Manager</p>
+<div class="flex items-center gap-3">
+<div class="size-10 rounded-full bg-gray-200 bg-cover bg-center" data-alt="Photo of Sarah Jenkins" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuBmCn0NLf8sFK700M_xEHJEkOQ_LW5kHTxrhPhtRGH6ODQb3xBmkIX83V9SFJWPAGgYwWqzBOPFm_Po-FOFu2GVP0RW9fhlLZheHIeHIRE_1mt4U_8So0r716G04SpTfrrWDoaQD9BtHlSTinpYbGrejF_7cRVQDRr1qNQ5zdmOXvzmE6Gd8mSf_krpG1sOLzbJ4V4iTY0pjogit7wyLXLHCFWGBVo1SHLuNrjE4xtu1HXrrdaxgF07ciBimcZ4BD_lMieUu-G1mDc");'>
+</div>
+<div>
+<p class="text-sm font-bold text-gray-900">Sarah Jenkins</p>
+<div class="flex items-center gap-2 text-xs text-gray-500">
+<span class="hover:underline cursor-pointer">s.jenkins@buddy.com</span>
+<span>•</span>
+<span>(555) 123-4567</span>
+</div>
+</div>
+</div>
+</div>
+</aside>
+</main>`;
 
-                    <button
-                      className="rounded-xl border px-3 py-1 text-xs font-semibold hover:bg-muted"
-                      onClick={() => toggleSuggestedOnly(u.id)}
-                    >
-                      {suggestedOnly ? "Show all" : "Suggested only"}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <div className="text-xs font-semibold text-muted-foreground">Attach to request</div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {attachChoices.map((r) => (
-                      <button
-                        key={r.id}
-                        className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-60"
-                        disabled={!!attachBusy}
-                        onClick={() => void attach(u.id, r.id)}
-                        title={whySuggested(u, suggested)}
-                      >
-                        {attachBusy === u.id ? "Attaching…" : r.title}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
+export default function Page() {
+  return (
+    <StitchFrame
+      title={TITLE}
+      fontLinks={FONT_LINKS}
+      tailwindCdnSrc={TAILWIND_CDN}
+      tailwindConfigJs={TAILWIND_CONFIG_JS}
+      styles={STYLES}
+      bodyHtml={BODY_HTML}
+    />
   );
 }

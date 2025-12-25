@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     if (!prompt) {
       return NextResponse.json(
         { error: "Prompt is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
       console.error("Insert error:", insertError);
       return NextResponse.json(
         { error: "Failed to create screen" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     console.error("Generate error:", err);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

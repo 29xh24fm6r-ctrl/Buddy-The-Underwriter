@@ -6,7 +6,10 @@ import { buildSbaFormPayloadFromAnswers } from "@/lib/sbaForms/buildPayload";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(_: Request, context: { params: Promise<{ token: string }> }) {
+export async function POST(
+  _: Request,
+  context: { params: Promise<{ token: string }> },
+) {
   try {
     const { token } = await context.params;
     const { application } = await requireBorrowerToken(token);
@@ -33,13 +36,16 @@ export async function POST(_: Request, context: { params: Promise<{ token: strin
         validation_errors: built.validation_errors,
         status: built.status,
       },
-      { onConflict: "application_id,form_name" }
+      { onConflict: "application_id,form_name" },
     );
 
     if (upErr) throw new Error(`form_payload_upsert_failed: ${upErr.message}`);
 
     return NextResponse.json({ ok: true, form_name: formName, ...built });
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message ?? "forms_recompute_failed" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: err?.message ?? "forms_recompute_failed" },
+      { status: 400 },
+    );
   }
 }

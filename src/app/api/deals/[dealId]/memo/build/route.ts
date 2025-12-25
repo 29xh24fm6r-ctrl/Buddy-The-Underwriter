@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { buildCreditMemoV1 } from "@/lib/creditMemo/buildCreditMemo";
 import type { CreditMemoV1 } from "@/lib/creditMemo/creditMemoTypes";
 

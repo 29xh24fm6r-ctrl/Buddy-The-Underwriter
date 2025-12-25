@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -10,8 +10,11 @@ type EvidenceSource = {
   dealCol: string;
 };
 
-export async function GET(_: Request, { params }: { params: { dealId: string } }) {
-  const dealId = params.dealId;
+export async function GET(
+  _: NextRequest,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
+  const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
   // Canonical sources list:
@@ -40,8 +43,11 @@ export async function GET(_: Request, { params }: { params: { dealId: string } }
 
     if (error) {
       return NextResponse.json(
-        { ok: false, error: `Evidence query failed for ${s.table}: ${error.message}` },
-        { status: 500 }
+        {
+          ok: false,
+          error: `Evidence query failed for ${s.table}: ${error.message}`,
+        },
+        { status: 500 },
       );
     }
 

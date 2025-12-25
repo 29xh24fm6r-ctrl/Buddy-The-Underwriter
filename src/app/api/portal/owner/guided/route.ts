@@ -13,7 +13,9 @@ export async function GET(req: Request) {
 
     const { data: owner, error: oErr } = await sb
       .from("deal_owners")
-      .select("id, full_name, email, requires_personal_package, ownership_percent")
+      .select(
+        "id, full_name, email, requires_personal_package, ownership_percent",
+      )
       .eq("id", ownerId)
       .maybeSingle();
 
@@ -41,7 +43,10 @@ export async function GET(req: Request) {
       title: it.title,
       description: it.description,
       required: it.required,
-      status: (stateByItem.get(it.id)?.status ?? "missing") as "missing" | "received" | "verified",
+      status: (stateByItem.get(it.id)?.status ?? "missing") as
+        | "missing"
+        | "received"
+        | "verified",
       completedAt: stateByItem.get(it.id)?.completed_at ?? null,
     }));
 
@@ -50,7 +55,9 @@ export async function GET(req: Request) {
     const progress = {
       requiredTotal: required.length,
       requiredDone: done.length,
-      percent: required.length ? Math.round((done.length / required.length) * 100) : 100,
+      percent: required.length
+        ? Math.round((done.length / required.length) * 100)
+        : 100,
     };
 
     return NextResponse.json({
@@ -62,6 +69,9 @@ export async function GET(req: Request) {
       ownerId,
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

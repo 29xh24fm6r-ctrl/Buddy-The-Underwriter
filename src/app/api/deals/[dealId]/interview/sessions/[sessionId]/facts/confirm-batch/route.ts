@@ -1,7 +1,13 @@
 // src/app/api/deals/[dealId]/interview/sessions/[sessionId]/facts/confirm-batch/route.ts
 import { NextRequest } from "next/server";
 import { getAuthedSupabase } from "@/lib/supabase/serverAuthed";
-import { jsonBadRequest, jsonNotFound, jsonOk, jsonServerError, jsonUnauthorized } from "@/lib/interview/http";
+import {
+  jsonBadRequest,
+  jsonNotFound,
+  jsonOk,
+  jsonServerError,
+  jsonUnauthorized,
+} from "@/lib/interview/http";
 
 export const runtime = "nodejs";
 
@@ -13,7 +19,11 @@ type Body = {
   confirmationText?: string | null;
 };
 
-async function assertSessionAccessible(supabase: any, dealId: string, sessionId: string) {
+async function assertSessionAccessible(
+  supabase: any,
+  dealId: string,
+  sessionId: string,
+) {
   const { data, error } = await supabase
     .from("deal_interview_sessions")
     .select("id, deal_id")
@@ -26,7 +36,10 @@ async function assertSessionAccessible(supabase: any, dealId: string, sessionId:
   return { ok: true as const };
 }
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string; sessionId: string }> }) {
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ dealId: string; sessionId: string }> },
+) {
   try {
     const { dealId, sessionId } = await ctx.params;
     const { supabase, userId } = await getAuthedSupabase();
@@ -36,8 +49,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     if (!check.ok) return jsonNotFound("session_not_found");
 
     const body = (await req.json().catch(() => null)) as Body | null;
-    if (!body || !Array.isArray(body.factIds) || body.factIds.length === 0) return jsonBadRequest("factIds_required");
-    if (typeof body.confirmed !== "boolean") return jsonBadRequest("confirmed_required");
+    if (!body || !Array.isArray(body.factIds) || body.factIds.length === 0)
+      return jsonBadRequest("factIds_required");
+    if (typeof body.confirmed !== "boolean")
+      return jsonBadRequest("confirmed_required");
 
     // Load facts to validate they belong to this session
     const { data: facts, error: factsErr } = await supabase
@@ -51,7 +66,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
       .filter((f: any) => String(f.session_id) === String(sessionId))
       .map((f: any) => f.id);
 
-    if (validIds.length === 0) return jsonBadRequest("no_valid_factIds_for_session");
+    if (validIds.length === 0)
+      return jsonBadRequest("no_valid_factIds_for_session");
 
     // Update one-by-one so we can preserve metadata safely
     let updatedCount = 0;

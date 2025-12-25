@@ -1,6 +1,9 @@
 // src/app/api/banker/eta-templates/route.ts
 import { NextResponse } from "next/server";
-import { createEtaNoteTemplate, listEtaNoteTemplates } from "@/lib/deals/etaTemplates";
+import {
+  createEtaNoteTemplate,
+  listEtaNoteTemplates,
+} from "@/lib/deals/etaTemplates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +22,10 @@ export async function GET(req: Request) {
     const templates = await listEtaNoteTemplates();
     return NextResponse.json({ ok: true, templates });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }
 
@@ -39,6 +45,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, template: created });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

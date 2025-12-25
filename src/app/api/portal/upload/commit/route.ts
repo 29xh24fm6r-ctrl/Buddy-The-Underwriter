@@ -8,14 +8,17 @@ import { recordReceipt } from "@/lib/portal/receipts";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function tryEnqueueJobs(sb: ReturnType<typeof supabaseAdmin>, args: {
-  dealId: string;
-  bankId: string;
-  uploadId: string;
-  storageBucket: string;
-  storagePath: string;
-  filename: string;
-}) {
+async function tryEnqueueJobs(
+  sb: ReturnType<typeof supabaseAdmin>,
+  args: {
+    dealId: string;
+    bankId: string;
+    uploadId: string;
+    storageBucket: string;
+    storagePath: string;
+    filename: string;
+  },
+) {
   // Best-effort: only enqueue if table exists
   try {
     // Minimal job record shape (adjust later if your schema differs)
@@ -29,8 +32,8 @@ async function tryEnqueueJobs(sb: ReturnType<typeof supabaseAdmin>, args: {
         upload_id: args.uploadId,
         bucket: args.storageBucket,
         path: args.storagePath,
-        filename: args.filename
-      }
+        filename: args.filename,
+      },
     });
 
     await sb.from("document_jobs").insert({
@@ -43,8 +46,8 @@ async function tryEnqueueJobs(sb: ReturnType<typeof supabaseAdmin>, args: {
         upload_id: args.uploadId,
         bucket: args.storageBucket,
         path: args.storagePath,
-        filename: args.filename
-      }
+        filename: args.filename,
+      },
     });
   } catch {
     // swallow: don't block portal
@@ -62,18 +65,29 @@ export async function POST(req: Request) {
   const mimeType = body?.mimeType || null;
   const sizeBytes = typeof body?.sizeBytes === "number" ? body.sizeBytes : null;
 
-  if (!token || typeof token !== "string") return NextResponse.json({ error: "Missing token" }, { status: 400 });
-  if (!path || typeof path !== "string") return NextResponse.json({ error: "Missing path" }, { status: 400 });
-  if (!filename || typeof filename !== "string") return NextResponse.json({ error: "Missing filename" }, { status: 400 });
+  if (!token || typeof token !== "string")
+    return NextResponse.json({ error: "Missing token" }, { status: 400 });
+  if (!path || typeof path !== "string")
+    return NextResponse.json({ error: "Missing path" }, { status: 400 });
+  if (!filename || typeof filename !== "string")
+    return NextResponse.json({ error: "Missing filename" }, { status: 400 });
 
-  const rl = rateLimit(`portal:${token.slice(0, 12)}:upload_commit`, 30, 60_000);
-  if (!rl.ok) return NextResponse.json({ error: "Rate limited" }, { status: 429 });
+  const rl = rateLimit(
+    `portal:${token.slice(0, 12)}:upload_commit`,
+    30,
+    60_000,
+  );
+  if (!rl.ok)
+    return NextResponse.json({ error: "Rate limited" }, { status: 429 });
 
   let invite;
   try {
     invite = await requireValidInvite(token);
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Invalid/expired link" }, { status: 401 });
+    return NextResponse.json(
+      { error: e?.message || "Invalid/expired link" },
+      { status: 401 },
+    );
   }
 
   const { data: upload, error } = await sb
@@ -91,10 +105,17 @@ export async function POST(req: Request) {
     .select("id")
     .single();
 
-  if (error || !upload) return NextResponse.json({ error: "Failed to record upload" }, { status: 500 });
+  if (error || !upload)
+    return NextResponse.json(
+      { error: "Failed to record upload" },
+      { status: 500 },
+    );
 
   if (requestId) {
-    await sb.from("borrower_document_requests").update({ status: "uploaded" }).eq("id", requestId);
+    await sb
+      .from("borrower_document_requests")
+      .update({ status: "uploaded" })
+      .eq("id", requestId);
   }
 
   // Kick off OCR/classify jobs (best-effort)
@@ -104,7 +125,7 @@ export async function POST(req: Request) {
     uploadId: upload.id,
     storageBucket: "borrower_uploads",
     storagePath: path,
-    filename
+    filename,
   });
 
   // Record receipt + auto-highlight checklist (best-effort)

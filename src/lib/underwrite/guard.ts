@@ -38,7 +38,7 @@ export function underwriteConsistencyGuard(input: {
       severity: "BLOCKED",
       title: "Missing product type",
       detail: "No loan product is selected for underwriting. Add a borrower request or create a banker draft.",
-      fix: { label: "Open Loan Products", target: { kind: "banker_loan_products", dealId, focus: "product" } },
+      fix: { label: "Open Loan Products", target: { kind: "banker_loan_products", dealId, focus: "product" } as any },
     });
   }
 
@@ -48,7 +48,7 @@ export function underwriteConsistencyGuard(input: {
       severity: "BLOCKED",
       title: "Missing loan amount",
       detail: "Underwriting requires a proposed or requested loan amount.",
-      fix: { label: "Set amount", target: { kind: "banker_loan_products", dealId, focus: "amount" } },
+      fix: { label: "Set amount", target: { kind: "banker_loan_products", dealId, focus: "amount" } as any },
     });
   }
 
@@ -58,7 +58,7 @@ export function underwriteConsistencyGuard(input: {
       severity: "BLOCKED",
       title: "Missing term",
       detail: "Underwriting requires a term (months).",
-      fix: { label: "Set term", target: { kind: "banker_loan_products", dealId, focus: "termMonths" } },
+      fix: { label: "Set term", target: { kind: "banker_loan_products", dealId, focus: "termMonths" } as any },
     });
   }
 
@@ -81,7 +81,7 @@ export function underwriteConsistencyGuard(input: {
       severity: "WARN",
       title: "Rate type looks invalid",
       detail: "Rate type should be FIXED or VARIABLE (or blank).",
-      fix: { label: "Review pricing fields", target: { kind: "banker_loan_products", dealId } },
+      fix: { label: "Review pricing fields", target: { kind: "banker_loan_products", dealId } as any },
     });
   }
 
@@ -95,7 +95,7 @@ export function underwriteConsistencyGuard(input: {
         severity: "WARN",
         title: "Missing rate index",
         detail: "Variable pricing typically requires an index (Prime / SOFR / etc.).",
-        fix: { label: "Set index", target: { kind: "banker_loan_products", dealId } },
+        fix: { label: "Set index", target: { kind: "banker_loan_products", dealId } as any },
       });
     }
     if (spreadBps !== null && !(typeof spreadBps === "number" && Number.isFinite(spreadBps))) {
@@ -104,7 +104,7 @@ export function underwriteConsistencyGuard(input: {
         severity: "WARN",
         title: "Spread looks invalid",
         detail: "Spread should be a numeric basis points value (or blank).",
-        fix: { label: "Fix spread", target: { kind: "banker_loan_products", dealId } },
+        fix: { label: "Fix spread", target: { kind: "banker_loan_products", dealId } as any },
       });
     }
   }
@@ -117,7 +117,7 @@ export function underwriteConsistencyGuard(input: {
       severity: "WARN",
       title: "DSCR target looks invalid",
       detail: "DSCR target should be a number (or blank).",
-      fix: { label: "Fix DSCR target", target: { kind: "banker_loan_products", dealId } },
+      fix: { label: "Fix DSCR target", target: { kind: "banker_loan_products", dealId } as any },
     });
   }
 

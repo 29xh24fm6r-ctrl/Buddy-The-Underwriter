@@ -9,7 +9,7 @@ const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
 export async function POST() {
   const { userId } = await auth();
-  
+
   if (!userId) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
   }
@@ -19,7 +19,6 @@ export async function POST() {
     // This allows browser to connect without exposing API key
     const response = await client.responses.create({
       model: "gpt-4o-realtime-preview-2024-12-17",
-      modalities: ["text", "audio"],
       // The session will be established via WebRTC in the browser
     });
 
@@ -30,8 +29,11 @@ export async function POST() {
   } catch (error) {
     console.error("[Realtime Session] Error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Session creation failed" },
-      { status: 500 }
+      {
+        error:
+          error instanceof Error ? error.message : "Session creation failed",
+      },
+      { status: 500 },
     );
   }
 }

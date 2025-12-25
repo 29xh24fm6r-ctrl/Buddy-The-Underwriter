@@ -2,16 +2,19 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { computeStall, shouldThrottle } from "@/lib/borrowerAutomation/stallRules";
+import {
+  computeStall,
+  shouldThrottle,
+} from "@/lib/borrowerAutomation/stallRules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
  * POST /api/automation/borrower-nudges/run
- * 
+ *
  * Automation runner: generates draft nudge messages for stalled conditions
- * 
+ *
  * Flow:
  * 1. Load outstanding conditions for deal
  * 2. Detect borrower activity timestamp
@@ -19,7 +22,7 @@ export const dynamic = "force-dynamic";
  * 4. Check throttles
  * 5. Draft PORTAL messages (DRAFT status)
  * 6. Underwriter must approve before send
- * 
+ *
  * Body: { deal_id: string }
  * Returns: { ok: true, deal_id: string, drafted: number }
  */
@@ -32,7 +35,7 @@ export async function POST(req: NextRequest) {
   if (!dealId) {
     return NextResponse.json(
       { ok: false, error: "deal_id required for phase 1" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -41,7 +44,9 @@ export async function POST(req: NextRequest) {
   // 1) Load outstanding conditions
   const { data: conditions, error: e1 } = await supabase
     .from("conditions_to_close")
-    .select("id, application_id, title, status, severity, ai_explanation, last_evaluated_at")
+    .select(
+      "id, application_id, title, status, severity, ai_explanation, last_evaluated_at",
+    )
     .eq("application_id", dealId)
     .neq("status", "satisfied");
 
@@ -87,11 +92,14 @@ export async function POST(req: NextRequest) {
       .eq("condition_id", (c as any).id)
       .maybeSingle();
 
-    if (throttle && shouldThrottle({
-      sendCount: (throttle as any).send_count ?? 0,
-      lastSentAt: (throttle as any).last_sent_at ?? null,
-      now,
-    })) {
+    if (
+      throttle &&
+      shouldThrottle({
+        sendCount: (throttle as any).send_count ?? 0,
+        lastSentAt: (throttle as any).last_sent_at ?? null,
+        now,
+      })
+    ) {
       continue; // Throttled
     }
 
@@ -120,9 +128,14 @@ export async function POST(req: NextRequest) {
 
   // 6) Insert draft messages
   if (messages.length) {
-    const { error: e3 } = await supabase.from("condition_messages").insert(messages as any);
+    const { error: e3 } = await supabase
+      .from("condition_messages")
+      .insert(messages as any);
     if (e3) {
-      return NextResponse.json({ ok: false, error: e3.message }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: e3.message },
+        { status: 500 },
+      );
     }
     drafted = messages.length;
   }

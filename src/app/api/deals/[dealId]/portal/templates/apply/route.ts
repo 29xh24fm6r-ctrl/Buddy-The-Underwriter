@@ -1,11 +1,14 @@
 // src/app/api/deals/[dealId]/portal/templates/apply/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
@@ -13,13 +16,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
   const onlyActive = body?.onlyActive === false ? false : true;
 
   // Load deal to get bank_id
-  const { data: deal, error: dErr } = await sb.from("deals").select("id, bank_id").eq("id", dealId).single();
-  if (dErr || !deal) return NextResponse.json({ error: "Deal not found" }, { status: 404 });
+  const { data: deal, error: dErr } = await sb
+    .from("deals")
+    .select("id, bank_id")
+    .eq("id", dealId)
+    .single();
+  if (dErr || !deal)
+    return NextResponse.json({ error: "Deal not found" }, { status: 404 });
 
   // Load templates
   let tq = sb
     .from("borrower_request_templates")
-    .select("id, title, category, description, doc_type, year_mode, sort_order, active")
+    .select(
+      "id, title, category, description, doc_type, year_mode, sort_order, active",
+    )
     .eq("bank_id", deal.bank_id)
     .order("sort_order", { ascending: true })
     .order("title", { ascending: true });
@@ -38,7 +48,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
   if (rErr) return NextResponse.json({ error: rErr.message }, { status: 500 });
 
   const existingByTemplate = new Map<string, any>();
-  for (const r of existing) if (r.template_id) existingByTemplate.set(r.template_id, r);
+  for (const r of existing ?? [])
+    if (r.template_id) existingByTemplate.set(r.template_id, r);
 
   const created: any[] = [];
   const skipped: any[] = [];
@@ -46,7 +57,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
   for (const tpl of templates as any[]) {
     const already = existingByTemplate.get(tpl.id);
     if (already) {
-      skipped.push({ templateId: tpl.id, requestId: already.id, reason: "already_exists" });
+      skipped.push({
+        templateId: tpl.id,
+        requestId: already.id,
+        reason: "already_exists",
+      });
       continue;
     }
 
@@ -66,22 +81,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       .single();
 
     if (cErr || !reqRow) {
-      skipped.push({ templateId: tpl.id, reason: "create_failed", error: cErr?.message || "unknown" });
+      skipped.push({
+        templateId: tpl.id,
+        reason: "create_failed",
+        error: cErr?.message || "unknown",
+      });
       continue;
     }
 
     // Audit link
-    await sb
-      .from("borrower_deal_template_apps")
-      .insert({
-        deal_id: dealId,
-        bank_id: deal.bank_id,
-        template_id: tpl.id,
-        request_id: reqRow.id,
-      })
-      .catch(() => null);
+    await sb.from("borrower_deal_template_apps").insert({
+      deal_id: dealId,
+      bank_id: deal.bank_id,
+      template_id: tpl.id,
+      request_id: reqRow.id,
+    });
 
-    created.push({ templateId: tpl.id, requestId: reqRow.id, title: reqRow.title });
+    created.push({
+      templateId: tpl.id,
+      requestId: reqRow.id,
+      title: reqRow.title,
+    });
   }
 
   return NextResponse.json({

@@ -5,7 +5,10 @@ import { updateBorrowerAttachmentMeta } from "@/lib/borrowerAttachments/updateAt
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request, context: { params: Promise<{ token: string }> }) {
+export async function POST(
+  req: Request,
+  context: { params: Promise<{ token: string }> },
+) {
   try {
     const { token } = await context.params;
     const { application } = await requireBorrowerToken(token);
@@ -18,7 +21,10 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     const reasons = body.reasons ?? null;
 
     if (!file_key) {
-      return NextResponse.json({ ok: false, error: "Missing file_key" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Missing file_key" },
+        { status: 400 },
+      );
     }
 
     // Patch shape matches your evaluator expectations:
@@ -45,6 +51,9 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     // (If you want: we can call requirements recompute server-side next sprint.)
     return NextResponse.json({ ok: true });
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message ?? "classification_write_failed" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: err?.message ?? "classification_write_failed" },
+      { status: 400 },
+    );
   }
 }

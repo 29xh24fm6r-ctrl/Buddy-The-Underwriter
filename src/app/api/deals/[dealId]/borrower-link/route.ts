@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import * as crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
@@ -17,12 +17,14 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const label = body?.label ?? "Borrower Portal Link";
   const expiresHours = Number(body?.expires_hours ?? 72);
-  const expiresAt = new Date(Date.now() + expiresHours * 3600 * 1000).toISOString();
+  const expiresAt = new Date(
+    Date.now() + expiresHours * 3600 * 1000,
+  ).toISOString();
 
   const sb = createClient(
     process.env.SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
+    { auth: { persistSession: false } },
   );
 
   const token = makeToken();
@@ -35,10 +37,20 @@ export async function POST(req: Request) {
     expires_at: expiresAt,
   } as any);
 
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (error)
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
 
   // Deep link URL (front-end route)
   const link = `/borrower/${token}`;
 
-  return NextResponse.json({ ok: true, dealId, token, link, expires_at: expiresAt });
+  return NextResponse.json({
+    ok: true,
+    dealId,
+    token,
+    link,
+    expires_at: expiresAt,
+  });
 }

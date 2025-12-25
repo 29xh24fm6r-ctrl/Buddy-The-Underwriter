@@ -1,12 +1,17 @@
 // src/app/api/deals/[dealId]/live-version/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/requireRole";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Row = { created_at?: string | null; updated_at?: string | null; uploaded_at?: string | null; last_activity_at?: string | null };
+type Row = {
+  created_at?: string | null;
+  updated_at?: string | null;
+  uploaded_at?: string | null;
+  last_activity_at?: string | null;
+};
 
 function asMs(x?: string | null) {
   if (!x) return 0;
@@ -14,7 +19,12 @@ function asMs(x?: string | null) {
   return Number.isFinite(t) ? t : 0;
 }
 
-async function latestMs(sb: ReturnType<typeof supabaseAdmin>, table: string, dealId: string, col: string) {
+async function latestMs(
+  sb: ReturnType<typeof supabaseAdmin>,
+  table: string,
+  dealId: string,
+  col: string,
+) {
   const { data, error } = await sb
     .from(table)
     .select(col)
@@ -27,10 +37,13 @@ async function latestMs(sb: ReturnType<typeof supabaseAdmin>, table: string, dea
   return asMs((row as any)[col]);
 }
 
-export async function GET(req: Request, ctx: { params: { dealId: string } }) {
+export async function GET(
+  req: NextRequest,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   await requireRole(["super_admin", "bank_admin", "underwriter"]);
 
-  const dealId = ctx.params.dealId;
+  const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
   // Add/remove tables as your UI grows.

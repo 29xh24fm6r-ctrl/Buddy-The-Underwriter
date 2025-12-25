@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/requireRole";
 import { buildEvidenceGraph } from "@/lib/evidence/graph";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(
   req: Request,
-  ctx: { params: Promise<{ dealId: string }> }
+  ctx: { params: Promise<{ dealId: string }> },
 ) {
   await requireRole(["super_admin", "bank_admin", "underwriter"]);
 
@@ -22,12 +22,17 @@ export async function GET(
 
   const url = new URL(req.url);
   const scope = url.searchParams.get("scope") || undefined; // filter by scope (optional)
-  const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 50)));
+  const limit = Math.max(
+    1,
+    Math.min(100, Number(url.searchParams.get("limit") || 50)),
+  );
 
   // Fetch AI events
   let aiEventsQuery = sb
     .from("ai_events")
-    .select("id, scope, action, input_json, output_json, evidence_json, confidence, created_at")
+    .select(
+      "id, scope, action, input_json, output_json, evidence_json, confidence, created_at",
+    )
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -41,7 +46,7 @@ export async function GET(
   if (aiEventsError) {
     return NextResponse.json(
       { ok: false, error: aiEventsError.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
@@ -54,7 +59,7 @@ export async function GET(
   if (docIntelError) {
     return NextResponse.json(
       { ok: false, error: docIntelError.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 

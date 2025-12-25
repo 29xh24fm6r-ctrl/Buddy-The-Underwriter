@@ -11,15 +11,17 @@ export const dynamic = "force-dynamic";
  * - Returns: reassurance + suggested substitutes + a banker message draft (borrower can send)
  * - No credit/risk/underwriting terms allowed
  */
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const authHeader = req.headers.get("authorization");
     if (!authHeader) throw new Error("Missing authorization header");
     const token = authHeader.replace(/^Bearer\s+/i, "");
-    
+
     const invite = await requireValidInvite(token);
     const { dealId } = await ctx.params;
-
     // Verify deal matches invite
     if (invite.deal_id !== dealId) throw new Error("Deal ID mismatch");
 
@@ -32,14 +34,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
     // Deterministic substitute suggestions (safe + broad)
     // IMPORTANT: keep generic. Banker will decide what's acceptable.
-    const substitutes =
-      itemTitle.toLowerCase().includes("tax")
-        ? [
-            "A copy of what you have (even last year) is helpful to start.",
-            "If your accountant has it, you can upload an email or note saying they're preparing it.",
-            "If you have business bank statements, those can help us keep moving while we wait.",
-          ]
-        : itemTitle.toLowerCase().includes("financial")
+    const substitutes = itemTitle.toLowerCase().includes("tax")
+      ? [
+          "A copy of what you have (even last year) is helpful to start.",
+          "If your accountant has it, you can upload an email or note saying they're preparing it.",
+          "If you have business bank statements, those can help us keep moving while we wait.",
+        ]
+      : itemTitle.toLowerCase().includes("financial")
         ? [
             "If statements aren't ready, upload a P&L / balance sheet draft or screenshots from your accounting software.",
             "Business bank statements can help us keep moving in the meantime.",
@@ -66,6 +67,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       cta: "Send this note to my bank",
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

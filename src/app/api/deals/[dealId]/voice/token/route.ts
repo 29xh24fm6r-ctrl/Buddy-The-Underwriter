@@ -1,6 +1,5 @@
 // src/app/api/deals/[dealId]/voice/token/route.ts
-import { NextResponse } from "next/server";
-
+import { NextRequest, NextResponse } from "next/server";
 // If you already have Clerk in this repo (you likely do), keep this.
 // If not, swap this auth check to whatever you use.
 import { auth } from "@clerk/nextjs/server";
@@ -15,13 +14,13 @@ function mustEnv(name: string): string {
 
 export async function GET(
   _req: Request,
-  ctx: { params: Promise<{ dealId: string }> }
+  ctx: { params: Promise<{ dealId: string }> },
 ) {
   const { userId } = await auth();
-  if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!userId)
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { dealId } = await ctx.params;
-
   const apiKey = mustEnv("OPENAI_API_KEY");
   const model = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime";
   const voice = process.env.OPENAI_REALTIME_VOICE || "marin";
@@ -85,7 +84,7 @@ export async function GET(
     const txt = await r.text().catch(() => "");
     return NextResponse.json(
       { error: "openai_client_secret_failed", status: r.status, details: txt },
-      { status: 500 }
+      { status: 500 },
     );
   }
 

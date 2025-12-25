@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -10,7 +10,10 @@ export const dynamic = "force-dynamic";
  *
  * Returns a short-lived signed URL to view/download the uploaded file.
  */
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
@@ -37,11 +40,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     const bucket = "borrower-uploads";
 
     // 5 minute signed URL
-    const signed = await sb.storage.from(bucket).createSignedUrl(storage_path, 60 * 5);
+    const signed = await sb.storage
+      .from(bucket)
+      .createSignedUrl(storage_path, 60 * 5);
     if (signed.error) throw new Error(signed.error.message);
 
     return NextResponse.json({ ok: true, signedUrl: signed.data.signedUrl });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "preview_failed" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "preview_failed" },
+      { status: 400 },
+    );
   }
 }

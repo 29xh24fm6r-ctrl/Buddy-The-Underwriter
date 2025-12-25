@@ -1,14 +1,15 @@
 // src/app/api/deals/[dealId]/packs/items/[jobId]/suggest-entity/route.ts
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
-import { suggestEntity, extractEntitySignals } from "@/lib/entities/entityMatching";
+import {
+  suggestEntity,
+  extractEntitySignals,
+} from "@/lib/entities/entityMatching";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Ctx = { 
-  params: Promise<{ dealId: string; jobId: string }> | { dealId: string; jobId: string } 
-};
+type Ctx = { params: Promise<{ dealId: string; jobId: string }> };
 
 function json(status: number, body: any) {
   return NextResponse.json(body, { status });
@@ -17,12 +18,12 @@ function json(status: number, body: any) {
 /**
  * POST /api/deals/[dealId]/packs/items/[jobId]/suggest-entity
  * Auto-suggest entity based on OCR content
- * 
+ *
  * Returns: { suggestion: { entity_id, entity_name, confidence, reasons } | null }
  */
-export async function POST(req: NextRequest, { params }: Ctx) {
+export async function POST(req: NextRequest, ctx: Ctx) {
   try {
-    const p = params instanceof Promise ? await params : params;
+    const p = await ctx.params;
     const { dealId, jobId } = p;
 
     if (!dealId || !jobId) {
@@ -31,36 +32,39 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
-    
+
     // Load job
     const jobPath = path.join("/tmp/buddy_ocr_jobs", dealId, `${jobId}.json`);
     let job: any;
-    
+
     try {
-      const content = await fs.readFile(jobPath, 'utf-8');
+      const content = await fs.readFile(jobPath, "utf-8");
       job = JSON.parse(content);
     } catch {
-      return json(404, { ok: false, error: 'Job not found' });
+      return json(404, { ok: false, error: "Job not found" });
     }
 
     // Load entities
     const entitiesDir = path.join(process.cwd(), ".data", "entities", dealId);
     let entities: any[] = [];
-    
+
     try {
       await fs.mkdir(entitiesDir, { recursive: true });
       const files = await fs.readdir(entitiesDir);
-      
+
       entities = await Promise.all(
         files
-          .filter(f => f.endsWith('.json'))
+          .filter((f) => f.endsWith(".json"))
           .map(async (file) => {
-            const content = await fs.readFile(path.join(entitiesDir, file), 'utf-8');
+            const content = await fs.readFile(
+              path.join(entitiesDir, file),
+              "utf-8",
+            );
             return JSON.parse(content);
-          })
+          }),
       );
     } catch (e) {
-      console.error('[suggest-entity] error loading entities:', e);
+      console.error("[suggest-entity] error loading entities:", e);
     }
 
     // Extract signals from OCR if not already done
@@ -70,9 +74,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         ...job.meta,
         ...signals,
       };
-      
+
       // Save updated job
-      await fs.writeFile(jobPath, JSON.stringify(job, null, 2), 'utf-8');
+      await fs.writeFile(jobPath, JSON.stringify(job, null, 2), "utf-8");
     }
 
     // Convert job to PackItem format for matching
@@ -80,7 +84,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       id: jobId,
       job_id: jobId,
       deal_id: dealId,
-      user_id: 'dev-user',
+      user_id: "dev-user",
       stored_name: job.stored_name,
       status: job.status,
       ocr_result: job.result?.ocr,
@@ -93,8 +97,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     // Get suggestion
     const suggestion = suggestEntity(packItem, entities);
 
-    return json(200, { 
-      ok: true, 
+    return json(200, {
+      ok: true,
       suggestion,
       signals: {
         detected_eins: job.meta?.detected_eins || [],
@@ -102,7 +106,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       },
     });
   } catch (e: any) {
-    console.error('[suggest-entity] error:', e);
+    console.error("[suggest-entity] error:", e);
     return json(500, { ok: false, error: e.message });
   }
 }

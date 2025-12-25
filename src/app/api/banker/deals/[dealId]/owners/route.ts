@@ -1,7 +1,11 @@
 // src/app/api/banker/deals/[dealId]/owners/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureOwnerChecklist, createOrRefreshOwnerPortal, recomputeOwnerRequirements } from "@/lib/ownership/server";
+import {
+  ensureOwnerChecklist,
+  createOwnerPortal,
+  upsertConfirmedOwners,
+} from "@/lib/ownership/server";
 import { inferOwnershipFromDocs } from "@/lib/ownership/infer";
 
 export const runtime = "nodejs";
@@ -13,12 +17,14 @@ function requireUserId(req: Request) {
   return userId;
 }
 
-export async function GET(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     requireUserId(req);
     const sb = supabaseAdmin();
     const { dealId } = await ctx.params;
-
     const { data: owners, error } = await sb
       .from("deal_owners")
       .select("*")
@@ -31,22 +37,28 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string 
 
     return NextResponse.json({ ok: true, owners: owners ?? [], inferred });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     requireUserId(req);
     const sb = supabaseAdmin();
     const { dealId } = await ctx.params;
-
     const body = await req.json();
     const action = String(body?.action ?? "");
 
     if (action === "set_owner") {
       const ownerId = String(body?.ownerId ?? "");
-      const ownershipPercent = body?.ownershipPercent === null ? null : Number(body?.ownershipPercent);
+      const ownershipPercent =
+        body?.ownershipPercent === null ? null : Number(body?.ownershipPercent);
       const email = body?.email ? String(body.email) : null;
       const fullName = body?.fullName ? String(body.fullName) : null;
 
@@ -65,7 +77,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
       if (error) throw error;
 
-      await recomputeOwnerRequirements(dealId);
+      await upsertConfirmedOwners({ dealId, owners: [] });
 
       return NextResponse.json({ ok: true });
     }
@@ -77,14 +89,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       // Ensure checklist for this owner (idempotent)
       await ensureOwnerChecklist(ownerId, dealId);
 
-      const portal = await createOrRefreshOwnerPortal({ dealId, ownerId });
+      const portal = await createOwnerPortal(dealId, ownerId);
 
       // Return relative URL (caller can convert to absolute)
-      return NextResponse.json({ ok: true, ownerPortalUrl: `/portal/owner/${portal.token}`, expiresAt: portal.expires_at });
+      return NextResponse.json({
+        ok: true,
+        ownerPortalUrl: `/portal/owner/${portal.token}`,
+        expiresAt: portal.expires_at,
+      });
     }
 
     throw new Error("Unknown action.");
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

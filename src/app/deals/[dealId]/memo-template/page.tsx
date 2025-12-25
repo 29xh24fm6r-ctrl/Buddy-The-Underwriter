@@ -1,7 +1,7 @@
 import StitchFrame from "@/components/stitch/StitchFrame";
 
 const TITLE = "Credit Memorandum Template";
-const FONT_LINKS = [];
+const FONT_LINKS: string[] = [];
 const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
 const TAILWIND_CONFIG_JS = `tailwind.config = {
             darkMode: "class",
@@ -22,10 +22,8 @@ const TAILWIND_CONFIG_JS = `tailwind.config = {
 const STYLES = [
   "/* Print Simulation Styles */\n        @media print {\n            body {\n                background-color: white !important;\n                -webkit-print-color-adjust: exact;\n                print-color-adjust: exact;\n            }\n            .no-print {\n                display: none !important;\n            }\n            .print-container {\n                box-shadow: none !important;\n                margin: 0 !important;\n                width: 100% !important;\n                max-width: none !important;\n                padding: 0 !important;\n            }\n            .page-break {\n                page-break-before: always;\n            }\n        }\n        \n        .paper-shadow {\n            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.05);\n        }"
 ];
-const BODY_HTML = `<div class="w-full bg-background px-6 py-6">
-  <div class="mx-auto w-full max-w-6xl">
-<!-- Toolbar (App Chrome - No Print) -->
-<div class="no-print h-16 bg-white dark:bg-[#1a2634] border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-6 shadow-sm">
+const BODY_HTML = `<!-- Toolbar (App Chrome - No Print) -->
+<div class="no-print fixed top-0 left-0 right-0 z-50 h-16 bg-white dark:bg-[#1a2634] border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-6 shadow-sm">
 <div class="flex items-center gap-4">
 <div class="flex items-center gap-2 text-primary">
 <span class="material-symbols-outlined">description</span>
@@ -45,9 +43,9 @@ const BODY_HTML = `<div class="w-full bg-background px-6 py-6">
 </div>
 </div>
 <!-- Main Workspace -->
-<div class="pt-6 pb-20 min-h-screen">
-  <div class="mx-auto bg-white max-w-[900px] min-h-[1100px] p-[40px] paper-shadow">
+<div class="flex justify-center pt-24 pb-20 min-h-screen">
 <!-- The "Paper" Document -->
+<div class="print-container paper-shadow bg-white w-full max-w-[900px] min-h-[1100px] p-[40px] relative mx-4">
 <!-- A. Top Document Header Block -->
 <header class="border-b-2 border-primary mb-6 pb-4">
 <div class="flex justify-between items-start mb-6">
@@ -472,8 +470,6 @@ const BODY_HTML = `<div class="w-full bg-background px-6 py-6">
 </div>
 </div>
 </section>
-</div>
-
 <!-- Footer -->
 <footer class="mt-12 pt-4 border-t border-gray-200 flex justify-between text-[10px] text-gray-400 font-mono uppercase">
 <div>
@@ -488,9 +484,7 @@ const BODY_HTML = `<div class="w-full bg-background px-6 py-6">
 </div>
 </footer>
 </div>
-</div>  </div>
-</div>
-`;
+</div>`;
 
 export default function Page() {
   return (

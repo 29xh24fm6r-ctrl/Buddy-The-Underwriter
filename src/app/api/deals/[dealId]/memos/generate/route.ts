@@ -4,22 +4,22 @@ import { generateCreditMemoJson } from "@/lib/memo/generateCreditMemoJson";
 
 /**
  * POST /api/deals/[dealId]/memos/generate
- * 
+ *
  * Generate credit memo JSON from snapshot + risk facts + optional pricing quote
  */
 export async function POST(
   req: NextRequest,
-  { params }: { params: { dealId: string } }
+  ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    const { dealId } = params;
+    const { dealId } = await ctx.params;
     const body = await req.json();
     const { snapshotId, riskFactsId, pricingQuoteId } = body;
 
     if (!snapshotId || !riskFactsId) {
       return NextResponse.json(
         { error: "snapshotId and riskFactsId are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -35,7 +35,7 @@ export async function POST(
     if (factsError || !riskFacts) {
       return NextResponse.json(
         { error: "Risk facts not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -61,7 +61,7 @@ export async function POST(
       riskFacts.facts_hash,
       riskFacts.facts,
       pricingQuote,
-      pricingQuoteId ?? null
+      pricingQuoteId ?? null,
     );
 
     // Insert into generated_documents
@@ -88,7 +88,7 @@ export async function POST(
       console.error("Failed to insert generated document:", insertError);
       return NextResponse.json(
         { error: "Failed to create memo" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -97,7 +97,7 @@ export async function POST(
     console.error("Error generating memo:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

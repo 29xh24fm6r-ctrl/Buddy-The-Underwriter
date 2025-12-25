@@ -7,9 +7,9 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   _req: Request,
-  { params }: { params: Promise<{ subscriptionId: string }> }
+  { params }: { params: Promise<{ subscriptionId: string }> },
 ) {
-  const { subscriptionId } = await params;
+  const { subscriptionId } = await ctx.params;
   const sb = supabaseAdmin();
 
   // Fetch the subscription row (we avoid guessing columns; select * is OK for admin ops)
@@ -22,15 +22,19 @@ export async function GET(
 
   if (subRes.error) {
     return NextResponse.json(
-      { ok: false, error: "subscription_fetch_failed", detail: subRes.error.message },
-      { status: 500 }
+      {
+        ok: false,
+        error: "subscription_fetch_failed",
+        detail: subRes.error.message,
+      },
+      { status: 500 },
     );
   }
 
   if (!subRes.data) {
     return NextResponse.json(
       { ok: false, error: "not_found" },
-      { status: 404 }
+      { status: 404 },
     );
   }
 
@@ -45,7 +49,7 @@ export async function GET(
   if (runsRes.error) {
     return NextResponse.json(
       { ok: false, error: "runs_fetch_failed", detail: runsRes.error.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 

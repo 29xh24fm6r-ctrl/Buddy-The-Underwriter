@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Reminder system health stats
- * 
+ *
  * Returns:
  * - Active subscriptions
  * - Due now / next 24h
@@ -75,10 +75,14 @@ export async function GET() {
 
     const runs24hByStatus = (runs24h || []).reduce(
       (acc, r) => {
-        acc[r.status as "sent" | "skipped" | "error"] = (acc[r.status as "sent" | "skipped" | "error"] || 0) + 1;
+        acc[r.status as "sent" | "skipped" | "error"] =
+          (acc[r.status as "sent" | "skipped" | "error"] || 0) + 1;
         return acc;
       },
-      { sent: 0, skipped: 0, error: 0 } as Record<"sent" | "skipped" | "error", number>
+      { sent: 0, skipped: 0, error: 0 } as Record<
+        "sent" | "skipped" | "error",
+        number
+      >,
     );
 
     const total24h = runs24h?.length || 0;
@@ -134,7 +138,7 @@ export async function GET() {
         error: "stats_failed",
         detail: error?.message || "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

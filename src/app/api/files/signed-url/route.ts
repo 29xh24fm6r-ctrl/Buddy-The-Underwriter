@@ -11,7 +11,10 @@ export async function GET(req: NextRequest) {
     const fileId = searchParams.get("file_id");
 
     if (!fileId) {
-      return NextResponse.json({ error: "file_id parameter required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "file_id parameter required" },
+        { status: 400 },
+      );
     }
 
     // For now, we'll serve files directly from the filesystem
@@ -28,14 +31,14 @@ export async function GET(req: NextRequest) {
         const dealPath = path.join(baseDir, dealId);
         try {
           const files = await fs.readdir(dealPath);
-          const file = files.find(f => f.startsWith(fileId + "__"));
+          const file = files.find((f) => f.startsWith(fileId + "__"));
           if (file) {
             filePath = path.join(dealPath, file);
             // Determine mime type from file extension
-            if (file.toLowerCase().endsWith('.pdf')) {
-              mimeType = 'application/pdf';
+            if (file.toLowerCase().endsWith(".pdf")) {
+              mimeType = "application/pdf";
             } else if (file.toLowerCase().match(/\.(jpg|jpeg|png|gif)$/)) {
-              mimeType = 'image/' + path.extname(file).slice(1);
+              mimeType = "image/" + path.extname(file).slice(1);
             }
             break;
           }
@@ -56,12 +59,11 @@ export async function GET(req: NextRequest) {
 
     return new NextResponse(fileBuffer, {
       headers: {
-        'Content-Type': mimeType,
-        'Content-Length': fileBuffer.length.toString(),
-        'Cache-Control': 'private, max-age=3600', // Cache for 1 hour
+        "Content-Type": mimeType,
+        "Content-Length": fileBuffer.length.toString(),
+        "Cache-Control": "private, max-age=3600", // Cache for 1 hour
       },
     });
-
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });

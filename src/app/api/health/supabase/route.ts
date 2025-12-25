@@ -7,10 +7,14 @@ export const dynamic = "force-dynamic";
 
 async function tableExists(supabase: any, table: string) {
   // Uses PostgREST metadata behavior: selecting from missing table returns error.
-  const { error } = await supabase.from(table).select("id", { head: true, count: "exact" }).limit(1);
+  const { error } = await supabase
+    .from(table)
+    .select("id", { head: true, count: "exact" })
+    .limit(1);
   if (!error) return { table, ok: true as const };
   const msg = String(error.message || "");
-  const missing = msg.includes("42P01") || msg.toLowerCase().includes("does not exist");
+  const missing =
+    msg.includes("42P01") || msg.toLowerCase().includes("does not exist");
   return { table, ok: false as const, missing, error: msg };
 }
 
@@ -41,12 +45,12 @@ export async function GET() {
           ? "✅ Supabase reachable + deals table exists."
           : "❌ Supabase reachable check failed or deals table missing. Fix env OR run migrations.",
       },
-      { status: 200 }
+      { status: 200 },
     );
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e?.message || "healthcheck_failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -4,16 +4,15 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /**
  * POST /api/deals/[dealId]/memos/[docId]/render-pdf
- * 
+ *
  * Render memo JSON to PDF using Playwright and upload to storage
  */
 export async function POST(
   req: NextRequest,
-  { params }: { params: { dealId: string; docId: string } }
+  ctx: { params: Promise<{ dealId: string; docId: string }> },
 ) {
   try {
-    const { dealId, docId } = params;
-
+    const { dealId, docId } = await ctx.params;
     // Load generated document
     const supabase = supabaseAdmin();
     const { data: doc, error: docError } = await supabase
@@ -27,12 +26,15 @@ export async function POST(
     if (docError || !doc) {
       return NextResponse.json(
         { error: "Document not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
     if (!doc.content_json || typeof doc.content_json !== "object") {
-      return NextResponse.json({ error: "No valid content_json" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No valid content_json" },
+        { status: 400 },
+      );
     }
 
     // Build preview URL
@@ -85,7 +87,7 @@ export async function POST(
       console.error("Failed to update document:", updateError);
       return NextResponse.json(
         { error: "Failed to update document" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -99,7 +101,7 @@ export async function POST(
     console.error("Error rendering PDF:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

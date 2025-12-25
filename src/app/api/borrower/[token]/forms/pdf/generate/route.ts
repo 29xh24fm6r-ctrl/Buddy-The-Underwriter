@@ -8,7 +8,10 @@ import { mapPdfFields } from "@/lib/forms/fillPdf";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(_: Request, context: { params: Promise<{ token: string }> }) {
+export async function POST(
+  _: Request,
+  context: { params: Promise<{ token: string }> },
+) {
   try {
     const { token } = await context.params;
     const { application } = await requireBorrowerToken(token);
@@ -21,7 +24,10 @@ export async function POST(_: Request, context: { params: Promise<{ token: strin
       .single();
 
     if (formErr || !form) {
-      return NextResponse.json({ ok: false, error: "Form payload not found" }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "Form payload not found" },
+        { status: 404 },
+      );
     }
 
     const pdf = await PDFDocument.create();
@@ -62,7 +68,10 @@ export async function POST(_: Request, context: { params: Promise<{ token: strin
       .upload(path, bytes, { upsert: true });
 
     if (uploadErr) {
-      return NextResponse.json({ ok: false, error: `Upload failed: ${uploadErr.message}` }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: `Upload failed: ${uploadErr.message}` },
+        { status: 500 },
+      );
     }
 
     await (sb as any).from("generated_documents").insert({
@@ -77,7 +86,7 @@ export async function POST(_: Request, context: { params: Promise<{ token: strin
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? "pdf_generation_failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

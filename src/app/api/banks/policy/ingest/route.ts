@@ -4,16 +4,16 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 /**
  * POST /api/banks/policy/ingest
- * 
+ *
  * Extract text from a bank_asset PDF and chunk it into bank_policy_chunks.
- * 
+ *
  * Body:
  * {
  *   "asset_id": "uuid",
  *   "chunk_size": 500,  // optional, default 500 words
  *   "overlap": 50       // optional, default 50 words
  * }
- * 
+ *
  * Returns:
  * {
  *   "chunks_created": 42,
@@ -39,10 +39,7 @@ export async function POST(req: NextRequest) {
     const { asset_id, chunk_size = 500, overlap = 50 } = body;
 
     if (!asset_id) {
-      return NextResponse.json(
-        { error: "asset_id required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "asset_id required" }, { status: 400 });
     }
 
     // 1. Fetch the asset metadata
@@ -56,20 +53,19 @@ export async function POST(req: NextRequest) {
     if (assetError || !asset) {
       return NextResponse.json(
         { error: "Asset not found or access denied" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
     // 2. Download the file from Supabase Storage
     const { data: fileData, error: downloadError } = await supabaseAdmin()
-      .storage
-      .from("bank-assets")
+      .storage.from("bank-assets")
       .download(asset.storage_path);
 
     if (downloadError || !fileData) {
       return NextResponse.json(
         { error: `Download failed: ${downloadError?.message}` },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -78,14 +74,14 @@ export async function POST(req: NextRequest) {
     // In production, you'd use pdf-parse or similar library
     const arrayBuffer = await fileData.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    
+
     // Simple text extraction (placeholder - replace with actual PDF parsing)
     const extractedText = await extractTextFromPDF(buffer);
-    
+
     if (!extractedText) {
       return NextResponse.json(
         { error: "Failed to extract text from PDF" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -111,7 +107,7 @@ export async function POST(req: NextRequest) {
     if (insertError) {
       return NextResponse.json(
         { error: `Insert failed: ${insertError.message}` },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -123,14 +119,14 @@ export async function POST(req: NextRequest) {
     console.error("[/api/banks/policy/ingest] Error:", err);
     return NextResponse.json(
       { error: err.message || "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 /**
  * Extract text from PDF buffer
- * 
+ *
  * Note: This is a placeholder implementation. In production, use a proper
  * PDF parsing library like pdf-parse, pdfjs-dist, or call an external API.
  */
@@ -197,28 +193,28 @@ Minimum FICO score of 660 for all equipment loans. Borrowers with scores below 6
 function chunkText(
   text: string,
   chunkSize: number,
-  overlap: number
+  overlap: number,
 ): ChunkResult[] {
   const words = text.split(/\s+/);
   const chunks: ChunkResult[] = [];
-  
+
   let currentPage = 1;
   let currentSection: string | null = null;
-  
+
   for (let i = 0; i < words.length; i += chunkSize - overlap) {
     const chunkWords = words.slice(i, i + chunkSize);
     const chunkText = chunkWords.join(" ");
-    
+
     // Simple section detection (lines starting with #)
     const sectionMatch = chunkText.match(/^#+ (.+)/m);
     if (sectionMatch) {
       currentSection = sectionMatch[1];
     }
-    
+
     // Estimate page numbers (rough heuristic: 300 words per page)
     const startPage = Math.floor(i / 300) + 1;
     const endPage = Math.floor((i + chunkWords.length) / 300) + 1;
-    
+
     chunks.push({
       chunk_index: chunks.length,
       text: chunkText,
@@ -227,6 +223,6 @@ function chunkText(
       section_title: currentSection,
     });
   }
-  
+
   return chunks;
 }

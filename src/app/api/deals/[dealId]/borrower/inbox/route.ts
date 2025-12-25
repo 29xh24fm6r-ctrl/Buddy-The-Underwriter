@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -13,7 +13,10 @@ export const dynamic = "force-dynamic";
  * - req_q: request title search
  * - req_category: request category filter
  */
-export async function GET(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
@@ -31,7 +34,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string 
   let inboxQuery = sb
     .from("borrower_upload_inbox")
     .select(
-      "id, bank_id, deal_id, filename, mime, bytes, storage_path, status, matched_request_id, match_confidence, match_reason, created_at"
+      "id, bank_id, deal_id, filename, mime, bytes, storage_path, status, matched_request_id, match_confidence, match_reason, created_at",
     )
     .eq("deal_id", dealId)
     .in("status", ["unmatched"])
@@ -47,7 +50,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string 
   const inboxRes = await inboxQuery;
 
   if (inboxRes.error) {
-    return NextResponse.json({ ok: false, error: inboxRes.error.message }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: inboxRes.error.message },
+      { status: 400 },
+    );
   }
 
   // ---- Requests to attach to ----
@@ -71,7 +77,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string 
   const reqsRes = await reqQuery;
 
   if (reqsRes.error) {
-    return NextResponse.json({ ok: false, error: reqsRes.error.message }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: reqsRes.error.message },
+      { status: 400 },
+    );
   }
 
   return NextResponse.json({

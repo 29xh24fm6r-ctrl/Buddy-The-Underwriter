@@ -1,18 +1,25 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildEtranXml } from "@/lib/etran/xml";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(_: Request, context: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  _: Request,
+  context: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await context.params;
     const sb = supabaseAdmin();
 
     // Load required data
     const [{ data: forms }, { data: preflight }] = await Promise.all([
-      (sb as any).from("sba_form_payloads").select("*").eq("application_id", dealId).single(),
+      (sb as any)
+        .from("sba_form_payloads")
+        .select("*")
+        .eq("application_id", dealId)
+        .single(),
       (sb as any)
         .from("sba_preflight_results")
         .select("*")
@@ -26,7 +33,7 @@ export async function POST(_: Request, context: { params: Promise<{ dealId: stri
     if (!preflight?.passed) {
       return NextResponse.json(
         { ok: false, error: "Not ready - preflight checks failed" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -34,7 +41,7 @@ export async function POST(_: Request, context: { params: Promise<{ dealId: stri
     if (forms?.status !== "READY") {
       return NextResponse.json(
         { ok: false, error: "Not ready - forms validation failed" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -56,18 +63,22 @@ export async function POST(_: Request, context: { params: Promise<{ dealId: stri
     return NextResponse.json({
       ok: true,
       status: "PENDING_APPROVAL",
-      message: "E-Tran submission prepared - requires human approval to send to SBA",
+      message:
+        "E-Tran submission prepared - requires human approval to send to SBA",
     });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? "etran_submission_failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 // HUMAN APPROVAL ENDPOINT (separate, restricted)
-export async function PATCH(_: Request, context: { params: Promise<{ dealId: string }> }) {
+export async function PATCH(
+  _: Request,
+  context: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await context.params;
     const sb = supabaseAdmin();
@@ -91,7 +102,7 @@ export async function PATCH(_: Request, context: { params: Promise<{ dealId: str
     if (!data) {
       return NextResponse.json(
         { ok: false, error: "No pending submission found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -106,7 +117,7 @@ export async function PATCH(_: Request, context: { params: Promise<{ dealId: str
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? "approval_failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

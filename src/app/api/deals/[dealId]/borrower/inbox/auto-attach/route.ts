@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -16,7 +16,10 @@ export const dynamic = "force-dynamic";
  *
  * Writes an audit run + run_items so we can undo within 15 minutes.
  */
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
@@ -28,7 +31,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     const uploadsRes = await sb
       .from("borrower_upload_inbox")
       .select(
-        "id, deal_id, bank_id, storage_path, filename, mime, bytes, status, matched_request_id, match_confidence, match_reason"
+        "id, deal_id, bank_id, storage_path, filename, mime, bytes, status, matched_request_id, match_confidence, match_reason",
       )
       .eq("deal_id", dealId)
       .eq("status", "unmatched")
@@ -63,7 +66,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
     const runId = runIns.data.id as string;
     const createdAt = runIns.data.created_at as string;
-    const expiresAt = new Date(Date.parse(createdAt) + 15 * 60 * 1000).toISOString();
+    const expiresAt = new Date(
+      Date.parse(createdAt) + 15 * 60 * 1000,
+    ).toISOString();
 
     const nowIso = new Date().toISOString();
 
@@ -101,16 +106,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
         // Read request before update
         const reqRes = await sb
           .from("borrower_document_requests")
-          .select("id, status, received_storage_path, received_filename, received_mime, received_at, evidence, bank_id, deal_id")
+          .select(
+            "id, status, received_storage_path, received_filename, received_mime, received_at, evidence, bank_id, deal_id",
+          )
           .eq("id", requestId)
           .single();
 
         if (reqRes.error) throw new Error(reqRes.error.message);
 
         prevRequestStatus = String(reqRes.data?.status || "");
-        prevReceivedStoragePath = (reqRes.data?.received_storage_path as string | null) ?? null;
-        prevReceivedFilename = (reqRes.data?.received_filename as string | null) ?? null;
-        prevReceivedMime = (reqRes.data?.received_mime as string | null) ?? null;
+        prevReceivedStoragePath =
+          (reqRes.data?.received_storage_path as string | null) ?? null;
+        prevReceivedFilename =
+          (reqRes.data?.received_filename as string | null) ?? null;
+        prevReceivedMime =
+          (reqRes.data?.received_mime as string | null) ?? null;
         prevReceivedAt = (reqRes.data?.received_at as string | null) ?? null;
         prevEvidence = reqRes.data?.evidence ?? null;
 
@@ -176,7 +186,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
             received_at: nowIso,
             updated_at: nowIso,
             evidence: {
-              ...(typeof prevEvidence === "object" && prevEvidence ? prevEvidence : {}),
+              ...(typeof prevEvidence === "object" && prevEvidence
+                ? prevEvidence
+                : {}),
               auto_attached_batch: true,
               match_confidence: prevMatchConfidence,
               match_reason: prevMatchReason,
@@ -285,6 +297,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       results,
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "auto_attach_failed" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "auto_attach_failed" },
+      { status: 400 },
+    );
   }
 }

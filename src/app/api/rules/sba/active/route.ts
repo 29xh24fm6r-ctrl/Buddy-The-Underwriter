@@ -10,12 +10,18 @@ export async function GET(req: NextRequest) {
     const rule_set_key = searchParams.get("rule_set_key");
 
     if (!rule_set_key) {
-      return NextResponse.json({ ok: false, error: "rule_set_key is required" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "rule_set_key is required" },
+        { status: 400 },
+      );
     }
 
     const { ruleSet, latest } = await getLatestRuleVersion(rule_set_key);
     return NextResponse.json({ ok: true, ruleSet, latest });
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message ?? String(err) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: err?.message ?? String(err) },
+      { status: 500 },
+    );
   }
 }

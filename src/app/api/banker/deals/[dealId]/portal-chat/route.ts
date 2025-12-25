@@ -11,12 +11,14 @@ function requireUserId(req: Request) {
   return userId;
 }
 
-export async function GET(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     requireUserId(req);
     const sb = supabaseAdmin();
     const { dealId } = await ctx.params;
-
     const { data, error } = await sb
       .from("deal_portal_chat_messages")
       .select("id, sender_role, sender_display, body, created_at")
@@ -27,11 +29,17 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string 
     if (error) throw error;
     return NextResponse.json({ ok: true, messages: data ?? [] });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const bankerUserId = requireUserId(req);
     const sb = supabaseAdmin();
@@ -64,6 +72,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
     return NextResponse.json({ ok: true, bankerUserId });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

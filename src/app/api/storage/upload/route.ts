@@ -13,30 +13,30 @@ function json(status: number, body: any) {
 /**
  * POST /api/storage/upload
  * Upload file to Supabase Storage
- * 
+ *
  * Body: multipart/form-data
  *   - file: File
  *   - dealId: string
  *   - applicationId: string (optional)
  *   - filename: string (optional, uses file.name if not provided)
- * 
+ *
  * Returns: { file_key, mime_type, size, url }
  */
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
-    
-    const file = formData.get('file') as File | null;
-    const dealId = formData.get('dealId') as string | null;
-    const applicationId = formData.get('applicationId') as string | null;
-    let filename = formData.get('filename') as string | null;
+
+    const file = formData.get("file") as File | null;
+    const dealId = formData.get("dealId") as string | null;
+    const applicationId = formData.get("applicationId") as string | null;
+    let filename = formData.get("filename") as string | null;
 
     if (!file) {
-      return json(400, { ok: false, error: 'Missing file' });
+      return json(400, { ok: false, error: "Missing file" });
     }
 
     if (!dealId) {
-      return json(400, { ok: false, error: 'Missing dealId' });
+      return json(400, { ok: false, error: "Missing dealId" });
     }
 
     if (!filename) {
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     }
 
     const storage = getSupabaseStorageClient();
-    
+
     if (!storage) {
       // Fallback: Save to local file system (development)
       return await handleLocalUpload(file, dealId, applicationId, filename);
@@ -52,11 +52,11 @@ export async function POST(req: NextRequest) {
 
     // Production: Upload to Supabase Storage
     const timestamp = Date.now();
-    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const basePath = applicationId 
+    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const basePath = applicationId
       ? `${dealId}/${applicationId}`
       : `${dealId}/uploads`;
-    
+
     const fileKey = `${basePath}/${timestamp}_${safeName}`;
 
     // Convert File to ArrayBuffer
@@ -65,14 +65,14 @@ export async function POST(req: NextRequest) {
 
     // Upload to Supabase Storage
     const { data, error } = await storage
-      .from('deal_uploads')
+      .from("deal_uploads")
       .upload(fileKey, buffer, {
-        contentType: file.type || 'application/octet-stream',
+        contentType: file.type || "application/octet-stream",
         upsert: false,
       });
 
     if (error) {
-      console.error('[storage/upload] Supabase error:', error);
+      console.error("[storage/upload] Supabase error:", error);
       return json(500, { ok: false, error: error.message });
     }
 
@@ -81,10 +81,10 @@ export async function POST(req: NextRequest) {
       file_key: data.path,
       mime_type: file.type,
       size: file.size,
-      bucket: 'deal_uploads',
+      bucket: "deal_uploads",
     });
   } catch (e: any) {
-    console.error('[storage/upload] error:', e);
+    console.error("[storage/upload] error:", e);
     return json(500, { ok: false, error: e.message });
   }
 }
@@ -96,37 +96,37 @@ async function handleLocalUpload(
   file: File,
   dealId: string,
   applicationId: string | null,
-  filename: string
+  filename: string,
 ) {
-  const fs = await import('node:fs/promises');
-  const path = await import('node:path');
-  
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+
   const baseDir = applicationId
-    ? path.join(process.cwd(), '.data', 'uploads', dealId, applicationId)
-    : path.join(process.cwd(), '.data', 'uploads', dealId);
-  
+    ? path.join(process.cwd(), ".data", "uploads", dealId, applicationId)
+    : path.join(process.cwd(), ".data", "uploads", dealId);
+
   await fs.mkdir(baseDir, { recursive: true });
-  
+
   const timestamp = Date.now();
-  const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
   const storedName = `${timestamp}_${safeName}`;
   const filePath = path.join(baseDir, storedName);
-  
+
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
-  
+
   await fs.writeFile(filePath, buffer);
-  
+
   const fileKey = applicationId
     ? `${dealId}/${applicationId}/${storedName}`
     : `${dealId}/uploads/${storedName}`;
-  
+
   return json(200, {
     ok: true,
     file_key: fileKey,
     mime_type: file.type,
     size: file.size,
-    storage: 'local',
+    storage: "local",
     path: filePath,
   });
 }

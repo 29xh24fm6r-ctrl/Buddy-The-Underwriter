@@ -28,7 +28,10 @@ export async function POST(req: Request) {
     .single();
 
   if (run.error || !run.data?.id) {
-    return NextResponse.json({ ok: false, error: run.error?.message || "Failed to create scan run" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: run.error?.message || "Failed to create scan run" },
+      { status: 500 },
+    );
   }
 
   const runId = run.data.id as string;
@@ -67,8 +70,14 @@ export async function POST(req: Request) {
 
     if (docs.error) throw new Error(docs.error.message);
 
-    const docSet = new Set((docs.data || []).map((d: any) => `${d.storage_bucket}|${d.storage_path}`));
-    const cacheSet = new Set((storageCache.data || []).map((c: any) => `${c.bucket}|${c.path}`));
+    const docSet = new Set(
+      (docs.data || []).map(
+        (d: any) => `${d.storage_bucket}|${d.storage_path}`,
+      ),
+    );
+    const cacheSet = new Set(
+      (storageCache.data || []).map((c: any) => `${c.bucket}|${c.path}`),
+    );
 
     const storageOnlyRows = (storageCache.data || [])
       .filter((c: any) => !docSet.has(`${c.bucket}|${c.path}`))
@@ -80,7 +89,11 @@ export async function POST(req: Request) {
         bucket: c.bucket,
         path: c.path,
         document_id: null,
-        details: { reason: "Object exists in Storage but no deal_documents row", size_bytes: c.size_bytes, mime_type: c.mime_type },
+        details: {
+          reason: "Object exists in Storage but no deal_documents row",
+          size_bytes: c.size_bytes,
+          mime_type: c.mime_type,
+        },
       }));
 
     if (storageOnlyRows.length) {
@@ -89,7 +102,9 @@ export async function POST(req: Request) {
     }
 
     const dbOnlyRows = (docs.data || [])
-      .filter((d: any) => !cacheSet.has(`${d.storage_bucket}|${d.storage_path}`))
+      .filter(
+        (d: any) => !cacheSet.has(`${d.storage_bucket}|${d.storage_path}`),
+      )
       .slice(0, 50000)
       .map((d: any) => ({
         scan_run_id: runId,
@@ -98,7 +113,10 @@ export async function POST(req: Request) {
         bucket: d.storage_bucket,
         path: d.storage_path,
         document_id: d.id,
-        details: { reason: "deal_documents row exists but object not found in scanned Storage prefix" },
+        details: {
+          reason:
+            "deal_documents row exists but object not found in scanned Storage prefix",
+        },
       }));
 
     if (dbOnlyRows.length) {
@@ -110,13 +128,32 @@ export async function POST(req: Request) {
       .from("storage_scan_runs")
       .update({
         status: "success",
-        stats: { startedAt: new Date().toISOString(), capped, seen, storageOnly: storageOnlyRows.length, dbOnly: dbOnlyRows.length },
+        stats: {
+          startedAt: new Date().toISOString(),
+          capped,
+          seen,
+          storageOnly: storageOnlyRows.length,
+          dbOnly: dbOnlyRows.length,
+        },
       })
       .eq("id", runId);
 
-    return NextResponse.json({ ok: true, runId, capped, seen, storageOnly: storageOnlyRows.length, dbOnly: dbOnlyRows.length });
+    return NextResponse.json({
+      ok: true,
+      runId,
+      capped,
+      seen,
+      storageOnly: storageOnlyRows.length,
+      dbOnly: dbOnlyRows.length,
+    });
   } catch (e: any) {
-    await sb.from("storage_scan_runs").update({ status: "failed", error: String(e?.message || e) }).eq("id", runId);
-    return NextResponse.json({ ok: false, runId, error: String(e?.message || e) }, { status: 500 });
+    await sb
+      .from("storage_scan_runs")
+      .update({ status: "failed", error: String(e?.message || e) })
+      .eq("id", runId);
+    return NextResponse.json(
+      { ok: false, runId, error: String(e?.message || e) },
+      { status: 500 },
+    );
   }
 }

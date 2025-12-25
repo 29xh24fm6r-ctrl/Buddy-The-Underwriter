@@ -7,12 +7,17 @@ export const dynamic = "force-dynamic";
 
 function authzError(err: any) {
   const msg = String(err?.message ?? err);
-  if (msg === "unauthorized") return { status: 401, body: { ok: false, error: "unauthorized" } };
-  if (msg === "forbidden") return { status: 403, body: { ok: false, error: "forbidden" } };
+  if (msg === "unauthorized")
+    return { status: 401, body: { ok: false, error: "unauthorized" } };
+  if (msg === "forbidden")
+    return { status: 403, body: { ok: false, error: "forbidden" } };
   return null;
 }
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     requireSuperAdmin();
     const { dealId } = await ctx.params;
@@ -20,7 +25,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     const bank_id = String(body?.bank_id ?? "");
 
     if (!bank_id) {
-      return NextResponse.json({ ok: false, error: "bank_id is required" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "bank_id is required" },
+        { status: 400 },
+      );
     }
 
     const supabase = supabaseAdmin();
@@ -28,7 +36,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
 
     const { data, error } = await supabase
       .from("deal_bank_links")
-      .upsert({ deal_id: dealId, bank_id, updated_at: now } as any, { onConflict: "deal_id" })
+      .upsert({ deal_id: dealId, bank_id, updated_at: now } as any, {
+        onConflict: "deal_id",
+      })
       .select("*")
       .single();
 
@@ -38,6 +48,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
   } catch (err: any) {
     const a = authzError(err);
     if (a) return NextResponse.json(a.body, { status: a.status });
-    return NextResponse.json({ ok: false, error: err?.message ?? String(err) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: err?.message ?? String(err) },
+      { status: 500 },
+    );
   }
 }

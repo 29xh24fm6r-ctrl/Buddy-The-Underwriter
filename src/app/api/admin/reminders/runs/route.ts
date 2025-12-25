@@ -41,7 +41,9 @@ function clampInt(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-function parseBeforeCursor(before: string | null): { ran_at: string; id: string } | null {
+function parseBeforeCursor(
+  before: string | null,
+): { ran_at: string; id: string } | null {
   if (!before) return null;
   const [ran_at, id] = before.split("|");
   if (!ran_at || !id) return null;
@@ -78,13 +80,18 @@ export async function GET(req: Request) {
   // Pagination cursor:
   // (ran_at < cursor.ran_at) OR (ran_at = cursor.ran_at AND id < cursor.id)
   if (before) {
-    q = q.or(`ran_at.lt.${before.ran_at},and(ran_at.eq.${before.ran_at},id.lt.${before.id})`);
+    q = q.or(
+      `ran_at.lt.${before.ran_at},and(ran_at.eq.${before.ran_at},id.lt.${before.id})`,
+    );
   }
 
   const { data, error } = await q;
 
   if (error) {
-    return NextResponse.json({ ok: false, error: "runs_fetch_failed", detail: error.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "runs_fetch_failed", detail: error.message },
+      { status: 500 },
+    );
   }
 
   const runs = (data ?? []) as RunRow[];

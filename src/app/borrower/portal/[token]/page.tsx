@@ -177,10 +177,11 @@ export default function BorrowerPortalPage() {
   }
 
   return (
+    <div className="min-h-screen bg-[#0b0d10] text-white">
     <div className="mx-auto max-w-4xl space-y-6 p-6">
       <div>
         <div className="text-2xl font-semibold tracking-tight">Upload your documents</div>
-        <div className="mt-1 text-sm text-muted-foreground">
+        <div className="mt-1 text-sm text-white/60">
           Drag & drop everything at once. We'll sort it and match what we can automatically.
         </div>
       </div>
@@ -188,8 +189,8 @@ export default function BorrowerPortalPage() {
       {/* Dropzone */}
       <div
         className={[
-          "rounded-2xl border bg-white p-6 shadow-sm transition",
-          dragOver ? "ring-2 ring-foreground" : "",
+          "rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_8px_30px_rgba(0,0,0,0.35)] transition",
+          dragOver ? "ring-2 ring-white/60" : "",
         ].join(" ")}
         onDragOver={(e) => {
           e.preventDefault();
@@ -201,7 +202,7 @@ export default function BorrowerPortalPage() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="text-sm font-semibold">Drop files here</div>
-            <div className="mt-1 text-sm text-muted-foreground">
+            <div className="mt-1 text-sm text-white/60">
               PDFs, images, spreadsheets, anything. Bulk upload supported.
             </div>
           </div>
@@ -246,7 +247,7 @@ export default function BorrowerPortalPage() {
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-muted-foreground md:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-white/60 md:grid-cols-4">
           <div className="rounded-xl border p-3">
             <div className="text-xs font-semibold">Queued</div>
             <div className="mt-1 text-lg font-semibold text-foreground">{queuedCount}</div>
@@ -267,15 +268,15 @@ export default function BorrowerPortalPage() {
       </div>
 
       {/* Queue */}
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_8px_30px_rgba(0,0,0,0.35)]">
         <div className="text-sm font-semibold">Upload queue</div>
-        <div className="mt-1 text-sm text-muted-foreground">
+        <div className="mt-1 text-sm text-white/60">
           You can drop 30 files. We'll handle them one by one with honest progress and cancel controls.
         </div>
 
         <div className="mt-4 space-y-3">
           {items.length === 0 ? (
-            <div className="rounded-xl border p-4 text-sm text-muted-foreground">
+            <div className="rounded-xl border p-4 text-sm text-white/60">
               No files yet. Drag & drop your folder here.
             </div>
           ) : (
@@ -284,7 +285,7 @@ export default function BorrowerPortalPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold">{it.file.name}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
+                    <div className="mt-1 text-xs text-white/60">
                       {formatBytes(it.file.size)} · {it.file.type || "unknown type"}
                     </div>
 
@@ -296,7 +297,7 @@ export default function BorrowerPortalPage() {
                       />
                     </div>
 
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-white/60">
                       <span className="rounded-full border px-2 py-1 font-semibold">
                         {it.status.toUpperCase()}
                       </span>
@@ -353,13 +354,14 @@ export default function BorrowerPortalPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_8px_30px_rgba(0,0,0,0.35)]">
         <div className="text-sm font-semibold">What happens next?</div>
-        <div className="mt-2 text-sm text-muted-foreground">
+        <div className="mt-2 text-sm text-white/60">
           Any file with a high-confidence match is automatically checked off. Anything ambiguous lands in the banker's inbox
           for a 10-second attach decision.
         </div>
       </div>
     </div>
+  </div>
   );
 }

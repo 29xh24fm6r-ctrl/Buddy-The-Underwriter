@@ -21,7 +21,7 @@ export const BuddyAction = z.object({
   type: ActionType,
   title: z.string().min(2).max(160),
   // machine payload that your app can safely execute
-  payload: z.record(z.any()).default({}),
+  payload: z.record(z.string(), z.any()).default({}),
   // safety gate
   authority: AuthorityTier.default("TIER_2"),
 });

@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     if (!parsed.success) {
       return NextResponse.json(
         { error: "Invalid action payload", details: parsed.error.flatten() },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -44,7 +44,7 @@ export async function POST(req: Request) {
           audit,
           hint: "Re-submit with { approved: true } after user confirmation.",
         },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message ?? "Unknown error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

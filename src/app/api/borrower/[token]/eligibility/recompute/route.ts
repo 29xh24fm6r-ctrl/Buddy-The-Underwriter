@@ -59,7 +59,9 @@ function evaluateSba7aEligibility(input: {
       status: "ELIGIBLE",
       candidate: true,
       best_program: "SBA_7A",
-      reasons: reasons.length ? reasons : ["Meets initial SBA screening signals."],
+      reasons: reasons.length
+        ? reasons
+        : ["Meets initial SBA screening signals."],
     };
   }
 
@@ -68,18 +70,23 @@ function evaluateSba7aEligibility(input: {
     status: "UNKNOWN",
     candidate: false,
     best_program: "TERM",
-    reasons: reasons.length ? reasons : ["Insufficient answers to determine eligibility."],
+    reasons: reasons.length
+      ? reasons
+      : ["Insufficient answers to determine eligibility."],
   };
 }
 
 export async function POST(
   req: Request,
-  context: { params: Promise<{ token: string }> }
+  context: { params: Promise<{ token: string }> },
 ) {
   try {
     const { token } = await context.params;
     if (!token) {
-      return NextResponse.json({ ok: false, error: "missing_token" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "missing_token" },
+        { status: 400 },
+      );
     }
 
     const body = (await req.json().catch(() => ({}))) as Body;
@@ -105,7 +112,7 @@ export async function POST(
     if (!link?.application_id) {
       return NextResponse.json(
         { ok: false, error: "invalid_or_expired_token" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -121,7 +128,7 @@ export async function POST(
     if (!application?.id) {
       return NextResponse.json(
         { ok: false, error: "application_not_found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -155,7 +162,7 @@ export async function POST(
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? "eligibility_failed" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 }

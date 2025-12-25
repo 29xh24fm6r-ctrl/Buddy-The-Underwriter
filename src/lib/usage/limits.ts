@@ -91,7 +91,7 @@ export async function incrementContinueUsage(userId: string): Promise<void> {
     const { error: updateError } = await sb
       .from("user_usage")
       .update({
-        free_continues_used: sb.raw("free_continues_used + 1"),
+        free_continues_used: (sb as any).raw("free_continues_used + 1"),
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", userId);

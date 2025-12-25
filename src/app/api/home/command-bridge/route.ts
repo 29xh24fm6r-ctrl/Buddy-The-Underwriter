@@ -14,7 +14,7 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const bankId = url.searchParams.get("bankId");
-  
+
   if (!bankId) {
     return NextResponse.json({ error: "Missing bankId" }, { status: 400 });
   }
@@ -27,11 +27,22 @@ export async function GET(req: Request) {
   const [
     { count: activeDeals },
     { count: needsAttention },
-    { count: newUploads }
+    { count: newUploads },
   ] = await Promise.all([
-    sb.from("deals").select("id", { count: "exact", head: true }).eq("bank_id", bankId),
-    sb.from("deals").select("id", { count: "exact", head: true }).eq("bank_id", bankId).eq("status", "needs_attention"),
-    sb.from("deal_documents").select("id", { count: "exact", head: true }).eq("status", "pending").limit(100),
+    sb
+      .from("deals")
+      .select("id", { count: "exact", head: true })
+      .eq("bank_id", bankId),
+    sb
+      .from("deals")
+      .select("id", { count: "exact", head: true })
+      .eq("bank_id", bankId)
+      .eq("status", "needs_attention"),
+    sb
+      .from("deal_documents")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+      .limit(100),
   ]);
 
   // Recent deals (top 6 for tiles)
@@ -45,7 +56,9 @@ export async function GET(req: Request) {
   // Intel feed
   const { data: feed } = await sb
     .from("buddy_intel_events")
-    .select("id,created_at,severity,title,message,deal_id,file_id,citation_id,global_char_start,global_char_end,page,icon,meta")
+    .select(
+      "id,created_at,severity,title,message,deal_id,file_id,citation_id,global_char_start,global_char_end,page,icon,meta",
+    )
     .eq("bank_id", bankId)
     .order("created_at", { ascending: false })
     .limit(12);
@@ -55,12 +68,14 @@ export async function GET(req: Request) {
     (e: any) =>
       typeof e.global_char_start === "number" &&
       typeof e.global_char_end === "number" &&
-      e.global_char_end > e.global_char_start
+      e.global_char_end > e.global_char_start,
   );
 
   // Next Best Action (deterministic heuristic with clickable evidence chips)
   const nba = {
-    title: firstEvidence ? "Review evidence Buddy just flagged" : "Review incoming evidence",
+    title: firstEvidence
+      ? "Review evidence Buddy just flagged"
+      : "Review incoming evidence",
     why: [
       {
         text: `${newUploads ?? 0} new uploads`,

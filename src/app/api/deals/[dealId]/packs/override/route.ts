@@ -2,7 +2,7 @@
 // Record when a banker overrides pack recommendation
 // Feeds learning system to improve future confidence
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { recordLearningEvent } from "@/lib/packs/recordLearningEvent";
 
 export const runtime = "nodejs";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(
   req: Request,
-  ctx: { params: Promise<{ dealId: string }> }
+  ctx: { params: Promise<{ dealId: string }> },
 ) {
   const { dealId } = await ctx.params;
   const body = await req.json().catch(() => ({}));
@@ -20,7 +20,7 @@ export async function POST(
   if (!bankId || !matchEventId) {
     return NextResponse.json(
       { ok: false, error: "Missing bankId or matchEventId" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -40,7 +40,7 @@ export async function POST(
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e?.message || "override_recording_failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

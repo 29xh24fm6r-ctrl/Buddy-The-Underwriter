@@ -1,12 +1,15 @@
 // src/app/api/deals/[dealId]/portal/uploads/suggest/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function norm(s: string) {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 type RequestRow = {
@@ -17,14 +20,21 @@ type RequestRow = {
   status: string;
 };
 
-function scoreMatch(filename: string, req: RequestRow): { score: number; hits: string[] } {
+function scoreMatch(
+  filename: string,
+  req: RequestRow,
+): { score: number; hits: string[] } {
   const f = norm(filename);
   const title = norm(req.title);
   const desc = norm(req.description || "");
   const cat = norm(req.category || "");
 
   const fTokens = new Set(f.split(" ").filter(Boolean));
-  const reqTokens = new Set([...title.split(" "), ...desc.split(" "), ...cat.split(" ")].filter(Boolean));
+  const reqTokens = new Set(
+    [...title.split(" "), ...desc.split(" "), ...cat.split(" ")].filter(
+      Boolean,
+    ),
+  );
 
   let hits: string[] = [];
   let score = 0;
@@ -50,7 +60,10 @@ function scoreMatch(filename: string, req: RequestRow): { score: number; hits: s
   return { score, hits };
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
@@ -67,8 +80,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     .eq("id", uploadId)
     .single();
 
-  if (upErr || !upload) return NextResponse.json({ error: "Upload not found" }, { status: 404 });
-  if (upload.deal_id !== dealId) return NextResponse.json({ error: "Upload not in deal" }, { status: 400 });
+  if (upErr || !upload)
+    return NextResponse.json({ error: "Upload not found" }, { status: 404 });
+  if (upload.deal_id !== dealId)
+    return NextResponse.json({ error: "Upload not in deal" }, { status: 400 });
 
   // If already assigned, return that as suggestion
   if (upload.request_id) {
@@ -85,16 +100,31 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     .select("id,title,description,category,status")
     .eq("deal_id", dealId);
 
-  if (rqErr) return NextResponse.json({ error: "Failed to load requests" }, { status: 500 });
+  if (rqErr)
+    return NextResponse.json(
+      { error: "Failed to load requests" },
+      { status: 500 },
+    );
 
-  let best: { id: string; score: number; hits: string[]; title: string } | null = null;
+  let best: {
+    id: string;
+    score: number;
+    hits: string[];
+    title: string;
+  } | null = null;
   for (const r of requests as any as RequestRow[]) {
     const { score, hits } = scoreMatch(upload.original_filename, r);
-    if (!best || score > best.score) best = { id: r.id, score, hits, title: r.title };
+    if (!best || score > best.score)
+      best = { id: r.id, score, hits, title: r.title };
   }
 
   if (!best) {
-    return NextResponse.json({ ok: true, suggestedRequestId: null, confidence: 0, evidence: { hits: ["no_requests"] } });
+    return NextResponse.json({
+      ok: true,
+      suggestedRequestId: null,
+      confidence: 0,
+      evidence: { hits: ["no_requests"] },
+    });
   }
 
   return NextResponse.json({

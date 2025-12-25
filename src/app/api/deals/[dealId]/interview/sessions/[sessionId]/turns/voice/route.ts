@@ -1,7 +1,13 @@
 // src/app/api/deals/[dealId]/interview/sessions/[sessionId]/turns/voice/route.ts
 import { NextRequest } from "next/server";
 import { getAuthedSupabase } from "@/lib/supabase/serverAuthed";
-import { jsonBadRequest, jsonNotFound, jsonOk, jsonServerError, jsonUnauthorized } from "@/lib/interview/http";
+import {
+  jsonBadRequest,
+  jsonNotFound,
+  jsonOk,
+  jsonServerError,
+  jsonUnauthorized,
+} from "@/lib/interview/http";
 import { suggestFactsFromBorrowerText } from "@/lib/interview/suggestFacts";
 import { buildNextPlanFromDbRows } from "@/lib/interview/serverPlan";
 
@@ -13,7 +19,11 @@ type Body = {
   payload?: any;
 };
 
-async function assertSessionAccessible(supabase: any, dealId: string, sessionId: string) {
+async function assertSessionAccessible(
+  supabase: any,
+  dealId: string,
+  sessionId: string,
+) {
   const { data, error } = await supabase
     .from("deal_interview_sessions")
     .select("id, deal_id, status")
@@ -26,7 +36,10 @@ async function assertSessionAccessible(supabase: any, dealId: string, sessionId:
   return { ok: true as const, session: data };
 }
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string; sessionId: string }> }) {
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ dealId: string; sessionId: string }> },
+) {
   try {
     const { dealId, sessionId } = await ctx.params;
     const { supabase, userId } = await getAuthedSupabase();
@@ -36,7 +49,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     if (!check.ok) return jsonNotFound("session_not_found");
 
     const body = (await req.json().catch(() => null)) as Body | null;
-    if (!body?.role || !body?.text) return jsonBadRequest("role_and_text_required");
+    if (!body?.role || !body?.text)
+      return jsonBadRequest("role_and_text_required");
 
     const role = body.role;
     const text = String(body.text || "").trim();
@@ -55,7 +69,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
       .maybeSingle();
 
     if (insTurnErr) return jsonServerError("db_insert_turn_failed", insTurnErr);
-    if (!insertedTurn) return jsonServerError("db_insert_turn_failed", "no_row_returned");
+    if (!insertedTurn)
+      return jsonServerError("db_insert_turn_failed", "no_row_returned");
 
     let insertedFactsCount = 0;
 
@@ -72,9 +87,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
           .eq("source_turn_id", insertedTurn.id)
           .eq("confirmed", false);
 
-        if (existErr) return jsonServerError("db_select_existing_facts_failed", existErr);
+        if (existErr)
+          return jsonServerError("db_select_existing_facts_failed", existErr);
 
-        const existingKeys = new Set((existing || []).map((x: any) => String(x.field_key)));
+        const existingKeys = new Set(
+          (existing || []).map((x: any) => String(x.field_key)),
+        );
 
         const toInsert = suggestions
           .filter((s) => !existingKeys.has(String(s.field_key)))
@@ -97,8 +115,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
           }));
 
         if (toInsert.length > 0) {
-          const { error: insFactsErr } = await supabase.from("deal_interview_facts").insert(toInsert);
-          if (insFactsErr) return jsonServerError("db_insert_suggested_facts_failed", insFactsErr);
+          const { error: insFactsErr } = await supabase
+            .from("deal_interview_facts")
+            .insert(toInsert);
+          if (insFactsErr)
+            return jsonServerError(
+              "db_insert_suggested_facts_failed",
+              insFactsErr,
+            );
           insertedFactsCount = toInsert.length;
         }
       }
@@ -107,7 +131,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     // 3) Reload facts + recent buddy turns (for repeat avoidance)
     const { data: factsRows, error: factsErr } = await supabase
       .from("deal_interview_facts")
-      .select("id, field_key, field_value, value_text, confirmed, created_at, confirmed_at, metadata")
+      .select(
+        "id, field_key, field_value, value_text, confirmed, created_at, confirmed_at, metadata",
+      )
       .eq("session_id", sessionId)
       .order("created_at", { ascending: false });
 
@@ -121,7 +147,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
       .order("created_at", { ascending: false })
       .limit(12);
 
-    if (buddyTurnsErr) return jsonServerError("db_select_buddy_turns_failed", buddyTurnsErr);
+    if (buddyTurnsErr)
+      return jsonServerError("db_select_buddy_turns_failed", buddyTurnsErr);
 
     // 4) Plan next question (deterministic)
     const plan = buildNextPlanFromDbRows({

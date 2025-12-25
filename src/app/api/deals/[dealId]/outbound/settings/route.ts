@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -16,16 +16,22 @@ export async function GET(req: Request) {
   const sb = createClient(
     process.env.SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
+    { auth: { persistSession: false } },
   );
 
   const { data, error } = await sb
     .from("deal_outbound_settings")
-    .select("deal_id,mode,auto_send,throttle_minutes,sla_minutes,to_email,from_email")
+    .select(
+      "deal_id,mode,auto_send,throttle_minutes,sla_minutes,to_email,from_email",
+    )
     .eq("deal_id", dealId)
     .maybeSingle();
 
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (error)
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
 
   // Lazy default row
   if (!data) {
@@ -39,8 +45,14 @@ export async function GET(req: Request) {
       from_email: null,
       updated_at: nowIso(),
     };
-    const { error: insErr } = await sb.from("deal_outbound_settings").insert(seed);
-    if (insErr) return NextResponse.json({ ok: false, error: insErr.message }, { status: 500 });
+    const { error: insErr } = await sb
+      .from("deal_outbound_settings")
+      .insert(seed);
+    if (insErr)
+      return NextResponse.json(
+        { ok: false, error: insErr.message },
+        { status: 500 },
+      );
 
     return NextResponse.json({ ok: true, settings: seed });
   }
@@ -64,25 +76,27 @@ export async function POST(req: Request) {
   const sb = createClient(
     process.env.SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
+    { auth: { persistSession: false } },
   );
 
-  const { error } = await sb
-    .from("deal_outbound_settings")
-    .upsert(
-      {
-        deal_id: dealId,
-        mode,
-        auto_send,
-        throttle_minutes,
-        updated_at: nowIso(),
-        to_email,
-        from_email,
-      },
-      { onConflict: "deal_id" }
-    );
+  const { error } = await sb.from("deal_outbound_settings").upsert(
+    {
+      deal_id: dealId,
+      mode,
+      auto_send,
+      throttle_minutes,
+      updated_at: nowIso(),
+      to_email,
+      from_email,
+    },
+    { onConflict: "deal_id" },
+  );
 
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (error)
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
 
   return NextResponse.json({ ok: true });
 }

@@ -38,10 +38,13 @@ export async function POST(req: Request) {
   const sb = supabaseAdmin();
 
   const url = new URL(req.url);
-  const limit = Math.max(1, Math.min(200, Number(url.searchParams.get("limit") || 50)));
+  const limit = Math.max(
+    1,
+    Math.min(200, Number(url.searchParams.get("limit") || 50)),
+  );
   const cadenceHoursFallback = Math.max(
     1,
-    Math.min(24 * 30, Number(url.searchParams.get("cadenceHours") || 24))
+    Math.min(24 * 30, Number(url.searchParams.get("cadenceHours") || 24)),
   );
 
   const now = new Date();
@@ -49,7 +52,9 @@ export async function POST(req: Request) {
 
   // Idempotency guard: use advisory lock to prevent concurrent ticks
   const lockId = 1234567890; // Unique ID for reminder tick lock
-  const { data: lockAcquired } = await sb.rpc("pg_try_advisory_lock", { lock_id: lockId });
+  const { data: lockAcquired } = await sb.rpc("pg_try_advisory_lock", {
+    lock_id: lockId,
+  });
 
   if (!lockAcquired) {
     return NextResponse.json({
@@ -72,7 +77,7 @@ export async function POST(req: Request) {
     if (error) {
       return NextResponse.json(
         { ok: false, error: "fetch_failed", detail: error.message },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -87,7 +92,10 @@ export async function POST(req: Request) {
 
       try {
         // 2) stop_after check
-        if (sub.stop_after && new Date(sub.stop_after).getTime() <= now.getTime()) {
+        if (
+          sub.stop_after &&
+          new Date(sub.stop_after).getTime() <= now.getTime()
+        ) {
           const { error: deactErr } = await sb
             .from("deal_reminder_subscriptions")
             .update({ active: false })
@@ -139,7 +147,9 @@ export async function POST(req: Request) {
           },
         };
 
-        const { error: runErr } = await sb.from("deal_reminder_runs").insert(run);
+        const { error: runErr } = await sb
+          .from("deal_reminder_runs")
+          .insert(run);
         if (runErr) throw runErr;
 
         // 5) Advance schedule

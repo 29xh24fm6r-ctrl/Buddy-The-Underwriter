@@ -4,16 +4,16 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 /**
  * POST /api/banks/policy/extract-defaults
- * 
+ *
  * Extract default values from policy chunks using AI/pattern matching.
- * 
+ *
  * Body:
  * {
  *   "asset_id": "uuid",              // optional: extract from specific asset
  *   "deal_type": "sba_7a",           // optional: scope to deal type
  *   "extract_mode": "pattern"        // "pattern" or "ai" (future)
  * }
- * 
+ *
  * Returns:
  * {
  *   "extracted": 5,
@@ -55,16 +55,13 @@ export async function POST(req: NextRequest) {
     const { data: chunks, error: chunksError } = await query;
 
     if (chunksError) {
-      return NextResponse.json(
-        { error: chunksError.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: chunksError.message }, { status: 500 });
     }
 
     if (!chunks || chunks.length === 0) {
       return NextResponse.json(
         { error: "No chunks found to extract from" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -103,10 +100,7 @@ export async function POST(req: NextRequest) {
       .select();
 
     if (insertError) {
-      return NextResponse.json(
-        { error: insertError.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -117,7 +111,7 @@ export async function POST(req: NextRequest) {
     console.error("[/api/banks/policy/extract-defaults] Error:", err);
     return NextResponse.json(
       { error: err.message || "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -128,13 +122,14 @@ export async function POST(req: NextRequest) {
 function extractFromChunk(
   text: string,
   chunkId: string,
-  dealType?: string
+  dealType?: string,
 ): ExtractedDefault[] {
   const extracted: ExtractedDefault[] = [];
 
   // Pattern 1: Interest Rate
   // "Interest rate is Prime + 2.75%" or "Priced at Prime + 2.75%"
-  const interestRatePattern = /(?:interest rate|priced at|rate)[:\s]+(?:is\s+)?(Prime \+ [\d.]+%|[\d.]+%)/gi;
+  const interestRatePattern =
+    /(?:interest rate|priced at|rate)[:\s]+(?:is\s+)?(Prime \+ [\d.]+%|[\d.]+%)/gi;
   let match = interestRatePattern.exec(text);
   if (match) {
     extracted.push({
@@ -150,7 +145,8 @@ function extractFromChunk(
 
   // Pattern 2: Maximum LTV
   // "Maximum LTV is 80%" or "LTV not to exceed 80%"
-  const ltvPattern = /(?:maximum LTV|max LTV|LTV)[:\s]+(?:is\s+|not to exceed\s+)?([\d.]+)%/gi;
+  const ltvPattern =
+    /(?:maximum LTV|max LTV|LTV)[:\s]+(?:is\s+|not to exceed\s+)?([\d.]+)%/gi;
   match = ltvPattern.exec(text);
   if (match) {
     const ltv = parseFloat(match[1]);
@@ -160,7 +156,7 @@ function extractFromChunk(
       field_type: "percentage",
       default_value: match[1],
       chunk_id: chunkId,
-      confidence_score: 0.90,
+      confidence_score: 0.9,
       source_text: match[0],
       max_value: ltv,
     });
@@ -168,7 +164,8 @@ function extractFromChunk(
 
   // Pattern 3: Minimum DSCR
   // "Minimum DSCR of 1.25x" or "DSCR must be at least 1.15"
-  const dscrPattern = /(?:minimum DSCR|DSCR)[:\s]+(?:of\s+|must be at least\s+)?([\d.]+)x?/gi;
+  const dscrPattern =
+    /(?:minimum DSCR|DSCR)[:\s]+(?:of\s+|must be at least\s+)?([\d.]+)x?/gi;
   match = dscrPattern.exec(text);
   if (match) {
     const dscr = parseFloat(match[1]);
@@ -178,7 +175,7 @@ function extractFromChunk(
       field_type: "number",
       default_value: match[1],
       chunk_id: chunkId,
-      confidence_score: 0.90,
+      confidence_score: 0.9,
       source_text: match[0],
       min_value: dscr,
     });
@@ -186,7 +183,8 @@ function extractFromChunk(
 
   // Pattern 4: Minimum FICO
   // "Minimum credit score: 660" or "FICO score of at least 680"
-  const ficoPattern = /(?:minimum credit score|minimum FICO|FICO score)[:\s]+(?:of\s+)?(?:at least\s+)?([\d]+)/gi;
+  const ficoPattern =
+    /(?:minimum credit score|minimum FICO|FICO score)[:\s]+(?:of\s+)?(?:at least\s+)?([\d]+)/gi;
   match = ficoPattern.exec(text);
   if (match) {
     const fico = parseInt(match[1]);
@@ -223,7 +221,8 @@ function extractFromChunk(
 
   // Pattern 6: Down Payment
   // "Minimum 10% down payment" or "Borrower equity: 15%"
-  const downPaymentPattern = /(?:minimum|borrower equity|down payment)[:\s]+(?:of\s+)?([\d.]+)%/gi;
+  const downPaymentPattern =
+    /(?:minimum|borrower equity|down payment)[:\s]+(?:of\s+)?([\d.]+)%/gi;
   match = downPaymentPattern.exec(text);
   if (match) {
     const pct = parseFloat(match[1]);
@@ -233,7 +232,7 @@ function extractFromChunk(
       field_type: "percentage",
       default_value: match[1],
       chunk_id: chunkId,
-      confidence_score: 0.80,
+      confidence_score: 0.8,
       source_text: match[0],
       min_value: pct,
     });
@@ -241,7 +240,8 @@ function extractFromChunk(
 
   // Pattern 7: Guarantee Fee
   // "SBA guarantee fee is 2%" or "Guarantee fee: 2.0%"
-  const guaranteeFeePattern = /(?:guarantee fee|SBA fee)[:\s]+(?:is\s+)?([\d.]+)%/gi;
+  const guaranteeFeePattern =
+    /(?:guarantee fee|SBA fee)[:\s]+(?:is\s+)?([\d.]+)%/gi;
   match = guaranteeFeePattern.exec(text);
   if (match) {
     extracted.push({
@@ -257,7 +257,8 @@ function extractFromChunk(
 
   // Pattern 8: Maximum Loan Amount
   // "Maximum loan amount: $5,000,000" or "Loans up to $2.5M"
-  const maxAmountPattern = /(?:maximum loan amount|loans up to)[:\s]+\$?([\d,]+(?:M|million)?)/gi;
+  const maxAmountPattern =
+    /(?:maximum loan amount|loans up to)[:\s]+\$?([\d,]+(?:M|million)?)/gi;
   match = maxAmountPattern.exec(text);
   if (match) {
     let amount = match[1].replace(/,/g, "");
@@ -271,7 +272,7 @@ function extractFromChunk(
       field_type: "currency",
       default_value: amount,
       chunk_id: chunkId,
-      confidence_score: 0.90,
+      confidence_score: 0.9,
       source_text: match[0],
       max_value: parseFloat(amount),
     });

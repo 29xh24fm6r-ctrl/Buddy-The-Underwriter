@@ -10,9 +10,9 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
+  const { id } = await ctx.params;
   const supabase = supabaseAdmin();
 
   try {
@@ -26,14 +26,14 @@ export async function POST(
     if (subErr || !sub) {
       return NextResponse.json(
         { ok: false, error: "Subscription not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
     if (!sub.active) {
       return NextResponse.json(
         { ok: false, error: "Subscription is not active" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -50,22 +50,25 @@ export async function POST(
     if (!dealData?.borrower_email) {
       return NextResponse.json(
         { ok: false, error: "Deal missing borrower email" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     // Send the email (simplified - you might want to reuse your existing send logic)
-    const emailRes = await fetch(`${request.url.split("/api")[0]}/api/email/send`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to: dealData.borrower_email,
-        subject: `Reminder: ${dealData.name}`,
-        html: `<p>This is a manual reminder for deal: <strong>${dealData.name}</strong></p>
+    const emailRes = await fetch(
+      `${request.url.split("/api")[0]}/api/email/send`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: dealData.borrower_email,
+          subject: `Reminder: ${dealData.name}`,
+          html: `<p>This is a manual reminder for deal: <strong>${dealData.name}</strong></p>
                <p>Triggered via War Room control panel.</p>`,
-        from: "reminders@buddy.com",
-      }),
-    });
+          from: "reminders@buddy.com",
+        }),
+      },
+    );
 
     const emailOk = emailRes.ok;
 
@@ -107,7 +110,7 @@ export async function POST(
     console.error("[force-tick]", err);
     return NextResponse.json(
       { ok: false, error: err?.message || "Internal error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

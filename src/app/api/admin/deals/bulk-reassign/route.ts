@@ -9,17 +9,17 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST /api/admin/deals/bulk-reassign
- * 
+ *
  * Bulk reassign deals from one underwriter to another.
  * Super-admin only. Logs audit events for each reassignment.
- * 
+ *
  * Body: {
  *   from_clerk_user_id: string,
  *   to_clerk_user_id: string,
  *   limit?: number (default 25, max 500),
  *   reason?: string
  * }
- * 
+ *
  * Returns: {
  *   ok: true,
  *   from: string,
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   if (!from || !to) {
     return NextResponse.json(
       { ok: false, error: "from_clerk_user_id and to_clerk_user_id required" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -56,9 +56,12 @@ export async function POST(req: NextRequest) {
     .eq("clerk_user_id", from)
     .limit(limit);
 
-  if (e1) return NextResponse.json({ ok: false, error: e1.message }, { status: 500 });
+  if (e1)
+    return NextResponse.json({ ok: false, error: e1.message }, { status: 500 });
 
-  const dealIds = Array.from(new Set((fromParts ?? []).map((r: any) => r.deal_id)));
+  const dealIds = Array.from(
+    new Set((fromParts ?? []).map((r: any) => r.deal_id)),
+  );
 
   let moved = 0;
 
@@ -72,18 +75,16 @@ export async function POST(req: NextRequest) {
       .eq("role", "underwriter");
 
     // Assign new
-    await (supabase as any)
-      .from("deal_participants")
-      .upsert(
-        {
-          deal_id: dealId,
-          clerk_user_id: to,
-          role: "underwriter",
-          is_active: true,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "deal_id,clerk_user_id,role" }
-      );
+    await (supabase as any).from("deal_participants").upsert(
+      {
+        deal_id: dealId,
+        clerk_user_id: to,
+        role: "underwriter",
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "deal_id,clerk_user_id,role" },
+    );
 
     // Audit
     await (supabase as any).from("deal_participant_events").insert({

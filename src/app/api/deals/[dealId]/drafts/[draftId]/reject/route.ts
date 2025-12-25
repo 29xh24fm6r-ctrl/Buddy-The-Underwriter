@@ -24,22 +24,31 @@ type DraftRow = {
 
 export async function POST(
   req: NextRequest,
-  ctx: { params: Promise<{ dealId: string; draftId: string }> }
+  ctx: { params: Promise<{ dealId: string; draftId: string }> },
 ) {
   try {
     const { dealId, draftId } = await ctx.params;
 
     if (!dealId) {
-      return NextResponse.json({ ok: false, error: "missing_dealId" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "missing_dealId" },
+        { status: 400 },
+      );
     }
     if (!draftId) {
-      return NextResponse.json({ ok: false, error: "missing_draftId" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "missing_draftId" },
+        { status: 400 },
+      );
     }
 
     // Auth
     const user = await currentUser();
     if (!user) {
-      return NextResponse.json({ ok: false, error: "not_authenticated" }, { status: 401 });
+      return NextResponse.json(
+        { ok: false, error: "not_authenticated" },
+        { status: 401 },
+      );
     }
 
     // Parse body
@@ -65,19 +74,22 @@ export async function POST(
       .select("*")
       .maybeSingle();
 
-    const { data: draft, error } = (await q) as { data: DraftRow | null; error: any };
+    const { data: draft, error } = (await q) as {
+      data: DraftRow | null;
+      error: any;
+    };
 
     if (error) {
       return NextResponse.json(
         { ok: false, error: error.message ?? String(error) },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     if (!draft) {
       return NextResponse.json(
         { ok: false, error: "Draft not found or already processed" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -85,7 +97,7 @@ export async function POST(
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: String(err?.message ?? err ?? "unknown_error") },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

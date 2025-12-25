@@ -9,14 +9,14 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST /api/jobs/worker/tick
- * 
+ *
  * Worker endpoint - processes next available job from queue
  * Call this from scheduler (cron, polling, etc.)
- * 
+ *
  * Query params:
  * - type: OCR | CLASSIFY | ALL (default ALL)
  * - batch_size: number of jobs to process (default 1, max 10)
- * 
+ *
  * Returns: { ok: true, processed: number, results: [] }
  */
 export async function POST(req: NextRequest) {
@@ -24,7 +24,10 @@ export async function POST(req: NextRequest) {
 
   const url = new URL(req.url);
   const type = url.searchParams.get("type") ?? "ALL";
-  const batchSize = Math.min(10, Math.max(1, Number(url.searchParams.get("batch_size") ?? "1")));
+  const batchSize = Math.min(
+    10,
+    Math.max(1, Number(url.searchParams.get("batch_size") ?? "1")),
+  );
 
   const leaseOwner = `worker-${Date.now()}`;
   const results = [];
@@ -59,14 +62,14 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     return NextResponse.json(
       { ok: false, error: error?.message ?? String(error) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 /**
  * GET /api/jobs/worker/stats
- * 
+ *
  * Returns job queue statistics
  */
 export async function GET() {
@@ -92,12 +95,18 @@ export async function GET() {
     for (const job of jobs ?? []) {
       const type = job.job_type;
       const status = job.status;
-      
+
       if (!stats.by_type[type]) {
-        stats.by_type[type] = { queued: 0, running: 0, succeeded: 0, failed: 0 };
+        stats.by_type[type] = {
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          failed: 0,
+        };
       }
-      
-      stats.by_type[type][status.toLowerCase()] = (stats.by_type[type][status.toLowerCase()] ?? 0) + 1;
+
+      stats.by_type[type][status.toLowerCase()] =
+        (stats.by_type[type][status.toLowerCase()] ?? 0) + 1;
       stats.by_status[status] = (stats.by_status[status] ?? 0) + 1;
       stats.total++;
     }
@@ -106,7 +115,7 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json(
       { ok: false, error: error?.message ?? String(error) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -6,7 +6,10 @@ import { evaluateBorrowerRequirements } from "@/lib/borrowerRequirements/evaluat
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(_: Request, context: { params: Promise<{ token: string }> }) {
+export async function POST(
+  _: Request,
+  context: { params: Promise<{ token: string }> },
+) {
   try {
     const params = await context.params;
     const { application } = await requireBorrowerToken(params.token);
@@ -30,12 +33,14 @@ export async function POST(_: Request, context: { params: Promise<{ token: strin
       years_required: 2,
     });
 
-    const { error: snapErr } = await (sb as any).from("borrower_requirements_snapshots").insert({
-      application_id: (application as any).id,
-      track: result.track,
-      requirements: result.requirements,
-      summary: result.summary,
-    });
+    const { error: snapErr } = await (sb as any)
+      .from("borrower_requirements_snapshots")
+      .insert({
+        application_id: (application as any).id,
+        track: result.track,
+        requirements: result.requirements,
+        summary: result.summary,
+      });
 
     if (snapErr) throw new Error(`snapshot_insert_failed: ${snapErr.message}`);
 
@@ -43,7 +48,7 @@ export async function POST(_: Request, context: { params: Promise<{ token: strin
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? "requirements_recompute_failed" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 }

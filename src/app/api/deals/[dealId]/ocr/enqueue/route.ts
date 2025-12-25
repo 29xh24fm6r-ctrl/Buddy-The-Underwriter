@@ -6,15 +6,15 @@ import { randomUUID } from "crypto";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Ctx = { params: Promise<{ dealId: string }> | { dealId: string } };
+type Ctx = { params: Promise<{ dealId: string }> };
 
 function json(status: number, body: any) {
   return NextResponse.json(body, { status });
 }
 
-export async function POST(req: NextRequest, { params }: Ctx) {
+export async function POST(req: NextRequest, ctx: Ctx) {
   try {
-    const p = params instanceof Promise ? await params : params;
+    const p = await ctx.params;
     const dealId = p?.dealId;
 
     if (!dealId) {

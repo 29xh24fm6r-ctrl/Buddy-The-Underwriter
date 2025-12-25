@@ -6,7 +6,11 @@ export const dynamic = "force-dynamic";
 
 function fmt(ts: string | null) {
   if (!ts) return "—";
-  try { return new Date(ts).toISOString(); } catch { return ts; }
+  try {
+    return new Date(ts).toISOString();
+  } catch {
+    return ts;
+  }
 }
 
 function mdEscape(s: string) {
@@ -17,16 +21,40 @@ export async function POST(req: Request) {
   const sb = supabaseAdmin();
 
   let body: any = null;
-  try { body = await req.json(); } catch { body = null; }
+  try {
+    body = await req.json();
+  } catch {
+    body = null;
+  }
 
   const id = String(body?.id || "");
   const publish = Boolean(body?.publish || false);
 
-  if (!id) return NextResponse.json({ ok: false, error: "missing_id" }, { status: 400 });
+  if (!id)
+    return NextResponse.json(
+      { ok: false, error: "missing_id" },
+      { status: 400 },
+    );
 
-  const incRes = await sb.from("ops_incidents").select("*").eq("id", id).maybeSingle();
-  if (incRes.error) return NextResponse.json({ ok: false, error: "incident_fetch_failed", detail: incRes.error.message }, { status: 500 });
-  if (!incRes.data) return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  const incRes = await sb
+    .from("ops_incidents")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (incRes.error)
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "incident_fetch_failed",
+        detail: incRes.error.message,
+      },
+      { status: 500 },
+    );
+  if (!incRes.data)
+    return NextResponse.json(
+      { ok: false, error: "not_found" },
+      { status: 404 },
+    );
 
   const inc = incRes.data as any;
 
@@ -38,7 +66,9 @@ export async function POST(req: Request) {
 
   const actions = (actionsRes.data ?? []) as any[];
 
-  const subs: string[] = Array.isArray(inc.subscription_ids) ? inc.subscription_ids.map(String) : [];
+  const subs: string[] = Array.isArray(inc.subscription_ids)
+    ? inc.subscription_ids.map(String)
+    : [];
   const startedAt = String(inc.started_at);
   const endedAt = String(inc.ended_at);
 
@@ -62,7 +92,9 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .slice(0, 10);
 
-  const targets: string[] = Array.isArray(inc.notify_targets) ? inc.notify_targets.map(String) : [];
+  const targets: string[] = Array.isArray(inc.notify_targets)
+    ? inc.notify_targets.map(String)
+    : [];
 
   const md = [
     `# Incident Postmortem — ${inc.source || "reminders"} — ${inc.severity} — ${inc.status}`,
@@ -84,11 +116,18 @@ export async function POST(req: Request) {
     ``,
     `## Timeline (audit/actions)`,
     actions.length
-      ? actions.map((a) => `- ${fmt(a.created_at)} — **${a.action}** — \`${JSON.stringify(a.payload ?? {})}\``).join("\n")
+      ? actions
+          .map(
+            (a) =>
+              `- ${fmt(a.created_at)} — **${a.action}** — \`${JSON.stringify(a.payload ?? {})}\``,
+          )
+          .join("\n")
       : `- (no actions recorded)`,
     ``,
     `## Signals / Errors (sample)`,
-    topErrors.length ? topErrors.map((e) => `- ${mdEscape(e)}`).join("\n") : `- (no error messages captured)`,
+    topErrors.length
+      ? topErrors.map((e) => `- ${mdEscape(e)}`).join("\n")
+      : `- (no error messages captured)`,
     ``,
     `## Root Cause`,
     `- (fill in)`,
@@ -114,7 +153,11 @@ export async function POST(req: Request) {
   if (publish) patch.postmortem_published_at = nowIso;
 
   const up = await sb.from("ops_incidents").update(patch).eq("id", id);
-  if (up.error) return NextResponse.json({ ok: false, error: "postmortem_save_failed", detail: up.error.message }, { status: 500 });
+  if (up.error)
+    return NextResponse.json(
+      { ok: false, error: "postmortem_save_failed", detail: up.error.message },
+      { status: 500 },
+    );
 
   try {
     await sb.from("ops_incident_actions").insert({
@@ -125,5 +168,9 @@ export async function POST(req: Request) {
     });
   } catch {}
 
-  return NextResponse.json({ ok: true, markdown: md, status: patch.postmortem_status });
+  return NextResponse.json({
+    ok: true,
+    markdown: md,
+    status: patch.postmortem_status,
+  });
 }

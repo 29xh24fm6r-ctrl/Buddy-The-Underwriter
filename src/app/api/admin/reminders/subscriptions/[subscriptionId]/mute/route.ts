@@ -7,9 +7,9 @@ export const dynamic = "force-dynamic";
 
 export async function POST(
   _req: Request,
-  { params }: { params: Promise<{ subscriptionId: string }> }
+  { params }: { params: Promise<{ subscriptionId: string }> },
 ) {
-  const { subscriptionId } = await params;
+  const { subscriptionId } = await ctx.params;
   const sb = supabaseAdmin();
 
   const { data, error } = await sb
@@ -23,7 +23,7 @@ export async function POST(
   if (error) {
     return NextResponse.json(
       { ok: false, error: "mute_failed", detail: error.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 

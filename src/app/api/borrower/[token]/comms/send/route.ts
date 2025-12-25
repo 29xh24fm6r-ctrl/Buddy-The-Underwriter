@@ -6,7 +6,10 @@ import { getEmailProvider } from "@/lib/email/getProvider";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request, context: { params: Promise<{ token: string }> }) {
+export async function POST(
+  req: Request,
+  context: { params: Promise<{ token: string }> },
+) {
   try {
     const { token } = await context.params;
     const { application } = await requireBorrowerToken(token);
@@ -18,13 +21,13 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     if (!body.subject || !body.body) {
       return NextResponse.json(
         { ok: false, error: "Subject and body are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     // Check if immediate send or requires approval
     const shouldSendNow = body.requires_approval === false;
-    
+
     let emailSent = false;
     let emailError = null;
 
@@ -54,7 +57,11 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       body: body.body,
       priority: body.priority || "NORMAL",
       requires_approval: !shouldSendNow,
-      status: emailSent ? "SENT" : shouldSendNow ? "FAILED" : "PENDING_APPROVAL",
+      status: emailSent
+        ? "SENT"
+        : shouldSendNow
+          ? "FAILED"
+          : "PENDING_APPROVAL",
       sent_at: emailSent ? new Date().toISOString() : null,
       metadata: {
         draft_source: body.draft_source || "MANUAL",
@@ -66,7 +73,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     if (shouldSendNow && !emailSent) {
       return NextResponse.json(
         { ok: false, error: emailError || "Failed to send email" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -80,13 +87,16 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? "comms_send_failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 // DRAFT ENDPOINT (AI-generated, not sent)
-export async function PUT(req: Request, context: { params: Promise<{ token: string }> }) {
+export async function PUT(
+  req: Request,
+  context: { params: Promise<{ token: string }> },
+) {
   try {
     const { token } = await context.params;
     const { application } = await requireBorrowerToken(token);
@@ -118,7 +128,7 @@ export async function PUT(req: Request, context: { params: Promise<{ token: stri
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? "draft_save_failed" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 }

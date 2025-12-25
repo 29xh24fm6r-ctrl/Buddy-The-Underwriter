@@ -27,8 +27,13 @@ export async function GET(req: NextRequest) {
     const sb = supabaseAdmin();
 
     const url = new URL(req.url);
-    const days = Math.max(1, Math.min(90, Number(url.searchParams.get("days") ?? 14)));
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const days = Math.max(
+      1,
+      Math.min(90, Number(url.searchParams.get("days") ?? 14)),
+    );
+    const since = new Date(
+      Date.now() - days * 24 * 60 * 60 * 1000,
+    ).toISOString();
 
     /**
      * 1) Pull assignments: which underwriter is assigned to which deal
@@ -36,7 +41,9 @@ export async function GET(req: NextRequest) {
      */
     const { data: assignments, error: aErr } = await (sb as any)
       .from("deal_underwriter_assignments")
-      .select("deal_id, underwriter_id, underwriter_clerk_id, clerk_user_id, user_id")
+      .select(
+        "deal_id, underwriter_id, underwriter_clerk_id, clerk_user_id, user_id",
+      )
       .limit(10000);
 
     if (aErr) throw aErr;
@@ -69,7 +76,11 @@ export async function GET(req: NextRequest) {
      * If your deals table uses a different active flag, adjust the filter here later.
      */
     const allDealIds = Array.from(
-      new Set(Array.from(dealsByUw.values()).flat().map((x) => String(x)))
+      new Set(
+        Array.from(dealsByUw.values())
+          .flat()
+          .map((x) => String(x)),
+      ),
     );
 
     const activeDealSet = new Set<string>();
@@ -139,8 +150,12 @@ export async function GET(req: NextRequest) {
       const deals = toStringArray(dealsByUw.get(uwId) ?? []);
       const uniqueDeals = Array.from(new Set(deals));
 
-      const activeDeals = uniqueDeals.filter((d) => activeDealSet.has(String(d)));
-      const stalledDeals = uniqueDeals.filter((d) => !activeDealSet.has(String(d)));
+      const activeDeals = uniqueDeals.filter((d) =>
+        activeDealSet.has(String(d)),
+      );
+      const stalledDeals = uniqueDeals.filter(
+        (d) => !activeDealSet.has(String(d)),
+      );
 
       return {
         clerk_user_id: String(uwId),
@@ -160,7 +175,7 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? String(err) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

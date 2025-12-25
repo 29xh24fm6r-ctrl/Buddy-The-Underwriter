@@ -23,7 +23,10 @@ export async function POST(req: Request) {
   const sb = supabaseAdmin();
 
   const url = new URL(req.url);
-  const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 25)));
+  const limit = Math.max(
+    1,
+    Math.min(100, Number(url.searchParams.get("limit") || 25)),
+  );
 
   const nowIso = new Date().toISOString();
 
@@ -35,7 +38,11 @@ export async function POST(req: Request) {
     .order("scheduled_at", { ascending: true })
     .limit(limit);
 
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (error)
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
 
   let sent = 0;
   let failed = 0;
@@ -47,18 +54,30 @@ export async function POST(req: Request) {
 
       await sb
         .from("deal_owner_outreach_queue")
-        .update({ status: "sent", sent_at: new Date().toISOString(), last_error: null })
+        .update({
+          status: "sent",
+          sent_at: new Date().toISOString(),
+          last_error: null,
+        })
         .eq("id", m.id);
 
       sent += 1;
     } catch (e: any) {
       await sb
         .from("deal_owner_outreach_queue")
-        .update({ status: "failed", last_error: String(e?.message ?? "send_failed") })
+        .update({
+          status: "failed",
+          last_error: String(e?.message ?? "send_failed"),
+        })
         .eq("id", m.id);
       failed += 1;
     }
   }
 
-  return NextResponse.json({ ok: true, processed: (queued ?? []).length, sent, failed });
+  return NextResponse.json({
+    ok: true,
+    processed: (queued ?? []).length,
+    sent,
+    failed,
+  });
 }

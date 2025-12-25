@@ -1,7 +1,12 @@
 // src/app/api/deals/[dealId]/interview/sessions/[sessionId]/question-plan/next/route.ts
 import { NextRequest } from "next/server";
 import { getAuthedSupabase } from "@/lib/supabase/serverAuthed";
-import { jsonNotFound, jsonOk, jsonServerError, jsonUnauthorized } from "@/lib/interview/http";
+import {
+  jsonNotFound,
+  jsonOk,
+  jsonServerError,
+  jsonUnauthorized,
+} from "@/lib/interview/http";
 import {
   buildQuestionPlan,
   computeRequiredKeysFromConfirmed,
@@ -11,7 +16,11 @@ import {
 
 export const runtime = "nodejs";
 
-async function assertSessionAccessible(supabase: any, dealId: string, sessionId: string) {
+async function assertSessionAccessible(
+  supabase: any,
+  dealId: string,
+  sessionId: string,
+) {
   const { data, error } = await supabase
     .from("deal_interview_sessions")
     .select("id, deal_id, status")
@@ -24,7 +33,10 @@ async function assertSessionAccessible(supabase: any, dealId: string, sessionId:
   return { ok: true as const, session: data };
 }
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: string; sessionId: string }> }) {
+export async function GET(
+  _req: NextRequest,
+  ctx: { params: Promise<{ dealId: string; sessionId: string }> },
+) {
   try {
     const { dealId, sessionId } = await ctx.params;
     const { supabase } = await getAuthedSupabase();
@@ -35,7 +47,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: st
     // Load facts (confirmed + suggested)
     const { data: facts, error: factsErr } = await supabase
       .from("deal_interview_facts")
-      .select("id, field_key, field_value, value_text, confirmed, confirmed_at, created_at, metadata")
+      .select(
+        "id, field_key, field_value, value_text, confirmed, confirmed_at, created_at, metadata",
+      )
       .eq("session_id", sessionId)
       .order("created_at", { ascending: false });
 

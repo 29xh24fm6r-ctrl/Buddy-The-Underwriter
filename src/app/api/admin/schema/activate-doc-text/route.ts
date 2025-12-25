@@ -1,13 +1,16 @@
 // src/app/api/admin/schema/activate-doc-text/route.ts
 import { NextResponse } from "next/server";
-import { activateDocTextSource, discoverSchema } from "@/lib/admin/schemaDiscovery";
+import {
+  activateDocTextSource,
+  discoverSchema,
+} from "@/lib/admin/schemaDiscovery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
  * Admin endpoint: activate doc text source mapping
- * 
+ *
  * Modes:
  * - Explicit: provide tableName + textColumn + optional metadata columns
  * - Auto-pick: no body → discovers and activates top candidate automatically
@@ -24,9 +27,13 @@ export async function POST(req: Request) {
         tableName: explicitTable,
         textColumn: explicitCol,
         dealIdColumn: body?.dealIdColumn ? String(body.dealIdColumn) : null,
-        documentIdColumn: body?.documentIdColumn ? String(body.documentIdColumn) : null,
+        documentIdColumn: body?.documentIdColumn
+          ? String(body.documentIdColumn)
+          : null,
         labelColumn: body?.labelColumn ? String(body.labelColumn) : null,
-        updatedAtColumn: body?.updatedAtColumn ? String(body.updatedAtColumn) : null,
+        updatedAtColumn: body?.updatedAtColumn
+          ? String(body.updatedAtColumn)
+          : null,
       });
       return NextResponse.json({ ok: true, active: row });
     }
@@ -47,6 +54,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, active: row, autoPicked: top });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 500 },
+    );
   }
 }

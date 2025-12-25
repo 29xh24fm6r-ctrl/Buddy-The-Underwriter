@@ -4,22 +4,23 @@ import { normalizeRiskFacts } from "@/lib/risk/normalizeRiskFacts";
 
 /**
  * POST /api/deals/[dealId]/risk-facts/generate
- * 
+ *
  * Generate normalized risk facts from snapshot context
  */
 export async function POST(
   req: NextRequest,
-  { params }: { params: { dealId: string } }
+  ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    const { dealId } = params;
+    const params = await ctx.params;
+    const { dealId } = await ctx.params;
     const body = await req.json();
     const { snapshotId } = body;
 
     if (!snapshotId) {
       return NextResponse.json(
         { error: "snapshotId is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -35,12 +36,14 @@ export async function POST(
     if (snapshotError || !snapshot) {
       return NextResponse.json(
         { error: "Snapshot not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
     // Normalize to risk facts
-    const { facts, facts_hash, confidence } = normalizeRiskFacts(snapshot.context);
+    const { facts, facts_hash, confidence } = normalizeRiskFacts(
+      snapshot.context,
+    );
 
     // Check if identical facts already exist (optional deduplication)
     const { data: existing } = await supabase
@@ -81,7 +84,7 @@ export async function POST(
       console.error("Failed to insert risk facts:", insertError);
       return NextResponse.json(
         { error: "Failed to create risk facts" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -93,7 +96,7 @@ export async function POST(
     console.error("Error generating risk facts:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getEmailProvider } from "@/lib/email/getProvider";
 
@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   const sb = createClient(
     process.env.SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
+    { auth: { persistSession: false } },
   );
 
   // settings
@@ -29,13 +29,25 @@ export async function POST(req: Request) {
 
   const mode = (settings as any)?.mode ?? "copy";
   const toEmail = (settings as any)?.to_email ?? null;
-  const fromEmail = (settings as any)?.from_email ?? process.env.OUTBOUND_FROM_EMAIL ?? null;
+  const fromEmail =
+    (settings as any)?.from_email ?? process.env.OUTBOUND_FROM_EMAIL ?? null;
 
   if (mode !== "system") {
-    return NextResponse.json({ ok: false, error: "mode_is_copy" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "mode_is_copy" },
+      { status: 400 },
+    );
   }
-  if (!toEmail) return NextResponse.json({ ok: false, error: "missing_to_email" }, { status: 400 });
-  if (!fromEmail) return NextResponse.json({ ok: false, error: "missing_from_email" }, { status: 400 });
+  if (!toEmail)
+    return NextResponse.json(
+      { ok: false, error: "missing_to_email" },
+      { status: 400 },
+    );
+  if (!fromEmail)
+    return NextResponse.json(
+      { ok: false, error: "missing_from_email" },
+      { status: 400 },
+    );
 
   // Load the current pending draft
   const { data: drafts, error: dErr } = await sb
@@ -47,9 +59,16 @@ export async function POST(req: Request) {
     .order("updated_at", { ascending: false })
     .limit(1);
 
-  if (dErr) return NextResponse.json({ ok: false, error: dErr.message }, { status: 500 });
+  if (dErr)
+    return NextResponse.json(
+      { ok: false, error: dErr.message },
+      { status: 500 },
+    );
   if (!drafts || drafts.length === 0) {
-    return NextResponse.json({ ok: false, error: "no_pending_draft" }, { status: 404 });
+    return NextResponse.json(
+      { ok: false, error: "no_pending_draft" },
+      { status: 404 },
+    );
   }
 
   const draft = drafts[0] as any;
@@ -96,6 +115,9 @@ export async function POST(req: Request) {
       error: String(e?.message ?? e),
     } as any);
 
-    return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: String(e?.message ?? e) },
+      { status: 500 },
+    );
   }
 }

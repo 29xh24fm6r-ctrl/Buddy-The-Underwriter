@@ -1,7 +1,12 @@
 // src/app/api/deals/[dealId]/upload-links/create/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { hashPassword, makePasswordSalt, randomToken, sha256 } from "@/lib/security/tokens";
+import {
+  hashPassword,
+  makePasswordSalt,
+  randomToken,
+  sha256,
+} from "@/lib/security/tokens";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,9 +20,11 @@ type Body = {
   uploaderEmailHint?: string | null;
 };
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   const { dealId } = await ctx.params;
-
   let body: Body | null = null;
   try {
     body = (await req.json()) as Body;
@@ -25,14 +32,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     body = {};
   }
 
-  const expiresInHours = Math.max(1, Math.min(24 * 30, body?.expiresInHours ?? 72));
+  const expiresInHours = Math.max(
+    1,
+    Math.min(24 * 30, body?.expiresInHours ?? 72),
+  );
   const singleUse = body?.singleUse ?? true;
   const label = body?.label ?? null;
 
   const token = randomToken(32);
   const tokenHash = sha256(token);
 
-  const expiresAt = new Date(Date.now() + expiresInHours * 3600 * 1000).toISOString();
+  const expiresAt = new Date(
+    Date.now() + expiresInHours * 3600 * 1000,
+  ).toISOString();
 
   const password = (body?.password || "").trim();
   const requirePassword = !!password;
@@ -63,7 +75,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     .single();
 
   if (error || !data) {
-    return NextResponse.json({ ok: false, error: "Failed to create link." }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "Failed to create link." },
+      { status: 500 },
+    );
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";

@@ -1,0 +1,478 @@
+"use client";
+
+import { useEffect, useRef, useState, type MouseEventHandler } from "react";
+
+type StitchFrameProps = {
+  onClick?: MouseEventHandler<HTMLDivElement>;
+  className?: string;
+  title: string;
+  fontLinks?: string[];
+  tailwindCdnSrc: string;
+  tailwindConfigJs?: string;
+  styles?: string[];
+  bodyHtml: string;
+};
+
+export default function StitchFrame({
+  title,
+  fontLinks = [],
+  tailwindCdnSrc,
+  tailwindConfigJs,
+  styles = [],
+  bodyHtml,
+  onClick,
+  className,
+}: StitchFrameProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    document.title = title;
+  }, [title]);
+
+  useEffect(() => {
+    if (!mounted || !containerRef.current) return;
+
+    // Build complete HTML with scripts embedded
+    const fullHtml = `
+      ${fontLinks.map((href) => `<link rel="stylesheet" href="${href}">`).join("\n")}
+      ${styles.map((css) => `<style>${css}
+        /* === TABLE AFFORDANCE === */
+        .stitch-root tr {
+          transition: background 140ms ease, box-shadow 140ms ease;
+        }
+
+        .stitch-root tr:hover {
+          background: rgba(255,255,255,0.045);
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+        }
+
+        .stitch-root tr:active {
+          background: rgba(255,255,255,0.065);
+        }
+
+</style>`).join("\n")}
+      <script src="${tailwindCdnSrc}"></script>
+      ${tailwindConfigJs ? `<script>${tailwindConfigJs}</script>` : ""}
+      
+      <style id="stitch-premium-env">
+
+        /* Delegated toggle feedback */
+        .stitch-root .is-active{
+          background: rgba(19,109,236,0.18) !important;
+          box-shadow:
+            inset 0 0 0 1px rgba(19,109,236,0.35),
+            0 12px 34px rgba(19,109,236,0.10) !important;
+          color: rgba(255,255,255,0.96) !important;
+        }
+
+
+        /* === SELECTION TETHER === */
+        .stitch-shell { --tether-y: -9999px; --tether-x: 38%; --tether-w: 62%; }
+
+        .stitch-tether{
+          position:absolute;
+          inset:0;
+          pointer-events:none;
+          opacity:0;
+          transition: opacity 220ms ease;
+          z-index: 4; /* behind stitch-root (z=5) but above vignette/grain */
+        }
+
+        .stitch-shell.has-selection .stitch-tether{ opacity: 1; }
+
+        /* The beam */
+        .stitch-tether::before{
+          content:"";
+          position:absolute;
+          left: var(--tether-x);
+          width: var(--tether-w);
+          top: calc(var(--tether-y) - 1px);
+          height: 2px;
+          border-radius: 999px;
+          background:
+            linear-gradient(90deg,
+              rgba(19,109,236,0.0),
+              rgba(19,109,236,0.45),
+              rgba(168,85,247,0.28),
+              rgba(19,109,236,0.0)
+            );
+          filter: blur(0.15px);
+        }
+
+        /* Outer glow */
+        .stitch-tether::after{
+          content:"";
+          position:absolute;
+          left: var(--tether-x);
+          width: var(--tether-w);
+          top: calc(var(--tether-y) - 10px);
+          height: 20px;
+          background:
+            radial-gradient(closest-side,
+              rgba(19,109,236,0.18),
+              rgba(19,109,236,0.0)
+            );
+          opacity: 0.9;
+        }
+
+
+        /* === LIVE INTELLIGENCE PULSE === */
+        /* Pulse tiny status dots (safe: only small circles) */
+        .stitch-root :is(span,div)[class*="rounded-full"][class*="h-2"][class*="w-2"],
+        .stitch-root :is(span,div)[class*="rounded-full"][class*="h-3"][class*="w-3"]{
+          animation: stitchPulse 2.0s ease-in-out infinite;
+        }
+
+
+        /* === SELECTION ENERGY === */
+        .stitch-root tr.is-selected{
+          background: rgba(19,109,236,0.13) !important;
+          box-shadow:
+            inset 0 0 0 1px rgba(19,109,236,0.42),
+            0 16px 60px rgba(19,109,236,0.22);
+        }
+        .stitch-root tr.is-selected td{
+          text-shadow: 0 0 18px rgba(19,109,236,0.22);
+        }
+
+        /* When a row is selected, give the right rail a subtle glow (scoped, safe) */
+        .stitch-root:has(tr.is-selected) .stitch-shell,
+        .stitch-shell:has(tr.is-selected){
+          box-shadow:
+            inset 0 0 0 1px rgba(255,255,255,0.06),
+            0 0 0 1px rgba(19,109,236,0.08),
+            0 28px 90px rgba(0,0,0,0.65);
+        }
+
+
+        /* === LIVING MOTION === */
+        @keyframes stitchFloat {
+          0%   { transform: translate3d(0,0,0); }
+          50%  { transform: translate3d(0,-1px,0); }
+          100% { transform: translate3d(0,0,0); }
+        }
+        @keyframes stitchPulse {
+          0%   { opacity: 0.55; }
+          50%  { opacity: 0.95; }
+          100% { opacity: 0.55; }
+        }
+
+        /* Panels gently "breathe" */
+        .stitch-root :is(section,div)[class*="rounded"][class*="border"]{
+          will-change: transform, box-shadow;
+        }
+        .stitch-root :is(section,div)[class*="rounded"][class*="border"]:hover{
+          transform: translateY(-1px);
+        }
+
+        /* Respect reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+          .stitch-aurora { animation: none !important; }
+          .stitch-root * { transition: none !important; }
+        }
+
+
+        /* === SAFE PANEL LIFT === */
+        /* Large containers only: width/height heuristics prevent icon bleed */
+        .stitch-root :is(div,section)
+          :where(
+            [class*="grid"],
+            [class*="flex"]
+          )
+          > :is(div,section)
+          :where(
+            [class*="rounded"],
+            [class*="border"]
+          ){
+          background: linear-gradient(
+            180deg,
+            rgba(255,255,255,0.03),
+            rgba(255,255,255,0.01)
+          );
+          box-shadow:
+            0 8px 24px rgba(0,0,0,0.45),
+            inset 0 0 0 1px rgba(255,255,255,0.06);
+          transition: box-shadow 220ms ease, transform 220ms ease;
+        }
+
+        /* Hover lift for large rows / cards only */
+        .stitch-root tr:hover,
+        .stitch-root :is(div,section)[class*="hover"]{
+          box-shadow:
+            0 12px 36px rgba(0,0,0,0.55),
+            inset 0 0 0 1px rgba(255,255,255,0.09);
+        }
+
+
+        /* Heuristic: add an accent line to panels that look like cards */
+        .stitch-root [class*="rounded"][class*="border"]{
+          position: relative;
+        }
+        .stitch-root [class*="rounded"][class*="border"]::before{
+          content:"";
+          position:absolute;
+          inset:0;
+          border-radius: inherit;
+          pointer-events:none;
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+        }
+        .stitch-root [class*="rounded"][class*="border"]::after{
+          content:"";
+          position:absolute;
+          left:0; top:0; bottom:0;
+          width:2px;
+          border-radius: 999px;
+          background: linear-gradient(180deg, rgba(19,109,236,0.0), rgba(19,109,236,0.55), rgba(168,85,247,0.35), rgba(19,109,236,0.0));
+          opacity: 0.55;
+          filter: blur(0.2px);
+          pointer-events:none;
+        }
+
+
+        /* Hide Stitch's internal top header so app HeroBar is the only header */
+        .stitch-root [class*="sticky"][class*="top-0"],
+        .stitch-root [class*="fixed"][class*="top-0"] {
+          display: none !important;
+        }
+
+      <style id="stitch-polish">
+
+        /* === PREMIUM GRAPHICS OVERLAYS === */
+
+        @keyframes stitchAuroraDrift {
+          0%   { transform: translate3d(0px, 0px, 0); opacity: 0.82; }
+          50%  { transform: translate3d(18px, 10px, 0); opacity: 0.92; }
+          100% { transform: translate3d(0px, 0px, 0); opacity: 0.82; }
+        }
+
+        .stitch-shell{
+          position: relative;
+          overflow: hidden;
+        }
+
+        .stitch-aurora{
+          animation: stitchAuroraDrift 28s ease-in-out infinite;
+          position: absolute;
+          inset: -120px -120px auto -120px;
+          height: 320px;
+          pointer-events: none;
+          background:
+            radial-gradient(600px 220px at 35% 30%, rgba(19,109,236,0.35), transparent 65%),
+            radial-gradient(520px 240px at 65% 10%, rgba(168,85,247,0.22), transparent 70%),
+            radial-gradient(420px 220px at 85% 55%, rgba(34,197,94,0.14), transparent 72%);
+          filter: blur(14px) saturate(1.15);
+          opacity: 0.85;
+          transform: translateZ(0);
+        }
+
+        .stitch-vignette{
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background:
+            radial-gradient(1200px 900px at 50% 25%, rgba(255,255,255,0.03), transparent 60%),
+            radial-gradient(1200px 900px at 50% 120%, rgba(0,0,0,0.55), transparent 55%);
+          opacity: 0.95;
+        }
+
+        .stitch-grain{
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          opacity: 0.08;
+          mix-blend-mode: overlay;
+          background-image:
+            url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+          background-size: 180px 180px;
+        }
+
+        /* Ensure overlays sit behind UI */
+        .stitch-root{
+          position: relative;
+          z-index: 5;
+        }
+
+        /* Ensure Stitch content can't cover app chrome */
+        .stitch-root, .stitch-root * {
+          box-sizing: border-box;
+        }
+
+        /* If the export uses fixed headers, keep them inside this container */
+        .stitch-root [style*="position:fixed"],
+        .stitch-root [class*="fixed"] {
+          position: sticky !important;
+          top: 0 !important;
+        }
+
+        /* Never allow the stitch root to become an overlay */
+        .stitch-root {
+          position: relative !important;
+          inset: auto !important;
+        }
+
+        /* === ENVIRONMENT DEPTH === */
+        body {
+          background:
+            radial-gradient(1400px 900px at 50% -20%, rgba(19,109,236,0.22), transparent 55%),
+            radial-gradient(900px 700px at 15% 30%, rgba(168,85,247,0.14), transparent 55%),
+            linear-gradient(180deg, #070A0F 0%, #0B0F14 45%, #070A0F 100%);
+        }
+
+        /* Page environment */
+        html, body { height: 100%; }
+        body {
+          margin: 0;
+          color-scheme: dark;
+          background:
+            radial-gradient(1200px 800px at 55% -10%, rgba(19,109,236,0.18), transparent 55%),
+            radial-gradient(900px 650px at 15% 20%, rgba(168,85,247,0.10), transparent 55%),
+            linear-gradient(180deg, #070A0F 0%, #0B0F14 40%, #070A0F 100%);
+          -webkit-font-smoothing: antialiased;
+          text-rendering: optimizeLegibility;
+        }
+
+        /* Stitch root baseline */
+        .stitch-root {
+          min-height: 100vh;
+          color: rgba(255,255,255,0.92);
+        }
+
+        /* Premium borders & shadows (non-destructive) */
+        .stitch-root .border,
+        .stitch-root [class*="border-"] {
+          border-color: rgba(255,255,255,0.10) !important;
+        }
+
+        
+        /* === SURFACE LIFT === */
+        .stitch-root .bg-gray-900,
+        .stitch-root .bg-slate-900,
+        .stitch-root .bg-neutral-900 {
+          background: linear-gradient(
+            180deg,
+            rgba(255,255,255,0.04),
+            rgba(255,255,255,0.02)
+          );
+          box-shadow:
+            0 1px 0 rgba(255,255,255,0.06),
+            0 24px 60px rgba(0,0,0,0.65);
+        }
+
+.stitch-root .shadow,
+        .stitch-root [class*="shadow"] {
+          box-shadow:
+            0 1px 0 rgba(255,255,255,0.06),
+            0 18px 45px rgba(0,0,0,0.55) !important;
+        }
+
+        /* Table row affordance */
+        .stitch-root tr { transition: background 160ms ease, transform 160ms ease; }
+        .stitch-root tr:hover { background: rgba(255,255,255,0.035); }
+
+        /* Button hover affordance */
+        .stitch-root button,
+        .stitch-root [role="button"] {
+          transition: transform 140ms ease, filter 140ms ease, box-shadow 140ms ease;
+        }
+        .stitch-root button:hover,
+        .stitch-root [role="button"]:hover {
+          filter: brightness(1.08);
+        }
+        .stitch-root button:active,
+        .stitch-root [role="button"]:active {
+          transform: translateY(0.5px);
+        }
+
+        /* Nicer focus */
+        .stitch-root :focus-visible {
+          outline: none !important;
+          box-shadow: 0 0 0 2px rgba(19,109,236,0.85), 0 0 0 6px rgba(19,109,236,0.18) !important;
+          border-radius: 10px;
+        }
+      </style>
+
+      ${`<div class="stitch-shell" data-shell="true">
+        <div class="stitch-aurora" aria-hidden="true"></div>
+        <div class="stitch-vignette" aria-hidden="true"></div>
+        <div class="stitch-grain" aria-hidden="true"></div>
+        <div class="stitch-tether" aria-hidden="true"></div><div class="stitch-root" data-stitch="true">` + bodyHtml + `</div></div>`}
+      <style id="stitch-typography-overrides">
+        /* === STITCH LAYOUT OVERRIDES (de-squeeze exports) === */
+        .stitch-root .max-w-xl { max-width: none !important; }
+        .stitch-root .max-w-2xl { max-width: none !important; }
+        .stitch-root .max-w-3xl { max-width: none !important; }
+        .stitch-root .max-w-4xl { max-width: none !important; }
+        .stitch-root .max-w-5xl { max-width: none !important; }
+        .stitch-root .max-w-6xl { max-width: none !important; }
+        .stitch-root .max-w-7xl { max-width: none !important; }
+
+        /* Keep center sections full-width on wide screens */
+        .stitch-root .flex-1.max-w-xl { max-width: none !important; }
+
+        /* Prevent unexpected horizontal clipping */
+        .stitch-root { overflow-x: hidden; }
+
+        /* Tier-1 baseline for all Stitch exports */
+        .stitch-root {
+          font-size: 15px;
+          line-height: 1.45;
+          -webkit-font-smoothing: antialiased;
+          text-rendering: optimizeLegibility;
+        }
+
+        /* Bump common microcopy utilities */
+        .stitch-root .text-xs { font-size: 0.875rem !important; } /* ~14px at root 16, ~13px at root 15 */
+        .stitch-root .text-\[10px\] { font-size: 12px !important; }
+        .stitch-root .text-\[11px\] { font-size: 13px !important; }
+        .stitch-root .text-\[12px\] { font-size: 14px !important; }
+
+        /* Reduce “cramped” feel on dense tables */
+        .stitch-root td, .stitch-root th { line-height: 1.35; }
+      </style>
+
+    `;
+
+    containerRef.current.innerHTML = fullHtml;
+
+    // Enable premium row selection highlight inside Stitch HTML
+    const root = containerRef.current.querySelector(".stitch-root");
+    if (root) {
+      root.addEventListener("click", (e) => {
+        const tr = (e.target as any)?.closest?.("tr");
+        if (!tr) return;
+        root.querySelectorAll("tr.is-selected").forEach((n) => n.classList.remove("is-selected"));
+        tr.classList.add("is-selected");
+
+        /* tether positioning */
+        const shell = containerRef.current?.querySelector(".stitch-shell") as HTMLElement | null;
+        if (shell) {
+          shell.classList.add("has-selection");
+          const shellRect = shell.getBoundingClientRect();
+          const trRect = tr.getBoundingClientRect();
+
+          // Y center of selected row, relative to shell
+          const y = (trRect.top - shellRect.top) + (trRect.height / 2);
+
+          // Beam starts roughly at the right edge of the main table area and goes into the right rail.
+          // These percentages are intentionally heuristic and look great on this layout.
+          shell.style.setProperty("--tether-y", `${y}px`);
+          shell.style.setProperty("--tether-x", "38%");
+          shell.style.setProperty("--tether-w", "62%");
+        }
+      }, true);
+    }
+
+  }, [mounted, fontLinks, tailwindCdnSrc, tailwindConfigJs, styles, bodyHtml]);
+
+  return (
+    <div
+      ref={containerRef}
+      data-stitch="true"
+      suppressHydrationWarning
+      onClick={onClick}
+      className={className}
+    />
+  );
+}

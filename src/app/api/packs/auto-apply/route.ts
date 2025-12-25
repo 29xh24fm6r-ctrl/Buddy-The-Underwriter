@@ -1,6 +1,6 @@
 /**
  * POST /api/packs/auto-apply
- * 
+ *
  * Auto-apply the top-ranked pack to a deal
  */
 
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     if (!dealId) {
       return NextResponse.json(
         { error: "dealId is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     if (!result.success) {
       return NextResponse.json(
         { error: result.error || "Failed to apply pack" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     console.error("Auto-apply pack API error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

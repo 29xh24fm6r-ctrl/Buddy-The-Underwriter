@@ -14,6 +14,9 @@ export async function GET() {
     const res = await discoverSchema();
     return NextResponse.json({ ok: true, ...res });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 500 },
+    );
   }
 }

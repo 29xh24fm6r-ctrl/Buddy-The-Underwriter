@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { runMemoResearch } from "@/lib/intelligence/agents/runMemoResearch";
 
 export const runtime = "nodejs";
@@ -10,13 +10,16 @@ type Body = {
 
 export async function POST(
   req: Request,
-  { params }: { params: Promise<{ dealId: string }> | { dealId: string } }
+  { params }: { params: Promise<{ dealId: string }> | { dealId: string } },
 ) {
-  const resolved = params instanceof Promise ? await params : params;
+  const resolved = params instanceof Promise ? await ctx.params : params;
   const dealId = resolved.dealId;
 
   if (!dealId) {
-    return NextResponse.json({ ok: false, error: "Missing dealId" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Missing dealId" },
+      { status: 400 },
+    );
   }
 
   let body: Body = {};
@@ -26,7 +29,8 @@ export async function POST(
     body = {};
   }
 
-  const entityName = typeof body.entityName === "string" ? body.entityName.trim() : "";
+  const entityName =
+    typeof body.entityName === "string" ? body.entityName.trim() : "";
   const research = await runMemoResearch(entityName || `Deal ${dealId}`);
 
   return NextResponse.json({

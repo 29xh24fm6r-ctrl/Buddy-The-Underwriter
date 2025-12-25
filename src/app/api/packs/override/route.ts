@@ -1,6 +1,6 @@
 /**
  * POST /api/packs/override
- * 
+ *
  * Override pack selection with manual choice
  */
 
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     if (!dealId || !toPackId) {
       return NextResponse.json(
         { error: "dealId and toPackId are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     if (!result.success) {
       return NextResponse.json(
         { error: result.error || "Failed to override pack" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     console.error("Override pack API error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

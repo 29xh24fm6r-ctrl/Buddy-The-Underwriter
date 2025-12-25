@@ -3,11 +3,10 @@ import { supabaseServer } from "@/lib/supabase/server";
 export type DealContext = Record<string, any>;
 
 export async function getDealContext(dealId: string): Promise<DealContext> {
-  const sb = supabaseServer();
+  const sb = await supabaseServer();
 
   // 1) Snapshot first
-  const snap = await sb
-    .from("deal_context_snapshots")
+  const snap = await sb.from("deal_context_snapshots")
     .select("context, version, updated_at")
     .eq("deal_id", dealId)
     .maybeSingle();
@@ -20,8 +19,7 @@ export async function getDealContext(dealId: string): Promise<DealContext> {
   }
 
   // 2) Fallback to view
-  const view = await sb
-    .from("deal_context_v3")
+  const view = await sb.from("deal_context_v3")
     .select("*")
     .eq("deal_id", dealId)
     .single();

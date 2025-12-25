@@ -12,7 +12,7 @@ export async function POST(req: Request) {
     if (!userIntent) {
       return NextResponse.json(
         { error: "Missing userIntent" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message ?? "Unknown error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

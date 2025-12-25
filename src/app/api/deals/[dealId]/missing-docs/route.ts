@@ -1,10 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  _: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await ctx.params;
     const supabase = getSupabaseServerClient();
@@ -28,6 +31,9 @@ export async function GET(_: Request, ctx: { params: Promise<{ dealId: string }>
 
     return NextResponse.json({ ok: true, missing });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "missing_docs_get_failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "missing_docs_get_failed" },
+      { status: 500 },
+    );
   }
 }

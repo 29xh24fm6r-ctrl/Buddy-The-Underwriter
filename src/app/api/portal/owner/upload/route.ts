@@ -46,9 +46,16 @@ export async function POST(req: Request) {
       receiptId,
     });
 
-    return NextResponse.json({ ok: true, receiptId, matchedItemIds: matched.matchedItemIds });
+    return NextResponse.json({
+      ok: true,
+      receiptId,
+      matchedItemIds: matched.matchedItemIds,
+    });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }
 

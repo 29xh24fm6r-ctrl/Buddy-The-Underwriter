@@ -8,12 +8,24 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const sb = await supabaseServer();
   const { data: auth, error: authErr } = await sb.auth.getUser();
-  if (authErr) return NextResponse.json({ ok: false, error: authErr.message }, { status: 401 });
-  if (!auth?.user) return NextResponse.json({ ok: false, error: "not_authenticated" }, { status: 401 });
+  if (authErr)
+    return NextResponse.json(
+      { ok: false, error: authErr.message },
+      { status: 401 },
+    );
+  if (!auth?.user)
+    return NextResponse.json(
+      { ok: false, error: "not_authenticated" },
+      { status: 401 },
+    );
 
   const form = await req.formData();
   const bankId = String(form.get("bank_id") || "").trim();
-  if (!bankId) return NextResponse.json({ ok: false, error: "missing_bank_id" }, { status: 400 });
+  if (!bankId)
+    return NextResponse.json(
+      { ok: false, error: "missing_bank_id" },
+      { status: 400 },
+    );
 
   // ensure user is a member
   const mem = await sb
@@ -23,8 +35,16 @@ export async function POST(req: Request) {
     .eq("bank_id", bankId)
     .maybeSingle();
 
-  if (mem.error) return NextResponse.json({ ok: false, error: mem.error.message }, { status: 500 });
-  if (!mem.data) return NextResponse.json({ ok: false, error: "not_a_member" }, { status: 403 });
+  if (mem.error)
+    return NextResponse.json(
+      { ok: false, error: mem.error.message },
+      { status: 500 },
+    );
+  if (!mem.data)
+    return NextResponse.json(
+      { ok: false, error: "not_a_member" },
+      { status: 403 },
+    );
 
   const up = await sb
     .from("profiles")
@@ -35,7 +55,11 @@ export async function POST(req: Request) {
     })
     .eq("id", auth.user.id);
 
-  if (up.error) return NextResponse.json({ ok: false, error: up.error.message }, { status: 500 });
+  if (up.error)
+    return NextResponse.json(
+      { ok: false, error: up.error.message },
+      { status: 500 },
+    );
 
   // redirect to deals
   return NextResponse.redirect(new URL("/deals", req.url), { status: 303 });

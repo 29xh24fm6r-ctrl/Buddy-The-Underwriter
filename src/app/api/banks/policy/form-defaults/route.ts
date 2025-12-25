@@ -4,13 +4,13 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 /**
  * GET /api/banks/policy/form-defaults?deal_type=sba_7a&industry=restaurant
- * 
+ *
  * Get policy-compliant default values for a form.
- * 
+ *
  * Query params:
  * - deal_type: string (optional) - 'sba_7a', 'conventional', 'equipment', etc.
  * - industry: string (optional) - 'restaurant', 'retail', 'manufacturing', etc.
- * 
+ *
  * Returns:
  * {
  *   "defaults": [
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
     // 1. Exact match (deal_type + industry)
     // 2. Deal type only (industry = NULL)
     // 3. Global (both NULL)
-    
+
     let query = supabaseAdmin()
       .from("bank_policy_defaults")
       .select("*")
@@ -52,10 +52,7 @@ export async function GET(req: NextRequest) {
     const { data: allDefaults, error } = await query;
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     if (!allDefaults || allDefaults.length === 0) {
@@ -69,7 +66,7 @@ export async function GET(req: NextRequest) {
     const filteredDefaults = filterDefaultsWithFallback(
       allDefaults,
       dealType,
-      industry
+      industry,
     );
 
     // Parse default_value JSON strings
@@ -85,7 +82,7 @@ export async function GET(req: NextRequest) {
     console.error("[/api/banks/policy/form-defaults] Error:", err);
     return NextResponse.json(
       { error: err.message || "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -99,7 +96,7 @@ export async function GET(req: NextRequest) {
 function filterDefaultsWithFallback(
   defaults: any[],
   dealType: string | null,
-  industry: string | null
+  industry: string | null,
 ): any[] {
   const fieldMap = new Map<string, any>();
 

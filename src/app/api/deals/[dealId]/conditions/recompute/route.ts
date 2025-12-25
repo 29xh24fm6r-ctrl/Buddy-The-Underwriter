@@ -1,36 +1,52 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { evaluateAllConditions, calculateClosingReadiness } from "@/lib/conditions/evaluate";
+import {
+  evaluateAllConditions,
+  calculateClosingReadiness,
+} from "@/lib/conditions/evaluate";
 import { aiExplainCondition } from "@/lib/conditions/aiExplain";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(_: Request, context: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  _: Request,
+  context: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await context.params;
     const sb = supabaseAdmin();
 
     // Load all required context in parallel
-    const [{ data: conditions }, { data: attachments }, { data: requirements }, { data: preflight }] =
-      await Promise.all([
-        (sb as any).from("conditions_to_close").select("*").eq("application_id", dealId),
-        (sb as any).from("borrower_attachments").select("*").eq("application_id", dealId),
-        (sb as any)
-          .from("borrower_requirements_snapshots")
-          .select("*")
-          .eq("application_id", dealId)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .single(),
-        (sb as any)
-          .from("sba_preflight_results")
-          .select("*")
-          .eq("application_id", dealId)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .single(),
-      ]);
+    const [
+      { data: conditions },
+      { data: attachments },
+      { data: requirements },
+      { data: preflight },
+    ] = await Promise.all([
+      (sb as any)
+        .from("conditions_to_close")
+        .select("*")
+        .eq("application_id", dealId),
+      (sb as any)
+        .from("borrower_attachments")
+        .select("*")
+        .eq("application_id", dealId),
+      (sb as any)
+        .from("borrower_requirements_snapshots")
+        .select("*")
+        .eq("application_id", dealId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single(),
+      (sb as any)
+        .from("sba_preflight_results")
+        .select("*")
+        .eq("application_id", dealId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single(),
+    ]);
 
     if (!conditions || conditions.length === 0) {
       return NextResponse.json({
@@ -97,13 +113,16 @@ export async function POST(_: Request, context: { params: Promise<{ dealId: stri
     console.error("Conditions recompute failed:", err);
     return NextResponse.json(
       { ok: false, error: err?.message ?? "recompute_failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 // Get current conditions status
-export async function GET(_: Request, context: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  _: Request,
+  context: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await context.params;
     const sb = supabaseAdmin();
@@ -118,9 +137,11 @@ export async function GET(_: Request, context: { params: Promise<{ dealId: strin
     // Calculate summary stats
     const total = conditions?.length || 0;
     const satisfied = conditions?.filter((c: any) => c.satisfied).length || 0;
-    const required = conditions?.filter((c: any) => c.severity === "REQUIRED").length || 0;
+    const required =
+      conditions?.filter((c: any) => c.severity === "REQUIRED").length || 0;
     const requiredSatisfied =
-      conditions?.filter((c: any) => c.severity === "REQUIRED" && c.satisfied).length || 0;
+      conditions?.filter((c: any) => c.severity === "REQUIRED" && c.satisfied)
+        .length || 0;
 
     return NextResponse.json({
       ok: true,
@@ -139,7 +160,7 @@ export async function GET(_: Request, context: { params: Promise<{ dealId: strin
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? "fetch_failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

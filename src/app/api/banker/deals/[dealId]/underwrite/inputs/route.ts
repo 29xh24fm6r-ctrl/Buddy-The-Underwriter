@@ -1,6 +1,9 @@
 // src/app/api/banker/deals/[dealId]/underwrite/inputs/route.ts
 import { NextResponse } from "next/server";
-import { listLoanRequests, listUnderwriteInputs } from "@/lib/deals/loanRequests";
+import {
+  listLoanRequests,
+  listUnderwriteInputs,
+} from "@/lib/deals/loanRequests";
 import { fetchDealDocFacts } from "@/lib/underwrite/docFacts";
 import { normalizeUnderwrite } from "@/lib/underwrite/normalize";
 
@@ -41,23 +44,27 @@ function toFlatVars(n: any) {
 
     docFacts: n.docFacts ?? {},
     selectedBorrowerRequestId: n.selected?.borrowerRequestId ?? null,
-    selectedBankerUnderwriteInputId: n.selected?.bankerUnderwriteInputId ?? null,
+    selectedBankerUnderwriteInputId:
+      n.selected?.bankerUnderwriteInputId ?? null,
   };
 }
 
-export async function GET(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     requireUserId(req);
     const { dealId } = await ctx.params;
-
     const url = new URL(req.url);
     const format = url.searchParams.get("format") ?? "normalized"; // normalized | flat
 
-    const [borrowerRequests, bankerUnderwriteInputs, docFacts] = await Promise.all([
-      listLoanRequests(dealId),
-      listUnderwriteInputs(dealId),
-      fetchDealDocFacts(dealId),
-    ]);
+    const [borrowerRequests, bankerUnderwriteInputs, docFacts] =
+      await Promise.all([
+        listLoanRequests(dealId),
+        listUnderwriteInputs(dealId),
+        fetchDealDocFacts(dealId),
+      ]);
 
     const normalized = normalizeUnderwrite({
       dealId,
@@ -67,11 +74,22 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string 
     });
 
     if (format === "flat") {
-      return NextResponse.json({ ok: true, format: "flat", underwrite: toFlatVars(normalized) });
+      return NextResponse.json({
+        ok: true,
+        format: "flat",
+        underwrite: toFlatVars(normalized),
+      });
     }
 
-    return NextResponse.json({ ok: true, format: "normalized", underwrite: normalized });
+    return NextResponse.json({
+      ok: true,
+      format: "normalized",
+      underwrite: normalized,
+    });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

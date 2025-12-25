@@ -1,13 +1,19 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getQueuedMessages } from "@/lib/conditions/messaging/queue";
-import { sendNotification, updateMessageStatus } from "@/lib/notifications/send";
+import {
+  sendNotification,
+  updateMessageStatus,
+} from "@/lib/notifications/send";
 import { recordMessageSent } from "@/lib/conditions/messaging/throttle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request, context: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  context: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await context.params;
     const body = await req.json();
@@ -35,7 +41,7 @@ export async function POST(req: Request, context: { params: Promise<{ dealId: st
     } else {
       return NextResponse.json(
         { ok: false, error: "No messages specified" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -82,13 +88,16 @@ export async function POST(req: Request, context: { params: Promise<{ dealId: st
     console.error("Message send failed:", err);
     return NextResponse.json(
       { ok: false, error: err?.message ?? "send_failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 // Approve and queue messages
-export async function PATCH(req: Request, context: { params: Promise<{ dealId: string }> }) {
+export async function PATCH(
+  req: Request,
+  context: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await context.params;
     const body = await req.json();
@@ -97,7 +106,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ dealId: s
     if (!message_ids || message_ids.length === 0) {
       return NextResponse.json(
         { ok: false, error: "No messages specified" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -110,7 +119,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ dealId: s
         status: "QUEUED",
         requires_approval: false,
         metadata: (sb as any).raw(
-          `metadata || '{"approved_by": "${approved_by}", "approved_at": "${new Date().toISOString()}"}'::jsonb`
+          `metadata || '{"approved_by": "${approved_by}", "approved_at": "${new Date().toISOString()}"}'::jsonb`,
         ),
       })
       .in("id", message_ids)
@@ -124,7 +133,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ dealId: s
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? "approval_failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

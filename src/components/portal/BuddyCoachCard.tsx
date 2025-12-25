@@ -17,6 +17,19 @@ type MissingDocHelp = {
 };
 
 export function BuddyCoachCard(props: { dealId: string; guidedSnapshot: any }) {
+  async function createShare() {
+    try {
+      console.log("createShare clicked");
+    } catch {}
+  }
+
+  async function copy(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {}
+  }
+
+
   const [input, setInput] = React.useState("");
   const [thread, setThread] = React.useState<Array<{ role: "borrower" | "buddy"; text: string }>>([
     {
@@ -259,7 +272,7 @@ export function BuddyCoachCard(props: { dealId: string; guidedSnapshot: any }) {
                 <div className="text-base font-semibold">No worries — we'll solve it together</div>
                 <div className="mt-1 text-sm text-gray-600">
                   Pick what you're stuck on. I'll suggest easy substitutes and send a note to your bank if you want.
-               /* Share link creator */}
+               {/* Share link creator */}
               <div className="rounded-xl border bg-white p-4">
                 <div className="text-sm font-semibold">Request from someone else</div>
                 <div className="mt-1 text-sm text-gray-600">
@@ -287,7 +300,7 @@ export function BuddyCoachCard(props: { dealId: string; guidedSnapshot: any }) {
                 ) : null}
               </div>
 
-              { </div>
+              </div>
               </div>
               <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" onClick={() => setShowMissing(false)}>
                 Close

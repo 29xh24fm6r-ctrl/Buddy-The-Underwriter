@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
@@ -45,31 +45,66 @@ async function bestEffortCreateReminderSubscription(opts: {
   }
 }
 
-export async function POST(req: Request, { params }: { params: { dealId: string } }) {
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   const sb = await supabaseServer();
   const { data: auth } = await sb.auth.getUser();
-  if (!auth?.user) return NextResponse.json({ ok: false, error: "not_authenticated" }, { status: 401 });
-
-  const dealId = String(params.dealId || "");
-  if (!dealId) return NextResponse.json({ ok: false, error: "missing_deal_id" }, { status: 400 });
+  if (!auth?.user)
+    return NextResponse.json(
+      { ok: false, error: "not_authenticated" },
+      { status: 401 },
+    );
+  const { dealId } = await ctx.params;
+  if (!dealId)
+    return NextResponse.json(
+      { ok: false, error: "missing_deal_id" },
+      { status: 400 },
+    );
 
   const bankId = await getCurrentBankId();
 
-  const dealRes = await sb.from("deals").select("id, bank_id").eq("id", dealId).maybeSingle();
-  if (dealRes.error) return NextResponse.json({ ok: false, error: "deal_fetch_failed", detail: dealRes.error.message }, { status: 500 });
-  if (!dealRes.data) return NextResponse.json({ ok: false, error: "deal_not_found" }, { status: 404 });
-  if (String(dealRes.data.bank_id) !== String(bankId)) return NextResponse.json({ ok: false, error: "wrong_bank" }, { status: 403 });
+  const dealRes = await sb
+    .from("deals")
+    .select("id, bank_id")
+    .eq("id", dealId)
+    .maybeSingle();
+  if (dealRes.error)
+    return NextResponse.json(
+      { ok: false, error: "deal_fetch_failed", detail: dealRes.error.message },
+      { status: 500 },
+    );
+  if (!dealRes.data)
+    return NextResponse.json(
+      { ok: false, error: "deal_not_found" },
+      { status: 404 },
+    );
+  if (String(dealRes.data.bank_id) !== String(bankId))
+    return NextResponse.json(
+      { ok: false, error: "wrong_bank" },
+      { status: 403 },
+    );
 
   let body: any = null;
-  try { body = await req.json(); } catch { body = null; }
-  const dueDaysOverride = body?.due_days !== undefined ? Number(body.due_days) : null;
+  try {
+    body = await req.json();
+  } catch {
+    body = null;
+  }
+  const dueDaysOverride =
+    body?.due_days !== undefined ? Number(body.due_days) : null;
 
   const mit = await sb
     .from("deal_mitigants")
     .select("mitigant_key, mitigant_label, reason_rule_keys, status")
     .eq("deal_id", dealId);
 
-  if (mit.error) return NextResponse.json({ ok: false, error: "mitigants_fetch_failed", detail: mit.error.message }, { status: 500 });
+  if (mit.error)
+    return NextResponse.json(
+      { ok: false, error: "mitigants_fetch_failed", detail: mit.error.message },
+      { status: 500 },
+    );
 
   const open = (mit.data ?? []).filter((m: any) => String(m.status) === "open");
 
@@ -89,16 +124,27 @@ export async function POST(req: Request, { params }: { params: { dealId: string 
       .maybeSingle();
 
     if (exists.data?.id) {
-      skipped.push({ mitigant_key, reason: "already_exists", condition_id: exists.data.id });
+      skipped.push({
+        mitigant_key,
+        reason: "already_exists",
+        condition_id: exists.data.id,
+      });
       continue;
     }
 
-    const draft = draftConditionFromMitigant(mitigant_key, String(m.mitigant_label || ""));
+    const draft = draftConditionFromMitigant(
+      mitigant_key,
+      String(m.mitigant_label || ""),
+    );
 
     const dueIso =
-      dueDaysOverride !== null && Number.isFinite(dueDaysOverride) && dueDaysOverride > 0
+      dueDaysOverride !== null &&
+      Number.isFinite(dueDaysOverride) &&
+      dueDaysOverride > 0
         ? isoInDays(dueDaysOverride)
-        : (draft.default_due_days ? isoInDays(draft.default_due_days) : null);
+        : draft.default_due_days
+          ? isoInDays(draft.default_due_days)
+          : null;
 
     const ins = await sb
       .from("deal_conditions")
@@ -121,7 +167,11 @@ export async function POST(req: Request, { params }: { params: { dealId: string 
       .maybeSingle();
 
     if (ins.error || !ins.data?.id) {
-      skipped.push({ mitigant_key, reason: "insert_failed", detail: ins.error?.message || "unknown" });
+      skipped.push({
+        mitigant_key,
+        reason: "insert_failed",
+        detail: ins.error?.message || "unknown",
+      });
       continue;
     }
 
@@ -148,13 +198,26 @@ export async function POST(req: Request, { params }: { params: { dealId: string 
         deal_id: dealId,
         bank_id: bankId,
         action: "created",
-        payload: { mitigant_key, reason_rule_keys: m.reason_rule_keys || [], reminder_subscription_id: subId || null },
+        payload: {
+          mitigant_key,
+          reason_rule_keys: m.reason_rule_keys || [],
+          reminder_subscription_id: subId || null,
+        },
         created_by: auth.user.id,
       });
     } catch {}
 
-    created.push({ mitigant_key, condition_id: conditionId, reminder_subscription_id: subId || null });
+    created.push({
+      mitigant_key,
+      condition_id: conditionId,
+      reminder_subscription_id: subId || null,
+    });
   }
 
-  return NextResponse.json({ ok: true, created, skipped, open_mitigants: open.length });
+  return NextResponse.json({
+    ok: true,
+    created,
+    skipped,
+    open_mitigants: open.length,
+  });
 }

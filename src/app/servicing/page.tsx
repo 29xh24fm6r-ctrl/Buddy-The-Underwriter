@@ -1,7 +1,7 @@
 import StitchFrame from "@/components/stitch/StitchFrame";
 
 const TITLE = "Loan Servicing Command Center";
-const FONT_LINKS = [];
+const FONT_LINKS: string[] = [];
 const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
 const TAILWIND_CONFIG_JS = `tailwind.config = {
             darkMode: "class",

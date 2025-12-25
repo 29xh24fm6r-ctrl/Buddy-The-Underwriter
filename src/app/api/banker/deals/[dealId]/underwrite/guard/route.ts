@@ -1,6 +1,9 @@
 // src/app/api/banker/deals/[dealId]/underwrite/guard/route.ts
 import { NextResponse } from "next/server";
-import { listLoanRequests, listUnderwriteInputs } from "@/lib/deals/loanRequests";
+import {
+  listLoanRequests,
+  listUnderwriteInputs,
+} from "@/lib/deals/loanRequests";
 import { fetchDealDocFacts } from "@/lib/underwrite/docFacts";
 import { normalizeUnderwrite } from "@/lib/underwrite/normalize";
 import { underwriteConsistencyGuard } from "@/lib/underwrite/guard";
@@ -15,16 +18,19 @@ function requireUserId(req: Request) {
   return userId;
 }
 
-export async function GET(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const bankerUserId = requireUserId(req);
     const { dealId } = await ctx.params;
-
-    const [borrowerRequests, bankerUnderwriteInputs, docFacts] = await Promise.all([
-      listLoanRequests(dealId),
-      listUnderwriteInputs(dealId),
-      fetchDealDocFacts(dealId),
-    ]);
+    const [borrowerRequests, bankerUnderwriteInputs, docFacts] =
+      await Promise.all([
+        listLoanRequests(dealId),
+        listUnderwriteInputs(dealId),
+        fetchDealDocFacts(dealId),
+      ]);
 
     const normalized = normalizeUnderwrite({
       dealId,
@@ -33,12 +39,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string 
       docFacts,
     });
 
-    const guard = underwriteConsistencyGuard({ dealId, underwrite: normalized });
+    const guard = underwriteConsistencyGuard({
+      dealId,
+      underwrite: normalized,
+    });
 
     // Best-effort automation: never block the guard response
     let automation: any = { ok: true, changed: false };
     try {
-      automation = await applyGuardAutomation({ bankerUserId, guard: guard as any });
+      automation = await applyGuardAutomation({
+        bankerUserId,
+        guard: guard as any,
+      });
     } catch (e: any) {
       automation = { ok: false, error: e?.message ?? "automation failed" };
     }
@@ -50,6 +62,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string 
       automation,
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

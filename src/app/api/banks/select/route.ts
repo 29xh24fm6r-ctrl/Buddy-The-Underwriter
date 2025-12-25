@@ -7,14 +7,14 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   const { userId } = await auth();
-  
+
   if (!userId) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
   }
 
   const body = await req.json().catch(() => null);
   const bankId = body?.bankId as string | undefined;
-  
+
   if (!bankId) {
     return NextResponse.json({ error: "bankId_required" }, { status: 400 });
   }
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   if (bankErr) {
     return NextResponse.json({ error: bankErr.message }, { status: 500 });
   }
-  
+
   if (!bank) {
     return NextResponse.json({ error: "bank_not_found" }, { status: 404 });
   }

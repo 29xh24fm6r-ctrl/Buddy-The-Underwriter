@@ -45,101 +45,101 @@ export function normalizeUnderwrite(input: {
   const primaryProductType = firstNonNull<string>(
     bankerLatest
       ? field(String(bankerLatest.proposed_product_type ?? null), { from: "banker_underwrite_input", id: bankerLatest.id })
-      : field(null, { from: "default" }),
+      : (field(null as any, { from: "default" }) as any),
     borrowerLatest
       ? field(String(borrowerLatest.product_type ?? null), { from: "borrower_loan_request", id: borrowerLatest.id })
-      : field(null, { from: "default" }),
-    field(null, { from: "default" })
+      : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   // Core structure (banker wins)
   const amount = firstNonNull<number>(
-    bankerLatest ? field(bankerLatest.proposed_amount ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : field(null, { from: "default" }),
-    borrowerLatest ? field(borrowerLatest.requested_amount ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    bankerLatest ? field(bankerLatest.proposed_amount ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    borrowerLatest ? field(borrowerLatest.requested_amount ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   const termMonths = firstNonNull<number>(
-    bankerLatest ? field(bankerLatest.proposed_term_months ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : field(null, { from: "default" }),
-    borrowerLatest ? field(borrowerLatest.requested_term_months ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    bankerLatest ? field(bankerLatest.proposed_term_months ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    borrowerLatest ? field(borrowerLatest.requested_term_months ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   const amortMonths = firstNonNull<number>(
-    bankerLatest ? field(bankerLatest.proposed_amort_months ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : field(null, { from: "default" }),
-    borrowerLatest ? field(borrowerLatest.requested_amort_months ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    bankerLatest ? field(bankerLatest.proposed_amort_months ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    borrowerLatest ? field(borrowerLatest.requested_amort_months ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   const interestOnlyMonths = firstNonNull<number>(
-    bankerLatest ? field(bankerLatest.proposed_interest_only_months ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : field(null, { from: "default" }),
-    borrowerLatest ? field(borrowerLatest.requested_interest_only_months ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    bankerLatest ? field(bankerLatest.proposed_interest_only_months ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    borrowerLatest ? field(borrowerLatest.requested_interest_only_months ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   const rateType = firstNonNull<"FIXED" | "VARIABLE">(
-    bankerLatest ? field(bankerLatest.proposed_rate_type ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : field(null, { from: "default" }),
-    borrowerLatest ? field(borrowerLatest.requested_rate_type ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    bankerLatest ? field(bankerLatest.proposed_rate_type ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    borrowerLatest ? field(borrowerLatest.requested_rate_type ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   const rateIndex = firstNonNull<string>(
-    bankerLatest ? field(bankerLatest.proposed_rate_index ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : field(null, { from: "default" }),
-    borrowerLatest ? field(borrowerLatest.requested_rate_index ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    bankerLatest ? field(bankerLatest.proposed_rate_index ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    borrowerLatest ? field(borrowerLatest.requested_rate_index ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   const spreadBps = firstNonNull<number>(
-    bankerLatest ? field(bankerLatest.proposed_spread_bps ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : field(null, { from: "default" }),
-    borrowerLatest ? field(borrowerLatest.requested_spread_bps ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    bankerLatest ? field(bankerLatest.proposed_spread_bps ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    borrowerLatest ? field(borrowerLatest.requested_spread_bps ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   // Narrative/purpose (borrower wins; docFacts can be displayed but not override)
   const purpose = firstNonNull<string>(
-    borrowerLatest ? field(borrowerLatest.purpose ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    borrowerLatest ? field(borrowerLatest.purpose ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   const useOfProceeds = firstNonNull<any>(
-    borrowerLatest ? field(borrowerLatest.use_of_proceeds ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    borrowerLatest ? field(borrowerLatest.use_of_proceeds ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   const collateralSummary = firstNonNull<string>(
-    borrowerLatest ? field(borrowerLatest.collateral_summary ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    borrowerLatest ? field(borrowerLatest.collateral_summary ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   const guarantorsSummary = firstNonNull<string>(
-    borrowerLatest ? field(borrowerLatest.guarantors_summary ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    borrowerLatest ? field(borrowerLatest.guarantors_summary ?? null, { from: "borrower_loan_request", id: borrowerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   // Underwrite targets (banker-only)
   const guaranteePercent = firstNonNull<number>(
-    bankerLatest ? field(bankerLatest.guarantee_percent ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    bankerLatest ? field(bankerLatest.guarantee_percent ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   const ltvTarget = firstNonNull<number>(
-    bankerLatest ? field(bankerLatest.ltv_target ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    bankerLatest ? field(bankerLatest.ltv_target ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   const dscrTarget = firstNonNull<number>(
-    bankerLatest ? field(bankerLatest.dscr_target ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    bankerLatest ? field(bankerLatest.dscr_target ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   const globalDscrTarget = firstNonNull<number>(
-    bankerLatest ? field(bankerLatest.global_dscr_target ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    bankerLatest ? field(bankerLatest.global_dscr_target ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   const pricingFloorRate = firstNonNull<number>(
-    bankerLatest ? field(bankerLatest.pricing_floor_rate ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : field(null, { from: "default" }),
-    field(null, { from: "default" })
+    bankerLatest ? field(bankerLatest.pricing_floor_rate ?? null, { from: "banker_underwrite_input", id: bankerLatest.id }) : (field(null as any, { from: "default" }) as any),
+    (field(null as any, { from: "default" }) as any)
   );
 
   return {

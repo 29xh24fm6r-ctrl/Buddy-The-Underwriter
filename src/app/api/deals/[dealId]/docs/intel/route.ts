@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/docs/intel/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { analyzeDocument } from "@/lib/docIntel/engine";
 
@@ -11,7 +11,10 @@ const BodySchema = z.object({
   extractedText: z.string().min(1),
 });
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await ctx.params;
     const body = BodySchema.parse(await req.json());
@@ -22,6 +25,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     });
     return NextResponse.json({ ok: true, result: out });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "doc intel failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "doc intel failed" },
+      { status: 500 },
+    );
   }
 }

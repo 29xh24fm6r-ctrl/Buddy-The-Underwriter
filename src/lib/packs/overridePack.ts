@@ -8,7 +8,7 @@
  * This feeds right back into rankings for continuous learning.
  */
 
-import { createServerClient } from "@/lib/supabase/server";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { recordLearningEvent } from "./recordLearningEvent";
 import { recordMatchEvent } from "./recordMatchEvent";
 
@@ -30,7 +30,7 @@ export async function overridePackSelection(
   toPackId: string,
   reason?: string
 ): Promise<OverrideResult> {
-  const sb = createServerClient();
+  const sb = getSupabaseServerClient();
 
   try {
     // 1. Get current deal state

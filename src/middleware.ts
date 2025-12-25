@@ -16,7 +16,18 @@ const ALLOW_PREFIXES = [
   "/s",
   "/sign-in",
   "/sign-up",
+
+  // HeroBar + app routes
+  "/documents",
+  "/underwrite",
+  "/pricing",
+  "/credit-memo",
+  "/servicing",
+  "/command",
+  "/settings",
+  "/borrower-portal",
 ];
+
 
 function isAllowed(pathname: string) {
   // Always allow Next internals + APIs + common static files

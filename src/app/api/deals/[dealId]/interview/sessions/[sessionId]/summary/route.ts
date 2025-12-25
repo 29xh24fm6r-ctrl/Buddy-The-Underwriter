@@ -1,11 +1,20 @@
 // src/app/api/deals/[dealId]/interview/sessions/[sessionId]/summary/route.ts
 import { NextRequest } from "next/server";
 import { getAuthedSupabase } from "@/lib/supabase/serverAuthed";
-import { jsonNotFound, jsonOk, jsonServerError, jsonUnauthorized } from "@/lib/interview/http";
+import {
+  jsonNotFound,
+  jsonOk,
+  jsonServerError,
+  jsonUnauthorized,
+} from "@/lib/interview/http";
 
 export const runtime = "nodejs";
 
-async function assertSessionAccessible(supabase: any, dealId: string, sessionId: string) {
+async function assertSessionAccessible(
+  supabase: any,
+  dealId: string,
+  sessionId: string,
+) {
   const { data, error } = await supabase
     .from("deal_interview_sessions")
     .select("id, deal_id, title, status, mode, created_at")
@@ -22,7 +31,10 @@ function mdEscape(s: any) {
   return String(s ?? "").replace(/\|/g, "\\|");
 }
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: string; sessionId: string }> }) {
+export async function GET(
+  _req: NextRequest,
+  ctx: { params: Promise<{ dealId: string; sessionId: string }> },
+) {
   try {
     const { dealId, sessionId } = await ctx.params;
     const { supabase, userId } = await getAuthedSupabase();
@@ -33,7 +45,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: st
 
     const { data: facts, error: factsErr } = await supabase
       .from("deal_interview_facts")
-      .select("id, field_key, field_value, value_text, confirmed, confirmed_at, confirmed_by, metadata, created_at, source_type, source_turn_id")
+      .select(
+        "id, field_key, field_value, value_text, confirmed, confirmed_at, confirmed_by, metadata, created_at, source_type, source_turn_id",
+      )
       .eq("session_id", sessionId)
       .order("created_at", { ascending: true });
 
@@ -48,9 +62,13 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: st
     if (turnsErr) return jsonServerError("db_select_turns_failed", turnsErr);
 
     const confirmedFacts = (facts || []).filter((f: any) => !!f.confirmed);
-    const suggestedFacts = (facts || []).filter((f: any) => !f.confirmed && !!f?.metadata?.suggested);
+    const suggestedFacts = (facts || []).filter(
+      (f: any) => !f.confirmed && !!f?.metadata?.suggested,
+    );
 
-    const qaTurns = (turns || []).filter((t: any) => t?.payload?.source === "qa_mode");
+    const qaTurns = (turns || []).filter(
+      (t: any) => t?.payload?.source === "qa_mode",
+    );
 
     const markdown = [
       `# Buddy Intake Summary`,
@@ -68,7 +86,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: st
       `|---|---|---|---|`,
       ...confirmedFacts.map((f: any) => {
         const val = f.value_text || JSON.stringify(f.field_value);
-        const ev = f.source_turn_id ? `turn:${f.source_turn_id}` : f.source_type;
+        const ev = f.source_turn_id
+          ? `turn:${f.source_turn_id}`
+          : f.source_type;
         return `| \`${mdEscape(f.field_key)}\` | ${mdEscape(val)} | ${mdEscape(f.confirmed_at || "")} | ${mdEscape(ev || "")} |`;
       }),
       ``,
@@ -78,8 +98,11 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: st
       `|---|---|---|---|`,
       ...suggestedFacts.map((f: any) => {
         const val = f.value_text || JSON.stringify(f.field_value);
-        const conf = typeof f.confidence === "number" ? f.confidence.toFixed(2) : "";
-        const ev = f.source_turn_id ? `turn:${f.source_turn_id}` : f.source_type;
+        const conf =
+          typeof f.confidence === "number" ? f.confidence.toFixed(2) : "";
+        const ev = f.source_turn_id
+          ? `turn:${f.source_turn_id}`
+          : f.source_type;
         return `| \`${mdEscape(f.field_key)}\` | ${mdEscape(val)} | ${mdEscape(conf)} | ${mdEscape(ev || "")} |`;
       }),
       ``,
@@ -90,13 +113,17 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: st
         : qaTurns
             .map((t: any) => {
               const q = t?.payload?.qa_question || "";
-              const c = Array.isArray(t?.payload?.qa_citations) ? t.payload.qa_citations : [];
+              const c = Array.isArray(t?.payload?.qa_citations)
+                ? t.payload.qa_citations
+                : [];
               return [
                 `### Q: ${mdEscape(q)}`,
                 ``,
                 `${mdEscape(t.text)}`,
                 ``,
-                c.length ? `**Citations:** ${c.map((x: any) => x.title || x.id).join(", ")}` : `**Citations:** none`,
+                c.length
+                  ? `**Citations:** ${c.map((x: any) => x.title || x.id).join(", ")}`
+                  : `**Citations:** none`,
                 ``,
               ].join("\n");
             })

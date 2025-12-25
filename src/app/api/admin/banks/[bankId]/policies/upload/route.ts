@@ -6,17 +6,23 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ bankId: string }> }) {
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ bankId: string }> },
+) {
   try {
     const { bankId } = await ctx.params;
 
     if (!bankId) {
-      return NextResponse.json({ ok: false, error: "missing_bankId" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "missing_bankId" },
+        { status: 400 },
+      );
     }
 
     const sb = supabaseAdmin();
 
-    const body = await req.json().catch(() => ({} as any));
+    const body = await req.json().catch(() => ({}) as any);
 
     const name = String(body?.name ?? "Policy");
     const version = String(body?.version ?? "v1");
@@ -38,13 +44,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ bankId: st
           is_active: true,
           updated_at: new Date().toISOString(),
         } as any,
-        { onConflict: "bank_id,version" }
+        { onConflict: "bank_id,version" },
       )
       .select("*")
       .single();
 
     if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 500 },
+      );
     }
 
     // 2) Deactivate all other policies for the bank (avoid `never` update payload typing)
@@ -54,14 +63,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ bankId: st
       .neq("id", (data as any).id);
 
     if (e2) {
-      return NextResponse.json({ ok: false, error: e2.message ?? String(e2) }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: e2.message ?? String(e2) },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({ ok: true, policy: data });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? String(err) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

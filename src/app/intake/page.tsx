@@ -1,7 +1,7 @@
 import StitchFrame from "@/components/stitch/StitchFrame";
 
 const TITLE = "Buddy the Underwriter - Deal Intake Console";
-const FONT_LINKS = [];
+const FONT_LINKS: string[] = [];
 const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
 const TAILWIND_CONFIG_JS = `</script>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>

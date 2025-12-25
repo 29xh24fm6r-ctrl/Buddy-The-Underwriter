@@ -28,12 +28,17 @@ type DraftRow = {
   sent_via?: string | null;
 };
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  _req: NextRequest,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await ctx.params;
-
     if (!dealId) {
-      return NextResponse.json({ ok: false, error: "missing_dealId" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "missing_dealId" },
+        { status: 400 },
+      );
     }
 
     const sb = supabaseAdmin();
@@ -44,12 +49,15 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: st
       .eq("deal_id", dealId)
       .order("created_at", { ascending: false });
 
-    const { data, error } = (await q) as { data: DraftRow[] | null; error: any };
+    const { data, error } = (await q) as {
+      data: DraftRow[] | null;
+      error: any;
+    };
 
     if (error) {
       return NextResponse.json(
         { ok: false, error: error.message ?? String(error) },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -71,7 +79,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: st
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: String(err?.message ?? err ?? "unknown_error") },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

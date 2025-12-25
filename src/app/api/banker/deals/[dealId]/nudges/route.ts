@@ -12,12 +12,14 @@ function requireUserId(req: Request) {
   return userId;
 }
 
-export async function GET(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const bankerUserId = requireUserId(req);
     const sb = supabaseAdmin();
     const { dealId } = await ctx.params;
-
     const { data, error } = await sb
       .from("deal_message_drafts")
       .select("*")
@@ -28,11 +30,17 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string 
     if (error) throw error;
     return NextResponse.json({ ok: true, bankerUserId, drafts: data ?? [] });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const bankerUserId = requireUserId(req);
     const sb = supabaseAdmin();
@@ -72,13 +80,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
       if (dErr) throw dErr;
       if (!draft) throw new Error("Draft not found.");
-      if (draft.status === "sent") return NextResponse.json({ ok: true, alreadySent: true });
+      if (draft.status === "sent")
+        return NextResponse.json({ ok: true, alreadySent: true });
 
       // Approve if draft
       if (draft.status === "draft") {
         const { error: aErr } = await sb
           .from("deal_message_drafts")
-          .update({ status: "approved", approved_by: bankerUserId, approved_at: new Date().toISOString() })
+          .update({
+            status: "approved",
+            approved_by: bankerUserId,
+            approved_at: new Date().toISOString(),
+          })
           .eq("id", draftId)
           .eq("deal_id", dealId);
 
@@ -97,7 +110,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       // Mark sent
       const { error: sErr } = await sb
         .from("deal_message_drafts")
-        .update({ status: "sent", sent_by: bankerUserId, sent_at: new Date().toISOString() })
+        .update({
+          status: "sent",
+          sent_by: bankerUserId,
+          sent_at: new Date().toISOString(),
+        })
         .eq("id", draftId)
         .eq("deal_id", dealId);
 
@@ -108,6 +125,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
     throw new Error("Invalid action. Use update_body or approve_send.");
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

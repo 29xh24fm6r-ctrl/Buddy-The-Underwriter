@@ -20,6 +20,9 @@ export async function GET(req: Request) {
     const threads = await bankerListMessageThreads({ bankerUserId, limit });
     return NextResponse.json({ ok: true, threads });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

@@ -19,12 +19,21 @@ export async function POST(req: Request) {
   const notes = body?.notes === null ? null : String(body?.notes || "");
 
   if (!id) {
-    return NextResponse.json({ ok: false, error: "missing_id" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "missing_id" },
+      { status: 400 },
+    );
   }
 
-  const { error } = await sb.from("ops_incidents").update({ notes }).eq("id", id);
+  const { error } = await sb
+    .from("ops_incidents")
+    .update({ notes })
+    .eq("id", id);
   if (error) {
-    return NextResponse.json({ ok: false, error: "notes_failed", detail: error.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "notes_failed", detail: error.message },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ ok: true });

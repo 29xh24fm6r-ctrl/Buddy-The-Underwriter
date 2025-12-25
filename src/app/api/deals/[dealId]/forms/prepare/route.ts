@@ -10,10 +10,10 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST /api/deals/[dealId]/forms/prepare
- * 
+ *
  * Creates a fill run and prepares field values using deterministic rules
  * Returns missing fields + ready status for review
- * 
+ *
  * Body: { template_id: string }
  * Returns: {
  *   ok: true,
@@ -24,7 +24,10 @@ export const dynamic = "force-dynamic";
  *   ai_notes: Record<string, string>
  * }
  */
-export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   requireSuperAdmin();
   const { userId } = await auth();
   const { dealId } = await ctx.params;
@@ -36,7 +39,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
   if (!template_id) {
     return NextResponse.json(
       { ok: false, error: "template_id required" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -50,8 +53,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     if (e1) throw e1;
     if (!fields || fields.length === 0) {
       return NextResponse.json(
-        { ok: false, error: "Template has no parsed fields. Upload template again to parse." },
-        { status: 400 }
+        {
+          ok: false,
+          error:
+            "Template has no parsed fields. Upload template again to parse.",
+        },
+        { status: 400 },
       );
     }
 
@@ -91,11 +98,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
             }
           : undefined,
       },
-      fields
+      fields,
     );
 
     // Determine status
-    const status = fillResult.missing_required_fields.length > 0 ? "DRAFT" : "READY";
+    const status =
+      fillResult.missing_required_fields.length > 0 ? "DRAFT" : "READY";
 
     // Create fill run
     const { data: fillRun, error: e3 } = await (supabase as any)
@@ -125,7 +133,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
   } catch (error: any) {
     return NextResponse.json(
       { ok: false, error: error?.message ?? String(error) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

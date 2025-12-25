@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { applyBestPackToDeal } from "@/lib/packs/applyPack";
 import { recordLearningEvent } from "@/lib/packs/recordLearningEvent";
@@ -6,13 +6,18 @@ import { recordLearningEvent } from "@/lib/packs/recordLearningEvent";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(_: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  _: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
   try {
     // Apply pack (manuallyApplied = true since banker clicked button)
-    const result = await applyBestPackToDeal(sb, dealId, { manuallyApplied: true });
+    const result = await applyBestPackToDeal(sb, dealId, {
+      manuallyApplied: true,
+    });
 
     // ✅ Record canonical pack application event
     if (result.chosenPackId) {
@@ -49,6 +54,9 @@ export async function POST(_: Request, ctx: { params: Promise<{ dealId: string }
 
     return NextResponse.json({ ok: true, result });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "apply_failed" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "apply_failed" },
+      { status: 400 },
+    );
   }
 }

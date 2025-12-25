@@ -12,7 +12,7 @@ export async function GET() {
   if (!userId) {
     return NextResponse.json(
       { ok: false, error: "not_authenticated", userId: null, sessionId: null },
-      { status: 401 }
+      { status: 401 },
     );
   }
 

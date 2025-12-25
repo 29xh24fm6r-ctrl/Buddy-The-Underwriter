@@ -6,7 +6,10 @@ import { snippetWithHighlight } from "@/lib/evidence/spans";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, ctx: { params: Promise<{ dealId: string; attachmentId: string }> }) {
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string; attachmentId: string }> },
+) {
   try {
     const authHeader = req.headers.get("authorization");
     if (!authHeader) throw new Error("Missing authorization header");
@@ -30,11 +33,24 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string;
 
     if (error) throw error;
     const text = String(data?.extracted_text || "");
-    if (!text) return NextResponse.json({ ok: false, error: "OCR text not found" }, { status: 404 });
+    if (!text)
+      return NextResponse.json(
+        { ok: false, error: "OCR text not found" },
+        { status: 404 },
+      );
 
-    const snippet = snippetWithHighlight({ text, start, end, contextChars: 140, hardMaxChars: 900 });
+    const snippet = snippetWithHighlight({
+      text,
+      start,
+      end,
+      contextChars: 140,
+      hardMaxChars: 900,
+    });
     return NextResponse.json({ ok: true, attachmentId, ...snippet });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "snippet_failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "snippet_failed" },
+      { status: 500 },
+    );
   }
 }

@@ -2,9 +2,19 @@
 import { NextRequest } from "next/server";
 import { getAuthedSupabase } from "@/lib/supabase/serverAuthed";
 import { InterviewFactConfirmSchema } from "@/lib/interview/validators";
-import { jsonBadRequest, jsonNotFound, jsonOk, jsonServerError, jsonUnauthorized } from "@/lib/interview/http";
+import {
+  jsonBadRequest,
+  jsonNotFound,
+  jsonOk,
+  jsonServerError,
+  jsonUnauthorized,
+} from "@/lib/interview/http";
 
-async function assertSessionAccessible(supabase: any, dealId: string, sessionId: string) {
+async function assertSessionAccessible(
+  supabase: any,
+  dealId: string,
+  sessionId: string,
+) {
   const { data, error } = await supabase
     .from("deal_interview_sessions")
     .select("id, deal_id, status")
@@ -17,7 +27,12 @@ async function assertSessionAccessible(supabase: any, dealId: string, sessionId:
   return { ok: true as const, session: data };
 }
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string; sessionId: string; factId: string }> }) {
+export async function POST(
+  req: NextRequest,
+  ctx: {
+    params: Promise<{ dealId: string; sessionId: string; factId: string }>;
+  },
+) {
   try {
     const { dealId, sessionId, factId } = await ctx.params;
     const { supabase } = await getAuthedSupabase();
@@ -27,7 +42,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
 
     const body = await req.json().catch(() => ({}));
     const parsed = InterviewFactConfirmSchema.safeParse(body);
-    if (!parsed.success) return jsonBadRequest("invalid_body", parsed.error.flatten());
+    if (!parsed.success)
+      return jsonBadRequest("invalid_body", parsed.error.flatten());
 
     // Ensure fact belongs to the session (RLS will also protect, but we want clean errors)
     const { data: fact, error: factErr } = await supabase
@@ -37,7 +53,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
       .maybeSingle();
 
     if (factErr) return jsonServerError("db_select_fact_failed", factErr);
-    if (!fact || String(fact.session_id) !== String(sessionId)) return jsonNotFound("fact_not_found");
+    if (!fact || String(fact.session_id) !== String(sessionId))
+      return jsonNotFound("fact_not_found");
 
     const { confirmed } = parsed.data;
 

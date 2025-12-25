@@ -12,17 +12,24 @@ function requireUserId(req: Request) {
   return userId;
 }
 
-export async function GET(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     requireUserId(req);
     const { dealId } = await ctx.params;
-
-    const [checklist, receipts] = await Promise.all([listChecklist(dealId), listBorrowerReceipts(dealId)]);
+    const [checklist, receipts] = await Promise.all([
+      listChecklist(dealId),
+      listBorrowerReceipts(dealId),
+    ]);
 
     const rows = checklist ?? [];
     const required = rows.filter((r: any) => r.item?.required);
     const missing = required.filter((r: any) => r.state?.status === "missing");
-    const completed = required.filter((r: any) => r.state?.status !== "missing");
+    const completed = required.filter(
+      (r: any) => r.state?.status !== "missing",
+    );
 
     return NextResponse.json({
       ok: true,
@@ -41,10 +48,15 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string 
         requiredTotal: required.length,
         requiredDone: completed.length,
         requiredMissing: missing.length,
-        percent: required.length ? Math.round((completed.length / required.length) * 100) : 100,
+        percent: required.length
+          ? Math.round((completed.length / required.length) * 100)
+          : 100,
       },
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

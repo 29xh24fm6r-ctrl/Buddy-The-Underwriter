@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/requireRole";
 import type { PdfEvidenceSpan } from "@/lib/evidence/pdfSpans";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(
   _req: Request,
-  ctx: { params: Promise<{ dealId: string; attachmentId: string }> }
+  ctx: { params: Promise<{ dealId: string; attachmentId: string }> },
 ) {
   await requireRole(["super_admin", "bank_admin", "underwriter"]);
 
@@ -28,11 +28,17 @@ export async function GET(
     .maybeSingle();
 
   if (attachError) {
-    return NextResponse.json({ ok: false, error: attachError.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: attachError.message },
+      { status: 500 },
+    );
   }
 
   if (!attachment) {
-    return NextResponse.json({ ok: false, error: "Attachment not found" }, { status: 404 });
+    return NextResponse.json(
+      { ok: false, error: "Attachment not found" },
+      { status: 404 },
+    );
   }
 
   // Get OCR results with bounding boxes (if available)
@@ -44,7 +50,10 @@ export async function GET(
     .maybeSingle();
 
   if (ocrError) {
-    return NextResponse.json({ ok: false, error: ocrError.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: ocrError.message },
+      { status: 500 },
+    );
   }
 
   // Get evidence spans from doc intel results
@@ -57,7 +66,10 @@ export async function GET(
 
   if (intelError && intelError.code !== "PGRST116") {
     // Ignore "not found" errors
-    return NextResponse.json({ ok: false, error: intelError.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: intelError.message },
+      { status: 500 },
+    );
   }
 
   const evidenceSpans: PdfEvidenceSpan[] =
@@ -66,7 +78,7 @@ export async function GET(
   // Generate presigned URL for PDF access
   // Note: Supabase storage paths need to be constructed carefully
   const filePath = attachment.file_path || `${dealId}/${attachment.filename}`;
-  
+
   const { data: urlData } = await sb.storage
     .from("deal-documents")
     .createSignedUrl(filePath, 3600); // 1 hour expiry

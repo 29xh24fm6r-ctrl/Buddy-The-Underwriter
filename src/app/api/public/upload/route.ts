@@ -31,7 +31,11 @@ export async function POST(req: Request) {
 
   const idempotencyKey = String(form.get("idempotencyKey") || ""); // NEW
 
-  if (!token) return NextResponse.json({ ok: false, error: "Missing token." }, { status: 400 });
+  if (!token)
+    return NextResponse.json(
+      { ok: false, error: "Missing token." },
+      { status: 400 },
+    );
 
   const tokenHash = sha256(token);
 
@@ -57,17 +61,33 @@ export async function POST(req: Request) {
   const { data: link, error: linkErr } = await supabaseAdmin()
     .from("deal_upload_links")
     .select(
-      "id, deal_id, token_hash, expires_at, revoked_at, single_use, used_at, require_password, password_salt, password_hash, uploader_email_hint, requested_keys"
+      "id, deal_id, token_hash, expires_at, revoked_at, single_use, used_at, require_password, password_salt, password_hash, uploader_email_hint, requested_keys",
     )
     .eq("token_hash", tokenHash)
     .maybeSingle();
 
-  if (linkErr || !link) return NextResponse.json({ ok: false, error: "Invalid link." }, { status: 404 });
+  if (linkErr || !link)
+    return NextResponse.json(
+      { ok: false, error: "Invalid link." },
+      { status: 404 },
+    );
 
   const now = Date.now();
-  if (link.revoked_at) return NextResponse.json({ ok: false, error: "Link revoked." }, { status: 403 });
-  if (new Date(link.expires_at).getTime() < now) return NextResponse.json({ ok: false, error: "Link expired." }, { status: 403 });
-  if (link.single_use && link.used_at) return NextResponse.json({ ok: false, error: "Link already used." }, { status: 403 });
+  if (link.revoked_at)
+    return NextResponse.json(
+      { ok: false, error: "Link revoked." },
+      { status: 403 },
+    );
+  if (new Date(link.expires_at).getTime() < now)
+    return NextResponse.json(
+      { ok: false, error: "Link expired." },
+      { status: 403 },
+    );
+  if (link.single_use && link.used_at)
+    return NextResponse.json(
+      { ok: false, error: "Link already used." },
+      { status: 403 },
+    );
 
   chaosPoint(req, "post_link_validation");
 
@@ -75,17 +95,33 @@ export async function POST(req: Request) {
 
   // 2) Validate password if required (constant-time compare)
   if (link.require_password) {
-    if (!password) return NextResponse.json({ ok: false, error: "Password required." }, { status: 401 });
+    if (!password)
+      return NextResponse.json(
+        { ok: false, error: "Password required." },
+        { status: 401 },
+      );
     const salt = String(link.password_salt || "");
     const expected = String(link.password_hash || "");
-    if (!salt || !expected) return NextResponse.json({ ok: false, error: "Link misconfigured." }, { status: 500 });
+    if (!salt || !expected)
+      return NextResponse.json(
+        { ok: false, error: "Link misconfigured." },
+        { status: 500 },
+      );
     const actual = hashPassword(password, salt);
-    if (!constantTimeEqual(actual, expected)) return NextResponse.json({ ok: false, error: "Incorrect password." }, { status: 401 });
+    if (!constantTimeEqual(actual, expected))
+      return NextResponse.json(
+        { ok: false, error: "Incorrect password." },
+        { status: 401 },
+      );
   }
 
   // 3) Extract files
   const files = form.getAll("files").filter(Boolean) as File[];
-  if (files.length === 0) return NextResponse.json({ ok: false, error: "No files provided." }, { status: 400 });
+  if (files.length === 0)
+    return NextResponse.json(
+      { ok: false, error: "No files provided." },
+      { status: 400 },
+    );
 
   const dealId = String(link.deal_id);
   const bucket = "deal-uploads";
@@ -108,12 +144,18 @@ export async function POST(req: Request) {
 
     const storagePath = `deals/${dealId}/borrower/${ts}_${random}_${safeName}`;
 
-    const up = await supabaseAdmin().storage.from(bucket).upload(storagePath, bytes, {
-      contentType: f.type || "application/octet-stream",
-      upsert: false,
-    });
+    const up = await supabaseAdmin()
+      .storage.from(bucket)
+      .upload(storagePath, bytes, {
+        contentType: f.type || "application/octet-stream",
+        upsert: false,
+      });
 
-    if (up.error) return NextResponse.json({ ok: false, error: `Upload failed: ${safeName}` }, { status: 500 });
+    if (up.error)
+      return NextResponse.json(
+        { ok: false, error: `Upload failed: ${safeName}` },
+        { status: 500 },
+      );
 
     chaosPoint(req, "after_storage_upload");
 
@@ -136,7 +178,11 @@ export async function POST(req: Request) {
       .select("id")
       .single();
 
-    if (docErr || !docRow) return NextResponse.json({ ok: false, error: "Failed to record file metadata." }, { status: 500 });
+    if (docErr || !docRow)
+      return NextResponse.json(
+        { ok: false, error: "Failed to record file metadata." },
+        { status: 500 },
+      );
 
     chaosPoint(req, "after_db_insert");
 
@@ -144,25 +190,35 @@ export async function POST(req: Request) {
     // If deal_upload_audit is a VIEW and not insertable, skip inserts here.
     // If you have a write table (like deal_upload_events), use that instead.
     // We'll attempt insert and ignore "cannot insert into view" errors.
-    const auditIns = await supabaseAdmin().from("deal_upload_audit").insert({
-      deal_id: dealId,
-      uploaded_by_user: null,
-      uploaded_via_link_id: link.id,
-      uploader_type: "borrower",
-      uploader_display_name: uploaderName || null,
-      uploader_email: uploaderEmail || link.uploader_email_hint || null,
-      storage_bucket: bucket,
-      storage_path: storagePath,
-      original_filename: f.name || "upload",
-      mime_type: f.type || null,
-      size_bytes: bytes.length,
-      client_ip: ip,
-      user_agent: ua,
-      checklist_key: checklistKey || null,
-    } as any);
+    const auditIns = await supabaseAdmin()
+      .from("deal_upload_audit")
+      .insert({
+        deal_id: dealId,
+        uploaded_by_user: null,
+        uploaded_via_link_id: link.id,
+        uploader_type: "borrower",
+        uploader_display_name: uploaderName || null,
+        uploader_email: uploaderEmail || link.uploader_email_hint || null,
+        storage_bucket: bucket,
+        storage_path: storagePath,
+        original_filename: f.name || "upload",
+        mime_type: f.type || null,
+        size_bytes: bytes.length,
+        client_ip: ip,
+        user_agent: ua,
+        checklist_key: checklistKey || null,
+      } as any);
 
-    if (auditIns.error && !String(auditIns.error.message || "").toLowerCase().includes("view")) {
-      return NextResponse.json({ ok: false, error: "Failed to write audit trail." }, { status: 500 });
+    if (
+      auditIns.error &&
+      !String(auditIns.error.message || "")
+        .toLowerCase()
+        .includes("view")
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "Failed to write audit trail." },
+        { status: 500 },
+      );
     }
 
     // 6) Checklist update if present
@@ -183,7 +239,10 @@ export async function POST(req: Request) {
 
   // 7) Mark link used if single_use
   if (link.single_use) {
-    await supabaseAdmin().from("deal_upload_links").update({ used_at: new Date().toISOString() }).eq("id", link.id);
+    await supabaseAdmin()
+      .from("deal_upload_links")
+      .update({ used_at: new Date().toISOString() })
+      .eq("id", link.id);
   }
 
   const response = { ok: true, count: successCount };
@@ -192,7 +251,11 @@ export async function POST(req: Request) {
   if (idempotencyKey) {
     await supabaseAdmin()
       .from("upload_idempotency_keys")
-      .insert({ token_hash: tokenHash, idempotency_key: idempotencyKey, response })
+      .insert({
+        token_hash: tokenHash,
+        idempotency_key: idempotencyKey,
+        response,
+      })
       .throwOnError();
   }
 

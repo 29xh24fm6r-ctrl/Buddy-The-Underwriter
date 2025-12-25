@@ -24,6 +24,9 @@ export async function POST(req: Request) {
       message: "SBA knowledge store updated successfully",
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Sync failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Sync failed" },
+      { status: 500 },
+    );
   }
 }

@@ -10,9 +10,9 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
+  const { id } = await ctx.params;
   const supabase = supabaseAdmin();
 
   try {
@@ -27,14 +27,14 @@ export async function POST(
     if (error) {
       return NextResponse.json(
         { ok: false, error: error.message },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!data) {
       return NextResponse.json(
         { ok: false, error: "Subscription not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -48,7 +48,7 @@ export async function POST(
     console.error("[mute-subscription]", err);
     return NextResponse.json(
       { ok: false, error: err?.message || "Internal error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -59,9 +59,9 @@ export async function POST(
  */
 export async function DELETE(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
+  const { id } = await ctx.params;
   const supabase = supabaseAdmin();
 
   try {
@@ -75,14 +75,14 @@ export async function DELETE(
     if (error) {
       return NextResponse.json(
         { ok: false, error: error.message },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!data) {
       return NextResponse.json(
         { ok: false, error: "Subscription not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -96,7 +96,7 @@ export async function DELETE(
     console.error("[unmute-subscription]", err);
     return NextResponse.json(
       { ok: false, error: err?.message || "Internal error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

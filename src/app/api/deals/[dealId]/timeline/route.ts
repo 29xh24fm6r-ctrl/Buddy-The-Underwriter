@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/timeline/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerPlaybookForStage } from "@/lib/deals/playbook";
 import { computeChecklistHighlight } from "@/lib/borrower/highlightChecklist";
@@ -12,7 +12,10 @@ export const dynamic = "force-dynamic";
 // For now:
 // - Banker UI can call with header x-user-id (optional)
 // - Borrower portal can call with invite token and you can validate upstream
-export async function GET(_req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await ctx.params;
     const sb = supabaseAdmin();
@@ -38,17 +41,21 @@ export async function GET(_req: Request, ctx: { params: Promise<{ dealId: string
     const stage = status?.stage ?? "intake";
     const playbook = await getBorrowerPlaybookForStage(stage);
 
-    const latestDoc = (events ?? []).find((e) => e.kind === "doc_received") ?? null;
+    const latestDoc =
+      (events ?? []).find((e) => e.kind === "doc_received") ?? null;
 
-    const highlight =
-      playbook?.borrower_steps?.length
-        ? computeChecklistHighlight({
-            playbookSteps: playbook.borrower_steps,
-            latestDocReceivedEvent: latestDoc
-              ? { title: latestDoc.title, detail: latestDoc.detail, meta: (latestDoc as any).meta }
-              : null,
-          })
-        : null;
+    const highlight = playbook?.borrower_steps?.length
+      ? computeChecklistHighlight({
+          playbookSteps: playbook.borrower_steps,
+          latestDocReceivedEvent: latestDoc
+            ? {
+                title: latestDoc.title,
+                detail: latestDoc.detail,
+                meta: (latestDoc as any).meta,
+              }
+            : null,
+        })
+      : null;
 
     return NextResponse.json({
       ok: true,
@@ -60,7 +67,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ dealId: string
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e?.message ?? "Unknown error" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 }

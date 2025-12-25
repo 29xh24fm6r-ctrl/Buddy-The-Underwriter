@@ -1,24 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { HeroBar } from "@/components/nav/HeroBar";
 
 export function ConditionalHeroBar() {
-  const pathname = usePathname() || "/";
-  const [isStitch, setIsStitch] = useState(false);
+  const pathname = usePathname();
 
-  useEffect(() => {
-    // StitchFrame sets data-stitch="true" on its root container
-    const el = document.querySelector('[data-stitch="true"]');
-    setIsStitch(Boolean(el));
-  }, [pathname]);
+  // Hide hero bar only on auth + public share style routes
+  const hide =
+    pathname?.startsWith("/sign-in") ||
+    pathname?.startsWith("/sign-up") ||
+    pathname?.startsWith("/share") ||
+    pathname?.startsWith("/stitch-share");
 
-  // Always hide on print/doc surfaces
-  if (pathname.includes("/memos/")) return null;
-
-  // Hide on all StitchFrame pages (they include their own headers/nav)
-  if (isStitch) return null;
-
+  if (hide) return null;
   return <HeroBar />;
 }

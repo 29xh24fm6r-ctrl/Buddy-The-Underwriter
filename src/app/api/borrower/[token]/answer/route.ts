@@ -6,7 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Ctx = { params: Promise<{ token: string }> | { token: string } };
+type Ctx = { params: Promise<{ token: string }> };
 
 function json(status: number, body: any) {
   return NextResponse.json(body, { status });
@@ -15,12 +15,12 @@ function json(status: number, body: any) {
 /**
  * POST /api/borrower/[token]/answer
  * Upsert borrower answer
- * 
+ *
  * Body: { question_key, question_section, answer_type, answer_value }
  */
-export async function POST(req: NextRequest, { params }: Ctx) {
+export async function POST(req: NextRequest, ctx: Ctx) {
   try {
-    const p = params instanceof Promise ? await params : params;
+    const p = await ctx.params;
     const token = p?.token;
 
     if (!token) {
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         },
         {
           onConflict: "application_id,question_key",
-        }
+        },
       )
       .select()
       .single();

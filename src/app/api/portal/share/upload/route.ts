@@ -17,7 +17,8 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: Request) {
   try {
-    const { token, dealId, checklistItemIds } = await requireValidShareToken(req);
+    const { token, dealId, checklistItemIds } =
+      await requireValidShareToken(req);
 
     const form = await req.formData();
     const file = form.get("file") as File | null;
@@ -51,11 +52,21 @@ export async function POST(req: Request) {
       event_type: "THIRD_PARTY_UPLOAD",
       title: "Third-party uploaded a document",
       detail: filename,
-      meta: { shareToken: token, checklistUpdated: receiptRes.checklistUpdated },
+      meta: {
+        shareToken: token,
+        checklistUpdated: receiptRes.checklistUpdated,
+      },
     });
 
-    return NextResponse.json({ ok: true, receiptId: receiptRes.receipt.id, checklistUpdated: receiptRes.checklistUpdated });
+    return NextResponse.json({
+      ok: true,
+      receiptId: receiptRes.receipt.id,
+      checklistUpdated: receiptRes.checklistUpdated,
+    });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

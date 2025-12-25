@@ -21,7 +21,10 @@ export type LearningEventInput = {
   metadata: Record<string, any>;
 };
 
-export async function recordLearningEvent(sb: any, input: LearningEventInput): Promise<void> {
+export async function recordLearningEvent(arg1: any, arg2?: LearningEventInput): Promise<void> {
+  const sb = arg2 ? arg1 : null;
+  const input = (arg2 ? arg2 : arg1) as LearningEventInput;
+
   const { error } = await sb
     .from("borrower_pack_learning_events")
     .insert({

@@ -2,7 +2,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { DashboardFiltersSchema } from "@/lib/dashboard/contracts";
-import { fetchDealsForDashboard, computePipelineKpis } from "@/lib/dashboard/analytics";
+import {
+  fetchDealsForDashboard,
+  computePipelineKpis,
+} from "@/lib/dashboard/analytics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +27,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, kpis });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Unknown error" },
+      { status: 500 },
+    );
   }
 }

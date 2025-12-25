@@ -1,14 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { downloadPrivateObject, uploadPrivateObject, createSignedDownloadUrl } from "@/lib/storage/adminStorage";
+import {
+  downloadPrivateObject,
+  uploadPrivateObject,
+  createSignedDownloadUrl,
+} from "@/lib/storage/adminStorage";
 import { fillPdfFormFields } from "@/lib/bankForms/pdf";
 import { buildCanonicalValuesForDeal } from "@/lib/bankForms/canonicalValues";
-import { buildPdfFieldValuesFromCanonical, getActiveTemplate, getTemplateMaps } from "@/lib/bankForms/map";
+import {
+  buildPdfFieldValuesFromCanonical,
+  getActiveTemplate,
+  getTemplateMaps,
+} from "@/lib/bankForms/map";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const { dealId } = await ctx.params;
     const body = await req.json().catch(() => ({}));
@@ -18,12 +29,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     const flatten = Boolean(body?.flatten ?? false);
 
     if (!bank_id || !template_key) {
-      return NextResponse.json({ ok: false, error: "bank_id and template_key are required" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "bank_id and template_key are required" },
+        { status: 400 },
+      );
     }
 
     const template = await getActiveTemplate(bank_id, template_key);
     if (!template) {
-      return NextResponse.json({ ok: false, error: `No active template for ${template_key}` }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: `No active template for ${template_key}` },
+        { status: 404 },
+      );
     }
 
     const maps = await getTemplateMaps(template.id);
@@ -32,8 +49,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     const { canonical } = await buildCanonicalValuesForDeal({ dealId });
 
     // Map to PDF fields
-    const mapped = buildPdfFieldValuesFromCanonical({ canonicalValues: canonical, maps });
-    const templateBytes = await downloadPrivateObject({ bucket: "bank-templates", path: template.file_path });
+    const mapped = buildPdfFieldValuesFromCanonical({
+      canonicalValues: canonical,
+      maps,
+    });
+    const templateBytes = await downloadPrivateObject({
+      bucket: "bank-templates",
+      path: template.file_path,
+    });
 
     // Fill
     const filled = await fillPdfFormFields({
@@ -53,7 +76,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
       upsert: true,
     });
 
-    const { data: row, error: e1 } = await supabaseAdmin()
+    const { data: row, error: e1 } = (await supabaseAdmin()
       .from("filled_bank_documents")
       .insert({
         deal_id: dealId,
@@ -69,7 +92,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
         },
       } as any)
       .select("*")
-      .single() as any;
+      .single()) as any;
 
     if (e1) throw e1;
 
@@ -85,6 +108,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
       download_url: signedUrl,
     });
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message ?? String(err) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: err?.message ?? String(err) },
+      { status: 500 },
+    );
   }
 }

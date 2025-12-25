@@ -8,16 +8,19 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/borrower/active-deal
- * 
+ *
  * Returns the most recent deal (application) for the signed-in borrower.
  * Uses deal_participants table for deterministic role-based ownership.
- * 
+ *
  * Returns: {ok: true, dealId: string} | {ok: false, error: string}
  */
 export async function GET() {
   const { userId } = await auth();
   if (!userId) {
-    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, error: "unauthorized" },
+      { status: 401 },
+    );
   }
 
   const supabase = supabaseAdmin();
@@ -34,11 +37,17 @@ export async function GET() {
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
   }
 
   if (!data?.deal_id) {
-    return NextResponse.json({ ok: false, error: "no_active_deal" }, { status: 404 });
+    return NextResponse.json(
+      { ok: false, error: "no_active_deal" },
+      { status: 404 },
+    );
   }
 
   return NextResponse.json({ ok: true, dealId: (data as any).deal_id });

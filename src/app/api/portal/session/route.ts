@@ -23,13 +23,17 @@ export async function POST(req: Request) {
   }
 
   const rl = rateLimit(`portal:${token.slice(0, 12)}:session`, 60, 60_000);
-  if (!rl.ok) return NextResponse.json({ error: "Rate limited" }, { status: 429 });
+  if (!rl.ok)
+    return NextResponse.json({ error: "Rate limited" }, { status: 429 });
 
   let invite;
   try {
     invite = await requireValidInvite(token);
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Invalid link" }, { status: 401 });
+    return NextResponse.json(
+      { error: e?.message || "Invalid link" },
+      { status: 401 },
+    );
   }
 
   // Audit session (upsert-ish: keep one session per invite+ip+ua)
@@ -82,7 +86,13 @@ export async function POST(req: Request) {
     .order("created_at", { ascending: true });
 
   return NextResponse.json({
-    invite: { id: invite.id, dealId: invite.deal_id, name: invite.name, email: invite.email, expiresAt: invite.expires_at },
+    invite: {
+      id: invite.id,
+      dealId: invite.deal_id,
+      name: invite.name,
+      email: invite.email,
+      expiresAt: invite.expires_at,
+    },
     deal,
     requests: requests || [],
     messages: messages || [],

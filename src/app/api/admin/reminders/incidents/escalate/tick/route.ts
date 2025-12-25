@@ -8,9 +8,18 @@ export async function POST(req: Request) {
   const sb = supabaseAdmin();
 
   const url = new URL(req.url);
-  const graceMin = Math.max(0, Math.min(60, Number(url.searchParams.get("graceMin") || 2)));
-  const cooldownMin = Math.max(1, Math.min(240, Number(url.searchParams.get("cooldownMin") || 15)));
-  const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 30)));
+  const graceMin = Math.max(
+    0,
+    Math.min(60, Number(url.searchParams.get("graceMin") || 2)),
+  );
+  const cooldownMin = Math.max(
+    1,
+    Math.min(240, Number(url.searchParams.get("cooldownMin") || 15)),
+  );
+  const limit = Math.max(
+    1,
+    Math.min(100, Number(url.searchParams.get("limit") || 30)),
+  );
 
   const now = new Date();
   const nowMs = now.getTime();
@@ -19,13 +28,19 @@ export async function POST(req: Request) {
 
   const { data: rows, error } = await sb
     .from("ops_incidents")
-    .select("id,source,severity,status,ended_at,ack_required,acknowledged_at,notify_targets,last_notified_at,escalation_status,escalation_level,escalated_at")
+    .select(
+      "id,source,severity,status,ended_at,ack_required,acknowledged_at,notify_targets,last_notified_at,escalation_status,escalation_level,escalated_at",
+    )
     .eq("source", "reminders")
     .eq("status", "open")
     .order("ended_at", { ascending: false })
     .limit(limit);
 
-  if (error) return NextResponse.json({ ok: false, error: "fetch_failed", detail: error.message }, { status: 500 });
+  if (error)
+    return NextResponse.json(
+      { ok: false, error: "fetch_failed", detail: error.message },
+      { status: 500 },
+    );
 
   const incidents = (rows ?? []) as any[];
   const escalated: any[] = [];
@@ -39,16 +54,29 @@ export async function POST(req: Request) {
     const needsAck = Boolean(inc.ack_required) || sev1;
     const isAcked = Boolean(inc.acknowledged_at);
 
-    if (!needsAck || isAcked) { skipped.push({ id: inc.id, reason: !needsAck ? "no_ack_required" : "acked" }); continue; }
-    if (ageMs < graceMs) { skipped.push({ id: inc.id, reason: "within_grace" }); continue; }
+    if (!needsAck || isAcked) {
+      skipped.push({
+        id: inc.id,
+        reason: !needsAck ? "no_ack_required" : "acked",
+      });
+      continue;
+    }
+    if (ageMs < graceMs) {
+      skipped.push({ id: inc.id, reason: "within_grace" });
+      continue;
+    }
 
-    const lastNotifiedAt = inc.last_notified_at ? new Date(String(inc.last_notified_at)).getTime() : null;
+    const lastNotifiedAt = inc.last_notified_at
+      ? new Date(String(inc.last_notified_at)).getTime()
+      : null;
     if (lastNotifiedAt !== null && nowMs - lastNotifiedAt < cooldownMs) {
       skipped.push({ id: inc.id, reason: "cooldown" });
       continue;
     }
 
-    const targets: string[] = Array.isArray(inc.notify_targets) ? inc.notify_targets.map(String) : [];
+    const targets: string[] = Array.isArray(inc.notify_targets)
+      ? inc.notify_targets.map(String)
+      : [];
     const effectiveTargets = targets.length ? targets : ["slack:#ops"];
 
     const subject = `[${inc.source}] ${inc.severity} incident requires ACK (${inc.id})`;
@@ -77,13 +105,16 @@ export async function POST(req: Request) {
     }
 
     const nowIso = now.toISOString();
-    await sb.from("ops_incidents").update({
-      escalation_status: "sent",
-      escalation_level: inc.severity,
-      escalated_at: inc.escalated_at ?? nowIso,
-      last_notified_at: nowIso,
-      notify_targets: effectiveTargets,
-    }).eq("id", inc.id);
+    await sb
+      .from("ops_incidents")
+      .update({
+        escalation_status: "sent",
+        escalation_level: inc.severity,
+        escalated_at: inc.escalated_at ?? nowIso,
+        last_notified_at: nowIso,
+        notify_targets: effectiveTargets,
+      })
+      .eq("id", inc.id);
 
     try {
       await sb.from("ops_incident_actions").insert({

@@ -3,15 +3,15 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /**
  * PATCH /api/deals/[dealId]/pricing-quotes/[quoteId]
- * 
+ *
  * Update pricing quote (edit quote fields or change status)
  */
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { dealId: string; quoteId: string } }
+  ctx: { params: Promise<{ dealId: string; quoteId: string }> },
 ) {
   try {
-    const { dealId, quoteId } = params;
+    const { dealId, quoteId } = await ctx.params;
     const body = await req.json();
     const { quote, assumptions, status } = body;
 
@@ -38,7 +38,7 @@ export async function PATCH(
       console.error("Failed to update pricing quote:", updateError);
       return NextResponse.json(
         { error: "Failed to update pricing quote" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -47,23 +47,22 @@ export async function PATCH(
     console.error("Error updating pricing quote:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 /**
  * GET /api/deals/[dealId]/pricing-quotes/[quoteId]
- * 
+ *
  * Get single pricing quote
  */
 export async function GET(
   req: NextRequest,
-  { params }: { params: { dealId: string; quoteId: string } }
+  ctx: { params: Promise<{ dealId: string; quoteId: string }> },
 ) {
   try {
-    const { dealId, quoteId } = params;
-
+    const { dealId, quoteId } = await ctx.params;
     const supabase = supabaseAdmin();
     const { data: quote, error } = await supabase
       .from("pricing_quotes")
@@ -75,7 +74,7 @@ export async function GET(
     if (error || !quote) {
       return NextResponse.json(
         { error: "Pricing quote not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -84,7 +83,7 @@ export async function GET(
     console.error("Error fetching pricing quote:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

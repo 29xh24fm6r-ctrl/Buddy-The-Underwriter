@@ -8,10 +8,13 @@ export const dynamic = "force-dynamic";
 
 /**
  * Banker-only endpoint to compute risk-based pricing
- * 
+ *
  * Returns full explainability (internal use only)
  */
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     // TODO: Add banker auth check
     // const banker = await requireBankerAuth(req);
@@ -42,6 +45,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
       },
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Pricing computation failed" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Pricing computation failed" },
+      { status: 400 },
+    );
   }
 }

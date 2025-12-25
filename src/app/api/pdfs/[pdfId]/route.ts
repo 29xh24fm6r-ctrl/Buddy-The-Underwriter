@@ -4,7 +4,10 @@ import { getPdfArtifact } from "@/lib/db/pdfs";
 
 export const runtime = "nodejs";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ pdfId: string }> }) {
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ pdfId: string }> },
+) {
   const params = await ctx.params;
   const pdfId = String(params?.pdfId ?? "");
   const artifact = getPdfArtifact(pdfId);

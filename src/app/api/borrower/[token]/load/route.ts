@@ -6,7 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Ctx = { params: Promise<{ token: string }> | { token: string } };
+type Ctx = { params: Promise<{ token: string }> };
 
 function json(status: number, body: any) {
   return NextResponse.json(body, { status });
@@ -15,14 +15,13 @@ function json(status: number, body: any) {
 /**
  * GET /api/borrower/[token]/load
  * Load application data for borrower portal
- * 
+ *
  * Returns: { application, applicants, answers, uploads }
  */
-export async function GET(req: NextRequest, { params }: Ctx) {
+export async function GET(req: NextRequest, ctx: Ctx) {
   try {
-    const p = params instanceof Promise ? await params : params;
+    const p = await ctx.params;
     const token = p?.token;
-
     if (!token) {
       return json(400, { ok: false, error: "Missing token" });
     }

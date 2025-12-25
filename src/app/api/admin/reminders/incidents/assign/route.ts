@@ -8,15 +8,27 @@ export async function POST(req: Request) {
   const sb = supabaseAdmin();
 
   let body: any = null;
-  try { body = await req.json(); } catch { body = null; }
+  try {
+    body = await req.json();
+  } catch {
+    body = null;
+  }
 
   const id = String(body?.id || "");
-  if (!id) return NextResponse.json({ ok: false, error: "missing_id" }, { status: 400 });
+  if (!id)
+    return NextResponse.json(
+      { ok: false, error: "missing_id" },
+      { status: 400 },
+    );
 
   const owner_team =
-    body?.owner_team === null ? null : String(body?.owner_team || "").trim() || null;
+    body?.owner_team === null
+      ? null
+      : String(body?.owner_team || "").trim() || null;
   const assigned_to =
-    body?.assigned_to === null ? null : String(body?.assigned_to || "").trim() || null;
+    body?.assigned_to === null
+      ? null
+      : String(body?.assigned_to || "").trim() || null;
   const ack_required =
     body?.ack_required === undefined ? undefined : Boolean(body?.ack_required);
 
@@ -27,7 +39,10 @@ export async function POST(req: Request) {
 
   const { error } = await sb.from("ops_incidents").update(patch).eq("id", id);
   if (error) {
-    return NextResponse.json({ ok: false, error: "assign_failed", detail: error.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "assign_failed", detail: error.message },
+      { status: 500 },
+    );
   }
 
   try {

@@ -36,11 +36,16 @@ function addBusinessHours(start: Date, hours: number) {
 }
 
 function statusIsReceived(status?: string | null) {
-  const s = String(status || "").trim().toLowerCase();
+  const s = String(status || "")
+    .trim()
+    .toLowerCase();
   return s === "received" || s === "complete" || s === "done";
 }
 
-export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }) {
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ token: string }> },
+) {
   const { token } = await ctx.params;
   const sb = supabaseAdmin();
 
@@ -67,7 +72,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
       const dt = r.received_at || null;
       if (!dt) continue;
       const d = new Date(dt);
-      if (!lastReceivedAt || d.getTime() > lastReceivedAt.getTime()) lastReceivedAt = d;
+      if (!lastReceivedAt || d.getTime() > lastReceivedAt.getTime())
+        lastReceivedAt = d;
     }
 
     // Determine stage purely from borrower-safe facts:
@@ -76,7 +82,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
     const now = new Date();
 
     const stage =
-      total === 0 ? "waiting_for_checklist" : missing > 0 ? "uploading_docs" : "bank_review";
+      total === 0
+        ? "waiting_for_checklist"
+        : missing > 0
+          ? "uploading_docs"
+          : "bank_review";
 
     // Borrower-safe ETA heuristic:
     // - If still uploading -> ETA null
@@ -87,11 +97,31 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
         : null;
 
     const stepsBase: Omit<TimelineStep, "state">[] = [
-      { id: "upload", title: "Upload documents", subtitle: "Drag & drop everything you have" },
-      { id: "review", title: "Bank review", subtitle: "We check completeness + match items" },
-      { id: "uw", title: "Underwriting", subtitle: "Credit team reviews the request" },
-      { id: "approval", title: "Approval", subtitle: "Decision + terms confirmed" },
-      { id: "closing", title: "Closing", subtitle: "Docs signed and funding scheduled" },
+      {
+        id: "upload",
+        title: "Upload documents",
+        subtitle: "Drag & drop everything you have",
+      },
+      {
+        id: "review",
+        title: "Bank review",
+        subtitle: "We check completeness + match items",
+      },
+      {
+        id: "uw",
+        title: "Underwriting",
+        subtitle: "Credit team reviews the request",
+      },
+      {
+        id: "approval",
+        title: "Approval",
+        subtitle: "Decision + terms confirmed",
+      },
+      {
+        id: "closing",
+        title: "Closing",
+        subtitle: "Docs signed and funding scheduled",
+      },
     ];
 
     function withState(): TimelineStep[] {
@@ -123,7 +153,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
     // When complete, show 40% (upload done + review current), keeping room for later stages.
     const pctChecklist = total > 0 ? Math.round((received / total) * 100) : 0;
     const progress =
-      stage === "bank_review" ? 40 : stage === "uploading_docs" ? Math.min(30, Math.round(pctChecklist * 0.3)) : 0;
+      stage === "bank_review"
+        ? 40
+        : stage === "uploading_docs"
+          ? Math.min(30, Math.round(pctChecklist * 0.3))
+          : 0;
 
     return NextResponse.json({
       ok: true,
@@ -139,6 +173,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
       updated_at: toIso(now),
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "status_failed" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "status_failed" },
+      { status: 400 },
+    );
   }
 }

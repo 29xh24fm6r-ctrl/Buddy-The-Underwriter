@@ -16,24 +16,40 @@ export async function POST(req: Request) {
   const filename = body?.filename;
   const mimeType = body?.mimeType || null;
 
-  if (!token || typeof token !== "string") return NextResponse.json({ error: "Missing token" }, { status: 400 });
-  if (!filename || typeof filename !== "string") return NextResponse.json({ error: "Missing filename" }, { status: 400 });
+  if (!token || typeof token !== "string")
+    return NextResponse.json({ error: "Missing token" }, { status: 400 });
+  if (!filename || typeof filename !== "string")
+    return NextResponse.json({ error: "Missing filename" }, { status: 400 });
 
-  const rl = rateLimit(`portal:${token.slice(0, 12)}:upload_prepare`, 20, 60_000);
-  if (!rl.ok) return NextResponse.json({ error: "Rate limited" }, { status: 429 });
+  const rl = rateLimit(
+    `portal:${token.slice(0, 12)}:upload_prepare`,
+    20,
+    60_000,
+  );
+  if (!rl.ok)
+    return NextResponse.json({ error: "Rate limited" }, { status: 429 });
 
   let invite;
   try {
     invite = await requireValidInvite(token);
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Invalid/expired link" }, { status: 401 });
+    return NextResponse.json(
+      { error: e?.message || "Invalid/expired link" },
+      { status: 401 },
+    );
   }
 
   const safeName = filename.replace(/[^a-zA-Z0-9._-]+/g, "_");
   const path = `${invite.deal_id}/${Date.now()}_${safeName}`;
 
-  const { data, error } = await sb.storage.from("borrower_uploads").createSignedUploadUrl(path);
-  if (error || !data) return NextResponse.json({ error: "Failed to create upload URL" }, { status: 500 });
+  const { data, error } = await sb.storage
+    .from("borrower_uploads")
+    .createSignedUploadUrl(path);
+  if (error || !data)
+    return NextResponse.json(
+      { error: "Failed to create upload URL" },
+      { status: 500 },
+    );
 
   return NextResponse.json({
     bucket: "borrower_uploads",

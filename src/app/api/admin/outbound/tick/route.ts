@@ -9,7 +9,7 @@ export async function POST(req: Request) {
   const sb = createClient(
     process.env.SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
+    { auth: { persistSession: false } },
   );
 
   const body = await req.json().catch(() => ({}));

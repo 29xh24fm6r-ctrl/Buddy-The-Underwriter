@@ -14,6 +14,9 @@ export async function POST() {
     const res = await sbaSyncCore();
     return NextResponse.json(res);
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 500 },
+    );
   }
 }

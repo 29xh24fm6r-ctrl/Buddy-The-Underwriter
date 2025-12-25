@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { ConditionalHeroBar } from "@/components/nav/ConditionalHeroBar";
+import FrameGuard from "@/components/dev/FrameGuard";
 import "./globals.css";
 
 const inter = Inter({
@@ -37,8 +38,11 @@ export default function RootLayout({
           />
         </head>
         <body className={`${inter.variable} font-inter bg-bg-dark text-white antialiased`}>
-          <ConditionalHeroBar />
-          {children}
+          <FrameGuard />
+          <div className="sticky top-0 z-[2000] bg-black/40 backdrop-blur-xl border-b border-white/10">
+            <ConditionalHeroBar />
+          </div>
+          <main className="pt-16">{children}</main>
         </body>
       </html>
     </ClerkProvider>

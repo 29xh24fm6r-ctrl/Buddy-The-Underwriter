@@ -12,11 +12,21 @@ const BUCKET = "bank-assets";
 export async function POST(req: Request) {
   const sbUser = await supabaseServer();
   const { data: auth } = await sbUser.auth.getUser();
-  if (!auth?.user) return NextResponse.json({ ok: false, error: "not_authenticated" }, { status: 401 });
+  if (!auth?.user)
+    return NextResponse.json(
+      { ok: false, error: "not_authenticated" },
+      { status: 401 },
+    );
 
   let bankId: string;
-  try { bankId = await getCurrentBankId(); }
-  catch (e: any) { return NextResponse.json({ ok: false, error: "tenant_missing", detail: String(e?.message || "") }, { status: 400 }); }
+  try {
+    bankId = await getCurrentBankId();
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: "tenant_missing", detail: String(e?.message || "") },
+      { status: 400 },
+    );
+  }
 
   const form = await req.formData();
   const kind = String(form.get("kind") || "").trim();
@@ -25,9 +35,21 @@ export async function POST(req: Request) {
   const description = descriptionRaw ? descriptionRaw : null;
 
   const file = form.get("file");
-  if (!kind) return NextResponse.json({ ok: false, error: "missing_kind" }, { status: 400 });
-  if (!title) return NextResponse.json({ ok: false, error: "missing_title" }, { status: 400 });
-  if (!(file instanceof File)) return NextResponse.json({ ok: false, error: "missing_file" }, { status: 400 });
+  if (!kind)
+    return NextResponse.json(
+      { ok: false, error: "missing_kind" },
+      { status: 400 },
+    );
+  if (!title)
+    return NextResponse.json(
+      { ok: false, error: "missing_title" },
+      { status: 400 },
+    );
+  if (!(file instanceof File))
+    return NextResponse.json(
+      { ok: false, error: "missing_file" },
+      { status: 400 },
+    );
 
   // Admin client for storage + insert (service-role)
   const sb = supabaseAdmin();
@@ -46,7 +68,10 @@ export async function POST(req: Request) {
     .upload(storage_path, bytes, { contentType: mime, upsert: false });
 
   if (up.error) {
-    return NextResponse.json({ ok: false, error: "storage_upload_failed", detail: up.error.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "storage_upload_failed", detail: up.error.message },
+      { status: 500 },
+    );
   }
 
   const ins = await sb.from("bank_assets").insert({
@@ -66,8 +91,13 @@ export async function POST(req: Request) {
 
   if (ins.error) {
     // best-effort cleanup storage if metadata insert fails
-    try { await sb.storage.from(BUCKET).remove([storage_path]); } catch {}
-    return NextResponse.json({ ok: false, error: "metadata_insert_failed", detail: ins.error.message }, { status: 500 });
+    try {
+      await sb.storage.from(BUCKET).remove([storage_path]);
+    } catch {}
+    return NextResponse.json(
+      { ok: false, error: "metadata_insert_failed", detail: ins.error.message },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ ok: true, id: assetId, storage_path });

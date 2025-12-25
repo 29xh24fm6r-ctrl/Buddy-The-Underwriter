@@ -1,11 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { recordLearningEvent } from "@/lib/packs/recordLearningEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
@@ -15,22 +18,33 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     const request_id = String(body?.request_id || "");
 
     if (!upload_inbox_id || !request_id) {
-      return NextResponse.json({ ok: false, error: "missing_params" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "missing_params" },
+        { status: 400 },
+      );
     }
 
     // Load inbox upload
     const inboxRes = await sb
       .from("borrower_upload_inbox")
-      .select("id, bank_id, deal_id, filename, mime, bytes, storage_path, match_confidence, match_reason")
+      .select(
+        "id, bank_id, deal_id, filename, mime, bytes, storage_path, match_confidence, match_reason",
+      )
       .eq("id", upload_inbox_id)
       .single();
 
     if (inboxRes.error || !inboxRes.data) {
-      return NextResponse.json({ ok: false, error: inboxRes.error?.message || "upload_not_found" }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: inboxRes.error?.message || "upload_not_found" },
+        { status: 404 },
+      );
     }
 
     if (String(inboxRes.data.deal_id) !== String(dealId)) {
-      return NextResponse.json({ ok: false, error: "deal_mismatch" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "deal_mismatch" },
+        { status: 400 },
+      );
     }
 
     const bank_id = inboxRes.data.bank_id;
@@ -101,6 +115,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "attach_failed" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "attach_failed" },
+      { status: 400 },
+    );
   }
 }

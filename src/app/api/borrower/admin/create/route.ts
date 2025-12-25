@@ -11,7 +11,10 @@ export async function POST(req: Request) {
     const { user_id, deal_id } = body;
 
     if (!user_id) {
-      return NextResponse.json({ ok: false, error: "Missing user_id" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Missing user_id" },
+        { status: 400 },
+      );
     }
 
     const sb = supabaseAdmin();
@@ -40,6 +43,9 @@ export async function POST(req: Request) {
       url,
     });
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message ?? "create_failed" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: err?.message ?? "create_failed" },
+      { status: 400 },
+    );
   }
 }

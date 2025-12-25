@@ -7,9 +7,12 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const { userId } = await auth();
-  
+
   if (!userId) {
-    return NextResponse.json({ ok: false, error: "not_authenticated" }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, error: "not_authenticated" },
+      { status: 401 },
+    );
   }
 
   const sb = supabaseAdmin();
@@ -21,12 +24,13 @@ export async function GET() {
     .eq("clerk_user_id", userId);
 
   if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
   }
 
-  const banks = (data ?? [])
-    .map((m: any) => m.banks)
-    .filter(Boolean);
+  const banks = (data ?? []).map((m: any) => m.banks).filter(Boolean);
 
   return NextResponse.json({ ok: true, banks }, { status: 200 });
 }

@@ -1,28 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireUnderwriterOnDeal } from "@/lib/deals/participants";
-import { generateDraftRequests, deduplicateDrafts } from "@/lib/borrower/generateDraftRequests";
+import {
+  generateDraftRequests,
+  deduplicateDrafts,
+} from "@/lib/borrower/generateDraftRequests";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
  * POST /api/deals/[dealId]/drafts/generate
- * 
+ *
  * Auto-generate draft borrower requests from missing CTC conditions
- * 
+ *
  * Rules (deterministic):
  * 1. Read critical/high outstanding conditions
  * 2. Match to document type patterns
  * 3. Generate draft email with templates
  * 4. Insert into draft_borrower_requests (pending_approval)
  * 5. Underwriter reviews before sending
- * 
+ *
  * Returns: { ok: true, drafts_created: number, drafts: [...] }
  */
 export async function POST(
   _req: NextRequest,
-  ctx: { params: Promise<{ dealId: string }> }
+  ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
     const { dealId } = await ctx.params;
@@ -55,7 +58,8 @@ export async function POST(
       return NextResponse.json({
         ok: true,
         drafts_created: 0,
-        message: "No outstanding critical/high conditions to generate drafts for",
+        message:
+          "No outstanding critical/high conditions to generate drafts for",
       });
     }
 
@@ -63,7 +67,7 @@ export async function POST(
     const drafts = generateDraftRequests(
       conditions,
       deal.deal_name || deal.borrower_name || "your business",
-      deal.borrower_name || "Borrower"
+      deal.borrower_name || "Borrower",
     );
 
     // 4. Deduplicate by document type
@@ -89,7 +93,7 @@ export async function POST(
           draft_message: d.draft_message,
           evidence: d.evidence,
           status: "pending_approval",
-        }))
+        })),
       )
       .select();
 
@@ -114,7 +118,7 @@ export async function POST(
     console.error("[POST /api/deals/:dealId/drafts/generate] Error:", err);
     return NextResponse.json(
       { ok: false, error: err?.message ?? String(err) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -6,7 +6,10 @@ import { runPreflight } from "@/lib/sbaPreflight/runPreflight";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(_: Request, context: { params: Promise<{ token: string }> }) {
+export async function POST(
+  _: Request,
+  context: { params: Promise<{ token: string }> },
+) {
   try {
     const { token } = await context.params;
     const { application } = await requireBorrowerToken(token);
@@ -14,10 +17,27 @@ export async function POST(_: Request, context: { params: Promise<{ token: strin
 
     const [{ data: answers }, { data: forms }, { data: reqs }, { data: atts }] =
       await Promise.all([
-        sb.from("borrower_answers").select("question_key,value").eq("application_id", application.id),
-        (sb as any).from("sba_form_payloads").select("*").eq("application_id", application.id).limit(1).single(),
-        (sb as any).from("borrower_requirements_snapshots").select("*").eq("application_id", application.id).order("created_at", { ascending: false }).limit(1).single(),
-        sb.from("borrower_attachments").select("*").eq("application_id", application.id),
+        sb
+          .from("borrower_answers")
+          .select("question_key,value")
+          .eq("application_id", application.id),
+        (sb as any)
+          .from("sba_form_payloads")
+          .select("*")
+          .eq("application_id", application.id)
+          .limit(1)
+          .single(),
+        (sb as any)
+          .from("borrower_requirements_snapshots")
+          .select("*")
+          .eq("application_id", application.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single(),
+        sb
+          .from("borrower_attachments")
+          .select("*")
+          .eq("application_id", application.id),
       ]);
 
     const answersObj: Record<string, any> = {};
@@ -42,7 +62,7 @@ export async function POST(_: Request, context: { params: Promise<{ token: strin
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? "preflight_failed" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 }

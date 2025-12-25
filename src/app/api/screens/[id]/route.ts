@@ -10,16 +10,13 @@ export const runtime = "edge";
  */
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   try {
     const id = params.id;
 
     if (!isValidScreenId(id)) {
-      return NextResponse.json(
-        { error: "Invalid screen ID" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid screen ID" }, { status: 400 });
     }
 
     const sb = supabaseAdmin();
@@ -35,15 +32,12 @@ export async function GET(
       console.error("Fetch error:", error);
       return NextResponse.json(
         { error: "Failed to fetch screen" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     if (!data) {
-      return NextResponse.json(
-        { error: "Screen not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Screen not found" }, { status: 404 });
     }
 
     // Increment view count (fire and forget)
@@ -65,7 +59,7 @@ export async function GET(
     console.error("Screen fetch error:", err);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

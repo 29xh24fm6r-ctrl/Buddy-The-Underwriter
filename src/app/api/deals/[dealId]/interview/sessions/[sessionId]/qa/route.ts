@@ -1,14 +1,24 @@
 // src/app/api/deals/[dealId]/interview/sessions/[sessionId]/qa/route.ts
 import { NextRequest } from "next/server";
 import { getAuthedSupabase } from "@/lib/supabase/serverAuthed";
-import { jsonBadRequest, jsonNotFound, jsonOk, jsonServerError, jsonUnauthorized } from "@/lib/interview/http";
+import {
+  jsonBadRequest,
+  jsonNotFound,
+  jsonOk,
+  jsonServerError,
+  jsonUnauthorized,
+} from "@/lib/interview/http";
 import { answerBorrowerQuestion } from "@/lib/interview/qa";
 
 export const runtime = "nodejs";
 
 type Body = { question: string };
 
-async function assertSessionAccessible(supabase: any, dealId: string, sessionId: string) {
+async function assertSessionAccessible(
+  supabase: any,
+  dealId: string,
+  sessionId: string,
+) {
   const { data, error } = await supabase
     .from("deal_interview_sessions")
     .select("id, deal_id")
@@ -21,7 +31,10 @@ async function assertSessionAccessible(supabase: any, dealId: string, sessionId:
   return { ok: true as const };
 }
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string; sessionId: string }> }) {
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ dealId: string; sessionId: string }> },
+) {
   try {
     const { dealId, sessionId } = await ctx.params;
     const { supabase, userId } = await getAuthedSupabase();
@@ -56,7 +69,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
 
     if (insErr) return jsonServerError("db_insert_qa_turn_failed", insErr);
 
-    return jsonOk({ answer: qa.answer, citations: qa.citations, turn: insertedTurn });
+    return jsonOk({
+      answer: qa.answer,
+      citations: qa.citations,
+      turn: insertedTurn,
+    });
   } catch (e: any) {
     return jsonServerError("unexpected_error", String(e?.message || e));
   }

@@ -18,34 +18,43 @@ type BuddyResult = {
  * - No underwriting jargon
  * - Suggests next best upload from missing required items
  */
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const authHeader = req.headers.get("authorization");
     if (!authHeader) throw new Error("Missing authorization header");
     const token = authHeader.replace(/^Bearer\s+/i, "");
-    
+
     const invite = await requireValidInvite(token);
     const { dealId } = await ctx.params;
-
     // Verify deal matches invite
     if (invite.deal_id !== dealId) throw new Error("Deal ID mismatch");
 
     const body = await req.json();
-    const message = String(body?.message ?? "").trim().toLowerCase();
+    const message = String(body?.message ?? "")
+      .trim()
+      .toLowerCase();
     const snapshot = body?.snapshot ?? {};
 
     // Detect intent (simple keyword matching - deterministic)
     const isAskingNextUpload =
-      message.includes("what") && (message.includes("next") || message.includes("upload"));
-    const isAskingProgress = message.includes("progress") || message.includes("status");
-    const isCantFind = message.includes("can't find") || message.includes("missing");
-    const isAskingPhotos = message.includes("photo") || message.includes("screenshot");
-    const isAskingWhatHappens = message.includes("what happens") || message.includes("next step");
+      message.includes("what") &&
+      (message.includes("next") || message.includes("upload"));
+    const isAskingProgress =
+      message.includes("progress") || message.includes("status");
+    const isCantFind =
+      message.includes("can't find") || message.includes("missing");
+    const isAskingPhotos =
+      message.includes("photo") || message.includes("screenshot");
+    const isAskingWhatHappens =
+      message.includes("what happens") || message.includes("next step");
 
     // Find next best upload from missing required items
     const checklist = snapshot?.checklist ?? [];
     const missing = checklist.filter(
-      (i: any) => i.required && i.status === "missing"
+      (i: any) => i.required && i.status === "missing",
     );
     const nextBest = missing[0] ?? null;
 
@@ -74,8 +83,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
         pct >= 70
           ? "You're crushing it! Just a few more."
           : pct >= 35
-          ? "Great start. Each upload is a level-up."
-          : "No stress — go at your own pace."
+            ? "Great start. Each upload is a level-up."
+            : "No stress — go at your own pace."
       }`;
       toneTag = "reassuring";
     } else if (isCantFind) {
@@ -110,6 +119,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
     return NextResponse.json({ ok: true, result });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

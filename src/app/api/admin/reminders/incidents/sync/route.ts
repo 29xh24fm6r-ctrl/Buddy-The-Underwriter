@@ -31,12 +31,20 @@ export async function POST(req: Request) {
     body = null;
   }
 
-  const incidents: IncidentPayload[] = Array.isArray(body?.incidents) ? body.incidents : [];
+  const incidents: IncidentPayload[] = Array.isArray(body?.incidents)
+    ? body.incidents
+    : [];
   if (incidents.length === 0) {
-    return NextResponse.json({ ok: false, error: "missing_incidents" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "missing_incidents" },
+      { status: 400 },
+    );
   }
   if (incidents.length > 200) {
-    return NextResponse.json({ ok: false, error: "too_many_incidents", max: 200 }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "too_many_incidents", max: 200 },
+      { status: 400 },
+    );
   }
 
   const rows = incidents.map((i) => ({
@@ -59,7 +67,10 @@ export async function POST(req: Request) {
     .upsert(rows, { onConflict: "id" });
 
   if (error) {
-    return NextResponse.json({ ok: false, error: "upsert_failed", detail: error.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "upsert_failed", detail: error.message },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ ok: true, upserted: rows.length });

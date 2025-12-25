@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/voice/turn/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -20,20 +20,21 @@ type Body = {
 
 export async function POST(
   req: Request,
-  ctx: { params: Promise<{ dealId: string }> }
+  ctx: { params: Promise<{ dealId: string }> },
 ) {
   const { userId } = await auth();
-  if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!userId)
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { dealId } = await ctx.params;
-
   const body = (await req.json().catch(() => null)) as Body | null;
   if (!body?.transcript || typeof body.transcript !== "string") {
     return NextResponse.json({ error: "invalid_body" }, { status: 400 });
   }
 
   const transcript = body.transcript.trim();
-  if (!transcript) return NextResponse.json({ error: "empty_transcript" }, { status: 400 });
+  if (!transcript)
+    return NextResponse.json({ error: "empty_transcript" }, { status: 400 });
 
   // Service role insert (server-side only).
   // If you already have a "server authed supabase client" helper, swap this to that.
@@ -64,7 +65,7 @@ export async function POST(
   if (error) {
     return NextResponse.json(
       { error: "supabase_insert_failed", details: error.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 

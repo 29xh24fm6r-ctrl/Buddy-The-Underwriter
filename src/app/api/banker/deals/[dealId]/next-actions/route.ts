@@ -11,12 +11,14 @@ function requireUserId(req: Request) {
   return userId;
 }
 
-export async function GET(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     requireUserId(req);
     const sb = supabaseAdmin();
     const { dealId } = await ctx.params;
-
     const { data, error } = await sb
       .from("deal_next_actions")
       .select("*")
@@ -29,11 +31,17 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string 
     if (error) throw error;
     return NextResponse.json({ ok: true, actions: data ?? [] });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     requireUserId(req);
     const sb = supabaseAdmin();
@@ -44,7 +52,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     const id = String(body?.id ?? "");
     const status = String(body?.status ?? "");
     if (!id) throw new Error("Missing id.");
-    if (status !== "open" && status !== "done") throw new Error("Invalid status.");
+    if (status !== "open" && status !== "done")
+      throw new Error("Invalid status.");
 
     const { error } = await sb
       .from("deal_next_actions")
@@ -56,6 +65,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

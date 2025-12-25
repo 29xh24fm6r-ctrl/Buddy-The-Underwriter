@@ -32,15 +32,20 @@ export async function GET() {
   if (!env.NEXT_PUBLIC_SUPABASE_URL) {
     return NextResponse.json(
       { ok: false, env, error: "Missing NEXT_PUBLIC_SUPABASE_URL" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
   const apiKey = service.trim() ? service.trim() : anon.trim();
   if (!apiKey) {
     return NextResponse.json(
-      { ok: false, env, error: "Missing both SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_ANON_KEY" },
-      { status: 500 }
+      {
+        ok: false,
+        env,
+        error:
+          "Missing both SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      },
+      { status: 500 },
     );
   }
 
@@ -66,12 +71,11 @@ export async function GET() {
         status: res.status,
         statusText: res.statusText,
         bodyPreview: text.slice(0, 300),
-        hint:
-          res.ok
-            ? "✅ Server can reach Supabase REST. If supabase-js still fails, it's client config/import/runtime."
-            : "Env present but REST responded non-200. If status=401, key is wrong. If 404, URL is wrong (not *.supabase.co).",
+        hint: res.ok
+          ? "✅ Server can reach Supabase REST. If supabase-js still fails, it's client config/import/runtime."
+          : "Env present but REST responded non-200. If status=401, key is wrong. If 404, URL is wrong (not *.supabase.co).",
       },
-      { status: 200 }
+      { status: 200 },
     );
   } catch (e: any) {
     return NextResponse.json(
@@ -80,10 +84,9 @@ export async function GET() {
         env,
         probeUrl: maskUrl(probeUrl),
         error: e?.message || "fetch_failed",
-        hint:
-          "If this says fetch failed: your NEXT_PUBLIC_SUPABASE_URL is wrong OR env is not injected into the running app OR DNS/network issue in Codespaces.",
+        hint: "If this says fetch failed: your NEXT_PUBLIC_SUPABASE_URL is wrong OR env is not injected into the running app OR DNS/network issue in Codespaces.",
       },
-      { status: 200 }
+      { status: 200 },
     );
   }
 }

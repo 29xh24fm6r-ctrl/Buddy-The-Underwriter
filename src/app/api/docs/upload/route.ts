@@ -20,7 +20,10 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   const contentType = req.headers.get("content-type") || "";
   if (!contentType.includes("multipart/form-data")) {
-    return NextResponse.json({ error: "Expected multipart/form-data" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Expected multipart/form-data" },
+      { status: 400 },
+    );
   }
 
   const dealIdHolder = { value: "DEAL-DEMO-001" };
@@ -38,8 +41,10 @@ export async function POST(req: Request) {
   });
 
   bb.on("field", (name, val) => {
-    if (name === "dealId") dealIdHolder.value = String(val || "").trim() || dealIdHolder.value;
-    if (name === "docType") docTypeHolder.value = String(val || "").trim() || docTypeHolder.value;
+    if (name === "dealId")
+      dealIdHolder.value = String(val || "").trim() || dealIdHolder.value;
+    if (name === "docType")
+      docTypeHolder.value = String(val || "").trim() || docTypeHolder.value;
   });
 
   bb.on("file", (fieldname, file, info) => {
@@ -83,7 +88,8 @@ export async function POST(req: Request) {
 
       // OPTIONAL: auto-extract immediately for FINANCIALS
       if (doc.type === "FINANCIALS") {
-        const { extractFinancialsFromPdf } = await import("@/lib/extract/financials");
+        const { extractFinancialsFromPdf } =
+          await import("@/lib/extract/financials");
         const { upsertExtract } = await import("@/lib/db/extractRecords");
         const { setDocStatus } = await import("@/lib/db/docRecords");
 
@@ -112,7 +118,10 @@ export async function POST(req: Request) {
 
   const stream = req.body;
   if (!stream) {
-    return NextResponse.json({ error: "Missing request body" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing request body" },
+      { status: 400 },
+    );
   }
 
   // Pipe the Web stream to busboy
@@ -138,7 +147,7 @@ export async function POST(req: Request) {
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message ?? "Upload failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

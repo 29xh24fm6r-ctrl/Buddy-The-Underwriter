@@ -11,12 +11,14 @@ function requireUserId(req: Request) {
   return userId;
 }
 
-export async function GET(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     requireUserId(req);
     const sb = supabaseAdmin();
     const { dealId } = await ctx.params;
-
     const { data, error } = await sb
       .from("deal_portal_status")
       .select("stage, eta_text, updated_at")
@@ -27,14 +29,24 @@ export async function GET(req: Request, ctx: { params: Promise<{ dealId: string 
 
     return NextResponse.json({
       ok: true,
-      status: data ?? { stage: "Intake", eta_text: null, updated_at: new Date().toISOString() },
+      status: data ?? {
+        stage: "Intake",
+        eta_text: null,
+        updated_at: new Date().toISOString(),
+      },
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
   try {
     const bankerUserId = requireUserId(req);
     const sb = supabaseAdmin();
@@ -44,17 +56,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     const stage = String(body?.stage ?? "Intake").trim();
     const etaText = body?.etaText ? String(body.etaText).trim() : null;
 
-    const { error } = await sb
-      .from("deal_portal_status")
-      .upsert(
-        {
-          deal_id: dealId,
-          stage,
-          eta_text: etaText,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "deal_id" }
-      );
+    const { error } = await sb.from("deal_portal_status").upsert(
+      {
+        deal_id: dealId,
+        stage,
+        eta_text: etaText,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "deal_id" },
+    );
 
     if (error) throw error;
 
@@ -70,6 +80,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 400 },
+    );
   }
 }

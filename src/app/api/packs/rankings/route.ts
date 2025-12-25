@@ -1,25 +1,22 @@
 /**
  * GET /api/packs/rankings
- * 
+ *
  * Fetch pack rankings for a deal from borrower_pack_rankings view
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const dealId = searchParams.get("dealId");
 
   if (!dealId) {
-    return NextResponse.json(
-      { error: "dealId is required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "dealId is required" }, { status: 400 });
   }
 
   try {
-    const sb = createServerClient();
+    const sb = getSupabaseServerClient();
 
     // Query the borrower_pack_rankings view
     const { data: rankings, error } = await sb
@@ -32,7 +29,7 @@ export async function GET(request: NextRequest) {
       console.error("Error fetching pack rankings:", error);
       return NextResponse.json(
         { error: "Failed to fetch pack rankings" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -46,7 +43,7 @@ export async function GET(request: NextRequest) {
     console.error("Pack rankings API error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

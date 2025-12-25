@@ -1,22 +1,30 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_: Request, { params }: { params: { dealId: string } }) {
-  const dealId = params.dealId;
+export async function GET(
+  _: NextRequest,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
+  const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
   const items = await sb
     .from("deal_checklist_items")
-    .select("id, checklist_key, label, category, status, requested_at, received_at, waived_at, received_document_id, notes")
+    .select(
+      "id, checklist_key, label, category, status, requested_at, received_at, waived_at, received_document_id, notes",
+    )
     .eq("deal_id", dealId)
     .order("category", { ascending: true })
     .order("label", { ascending: true });
 
   if (items.error) {
-    return NextResponse.json({ ok: false, error: items.error.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: items.error.message },
+      { status: 500 },
+    );
   }
 
   const rows = items.data || [];

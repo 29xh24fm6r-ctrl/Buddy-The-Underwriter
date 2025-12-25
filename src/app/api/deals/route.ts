@@ -8,11 +8,14 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     const bankId = await getCurrentBankId();
-    const body = await req.json().catch(() => ({} as any));
+    const body = await req.json().catch(() => ({}) as any);
     const name = String(body?.name || "").trim();
 
     if (!name) {
-      return NextResponse.json({ ok: false, error: "missing_deal_name" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "missing_deal_name" },
+        { status: 400 },
+      );
     }
 
     const supabase = getSupabaseServerClient();
@@ -29,14 +32,23 @@ export async function POST(req: Request) {
       .single();
 
     if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({ ok: true, dealId: deal.id }, { status: 201 });
   } catch (err: any) {
     if (err?.message?.includes("bank_not_selected")) {
-      return NextResponse.json({ ok: false, error: "bank_not_selected" }, { status: 403 });
+      return NextResponse.json(
+        { ok: false, error: "bank_not_selected" },
+        { status: 403 },
+      );
     }
-    return NextResponse.json({ ok: false, error: err?.message || "failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: err?.message || "failed" },
+      { status: 500 },
+    );
   }
 }

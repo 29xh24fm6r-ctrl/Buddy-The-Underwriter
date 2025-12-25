@@ -4,22 +4,22 @@ import { generatePricingQuote } from "@/lib/pricing/generatePricingQuote";
 
 /**
  * POST /api/deals/[dealId]/pricing-quotes/create
- * 
+ *
  * Generate pricing quote from risk facts
  */
 export async function POST(
   req: NextRequest,
-  { params }: { params: { dealId: string } }
+  ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    const { dealId } = params;
+    const { dealId } = await ctx.params;
     const body = await req.json();
     const { snapshotId, riskFactsId } = body;
 
     if (!snapshotId || !riskFactsId) {
       return NextResponse.json(
         { error: "snapshotId and riskFactsId are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -35,7 +35,7 @@ export async function POST(
     if (factsError || !riskFacts) {
       return NextResponse.json(
         { error: "Risk facts not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -60,7 +60,7 @@ export async function POST(
       console.error("Failed to insert pricing quote:", insertError);
       return NextResponse.json(
         { error: "Failed to create pricing quote" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -69,7 +69,7 @@ export async function POST(
     console.error("Error creating pricing quote:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
