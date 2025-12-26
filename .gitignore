@@ -50,3 +50,5 @@ start.log
 build.log
 build.clean.log
 smoke.*.txt
+
+/public/pdfjs/
