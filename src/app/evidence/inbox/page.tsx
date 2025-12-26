@@ -1,18 +1,9 @@
 // src/app/evidence/inbox/page.tsx
-import { redirect } from "next/navigation";
-import { currentUser } from "@clerk/nextjs/server";
-import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export default async function EvidenceInboxPage() {
-  const user = await currentUser();
-  if (!user) redirect("/sign-in");
-
-  const pick = await tryGetCurrentBankId();
-  if (!pick.ok) redirect("/deals");
-
   return (
     <div className="container mx-auto p-6">
       <h1 className="text-3xl font-bold">Evidence Inbox</h1>

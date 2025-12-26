@@ -1,10 +1,10 @@
-import { NextResponse } from \"next/server\";
-import { supabaseAdmin } from \"@/lib/supabase/admin\";
-import { requireRole } from \"@/lib/auth/requireRole\";
-import type { PdfEvidenceSpan } from \"@/lib/evidence/pdfSpans\";
+import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { requireRole } from "@/lib/auth/requireRole";
+import type { PdfEvidenceSpan } from "@/lib/evidence/pdfSpans";
 
-export const runtime = \"nodejs\";
-export const dynamic = \"force-dynamic\";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /**
  * Get PDF URL and bounding boxes for evidence span navigation.
@@ -17,30 +17,30 @@ export async function GET(
   _req: Request,
   ctx: { params: Promise<{ dealId: string; attachmentId: string }> },
 ) {
-  await requireRole([\"super_admin\", \"bank_admin\", \"underwriter\"]);
+  await requireRole(["super_admin", "bank_admin", "underwriter"]);
 
   const { dealId, attachmentId } = await ctx.params;
   const sb = supabaseAdmin();
 
   const { data: attachment, error: attachError } = await sb
-    .from(\"deal_attachments\")
-    .select(\"id, file_path, filename, content_type\")
-    .eq(\"deal_id\", dealId)
-    .eq(\"id\", attachmentId)
+    .from("deal_attachments")
+    .select("id, file_path, filename, content_type")
+    .eq("deal_id", dealId)
+    .eq("id", attachmentId)
     .maybeSingle();
 
   if (attachError) {
     return NextResponse.json({ ok: false, error: attachError.message }, { status: 500 });
   }
   if (!attachment) {
-    return NextResponse.json({ ok: false, error: \"Attachment not found\" }, { status: 404 });
+    return NextResponse.json({ ok: false, error: "Attachment not found" }, { status: 404 });
   }
 
   const { data: ocrData, error: ocrError } = await sb
-    .from(\"document_ocr_results\")
-    .select(\"attachment_id, extracted_text, ocr_metadata\")
-    .eq(\"deal_id\", dealId)
-    .eq(\"attachment_id\", attachmentId)
+    .from("document_ocr_results")
+    .select("attachment_id, extracted_text, ocr_metadata")
+    .eq("deal_id", dealId)
+    .eq("attachment_id", attachmentId)
     .maybeSingle();
 
   if (ocrError) {
@@ -48,13 +48,13 @@ export async function GET(
   }
 
   const { data: intelData, error: intelError } = await sb
-    .from(\"doc_intel_results\")
-    .select(\"evidence_json\")
-    .eq(\"deal_id\", dealId)
-    .eq(\"file_id\", attachmentId)
+    .from("doc_intel_results")
+    .select("evidence_json")
+    .eq("deal_id", dealId)
+    .eq("file_id", attachmentId)
     .maybeSingle();
 
-  if (intelError && intelError.code !== \"PGRST116\") {
+  if (intelError && intelError.code !== "PGRST116") {
     return NextResponse.json({ ok: false, error: intelError.message }, { status: 500 });
   }
 
@@ -96,7 +96,7 @@ export async function GET(
     if (!isFinite(page) || page < 1) return null;
 
     // Already normalized x1..y2?
-    if ([\"x1\",\"y1\",\"x2\",\"y2\"].every((k) => typeof bb[k] === \"number\")) {
+    if (["x1","y1","x2","y2"].every((k) => typeof bb[k] === "number")) {
       const x1 = Number(bb.x1), y1 = Number(bb.y1), x2 = Number(bb.x2), y2 = Number(bb.y2);
       // Heuristic: if all coords <= 1.5 assume normalized
       if ([x1,y1,x2,y2].every((v) => isFinite(v) && v <= 1.5)) {
@@ -156,7 +156,7 @@ export async function GET(
   });
 
   const filePath = attachment.file_path || `${dealId}/${attachment.filename}`;
-  const { data: urlData } = await sb.storage.from(\"deal-documents\").createSignedUrl(filePath, 3600);
+  const { data: urlData } = await sb.storage.from("deal-documents").createSignedUrl(filePath, 3600);
   const pdfUrl = urlData?.signedUrl || null;
 
   return NextResponse.json({

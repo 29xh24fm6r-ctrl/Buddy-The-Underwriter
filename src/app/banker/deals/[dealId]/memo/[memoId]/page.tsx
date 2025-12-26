@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/requireRole";
 import { CitedMemoViewer } from "@/components/evidence/CitedMemoViewer";
@@ -8,22 +9,29 @@ export const dynamic = "force-dynamic";
 
 async function getMemo(dealId: string, memoId: string) {
   const sb = supabaseAdmin();
-  const memo = await sb.from("credit_memo_drafts").select("*").eq("deal_id", dealId).eq("id", memoId).single();
+  const memo = await sb
+    .from("credit_memo_drafts")
+    .select("*")
+    .eq("deal_id", dealId)
+    .eq("id", memoId)
+    .maybeSingle();
+
+  // Not found => null (we'll map to 404)
   if (memo.error) throw memo.error;
-  return memo.data;
+  return memo.data ?? null;
 }
 
 export default async function MemoEvidencePage({
   params,
 }: {
-  params: Promise<{ dealId: string; memoId: string }>;
+  params: { dealId: string; memoId: string };
 }) {
   await requireRole(["super_admin", "bank_admin", "underwriter"]);
 
-  const { dealId, memoId } = await params;
+  const { dealId, memoId } = params;
   const memo = await getMemo(dealId, memoId);
-
-  // Choose a primary attachment for now.
+  if (!memo) notFound();
+// Choose a primary attachment for now.
   // v1: take most recent doc_intel_result file_id
   const sb = supabaseAdmin();
   const doc = await sb

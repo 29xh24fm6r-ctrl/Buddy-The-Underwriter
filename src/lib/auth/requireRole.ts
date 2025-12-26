@@ -1,5 +1,6 @@
 import "server-only";
 import { auth, clerkClient } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 import type { BuddyRole } from "@/lib/auth/roles";
 import { isBuddyRole } from "@/lib/auth/roles";
 
@@ -13,7 +14,7 @@ function superAdminAllowlist(userId: string) {
 
 export async function getCurrentRole(): Promise<{ userId: string; role: BuddyRole | null }> {
   const { userId } = await auth();
-  if (!userId) throw new Error("unauthorized");
+  if (!userId) redirect("/sign-in");
 
   // Phase 0 always wins
   if (superAdminAllowlist(userId)) return { userId, role: "super_admin" };
@@ -28,7 +29,10 @@ export async function getCurrentRole(): Promise<{ userId: string; role: BuddyRol
 
 export async function requireRole(allowed: BuddyRole[]) {
   const { userId, role } = await getCurrentRole();
-  if (!role) throw new Error("forbidden");
-  if (!allowed.includes(role)) throw new Error("forbidden");
+
+  // Signed-in but role missing / not allowed => treat as unauthorized for this area
+  if (!role) redirect("/deals");
+  if (!allowed.includes(role)) redirect("/deals");
+
   return { userId, role };
 }

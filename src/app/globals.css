@@ -1,1 +1,66 @@
 @import "tailwindcss";
+
+/* ============================================================
+   Stitch embed isolation (single source of truth)
+   - App shell can be dark; Stitch exports should render light.
+   - We scope aggressively to .stitch-embed / [data-stitch-root]
+   ============================================================ */
+
+.stitch-embed {
+  isolation: isolate;
+  color-scheme: light;
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Ensure the Stitch container surfaces stay light */
+.stitch-embed .stitch-shell,
+.stitch-embed [data-stitch-root] {
+  background: #ffffff !important;
+  color: inherit !important;
+}
+
+/* If your app uses CSS variables for theme, reset safe ones inside stitch subtree */
+.stitch-embed {
+  --background: 255 255 255;
+  --foreground: 15 23 42;
+}
+
+/* Neutralize a few common dark utilities that may leak from the app shell */
+.stitch-embed .text-white,
+.stitch-embed [class*="text-white"] {
+  color: inherit !important;
+}
+
+.stitch-embed .bg-bg-dark,
+.stitch-embed [class*="bg-bg-dark"],
+.stitch-embed .bg-black,
+.stitch-embed [class*="bg-black"] {
+  background-color: transparent !important;
+}
+
+/* Avoid app typography overrides changing Stitch export colors */
+.stitch-embed
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    a,
+    div,
+    button,
+    table,
+    thead,
+    tbody,
+    tr,
+    td,
+    th
+  ) {
+  color: inherit;
+}
+
+/* End Stitch embed isolation */

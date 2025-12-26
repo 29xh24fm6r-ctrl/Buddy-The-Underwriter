@@ -39,10 +39,8 @@ export default function RootLayout({
         </head>
         <body className={`${inter.variable} font-inter bg-bg-dark text-white antialiased`}>
           <FrameGuard />
-          <div className="sticky top-0 z-[2000] bg-black/40 backdrop-blur-xl border-b border-white/10">
-            <ConditionalHeroBar />
-          </div>
-          <main className="pt-16">{children}</main>
+          <ConditionalHeroBar />
+          <main>{children}</main>
         </body>
       </html>
     </ClerkProvider>

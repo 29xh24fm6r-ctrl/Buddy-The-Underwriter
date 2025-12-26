@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deal Summary</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 p-6">
+  <div class="mx-auto max-w-4xl">
+    <div class="mb-6">
+      <h2 class="text-2xl font-bold text-gray-900">Deal Summary</h2>
+      <p class="text-sm text-gray-500">Read-only intelligence surface</p>
+    </div>
+
+    <!-- Deal Overview -->
+    <div class="mb-6 rounded-lg bg-white p-6 shadow">
+      <h3 class="mb-4 text-lg font-semibold text-gray-900">Overview</h3>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <div class="text-sm text-gray-500">Deal ID</div>
+          <div class="font-medium text-gray-900" id="deal-id">Loading...</div>
+        </div>
+        <div>
+          <div class="text-sm text-gray-500">Stage</div>
+          <div class="font-medium text-gray-900" id="stage">Loading...</div>
+        </div>
+        <div>
+          <div class="text-sm text-gray-500">Borrower</div>
+          <div class="font-medium text-gray-900" id="borrower">Loading...</div>
+        </div>
+        <div>
+          <div class="text-sm text-gray-500">Entity Type</div>
+          <div class="font-medium text-gray-900" id="entity-type">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Risk Assessment -->
+    <div class="mb-6 rounded-lg bg-white p-6 shadow">
+      <h3 class="mb-4 text-lg font-semibold text-gray-900">Risk Assessment</h3>
+      <div class="mb-4">
+        <div class="text-sm text-gray-500">Risk Score</div>
+        <div class="text-3xl font-bold text-gray-900" id="risk-score">0</div>
+      </div>
+      <div id="risk-flags" class="flex flex-wrap gap-2">
+        <!-- Flags will be injected here -->
+      </div>
+    </div>
+
+    <!-- Completeness -->
+    <div class="rounded-lg bg-white p-6 shadow">
+      <h3 class="mb-4 text-lg font-semibold text-gray-900">Completeness</h3>
+      <div class="space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-sm text-gray-600">Missing Documents</span>
+          <span class="rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-800" id="missing-docs">0</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-sm text-gray-600">Open Conditions</span>
+          <span class="rounded-full bg-yellow-100 px-3 py-1 text-sm font-medium text-yellow-800" id="open-conditions">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Note about read-only -->
+    <div class="mt-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
+      <p class="text-sm text-blue-800">
+        <strong>Note:</strong> This is a read-only intelligence surface powered by Stitch.
+        All actions are controlled by the Native Action Rail.
+      </p>
+    </div>
+  </div>
+
+  <script>
+    // Inject context from parent window (set by CommandShell)
+    (function() {
+      const ctx = window.__BUDDY_CONTEXT__;
+      
+      if (!ctx) {
+        console.warn('No __BUDDY_CONTEXT__ found');
+        return;
+      }
+
+      // Populate deal info
+      document.getElementById('deal-id').textContent = ctx.dealId || 'N/A';
+      document.getElementById('stage').textContent = ctx.stage || 'N/A';
+      document.getElementById('borrower').textContent = ctx.borrower?.name || 'N/A';
+      document.getElementById('entity-type').textContent = ctx.borrower?.entityType || 'N/A';
+
+      // Populate risk
+      document.getElementById('risk-score').textContent = ctx.risk?.score || '0';
+      
+      const flagsContainer = document.getElementById('risk-flags');
+      if (ctx.risk?.flags && ctx.risk.flags.length > 0) {
+        flagsContainer.innerHTML = ctx.risk.flags.map(flag => 
+          `<span class="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700">${flag}</span>`
+        ).join('');
+      } else {
+        flagsContainer.innerHTML = '<span class="text-sm text-gray-500">No risk flags</span>';
+      }
+
+      // Populate completeness
+      document.getElementById('missing-docs').textContent = ctx.completeness?.missingDocs || '0';
+      document.getElementById('open-conditions').textContent = ctx.completeness?.openConditions || '0';
+    })();
+  </script>
+</body>
+</html>

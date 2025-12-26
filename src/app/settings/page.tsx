@@ -1,3 +1,5 @@
+import StitchRouteBridge from "@/components/stitch/StitchRouteBridge";
+
 export default function SettingsPage() {
-  return <div className="p-8 text-white">Settings (stub)</div>;
+  return <StitchRouteBridge slug="merge-field-registry" />;
 }

@@ -1,5 +1,1 @@
-import { redirect } from "next/navigation";
-
-export default function Root() {
-  redirect("/deals");
-}
+export { default } from "./home/page";

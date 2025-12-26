@@ -22,7 +22,7 @@ const TAILWIND_CONFIG_JS = `tailwind.config = {
             },
         }`;
 const STYLES = [
-  "body {\n            font-feature-settings: \"cv11\", \"ss01\";\n            -webkit-font-smoothing: antialiased;\n        }"
+  "body {\n            font-feature-settings: 'cv11', 'ss01';\n            -webkit-font-smoothing: antialiased;\n        }"
 ];
 const BODY_HTML = `<!-- Top Navigation Bar -->
 <header class="sticky top-0 z-20 w-full bg-white border-b border-[#e5e7eb] px-6 h-16 flex items-center justify-between">

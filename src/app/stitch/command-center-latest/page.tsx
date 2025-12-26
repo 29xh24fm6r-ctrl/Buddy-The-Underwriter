@@ -25,7 +25,8 @@ const TAILWIND_CONFIG_JS = `tailwind.config = {
             },
         }`;
 const STYLES = [
-  "body {\n            font-feature-settings: \"cv11\", \"ss01\", \"tnum\";-webkit-font-smoothing: antialiased;\n        }\n        .command-card-header {\n            background-image: linear-gradient(to bottom, #f8fafc, #ffffff);\n        }"
+  "body {\n            font-feature-settings: 'cv11', 'ss01', 'tnum';-webkit-font-smoothing: antialiased;\n        }\n        .command-card-header {\n            background-image: linear-gradient(to bottom, #f8fafc, #ffffff);\n        }",
+  '/* Buddy override: expand Stitch "share card" to full-width */\nhtml, body { height: 100%; }\nbody { margin: 0; }\n\n/* export uses: w-full max-w-[1024px] centered card */\ndiv[class*="max-w-[1024px]"] { max-width: 100% !important; width: 100% !important; }\n\n/* soften big outer padding when centered */\nmain.flex.flex-col.items-center.py-8 { padding-left: 16px !important; padding-right: 16px !important; }',
 ];
 const BODY_HTML = `<header class="sticky top-0 z-30 w-full bg-white/90 backdrop-blur-md border-b border-border-subtle h-14 flex items-center justify-between px-6">
 <div class="flex items-center gap-3 w-1/4">

@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import PdfSpansOverlayViewer from "@/components/evidence/PdfSpansOverlayViewer";
+import { PdfEvidenceSpansViewer } from "@/components/evidence/PdfEvidenceSpansViewer";
 
 type BankerPdfSpanChipProps = {
   dealId: string;
   attachmentId: string;
-  spans: Array<any>;
   label?: string;
 };
 
@@ -40,7 +39,10 @@ export function BankerPdfSpanChip(props: BankerPdfSpanChipProps) {
             </div>
 
             <div className="flex-1 overflow-auto p-4">
-              <PdfSpansOverlayViewer dealId={dealId} attachmentId={attachmentId} />
+              <PdfEvidenceSpansViewer
+                dealId={dealId}
+                attachmentId={attachmentId}
+              />
             </div>
           </div>
         </div>

@@ -203,3 +203,5 @@ export function PdfOverlayViewer(props: {
     </div>
   );
 }
+
+export default PdfOverlayViewer;

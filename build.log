@@ -1,6 +1,6 @@
 
 > buddy-the-underwriter@0.1.0 build
-> next build
+> ESLINT_NO_DEV_ERRORS=true next build
 
    ▲ Next.js 16.0.10 (Turbopack)
    - Environments: .env.local
@@ -12,11 +12,11 @@
    Running TypeScript ...
    Collecting page data using 1 worker ...
  ⚠ Using edge runtime on a page currently disables static generation for that page
-   Generating static pages using 1 worker (0/82) ...
-   Generating static pages using 1 worker (20/82) 
-   Generating static pages using 1 worker (40/82) 
-   Generating static pages using 1 worker (61/82) 
- ✓ Generating static pages using 1 worker (82/82) in 2.3s
+   Generating static pages using 1 worker (0/84) ...
+   Generating static pages using 1 worker (21/84) 
+   Generating static pages using 1 worker (42/84) 
+   Generating static pages using 1 worker (63/84) 
+ ✓ Generating static pages using 1 worker (84/84) in 2.4s
    Finalizing page optimization ...
 
 Route (app)
@@ -255,6 +255,7 @@ Route (app)
 ├ ƒ /api/deals/deals/[dealId]/etran/submit
 ├ ƒ /api/deals/seed
 ├ ƒ /api/debug/clerk
+├ ƒ /api/debug/pdf-worker
 ├ ƒ /api/debug/supabase
 ├ ƒ /api/debug/supabase-raw
 ├ ƒ /api/docs/extract
@@ -344,6 +345,7 @@ Route (app)
 ├ ƒ /deals/[dealId]/sba
 ├ ƒ /deals/[dealId]/underwriter
 ├ ○ /deals/new
+├ ○ /debug/pdf-worker
 ├ ○ /documents
 ├ ƒ /evidence
 ├ ƒ /evidence/inbox
@@ -384,6 +386,7 @@ Route (app)
 ├ ○ /stitch-login
 ├ ○ /stitch-results
 ├ ƒ /stitch-share/[artifactId]
+├ ƒ /stitch/[slug]
 ├ ○ /stitch/command-center-latest
 ├ ○ /templates/vault
 ├ ƒ /tenant/select
