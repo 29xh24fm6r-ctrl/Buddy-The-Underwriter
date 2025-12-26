@@ -56,3 +56,7 @@ smoke.*.txt
 # local smoke scripts
 /scripts/smoke-*.sh
 /smoke.*.txt
+
+# local exports / archives
+*.zip
+buddy-the-underwriter-full.zip
