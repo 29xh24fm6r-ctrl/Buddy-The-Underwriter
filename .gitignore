@@ -52,3 +52,7 @@ build.clean.log
 smoke.*.txt
 
 /public/pdfjs/
+
+# local smoke scripts
+/scripts/smoke-*.sh
+/smoke.*.txt
