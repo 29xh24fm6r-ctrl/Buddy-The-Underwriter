@@ -8,10 +8,10 @@ type MapRow = any;
 
 const TRANSFORMS = ["", "money", "date", "upper", "boolean_yesno"] as const;
 
-export default function BankDocumentsAdminPage({ params }: { params: { bankId: string } }) {
-  const bankId = params.bankId;
-
-  const [templates, setTemplates] = useState<Template[]>([]);
+export default function BankDocumentsAdminPage({ params }: { params: Promise<{ bankId: string }> }) {
+  
+  const { bankId } = React.use(params);
+const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [maps, setMaps] = useState<MapRow[]>([]);
   const [busy, setBusy] = useState(false);

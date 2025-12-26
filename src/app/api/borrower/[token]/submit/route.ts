@@ -50,16 +50,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const supabase = getSupabaseServerClient();
 
     // Log event
-    await supabase
-      .from("borrower_portal_events")
-      .insert([
-        {
-          token,
-          deal_id: dealId,
-          event_type: "submit",
-          payload: { product, sbaProduct },
-        },
-      ]);
+    await supabase.from("borrower_portal_events").insert([
+      {
+        token,
+        deal_id: dealId,
+        event_type: "submit",
+        payload: { product, sbaProduct },
+      },
+    ]);
 
     // Evaluate + persist SBA eligibility snapshot
     const elig = evaluateSba({ product: sbaProduct, answers });

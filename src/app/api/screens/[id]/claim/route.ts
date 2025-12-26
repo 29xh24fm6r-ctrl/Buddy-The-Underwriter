@@ -8,13 +8,9 @@ export const runtime = "edge";
  * POST /api/screens/:id/claim
  * Claim screen artifact (auth required)
  */
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { id: string } },
-) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const id = params.id;
-
+    const { id } = await ctx.params;
     if (!isValidScreenId(id)) {
       return NextResponse.json({ error: "Invalid screen ID" }, { status: 400 });
     }

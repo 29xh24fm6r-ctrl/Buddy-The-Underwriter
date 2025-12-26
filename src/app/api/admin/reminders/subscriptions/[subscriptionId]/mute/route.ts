@@ -9,7 +9,7 @@ export async function POST(
   _req: Request,
   { params }: { params: Promise<{ subscriptionId: string }> },
 ) {
-  const { subscriptionId } = await ctx.params;
+  const { subscriptionId } = await params;
   const sb = supabaseAdmin();
 
   const { data, error } = await sb

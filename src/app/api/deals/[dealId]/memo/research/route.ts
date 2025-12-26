@@ -8,14 +8,9 @@ type Body = {
   entityName?: string;
 };
 
-export async function POST(
-  req: Request,
-  { params }: { params: Promise<{ dealId: string }> | { dealId: string } },
-) {
-  const resolved = params instanceof Promise ? await ctx.params : params;
-  const dealId = resolved.dealId;
-
-  if (!dealId) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
+    const { dealId } = await ctx.params;
+if (!dealId) {
     return NextResponse.json(
       { ok: false, error: "Missing dealId" },
       { status: 400 },

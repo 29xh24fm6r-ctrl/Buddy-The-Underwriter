@@ -6,17 +6,18 @@ export const dynamic = "force-dynamic";
 export default async function MemoPreviewPage({
   params,
 }: {
-  params: { dealId: string; docId: string };
+  params: Promise<{ dealId: string; docId: string }>;
 }) {
-  const supabase = supabaseAdmin();
+  const { dealId, docId } = await params;
+const supabase = supabaseAdmin();
 
   const { data: doc, error } = await supabase
     .from("generated_documents")
     .select("id, deal_id, doc_type, content_json")
-    .eq("id", params.docId)
+    .eq("id", docId)
     .single();
 
-  if (error || !doc || doc.deal_id !== params.dealId) {
+  if (error || !doc || doc.deal_id !== dealId) {
     return <div className="p-8">Not found</div>;
   }
 

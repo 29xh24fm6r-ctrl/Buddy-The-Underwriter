@@ -203,7 +203,7 @@ export default function BankerDashboardPage() {
           {/* Stage chart */}
           <Panel title="Pipeline by Stage" subtitle="Count + amount concentration">
             <div className="h-[260px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={stageData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
                   <XAxis dataKey="name" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 11 }} />
@@ -222,7 +222,7 @@ export default function BankerDashboardPage() {
           {/* Deal type pie */}
           <Panel title="Deal Mix" subtitle="Where your pipeline is concentrated">
             <div className="h-[260px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={240}>
                 <PieChart>
                   <Tooltip
                     contentStyle={{ background: "rgba(0,0,0,0.85)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12 }}
@@ -334,7 +334,7 @@ export default function BankerDashboardPage() {
         <div className="mt-4">
           <Panel title="Momentum Signal" subtitle="A simple health pulse (replace later with real daily snapshots)">
             <div className="h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={240}>
                 <LineChart data={stageData.map((x: any, i: number) => ({ idx: i + 1, amount: x.amount }))}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
                   <XAxis dataKey="idx" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 11 }} />

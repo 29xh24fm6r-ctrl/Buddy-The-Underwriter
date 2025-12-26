@@ -5,7 +5,8 @@ export async function GET(
   _req: NextRequest,
   ctx: { params: Promise<{ dealId: string; docId: string }> },
 ) {
-  const supabase = supabaseAdmin();
+    const { dealId, docId } = await ctx.params;
+const supabase = supabaseAdmin();
 
   const { data: doc, error } = await supabase
     .from("generated_documents")

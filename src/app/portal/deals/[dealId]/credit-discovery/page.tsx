@@ -7,7 +7,7 @@ function glowCard() {
   return "rounded-2xl border border-white/10 bg-white/5 shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_0_40px_rgba(56,189,248,0.12)]";
 }
 
-export default function BorrowerCreditDiscoveryPage({ params }: { params: Promise<{ dealId: string }> }) {
+export default async function BorrowerCreditDiscoveryPage({ params }: { params: Promise<{ dealId: string }> }) {
   const { dealId } = use(params);
 
   const [session, setSession] = useState<any>(null);

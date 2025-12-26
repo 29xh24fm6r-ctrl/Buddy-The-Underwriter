@@ -10,7 +10,8 @@ export async function GET(
   _req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  await requireRole(["super_admin", "bank_admin", "underwriter"]);
+    const { dealId } = await ctx.params;
+await requireRole(["super_admin", "bank_admin", "underwriter"]);
 
   const sb = supabaseAdmin();
   const { data, error } = await sb
@@ -18,7 +19,7 @@ export async function GET(
     .select(
       "id, file_id, doc_type, tax_year, extracted_json, quality_json, confidence, evidence_json, created_at",
     )
-    .eq("deal_id", ctx.params.dealId)
+    .eq("deal_id", dealId)
     .order("created_at", { ascending: false })
     .limit(25);
 

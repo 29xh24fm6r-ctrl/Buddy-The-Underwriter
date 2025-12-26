@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, use } from "react";
 import { SECTIONS, type WizardTrack } from "@/lib/borrowerWizard/schema";
 import BorrowerRequirementsCard from "@/components/borrower/BorrowerRequirementsCard";
 import BorrowerFormsCard from "@/components/borrower/BorrowerFormsCard";
@@ -24,10 +24,9 @@ type EligibilityPayload = {
   error?: string;
 };
 
-export default function BorrowerPortal({ params }: { params: { token: string } }) {
-  const token = params.token;
-
-  const [data, setData] = useState<LoadPayload>({ ok: false });
+export default function BorrowerPortal({ params }: { params: Promise<{ token: string }> }) {
+    const { token } = use(params);
+const [data, setData] = useState<LoadPayload>({ ok: false });
   const [elig, setElig] = useState<EligibilityPayload>({ ok: false });
   const [reqs, setReqs] = useState<any>(null);
   const [forms, setForms] = useState<any>(null);

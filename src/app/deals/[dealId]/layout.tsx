@@ -1,11 +1,12 @@
 import DealShell from "./DealShell";
 
-export default function DealIdLayout({
+export default async function DealIdLayout({
   children,
   params,
 }: {
   children: React.ReactNode;
-  params: { dealId: string };
+  params: Promise<{ dealId: string }>;
 }) {
-  return <DealShell dealId={params.dealId}>{children}</DealShell>;
+  const { dealId } = await params;
+return <DealShell dealId={dealId}>{children}</DealShell>;
 }

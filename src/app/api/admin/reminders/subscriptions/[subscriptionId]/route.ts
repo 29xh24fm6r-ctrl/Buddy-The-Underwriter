@@ -9,7 +9,7 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ subscriptionId: string }> },
 ) {
-  const { subscriptionId } = await ctx.params;
+  const { subscriptionId } = await params;
   const sb = supabaseAdmin();
 
   // Fetch the subscription row (we avoid guessing columns; select * is OK for admin ops)

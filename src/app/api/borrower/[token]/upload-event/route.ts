@@ -33,16 +33,14 @@ export async function POST(
 
     const supabase = getSupabaseServerClient();
 
-    await supabase
-      .from("borrower_portal_events")
-      .insert([
-        {
-          token,
-          deal_id: dealId,
-          event_type: "upload_completed",
-          payload: body ?? null,
-        },
-      ]);
+    await supabase.from("borrower_portal_events").insert([
+      {
+        token,
+        deal_id: dealId,
+        event_type: "upload_completed",
+        payload: body ?? null,
+      },
+    ]);
 
     await computeAndPersistForDeal({
       supabase,

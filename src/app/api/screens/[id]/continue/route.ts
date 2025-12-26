@@ -13,11 +13,10 @@ export const runtime = "nodejs"; // Changed from edge for usage tracking
  */
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  ctx: { params: Promise<{ id: string }> },
 ) {
   try {
-    const id = params.id;
-
+  const { id } = await ctx.params;
     if (!isValidScreenId(id)) {
       return NextResponse.json({ error: "Invalid screen ID" }, { status: 400 });
     }

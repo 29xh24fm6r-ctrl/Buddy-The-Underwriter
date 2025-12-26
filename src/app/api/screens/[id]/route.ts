@@ -10,11 +10,10 @@ export const runtime = "edge";
  */
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  ctx: { params: Promise<{ id: string }> },
 ) {
   try {
-    const id = params.id;
-
+  const { id } = await ctx.params;
     if (!isValidScreenId(id)) {
       return NextResponse.json({ error: "Invalid screen ID" }, { status: 400 });
     }

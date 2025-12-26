@@ -3,13 +3,13 @@ import { isValidScreenId } from "@/lib/screens/idgen";
 import { ScreenViewClient } from "./ScreenViewClient";
 
 type PageProps = {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 };
 
 export default async function SharedScreenPage({ params }: PageProps) {
-  const id = params.id;
+    const { id } = await params;
 
-  // Validate ID format
+// Validate ID format
   if (!isValidScreenId(id)) {
     notFound();
   }
