@@ -9,16 +9,16 @@ export async function GET() {
   const abs = path.join(process.cwd(), "public", "pdfjs", "pdf.worker.min.mjs");
 
   const exists = fs.existsSync(abs);
-  let size = 0;
+  let sizeBytes = 0;
 
   try {
-    if (exists) size = fs.statSync(abs).size;
+    if (exists) sizeBytes = fs.statSync(abs).size;
   } catch {}
 
   return NextResponse.json({
     ok: exists,
     workerPath: rel,
     absolutePath: abs,
-    sizeBytes: size,
+    sizeBytes,
   });
 }
