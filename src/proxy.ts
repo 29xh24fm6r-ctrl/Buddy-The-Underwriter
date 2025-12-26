@@ -25,6 +25,7 @@ const ALLOW_PREFIXES = [
   "/servicing",
   "/command",
   "/settings",
+    "/debug",
   "/borrower-portal",
 ];
 
