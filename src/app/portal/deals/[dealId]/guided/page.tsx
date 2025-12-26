@@ -37,7 +37,7 @@ function statusPill(status: string) {
   return "Missing";
 }
 
-export default async function GuidedBorrowerUploadPageShell({ params }: any) {
+export default function GuidedBorrowerUploadPageShell({ params }: any) {
   return (
     <ToastProvider>
       <GuidedBorrowerUploadPage params={params} />

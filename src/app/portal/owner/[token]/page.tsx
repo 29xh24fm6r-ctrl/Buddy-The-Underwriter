@@ -4,8 +4,8 @@ import * as React from "react";
 import { ToastProvider, useToast } from "@/components/portal/toast/ToastProvider";
 import { ConfettiBurst } from "@/components/portal/fun/ConfettiBurst";
 
-export default async function OwnerPortalShell({ params }: { params: Promise<{ token: string }> }) {
-  const { token } = await params;
+export default function OwnerPortalShell({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = React.use(params);
 return (
     <ToastProvider>
       <OwnerPortal params={params} />
