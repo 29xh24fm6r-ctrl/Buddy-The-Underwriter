@@ -1,3 +1,4 @@
+import { withApiGuard } from "@/lib/api/withApiGuard";
 import { NextResponse } from "next/server";
 import { BuddyAction } from "@/lib/ai/schemas";
 import { executeAction } from "@/lib/ai/executor";
@@ -5,7 +6,7 @@ import { logAudit } from "@/lib/db/audit";
 
 export const runtime = "nodejs";
 
-export async function POST(req: Request) {
+export const POST = withApiGuard({ tag: "ai:execute", requireAuth: true, rate: { limit: 30, windowMs: 60_000 } }, async (req: any) => {
   try {
     const body = await req.json().catch(() => ({}));
 
@@ -70,4 +71,4 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
-}
+});

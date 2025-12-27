@@ -1,0 +1,29 @@
+# Phase 4: Connect Accounts + Dual Policy Mode + E-Tran XML
+# 15 files created (December 27, 2025)
+
+## Database Migrations (2)
+supabase/migrations/20251227000006_connect_accounts.sql
+supabase/migrations/20251227000007_dual_policy_mode.sql
+
+## Integration Libraries (4)
+src/lib/connect/plaid.ts
+src/lib/connect/quickbooks.ts
+src/lib/connect/irs.ts
+src/lib/connect/substitutions.ts
+
+## Core Libraries (3)
+src/lib/etran/generator.ts
+src/lib/borrower/readiness-score.ts (updated +40 LOC)
+src/lib/autopilot/orchestrator.ts (updated +15 LOC)
+
+## UI Components (1)
+src/components/connect/ConnectAccountsPanel.tsx
+
+## Documentation (5)
+MEGA_SPEC_COMPLETE.md
+PHASE_4_COMPLETE.md
+scripts/verify-mega-spec.sh
+scripts/demo-mega-spec.sh
+docs/ (modes.json, pipeline.md, accounts.json)
+
+## Total: 15 files, ~4,100 LOC

@@ -18,6 +18,10 @@ const ALLOW_PREFIXES = [
   "/s",
   "/sign-in",
   "/sign-up",
+  "/login",
+  "/signup",
+  "/demo",
+  "/contact",
 
   // HeroBar + app routes
   "/documents",

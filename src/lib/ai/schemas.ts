@@ -45,3 +45,72 @@ export const AIPilotResponse = z.object({
 
 export type AIPilotResponseT = z.infer<typeof AIPilotResponse>;
 export type BuddyActionT = z.infer<typeof BuddyAction>;
+
+// ============================================================================
+// Structured Output Schemas for Explainable Risk → Memo + Committee
+// ============================================================================
+
+export const EvidenceRefSchema = z.object({
+  kind: z.enum(["pdf", "text", "table"]),
+  sourceId: z.string(),
+  label: z.string().optional(),
+  page: z.number().int().positive().optional(), // 1-based
+  bbox: z
+    .object({
+      x: z.number().min(0).max(1),
+      y: z.number().min(0).max(1),
+      w: z.number().min(0).max(1),
+      h: z.number().min(0).max(1),
+    })
+    .optional(),
+  spanIds: z.array(z.string()).optional(),
+  excerpt: z.string().optional(),
+});
+
+export const RiskOutputSchema = z.object({
+  grade: z.string(), // e.g. "B+"
+  baseRateBps: z.number().int().nonnegative(),
+  riskPremiumBps: z.number().int().nonnegative(),
+  pricingExplain: z.array(
+    z.object({
+      label: z.string(),
+      bps: z.number().int(),
+      evidence: z.array(EvidenceRefSchema).optional(),
+      rationale: z.string(),
+    })
+  ),
+  factors: z.array(
+    z.object({
+      label: z.string(),
+      category: z.string(),
+      direction: z.enum(["positive", "negative", "neutral"]),
+      contribution: z.number(), // allow decimals
+      confidence: z.number().min(0).max(1),
+      evidence: z.array(EvidenceRefSchema),
+      rationale: z.string(),
+    })
+  ),
+});
+
+export const MemoSectionSchema = z.object({
+  sectionKey: z.string(),
+  title: z.string(),
+  content: z.string(),
+  citations: z.array(EvidenceRefSchema),
+});
+
+export const MemoOutputSchema = z.object({
+  sections: z.array(MemoSectionSchema),
+});
+
+export const CommitteeAnswerSchema = z.object({
+  answer: z.string(),
+  citations: z.array(EvidenceRefSchema),
+  followups: z.array(z.string()).optional(),
+});
+
+// TS types for convenience
+export type EvidenceRefT = z.infer<typeof EvidenceRefSchema>;
+export type RiskOutputT = z.infer<typeof RiskOutputSchema>;
+export type MemoOutputT = z.infer<typeof MemoOutputSchema>;
+export type CommitteeAnswerT = z.infer<typeof CommitteeAnswerSchema>;

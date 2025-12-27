@@ -11,5 +11,6 @@ export const DEAL_NAV: DealNavItem[] = [
   { key: "documents", label: "Documents", href: (id) => `/deals/${id}/documents`, icon: "folder_open" },
   { key: "risk", label: "Risk & Pricing", href: (id) => `/deals/${id}/risk`, icon: "bar_chart" },
   { key: "memo", label: "Memo", href: (id) => `/deals/${id}/memo`, icon: "description" },
+  { key: "committee", label: "Committee", href: (id) => `/deals/${id}/committee`, icon: "forum" },
   { key: "audit", label: "Audit", href: (id) => `/deals/${id}/audit`, icon: "policy" },
 ];

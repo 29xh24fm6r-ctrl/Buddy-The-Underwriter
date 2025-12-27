@@ -1,9 +1,10 @@
+import { withApiGuard } from "@/lib/api/withApiGuard";
 import { NextResponse } from "next/server";
 import { runAIPilot } from "@/lib/ai/orchestrator";
 
 export const runtime = "nodejs";
 
-export async function POST(req: Request) {
+export const POST = withApiGuard({ tag: "ai:command", requireAuth: true, rate: { limit: 30, windowMs: 60_000 } }, async (req: any) => {
   try {
     const body = await req.json().catch(() => ({}));
     const userIntent = String(body?.userIntent ?? "").trim();
@@ -30,4 +31,4 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
-}
+});

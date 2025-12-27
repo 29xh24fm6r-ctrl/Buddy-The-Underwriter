@@ -214,7 +214,7 @@ export function ConnectAccountsPanel({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={(e: React.MouseEvent) => {
+                      onClick={(e) => {
                         e.stopPropagation();
                         if (connection) {
                           onDisconnect(connection.id);
@@ -226,7 +226,7 @@ export function ConnectAccountsPanel({
                     </Button>
                   ) : (
                     <Button
-                      onClick={(e: React.MouseEvent) => {
+                      onClick={(e) => {
                         e.stopPropagation();
                         onConnect(account.type);
                       }}
