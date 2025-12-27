@@ -25,7 +25,8 @@ export async function askCommitteeAction(dealId: string, question: string) {
     if (retrieved.length > 0) {
       const reranked = await aiRerankChunks({ query: question, chunks: retrieved, topN: 8 });
       evidenceContext = reranked.kept
-        .map((c) => `PAGES ${c.pageStart ?? c.page_start}-${c.pageEnd ?? c.page_end}\n${c.content}`)
+        .map(mapEvidenceChunkRow)
+        .map((c) => `PAGES ${c.pageStart}-${c.pageEnd}\n${c.content}`)
         .join("\n\n---\n\n");
     }
   } catch (e: any) {

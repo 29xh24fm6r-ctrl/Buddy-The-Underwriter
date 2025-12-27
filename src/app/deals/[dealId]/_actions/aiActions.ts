@@ -27,7 +27,8 @@ export async function generateRiskAction(dealId: string) {
         topN: 10,
       });
       evidenceContext = reranked.kept
-        .map((c) => `PAGES ${c.pageStart ?? c.page_start}-${c.pageEnd ?? c.page_end}\n${c.content}`)
+        .map(mapEvidenceChunkRow)
+        .map((c) => `PAGES ${c.pageStart}-${c.pageEnd}\n${c.content}`)
         .join("\n\n---\n\n");
     }
   } catch (e: any) {
@@ -79,7 +80,7 @@ export async function generateMemoAction(dealId: string) {
   try {
     const memoQuery =
       "credit memo executive summary risks mitigants pricing covenants DSCR revenue volatility concentration collateral advance rates";
-    const memoRetrieved = await retrieveTopChunks({ dealId, query: memoQuery, k: 24 });
+    const memoRetrieved = await retrieveTopChunks({ dealId, question: memoQuery, k: 24 });
     if (memoRetrieved.length > 0) {
       const memoReranked = await aiRerankChunks({
         query: memoQuery,
@@ -87,7 +88,8 @@ export async function generateMemoAction(dealId: string) {
         topN: 10,
       });
       evidenceContext = memoReranked.kept
-        .map((c) => `PAGES ${c.pageStart ?? c.page_start}-${c.pageEnd ?? c.page_end}\n${c.content}`)
+        .map(mapEvidenceChunkRow)
+        .map((c) => `PAGES ${c.pageStart}-${c.pageEnd}\n${c.content}`)
         .join("\n\n---\n\n");
     }
   } catch (e: any) {

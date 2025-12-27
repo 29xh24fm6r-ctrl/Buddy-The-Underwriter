@@ -13,19 +13,20 @@ export function chunksToEvidenceRefs(args: {
   chunks: RetrievedChunk[];
 }): EvidenceRefT[] {
   return args.chunks.flatMap((c) => {
+    const mapped = mapEvidenceChunkRow(c);
     const refs: EvidenceRefT[] = [];
     // Cite both start and end pages to cover full chunk range
     refs.push({
       kind: "pdf",
-      sourceId: c.documentId ?? c.document_id, // TODO: map to real source_id from evidence_documents
-      page: c.pageStart ?? c.page_start,
+      sourceId: (mapped.documentId || "unknown")!,
+      page: mapped.pageStart!,
       label: "Evidence",
     });
-    if (c.pageEnd ?? c.page_end !== c.pageStart ?? c.page_start) {
+    if (mapped.pageEnd !== mapped.pageStart) {
       refs.push({
         kind: "pdf",
-        sourceId: c.documentId ?? c.document_id,
-        page: c.pageEnd ?? c.page_end,
+        sourceId: (mapped.documentId || "unknown")!,
+        page: mapped.pageEnd!,
         label: "Evidence",
       });
     }

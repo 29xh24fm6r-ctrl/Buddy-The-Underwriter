@@ -235,7 +235,7 @@ export async function retrieveEvidence(
 
   // 5) Convert to structured citations
   const citations: Citation[] = finalChunks.map((chunk, idx) => {
-    const { kind, data } = chunk;
+    const { kind, data } = chunk.source;
 
     if (kind === "DEAL_DOC") {
       return {

@@ -26,6 +26,9 @@ export type RetrievedChunk = {
 
   created_at?: string;
   createdAt?: string;
+  
+  // Allow any additional properties for compatibility
+  [key: string]: any;
 };
 
 export type EvidenceChunkRow = RetrievedChunk;
