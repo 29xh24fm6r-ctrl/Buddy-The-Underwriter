@@ -91,33 +91,34 @@ export async function POST(req: NextRequest, context: { params: Params }) {
 
     const out = JSON.parse(completion.choices[0]?.message?.content ?? "{}");
 
-    // 5) Persist run + citations for traceability
-    const { data: runRow, error: rerr } = await sb
-      .from("ai_run_events")
+    // 5) Persist event + citations for traceability
+    const { data: eventRow, error: rerr } = await sb
+      .from("ai_events")
       .insert({
         deal_id: dealId,
-        bank_id: bankId ?? null,
-        run_kind: "ASK_BUDDY",
-        model,
-        input_json: { question, k },
+        scope: "ask_buddy",
+        action: "answer",
+        input_json: { question, k, bank_id: bankId },
         output_json: out,
+        model,
         usage_json: completion.usage ?? {},
+        requires_human_review: false,
       })
       .select("id")
       .single();
 
     if (rerr) {
-      console.error("Failed to insert ai_run_event:", rerr);
+      console.error("Failed to insert ai_event:", rerr);
       // Continue anyway - don't fail the request
     }
 
-    if (runRow) {
+    if (eventRow) {
       const cited = (out.citations ?? []) as { i: number; reason?: string }[];
       const rows = cited
         .map((c) => evidence[c.i])
         .filter(Boolean)
         .map((e) => ({
-          run_id: runRow.id,
+          event_id: eventRow.id,
           source_kind: e.source_kind,
           source_id: e.source_id,
           chunk_id: e.chunk_id,
@@ -128,12 +129,12 @@ export async function POST(req: NextRequest, context: { params: Params }) {
         }));
 
       if (rows.length) {
-        const { error: citErr } = await sb.from("ai_run_citations").insert(rows);
+        const { error: citErr } = await sb.from("ai_event_citations").insert(rows);
         if (citErr) console.error("Failed to insert citations:", citErr);
       }
     }
 
-    return NextResponse.json({ ok: true, run_id: runRow?.id, ...out });
+    return NextResponse.json({ ok: true, event_id: eventRow?.id, ...out });
   } catch (e: any) {
     console.error("Ask Buddy API error:", e);
     return NextResponse.json({ error: e.message || "Internal error" }, { status: 500 });

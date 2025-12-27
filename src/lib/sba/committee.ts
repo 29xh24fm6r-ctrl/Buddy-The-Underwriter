@@ -28,7 +28,7 @@ export type PersonaEvaluation = {
 };
 
 export type CommitteeResult = {
-  run_id: string;
+  event_id: string;
   evaluations: PersonaEvaluation[];
   consensus: {
     overall_stance: CommitteeStance;
@@ -96,13 +96,13 @@ export async function runCommittee({
   // 4. Calculate consensus
   const consensus = calculateConsensus(evaluations);
 
-  // 5. Store AI run event
-  const { data: runEvent } = await sb
-    .from("ai_run_events")
+  // 5. Store AI event
+  const { data: aiEvent } = await sb
+    .from("ai_events")
     .insert({
       deal_id: dealId,
-      bank_id: bankId,
-      run_kind: "COMMITTEE",
+      scope: "committee_simulation",
+      action: "evaluate",
       input_json: {
         question,
         personas,
@@ -113,24 +113,25 @@ export async function runCommittee({
         consensus,
       },
       model: "gpt-4o",
+      requires_human_review: true,
     })
-    .select("run_id")
+    .select("id")
     .single();
 
-  const runId = runEvent?.run_id ?? "unknown";
+  const eventId = aiEvent?.id ?? "unknown";
 
   // 6. Store citations
   if (citations.length > 0) {
-    await sb.from("ai_run_citations").insert(
+    await sb.from("ai_event_citations").insert(
       citations.map((c) => ({
-        run_id: runId,
+        event_id: eventId,
         ...c,
       }))
     );
   }
 
   return {
-    run_id: runId,
+    event_id: eventId,
     evaluations,
     consensus,
   };

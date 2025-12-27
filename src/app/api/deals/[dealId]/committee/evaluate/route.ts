@@ -35,7 +35,7 @@ export async function POST(
 
     return NextResponse.json({
       ok: true,
-      run_id: result.run_id,
+      event_id: result.event_id,
       evaluations: result.evaluations,
       consensus: result.consensus,
       summary,

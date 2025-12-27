@@ -88,23 +88,24 @@ export async function POST(req: NextRequest, context: { params: Params }) {
       const out = JSON.parse(completion.choices[0]?.message?.content ?? "{}");
       results.push({ key: s.key, title: s.title, text: out.section_text ?? "", citations: out.citations ?? [] });
 
-      // Store run + citations per section (traceable)
-      const { data: runRow, error: runErr } = await sb
-        .from("ai_run_events")
+      // Store event + citations per section (traceable)
+      const { data: eventRow, error: runErr } = await sb
+        .from("ai_events")
         .insert({
           deal_id: dealId,
-          bank_id: bankId ?? null,
-          run_kind: "MEMO_SECTION",
-          model,
-          input_json: { section_key: s.key, section_title: s.title },
+          scope: "memo_generation",
+          action: "generate_section",
+          input_json: { section_key: s.key, section_title: s.title, bank_id: bankId },
           output_json: out,
+          model,
           usage_json: completion.usage ?? {},
+          requires_human_review: false,
         })
         .select("id")
         .single();
 
       if (runErr) {
-        console.error("Failed to insert memo section run:", runErr);
+        console.error("Failed to insert memo section event:", runErr);
         continue;
       }
 
@@ -113,7 +114,7 @@ export async function POST(req: NextRequest, context: { params: Params }) {
         .map((c) => evidence[c.i])
         .filter(Boolean)
         .map((e) => ({
-          run_id: runRow.id,
+          event_id: eventRow?.id,
           source_kind: e.source_kind,
           source_id: e.source_id,
           chunk_id: e.chunk_id,
@@ -123,8 +124,8 @@ export async function POST(req: NextRequest, context: { params: Params }) {
           quote: e.quote,
         }));
       
-      if (rows.length) {
-        const { error: citErr } = await sb.from("ai_run_citations").insert(rows);
+      if (rows.length && eventRow) {
+        const { error: citErr } = await sb.from("ai_event_citations").insert(rows);
         if (citErr) console.error("Failed to insert memo citations:", citErr);
       }
     }
