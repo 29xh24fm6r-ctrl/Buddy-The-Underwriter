@@ -1,18 +1,22 @@
 /**
- * Committee Simulation Engine
+ * Committee Simulation Engine - UPGRADED FOR GOD MODE
  * 
- * Runs multi-persona evaluation of deals:
- * - Credit Officer
- * - SBA Compliance Officer
- * - Risk Officer
- * - Relationship Manager
+ * Multi-persona panel with citation-grade evaluations:
+ * 1. SBA Officer - SOP compliance, eligibility checks
+ * 2. Credit Officer - Financial covenants, DSCR, collateral
+ * 3. Closing Specialist - Documents, guarantees, UCC filings
+ * 4. Relationship Manager - Borrower experience, risk communication
  * 
- * Each persona evaluates with different rubric and risk tolerance.
+ * Each persona uses retrievalCore for triple-source evidence:
+ * - Deal documents
+ * - SBA SOP guidance
+ * - Bank policies
  */
 
 import { getOpenAI } from "@/lib/ai/openaiClient";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { retrieveContext, formatRetrievalContext, extractCitations } from "@/lib/retrieval/unified";
+import { retrieveEvidence, type Citation } from "@/lib/retrieval/retrievalCore";
+import { evaluateAllRules, getMissingFacts, getNextCriticalFact } from "@/lib/policy/ruleEngine";
 
 export type CommitteeStance = "APPROVE" | "APPROVE_WITH_CONDITIONS" | "DECLINE";
 
