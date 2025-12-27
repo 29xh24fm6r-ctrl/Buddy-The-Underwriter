@@ -3,9 +3,13 @@
 import { getAIProvider } from "@/lib/ai/provider";
 import type { RiskInput, MemoInput } from "@/lib/ai/provider";
 import { insertRiskRun, getLatestRiskRun, insertMemoRun } from "@/lib/db/server";
+import { getEvidenceCatalogForAI } from "@/lib/evidence/getEvidenceCatalog";
 
 export async function generateRiskAction(dealId: string) {
   const provider = getAIProvider();
+
+  // Fetch AI-curated evidence catalog (facts, metrics, risks, mitigants)
+  const evidenceCatalog = await getEvidenceCatalogForAI(dealId);
 
   // Release-friendly snapshot; wire to real deal fetch later
   const dealSnapshot = {
@@ -16,6 +20,7 @@ export async function generateRiskAction(dealId: string) {
     collateral: "A/R + Inventory",
     facilityType: "ABL Revolver",
     yearsInBusiness: 8,
+    evidenceCatalog, // Include catalog for model context
   };
 
   const input: RiskInput = {
@@ -42,6 +47,9 @@ export async function generateMemoAction(dealId: string) {
     throw new Error("No risk run found. Generate risk first.");
   }
 
+  // Fetch AI-curated evidence catalog
+  const evidenceCatalog = await getEvidenceCatalogForAI(dealId);
+
   const dealSnapshot = {
     borrowerName: "Acme Logistics LLC",
     industry: "Logistics",
@@ -50,6 +58,7 @@ export async function generateMemoAction(dealId: string) {
     collateral: "A/R + Inventory",
     facilityType: "ABL Revolver",
     yearsInBusiness: 8,
+    evidenceCatalog, // Include catalog for model context
   };
 
   const input: MemoInput = {

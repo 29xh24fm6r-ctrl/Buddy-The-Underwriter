@@ -3,6 +3,7 @@
 import { getAIProvider } from "@/lib/ai/provider";
 import { getLatestRiskRun, getLatestMemo } from "@/lib/db/server";
 import { append } from "../(shell)/committee/_components/committeeStore";
+import { getEvidenceCatalogForAI } from "@/lib/evidence/getEvidenceCatalog";
 
 export async function askCommitteeAction(dealId: string, question: string) {
   append(dealId, { role: "user", content: question });
@@ -10,6 +11,9 @@ export async function askCommitteeAction(dealId: string, question: string) {
   const provider = getAIProvider();
   const riskRun = await getLatestRiskRun(dealId);
   const memo = await getLatestMemo(dealId);
+
+  // Fetch AI-curated evidence catalog for richer context
+  const evidenceCatalog = await getEvidenceCatalogForAI(dealId);
 
   const dealSnapshot = {
     borrowerName: "Acme Logistics LLC",
@@ -19,6 +23,7 @@ export async function askCommitteeAction(dealId: string, question: string) {
     collateral: "A/R + Inventory",
     facilityType: "ABL Revolver",
     yearsInBusiness: 8,
+    evidenceCatalog, // Include catalog for model context
   };
 
   const ans = await provider.chatAboutDeal({
