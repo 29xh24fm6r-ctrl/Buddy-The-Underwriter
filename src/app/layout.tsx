@@ -77,10 +77,10 @@ export default function RootLayout({
     >
       <html lang="en" className="dark">
         <head>
-          {/* Material Symbols */}
+          {/* Material Symbols - Updated with all required parameters for icon rendering */}
           <link
             rel="stylesheet"
-            href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+            href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
           />
         </head>
         <body className={`${inter.variable} font-inter bg-bg-dark text-white antialiased`}>
