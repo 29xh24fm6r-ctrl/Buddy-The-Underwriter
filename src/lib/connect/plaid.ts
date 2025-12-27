@@ -103,7 +103,7 @@ export async function exchangePlaidToken(params: {
         provider_id: itemId,
         provider_metadata: {
           institution_id: accountsResponse.data.item.institution_id,
-          accounts: accounts.map((a) => ({
+          accounts: accounts.map((a: any) => ({
             account_id: a.account_id,
             name: a.name,
             type: a.type,
@@ -129,7 +129,7 @@ export async function exchangePlaidToken(params: {
 
     return {
       connection_id: connection.id,
-      accounts: accounts.map((a) => ({
+      accounts: accounts.map((a: any) => ({
         id: a.account_id,
         name: a.name,
         type: a.type,
