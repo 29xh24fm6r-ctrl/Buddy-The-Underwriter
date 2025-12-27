@@ -1,3 +1,7 @@
 "use client";
 
-export { default } from "./_EmailRoutingClientImpl";
+import EmailRoutingClientImpl from "./_EmailRoutingClientImpl";
+
+export default function EmailRoutingClient() {
+  return <EmailRoutingClientImpl />;
+}
