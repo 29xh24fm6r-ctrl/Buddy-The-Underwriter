@@ -39,9 +39,16 @@ export type MemoOutput = {
   sections: MemoSection[];
 };
 
+export type CommitteeAnswer = {
+  answer: string;
+  citations: EvidenceRef[];
+  followups?: string[];
+};
+
 export interface AIProvider {
   generateRisk(input: RiskInput): Promise<RiskOutput>;
   generateMemo(input: MemoInput): Promise<MemoOutput>;
+  chatAboutDeal(input: { dealId: string; question: string; dealSnapshot: Record<string, any>; risk: RiskOutput | null; memo: string | null; }): Promise<CommitteeAnswer>;
 }
 
 /**
@@ -171,6 +178,27 @@ class StubProvider implements AIProvider {
           citations: [],
         },
       ],
+    };
+  }
+
+  async chatAboutDeal(input: { dealId: string; question: string; dealSnapshot: Record<string, any>; risk: RiskOutput | null; memo: string | null; }) {
+    const q = input.question.toLowerCase();
+    const factors = input.risk?.factors ?? [];
+    const topNeg = factors.filter(f => f.direction === 'negative').slice(0, 2);
+    const topPos = factors.filter(f => f.direction === 'positive').slice(0, 2);
+    const citations = [...topNeg.flatMap(f => f.evidence), ...topPos.flatMap(f => f.evidence)].slice(0, 4);
+    const answer =
+      q.includes('why') || q.includes('premium') || q.includes('bps')
+        ? `The risk premium is driven primarily by ${topNeg.map(f=>f.label).join(' and ') || 'identified risks'}; mitigants include ${topPos.map(f=>f.label).join(' and ') || 'strengths'}. See linked evidence.`
+        : `Based on the latest risk run, the deal grades ${input.risk?.grade ?? 'N/A'} with key risks ${topNeg.map(f=>f.label).join(', ') || 'N/A'} and strengths ${topPos.map(f=>f.label).join(', ') || 'N/A'}.`;
+    return {
+      answer,
+      citations,
+      followups: [
+        'What covenant mitigates the top risk?',
+        'Show the evidence behind the volatility adjustment.',
+        'What happens under a stress scenario?'
+      ]
     };
   }
 }

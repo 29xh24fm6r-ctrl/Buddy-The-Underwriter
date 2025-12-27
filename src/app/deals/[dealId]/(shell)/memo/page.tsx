@@ -1,22 +1,26 @@
 import { generateMemoAction } from "../../_actions/aiActions";
 import { getLatestMemo, getLatestRiskRun } from "@/lib/db/server";
 import type { EvidenceRef } from "@/lib/evidence/types";
+import Link from "next/link";
+import { evidenceUrl } from "@/lib/evidence/url";
 
-function CitationList({ citations }: { citations: EvidenceRef[] }) {
+function CitationList({ dealId, citations }: { dealId: string; citations: EvidenceRef[] }) {
   if (!citations?.length) return null;
 
   return (
     <div className="mt-3 flex flex-wrap gap-2">
       {citations.slice(0, 6).map((c, i) => (
-        <span
+        <Link
           key={i}
-          className="inline-flex items-center gap-2 rounded-full border border-border-dark bg-[#0b0d10] px-2 py-1 text-[11px] text-muted-foreground"
+          href={evidenceUrl(dealId, c)}
+          className="inline-flex items-center gap-2 rounded-full border border-border-dark bg-[#0b0d10] px-2 py-1 text-[11px] text-muted-foreground hover:bg-[#121622]"
           title={c.excerpt ?? ""}
         >
           <span className="material-symbols-outlined text-[14px]">link</span>
           {c.label ?? c.sourceId}
           {c.page ? <span>· p.{c.page}</span> : null}
-        </span>
+          <span className="material-symbols-outlined text-[14px] opacity-70">open_in_new</span>
+        </Link>
       ))}
     </div>
   );
@@ -44,7 +48,9 @@ export default async function DealMemoWorkspace({
           </div>
         </div>
 
-        <form
+        <div className="flex items-center gap-2">
+          <Link href={`/deals/${dealId}/memo/compare`} className="rounded-lg border border-border-dark bg-[#0f1115] px-3 py-1.5 text-sm hover:bg-[#121622]">What changed?</Link>
+          <form
           action={async () => {
             "use server";
             if (!canGenerate) throw new Error("Generate risk first.");
@@ -61,6 +67,7 @@ export default async function DealMemoWorkspace({
             Generate Memo (AI)
           </button>
         </form>
+        </div>
       </div>
 
       {!latestRisk ? (
@@ -91,7 +98,7 @@ export default async function DealMemoWorkspace({
             <div key={s.id} className="rounded-xl border border-border-dark bg-[#0b0d10] p-4">
               <div className="text-sm font-semibold">{s.title}</div>
               <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{s.content}</div>
-              <CitationList citations={s.citations ?? []} />
+              <CitationList dealId={dealId} citations={s.citations ?? []} />
             </div>
           ))}
         </div>

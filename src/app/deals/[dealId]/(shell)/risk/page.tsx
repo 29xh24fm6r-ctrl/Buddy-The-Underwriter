@@ -1,6 +1,8 @@
 import { generateRiskAction } from "../../_actions/aiActions";
 import { getLatestRiskRun } from "@/lib/db/server";
 import type { EvidenceRef } from "@/lib/evidence/types";
+import Link from "next/link";
+import { evidenceUrl } from "@/lib/evidence/url";
 
 function fmtContribution(n: number) {
   const sign = n > 0 ? "+" : n < 0 ? "−" : "";
@@ -8,21 +10,23 @@ function fmtContribution(n: number) {
   return `${sign}${abs}`;
 }
 
-function EvidenceChips({ evidence }: { evidence: EvidenceRef[] }) {
+function EvidenceChips({ dealId, evidence }: { dealId: string; evidence: EvidenceRef[] }) {
   if (!evidence?.length) return null;
 
   return (
     <div className="mt-2 flex flex-wrap gap-2">
       {evidence.slice(0, 4).map((e, i) => (
-        <span
+        <Link
           key={i}
-          className="inline-flex items-center gap-2 rounded-full border border-border-dark bg-[#0f1115] px-2 py-1 text-[11px] text-muted-foreground"
+          href={evidenceUrl(dealId, e)}
+          className="inline-flex items-center gap-2 rounded-full border border-border-dark bg-[#0f1115] px-2 py-1 text-[11px] text-muted-foreground hover:bg-[#121622]"
           title={e.excerpt ?? ""}
         >
           <span className="material-symbols-outlined text-[14px]">attach_file</span>
           {e.label ?? e.sourceId}
           {e.page ? <span>· p.{e.page}</span> : null}
-        </span>
+          <span className="material-symbols-outlined text-[14px] opacity-70">open_in_new</span>
+        </Link>
       ))}
     </div>
   );
@@ -47,11 +51,14 @@ export default async function DealRiskPricingPage({
           </div>
         </div>
 
-        <form action={async () => { "use server"; await generateRiskAction(dealId); }}>
-          <button className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">
-            Generate Risk (AI)
-          </button>
-        </form>
+        <div className="flex items-center gap-2">
+          <Link href={`/deals/${dealId}/risk/compare`} className="rounded-lg border border-border-dark bg-[#0f1115] px-3 py-1.5 text-sm hover:bg-[#121622]">What changed?</Link>
+          <form action={async () => { "use server"; await generateRiskAction(dealId); }}>
+            <button className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">
+              Generate Risk (AI)
+            </button>
+          </form>
+        </div>
       </div>
 
       {!risk ? (
@@ -110,7 +117,7 @@ export default async function DealRiskPricingPage({
                     <div className="mt-2 text-sm text-muted-foreground">{f.rationale}</div>
                   ) : null}
 
-                  <EvidenceChips evidence={f.evidence ?? []} />
+                  <EvidenceChips dealId={dealId} evidence={f.evidence ?? []} />
                 </div>
               ))}
             </div>
@@ -128,7 +135,7 @@ export default async function DealRiskPricingPage({
                     </div>
                   </div>
                   <div className="mt-2 text-sm text-muted-foreground">{p.rationale}</div>
-                  <EvidenceChips evidence={p.evidence ?? []} />
+                  <EvidenceChips dealId={dealId} evidence={p.evidence ?? []} />
                 </div>
               ))}
             </div>

@@ -99,3 +99,11 @@ export async function getLatestMemo(dealId: string) {
   const arr = mem.memoRuns.get(dealId) ?? [];
   return arr[0] ?? null;
 }
+
+export async function listRiskRuns(dealId: string) {
+  return mem.riskRuns.get(dealId) ?? [];
+}
+
+export async function listMemoRuns(dealId: string) {
+  return mem.memoRuns.get(dealId) ?? [];
+}
