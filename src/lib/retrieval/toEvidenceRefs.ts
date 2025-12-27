@@ -1,5 +1,5 @@
 import type { EvidenceRefT } from "@/lib/ai/schemas";
-import type { RetrievedChunk } from "./retrieve";
+import type { RetrievedChunk } from "./types";
 
 /**
  * Convert retrieved chunks to EvidenceRef citations

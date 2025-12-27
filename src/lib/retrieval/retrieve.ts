@@ -1,46 +1,52 @@
-import { supabaseServer } from "./supabaseServer";
-import { embedText } from "./embeddings";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getOpenAI } from "@/lib/ai/openaiClient";
+import type { RetrievedChunk } from "@/lib/retrieval/types";
 
-export type RetrievedChunk = {
-  chunkId: string;
-  documentId: string;
-  pageStart: number;
-  pageEnd: number;
-  content: string;
-  similarity: number;
-};
+export type { RetrievedChunk };
+
+const EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
+
+export async function embedQuery(text: string): Promise<number[]> {
+  const openai = getOpenAI();
+  const resp = await openai.embeddings.create({
+    model: EMBEDDING_MODEL,
+    input: text,
+  });
+  const v = resp.data?.[0]?.embedding;
+  if (!v?.length) throw new Error("Empty embedding from OpenAI");
+  return v as number[];
+}
 
 /**
- * Retrieve top-K evidence chunks using semantic search (pgvector)
- * @param args - { dealId, query, k }
+ * Retrieve top-K chunks using semantic search (pgvector)
+ * @param opts - { dealId, question, k }
  * @returns Array of chunks sorted by similarity (highest first)
  */
-export async function retrieveTopChunks(args: {
+export async function retrieveTopChunks(opts: {
   dealId: string;
-  query: string;
+  question: string;
   k?: number;
 }): Promise<RetrievedChunk[]> {
-  const sb = supabaseServer();
-  const k = args.k ?? 12;
+  const { dealId, question, k = 20 } = opts;
 
-  // Generate query embedding
-  const qv = await embedText(args.query);
+  const queryEmbedding = await embedQuery(question);
+  const sb = getSupabaseServerClient();
 
-  // Call RPC function for vector similarity search
-  const { data, error } = await sb.rpc("match_evidence_chunks", {
-    in_deal_id: args.dealId,
-    in_query_embedding: qv,
+  const { data, error } = await sb.rpc("match_deal_doc_chunks", {
+    in_deal_id: dealId,
+    in_query_embedding: queryEmbedding,
     in_match_count: k,
   });
 
   if (error) throw error;
 
-  return (data ?? []).map((r: any) => ({
-    chunkId: r.chunk_id,
-    documentId: r.document_id,
-    pageStart: r.page_start,
-    pageEnd: r.page_end,
-    content: r.content,
-    similarity: r.similarity,
-  }));
+  // Supabase returns unknown[]; normalize
+  return (data || []).map((r: any) => ({
+    chunk_id: r.chunk_id,
+    upload_id: r.upload_id,
+    page_start: r.page_start ?? null,
+    page_end: r.page_end ?? null,
+    content: r.content ?? "",
+    similarity: typeof r.similarity === "number" ? r.similarity : Number(r.similarity ?? 0),
+  })) satisfies RetrievedChunk[];
 }

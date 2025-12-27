@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getOpenAI, getModel } from "@/lib/ai/openaiClient";
-import type { RetrievedChunk } from "./retrieve";
+import type { RetrievedChunk } from "./types";
 
 const RerankSchema = z.object({
   selected: z
