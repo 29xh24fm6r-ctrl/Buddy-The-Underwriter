@@ -1,13 +1,8 @@
 type Bucket = { count: number; resetAt: number };
 
-// VERY simple in-memory limiter (good enough for launch; swap to Upstash/Vercel KV later)
 const buckets = new Map<string, Bucket>();
 
-export function rateLimit(opts: {
-  key: string;
-  limit: number;
-  windowMs: number;
-}) {
+export function rateLimit(opts: { key: string; limit: number; windowMs: number }) {
   const now = Date.now();
   const b = buckets.get(opts.key);
 

@@ -2,50 +2,38 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 /**
- * Canonical Buddy auth gate.
- *
- * Public:
- *   - marketing + health
- *   - auth pages
- *   - share links
- *   - API health
- *
- * Protected:
- *   - everything else
+ * Canonical auth gate.
+ * Public routes are explicitly allowlisted.
+ * Everything else is protected.
  */
 const isPublicRoute = createRouteMatcher([
   "/",
   "/health",
-  "/api/health",
+  "/api/health(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/s(.*)",
   "/share(.*)",
-  "/stitch(.*)",        // keep stitch accessible for now; lock down later if desired
-  "/stitch-login(.*)",
-  "/stitch-results(.*)",
-  "/stitch-share(.*)",
-  "/stitch-generate(.*)",
+  // Keep Stitch public for now to prevent surprises; tighten later if desired.
+  "/stitch(.*)",
 ]);
 
-export default clerkMiddleware((auth, req) => {
+export default clerkMiddleware(async (auth, req) => {
   const { pathname } = req.nextUrl;
 
-  // Always allow Next internals + static
+  // Allow Next internals + static
   if (
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon.ico") ||
-    pathname.startsWith("/robots.txt") ||
-    pathname.startsWith("/sitemap.xml")
+    pathname === "/favicon.ico" ||
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml"
   ) {
     return NextResponse.next();
   }
 
-  // Public routes flow through
   if (isPublicRoute(req)) return NextResponse.next();
 
-  // Everything else requires auth
-  auth().protect();
+  await auth.protect();
   return NextResponse.next();
 });
 

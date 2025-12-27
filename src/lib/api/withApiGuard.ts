@@ -6,16 +6,14 @@ import { rateLimit } from "@/lib/api/rateLimit";
 
 type Handler<T = unknown> = (req: NextRequest) => Promise<NextResponse<T>>;
 
-export function withApiGuard(opts: {
-  // If true, requires Clerk auth
-  requireAuth?: boolean;
-
-  // If set, enables rate limiting by IP + userId
-  rate?: { limit: number; windowMs: number };
-
-  // Tag for logs
-  tag: string;
-}, handler: Handler) {
+export function withApiGuard(
+  opts: {
+    tag: string;
+    requireAuth?: boolean;
+    rate?: { limit: number; windowMs: number };
+  },
+  handler: Handler
+) {
   return async (req: NextRequest) => {
     const requestId = getRequestId(req);
 
@@ -23,10 +21,13 @@ export function withApiGuard(opts: {
       let userId: string | null = null;
 
       if (opts.requireAuth) {
-        const a = auth();
+        const a = await auth();
         userId = a.userId ?? null;
         if (!userId) {
-          return NextResponse.json({ ok: false, error: "unauthorized", requestId } as any, { status: 401 });
+          return NextResponse.json(
+            { ok: false, error: "unauthorized", requestId } as any,
+            { status: 401, headers: { "x-request-id": requestId } }
+          );
         }
       }
 
@@ -48,7 +49,6 @@ export function withApiGuard(opts: {
     } catch (err: any) {
       // eslint-disable-next-line no-console
       console.error(`[api:${opts.tag}]`, requestId, err?.message || err);
-
       return NextResponse.json(
         { ok: false, error: "internal_error", requestId } as any,
         { status: 500, headers: { "x-request-id": requestId } }

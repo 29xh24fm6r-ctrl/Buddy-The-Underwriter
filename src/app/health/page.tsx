@@ -5,9 +5,12 @@ export default function HealthPage() {
       <p className="mt-3 text-white/70">
         If you can see this, routing + rendering are working.
       </p>
-      <div className="mt-8">
+      <div className="mt-8 flex gap-3">
         <a className="rounded-xl bg-white/10 px-4 py-2 hover:bg-white/15" href="/api/health">
-          View JSON health
+          /api/health
+        </a>
+        <a className="rounded-xl bg-white/10 px-4 py-2 hover:bg-white/15" href="/api/health/supabase">
+          /api/health/supabase
         </a>
       </div>
     </div>

@@ -90,21 +90,14 @@ export default function VoicePage() {
 
       const tokenData = await tokenRes.json();
 
-      // Send offer to OpenAI Realtime API
-      // NOTE: The actual WebRTC signaling with OpenAI Realtime API
-      // requires the official OpenAI WebRTC client or direct API calls
-      // This is a simplified version - refer to OpenAI docs for production setup
-      
-      const baseUrl = "https://api.openai.com/v1/realtime";
+      // Send offer to OpenAI Realtime API via server proxy
+      // This keeps the API key secure on the server side
       const model = "gpt-4o-realtime-preview-2024-12-17";
 
-      const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
+      const sdpResponse = await fetch("/api/realtime/sdp", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_OPENAI_API_KEY}`,
-          "Content-Type": "application/sdp",
-        },
-        body: offer.sdp,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sdp: offer.sdp, model }),
       });
 
       if (!sdpResponse.ok) {

@@ -1,3 +1,4 @@
+import { withApiGuard } from "@/lib/api/withApiGuard";
 import { NextResponse } from "next/server";
 import { runUnderwritingDecision } from "@/ai/orchestrator/run";
 import { auth } from "@clerk/nextjs/server";
@@ -5,7 +6,7 @@ import { auth } from "@clerk/nextjs/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
+export const POST = withApiGuard({ tag: "ai:underwrite", requireAuth: true, rate: { limit: 30, windowMs: 60_000 } }, async (req: any) => {
   const { userId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
@@ -42,4 +43,4 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
-}
+});

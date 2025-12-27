@@ -11,7 +11,7 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     // eslint-disable-next-line no-console
-    console.error("[app/error.tsx]", error);
+    console.error("[GlobalError]", error);
   }, [error]);
 
   return (
@@ -20,7 +20,7 @@ export default function GlobalError({
         <div className="mx-auto max-w-2xl px-6 py-16">
           <h1 className="text-2xl font-semibold">Something went wrong</h1>
           <p className="mt-3 text-white/70">
-            The app hit an unexpected error. This is not your fault.
+            Buddy hit an unexpected error. Try again — if it persists, we'll want the request id from the API response.
           </p>
 
           <div className="mt-6 rounded-xl border border-white/10 bg-black/30 p-4">
@@ -38,10 +38,7 @@ export default function GlobalError({
             >
               Try again
             </button>
-            <a
-              className="rounded-xl bg-white/10 px-4 py-2 hover:bg-white/15"
-              href="/"
-            >
+            <a className="rounded-xl bg-white/10 px-4 py-2 hover:bg-white/15" href="/">
               Go home
             </a>
           </div>

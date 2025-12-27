@@ -1,3 +1,4 @@
+import { withApiGuard } from "@/lib/api/withApiGuard";
 import { NextResponse } from "next/server";
 import { generateAdvancedCreditMemo } from "@/lib/ai/creditMemoGenerator";
 import { buildAdvancedCreditMemoHtml } from "@/lib/ai/creditMemoTheme";
@@ -5,7 +6,7 @@ import { buildDealContext } from "@/lib/deal/buildDealContext";
 
 export const runtime = "nodejs";
 
-export async function POST(req: Request) {
+export const POST = withApiGuard({ tag: "ai:credit-memo", requireAuth: true, rate: { limit: 30, windowMs: 60_000 } }, async (req: any) => {
   try {
     const body = await req.json().catch(() => ({}));
     const dealId = body?.dealId ? String(body.dealId) : "DEAL-DEMO-001";
@@ -55,4 +56,4 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
-}
+});

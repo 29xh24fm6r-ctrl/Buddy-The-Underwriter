@@ -5,6 +5,13 @@ type EnvShape = {
   NEXT_PUBLIC_SUPABASE_ANON_KEY?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   NODE_ENV?: string;
+  // Clerk
+  CLERK_SECRET_KEY?: string;
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?: string;
+  // OpenAI
+  OPENAI_API_KEY?: string;
+  // Resend (optional)
+  RESEND_API_KEY?: string;
 };
 
 function must(name: string, v: string | undefined) {
@@ -52,6 +59,24 @@ function normalizeSupabaseUrl(raw: string) {
   return raw.replace(/\/+$/, "");
 }
 
+export function requireOpenAIKey() {
+  const e = process.env as EnvShape;
+  return must("OPENAI_API_KEY", e.OPENAI_API_KEY);
+}
+
+export function requireClerkServerKey() {
+  const e = process.env as EnvShape;
+  return must("CLERK_SECRET_KEY", e.CLERK_SECRET_KEY);
+}
+
+export function requireClerkPublishableKey() {
+  const e = process.env as EnvShape;
+  return must(
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+    e.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+  );
+}
+
 export function getEnv() {
   const e = process.env as EnvShape;
 
@@ -74,5 +99,13 @@ export function getEnv() {
         e.SUPABASE_SERVICE_ROLE_KEY.trim()
     ),
     nodeEnv: e.NODE_ENV || "unknown",
+    // validated required keys for launch-hardening
+    openaiApiKey: must("OPENAI_API_KEY", e.OPENAI_API_KEY),
+    clerkSecretKey: must("CLERK_SECRET_KEY", e.CLERK_SECRET_KEY),
+    clerkPublishableKey: must(
+      "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+      e.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+    ),
+    resendApiKey: (e.RESEND_API_KEY || "").trim() || undefined,
   };
 }
