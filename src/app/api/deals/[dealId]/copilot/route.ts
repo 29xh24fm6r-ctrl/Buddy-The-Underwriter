@@ -3,12 +3,13 @@ import { writeAiEvent } from "@/lib/aiEvents";
 
 export async function POST(
   req: Request,
-  { params }: { params: { dealId: string } }
+  { params }: { params: Promise<{ dealId: string }> }
 ) {
+  const { dealId } = await params;
   const { message } = await req.json();
 
   await writeAiEvent({
-    deal_id: params.dealId,
+    deal_id: dealId,
     kind: "copilot.message",
     scope: "borrower",
     action: "ask",

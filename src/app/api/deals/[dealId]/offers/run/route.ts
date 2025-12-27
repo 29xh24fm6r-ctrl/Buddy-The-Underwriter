@@ -4,12 +4,13 @@ import { generateOffers } from "@/lib/offers/offerEngine";
 
 export async function POST(
   _: Request,
-  { params }: { params: { dealId: string } }
+  { params }: { params: Promise<{ dealId: string }> }
 ) {
+  const { dealId } = await params;
   const offers = generateOffers({});
 
   await writeAiEvent({
-    deal_id: params.dealId,
+    deal_id: dealId,
     kind: "offers.generated",
     scope: "credit",
     action: "compare",

@@ -3,9 +3,9 @@ import { writeAiEvent } from "@/lib/aiEvents";
 
 export async function POST(
   _: Request,
-  { params }: { params: { dealId: string } }
+  { params }: { params: Promise<{ dealId: string }> }
 ) {
-  const dealId = params.dealId;
+  const { dealId } = await params;
 
   await writeAiEvent({
     deal_id: dealId,

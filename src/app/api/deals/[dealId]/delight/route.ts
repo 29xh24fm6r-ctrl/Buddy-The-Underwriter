@@ -7,9 +7,9 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function POST(
   req: Request,
-  { params }: { params: { dealId: string } }
+  { params }: { params: Promise<{ dealId: string }> }
 ) {
-  const { dealId } = params;
+  const { dealId } = await params;
   const { message, milestone } = await req.json();
 
   // Fetch current events to compute context

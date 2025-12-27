@@ -4,8 +4,9 @@ import { mapFactsToEtran } from "@/lib/etran/etranMapper";
 
 export async function POST(
   _: Request,
-  { params }: { params: { dealId: string } }
+  { params }: { params: Promise<{ dealId: string }> }
 ) {
+  const { dealId } = await params;
   // facts would normally be derived from prior events
   const facts = {
     business_name: "Acme LLC",
@@ -18,7 +19,7 @@ export async function POST(
   const etranPayload = mapFactsToEtran(facts);
 
   await writeAiEvent({
-    deal_id: params.dealId,
+    deal_id: dealId,
     kind: "etran.package.generated",
     scope: "sba",
     action: "populate",
