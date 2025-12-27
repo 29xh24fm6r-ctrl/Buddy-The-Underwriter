@@ -386,14 +386,18 @@ ${consensus.map(c => `- ${c.agent_name}: ${c.vote} (${(c.confidence * 100).toFix
 Write a professional summary explaining the recommendation.`;
     
     try {
-      const result = await aiJson<{ summary: string }>(
-        'gpt-4o-mini',
-        prompt,
-        {},
-        { temperature: 0.3, max_tokens: 200 }
-      );
+      const result = await aiJson<{ summary: string }>({
+        scope: 'credit',
+        action: 'executive_summary',
+        system: 'You are a loan officer writing executive summaries.',
+        user: prompt,
+        jsonSchemaHint: 'Return { summary: string }',
+      });
       
-      return result.summary || 'Unable to generate summary';
+      if (result.ok && result.result) {
+        return result.result.summary || 'Unable to generate summary';
+      }
+      return 'Unable to generate summary';
     } catch (error) {
       this.error('Failed to generate executive summary', error);
       

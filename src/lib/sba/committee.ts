@@ -59,16 +59,17 @@ export async function runCommittee({
   const openai = getOpenAI();
 
   // 1. Retrieve unified context (deal + bank + SBA)
-  const context = await retrieveContext({
+  const evidence = await retrieveEvidence({
     dealId,
-    bankId,
+    bankId: bankId || "",
     query: question,
+    queryText: question,
     sources: ["DEAL_DOC", "BANK_POLICY", "SBA_POLICY"],
     topK: 20,
   });
 
-  const formattedContext = formatRetrievalContext(context);
-  const citations = extractCitations(context);
+  const formattedContext = evidence.citations.map((c: any) => c.quote || "").join("\n\n");
+  const citations = evidence.citations;
 
   // 2. Fetch persona configurations
   const { data: personaConfigs } = await sb
@@ -110,7 +111,7 @@ export async function runCommittee({
       input_json: {
         question,
         personas,
-        context_chunks: context.length,
+        context_chunks: citations.length,
       },
       output_json: {
         evaluations,

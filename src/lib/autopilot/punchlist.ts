@@ -14,7 +14,7 @@ export interface PunchlistItem {
   title: string;
   description: string;
   reason: string;
-  source: "sba_rule" | "bank_policy" | "missing_doc" | "conflict" | "condition";
+  source: "sba_rule" | "bank_policy" | "missing_doc" | "conflict" | "condition" | "system";
   sba_vs_bank: "sba" | "bank" | "both";
   link?: string;
   eta_minutes?: number;

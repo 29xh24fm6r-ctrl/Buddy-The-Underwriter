@@ -6,6 +6,7 @@ import { insertRiskRun, getLatestRiskRun, insertMemoRun } from "@/lib/db/server"
 import { getEvidenceCatalogForAI } from "@/lib/evidence/getEvidenceCatalog";
 import { retrieveTopChunks } from "@/lib/retrieval/retrieve";
 import { aiRerankChunks } from "@/lib/retrieval/rerank";
+import { mapEvidenceChunkRow } from "@/lib/db/rowCase";
 
 export async function generateRiskAction(dealId: string) {
   const provider = getAIProvider();
@@ -18,7 +19,7 @@ export async function generateRiskAction(dealId: string) {
   try {
     const riskQuery =
       "credit risk factors revenue volatility customer concentration collateral coverage debt service DSCR financial covenants";
-    const retrieved = await retrieveTopChunks({ dealId, query: riskQuery, k: 24 });
+    const retrieved = await retrieveTopChunks({ dealId, question: riskQuery, k: 24 });
     if (retrieved.length > 0) {
       const reranked = await aiRerankChunks({
         query: riskQuery,
@@ -26,7 +27,7 @@ export async function generateRiskAction(dealId: string) {
         topN: 10,
       });
       evidenceContext = reranked.kept
-        .map((c) => `PAGES ${c.pageStart}-${c.pageEnd}\n${c.content}`)
+        .map((c) => `PAGES ${c.pageStart ?? c.page_start}-${c.pageEnd ?? c.page_end}\n${c.content}`)
         .join("\n\n---\n\n");
     }
   } catch (e: any) {
@@ -86,7 +87,7 @@ export async function generateMemoAction(dealId: string) {
         topN: 10,
       });
       evidenceContext = memoReranked.kept
-        .map((c) => `PAGES ${c.pageStart}-${c.pageEnd}\n${c.content}`)
+        .map((c) => `PAGES ${c.pageStart ?? c.page_start}-${c.pageEnd ?? c.page_end}\n${c.content}`)
         .join("\n\n---\n\n");
     }
   } catch (e: any) {

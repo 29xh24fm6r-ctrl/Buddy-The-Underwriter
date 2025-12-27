@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getOpenAI, getModel } from "@/lib/ai/openaiClient";
 import type { RetrievedChunk } from "./types";
+import { mapEvidenceChunkRow } from "@/lib/db/rowCase";
 
 const RerankSchema = z.object({
   selected: z
@@ -44,9 +45,9 @@ export async function aiRerankChunks(args: {
   const payload = {
     QUERY: args.query,
     CHUNKS: args.chunks.map((c) => ({
-      chunkId: c.chunkId,
-      pageStart: c.pageStart,
-      pageEnd: c.pageEnd,
+      chunkId: c.chunkId ?? c.chunk_id,
+      pageStart: c.pageStart ?? c.page_start,
+      pageEnd: c.pageEnd ?? c.page_end,
       similarity: c.similarity,
       content: c.content.slice(0, 2500), // keep tokens sane
     })),
@@ -76,9 +77,9 @@ export async function aiRerankChunks(args: {
   const out = RerankSchema.parse(parsed);
 
   // Filter chunks to only selected ones, preserving order from AI
-  const selectedIds = new Set(out.selected.map((s) => s.chunkId));
+  const selectedIds = new Set(out.selected.map((s) => s.chunkId ?? s.chunk_id));
   const kept = args.chunks
-    .filter((c) => selectedIds.has(c.chunkId))
+    .filter((c) => selectedIds.has(c.chunkId ?? c.chunk_id))
     .slice(0, topN);
 
   return { kept, reasons: out.selected };

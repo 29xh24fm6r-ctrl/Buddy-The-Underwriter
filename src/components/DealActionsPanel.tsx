@@ -5,9 +5,9 @@ export function DealActionsPanel({ dealId }: { dealId: string }) {
   const [pending, start] = useTransition();
 
   const run = (path: string) =>
-    start(() =>
-      fetch(`/api/deals/${dealId}/${path}`, { method: "POST" })
-    );
+    start(async () => {
+      await fetch(`/api/deals/${dealId}/${path}`, { method: "POST" });
+    });
 
   return (
     <div className="space-y-3 border p-4 rounded-xl">

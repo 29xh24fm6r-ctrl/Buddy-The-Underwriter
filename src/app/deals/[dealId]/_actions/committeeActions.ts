@@ -6,6 +6,7 @@ import { append } from "../(shell)/committee/_components/committeeStore";
 import { getEvidenceCatalogForAI } from "@/lib/evidence/getEvidenceCatalog";
 import { retrieveTopChunks } from "@/lib/retrieval/retrieve";
 import { aiRerankChunks } from "@/lib/retrieval/rerank";
+import { mapEvidenceChunkRow } from "@/lib/db/rowCase";
 
 export async function askCommitteeAction(dealId: string, question: string) {
   append(dealId, { role: "user", content: question });
@@ -20,11 +21,11 @@ export async function askCommitteeAction(dealId: string, question: string) {
   // 🔥 SEMANTIC RETRIEVAL: Pull the most relevant evidence chunks for this question
   let evidenceContext = "";
   try {
-    const retrieved = await retrieveTopChunks({ dealId, query: question, k: 20 });
+  const retrieved = await retrieveTopChunks({ dealId, question, k: 24 });
     if (retrieved.length > 0) {
       const reranked = await aiRerankChunks({ query: question, chunks: retrieved, topN: 8 });
       evidenceContext = reranked.kept
-        .map((c) => `PAGES ${c.pageStart}-${c.pageEnd}\n${c.content}`)
+        .map((c) => `PAGES ${c.pageStart ?? c.page_start}-${c.pageEnd ?? c.page_end}\n${c.content}`)
         .join("\n\n---\n\n");
     }
   } catch (e: any) {

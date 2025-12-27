@@ -1,0 +1,45 @@
+
+> buddy-the-underwriter@0.1.0 typecheck
+> tsc -p tsconfig.json --noEmit
+
+src/app/deals/[dealId]/_actions/aiActions.ts(22,57): error TS2353: Object literal may only specify known properties, and 'query' does not exist in type '{ dealId: string; question: string; k?: number | undefined; }'.
+src/app/deals/[dealId]/_actions/aiActions.ts(30,33): error TS2551: Property 'pageStart' does not exist on type 'RetrievedChunk'. Did you mean 'page_start'?
+src/app/deals/[dealId]/_actions/aiActions.ts(30,66): error TS2551: Property 'pageEnd' does not exist on type 'RetrievedChunk'. Did you mean 'page_end'?
+src/app/deals/[dealId]/_actions/aiActions.ts(82,61): error TS2353: Object literal may only specify known properties, and 'query' does not exist in type '{ dealId: string; question: string; k?: number | undefined; }'.
+src/app/deals/[dealId]/_actions/aiActions.ts(90,33): error TS2551: Property 'pageStart' does not exist on type 'RetrievedChunk'. Did you mean 'page_start'?
+src/app/deals/[dealId]/_actions/aiActions.ts(90,66): error TS2551: Property 'pageEnd' does not exist on type 'RetrievedChunk'. Did you mean 'page_end'?
+src/app/deals/[dealId]/_actions/committeeActions.ts(24,57): error TS2353: Object literal may only specify known properties, and 'query' does not exist in type '{ dealId: string; question: string; k?: number | undefined; }'.
+src/app/deals/[dealId]/_actions/committeeActions.ts(28,33): error TS2551: Property 'pageStart' does not exist on type 'RetrievedChunk'. Did you mean 'page_start'?
+src/app/deals/[dealId]/_actions/committeeActions.ts(28,66): error TS2551: Property 'pageEnd' does not exist on type 'RetrievedChunk'. Did you mean 'page_end'?
+src/lib/agents/risk.ts(390,9): error TS2353: Object literal may only specify known properties, and 'model' does not exist in type '{ scope: string; action: string; system: string; user: string; jsonSchemaHint: string; }'.
+src/lib/agents/risk.ts(397,31): error TS2339: Property 'data' does not exist on type '{ ok: true; result: { summary: string; }; confidence: number; evidence?: any[] | undefined; requires_human_review: boolean; rawText?: string | undefined; model?: string | undefined; }'.
+src/lib/agents/risk.ts(398,23): error TS2339: Property 'data' does not exist on type '{ ok: true; result: { summary: string; }; confidence: number; evidence?: any[] | undefined; requires_human_review: boolean; rawText?: string | undefined; model?: string | undefined; }'.
+src/lib/connect/plaid.ts(15,18): error TS2709: Cannot use namespace 'PlaidApi' as a type.
+src/lib/connect/plaid.ts(17,28): error TS2709: Cannot use namespace 'PlaidApi' as a type.
+src/lib/connect/plaid.ts(49,57): error TS2709: Cannot use namespace 'Products' as a type.
+src/lib/connect/plaid.ts(106,35): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/lib/connect/plaid.ts(132,31): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/lib/connect/quickbooks.ts(15,16): error TS2709: Cannot use namespace 'OAuthClient' as a type.
+src/lib/connect/quickbooks.ts(17,26): error TS2709: Cannot use namespace 'OAuthClient' as a type.
+src/lib/retrieval/rerank.ts(48,19): error TS2551: Property 'chunkId' does not exist on type 'RetrievedChunk'. Did you mean 'chunk_id'?
+src/lib/retrieval/rerank.ts(49,21): error TS2551: Property 'pageStart' does not exist on type 'RetrievedChunk'. Did you mean 'page_start'?
+src/lib/retrieval/rerank.ts(50,19): error TS2551: Property 'pageEnd' does not exist on type 'RetrievedChunk'. Did you mean 'page_end'?
+src/lib/retrieval/rerank.ts(80,71): error TS2551: Property 'chunk_id' does not exist on type '{ chunkId: string; reason: string; }'. Did you mean 'chunkId'?
+src/lib/retrieval/rerank.ts(82,39): error TS2551: Property 'chunkId' does not exist on type 'RetrievedChunk'. Did you mean 'chunk_id'?
+src/lib/retrieval/retrievalCore.ts(238,13): error TS2339: Property 'kind' does not exist on type '{ content: any; source: { kind: string; data: any; }; }'.
+src/lib/retrieval/retrievalCore.ts(238,19): error TS2339: Property 'data' does not exist on type '{ content: any; source: { kind: string; data: any; }; }'.
+src/lib/retrieval/spans.ts(10,43): error TS2551: Property 'chunk_id' does not exist on type '{ dealId: string; chunkId: string; }'. Did you mean 'chunkId'?
+src/lib/retrieval/toEvidenceRefs.ts(20,20): error TS2339: Property 'documentId' does not exist on type 'RetrievedChunk'.
+src/lib/retrieval/toEvidenceRefs.ts(20,36): error TS2339: Property 'document_id' does not exist on type 'RetrievedChunk'.
+src/lib/retrieval/toEvidenceRefs.ts(21,16): error TS2551: Property 'pageStart' does not exist on type 'RetrievedChunk'. Did you mean 'page_start'?
+src/lib/retrieval/toEvidenceRefs.ts(24,12): error TS2551: Property 'pageEnd' does not exist on type 'RetrievedChunk'. Did you mean 'page_end'?
+src/lib/retrieval/toEvidenceRefs.ts(24,42): error TS2551: Property 'pageStart' does not exist on type 'RetrievedChunk'. Did you mean 'page_start'?
+src/lib/retrieval/toEvidenceRefs.ts(27,22): error TS2339: Property 'documentId' does not exist on type 'RetrievedChunk'.
+src/lib/retrieval/toEvidenceRefs.ts(27,38): error TS2339: Property 'document_id' does not exist on type 'RetrievedChunk'.
+src/lib/retrieval/toEvidenceRefs.ts(28,18): error TS2551: Property 'pageEnd' does not exist on type 'RetrievedChunk'. Did you mean 'page_end'?
+src/lib/sba/committee.ts(64,5): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/lib/sba/committee.ts(70,37): error TS2339: Property 'chunks' does not exist on type 'RetrievalResult'.
+src/lib/sba/committee.ts(71,30): error TS2339: Property 'chunks' does not exist on type 'RetrievalResult'.
+src/lib/sba/committee.ts(117,25): error TS2304: Cannot find name 'context'.
+src/lib/sba/committee.ts(134,22): error TS7006: Parameter 'c' implicitly has an 'any' type.

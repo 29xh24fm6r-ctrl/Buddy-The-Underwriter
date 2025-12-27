@@ -1,5 +1,6 @@
 import type { EvidenceRefT } from "@/lib/ai/schemas";
 import type { RetrievedChunk } from "./types";
+import { mapEvidenceChunkRow } from "@/lib/db/rowCase";
 
 /**
  * Convert retrieved chunks to EvidenceRef citations
@@ -16,15 +17,15 @@ export function chunksToEvidenceRefs(args: {
     // Cite both start and end pages to cover full chunk range
     refs.push({
       kind: "pdf",
-      sourceId: c.documentId, // TODO: map to real source_id from evidence_documents
-      page: c.pageStart,
+      sourceId: c.documentId ?? c.document_id, // TODO: map to real source_id from evidence_documents
+      page: c.pageStart ?? c.page_start,
       label: "Evidence",
     });
-    if (c.pageEnd !== c.pageStart) {
+    if (c.pageEnd ?? c.page_end !== c.pageStart ?? c.page_start) {
       refs.push({
         kind: "pdf",
-        sourceId: c.documentId,
-        page: c.pageEnd,
+        sourceId: c.documentId ?? c.document_id,
+        page: c.pageEnd ?? c.page_end,
         label: "Evidence",
       });
     }

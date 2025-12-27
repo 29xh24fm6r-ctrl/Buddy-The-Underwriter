@@ -1,7 +1,7 @@
-import { createClient } from "@/lib/supabase/server";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function getDealProjection(dealId: string) {
-  const supabase = createClient();
+  const supabase = getSupabaseServerClient();
 
   const { data } = await supabase
     .from("ai_events")
