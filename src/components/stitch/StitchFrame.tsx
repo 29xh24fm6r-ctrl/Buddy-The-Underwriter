@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, type MouseEventHandler } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEventHandler } from "react";
 import { useRouter } from "next/navigation";
 import { resolveStitchHref } from "@/lib/stitch/resolveStitchHref";
 import { installStitchNavigationGuard } from "@/lib/stitch/stitchGuard";
@@ -28,16 +28,22 @@ export default function StitchFrame({
 }: StitchFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   
   // Debug mode (add ?stitchDebug=1 to URL)
   const stitchDebug =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("stitchDebug") === "1";
 
+  // Set mounted flag to avoid hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const srcDoc = useMemo(() => {
     // Parent origin (real page origin). We inject this into srcDoc to avoid iframe origin = "null".
-    const parentOrigin =
-      typeof window !== "undefined" ? window.location.origin : "";
+    // Only use window.location.origin after mounting to avoid hydration mismatch
+    const parentOrigin = mounted && typeof window !== "undefined" ? window.location.origin : "";
 
     const links = fontLinks.map((href) => `<link rel="stylesheet" href="${href}" />`).join("\n");
 
@@ -137,7 +143,7 @@ export default function StitchFrame({
       "</body>",
       "</html>",
     ].filter(Boolean).join("\n");
-  }, [title, fontLinks, tailwindCdnSrc, tailwindConfigJs, styles, bodyHtml]);
+  }, [title, fontLinks, tailwindCdnSrc, tailwindConfigJs, styles, bodyHtml, mounted]);
 
   useEffect(() => {
     function onMessage(ev: MessageEvent) {
