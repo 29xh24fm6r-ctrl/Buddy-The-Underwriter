@@ -42,6 +42,11 @@ export default function DealHeroBar({ dealId, borrowerName, status }: DealHeroBa
             </div>
           </div>
 
+          <div className="hidden md:flex items-center gap-2 rounded-full border border-border-dark bg-[#0f1115] px-2 py-1 text-[11px] text-muted-foreground">
+            <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
+            AI: explainable risk → memo
+          </div>
+
           <div className="flex items-center gap-2">
             <button className="rounded-lg border border-border-dark bg-[#0f1115] px-3 py-1.5 text-sm hover:bg-[#121622]">
               Request docs
