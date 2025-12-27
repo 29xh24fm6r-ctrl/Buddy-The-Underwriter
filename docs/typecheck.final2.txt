@@ -1,0 +1,11 @@
+
+> buddy-the-underwriter@0.1.0 typecheck
+> tsc -p tsconfig.json --noEmit
+
+src/lib/connect/plaid.ts(15,18): error TS2709: Cannot use namespace 'PlaidApi' as a type.
+src/lib/connect/plaid.ts(17,28): error TS2709: Cannot use namespace 'PlaidApi' as a type.
+src/lib/connect/plaid.ts(49,57): error TS2709: Cannot use namespace 'Products' as a type.
+src/lib/connect/plaid.ts(106,35): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/lib/connect/plaid.ts(132,31): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/lib/connect/quickbooks.ts(15,16): error TS2709: Cannot use namespace 'OAuthClient' as a type.
+src/lib/connect/quickbooks.ts(17,26): error TS2709: Cannot use namespace 'OAuthClient' as a type.

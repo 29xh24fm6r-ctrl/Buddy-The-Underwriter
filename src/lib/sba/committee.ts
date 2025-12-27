@@ -62,9 +62,7 @@ export async function runCommittee({
   const evidence = await retrieveEvidence({
     dealId,
     bankId: bankId || "",
-    query: question,
     queryText: question,
-    sources: ["DEAL_DOC", "BANK_POLICY", "SBA_POLICY"],
     topK: 20,
   });
 

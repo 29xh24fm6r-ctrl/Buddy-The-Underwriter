@@ -1,0 +1,17 @@
+
+> buddy-the-underwriter@0.1.0 typecheck
+> tsc -p tsconfig.json --noEmit
+
+src/lib/connect/plaid.ts(15,18): error TS2709: Cannot use namespace 'PlaidApi' as a type.
+src/lib/connect/plaid.ts(17,28): error TS2709: Cannot use namespace 'PlaidApi' as a type.
+src/lib/connect/plaid.ts(49,57): error TS2709: Cannot use namespace 'Products' as a type.
+src/lib/connect/plaid.ts(106,35): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/lib/connect/plaid.ts(132,31): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/lib/connect/quickbooks.ts(15,16): error TS2709: Cannot use namespace 'OAuthClient' as a type.
+src/lib/connect/quickbooks.ts(17,26): error TS2709: Cannot use namespace 'OAuthClient' as a type.
+src/lib/retrieval/rerank.ts(48,19): error TS2551: Property 'chunkId' does not exist on type 'RetrievedChunk'. Did you mean 'chunk_id'?
+src/lib/retrieval/rerank.ts(49,21): error TS2551: Property 'pageStart' does not exist on type 'RetrievedChunk'. Did you mean 'page_start'?
+src/lib/retrieval/rerank.ts(50,19): error TS2551: Property 'pageEnd' does not exist on type 'RetrievedChunk'. Did you mean 'page_end'?
+src/lib/retrieval/rerank.ts(52,32): error TS2339: Property 'text' does not exist on type 'RetrievedChunk'.
+src/lib/retrieval/rerank.ts(82,39): error TS2551: Property 'chunkId' does not exist on type 'RetrievedChunk'. Did you mean 'chunk_id'?
+src/lib/sba/committee.ts(65,5): error TS2353: Object literal may only specify known properties, and 'query' does not exist in type 'RetrievalQuery'.

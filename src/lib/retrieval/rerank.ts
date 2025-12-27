@@ -32,6 +32,9 @@ export async function aiRerankChunks(args: {
   const topN = args.topN ?? 8;
   const client = getOpenAI();
 
+  // Map chunks to ensure camelCase fields
+  const normalized = args.chunks.map(mapEvidenceChunkRow);
+
   // Use zod-to-json-schema helper (same pattern as other files)
   function jsonSchemaFor(name: string, schema: any) {
     const zodToJsonSchema = require("zod-to-json-schema");
@@ -44,10 +47,10 @@ export async function aiRerankChunks(args: {
 
   const payload = {
     QUERY: args.query,
-    CHUNKS: args.chunks.map((c) => ({
-      chunkId: (c.chunkId || c.chunk_id)!,
-      pageStart: (c.pageStart || c.page_start)!,
-      pageEnd: (c.pageEnd || c.page_end)!,
+    CHUNKS: normalized.map((c) => ({
+      chunkId: c.chunkId!,
+      pageStart: c.pageStart!,
+      pageEnd: c.pageEnd!,
       similarity: c.similarity,
       content: (c.content || c.text || "").slice(0, 2500), // keep tokens sane
     })),
@@ -78,8 +81,8 @@ export async function aiRerankChunks(args: {
 
   // Filter chunks to only selected ones, preserving order from AI
   const selectedIds = new Set(out.selected.map((s) => s.chunkId));
-  const kept = args.chunks
-    .filter((c) => selectedIds.has((c.chunkId || c.chunk_id)!))
+  const kept = normalized
+    .filter((c) => selectedIds.has(c.chunkId!))
     .slice(0, topN);
 
   return { kept, reasons: out.selected };
