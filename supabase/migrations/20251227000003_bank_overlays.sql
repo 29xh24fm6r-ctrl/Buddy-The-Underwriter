@@ -1,0 +1,159 @@
+-- =====================================================================
+-- SBA God Mode: Bank-Specific Overlays
+-- 
+-- Purpose: Policy-as-code for bank requirements that can only TIGHTEN
+--          (never loosen) SBA SOP compliance.
+-- =====================================================================
+
+-- -----------------------
+-- 1) Bank Overlays
+--    Versioned bank-specific policy configurations
+-- -----------------------
+CREATE TABLE IF NOT EXISTS bank_overlays (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    bank_id uuid NOT NULL REFERENCES banks(id) ON DELETE CASCADE,
+    
+    -- Version control
+    version int NOT NULL,
+    is_active boolean NOT NULL DEFAULT false,
+    
+    -- Overlay configuration (JSON DSL)
+    overlay_json jsonb NOT NULL,
+    
+    -- Metadata
+    name text NOT NULL,
+    description text,
+    
+    -- Lifecycle
+    created_at timestamptz DEFAULT now(),
+    created_by text,
+    activated_at timestamptz,
+    deactivated_at timestamptz
+);
+
+CREATE UNIQUE INDEX idx_bank_overlays_unique ON bank_overlays(bank_id, version);
+CREATE INDEX idx_bank_overlays_active ON bank_overlays(bank_id, is_active) WHERE is_active = true;
+CREATE INDEX idx_bank_overlays_bank_id ON bank_overlays(bank_id);
+
+-- GIN index for overlay queries
+CREATE INDEX idx_bank_overlays_json ON bank_overlays USING gin(overlay_json);
+
+-- RLS
+ALTER TABLE bank_overlays ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "deny_all_bank_overlays"
+ON bank_overlays
+FOR ALL
+USING (false);
+
+COMMENT ON TABLE bank_overlays IS 'Versioned bank-specific policy overlays (can only tighten SBA requirements)';
+COMMENT ON COLUMN bank_overlays.overlay_json IS 'DSL config: constraints, triggers, doc requirements, arbitration overrides';
+COMMENT ON COLUMN bank_overlays.is_active IS 'Only one version can be active per bank at a time';
+
+-- -----------------------
+-- 2) Overlay Application Log
+--    Track when/how overlays were applied to deals
+-- -----------------------
+CREATE TABLE IF NOT EXISTS overlay_application_log (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    deal_id uuid NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    bank_id uuid NOT NULL REFERENCES banks(id),
+    
+    -- Which overlay
+    overlay_id uuid NOT NULL REFERENCES bank_overlays(id) ON DELETE CASCADE,
+    overlay_version int NOT NULL,
+    
+    -- Application results
+    triggered_rules jsonb, -- which rules fired
+    added_conditions text[],
+    added_documents text[],
+    requires_human_review_flags text[], -- which triggers flagged for review
+    
+    -- Arbitration adjustments
+    adjusted_agent_weights jsonb,
+    adjusted_thresholds jsonb,
+    
+    -- Lifecycle
+    applied_at timestamptz DEFAULT now(),
+    applied_by text DEFAULT 'system'
+);
+
+CREATE INDEX idx_overlay_log_deal_id ON overlay_application_log(deal_id);
+CREATE INDEX idx_overlay_log_overlay_id ON overlay_application_log(overlay_id);
+CREATE INDEX idx_overlay_log_applied_at ON overlay_application_log(applied_at DESC);
+
+-- RLS
+ALTER TABLE overlay_application_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "deny_all_overlay_application_log"
+ON overlay_application_log
+FOR ALL
+USING (false);
+
+COMMENT ON TABLE overlay_application_log IS 'Audit log of overlay applications to deals';
+COMMENT ON COLUMN overlay_application_log.triggered_rules IS 'Which overlay rules matched deal state';
+
+-- -----------------------
+-- 3) Overlay-Generated Claims
+--    Claims created by bank overlay logic (not by agents)
+-- -----------------------
+CREATE TABLE IF NOT EXISTS overlay_generated_claims (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    deal_id uuid NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    bank_id uuid NOT NULL REFERENCES banks(id),
+    
+    -- Which overlay generated this
+    overlay_id uuid NOT NULL REFERENCES bank_overlays(id) ON DELETE CASCADE,
+    rule_id text NOT NULL, -- e.g., 'INDUSTRY_HOTEL', 'TAX_LIENS'
+    
+    -- Claim content (mirrors agent_claims)
+    claim_hash text NOT NULL,
+    topic text NOT NULL,
+    predicate text NOT NULL,
+    value_json jsonb NOT NULL,
+    
+    -- Overlay-specific
+    constraint_type text, -- 'min_dscr' | 'min_credit_score' | 'max_leverage' | 'custom'
+    requirement_level text NOT NULL DEFAULT 'bank', -- 'sba' | 'bank' | 'regulatory'
+    
+    -- Lifecycle
+    created_at timestamptz DEFAULT now(),
+    
+    CONSTRAINT overlay_generated_claims_bank_id_check CHECK (bank_id IS NOT NULL)
+);
+
+CREATE INDEX idx_overlay_claims_deal_id ON overlay_generated_claims(deal_id);
+CREATE INDEX idx_overlay_claims_overlay_id ON overlay_generated_claims(overlay_id);
+CREATE INDEX idx_overlay_claims_hash ON overlay_generated_claims(claim_hash);
+
+-- RLS
+ALTER TABLE overlay_generated_claims ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "deny_all_overlay_generated_claims"
+ON overlay_generated_claims
+FOR ALL
+USING (false);
+
+COMMENT ON TABLE overlay_generated_claims IS 'Claims generated by bank overlay rules (e.g., tighter DSCR requirements)';
+COMMENT ON COLUMN overlay_generated_claims.requirement_level IS 'Source: SBA baseline vs bank overlay vs other regulation';
+
+-- -----------------------
+-- 4) Default Overlay Template
+--    Insert a default overlay for testing
+-- -----------------------
+-- This will be loaded from config files in production
+-- INSERT INTO bank_overlays (bank_id, version, is_active, name, overlay_json) VALUES (
+--   'default-bank-id',
+--   1,
+--   true,
+--   'Default Bank Overlay',
+--   '{
+--     "constraints": {
+--       "min_global_dscr": 1.15,
+--       "min_credit_score": 680
+--     },
+--     "risk_triggers": [],
+--     "doc_requirements": [],
+--     "arbitration_overrides": {}
+--   }'::jsonb
+-- ) ON CONFLICT DO NOTHING;

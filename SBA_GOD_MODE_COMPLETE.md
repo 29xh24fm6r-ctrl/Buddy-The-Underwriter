@@ -1,52 +1,60 @@
-# SBA God-Mode - Complete Implementation
+# 🧠 SBA GOD MODE — COMPLETE
 
 ## Overview
 
-**Date**: 2024-12-27  
+**Date**: December 27, 2025  
 **Branch**: `feat/post-merge-upgrades`  
-**Vision**: Transform Buddy from "AI underwriting assistant" into "world-changing SBA copilot"
+**Vision**: Transform Buddy from "AI underwriting assistant" into an **AI-powered SBA underwriting operating system**
 
-This document covers the "God-Mode" architecture that turns SBA policy from text into executable logic, making Buddy understand SBA the way examiners do — and explain it like a friend.
+This document covers the complete **SBA God Mode** implementation: a multi-agent AI swarm that analyzes deals from every angle, provides confidence-scored recommendations, and generates E-Tran-ready loan packages.
 
----
-
-## 🎯 Core Vision
-
-Buddy is no longer answering questions. Buddy:
-
-✅ **Explains SBA rules in human language**  
-✅ **Anticipates borrower confusion**  
-✅ **Pre-emptively fixes eligibility problems**  
-✅ **Builds the credit memo as a side-effect of helping**  
-✅ **Never asks the borrower to understand SBA**
-
-> **Borrowers never "apply" — they are guided through inevitability.**
+**SBA God Mode** is not a form filler. It's an underwriting operating system.
 
 ---
 
-## 🏗️ Architecture
+## 🎯 Core Philosophy
 
-### The Moat: Machine-Readable SBA Rules
+* **SBA is rules-based, not vibes-based** — Every decision has a citation
+* **Agents argue with each other** — Consensus emerges from disagreement  
+* **Nothing is final without evidence** — Every claim is traceable to source documents
+* **Humans stay in control** — Confidence scores + override capabilities
+* **AI explains, rules decide** — AI generates insights, deterministic code makes decisions
 
-**Anyone can RAG PDFs. Only Buddy can understand SBA the way examiners do.**
+---
 
-Instead of:
-```typescript
-// ❌ Embeddings-only approach
-const chunks = await retrievePolicyChunks("eligibility requirements");
-// Hope LLM figures it out...
+## 🧱 Architecture
+
+```
+Borrower Upload
+   ↓
+Document Intelligence
+   ↓
+━━━━━━━━━━━━━━━━━━━━━
+┃  AI AGENT SWARM     ┃
+┃                     ┃
+┃  Layer 1: Analysis  ┃
+┃  • SBA Policy       ┃
+┃  • Eligibility      ┃
+┃  • Credit           ┃
+┃  • Cash Flow        ┃
+┃  • Collateral       ┃
+┃  • Management       ┃
+┃                     ┃
+┃  Layer 2: Synthesis ┃
+┃  • Risk             ┃
+┃  • Narrative        ┃
+┃  • Evidence         ┃
+┃                     ┃
+┃  Layer 3: UX        ┃
+┃  • Banker Copilot   ┃
+┃                     ┃
+━━━━━━━━━━━━━━━━━━━━━
+   ↓
+Underwriter Cockpit
+   ↓
+E-Tran Package
 ```
 
-We do:
-```typescript
-// ✅ God-Mode approach
-const rules = await evaluateSBAEligibility({ dealId, dealData });
-// Deterministic pass/fail + suggested fixes
-```
-
----
-
-## 📊 Database Schema
 
 ### 1. `sba_policy_rules` - Canonical SBA Knowledge
 
@@ -620,6 +628,353 @@ They **review** Buddy's committee simulation:
 They **audit** Buddy's traceability:
 - Every decision has rule citation
 - Every fix has SOP reference
+
+---
+
+## 🧬 MULTI-AGENT IMPLEMENTATION (Phase 1 Complete)
+
+### Database Schema: `agent_findings`
+
+```sql
+CREATE TABLE agent_findings (
+    id uuid PRIMARY KEY,
+    deal_id uuid NOT NULL,
+    bank_id uuid NOT NULL,
+    
+    agent_name text NOT NULL, -- 'sba_policy' | 'eligibility' | 'credit' | 'cash_flow' | etc.
+    agent_version text NOT NULL DEFAULT 'v1',
+    
+    finding_type text NOT NULL, -- 'requirement' | 'risk' | 'recommendation' | 'narrative' | 'evidence'
+    status text NOT NULL, -- 'pass' | 'fail' | 'conditional' | 'pending' | 'override'
+    confidence numeric(3,2), -- 0.00 to 1.00
+    
+    input_json jsonb NOT NULL,
+    output_json jsonb NOT NULL,
+    evidence_json jsonb,
+    
+    requires_human_review boolean DEFAULT false,
+    human_override boolean DEFAULT false,
+    override_reason text,
+    override_by uuid,
+    override_at timestamptz,
+    
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
+);
+```
+
+**Migration:** `supabase/migrations/20251227000001_create_agent_findings.sql`
+
+### Agent System Architecture
+
+**Base Classes:**
+- `Agent<TInput, TOutput>` — Abstract base class (src/lib/agents/base.ts)
+- `AgentOrchestrator` — Manages dependencies and execution order (src/lib/agents/orchestrator.ts)
+- Type definitions in `src/lib/agents/types.ts`
+
+**Dependency Graph:**
+```
+Layer 1 (Independent):
+  sba_policy, eligibility, credit, management
+
+Layer 2 (Dependent):
+  cash_flow → [credit]
+  collateral → [eligibility]
+
+Layer 3 (Synthesis):
+  risk → [all Layer 1 + Layer 2]
+  narrative → [risk + all Layer 1/2]
+  evidence → [narrative]
+
+Layer 4 (Tools):
+  banker_copilot → [all available]
+```
+
+### Implemented Agents
+
+#### 1. SBA Policy Agent (`sba-policy.ts`)
+**Purpose:** Canonical SBA SOP 50 10 compliance checker
+
+**Checks:**
+- Loan amount limits (7(a): $5M, Express: $500K)
+- Eligibility requirements
+- Use of proceeds compliance
+- Equity injection requirements
+
+**Output:**
+```typescript
+{
+  rule_id: "SOP_50_10_6_B_2",
+  requirement: "Equity injection required",
+  status: "pass | fail | conditional",
+  citation: "SOP 50 10 6.B.2",
+  explanation: "New businesses require 10% equity",
+  confidence: 0.98
+}
+```
+
+#### 2. Eligibility Agent (`eligibility.ts`)
+**Purpose:** Gatekeeper — determines SBA eligibility
+
+**Checks:**
+- Business size standards
+- Use of proceeds eligibility
+- Citizenship/ownership requirements
+- Ineligible business types
+- Franchise eligibility (if applicable)
+
+**Hard stop if fatal issues exist.**
+
+#### 3. Cash Flow Agent (`cash-flow.ts`)
+**Purpose:** DSCR calculator without Excel hell
+
+**Features:**
+- Normalizes tax return data
+- Standard add-backs (depreciation, interest, excess comp)
+- Explains every adjustment in plain English
+- Calculates global DSCR (weighted average)
+- **Minimum:** 1.25x DSCR
+
+**Output:**
+```typescript
+{
+  years: CashFlowFinding[],
+  global_dscr: 1.42,
+  pass: true,
+  summary: "Global DSCR of 1.42x meets requirement"
+}
+```
+
+#### 4. Risk Synthesis Agent (`risk.ts`)
+**Purpose:** The conductor — synthesizes all agent outputs
+
+**Process:**
+1. Collects findings from all agents
+2. Calculates agent consensus (votes: approve/decline/conditional)
+3. Identifies top 5 risks
+4. Determines overall risk level (low/moderate/high/severe)
+5. Generates approval recommendation
+6. Creates AI-powered executive summary
+
+**Output:**
+```typescript
+{
+  overall_risk: "moderate",
+  top_5_risks: [...],
+  recommend_approve: true,
+  conditions: [...],
+  executive_summary: "This moderate risk transaction...",
+  agent_consensus: [
+    { agent_name: "eligibility", vote: "approve", confidence: 0.95 },
+    { agent_name: "cash_flow", vote: "conditional", confidence: 0.88 }
+  ]
+}
+```
+
+### API Routes
+
+#### Execute Agents
+```
+POST /api/deals/[dealId]/agents/execute
+
+Body:
+{
+  "agents": ["sba_policy", "eligibility", ...], // optional
+  "force_refresh": true // optional
+}
+
+Response:
+{
+  "ok": true,
+  "data": {
+    "session_id": "session_...",
+    "agents_executed": [...],
+    "findings": [...],
+    "execution_time_ms": 1234,
+    "overall_confidence": 0.92
+  }
+}
+```
+
+#### Get Agent Status
+```
+GET /api/deals/[dealId]/agents/status
+
+Response:
+{
+  "ok": true,
+  "data": [
+    {
+      "agent_name": "sba_policy",
+      "last_run": "2025-12-27T...",
+      "status": "pass",
+      "confidence": 0.98
+    }
+  ]
+}
+```
+
+#### Get Agent Findings
+```
+GET /api/deals/[dealId]/agents/findings?agent=sba_policy
+
+Response:
+{
+  "ok": true,
+  "data": [AgentFinding, ...]
+}
+```
+
+### UI Component: AgentCockpit
+
+**Location:** `src/components/agents/AgentCockpit.tsx`
+
+**Features:**
+- Visual agent status grid
+- Confidence bars (green ≥90%, yellow ≥70%, red <70%)
+- Click to expand agent details
+- Run analysis button
+- Real-time execution progress
+- Human review flags
+
+**Usage:**
+```tsx
+import AgentCockpit from '@/components/agents/AgentCockpit';
+
+<AgentCockpit dealId={dealId} />
+```
+
+### Confidence Scoring System
+
+**Thresholds:**
+- **0.90 - 1.00:** High confidence (green) — Trust the output
+- **0.70 - 0.89:** Medium confidence (yellow) — Review recommended
+- **0.00 - 0.69:** Low confidence (red) — Human review required
+
+**Auto-flags for human review:**
+- Any finding with confidence < 0.90
+- Any status = "fail"
+- Risk agent (always requires review)
+- Cash flow DSCR < 1.35 (marginal)
+
+---
+
+## 📊 Implementation Status
+
+### ✅ Phase 1 Complete (December 27, 2025)
+- [x] Database migration for `agent_findings` table
+- [x] Agent system types and base classes
+- [x] Agent orchestrator with dependency resolution
+- [x] SBA Policy Agent (with SOP citations)
+- [x] Eligibility Agent (gatekeeper logic)
+- [x] Cash Flow Agent (DSCR calculator)
+- [x] Risk Synthesis Agent (orchestrator)
+- [x] API routes for execution/status/findings
+- [x] AgentCockpit UI component
+
+### 🔄 Phase 2 (Next)
+- [ ] Credit Agent (personal + business credit analysis)
+- [ ] Collateral Agent (SBA collateral rules)
+- [ ] Management/Experience Agent
+- [ ] Narrative Agent (credit memo writer)
+- [ ] Evidence Agent (claim verification)
+- [ ] Banker Copilot Agent (UX helper)
+
+### 📋 Phase 3 (Future)
+- [ ] Borrower Guide Agent UI (progress tracking + celebrations)
+- [ ] E-Tran package generator (Forms 1919, 1920)
+- [ ] Agent arbitration system (conflict resolution)
+- [ ] Bank-specific credit policy overlays
+- [ ] Full SOP 50 10 knowledge base indexing
+
+---
+
+## 💡 Usage Example
+
+### Execute Full Pipeline
+
+```typescript
+import { orchestrator } from '@/lib/agents';
+
+const result = await orchestrator.executeSBAUnderwritingPipeline({
+  deal_id: 'deal-123',
+  bank_id: 'bank-456',
+  force_refresh: true,
+});
+
+console.log(result.overall_confidence); // 0.92
+console.log(result.findings.length); // 15 findings
+console.log(result.agents_executed); // ['sba_policy', 'eligibility', ...]
+```
+
+### Execute Specific Agents
+
+```typescript
+const result = await orchestrator.executeAgents(
+  ['eligibility', 'cash_flow', 'risk'],
+  { deal_id: 'deal-123', bank_id: 'bank-456' }
+);
+```
+
+### Register Custom Agent
+
+```typescript
+import { Agent, agentRegistry } from '@/lib/agents';
+
+class CustomAgent extends Agent<MyInput, MyOutput> {
+  name = 'custom_agent';
+  version = 'v1';
+  description = 'My custom agent';
+  
+  async execute(input, context) {
+    // Implementation
+    return output;
+  }
+  
+  validateInput(input) { return { valid: true }; }
+  calculateConfidence(output, input) { return 0.95; }
+  requiresHumanReview(output) { return false; }
+  protected getFindingType(output) { return 'requirement'; }
+  protected getFindingStatus(output) { return 'pass'; }
+}
+
+agentRegistry.register(new CustomAgent());
+```
+
+---
+
+## 🔒 Security & Compliance
+
+- **Tenant isolation:** All findings scoped to `bank_id`
+- **RLS enabled:** Deny-all policy on `agent_findings`
+- **Server-side only:** Agents never execute in browser
+- **Audit trail:** All human overrides logged with reason + user
+- **SOP citations:** Every decision traceable to regulation
+
+---
+
+## 🎉 Success Metrics
+
+**This is successful when:**
+
+1. Underwriters say: *"Buddy explained SBA rules better than our training"*
+2. Borrowers say: *"I actually understand what the bank needs"*
+3. Time to SBA submission: **2 weeks → 2 days**
+4. First-time SBA approval rate: **+30%**
+5. Buddy becomes the *de facto SBA underwriting standard*
+
+---
+
+**Built:** December 27, 2025  
+**Version:** 1.0 (Phase 1 Complete)  
+**Status:** Foundation shipped, agents operational
+
+**Next:** Phase 2 agents (Credit, Collateral, Management, Narrative, Evidence, Banker Copilot)
+
+---
+
+**Ship fast. Stay canonical. Make SBA loans not suck.** 🚀
+
 - Every approval defensible
 
 ---
