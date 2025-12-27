@@ -23,6 +23,14 @@ export default async function EvidencePage({
     .eq("id", chunkId)
     .maybeSingle();
 
+  // fetch OCR span for this chunk (if exists)
+  const { data: span } = await sb
+    .from("deal_doc_chunk_spans")
+    .select("document_id, upload_id, page_number, bbox, text_excerpt")
+    .eq("deal_id", dealId)
+    .eq("chunk_id", chunkId)
+    .maybeSingle();
+
   // fetch neighbors by chunk_index if possible
   let neighbors: any[] = [];
   if (target?.upload_id && typeof target?.chunk_index === "number") {
@@ -59,6 +67,11 @@ export default async function EvidencePage({
             <div className="font-mono text-xs opacity-70">
               upload_id={target.upload_id} · chunk_index={target.chunk_index}
             </div>
+            {span ? (
+              <div className="mt-2 text-xs font-mono opacity-70 bg-yellow-50 p-2 rounded">
+                OCR Span: document_id={String(span.document_id)} · page={String(span.page_number)} · bbox={JSON.stringify(span.bbox)}
+              </div>
+            ) : null}
             <div className="mt-2 text-sm whitespace-pre-wrap">{target.content}</div>
           </div>
 

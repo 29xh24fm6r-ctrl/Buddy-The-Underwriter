@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getOpenAI, getModel } from "@/lib/ai/openaiClient";
 import type { RetrievedChunk, CommitteeAnswer, Citation } from "@/lib/retrieval/types";
+import { lookupBestSpanForChunk } from "@/lib/retrieval/spans";
 
 const RerankSchema = z.object({
   selected_chunk_ids: z.array(z.string()).min(1).max(10),
@@ -123,17 +124,25 @@ export async function committeeAnswer(opts: {
   const answered = await answerWithCitations(question, selected);
 
   const byId = new Map(retrieved.map((c) => [c.chunk_id, c]));
-  const citations: Citation[] = answered.citations.map((c) => {
+  
+  // Build citations with OCR span lookups (for real doc/page/bbox)
+  const citations: Citation[] = [];
+  for (const c of answered.citations) {
     const src = byId.get(c.chunk_id);
-    return {
+    const span = await lookupBestSpanForChunk({ dealId: opts.dealId, chunkId: c.chunk_id }).catch(() => null);
+    
+    citations.push({
       chunk_id: c.chunk_id,
-      upload_id: src?.upload_id || "unknown",
+      upload_id: span?.upload_id || src?.upload_id || "unknown",
       page_start: src?.page_start ?? null,
       page_end: src?.page_end ?? null,
+      page_number: span?.page_number ?? null,
+      document_id: span?.document_id ?? null,
+      bbox: span?.bbox ?? null,
       snippet: c.quote,
       similarity: src?.similarity,
-    };
-  });
+    } as Citation);
+  }
 
   return {
     answer: answered.answer,
