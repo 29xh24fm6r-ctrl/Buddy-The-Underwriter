@@ -55,12 +55,10 @@ async function auditDatabase() {
   
   // Check for pgvector
   console.log('\n🔍 Checking for pgvector extension...');
-  const { data: extData, error: extError } = await supabase
-    .from('pg_extension')
-    .select('*')
-    .eq('extname', 'vector');
+  const { data: hasVector, error: extError } = await supabase
+    .rpc('has_extension', { ext: 'vector' });
   
-  if (!extError && extData) {
+  if (!extError && hasVector) {
     console.log('  ✅ pgvector found');
     writeFileSync('.db_audit/pgvector_status.txt', 'pgvector is INSTALLED');
   } else {

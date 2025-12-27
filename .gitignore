@@ -60,3 +60,7 @@ smoke.*.txt
 # local exports / archives
 *.zip
 buddy-the-underwriter-full.zip
+# Buddy: db audit scratch outputs (do not commit)
+.db_audit/*.txt
+.db_audit/*.sql
+.db_audit/*.log
