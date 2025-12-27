@@ -5,6 +5,9 @@ import type { RetrievedChunk } from "@/lib/retrieval/types";
 export type RetrievedPolicyChunk = {
   chunk_id: string;
   bank_id: string;
+  asset_id?: string;
+  page_num?: number | null;
+  section?: string | null;
   content: string;
   source_label: string;
   similarity: number;
@@ -12,11 +15,16 @@ export type RetrievedPolicyChunk = {
 
 export async function retrieveBankPolicyChunks(opts: {
   bankId: string;
-  question: string;
+  question?: string;
+  queryEmbedding?: number[];
   k?: number;
 }): Promise<RetrievedPolicyChunk[]> {
-  const { bankId, question, k = 12 } = opts;
-  const emb = await embedQuery(question);
+  const { bankId, question, queryEmbedding, k = 12 } = opts;
+  
+  // Use provided embedding or generate from question
+  const emb = queryEmbedding ?? (question ? await embedQuery(question) : null);
+  if (!emb) throw new Error("Must provide either question or queryEmbedding");
+  
   const sb = getSupabaseServerClient();
 
   const { data, error } = await sb.rpc("match_bank_policy_chunks", {
@@ -30,6 +38,9 @@ export async function retrieveBankPolicyChunks(opts: {
   return (data || []).map((r: any) => ({
     chunk_id: r.chunk_id,
     bank_id: r.bank_id,
+    asset_id: r.asset_id ?? undefined,
+    page_num: r.page_num ?? null,
+    section: r.section ?? null,
     content: r.content ?? "",
     source_label: r.source_label ?? "",
     similarity: typeof r.similarity === "number" ? r.similarity : Number(r.similarity ?? 0),
