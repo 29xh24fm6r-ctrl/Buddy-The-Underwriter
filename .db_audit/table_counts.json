@@ -1,0 +1,82 @@
+[
+  {
+    "table": "deals",
+    "count": 0,
+    "status": "exists"
+  },
+  {
+    "table": "deal_files",
+    "count": 0,
+    "status": "exists"
+  },
+  {
+    "table": "documents",
+    "count": null,
+    "status": "exists"
+  },
+  {
+    "table": "risk_runs",
+    "count": null,
+    "status": "exists"
+  },
+  {
+    "table": "risk_factors",
+    "count": null,
+    "status": "exists"
+  },
+  {
+    "table": "memo_runs",
+    "count": null,
+    "status": "exists"
+  },
+  {
+    "table": "evidence_documents",
+    "count": null,
+    "status": "exists"
+  },
+  {
+    "table": "evidence_pages",
+    "count": null,
+    "status": "exists"
+  },
+  {
+    "table": "evidence_chunks",
+    "count": null,
+    "status": "exists"
+  },
+  {
+    "table": "evidence_catalog_items",
+    "count": null,
+    "status": "exists"
+  },
+  {
+    "table": "borrower_pack_uploads",
+    "count": null,
+    "status": "exists"
+  },
+  {
+    "table": "pack_templates",
+    "count": null,
+    "status": "exists"
+  },
+  {
+    "table": "banks",
+    "count": 1,
+    "status": "exists"
+  },
+  {
+    "table": "bank_memberships",
+    "count": 0,
+    "status": "exists"
+  },
+  {
+    "table": "reminders",
+    "count": null,
+    "status": "exists"
+  },
+  {
+    "table": "reminder_runs",
+    "count": null,
+    "status": "exists"
+  }
+]
