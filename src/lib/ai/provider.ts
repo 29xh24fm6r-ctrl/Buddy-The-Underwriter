@@ -1,4 +1,5 @@
 import type { EvidenceRef } from "@/lib/evidence/types";
+import { OpenAIProvider } from "@/lib/ai/openaiProvider";
 
 export type RiskInput = {
   dealId: string;
@@ -204,5 +205,9 @@ class StubProvider implements AIProvider {
 }
 
 export function getAIProvider(): AIProvider {
+  // If OPENAI_API_KEY is present, use real OpenAI; otherwise fall back to demo stub.
+  if (process.env.OPENAI_API_KEY) {
+    return new OpenAIProvider();
+  }
   return new StubProvider();
 }
