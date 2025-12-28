@@ -1,7 +1,7 @@
 import { getStrippedStitchHtml } from "@/lib/stitch/getStrippedStitchHtml";
 
-export default async function Page({ params }: { params: { slug: string } }) {
-  const slug = params.slug;
+export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
   const bodyHtml = await getStrippedStitchHtml(slug);
 
   return (

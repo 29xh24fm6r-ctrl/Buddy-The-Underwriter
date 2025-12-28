@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 
-export default function AttestPage({ params }: { params: { dealId: string; snapshotId: string } }) {
+export default function AttestPage() {
   const router = useRouter();
+  const params = useParams<{ dealId: string; snapshotId: string }>();
   const [role, setRole] = useState("");
   const [statement, setStatement] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
