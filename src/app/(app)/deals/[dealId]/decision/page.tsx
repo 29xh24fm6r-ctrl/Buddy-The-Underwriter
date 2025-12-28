@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { DecisionOnePager } from "@/components/decision/DecisionOnePager";
 import { getAttestationStatus } from "@/lib/decision/attestation";
+import { requiresCreditCommittee } from "@/lib/decision/creditCommittee";
 import { redirect } from "next/navigation";
 
 type Props = { params: Promise<{ dealId: string }> };
@@ -44,6 +45,12 @@ export default async function DecisionPage({ params }: Props) {
   // Get attestation status (governance check)
   const attestationStatus = await getAttestationStatus(dealId, snapshot.id, bankId);
 
+  // Get credit committee status (policy-driven governance)
+  const committeeStatus = await requiresCreditCommittee({
+    bankId,
+    decisionSnapshot: snapshot
+  });
+
   return (
     <DecisionOnePager
       dealId={dealId}
@@ -51,6 +58,7 @@ export default async function DecisionPage({ params }: Props) {
       overrides={overrides || []}
       attestations={attestations || []}
       attestationStatus={attestationStatus}
+      committeeStatus={committeeStatus}
     />
   );
 }

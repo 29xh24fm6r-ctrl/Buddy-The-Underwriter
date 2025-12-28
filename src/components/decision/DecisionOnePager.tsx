@@ -14,7 +14,8 @@ export function DecisionOnePager({
   snapshot, 
   overrides, 
   attestations,
-  attestationStatus
+  attestationStatus,
+  committeeStatus
 }: { 
   dealId: string; 
   snapshot: any; 
@@ -27,11 +28,39 @@ export function DecisionOnePager({
     requiredRoles: string[] | null;
     missingRoles: string[];
   };
+  committeeStatus?: {
+    committee_required: boolean;
+    reasons: string[];
+    policy: {
+      enabled: boolean;
+      rules: Record<string, any>;
+      derived_from_upload_id: string | null;
+    } | null;
+  };
 }) {
   const evidence = Array.isArray(snapshot.evidence_snapshot_json) ? snapshot.evidence_snapshot_json : [];
   const policy = Array.isArray(snapshot.policy_snapshot_json) ? snapshot.policy_snapshot_json : [];
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
+      {/* Credit Committee Governance Banner */}
+      {committeeStatus?.committee_required && (
+        <div className="border-l-4 border-purple-500 bg-purple-50 p-4">
+          <h3 className="font-semibold text-purple-900 mb-2">
+            🏛️ Credit Committee Approval Required
+          </h3>
+          <ul className="text-sm text-purple-800 space-y-1">
+            {committeeStatus.reasons.map((reason, i) => (
+              <li key={i}>• {reason}</li>
+            ))}
+          </ul>
+          {committeeStatus.policy?.derived_from_upload_id && (
+            <p className="text-xs text-purple-600 mt-2">
+              Rules derived from uploaded credit policy
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Decision Snapshot</h1>
