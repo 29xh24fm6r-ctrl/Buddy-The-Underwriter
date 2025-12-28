@@ -1,12 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Speed up builds by disabling all optimizations
-  typescript: {
-    ignoreBuildErrors: false,
-  },
-  eslint: {
-    ignoreDuringBuilds: false,
-  },
   async headers() {
     return [
       {
@@ -30,13 +23,11 @@ const nextConfig = {
       ],
     },
   },
+  // Only reduce parallelism in Codespaces (keep production optimization enabled)
   webpack: (config, { isServer }) => {
-    config.parallelism = 1;
-    config.optimization = {
-      ...config.optimization,
-      minimize: false,
-      minimizer: [],
-    };
+    if (process.env.CODESPACES) {
+      config.parallelism = 1;
+    }
     return config;
   },
 };
