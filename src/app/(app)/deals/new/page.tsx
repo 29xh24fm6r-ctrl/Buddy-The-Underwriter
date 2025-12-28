@@ -99,8 +99,8 @@ export default function DealIntakePage() {
 
       console.log(`Uploaded ${successCount}/${files.length} files to deal ${dealId}`);
 
-      // 3. Redirect to the new deal
-      router.push(`/deals/${dealId}`);
+      // 3. Redirect to the deal cockpit (command center)
+      router.push(`/deals/${dealId}/cockpit`);
     } catch (error) {
       console.error("Upload failed:", error);
       alert(error instanceof Error ? error.message : "Upload failed");

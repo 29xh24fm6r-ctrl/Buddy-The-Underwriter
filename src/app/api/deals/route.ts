@@ -28,6 +28,10 @@ export async function POST(req: Request) {
         id: dealId,
         name,
         bank_id: bankId,
+        stage: "intake",
+        borrower_name: name,
+        entity_type: "Unknown",
+        risk_score: 0,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
