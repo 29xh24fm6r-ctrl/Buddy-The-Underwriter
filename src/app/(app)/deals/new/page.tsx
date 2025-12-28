@@ -10,6 +10,8 @@ export default function DealIntakePage() {
   const [isDragging, setIsDragging] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [dealName, setDealName] = useState(`Deal - ${new Date().toLocaleDateString()}`);
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
 
   const handleFiles = useCallback((selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
@@ -56,16 +58,52 @@ export default function DealIntakePage() {
 
     setUploading(true);
     try {
-      // TODO: Implement actual upload logic
-      console.log("Uploading files:", files);
-      
-      // Simulate upload
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      
-      // After successful upload, redirect to deals list
-      router.push("/deals");
+      // 1. Create the deal
+      const createRes = await fetch("/api/deals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          name: dealName || `Deal - ${new Date().toLocaleDateString()}` 
+        }),
+      });
+
+      if (!createRes.ok) {
+        const err = await createRes.json();
+        throw new Error(err.error || "Failed to create deal");
+      }
+
+      const { dealId } = await createRes.json();
+      console.log(`Created deal ${dealId}, uploading ${files.length} files...`);
+
+      // 2. Upload files to the deal
+      setUploadProgress({ current: 0, total: files.length });
+      let successCount = 0;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setUploadProgress({ current: i + 1, total: files.length });
+        
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const uploadRes = await fetch(`/api/deals/${dealId}/upload`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (uploadRes.ok) {
+          successCount++;
+        } else {
+          console.error(`Failed to upload ${file.name}`);
+        }
+      }
+
+      console.log(`Uploaded ${successCount}/${files.length} files to deal ${dealId}`);
+
+      // 3. Redirect to the new deal
+      router.push(`/deals/${dealId}`);
     } catch (error) {
       console.error("Upload failed:", error);
+      alert(error instanceof Error ? error.message : "Upload failed");
     } finally {
       setUploading(false);
     }
@@ -94,6 +132,21 @@ export default function DealIntakePage() {
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-8">
+          {/* Deal Name Input */}
+          <div className="mb-8">
+            <label htmlFor="dealName" className="block text-sm font-medium text-gray-300 mb-2">
+              Deal Name
+            </label>
+            <input
+              id="dealName"
+              type="text"
+              value={dealName}
+              onChange={(e) => setDealName(e.target.value)}
+              placeholder="Enter deal name..."
+              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+
           {/* Upload Area */}
           <div
             onDragOver={handleDragOver}
@@ -212,7 +265,7 @@ export default function DealIntakePage() {
                 className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center gap-2"
               >
                 {uploading ? (
-                  <>
+                  <> {uploadProgress.current}/{uploadProgress.total}
                     <span className="animate-spin material-symbols-outlined text-[20px]">
                       progress_activity
                     </span>
