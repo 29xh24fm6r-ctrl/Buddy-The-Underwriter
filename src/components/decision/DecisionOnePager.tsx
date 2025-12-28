@@ -9,7 +9,17 @@ import { JsonPanel } from "./JsonPanel";
 import { EvidenceCard } from "./ui/EvidenceCard";
 import { PolicyCard } from "./ui/PolicyCard";
 
-export function DecisionOnePager({ snapshot, overrides }: { snapshot: any; overrides?: any[] }) {
+export function DecisionOnePager({ 
+  dealId, 
+  snapshot, 
+  overrides, 
+  attestations 
+}: { 
+  dealId: string; 
+  snapshot: any; 
+  overrides?: any[]; 
+  attestations?: any[];
+}) {
   const evidence = Array.isArray(snapshot.evidence_snapshot_json) ? snapshot.evidence_snapshot_json : [];
   const policy = Array.isArray(snapshot.policy_snapshot_json) ? snapshot.policy_snapshot_json : [];
   return (
@@ -17,7 +27,24 @@ export function DecisionOnePager({ snapshot, overrides }: { snapshot: any; overr
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Decision Snapshot</h1>
-        <DecisionBadge decision={snapshot.decision} />
+        <div className="flex items-center gap-2">
+          <a
+            className="rounded-xl border px-3 py-2 text-sm hover:bg-muted"
+            href={`/api/deals/${dealId}/decision/${snapshot.id}/pdf`}
+            download
+          >
+            Download PDF
+          </a>
+          {snapshot.status === "final" && (
+            <a
+              className="rounded-xl border px-3 py-2 text-sm font-medium hover:bg-muted bg-blue-50 border-blue-200 text-blue-700"
+              href={`/deals/${dealId}/decision/${snapshot.id}/attest`}
+            >
+              Attest Decision
+            </a>
+          )}
+          <DecisionBadge decision={snapshot.decision} />
+        </div>
       </div>
 
       {/* Summary */}
@@ -58,6 +85,27 @@ export function DecisionOnePager({ snapshot, overrides }: { snapshot: any; overr
                   {ov.old_value} → {ov.new_value}
                 </div>
                 <div className="text-sm text-gray-700 mt-1">{ov.reason}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Attestations */}
+      {attestations && attestations.length > 0 && (
+        <div className="border-l-4 border-blue-500 bg-blue-50 p-4">
+          <h3 className="font-semibold mb-3">Chain of Custody ({attestations.length} attestation{attestations.length > 1 ? "s" : ""})</h3>
+          <div className="space-y-3">
+            {attestations.map((att: any) => (
+              <div key={att.id} className="bg-white p-4 rounded border">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="font-medium capitalize">{att.attested_role.replace(/_/g, " ")}</div>
+                  <div className="text-xs text-gray-500">{new Date(att.created_at).toLocaleString()}</div>
+                </div>
+                <div className="text-sm text-gray-700 mb-2">{att.statement}</div>
+                <div className="text-xs text-gray-500 font-mono truncate">
+                  Hash: {att.snapshot_hash.substring(0, 16)}...
+                </div>
               </div>
             ))}
           </div>

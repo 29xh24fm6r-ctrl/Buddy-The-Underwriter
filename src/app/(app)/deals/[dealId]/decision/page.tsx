@@ -33,5 +33,12 @@ export default async function DecisionPage({ params }: Props) {
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false });
 
-  return <DecisionOnePager snapshot={snapshot} overrides={overrides || []} />;
+  // Get attestations for this snapshot
+  const { data: attestations } = await sb
+    .from("decision_attestations")
+    .select("*")
+    .eq("decision_snapshot_id", snapshot.id)
+    .order("created_at", { ascending: false });
+
+  return <DecisionOnePager dealId={dealId} snapshot={snapshot} overrides={overrides || []} attestations={attestations || []} />;
 }
