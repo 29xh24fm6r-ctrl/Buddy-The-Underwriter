@@ -22,19 +22,28 @@ export async function POST(req: Request) {
     const supabase = getSupabaseServerClient();
     const dealId = crypto.randomUUID();
 
+    // Build insert payload with only fields that should exist
+    const insertData: Record<string, any> = {
+      id: dealId,
+      bank_id: bankId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Add optional fields that may not exist in older schemas
+    if (name) {
+      insertData.name = name;
+      insertData.borrower_name = name; // Use name as fallback for borrower_name
+    }
+    
+    // These may not exist in schema yet
+    insertData.stage = "intake";
+    insertData.entity_type = "Unknown";
+    insertData.risk_score = 0;
+
     const { data: deal, error } = await supabase
       .from("deals")
-      .insert({
-        id: dealId,
-        name,
-        bank_id: bankId,
-        stage: "intake",
-        borrower_name: name,
-        entity_type: "Unknown",
-        risk_score: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .insert(insertData)
       .select("id")
       .single();
 

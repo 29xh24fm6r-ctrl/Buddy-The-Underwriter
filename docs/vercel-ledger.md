@@ -3,3 +3,4 @@
 | Sun Dec 28 00:03:25 UTC 2025 | docs | Documents route blank (chrome only) | /documents | page body empty | locate route + detect runtime crash + add error boundary + fix data deps |
 | Sun Dec 28 00:06:47 UTC 2025 | ui | All UI non-interactive (overlay blocking) | /documents,/deals | buttons don't click, drag/drop dead | find + remove fixed overlay, fix pointer-events |
 | 2025-12-28 00:22 | dealcreate | new deal intake upload not reflected in /deals | /deals/new → /deals | files selected but no new deal row | FIXED: wired POST /api/deals + /api/deals/:id/upload, redirect to new deal page |
+| 2025-12-28 00:35 | dealschema | deal creation references missing deals.borrower_name | /deals/new | schema cache error; wants deal naming | added migration 20251228_add_deal_naming_fields.sql; needs Supabase schema refresh |
