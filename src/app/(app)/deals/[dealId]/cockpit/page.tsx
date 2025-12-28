@@ -6,6 +6,9 @@ import DealChecklistCard from "@/components/deals/DealChecklistCard";
 import DealFilesCard from "@/components/deals/DealFilesCard";
 import BorrowerUploadLinksCard from "@/components/deals/BorrowerUploadLinksCard";
 import UploadAuditCard from "@/components/deals/UploadAuditCard";
+import { DealProgressWidget } from "@/components/deals/DealProgressWidget";
+import { EnhancedChecklistCard } from "@/components/deals/EnhancedChecklistCard";
+import { UnderwritingControlPanel } from "@/components/deals/UnderwritingControlPanel";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,8 +69,10 @@ export default async function DealCockpitPage({ params }: Props) {
 
         {/* Right Column */}
         <div className="space-y-6">
+          <UnderwritingControlPanel dealId={dealId} />
+          <DealProgressWidget dealId={dealId} />
+          <EnhancedChecklistCard dealId={dealId} />
           <BorrowerUploadLinksCard dealId={dealId} />
-          <DealChecklistCard dealId={dealId} />
           <UploadAuditCard dealId={dealId} />
         </div>
       </div>
