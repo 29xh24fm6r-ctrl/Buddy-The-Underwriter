@@ -1,0 +1,65 @@
+name: Build Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Next.js Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        run: pnpm typecheck
+
+      - name: Build Next.js app
+        run: pnpm build
+        env:
+          # Stub required environment variables for build
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: placeholder
+          CLERK_SECRET_KEY: sk_test_placeholder
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
+          OPENAI_API_KEY: sk-placeholder
+
+      - name: Check build output
+        run: |
+          if [ ! -d ".next" ]; then
+            echo "❌ Build failed - .next directory not created"
+            exit 1
+          fi
+          echo "✅ Build successful"
