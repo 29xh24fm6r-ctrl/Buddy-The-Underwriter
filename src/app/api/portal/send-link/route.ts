@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { sendSmsWithConsent } from "@/lib/sms/send";
 import crypto from "crypto";
-import Twilio from "twilio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +15,11 @@ function randomToken() {
  * 
  * Banker sends portal link via SMS (Twilio)
  * Body: { deal_id, to_phone, label?, expires_hours?, single_use?, message? }
+ * 
+ * Now includes STOP/HELP compliance:
+ * - Checks opt-out status before sending
+ * - Throws if borrower has opted out
+ * - Logs to outbound_messages + deal_events
  */
 export async function POST(req: NextRequest) {
   try {
@@ -67,70 +72,40 @@ export async function POST(req: NextRequest) {
       message ||
       `Buddy upload link: ${portalUrl}\n(Expires in ${expires_hours}h)`;
 
-    // 4. Send via Twilio
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    const from = process.env.TWILIO_FROM_NUMBER;
-
-    if (!accountSid || !authToken || !from) {
-      // Graceful degradation: no Twilio configured
-      await sb.from("outbound_messages").insert({
-        deal_id,
-        channel: "sms",
-        to_value: to_phone,
-        body: msg,
-        status: "failed",
-        provider: "twilio",
-        error: "Twilio not configured",
-      });
-
-      return NextResponse.json({
-        ok: false,
-        error: "Twilio not configured (TWILIO_ACCOUNT_SID missing)",
-        portal_url: portalUrl,
-      });
-    }
-
+    // 4. Send via Twilio with consent enforcement
     try {
-      const twilio = Twilio(accountSid, authToken);
-      const res = await twilio.messages.create({
+      const result = await sendSmsWithConsent({
+        dealId: deal_id,
         to: to_phone,
-        from,
         body: msg,
-      });
-
-      // Log success
-      await sb.from("outbound_messages").insert({
-        deal_id,
-        channel: "sms",
-        to_value: to_phone,
-        body: msg,
-        status: "sent",
-        provider: "twilio",
-        provider_message_id: res.sid,
-        sent_at: new Date().toISOString(),
+        label: "Upload link",
+        metadata: {
+          token: link.token,
+          expires_at: expiresAt,
+        },
       });
 
       return NextResponse.json({
         ok: true,
         portal_url: portalUrl,
-        sid: res.sid,
+        sid: result.sid,
         token: link.token,
       });
     } catch (e: any) {
-      console.error("Twilio send error:", e);
+      // Check if opted out
+      if (e.code === "SMS_OPTED_OUT") {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Borrower has opted out of SMS",
+            portal_url: portalUrl,
+          },
+          { status: 403 }
+        );
+      }
 
-      // Log failure
-      await sb.from("outbound_messages").insert({
-        deal_id,
-        channel: "sms",
-        to_value: to_phone,
-        body: msg,
-        status: "failed",
-        provider: "twilio",
-        error: String(e?.message ?? e),
-      });
-
+      // Twilio not configured or other error
+      console.error("SMS send error:", e);
       return NextResponse.json(
         {
           ok: false,
