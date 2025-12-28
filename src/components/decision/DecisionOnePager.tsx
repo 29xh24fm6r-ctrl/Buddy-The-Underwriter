@@ -16,7 +16,8 @@ export function DecisionOnePager({
   overrides, 
   attestations,
   attestationStatus,
-  committeeStatus
+  committeeStatus,
+  examinerMode = false
 }: { 
   dealId: string; 
   snapshot: any; 
@@ -38,6 +39,7 @@ export function DecisionOnePager({
       derived_from_upload_id: string | null;
     } | null;
   };
+  examinerMode?: boolean;
 }) {
   const evidence = Array.isArray(snapshot.evidence_snapshot_json) ? snapshot.evidence_snapshot_json : [];
   const policy = Array.isArray(snapshot.policy_snapshot_json) ? snapshot.policy_snapshot_json : [];
@@ -73,20 +75,24 @@ export function DecisionOnePager({
           >
             Download PDF
           </a>
-          <a
-            className="rounded-xl border px-3 py-2 text-sm hover:bg-muted bg-purple-50 border-purple-200 text-purple-700"
-            href={`/api/deals/${dealId}/decision/${snapshot.id}/regulator-zip`}
-            download
-          >
-            Regulator ZIP
-          </a>
-          {snapshot.status === "final" && (
-            <a
-              className="rounded-xl border px-3 py-2 text-sm font-medium hover:bg-muted bg-blue-50 border-blue-200 text-blue-700"
-              href={`/deals/${dealId}/decision/${snapshot.id}/attest`}
-            >
-              Attest Decision
-            </a>
+          {!examinerMode && (
+            <>
+              <a
+                className="rounded-xl border px-3 py-2 text-sm hover:bg-muted bg-purple-50 border-purple-200 text-purple-700"
+                href={`/api/deals/${dealId}/decision/${snapshot.id}/regulator-zip`}
+                download
+              >
+                Regulator ZIP
+              </a>
+              {snapshot.status === "final" && (
+                <a
+                  className="rounded-xl border px-3 py-2 text-sm font-medium hover:bg-muted bg-blue-50 border-blue-200 text-blue-700"
+                  href={`/deals/${dealId}/decision/${snapshot.id}/attest`}
+                >
+                  Attest Decision
+                </a>
+              )}
+            </>
           )}
           <DecisionBadge decision={snapshot.decision} />
         </div>
@@ -118,8 +124,8 @@ export function DecisionOnePager({
         </div>
       )}
 
-      {/* Credit Committee Voting Panel (if committee required) */}
-      {committeeStatus?.committee_required && (
+      {/* Credit Committee Voting Panel (if committee required and not examiner mode) */}
+      {committeeStatus?.committee_required && !examinerMode && (
         <CommitteePanel dealId={dealId} snapshotId={snapshot.id} />
       )}
 

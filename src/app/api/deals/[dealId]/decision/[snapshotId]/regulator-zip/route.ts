@@ -52,6 +52,19 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     .select("*")
     .eq("decision_snapshot_id", snapshotId);
 
+  // Fetch committee minutes (if generated)
+  const { data: minutes } = await sb
+    .from("credit_committee_minutes")
+    .select("*")
+    .eq("decision_snapshot_id", snapshotId)
+    .maybeSingle();
+
+  // Fetch dissent opinions (if any)
+  const { data: dissent } = await sb
+    .from("credit_committee_dissent")
+    .select("*")
+    .eq("decision_snapshot_id", snapshotId);
+
   // Fetch deal metadata (for context)
   const { data: deal } = await sb
     .from("deals")
@@ -71,12 +84,33 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   // Add committee votes
   zip.file("committee_votes.json", JSON.stringify(votes || [], null, 2));
 
+  // Add committee minutes (if generated)
+  if (minutes) {
+    zip.file("committee_minutes.txt", minutes.content);
+  }
+
+  // Add dissent opinions (if any)
+  if (dissent && dissent.length > 0) {
+    zip.file("dissent.json", JSON.stringify(dissent, null, 2));
+  }
+
   // Calculate integrity hash
   const snapshotPayload = JSON.stringify(snapshot, Object.keys(snapshot).sort());
   const hash = crypto.createHash("sha256").update(snapshotPayload).digest("hex");
   zip.file("hash.txt", hash);
 
   // Add manifest (export metadata)
+  const manifestFiles = [
+    "decision_snapshot.json",
+    "attestations.json",
+    "committee_votes.json",
+    "hash.txt",
+    "manifest.json"
+  ];
+  
+  if (minutes) manifestFiles.push("committee_minutes.txt");
+  if (dissent && dissent.length > 0) manifestFiles.push("dissent.json");
+
   const manifest = {
     export_version: "1.0",
     export_timestamp: new Date().toISOString(),
@@ -85,13 +119,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     snapshot_id: snapshotId,
     deal_context: deal,
     integrity_hash: hash,
-    files: [
-      "decision_snapshot.json",
-      "attestations.json",
-      "committee_votes.json",
-      "hash.txt",
-      "manifest.json"
-    ],
+    files: manifestFiles,
     verification_url: `${process.env.NEXT_PUBLIC_APP_URL || 'https://buddy.app'}/api/verify/${hash}`,
     note: "This bundle contains a complete, immutable record of an underwriting decision, attestations, and committee votes. The integrity hash can be used to verify the decision snapshot has not been altered. Visit the verification_url to independently verify this decision."
   };

@@ -6,12 +6,19 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { DecisionOnePager } from "@/components/decision/DecisionOnePager";
 import { getAttestationStatus } from "@/lib/decision/attestation";
 import { requiresCreditCommittee } from "@/lib/decision/creditCommittee";
+import { ExaminerBanner } from "@/components/examiner/ExaminerBanner";
 import { redirect } from "next/navigation";
 
-type Props = { params: Promise<{ dealId: string }> };
+type Props = { 
+  params: Promise<{ dealId: string }>;
+  searchParams: Promise<{ examiner?: string }>;
+};
 
-export default async function DecisionPage({ params }: Props) {
+export default async function DecisionPage({ params, searchParams }: Props) {
   const { dealId } = await params;
+  const { examiner } = await searchParams;
+  const isExaminerMode = examiner === "true";
+  
   const bankId = await getCurrentBankId(); // Tenant check
   const sb = supabaseAdmin();
 
@@ -52,13 +59,17 @@ export default async function DecisionPage({ params }: Props) {
   });
 
   return (
-    <DecisionOnePager
-      dealId={dealId}
-      snapshot={snapshot}
-      overrides={overrides || []}
-      attestations={attestations || []}
-      attestationStatus={attestationStatus}
-      committeeStatus={committeeStatus}
-    />
+    <>
+      {isExaminerMode && <ExaminerBanner />}
+      <DecisionOnePager
+        dealId={dealId}
+        snapshot={snapshot}
+        overrides={overrides || []}
+        attestations={attestations || []}
+        attestationStatus={attestationStatus}
+        committeeStatus={committeeStatus}
+        examinerMode={isExaminerMode}
+      />
+    </>
   );
 }
