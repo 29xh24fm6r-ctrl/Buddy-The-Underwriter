@@ -49,9 +49,11 @@ export async function POST(
   try {
     // Generate counterfactual outcome using AI
     const result = await aiJson({
+      scope: "decision",
+      action: "counterfactual-simulation",
       system: `You are an underwriting decision simulator. Given an original decision and a scenario modification, 
 predict what the outcome would have been. Be specific about confidence level.`,
-      prompt: JSON.stringify({
+      user: JSON.stringify({
         original_snapshot: {
           decision: snapshot.decision,
           inputs: snapshot.inputs_json,
@@ -60,7 +62,7 @@ predict what the outcome would have been. Be specific about confidence level.`,
         },
         scenario_modification: scenario
       }),
-      schema: {
+      jsonSchemaHint: JSON.stringify({
         type: "object",
         properties: {
           outcome: { 
@@ -75,8 +77,15 @@ predict what the outcome would have been. Be specific about confidence level.`,
           explanation: { type: "string" }
         },
         required: ["outcome", "confidence", "explanation"]
-      }
+      })
     });
+
+    if (!result.ok) {
+      return NextResponse.json(
+        { ok: false, error: result.error },
+        { status: 500 }
+      );
+    }
 
     // Store counterfactual result
     const { data: counterfactual } = await sb
@@ -84,9 +93,9 @@ predict what the outcome would have been. Be specific about confidence level.`,
       .insert({
         decision_snapshot_id: snapshotId,
         scenario_json: scenario,
-        outcome: result.outcome,
-        confidence: result.confidence,
-        explanation: result.explanation
+        outcome: result.result.outcome,
+        confidence: result.result.confidence,
+        explanation: result.result.explanation
       })
       .select()
       .single();

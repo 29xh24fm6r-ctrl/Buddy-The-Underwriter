@@ -47,7 +47,7 @@ export async function GET(
   try {
     const pdfBuffer = await renderDecisionPdf(snapshot, letterheadBuffer);
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(pdfBuffer as any, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="decision-${snapshotId.slice(0, 8)}.pdf"`,

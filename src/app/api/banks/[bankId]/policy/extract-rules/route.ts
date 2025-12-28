@@ -51,6 +51,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   // AI extraction
   const extracted = await aiJson({
+    scope: "governance",
+    action: "extract-committee-policy-rules",
     system: `You are a credit policy analyst. Extract enforceable credit committee rules from policy documents.
 
 Rules should be deterministic thresholds that trigger committee approval requirements.

@@ -65,10 +65,12 @@ export async function generateBoardPack(bankId: string, quarter: string) {
 
   // Generate AI narrative
   const report = await aiJson({
+    scope: "governance",
+    action: "generate-board-pack",
     system: `You are a chief risk officer preparing a quarterly board presentation. 
 Generate a professional, concise, and data-driven risk report (500-800 words).
 Structure: Executive Summary, Key Metrics, Risk Trends, Policy Compliance, Recommendations.`,
-    prompt: JSON.stringify({
+    user: JSON.stringify({
       quarter,
       metrics,
       portfolio_snapshot: portfolioSnapshot,
@@ -81,27 +83,30 @@ Structure: Executive Summary, Key Metrics, Risk Trends, Policy Compliance, Recom
         drift_rate: d.drift_rate
       }))
     }),
-    schema: {
+    jsonSchemaHint: JSON.stringify({
       type: "object",
       properties: {
         content: { type: "string" }
       },
       required: ["content"]
-    },
-    timeout: 60000 // 60s for longer generation
+    })
   });
+
+  if (!report.ok) {
+    throw new Error(`Board pack generation failed: ${report.error}`);
+  }
 
   // Store report
   await sb.from("board_risk_reports").upsert({
     bank_id: bankId,
     quarter,
-    content: report.content,
+    content: report.result.content,
     metrics_json: metrics
   });
 
   return {
     quarter,
-    content: report.content,
+    content: report.result.content,
     metrics
   };
 }

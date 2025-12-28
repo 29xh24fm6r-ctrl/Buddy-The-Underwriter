@@ -13,6 +13,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export interface CreditCommitteeEvaluation {
+  committee_required: boolean;
   required: boolean;
   reasons: string[];
   policy: {
@@ -37,6 +38,7 @@ export async function requiresCreditCommittee(args: {
 
   if (!policy?.enabled) {
     return {
+      committee_required: false,
       required: false,
       reasons: [],
       policy: null
@@ -78,6 +80,7 @@ export async function requiresCreditCommittee(args: {
   }
 
   return {
+    committee_required: reasons.length > 0,
     required: reasons.length > 0,
     reasons,
     policy: {

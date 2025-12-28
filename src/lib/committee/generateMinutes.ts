@@ -91,6 +91,8 @@ export async function generateCommitteeMinutes(args: {
 
   // Generate minutes via AI
   const result = await aiJson({
+    scope: "governance",
+    action: "generate-committee-minutes",
     system: `You are a regulated banking credit committee recorder.
 
 Generate formal credit committee meeting minutes following these requirements:

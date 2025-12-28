@@ -22,8 +22,8 @@ export async function POST(req: NextRequest) {
     const result = await processPendingNotifications();
 
     return NextResponse.json({
-      ok: true,
       ...result,
+      ok: true,
     });
   } catch (error: any) {
     console.error("Notification processing error:", error);
