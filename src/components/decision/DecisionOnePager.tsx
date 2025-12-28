@@ -8,6 +8,7 @@ import { DecisionBadge } from "./DecisionBadge";
 import { JsonPanel } from "./JsonPanel";
 import { EvidenceCard } from "./ui/EvidenceCard";
 import { PolicyCard } from "./ui/PolicyCard";
+import { CommitteePanel } from "@/components/committee/CommitteePanel";
 
 export function DecisionOnePager({ 
   dealId, 
@@ -72,6 +73,13 @@ export function DecisionOnePager({
           >
             Download PDF
           </a>
+          <a
+            className="rounded-xl border px-3 py-2 text-sm hover:bg-muted bg-purple-50 border-purple-200 text-purple-700"
+            href={`/api/deals/${dealId}/decision/${snapshot.id}/regulator-zip`}
+            download
+          >
+            Regulator ZIP
+          </a>
           {snapshot.status === "final" && (
             <a
               className="rounded-xl border px-3 py-2 text-sm font-medium hover:bg-muted bg-blue-50 border-blue-200 text-blue-700"
@@ -108,6 +116,11 @@ export function DecisionOnePager({
           <h3 className="font-semibold mb-2">Confidence Explanation</h3>
           <p className="text-gray-700">{snapshot.confidence_explanation}</p>
         </div>
+      )}
+
+      {/* Credit Committee Voting Panel (if committee required) */}
+      {committeeStatus?.committee_required && (
+        <CommitteePanel dealId={dealId} snapshotId={snapshot.id} />
       )}
 
       {/* Attestation Progress (for final decisions) */}
