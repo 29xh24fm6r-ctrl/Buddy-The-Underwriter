@@ -10,6 +10,7 @@ import {
   helpReply,
   startReply,
 } from "@/lib/sms/compliance";
+import { resolveDealByPhone } from "@/lib/sms/resolve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ export const dynamic = "force-dynamic";
  * 
  * Twilio webhook for inbound SMS
  * Handles STOP/HELP/START keywords + logs all messages
+ * Phone→deal resolution: automatically attaches to active deal
  * 
  * Set in Twilio Console:
  * Messaging Service → Inbound Settings → Request URL
@@ -37,10 +39,19 @@ export async function POST(req: Request) {
 
   const sb = supabaseAdmin();
 
-  // 1. Always log inbound message to deal_events
+  // Resolve phone to deal context
+  const dealContext = await resolveDealByPhone(from);
+  const deal_id = dealContext?.deal_id || null;
+  const bank_id = dealContext?.bank_id || null;
+
+  // 1. Always log inbound message to deal_events (with resolved deal context)
   const { error: inboundErr } = await sb.from("deal_events").insert({
-    deal_id: null, // TODO: resolve deal by phone number lookup
+    deal_id,
+    bank_id,
     kind: "sms_inbound",
+    description: dealContext
+      ? `SMS from borrower (${dealContext.deal_name || "Unknown"}): ${bodyRaw.substring(0, 100)}`
+      : `SMS received (no deal match): ${bodyRaw.substring(0, 100)}`,
     metadata: {
       from,
       to,
@@ -48,6 +59,13 @@ export async function POST(req: Request) {
       body_norm: bodyNorm,
       messageSid,
       messagingServiceSid: serviceSid,
+      resolved_deal: dealContext
+        ? {
+            deal_id: dealContext.deal_id,
+            deal_name: dealContext.deal_name,
+            bank_id: dealContext.bank_id,
+          }
+        : null,
     },
   });
 
@@ -58,13 +76,23 @@ export async function POST(req: Request) {
   // 2. STOP handling (opt-out)
   if (isStop(bodyNorm)) {
     const { error: optOutErr } = await sb.from("deal_events").insert({
-      deal_id: null,
+      deal_id,
+      bank_id,
       kind: "sms_opt_out",
+      description: dealContext
+        ? `Borrower opted out (${dealContext.deal_name})`
+        : "Borrower opted out (no deal match)",
       metadata: {
         phone: from,
         from,
         reason: bodyNorm,
         messageSid,
+        resolved_deal: dealContext
+          ? {
+              deal_id: dealContext.deal_id,
+              deal_name: dealContext.deal_name,
+            }
+          : null,
       },
     });
 
@@ -80,13 +108,23 @@ export async function POST(req: Request) {
   // 3. START handling (opt-in / resubscribe)
   if (isStart(bodyNorm)) {
     const { error: optInErr } = await sb.from("deal_events").insert({
-      deal_id: null,
+      deal_id,
+      bank_id,
       kind: "sms_opt_in",
+      description: dealContext
+        ? `Borrower opted in (${dealContext.deal_name})`
+        : "Borrower opted in (no deal match)",
       metadata: {
         phone: from,
         from,
         reason: bodyNorm,
         messageSid,
+        resolved_deal: dealContext
+          ? {
+              deal_id: dealContext.deal_id,
+              deal_name: dealContext.deal_name,
+            }
+          : null,
       },
     });
 
@@ -102,12 +140,22 @@ export async function POST(req: Request) {
   // 4. HELP handling
   if (isHelp(bodyNorm)) {
     const { error: helpErr } = await sb.from("deal_events").insert({
-      deal_id: null,
+      deal_id,
+      bank_id,
       kind: "sms_help",
+      description: dealContext
+        ? `Help request from borrower (${dealContext.deal_name})`
+        : "Help request (no deal match)",
       metadata: {
         phone: from,
         from,
         messageSid,
+        resolved_deal: dealContext
+          ? {
+              deal_id: dealContext.deal_id,
+              deal_name: dealContext.deal_name,
+            }
+          : null,
       },
     });
 
