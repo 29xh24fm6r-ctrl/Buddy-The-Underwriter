@@ -14,7 +14,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   // Resolve token
   const { data: link } = await sb
-    .from("borrower_upload_links")
+    .from("borrower_portal_links")
     .select("deal_id, bank_id, expires_at")
     .eq("token", token)
     .single();

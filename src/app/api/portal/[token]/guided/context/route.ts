@@ -13,7 +13,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
   // Resolve token to deal (same pattern as existing portal routes)
   const { data: link } = await sb
-    .from("borrower_upload_links")
+    .from("borrower_portal_links")
     .select("deal_id, bank_id, expires_at")
     .eq("token", token)
     .single();
