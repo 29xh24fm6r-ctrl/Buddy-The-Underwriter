@@ -8,6 +8,9 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   
+  // Empty turbopack config to silence webpack/turbopack conflict warning
+  turbopack: {},
+  
   async headers() {
     return [
       {
