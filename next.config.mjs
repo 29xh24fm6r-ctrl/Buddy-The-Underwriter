@@ -1,6 +1,12 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // Speed up builds by disabling all optimizations
+  typescript: {
+    ignoreBuildErrors: false,
+  },
+  eslint: {
+    ignoreDuringBuilds: false,
+  },
   async headers() {
     return [
       {
@@ -15,9 +21,6 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-
-  /* config options here */
-  reactCompiler: true,
   experimental: {
     serverActions: {
       allowedOrigins: [
@@ -26,6 +29,15 @@ const nextConfig: NextConfig = {
         "*.app.github.dev",
       ],
     },
+  },
+  webpack: (config, { isServer }) => {
+    config.parallelism = 1;
+    config.optimization = {
+      ...config.optimization,
+      minimize: false,
+      minimizer: [],
+    };
+    return config;
   },
 };
 
