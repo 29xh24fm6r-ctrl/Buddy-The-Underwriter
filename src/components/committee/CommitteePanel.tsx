@@ -56,12 +56,13 @@ export function CommitteePanel({
     }
   };
 
-  const outcomeColor = {
+  const outcomeColorMap: Record<string, string> = {
     approve: "text-green-700 bg-green-50 border-green-200",
     approve_with_conditions: "text-amber-700 bg-amber-50 border-amber-200",
     decline: "text-red-700 bg-red-50 border-red-200",
     pending: "text-gray-700 bg-gray-50 border-gray-200"
-  }[data.outcome];
+  };
+  const outcomeColor = outcomeColorMap[data.outcome] || outcomeColorMap.pending;
 
   return (
     <div className="border-l-4 border-purple-500 bg-purple-50 p-4 rounded space-y-4">

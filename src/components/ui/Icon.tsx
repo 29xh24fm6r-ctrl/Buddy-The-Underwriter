@@ -11,6 +11,16 @@ import {
   Minus,
   RefreshCw,
   FileText,
+  File,
+  RotateCw,
+  AlertCircle,
+  CheckSquare,
+  ListChecks,
+  History,
+  Clock,
+  Calendar,
+  Rocket,
+  Play,
 } from "lucide-react";
 
 export type IconName =
@@ -24,7 +34,17 @@ export type IconName =
   | "add"
   | "remove"
   | "refresh"
-  | "file";
+  | "file"
+  | "description"
+  | "sync"
+  | "error"
+  | "fact_check"
+  | "checklist"
+  | "history"
+  | "pending"
+  | "event"
+  | "rocket_launch"
+  | "play_arrow";
 
 const MAP: Record<IconName, React.ComponentType<{ className?: string }>> = {
   cloud_upload: CloudUpload,
@@ -38,6 +58,16 @@ const MAP: Record<IconName, React.ComponentType<{ className?: string }>> = {
   remove: Minus,
   refresh: RefreshCw,
   file: FileText,
+  description: File,
+  sync: RotateCw,
+  error: AlertCircle,
+  fact_check: CheckSquare,
+  checklist: ListChecks,
+  history: History,
+  pending: Clock,
+  event: Calendar,
+  rocket_launch: Rocket,
+  play_arrow: Play,
 };
 
 export function Icon({
@@ -54,7 +84,6 @@ export function Icon({
     <Cmp
       className={className}
       aria-hidden={title ? undefined : true}
-      role={title ? "img" : undefined}
     />
   );
 }

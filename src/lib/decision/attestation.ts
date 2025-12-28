@@ -49,7 +49,7 @@ export async function getAttestationStatus(
   let missingRoles: string[] = [];
   if (requiredRoles) {
     const attestedRoles = new Set(validAttestations.map((a) => a.attested_role));
-    missingRoles = requiredRoles.filter((role) => !attestedRoles.has(role));
+    missingRoles = requiredRoles.filter((role: string) => !attestedRoles.has(role));
   }
 
   return {

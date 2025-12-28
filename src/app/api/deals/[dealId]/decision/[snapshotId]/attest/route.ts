@@ -81,7 +81,6 @@ export async function POST(
   await writeDealEvent({
     dealId,
     kind: "decision.attested",
-    description: `Decision attested by ${role}`,
     payload: {
       snapshotId,
       attestationId: attestation.id,
