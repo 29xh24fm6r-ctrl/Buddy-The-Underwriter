@@ -12,6 +12,7 @@ import {
 } from "@/lib/sms/compliance";
 import { resolveDealByPhone } from "@/lib/sms/resolve";
 import { resolveByPhone, upsertBorrowerPhoneLink } from "@/lib/sms/phoneLinks";
+import { computeWebhookUrl, verifyTwilioSignature } from "@/lib/sms/twilioVerify";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,24 +21,69 @@ export const dynamic = "force-dynamic";
  * POST /api/webhooks/twilio/inbound
  * 
  * Twilio webhook for inbound SMS
- * Handles STOP/HELP/START keywords + logs all messages
- * Phone→deal resolution: automatically attaches to active deal
- * Phone link creation: creates borrower_phone_links entry on first contact
+ * 
+ * Features:
+ * - Twilio signature verification (prevents spoofing)
+ * - STOP/HELP/START keyword handling (carrier compliance)
+ * - Phone→deal resolution (dual strategy)
+ * - Auto-creates borrower_phone_links on first contact
+ * - Logs to deal_events for timeline
  * 
  * Set in Twilio Console:
  * Messaging Service → Inbound Settings → Request URL
- * https://yourapp.com/api/webhooks/twilio/inbound
+ * https://buddy-the-underwriter.vercel.app/api/webhooks/twilio/inbound
  */
 export async function POST(req: Request) {
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!authToken) {
+    console.error("TWILIO_AUTH_TOKEN not set");
+    return new NextResponse("Server configuration error", { status: 500 });
+  }
+
+  // Parse Twilio form data
   const form = await req.formData();
+  const params: Record<string, string> = {};
+  for (const [k, v] of form.entries()) {
+    params[k] = String(v);
+  }
 
-  const from = String(form.get("From") || "");
-  const to = String(form.get("To") || "");
-  const bodyRaw = String(form.get("Body") || "");
+  const from = params.From || "";
+  const to = params.To || "";
+  const bodyRaw = params.Body || "";
   const bodyNorm = normalizeInboundBody(bodyRaw);
+  const messageSid = params.MessageSid || "";
+  const serviceSid = params.MessagingServiceSid || "";
 
-  const messageSid = String(form.get("MessageSid") || "");
-  const serviceSid = String(form.get("MessagingServiceSid") || "");
+  // Verify Twilio signature (prevents webhook spoofing)
+  const signature = req.headers.get("x-twilio-signature");
+  const pathname = new URL(req.url).pathname;
+  
+  try {
+    const webhookUrl = computeWebhookUrl(pathname);
+    const isValid = verifyTwilioSignature({
+      url: webhookUrl,
+      authToken,
+      signature,
+      params,
+    });
+
+    if (!isValid) {
+      console.error("Invalid Twilio signature", {
+        url: webhookUrl,
+        signature,
+        from,
+      });
+      return new NextResponse("Invalid signature", { status: 401 });
+    }
+  } catch (err) {
+    // PUBLIC_BASE_URL not set - allow in dev, warn in production
+    if (process.env.VERCEL) {
+      console.error("PUBLIC_BASE_URL not set in production", err);
+      return new NextResponse("Server configuration error", { status: 500 });
+    } else {
+      console.warn("Skipping signature verification (PUBLIC_BASE_URL not set in dev)");
+    }
+  }
 
   const sb = supabaseAdmin();
 
