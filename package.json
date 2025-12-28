@@ -13,7 +13,8 @@
     "guard:reminders": "node scripts/guard-no-legacy-reminder-fields.mjs && node scripts/guard-reminder-subscriptions-canonical.mjs",
     "guard:tenant-rls": "node scripts/guards/guard-tenant-rls.mjs",
     "gen:tenant-sql": "node scripts/generate-tenant-sql.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check:icons": "node scripts/check-no-material-icon-tokens.mjs"
   },
   "dependencies": {
     "@azure/ai-form-recognizer": "^5.1.0",
