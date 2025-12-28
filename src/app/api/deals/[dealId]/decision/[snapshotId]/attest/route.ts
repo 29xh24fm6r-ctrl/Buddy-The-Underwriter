@@ -80,8 +80,11 @@ export async function POST(
   // Write to deal events (audit trail)
   await writeDealEvent({
     dealId,
+    bankId,
     kind: "decision.attested",
-    description: `Decision attested by ${role}`,
+    actorUserId: userId,
+    actorRole: role,
+    title: `Decision attested by ${role}`,
     payload: {
       snapshotId,
       attestationId: attestation.id,

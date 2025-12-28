@@ -51,6 +51,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   // AI extraction
   const extracted = await aiJson({
+    scope: "governance",
+    action: "extract-committee-policy-rules",
     system: `You are a credit policy analyst. Extract enforceable credit committee rules from policy documents.
 
 Rules should be deterministic thresholds that trigger committee approval requirements.
@@ -69,13 +71,13 @@ Return JSON with:
   "confidence": "high" | "medium" | "low",
   "explanation": "Brief summary of what you extracted and why"
 }`,
-    prompt: `Extract credit committee governance rules from the following credit policy text.
+    user: `Extract credit committee governance rules from the following credit policy text.
 
 POLICY TEXT:
 ${policyText.slice(0, 10000)}
 
 Return ONLY JSON with rules, confidence, and explanation.`,
-    schema: {
+    jsonSchemaHint: JSON.stringify({
       type: "object",
       properties: {
         rules: {
@@ -93,8 +95,15 @@ Return ONLY JSON with rules, confidence, and explanation.`,
         explanation: { type: "string" }
       },
       required: ["rules", "confidence", "explanation"]
-    }
+    })
   });
+
+  if (!extracted.ok) {
+    return NextResponse.json(
+      { ok: false, error: extracted.error },
+      { status: 500 }
+    );
+  }
 
   const sb = supabaseAdmin();
 
@@ -104,9 +113,9 @@ Return ONLY JSON with rules, confidence, and explanation.`,
     .insert({
       bank_id: currentBankId,
       source_upload_id: uploadId,
-      extracted_rules_json: extracted.rules || {},
-      extraction_confidence: extracted.confidence || "low",
-      extraction_explanation: extracted.explanation || "No explanation provided",
+      extracted_rules_json: extracted.result.rules || {},
+      extraction_confidence: extracted.result.confidence || "low",
+      extraction_explanation: extracted.result.explanation || "No explanation provided",
       approved: false
     })
     .select()
@@ -123,8 +132,8 @@ Return ONLY JSON with rules, confidence, and explanation.`,
   return NextResponse.json({
     ok: true,
     extraction_id: insertion.id,
-    rules: extracted.rules || {},
-    confidence: extracted.confidence || "low",
-    explanation: extracted.explanation || ""
+    rules: extracted.result.rules || {},
+    confidence: extracted.result.confidence || "low",
+    explanation: extracted.result.explanation || ""
   });
 }

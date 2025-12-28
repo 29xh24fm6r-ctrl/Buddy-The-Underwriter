@@ -46,8 +46,10 @@ export async function suggestPolicyUpdates(bankId: string) {
 
     try {
       const suggestion = await aiJson({
+        scope: "governance",
+        action: "policy-drift-suggestion",
         system: "You are a chief credit officer analyzing policy drift. Suggest a policy update with clear rationale.",
-        prompt: JSON.stringify({
+        user: JSON.stringify({
           rule_key: ruleKey,
           expected_value: findings[0].expected_value,
           drift_rate: avgDriftRate,
@@ -56,23 +58,28 @@ export async function suggestPolicyUpdates(bankId: string) {
             drift_rate: f.drift_rate
           }))
         }),
-        schema: {
+        jsonSchemaHint: JSON.stringify({
           type: "object",
           properties: {
             suggested_change: { type: "string" },
             rationale: { type: "string" }
           },
           required: ["suggested_change", "rationale"]
-        }
+        })
       });
+
+      if (!suggestion.ok) {
+        console.error(`Failed to generate suggestion for ${ruleKey}: ${suggestion.error}`);
+        continue;
+      }
 
       // Store suggestion (requires human approval)
       await sb.from("policy_update_suggestions").insert({
         bank_id: bankId,
         rule_key: ruleKey,
         current_value: findings[0].expected_value,
-        suggested_change: suggestion.suggested_change,
-        rationale: suggestion.rationale,
+        suggested_change: suggestion.result.suggested_change,
+        rationale: suggestion.result.rationale,
         approved: false
       });
 

@@ -133,7 +133,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   });
 
   // Return as downloadable file
-  return new NextResponse(zipBuffer, {
+  return new NextResponse(zipBuffer as any, {
     headers: {
       "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename="decision-${snapshotId.slice(0, 8)}-regulator.zip"`,

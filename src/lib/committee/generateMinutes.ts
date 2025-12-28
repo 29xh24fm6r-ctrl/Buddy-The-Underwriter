@@ -91,6 +91,8 @@ export async function generateCommitteeMinutes(args: {
 
   // Generate minutes via AI
   const result = await aiJson({
+    scope: "governance",
+    action: "generate-committee-minutes",
     system: `You are a regulated banking credit committee recorder.
 
 Generate formal credit committee meeting minutes following these requirements:
@@ -113,21 +115,25 @@ RULES:
 - Use third-person narrative ("The committee reviewed...")
 - Professional banking terminology
 - Length: 300-500 words`,
-    prompt: `Generate credit committee meeting minutes from the following data:
+    user: `Generate credit committee meeting minutes from the following data:
 
 ${JSON.stringify(context, null, 2)}
 
 Return ONLY the minutes text (no JSON wrapper, no markdown formatting).`,
-    schema: {
+    jsonSchemaHint: JSON.stringify({
       type: "object",
       properties: {
         minutes: { type: "string" }
       },
       required: ["minutes"]
-    }
+    })
   });
 
-  const minutesContent = result.minutes || "Minutes generation failed.";
+  if (!result.ok) {
+    throw new Error(`Minutes generation failed: ${result.error}`);
+  }
+
+  const minutesContent = result.result.minutes || "Minutes generation failed.";
 
   // Store minutes (immutable)
   const { error } = await sb.from("credit_committee_minutes").insert({

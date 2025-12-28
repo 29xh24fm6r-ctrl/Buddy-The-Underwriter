@@ -35,7 +35,7 @@ export default function HomePage() {
         id="replay"
         kicker="Decision Replay"
         title="Time-travel debugging for credit decisions."
-        copy="Ask "why was this approved?" and Buddy shows exactly what was used then — plus what changed since."
+        copy={'Ask "why was this approved?" and Buddy shows exactly what was used then — plus what changed since.'}
         imgSrc="/marketing/replay.png"
         imgAlt="Buddy decision replay diff screenshot"
         bullets={[
