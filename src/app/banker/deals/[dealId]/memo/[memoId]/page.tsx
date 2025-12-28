@@ -24,11 +24,11 @@ async function getMemo(dealId: string, memoId: string) {
 export default async function MemoEvidencePage({
   params,
 }: {
-  params: { dealId: string; memoId: string };
+  params: Promise<{ dealId: string; memoId: string }>;
 }) {
   await requireRole(["super_admin", "bank_admin", "underwriter"]);
 
-  const { dealId, memoId } = params;
+  const { dealId, memoId } = await params;
   const memo = await getMemo(dealId, memoId);
   if (!memo) notFound();
 // Choose a primary attachment for now.
