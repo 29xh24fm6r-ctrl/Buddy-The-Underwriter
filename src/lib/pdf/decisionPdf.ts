@@ -20,7 +20,10 @@ interface DecisionSnapshot {
   hash?: string;
 }
 
-export function renderDecisionPdf(snapshot: DecisionSnapshot): Promise<Buffer> {
+export function renderDecisionPdf(
+  snapshot: DecisionSnapshot,
+  letterheadBuffer?: Buffer | null
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "LETTER", margin: 50 });
     const chunks: Buffer[] = [];
@@ -28,6 +31,22 @@ export function renderDecisionPdf(snapshot: DecisionSnapshot): Promise<Buffer> {
     doc.on("data", (chunk) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
+
+    // Letterhead (if provided)
+    if (letterheadBuffer) {
+      try {
+        doc.image(letterheadBuffer, 50, 40, { 
+          width: doc.page.width - 100, 
+          height: 100,
+          fit: [doc.page.width - 100, 100],
+          align: "center"
+        });
+        doc.moveDown(7); // Space after letterhead
+      } catch (err) {
+        console.error("Failed to render letterhead in PDF:", err);
+        // Continue without letterhead if image fails
+      }
+    }
 
     // Header
     doc.fontSize(20).font("Helvetica-Bold").text("Underwriting Decision Record", { align: "center" });

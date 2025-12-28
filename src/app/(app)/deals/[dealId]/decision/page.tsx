@@ -4,13 +4,14 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { DecisionOnePager } from "@/components/decision/DecisionOnePager";
+import { getAttestationStatus } from "@/lib/decision/attestation";
 import { redirect } from "next/navigation";
 
 type Props = { params: Promise<{ dealId: string }> };
 
 export default async function DecisionPage({ params }: Props) {
   const { dealId } = await params;
-  await getCurrentBankId(); // Tenant check
+  const bankId = await getCurrentBankId(); // Tenant check
   const sb = supabaseAdmin();
 
   // Get latest snapshot
@@ -40,5 +41,16 @@ export default async function DecisionPage({ params }: Props) {
     .eq("decision_snapshot_id", snapshot.id)
     .order("created_at", { ascending: false });
 
-  return <DecisionOnePager dealId={dealId} snapshot={snapshot} overrides={overrides || []} attestations={attestations || []} />;
+  // Get attestation status (governance check)
+  const attestationStatus = await getAttestationStatus(dealId, snapshot.id, bankId);
+
+  return (
+    <DecisionOnePager
+      dealId={dealId}
+      snapshot={snapshot}
+      overrides={overrides || []}
+      attestations={attestations || []}
+      attestationStatus={attestationStatus}
+    />
+  );
 }

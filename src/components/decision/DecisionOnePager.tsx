@@ -13,12 +13,20 @@ export function DecisionOnePager({
   dealId, 
   snapshot, 
   overrides, 
-  attestations 
+  attestations,
+  attestationStatus
 }: { 
   dealId: string; 
   snapshot: any; 
   overrides?: any[]; 
   attestations?: any[];
+  attestationStatus?: {
+    requiredCount: number;
+    completedCount: number;
+    satisfied: boolean;
+    requiredRoles: string[] | null;
+    missingRoles: string[];
+  };
 }) {
   const evidence = Array.isArray(snapshot.evidence_snapshot_json) ? snapshot.evidence_snapshot_json : [];
   const policy = Array.isArray(snapshot.policy_snapshot_json) ? snapshot.policy_snapshot_json : [];
@@ -70,6 +78,50 @@ export function DecisionOnePager({
         <div className="border rounded-lg p-4">
           <h3 className="font-semibold mb-2">Confidence Explanation</h3>
           <p className="text-gray-700">{snapshot.confidence_explanation}</p>
+        </div>
+      )}
+
+      {/* Attestation Progress (for final decisions) */}
+      {snapshot.status === "final" && attestationStatus && (
+        <div className={`border-l-4 p-4 ${
+          attestationStatus.satisfied 
+            ? "border-green-500 bg-green-50" 
+            : "border-amber-500 bg-amber-50"
+        }`}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold">
+              {attestationStatus.satisfied ? "✓ Attestation Complete" : "Attestation Required"}
+            </h3>
+            <div className="text-sm font-medium">
+              {attestationStatus.completedCount} / {attestationStatus.requiredCount}
+            </div>
+          </div>
+          
+          {!attestationStatus.satisfied && (
+            <div className="text-sm text-gray-700 mb-2">
+              {attestationStatus.missingRoles.length > 0 ? (
+                <span>
+                  Missing attestations from: <span className="font-medium">{attestationStatus.missingRoles.join(", ")}</span>
+                </span>
+              ) : (
+                <span>
+                  {attestationStatus.requiredCount - attestationStatus.completedCount} more attestation(s) required per bank policy
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Progress bar */}
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div
+              className={`h-2 rounded-full transition-all ${
+                attestationStatus.satisfied ? "bg-green-500" : "bg-amber-500"
+              }`}
+              style={{
+                width: `${Math.min(100, (attestationStatus.completedCount / attestationStatus.requiredCount) * 100)}%`
+              }}
+            />
+          </div>
         </div>
       )}
 

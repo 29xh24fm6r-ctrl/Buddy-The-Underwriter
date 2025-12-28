@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { renderDecisionPdf } from "@/lib/pdf/decisionPdf";
+import { getActiveLetterhead, downloadLetterheadBuffer } from "@/lib/bank/letterhead";
 
 export async function GET(
   _req: Request,
@@ -30,9 +31,21 @@ export async function GET(
     return NextResponse.json({ error: "Snapshot not found" }, { status: 404 });
   }
 
+  // Fetch bank letterhead (if exists)
+  let letterheadBuffer: Buffer | null = null;
+  try {
+    const letterhead = await getActiveLetterhead(bankId);
+    if (letterhead) {
+      letterheadBuffer = await downloadLetterheadBuffer(letterhead.bucket, letterhead.path);
+    }
+  } catch (err) {
+    console.error("Failed to fetch letterhead, continuing without:", err);
+    // Continue without letterhead if fetch fails
+  }
+
   // Generate PDF
   try {
-    const pdfBuffer = await renderDecisionPdf(snapshot);
+    const pdfBuffer = await renderDecisionPdf(snapshot, letterheadBuffer);
 
     return new NextResponse(pdfBuffer, {
       headers: {
