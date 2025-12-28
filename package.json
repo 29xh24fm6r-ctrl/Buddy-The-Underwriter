@@ -34,6 +34,7 @@
     "pdf-parse": "^2.4.5",
     "pdfkit": "^0.17.2",
     "posthog-js": "^1.310.1",
+    "qrcode": "^1.5.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-pdf": "^10.2.0",

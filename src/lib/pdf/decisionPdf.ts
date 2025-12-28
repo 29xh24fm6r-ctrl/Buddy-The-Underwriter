@@ -1,6 +1,7 @@
 import "server-only";
 import PDFDocument from "pdfkit";
 import crypto from "crypto";
+import QRCode from "qrcode";
 
 interface DecisionSnapshot {
   id: string;
@@ -135,20 +136,30 @@ export function renderDecisionPdf(
     doc.text(JSON.stringify(snapshot.model_json || {}, null, 2), { indent: 20, width: 500 });
     doc.fillColor("#000000").font("Helvetica").moveDown(1.5);
 
-    // Integrity footer
+    // Integrity footer with QR code
     const payload = JSON.stringify(snapshot, Object.keys(snapshot).sort());
     const digest = crypto.createHash("sha256").update(payload).digest("hex");
 
-    doc.rect(50, doc.page.height - 150, doc.page.width - 100, 100).fillAndStroke("#f5f5f5", "#cccccc");
+    doc.rect(50, doc.page.height - 180, doc.page.width - 100, 130).fillAndStroke("#f5f5f5", "#cccccc");
     doc.fillColor("#000000");
-    doc.fontSize(11).font("Helvetica-Bold").text("Integrity Verification", 60, doc.page.height - 140);
+    doc.fontSize(11).font("Helvetica-Bold").text("Integrity Verification", 60, doc.page.height - 170);
     doc.fontSize(9).font("Helvetica").moveDown(0.3);
     doc.text("This PDF was generated directly from an immutable decision snapshot.", { indent: 10 });
     doc.fontSize(8).font("Courier");
     doc.text(`SHA-256: ${digest}`, { indent: 10 });
     doc.font("Helvetica");
     doc.text(`Generated At: ${new Date().toISOString()}`, { indent: 10 });
-
-    doc.end();
+    
+    // Add QR code for external verification
+    const verifyUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://buddy.app'}/api/verify/${digest}`;
+    QRCode.toDataURL(verifyUrl, { width: 80, margin: 1 }, (err, qrDataUrl) => {
+      if (!err && qrDataUrl) {
+        const qrBuffer = Buffer.from(qrDataUrl.split(',')[1], 'base64');
+        doc.image(qrBuffer, doc.page.width - 140, doc.page.height - 165, { width: 80, height: 80 });
+        doc.fontSize(7).fillColor("#666666");
+        doc.text("Scan to verify", doc.page.width - 140, doc.page.height - 80, { width: 80, align: "center" });
+      }
+      doc.end();
+    });
   });
 }
