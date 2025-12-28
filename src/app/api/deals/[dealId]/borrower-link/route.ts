@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { upsertBorrowerPhoneLink } from "@/lib/sms/phoneLinks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,13 @@ export async function POST(req: Request) {
 
   const token = makeToken();
 
+  // Get deal + phone for phone link
+  const { data: deal } = await sb
+    .from("deals")
+    .select("id, bank_id, borrower_phone")
+    .eq("id", dealId)
+    .single();
+
   const { error } = await sb.from("borrower_portal_links").insert({
     deal_id: dealId,
     token,
@@ -42,6 +50,26 @@ export async function POST(req: Request) {
       { ok: false, error: error.message },
       { status: 500 },
     );
+
+  // Create phone link if borrower phone exists
+  if (deal?.borrower_phone) {
+    try {
+      await upsertBorrowerPhoneLink({
+        phoneE164: deal.borrower_phone,
+        bankId: deal.bank_id || null,
+        dealId: dealId,
+        source: "portal_link",
+        metadata: {
+          label,
+          token,
+          created_via: "borrower_link_api",
+        },
+      });
+    } catch (phoneLinkErr) {
+      console.error("Phone link creation error:", phoneLinkErr);
+      // Don't fail request
+    }
+  }
 
   // Deep link URL (front-end route)
   const link = `/borrower/${token}`;

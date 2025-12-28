@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sendSmsWithConsent } from "@/lib/sms/send";
+import { upsertBorrowerPhoneLink } from "@/lib/sms/phoneLinks";
+import { normalizeE164 } from "@/lib/sms/phone";
 import crypto from "crypto";
 
 export const runtime = "nodejs";
@@ -45,6 +47,14 @@ export async function POST(req: NextRequest) {
     const expiresAt = new Date(Date.now() + expires_hours * 3600 * 1000).toISOString();
 
     const sb = supabaseAdmin();
+    
+    // Get deal context for bank_id
+    const { data: deal } = await sb
+      .from("deals")
+      .select("id, bank_id")
+      .eq("id", deal_id)
+      .single();
+
     const { data: link, error: linkErr } = await sb
       .from("borrower_portal_links")
       .insert({
@@ -61,6 +71,24 @@ export async function POST(req: NextRequest) {
     if (linkErr) {
       console.error("Link creation error:", linkErr);
       return NextResponse.json({ error: linkErr.message }, { status: 400 });
+    }
+
+    // 1b. Create phone link (phone → deal/borrower mapping)
+    try {
+      await upsertBorrowerPhoneLink({
+        phoneE164: normalizeE164(to_phone),
+        bankId: deal?.bank_id || null,
+        dealId: deal_id,
+        source: "portal_link",
+        metadata: {
+          label,
+          token,
+          created_via: "send_link_api",
+        },
+      });
+    } catch (phoneLinkErr) {
+      console.error("Phone link creation error:", phoneLinkErr);
+      // Don't fail the whole request if phone link fails
     }
 
     // 2. Build portal URL

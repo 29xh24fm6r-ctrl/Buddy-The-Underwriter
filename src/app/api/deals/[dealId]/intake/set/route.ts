@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { upsertBorrowerPhoneLink } from "@/lib/sms/phoneLinks";
+import { normalizeE164 } from "@/lib/sms/phone";
 import {
   buildChecklistForLoanType,
   LoanType,
@@ -48,7 +50,16 @@ export async function POST(
   const sbaProgram =
     loanType === "SBA_7A" ? "7A" : loanType === "SBA_504" ? "504" : null;
 
-  const { error: upErr } = await supabaseAdmin()
+  const sb = supabaseAdmin();
+
+  // Get deal bank_id for phone link
+  const { data: deal } = await sb
+    .from("deals")
+    .select("id, bank_id")
+    .eq("id", dealId)
+    .single();
+
+  const { error: upErr } = await sb
     .from("deal_intake")
     .upsert(
       {
@@ -67,6 +78,28 @@ export async function POST(
       { ok: false, error: upErr.message },
       { status: 500 },
     );
+
+  // Create phone link if borrower phone provided
+  if (body?.borrowerPhone) {
+    const normalized = normalizeE164(body.borrowerPhone);
+    if (normalized) {
+      try {
+        await upsertBorrowerPhoneLink({
+          phoneE164: normalized,
+          bankId: deal?.bank_id || null,
+          dealId: dealId,
+          source: "intake_form",
+          metadata: {
+            borrower_name: body?.borrowerName || null,
+            borrower_email: body?.borrowerEmail || null,
+          },
+        });
+      } catch (phoneLinkErr) {
+        console.error("Phone link creation in intake error:", phoneLinkErr);
+        // Don't fail request
+      }
+    }
+  }
 
   const autoSeed = body?.autoSeed ?? true;
   if (autoSeed) {

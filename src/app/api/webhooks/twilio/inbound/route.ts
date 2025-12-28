@@ -11,6 +11,7 @@ import {
   startReply,
 } from "@/lib/sms/compliance";
 import { resolveDealByPhone } from "@/lib/sms/resolve";
+import { resolveByPhone, upsertBorrowerPhoneLink } from "@/lib/sms/phoneLinks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ export const dynamic = "force-dynamic";
  * Twilio webhook for inbound SMS
  * Handles STOP/HELP/START keywords + logs all messages
  * Phone→deal resolution: automatically attaches to active deal
+ * Phone link creation: creates borrower_phone_links entry on first contact
  * 
  * Set in Twilio Console:
  * Messaging Service → Inbound Settings → Request URL
@@ -39,10 +41,43 @@ export async function POST(req: Request) {
 
   const sb = supabaseAdmin();
 
-  // Resolve phone to deal context
-  const dealContext = await resolveDealByPhone(from);
+  // Resolve phone to deal context (dual strategy: new phone_links + legacy deals.borrower_phone)
+  let dealContext = await resolveDealByPhone(from); // Legacy resolver (uses deals.borrower_phone)
+  
+  // Also check borrower_phone_links table
+  const phoneLinkContext = await resolveByPhone(from);
+  
+  // Prefer phone_links result if available (more specific)
+  if (phoneLinkContext?.deal_id && !dealContext) {
+    dealContext = {
+      deal_id: phoneLinkContext.deal_id,
+      bank_id: phoneLinkContext.bank_id || "",
+      deal_name: null,
+    };
+  }
+  
   const deal_id = dealContext?.deal_id || null;
   const bank_id = dealContext?.bank_id || null;
+
+  // Create/update phone link on inbound SMS (auto-discovery)
+  if (deal_id) {
+    try {
+      await upsertBorrowerPhoneLink({
+        phoneE164: from,
+        bankId: bank_id,
+        dealId: deal_id,
+        borrowerApplicantId: phoneLinkContext?.borrower_applicant_id || null,
+        source: "sms_inbound",
+        metadata: {
+          first_message: bodyRaw.substring(0, 100),
+          messageSid,
+        },
+      });
+    } catch (phoneLinkErr) {
+      console.error("Phone link auto-creation error:", phoneLinkErr);
+      // Don't fail webhook
+    }
+  }
 
   // 1. Always log inbound message to deal_events (with resolved deal context)
   const { error: inboundErr } = await sb.from("deal_events").insert({
