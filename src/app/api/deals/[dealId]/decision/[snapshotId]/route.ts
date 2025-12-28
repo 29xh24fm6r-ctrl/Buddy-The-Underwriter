@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { writeDealEvent } from "@/lib/events/dealEvents";
+import { emitSmsIntent } from "@/lib/notify/smsIntent";
 
 type Ctx = { params: Promise<{ dealId: string; snapshotId: string }> };
 
@@ -64,6 +65,17 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     title: `Decision snapshot marked ${status}`,
     payload: { snapshot_id: snapshotId, status },
   });
+
+  // Optional: SMS intent (wire borrower phone retrieval when available)
+  // const borrowerPhone = null;
+  // if (status === "final" && borrowerPhone) {
+  //   await emitSmsIntent({
+  //     dealId,
+  //     to: borrowerPhone,
+  //     template: "decision_finalized",
+  //     vars: { decision: snapshot.decision, snapshotId }
+  //   });
+  // }
 
   return NextResponse.json({ ok: true, snapshot });
 }

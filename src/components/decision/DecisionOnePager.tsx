@@ -6,8 +6,12 @@
 
 import { DecisionBadge } from "./DecisionBadge";
 import { JsonPanel } from "./JsonPanel";
+import { EvidenceCard } from "./ui/EvidenceCard";
+import { PolicyCard } from "./ui/PolicyCard";
 
 export function DecisionOnePager({ snapshot, overrides }: { snapshot: any; overrides?: any[] }) {
+  const evidence = Array.isArray(snapshot.evidence_snapshot_json) ? snapshot.evidence_snapshot_json : [];
+  const policy = Array.isArray(snapshot.policy_snapshot_json) ? snapshot.policy_snapshot_json : [];
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       {/* Header */}
@@ -60,10 +64,36 @@ export function DecisionOnePager({ snapshot, overrides }: { snapshot: any; overr
         </div>
       )}
 
-      {/* Expandable Sections */}
+      {/* Evidence Cards */}
       <div className="space-y-3">
-        <JsonPanel title="Evidence Snapshot" data={snapshot.evidence_snapshot_json} />
-        <JsonPanel title="Policy Snapshot" data={snapshot.policy_snapshot_json} />
+        <div className="text-sm font-semibold">Evidence</div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {evidence.map((e: any, i: number) => (
+            <EvidenceCard key={e.key ?? i} e={e} />
+          ))}
+        </div>
+        <details className="rounded-2xl border p-3">
+          <summary className="text-sm font-medium cursor-pointer">Raw evidence JSON</summary>
+          <div className="mt-3"><JsonPanel title="Evidence (raw)" data={snapshot.evidence_snapshot_json} /></div>
+        </details>
+      </div>
+
+      {/* Policy Cards */}
+      <div className="space-y-3">
+        <div className="text-sm font-semibold">Policy (snapshot)</div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {policy.map((p: any, i: number) => (
+            <PolicyCard key={p.chunk_key ?? i} p={p} />
+          ))}
+        </div>
+        <details className="rounded-2xl border p-3">
+          <summary className="text-sm font-medium cursor-pointer">Raw policy JSON</summary>
+          <div className="mt-3"><JsonPanel title="Policy (raw)" data={snapshot.policy_snapshot_json} /></div>
+        </details>
+      </div>
+
+      {/* Other Expandable Sections */}
+      <div className="space-y-3">
         <JsonPanel title="Policy Evaluation" data={snapshot.policy_eval_json} />
         <JsonPanel title="Exceptions" data={snapshot.exceptions_json} />
         <JsonPanel title="Inputs" data={snapshot.inputs_json} />
