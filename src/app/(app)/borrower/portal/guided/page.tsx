@@ -4,10 +4,10 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-export default function GuidedPortalPage() {
+function GuidedPortalContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
   const [evidenceItems, setEvidenceItems] = useState<any[]>([]);
@@ -90,5 +90,13 @@ export default function GuidedPortalPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function GuidedPortalPage() {
+  return (
+    <Suspense fallback={<div className="max-w-2xl mx-auto p-6 text-center"><p>Loading...</p></div>}>
+      <GuidedPortalContent />
+    </Suspense>
   );
 }
