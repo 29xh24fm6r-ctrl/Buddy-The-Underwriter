@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import crypto from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,10 +20,12 @@ export async function POST(req: Request) {
     }
 
     const supabase = getSupabaseServerClient();
+    const dealId = crypto.randomUUID();
 
     const { data: deal, error } = await supabase
       .from("deals")
       .insert({
+        id: dealId,
         name,
         bank_id: bankId,
         created_at: new Date().toISOString(),
