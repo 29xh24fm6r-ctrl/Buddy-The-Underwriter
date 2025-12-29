@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import BorrowerWowCard from "@/components/deals/BorrowerWowCard";
 import FinancialStatementWowCard from "@/components/deals/FinancialStatementWowCard";
+import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
 
 import MoodyPnlSpreadCard from "@/components/deals/MoodyPnlSpreadCard";
 import DocumentCoverageCard from "@/components/deals/DocumentCoverageCard";
@@ -388,20 +389,16 @@ if (!res.ok || !data?.ok) {
     setBusyUpload(true);
 
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      if (packId) {
-        fd.append("pack_id", packId);
-      }
-
-      const res = await fetch(`/api/deals/${safeDealId}/upload`, {
-        method: "POST",
-        body: fd,
+      const result = await directDealDocumentUpload({
+        dealId: safeDealId,
+        file,
+        checklistKey: null,
+        source: "internal",
+        packId: packId || null,
       });
 
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error?.message ?? data?.error ?? `Upload failed (${res.status})`);
+      if (!result.ok) {
+        throw new Error(result.error ?? "Upload failed");
       }
 
       await refreshUploads();

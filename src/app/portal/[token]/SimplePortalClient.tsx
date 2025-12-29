@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
 
 export default function BorrowerPortalClient({ token }: { token: string }) {
   const [dealId, setDealId] = useState<string | null>(null);
@@ -90,14 +91,21 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
             className="hidden"
             id="file-upload"
             onChange={async (e) => {
-              if (!e.target.files) return;
-              const formData = new FormData();
-              Array.from(e.target.files).forEach((f) => formData.append("files", f));
+              if (!e.target.files || !dealId) return;
               
-              await fetch(`/api/deals/${dealId}/upload`, {
-                method: "POST",
-                body: formData,
-              });
+              const uploadedFiles = Array.from(e.target.files);
+              for (const file of uploadedFiles) {
+                const result = await directDealDocumentUpload({
+                  dealId,
+                  file,
+                  checklistKey: null,
+                  source: "borrower",
+                });
+                
+                if (!result.ok) {
+                  console.error(`Failed to upload ${file.name}:`, result.error);
+                }
+              }
               
               // Reload plan
               const r = await fetch(`/api/deals/${dealId}/missing-docs`);

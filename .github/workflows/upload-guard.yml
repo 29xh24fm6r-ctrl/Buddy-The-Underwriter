@@ -1,0 +1,60 @@
+name: Upload Architecture Guard
+
+on:
+  pull_request:
+    paths:
+      - 'src/components/deals/**'
+      - 'src/app/(app)/deals/**'
+      - 'src/app/(app)/borrower/**'
+      - 'src/app/portal/**'
+      - 'src/lib/uploads/**'
+      - 'src/app/api/deals/**/files/**'
+      - 'src/app/api/borrower/**/files/**'
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/components/deals/**'
+      - 'src/app/(app)/deals/**'
+      - 'src/app/(app)/borrower/**'
+      - 'src/app/portal/**'
+      - 'src/lib/uploads/**'
+      - 'src/app/api/deals/**/files/**'
+      - 'src/app/api/borrower/**/files/**'
+
+jobs:
+  guard-uploads:
+    name: Enforce Signed Upload Architecture
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+      
+      - name: Run upload architecture guard
+        run: ./scripts/guard-no-multipart-deal-uploads.sh
+      
+      - name: Verify signed upload endpoints exist
+        run: |
+          echo "Checking signed upload infrastructure..."
+          
+          if [ ! -f "src/app/api/deals/[dealId]/files/sign/route.ts" ]; then
+            echo "❌ Missing: /api/deals/[dealId]/files/sign"
+            exit 1
+          fi
+          
+          if [ ! -f "src/app/api/deals/[dealId]/files/record/route.ts" ]; then
+            echo "❌ Missing: /api/deals/[dealId]/files/record"
+            exit 1
+          fi
+          
+          if [ ! -f "src/lib/uploads/uploadFile.ts" ]; then
+            echo "❌ Missing: Client upload utilities"
+            exit 1
+          fi
+          
+          echo "✅ All signed upload infrastructure exists"

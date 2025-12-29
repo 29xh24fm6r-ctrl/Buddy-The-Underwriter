@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
 
 export default function DealIntakePage() {
   const router = useRouter();
@@ -82,18 +83,17 @@ export default function DealIntakePage() {
         const file = files[i];
         setUploadProgress({ current: i + 1, total: files.length });
         
-        const formData = new FormData();
-        formData.append("file", file);
-
-        const uploadRes = await fetch(`/api/deals/${dealId}/upload`, {
-          method: "POST",
-          body: formData,
+        const result = await directDealDocumentUpload({
+          dealId,
+          file,
+          checklistKey: null,
+          source: "internal",
         });
 
-        if (uploadRes.ok) {
+        if (result.ok) {
           successCount++;
         } else {
-          console.error(`Failed to upload ${file.name}`);
+          console.error(`Failed to upload ${file.name}:`, result.error);
         }
       }
 

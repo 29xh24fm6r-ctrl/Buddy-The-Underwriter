@@ -104,6 +104,11 @@ export default function BorrowerPortalPage() {
       const xhr = new XMLHttpRequest();
       xhrById.current[id] = xhr;
 
+      // Store metadata for use in onload
+      let dealIdFromToken = "";
+      let fileId = "";
+      let objectPath = "";
+
       xhr.upload.onprogress = (evt) => {
         if (!evt.lengthComputable) return;
         const pct = Math.max(1, Math.min(99, Math.round((evt.loaded / evt.total) * 100)));
@@ -130,18 +135,18 @@ export default function BorrowerPortalPage() {
         resolve();
       };
 
-      xhr.onload = () => {
-        const text = xhr.responseText || "";
-        let json: any = null;
-        try {
-          json = JSON.parse(text);
-        } catch {}
-
-        if (!json?.ok) {
+      xhr.onload = async () => {
+        // Storage PUT returns 200-299 on success
+        if (xhr.status < 200 || xhr.status >= 300) {
           setItems((prev) =>
             prev.map((x) =>
               x.id === id
-                ? { ...x, status: "error", progress: 0, error: String(json?.error || "upload_failed") }
+                ? {
+                    ...x,
+                    status: "error",
+                    progress: 0,
+                    error: `storage_upload_failed_${xhr.status}`,
+                  }
                 : x
             )
           );
@@ -149,30 +154,130 @@ export default function BorrowerPortalPage() {
           return resolve();
         }
 
-        // Route returns { ok:true, count, results:[...] } for multi
-        // When we upload single file, results will be one element
-        const r = Array.isArray(json?.results) ? json.results[0] : null;
-        const matched = !!r?.matched;
-        const confidence = r?.match?.confidence ?? null;
-        const reason = r?.match?.reason ?? null;
+        // 3) Record in DB (deal_documents) using canonical record route
+        try {
+          const recordRes = await fetch(`/api/deals/${dealIdFromToken}/files/record`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              file_id: fileId,
+              object_path: objectPath,
+              original_filename: file.name,
+              mime_type: file.type,
+              size_bytes: file.size,
+              checklist_key: null,
+              source: "borrower",
+            }),
+          });
 
-        setItems((prev) =>
-          prev.map((x) =>
-            x.id === id
-              ? { ...x, status: "done", progress: 100, matched, confidence, reason }
-              : x
-          )
-        );
-        xhrById.current[id] = null;
-        resolve();
+          const recordJson = await recordRes.json().catch(() => ({}));
+          if (!recordRes.ok || !recordJson?.ok) {
+            setItems((prev) =>
+              prev.map((x) =>
+                x.id === id
+                  ? {
+                      ...x,
+                      status: "error",
+                      progress: 0,
+                      error: String(recordJson?.error || "record_failed"),
+                    }
+                  : x
+              )
+            );
+            xhrById.current[id] = null;
+            return resolve();
+          }
+
+          // ✅ success (matching can happen downstream via separate endpoint if needed)
+          setItems((prev) =>
+            prev.map((x) =>
+              x.id === id
+                ? { ...x, status: "done", progress: 100 }
+                : x
+            )
+          );
+          xhrById.current[id] = null;
+          resolve();
+        } catch (err: any) {
+          setItems((prev) =>
+            prev.map((x) =>
+              x.id === id
+                ? {
+                    ...x,
+                    status: "error",
+                    progress: 0,
+                    error: String(err?.message || "record_exception"),
+                  }
+                : x
+            )
+          );
+          xhrById.current[id] = null;
+          resolve();
+        }
       };
 
-      const form = new FormData();
-      // Send as "files" so the route can handle bulk consistently
-      form.append("files", file);
+      // 1) Ask server for signed upload URL (token -> deal_id + signed_url)
+      (async () => {
+        try {
+          const signRes = await fetch(
+            `/api/borrower/portal/${encodeURIComponent(token)}/files/sign`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                filename: file.name,
+                mime_type: file.type,
+                size_bytes: file.size,
+                checklist_key: null,
+              }),
+            }
+          );
 
-      xhr.open("POST", `/api/borrower/portal/${encodeURIComponent(token)}/upload`, true);
-      xhr.send(form);
+          const signJson = await signRes.json().catch(() => ({}));
+          if (!signRes.ok || !signJson?.ok) {
+            setItems((prev) =>
+              prev.map((x) =>
+                x.id === id
+                  ? {
+                      ...x,
+                      status: "error",
+                      progress: 0,
+                      error: String(signJson?.error || "sign_failed"),
+                    }
+                  : x
+              )
+            );
+            xhrById.current[id] = null;
+            return resolve();
+          }
+
+          dealIdFromToken = signJson?.deal_id ?? "";
+          const upload = signJson?.upload ?? {};
+          fileId = upload?.file_id ?? "";
+          objectPath = upload?.object_path ?? "";
+          const signedUrl: string = upload?.signed_url ?? "";
+
+          // 2) Upload bytes DIRECTLY to storage via XHR PUT for progress tracking
+          xhr.open("PUT", signedUrl, true);
+          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+          xhr.send(file);
+        } catch (err: any) {
+          setItems((prev) =>
+            prev.map((x) =>
+              x.id === id
+                ? {
+                    ...x,
+                    status: "error",
+                    progress: 0,
+                    error: String(err?.message || "sign_request_failed"),
+                  }
+                : x
+            )
+          );
+          xhrById.current[id] = null;
+          resolve();
+        }
+      })();
     });
   }
 
