@@ -1,11 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Skip TypeScript and ESLint checks during build (errors handled in CI)
+  // Skip TypeScript checks during build (errors handled in CI)
   typescript: {
     ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
   },
   
   // Empty turbopack config to silence webpack/turbopack conflict warning
