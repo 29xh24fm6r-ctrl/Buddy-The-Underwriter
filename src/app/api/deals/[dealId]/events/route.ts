@@ -24,17 +24,24 @@ export async function GET(req: NextRequest, ctx: Context) {
     const { searchParams } = new URL(req.url);
     const limit = parseInt(searchParams.get("limit") || "20", 10);
 
+    console.log("[events] has_service_role", Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY));
+
     const sb = supabaseAdmin();
 
     const { data: events, error } = await sb
       .from("audit_ledger")
-      .select("id, deal_id, actor_user_id, scope, action, kind, input_json, output_json, confidence, evidence_json, requires_human_review, created_at")
+      .select(
+        "id, deal_id, actor_user_id, scope, action, kind, input_json, output_json, confidence, evidence_json, requires_human_review, created_at",
+      )
       .eq("deal_id", dealId)
       .order("created_at", { ascending: false })
       .limit(limit);
 
     if (error) {
-      console.error("[/api/deals/[dealId]/events]", error);
+      console.error("[/api/deals/[dealId]/events]", error.message, {
+        details: error.details,
+        hint: error.hint,
+      });
       return NextResponse.json({
         ok: false,
         events: [],
