@@ -73,7 +73,7 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     // Verify file exists in storage (optional but recommended)
     const { data: fileExists, error: checkErr } = await sb.storage
-      .from("deal-documents")
+      .from("deal-files")
       .list(object_path.split("/").slice(0, -1).join("/"), {
         search: object_path.split("/").pop(),
       });
@@ -94,14 +94,27 @@ export async function POST(req: NextRequest, ctx: Context) {
       id: file_id,
       deal_id: dealId,
       bank_id: deal.bank_id, // Required: inherited from deal
-      storage_bucket: "deal-documents",
+      
+      // Storage paths (must match table default)
+      storage_bucket: "deal-files",
       storage_path: object_path,
+      
+      // File metadata
       original_filename,
-      mime_type: mime_type || "application/octet-stream",
-      size_bytes: size_bytes || 0,
-      uploader_user_id: userId,
+      mime_type: mime_type ?? "application/octet-stream",
+      size_bytes: size_bytes ?? 0,
+      
+      // Required business keys (NOT NULL columns)
+      document_key: checklist_key ?? "UNCLASSIFIED",
+      checklist_key: checklist_key ?? null,
+      
+      // Required JSON fields (NOT NULL columns)
+      extracted_fields: {},
+      metadata: {},
+      
+      // Upload tracking
       source: "internal",
-      checklist_key,
+      uploader_user_id: userId,
     });
 
     if (insertErr) {

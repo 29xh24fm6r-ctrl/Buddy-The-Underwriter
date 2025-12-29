@@ -122,7 +122,7 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     // Create signed upload URL (valid for 5 minutes)
     const { data: signed, error: signErr } = await sb.storage
-      .from("deal-documents")
+      .from("deal-files")
       .createSignedUploadUrl(objectPath);
 
     if (signErr || !signed) {
