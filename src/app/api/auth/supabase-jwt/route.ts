@@ -22,7 +22,7 @@ function redact(v: string | null) {
  */
 export async function GET() {
   try {
-    const { userId: clerkUserId } = auth();
+    const { userId: clerkUserId } = await auth();
     if (!clerkUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
     const user = await currentUser();
