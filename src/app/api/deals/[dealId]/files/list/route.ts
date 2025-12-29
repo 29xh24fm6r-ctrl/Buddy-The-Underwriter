@@ -10,12 +10,7 @@ export async function GET(
 ) {
   const { dealId } = await ctx.params;
   const { data, error } = await supabaseAdmin()
-    .from("deal_documents")
-    .select(
-      "id, created_at, deal_id, storage_bucket, storage_path, original_filename, mime_type, size_bytes, source, checklist_key",
-    )
-    .eq("deal_id", dealId)
-    .order("created_at", { ascending: false });
+    .rpc("list_deal_documents", { p_deal_id: dealId });
 
   if (error) {
     return NextResponse.json(

@@ -29,9 +29,7 @@ export async function POST(
 
   // Get all files for this deal
   const { data: files, error: filesError } = await sb
-    .from("deal_documents")
-    .select("id, original_filename, checklist_key")
-    .eq("deal_id", dealId);
+    .rpc("list_deal_documents", { p_deal_id: dealId });
 
   if (filesError) {
     return NextResponse.json(

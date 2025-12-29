@@ -127,9 +127,7 @@ export async function POST(
     // Auto-match any previously uploaded files to the new checklist
     try {
       const { data: files } = await sb
-        .from("deal_documents")
-        .select("id, original_filename")
-        .eq("deal_id", dealId);
+        .rpc("list_deal_documents", { p_deal_id: dealId });
 
       if (files && files.length > 0) {
         let totalUpdated = 0;
