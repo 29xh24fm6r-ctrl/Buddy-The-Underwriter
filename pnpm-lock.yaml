@@ -35,6 +35,9 @@ importers:
       framer-motion:
         specifier: ^12.23.26
         version: 12.23.26(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      jose:
+        specifier: ^5.9.6
+        version: 5.10.0
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -57,8 +60,8 @@ importers:
         specifier: ^2.4.5
         version: 2.4.5
       pdfjs-dist:
-        specifier: ^5.4.530
-        version: 5.4.530
+        specifier: 5.4.296
+        version: 5.4.296
       pdfkit:
         specifier: ^0.17.2
         version: 0.17.2
@@ -2281,6 +2284,9 @@ packages:
     resolution: {integrity: sha512-ekilCSN1jwRvIbgeg/57YFh8qQDNbwDb9xT/qu2DAHbFFZUicIl4ygVaAvzveMhMVr3LnpSKTNnwt8PoOfmKhQ==}
     hasBin: true
 
+  jose@5.10.0:
+    resolution: {integrity: sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg==}
+
   jpeg-exif@1.1.4:
     resolution: {integrity: sha512-a+bKEcCjtuW5WTdgeXFzswSrdqi0jk4XlEtZlx5A94wCoBpFjfFTbo/Tra5SpNCl/YFZPvcV1dJc+TAYeg6ROQ==}
 
@@ -2685,10 +2691,6 @@ packages:
 
   pdfjs-dist@5.4.296:
     resolution: {integrity: sha512-DlOzet0HO7OEnmUmB6wWGJrrdvbyJKftI1bhMitK7O2N8W2gc757yyYBbINy9IDafXAV9wmKr9t7xsTaNKRG5Q==}
-    engines: {node: '>=20.16.0 || >=22.3.0'}
-
-  pdfjs-dist@5.4.530:
-    resolution: {integrity: sha512-r1hWsSIGGmyYUAHR26zSXkxYWLXLMd6AwqcaFYG9YUZ0GBf5GvcjJSeo512tabM4GYFhxhl5pMCmPr7Q72Rq2Q==}
     engines: {node: '>=20.16.0 || >=22.3.0'}
 
   pdfkit@0.17.2:
@@ -5542,6 +5544,8 @@ snapshots:
 
   jiti@2.6.1: {}
 
+  jose@5.10.0: {}
+
   jpeg-exif@1.1.4: {}
 
   js-cookie@3.0.5: {}
@@ -5921,10 +5925,6 @@ snapshots:
       pdfjs-dist: 5.4.296
 
   pdfjs-dist@5.4.296:
-    optionalDependencies:
-      '@napi-rs/canvas': 0.1.80
-
-  pdfjs-dist@5.4.530:
     optionalDependencies:
       '@napi-rs/canvas': 0.1.88
 
