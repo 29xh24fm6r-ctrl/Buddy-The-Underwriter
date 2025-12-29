@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 
 export async function GET() {
-  const a = auth();
-  const user = await currentUser().catch(() => null);
+  const { userId, sessionId } = await auth(); // ✅ await
+  const user = await currentUser();
 
   return NextResponse.json({
-    userId: a.userId ?? null,
-    sessionId: a.sessionId ?? null,
+    userId,
+    sessionId,
     hasUser: !!user,
     email: user?.emailAddresses?.[0]?.emailAddress ?? null,
   });
