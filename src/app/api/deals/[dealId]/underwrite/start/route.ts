@@ -1,5 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +22,13 @@ type Context = {
  */
 export async function POST(req: NextRequest, ctx: Context) {
   try {
+    const { userId } = await auth();
+    if (!userId)
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 },
+      );
+
     const { dealId } = await ctx.params;
     const sb = supabaseAdmin();
 
@@ -121,16 +130,18 @@ export async function POST(req: NextRequest, ctx: Context) {
       : 0;
 
     // 4. Emit underwriting_started event
-    await sb.from("deal_events").insert({
-      deal_id: dealId,
-      kind: "underwriting_started",
-      metadata: {
+    await writeEvent({
+      dealId,
+      kind: "underwrite.started",
+      actorUserId: userId,
+      input: {
         checklist_complete: true,
         required_items: requiredItems.length,
+      },
+      meta: {
         confidence_score: confidenceScore,
         low_confidence_fields: lowConfidenceFields.length,
-        triggered_by: "manual", // or "auto" if called by trigger
-        timestamp: new Date().toISOString(),
+        triggered_by: "manual",
       },
     });
 
@@ -182,10 +193,10 @@ export async function POST(req: NextRequest, ctx: Context) {
       notifications_queued: underwriterEmails.length,
     });
   } catch (error: any) {
-    console.error("Underwriting start error:", error);
-    return NextResponse.json(
-      { ok: false, error: error?.message || "Failed to start underwriting" },
-      { status: 500 }
-    );
+    console.error("[/api/deals/[dealId]/underwrite/start]", error);
+    return NextResponse.json({
+      ok: false,
+      error: "Failed to start underwriting",
+    });
   }
 }

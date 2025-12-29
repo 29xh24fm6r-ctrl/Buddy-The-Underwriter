@@ -1,6 +1,9 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+// ⚠️ IMPORTANT: deal_events uses `payload` (jsonb), NOT metadata
+// All queries must use payload->>field syntax
+
 type ConsentEvent = {
   kind: string;
   created_at: string;
@@ -22,7 +25,7 @@ export async function getSmsConsentState(phoneE164: string): Promise<"allowed" |
     .from("deal_events")
     .select("kind, created_at")
     .in("kind", ["sms_opt_out", "sms_opt_in"])
-    .or(`metadata->>phone.eq.${phoneE164},metadata->>from.eq.${phoneE164}`)
+    .or(`payload->>phone.eq.${phoneE164},payload->>from.eq.${phoneE164}`)
     .order("created_at", { ascending: false })
     .limit(1);
 

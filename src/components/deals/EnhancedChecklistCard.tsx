@@ -17,7 +17,8 @@ type ChecklistItem = {
 type DealEvent = {
   id: string;
   kind: string;
-  metadata: any;
+  input_json?: any;
+  payload?: any;
   created_at: string;
 };
 
@@ -270,9 +271,9 @@ export function EnhancedChecklistCard({ dealId }: { dealId: string }) {
                     })}
                   </span>
                 </div>
-                {event.metadata?.checklist_key ? (
+                {((event.input_json as any)?.checklistKey || (event.payload as any)?.checklist_key) ? (
                   <div className="mt-1 text-neutral-600">
-                    Item: {event.metadata.checklist_key}
+                    Item: {(event.input_json as any)?.checklistKey || (event.payload as any)?.checklist_key}
                   </div>
                 ) : null}
               </div>

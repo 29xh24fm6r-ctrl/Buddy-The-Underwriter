@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import type { DealContext, DealAction } from "@/lib/deals/contextTypes";
+import { EventsFeed } from "./EventsFeed";
+import { ChecklistPanel } from "./ChecklistPanel";
 
 export function ActionRail({
   dealId,
@@ -35,13 +37,13 @@ export function ActionRail({
   };
 
   return (
-    <div className="flex h-full flex-col p-6">
-      <h2 className="mb-6 text-lg font-semibold text-gray-900">
+    <div className="flex h-full flex-col p-6 space-y-6">
+      <h2 className="text-lg font-semibold text-gray-900">
         What should I do next?
       </h2>
 
       {/* Completeness Stats */}
-      <div className="mb-6 space-y-2 rounded-lg border border-gray-200 bg-white p-4">
+      <div className="space-y-2 rounded-lg border border-gray-200 bg-white p-4">
         <div className="flex justify-between text-sm">
           <span className="text-gray-600">Missing Documents</span>
           <span className="font-semibold text-gray-900">
@@ -120,6 +122,12 @@ export function ActionRail({
           />
         )}
       </div>
+
+      {/* Checklist Panel */}
+      <ChecklistPanel dealId={dealId} />
+
+      {/* Events Feed */}
+      <EventsFeed dealId={dealId} />
     </div>
   );
 }

@@ -1,6 +1,9 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+// ⚠️ IMPORTANT: deal_events uses `payload` (jsonb), NOT metadata
+// Event data stored in payload field, accessed via event.payload
+
 export type SmsTimelineItem =
   | {
       kind: "sms.outbound";
@@ -76,15 +79,15 @@ export async function getDealSmsTimeline(dealId: string): Promise<SmsTimelineIte
 
   // Map deal_events to timeline items
   (events || []).forEach((event) => {
-    const metadata = event.metadata || {};
+    const payload = event.payload || {};
 
     if (event.kind === "sms_inbound" || event.kind === "sms_reply") {
       items.push({
         kind: "sms.inbound",
         createdAt: event.created_at,
-        from: metadata.from || metadata.From || "",
-        body: metadata.body || metadata.Body || "",
-        messageSid: metadata.messageSid || metadata.MessageSid || null,
+        from: payload.from || payload.From || "",
+        body: payload.body || payload.Body || "",
+        messageSid: payload.messageSid || payload.MessageSid || null,
       });
     }
 
@@ -92,11 +95,11 @@ export async function getDealSmsTimeline(dealId: string): Promise<SmsTimelineIte
       items.push({
         kind: "sms.status",
         createdAt: event.created_at,
-        messageSid: metadata.messageSid || metadata.MessageSid || null,
-        messageStatus: metadata.messageStatus || metadata.MessageStatus || null,
-        errorCode: metadata.errorCode || metadata.ErrorCode || null,
-        errorMessage: metadata.errorMessage || metadata.ErrorMessage || null,
-        to: metadata.to || metadata.To || null,
+        messageSid: payload.messageSid || payload.MessageSid || null,
+        messageStatus: payload.messageStatus || payload.MessageStatus || null,
+        errorCode: payload.errorCode || payload.ErrorCode || null,
+        errorMessage: payload.errorMessage || payload.ErrorMessage || null,
+        to: payload.to || payload.To || null,
       });
     }
   });

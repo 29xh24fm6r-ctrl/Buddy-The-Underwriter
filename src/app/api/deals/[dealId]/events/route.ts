@@ -14,6 +14,9 @@ type Context = {
  * 
  * Returns recent deal events for activity feed.
  * Source: public.audit_ledger (canonical event ledger)
+ * 
+ * ⚠️ IMPORTANT: Always read from audit_ledger view, NEVER from deal_events table directly.
+ * audit_ledger provides the canonical read interface with input_json/output_json fields.
  */
 export async function GET(req: NextRequest, ctx: Context) {
   try {

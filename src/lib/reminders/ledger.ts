@@ -2,6 +2,9 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { REMINDER_POLICY } from "./policy";
 
+// ⚠️ IMPORTANT: deal_events uses `payload` (jsonb), NOT metadata
+// All queries must use payload->>field syntax
+
 /**
  * Get reminder statistics for a deal+borrower combo
  * Checks outbound_messages table for reminder sends
@@ -10,13 +13,13 @@ export async function getReminderStats(args: { dealId: string; borrowerPhone: st
   const sb = supabaseAdmin();
 
   // All reminder sends are recorded in outbound_messages with body containing "reminder"
-  // We track this via deal_events with kind='sms_outbound' and metadata.label='reminder'
+  // We track this via deal_events with kind='sms_outbound' and payload.label='reminder'
   const { data, error } = await sb
     .from("deal_events")
-    .select("created_at, metadata")
+    .select("created_at, payload")
     .eq("deal_id", args.dealId)
     .eq("kind", "sms_outbound")
-    .eq("metadata->>label", "Upload reminder")
+    .eq("payload->>label", "Upload reminder")
     .order("created_at", { ascending: false });
 
   if (error) {

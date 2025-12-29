@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { auth } from "@clerk/nextjs/server";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,35 +73,59 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const { userId } = await auth();
-  if (!userId)
-    return NextResponse.json(
-      { ok: false, error: "Unauthorized" },
-      { status: 401 },
-    );
+  try {
+    const { userId } = await auth();
+    if (!userId)
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 },
+      );
 
-  const { dealId } = await ctx.params;
-  const body = (await req.json().catch(() => null)) as {
-    preset?: Preset;
-  } | null;
-  const preset = (body?.preset || "core") as Preset;
+    const { dealId } = await ctx.params;
+    const body = (await req.json().catch(() => null)) as {
+      preset?: Preset;
+    } | null;
+    const preset = (body?.preset || "core") as Preset;
 
-  const rows = (PRESETS[preset] || PRESETS.core).map((x) => ({
-    deal_id: dealId,
-    checklist_key: x.checklist_key,
-    title: x.title,
-    required: x.required,
-  }));
+    const rows = (PRESETS[preset] || PRESETS.core).map((x) => ({
+      deal_id: dealId,
+      checklist_key: x.checklist_key,
+      title: x.title,
+      required: x.required,
+    }));
 
-  const { error } = await supabaseAdmin()
-    .from("deal_checklist_items")
-    .upsert(rows, { onConflict: "deal_id,checklist_key" });
+    const { error } = await supabaseAdmin()
+      .from("deal_checklist_items")
+      .upsert(rows, { onConflict: "deal_id,checklist_key" });
 
-  if (error)
-    return NextResponse.json(
-      { ok: false, error: error.message },
-      { status: 500 },
-    );
+    if (error) {
+      console.error("[/api/deals/[dealId]/checklist/seed]", error);
+      return NextResponse.json({
+        ok: false,
+        error: "Failed to seed checklist",
+      });
+    }
 
-  return NextResponse.json({ ok: true, count: rows.length });
+    // Emit ledger event
+    await writeEvent({
+      dealId,
+      kind: "checklist.seeded",
+      actorUserId: userId,
+      input: {
+        preset,
+        checklist_keys: rows.map((r) => r.checklist_key),
+        count_inserted: rows.length,
+      },
+      meta: { route: "checklist/seed" },
+    });
+
+    return NextResponse.json({ ok: true, count: rows.length, event_emitted: true });
+  } catch (error: any) {
+    console.error("[/api/deals/[dealId]/checklist/seed]", error);
+    return NextResponse.json({
+      ok: false,
+      error: "Failed to seed checklist",
+    });
+  }
 }
+

@@ -1,6 +1,9 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+// ⚠️ IMPORTANT: deal_events uses `payload` (jsonb), NOT metadata
+// All queries must use payload->>field syntax
+
 /**
  * Resolve phone number to deal context
  * 
@@ -106,7 +109,7 @@ export async function getSmsConsentState(phoneE164: string): Promise<"allowed" |
     .from("deal_events")
     .select("kind, created_at")
     .or(`kind.eq.sms_opt_out,kind.eq.sms_opt_in`)
-    .eq("metadata->>phone", phoneE164)
+    .eq("payload->>phone", phoneE164)
     .order("created_at", { ascending: false })
     .limit(1);
 

@@ -8,6 +8,7 @@ import {
   LoanType,
 } from "@/lib/deals/checklistPresets";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,15 +25,16 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const { userId } = await auth();
-  if (!userId)
-    return NextResponse.json(
-      { ok: false, error: "Unauthorized" },
-      { status: 401 },
-    );
+  try {
+    const { userId } = await auth();
+    if (!userId)
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 },
+      );
 
-  const { dealId } = await ctx.params;
-  const body = (await req.json().catch(() => null)) as Body | null;
+    const { dealId } = await ctx.params;
+    const body = (await req.json().catch(() => null)) as Body | null;
 
   const loanType = body?.loanType;
   if (!loanType)
@@ -74,11 +76,13 @@ export async function POST(
       { onConflict: "deal_id" },
     );
 
-  if (upErr)
-    return NextResponse.json(
-      { ok: false, error: upErr.message },
-      { status: 500 },
-    );
+  if (upErr) {
+    console.error("[/api/deals/[dealId]/intake/set]", upErr);
+    return NextResponse.json({
+      ok: false,
+      error: "Failed to set intake",
+    });
+  }
 
   // Create phone link if borrower phone provided
   if (body?.borrowerPhone) {
@@ -118,11 +122,13 @@ export async function POST(
       .from("deal_checklist_items")
       .upsert(rows, { onConflict: "deal_id,checklist_key" });
 
-    if (seedErr)
-      return NextResponse.json(
-        { ok: false, error: seedErr.message },
-        { status: 500 },
-      );
+    if (seedErr) {
+      console.error("[/api/deals/[dealId]/intake/set] seed error", seedErr);
+      return NextResponse.json({
+        ok: false,
+        error: "Failed to seed checklist",
+      });
+    }
 
     // Auto-match any previously uploaded files to the new checklist
     try {
@@ -147,8 +153,33 @@ export async function POST(
     }
   }
 
-  return NextResponse.json({ 
-    ok: true, 
-    matchResult: matchResult.updated > 0 ? matchResult : undefined 
-  });
+    // Emit intake updated event
+    await writeEvent({
+      dealId,
+      kind: "intake.updated",
+      actorUserId: userId,
+      input: {
+        loanType,
+        borrowerName: body?.borrowerName || null,
+        autoSeed,
+      },
+      meta: {
+        sba_program: sbaProgram || null,
+        checklist_seeded: autoSeed,
+        auto_match_result: matchResult.updated > 0 ? matchResult : null,
+      },
+    });
+
+    return NextResponse.json({ 
+      ok: true, 
+      matchResult: matchResult.updated > 0 ? matchResult : undefined,
+      event_emitted: true,
+    });
+  } catch (error: any) {
+    console.error("[/api/deals/[dealId]/intake/set]", error);
+    return NextResponse.json({
+      ok: false,
+      error: "Failed to set intake",
+    });
+  }
 }
