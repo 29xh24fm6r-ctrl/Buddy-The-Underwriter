@@ -6,59 +6,49 @@ import type { ChecklistItem } from "@/types/db";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Checklist definitions (canonical source of truth for what's required)
-const CHECKLIST_DEFINITIONS = [
-  {
-    checklist_key: "PFS_CURRENT",
+// Checklist definitions for label enrichment (if DB only has checklist_key)
+const CHECKLIST_DEFINITIONS: Record<string, { title: string; required: boolean }> = {
+  PFS_CURRENT: {
     title: "Personal Financial Statement (current)",
     required: true,
   },
-  {
-    checklist_key: "IRS_BUSINESS_2Y",
+  IRS_BUSINESS_2Y: {
     title: "Business tax returns (last 2 years)",
     required: true,
   },
-  {
-    checklist_key: "IRS_PERSONAL_2Y",
+  IRS_PERSONAL_2Y: {
     title: "Personal tax returns (last 2 years)",
     required: true,
   },
-  {
-    checklist_key: "FIN_STMT_YTD",
+  FIN_STMT_YTD: {
     title: "Year-to-date financial statement",
     required: true,
   },
-  {
-    checklist_key: "AR_AP_AGING",
+  AR_AP_AGING: {
     title: "A/R and A/P aging",
     required: false,
   },
-  {
-    checklist_key: "BANK_STMT_3M",
+  BANK_STMT_3M: {
     title: "Bank statements (last 3 months)",
     required: false,
   },
-  {
-    checklist_key: "SBA_1919",
+  SBA_1919: {
     title: "SBA Form 1919",
     required: false,
   },
-  {
-    checklist_key: "SBA_912",
+  SBA_912: {
     title: "SBA Form 912 (Statement of Personal History)",
     required: false,
   },
-  {
-    checklist_key: "SBA_413",
+  SBA_413: {
     title: "SBA Form 413 (PFS)",
     required: false,
   },
-  {
-    checklist_key: "SBA_DEBT_SCHED",
+  SBA_DEBT_SCHED: {
     title: "Business debt schedule",
     required: false,
   },
-];
+};
 
 export async function GET(
   _req: Request,
@@ -75,58 +65,58 @@ export async function GET(
     const { dealId } = await ctx.params;
     const sb = supabaseAdmin();
 
-    // Fetch all documents for this deal
-    const { data: documents, error } = await sb
-      .from("deal_documents")
-      .select("id, checklist_key, original_filename, created_at")
+    // Query deal_checklist_items (source of truth)
+    const { data: items, error } = await sb
+      .from("deal_checklist_items")
+      .select("id, deal_id, checklist_key, title, description, required, status, received_at, received_file_id, created_at, updated_at, due_at, notes, sort_order")
       .eq("deal_id", dealId);
 
     if (error) {
       console.error("[/api/deals/[dealId]/checklist/list]", error);
-      // Return 200 with empty arrays to prevent UI breakage
       return NextResponse.json({
-        ok: true,
+        ok: false,
         items: [],
+        error: "Failed to load checklist",
       });
     }
 
-    // Group documents by checklist_key
-    const documentsByKey = new Map<string, any[]>();
-    (documents || []).forEach((doc) => {
-      if (doc.checklist_key) {
-        const existing = documentsByKey.get(doc.checklist_key) || [];
-        existing.push(doc);
-        documentsByKey.set(doc.checklist_key, existing);
-      }
-    });
-
-    // Build checklist items from definitions
-    const items: ChecklistItem[] = CHECKLIST_DEFINITIONS.map((def) => {
-      const docs = documentsByKey.get(def.checklist_key) || [];
-      const received = docs.length > 0;
-      const status = received ? "received" : "pending";
-
+    // Enrich items with labels from definitions if needed
+    const enrichedItems = (items || []).map((item) => {
+      const def = CHECKLIST_DEFINITIONS[item.checklist_key];
       return {
-        id: def.checklist_key,
-        deal_id: dealId,
-        checklist_key: def.checklist_key,
-        title: def.title,
-        description: null,
-        required: def.required,
-        status,
-        received_at: received ? docs[0]?.created_at : null,
-        received_file_id: received ? docs[0]?.id : null,
-        created_at: received ? docs[0]?.created_at : null,
+        ...item,
+        title: item.title || def?.title || item.checklist_key,
+        required: item.required !== undefined ? item.required : (def?.required ?? false),
       };
     });
 
-    return NextResponse.json({ ok: true, items });
+    // Sort: required first, then optional; if sort_order exists use it; else by created_at asc
+    enrichedItems.sort((a, b) => {
+      // Primary sort: required first
+      if (a.required !== b.required) {
+        return a.required ? -1 : 1;
+      }
+      
+      // Secondary sort: by sort_order if present
+      if (a.sort_order !== undefined && b.sort_order !== undefined) {
+        return a.sort_order - b.sort_order;
+      }
+      
+      // Tertiary sort: by created_at
+      if (a.created_at && b.created_at) {
+        return a.created_at.localeCompare(b.created_at);
+      }
+      
+      return 0;
+    });
+
+    return NextResponse.json({ ok: true, items: enrichedItems });
   } catch (error: any) {
     console.error("[/api/deals/[dealId]/checklist/list]", error);
-    // Return 200 with empty arrays to prevent UI breakage
     return NextResponse.json({
-      ok: true,
+      ok: false,
       items: [],
+      error: "Failed to load checklist",
     });
   }
 }
