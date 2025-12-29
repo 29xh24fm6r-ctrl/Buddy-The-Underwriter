@@ -58,3 +58,18 @@ export type AuditLedgerRow = {
   created_at?: string;
   createdAt?: string;
 };
+
+export type ChecklistItem = {
+  id: string;
+  deal_id?: string;
+  checklist_key: string;
+  title: string;
+  description?: string | null;
+  required: boolean;
+  status?: string;
+  received_at?: string | null;
+  received_file_id?: string | null;
+  created_at?: string | null;
+  filename?: string | null;
+};
+

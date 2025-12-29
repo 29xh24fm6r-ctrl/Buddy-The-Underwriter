@@ -6,6 +6,10 @@ import type { ChecklistItem } from "@/types/db";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type Context = {
+  params: Promise<{ dealId: string }>;
+};
+
 // Checklist definitions (canonical source of truth for what's required)
 const CHECKLIST_DEFINITIONS = [
   {
@@ -60,17 +64,21 @@ const CHECKLIST_DEFINITIONS = [
   },
 ];
 
-export async function GET(
-  _req: Request,
-  ctx: { params: Promise<{ dealId: string }> },
-) {
+/**
+ * GET /api/deals/[dealId]/checklist
+ * 
+ * Returns checklist state bucketed by status.
+ * Derives state from deal_documents (canonical source) instead of legacy deal_checklist_items table.
+ */
+export async function GET(req: NextRequest, ctx: Context) {
   try {
     const { userId } = await auth();
-    if (!userId)
+    if (!userId) {
       return NextResponse.json(
-        { ok: false, error: "Unauthorized" },
-        { status: 401 },
+        { error: "Unauthorized" },
+        { status: 401 }
       );
+    }
 
     const { dealId } = await ctx.params;
     const sb = supabaseAdmin();
@@ -82,11 +90,12 @@ export async function GET(
       .eq("deal_id", dealId);
 
     if (error) {
-      console.error("[/api/deals/[dealId]/checklist/list]", error);
-      // Return 200 with empty arrays to prevent UI breakage
+      console.error("[/api/deals/[dealId]/checklist]", error);
+      // Return 200 with empty buckets to prevent UI breakage
       return NextResponse.json({
-        ok: true,
-        items: [],
+        received: [],
+        pending: [],
+        optional: [],
       });
     }
 
@@ -100,33 +109,46 @@ export async function GET(
       }
     });
 
-    // Build checklist items from definitions
-    const items: ChecklistItem[] = CHECKLIST_DEFINITIONS.map((def) => {
-      const docs = documentsByKey.get(def.checklist_key) || [];
-      const received = docs.length > 0;
-      const status = received ? "received" : "pending";
+    const received: ChecklistItem[] = [];
+    const pending: ChecklistItem[] = [];
+    const optional: ChecklistItem[] = [];
 
-      return {
+    // Build checklist items from definitions
+    CHECKLIST_DEFINITIONS.forEach((def) => {
+      const docs = documentsByKey.get(def.checklist_key) || [];
+      const hasDocuments = docs.length > 0;
+
+      const item = {
         id: def.checklist_key,
-        deal_id: dealId,
         checklist_key: def.checklist_key,
         title: def.title,
-        description: null,
         required: def.required,
-        status,
-        received_at: received ? docs[0]?.created_at : null,
-        received_file_id: received ? docs[0]?.id : null,
-        created_at: received ? docs[0]?.created_at : null,
+        received_at: hasDocuments ? docs[0]?.created_at : null,
+        received_file_id: hasDocuments ? docs[0]?.id : null,
+        filename: hasDocuments ? docs[0]?.original_filename : null,
       };
+
+      if (hasDocuments) {
+        received.push(item);
+      } else if (def.required) {
+        pending.push(item);
+      } else {
+        optional.push(item);
+      }
     });
 
-    return NextResponse.json({ ok: true, items });
-  } catch (error: any) {
-    console.error("[/api/deals/[dealId]/checklist/list]", error);
-    // Return 200 with empty arrays to prevent UI breakage
     return NextResponse.json({
-      ok: true,
-      items: [],
+      received,
+      pending,
+      optional,
+    });
+  } catch (error: any) {
+    console.error("[/api/deals/[dealId]/checklist]", error);
+    // Return 200 with empty buckets to prevent UI breakage
+    return NextResponse.json({
+      received: [],
+      pending: [],
+      optional: [],
     });
   }
 }
