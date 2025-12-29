@@ -29,7 +29,7 @@ export async function POST(
 
   // Get all files for this deal
   const { data: files, error: filesError } = await sb
-    .from("deal_files")
+    .from("deal_documents")
     .select("id, original_filename, checklist_key")
     .eq("deal_id", dealId);
 
@@ -73,7 +73,7 @@ export async function POST(
       // Update the file's checklist_key if not already set
       if (!file.checklist_key && result.matched.length > 0) {
         await sb
-          .from("deal_files")
+          .from("deal_documents")
           .update({ checklist_key: result.matched[0] })
           .eq("id", file.id);
       }

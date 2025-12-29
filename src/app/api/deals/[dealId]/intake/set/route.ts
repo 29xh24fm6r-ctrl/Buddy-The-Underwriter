@@ -127,7 +127,7 @@ export async function POST(
     // Auto-match any previously uploaded files to the new checklist
     try {
       const { data: files } = await sb
-        .from("deal_files")
+        .from("deal_documents")
         .select("id, original_filename")
         .eq("deal_id", dealId);
 

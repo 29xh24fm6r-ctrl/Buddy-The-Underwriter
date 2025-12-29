@@ -86,12 +86,12 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       mime: file.type,
     });
 
-    // Insert into database
+    // Insert into database (deal_documents table)
     const { userId } = await auth();
     const sb = supabaseAdmin();
     
     const { data: dbFile, error: dbError } = await sb
-      .from("deal_files")
+      .from("deal_documents")
       .insert({
         id: fileId,
         deal_id: dealId,
@@ -100,8 +100,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         original_filename: file.name || "upload.pdf",
         mime_type: file.type || null,
         size_bytes: bytes.length,
-        uploaded_by_user: userId || null,
-        uploader_type: "internal",
+        uploader_user_id: userId || null,
+        source: "internal",
         checklist_key: null,
       })
       .select()
