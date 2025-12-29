@@ -10,65 +10,11 @@ type Context = {
   params: Promise<{ dealId: string }>;
 };
 
-// Checklist definitions (canonical source of truth for what's required)
-const CHECKLIST_DEFINITIONS = [
-  {
-    checklist_key: "PFS_CURRENT",
-    title: "Personal Financial Statement (current)",
-    required: true,
-  },
-  {
-    checklist_key: "IRS_BUSINESS_2Y",
-    title: "Business tax returns (last 2 years)",
-    required: true,
-  },
-  {
-    checklist_key: "IRS_PERSONAL_2Y",
-    title: "Personal tax returns (last 2 years)",
-    required: true,
-  },
-  {
-    checklist_key: "FIN_STMT_YTD",
-    title: "Year-to-date financial statement",
-    required: true,
-  },
-  {
-    checklist_key: "AR_AP_AGING",
-    title: "A/R and A/P aging",
-    required: false,
-  },
-  {
-    checklist_key: "BANK_STMT_3M",
-    title: "Bank statements (last 3 months)",
-    required: false,
-  },
-  {
-    checklist_key: "SBA_1919",
-    title: "SBA Form 1919",
-    required: false,
-  },
-  {
-    checklist_key: "SBA_912",
-    title: "SBA Form 912 (Statement of Personal History)",
-    required: false,
-  },
-  {
-    checklist_key: "SBA_413",
-    title: "SBA Form 413 (PFS)",
-    required: false,
-  },
-  {
-    checklist_key: "SBA_DEBT_SCHED",
-    title: "Business debt schedule",
-    required: false,
-  },
-];
-
 /**
  * GET /api/deals/[dealId]/checklist
  * 
- * Returns checklist state bucketed by status.
- * Derives state from deal_documents (canonical source) instead of legacy deal_checklist_items table.
+ * Returns checklist state bucketed by status: { ok:true, received:[], pending:[], optional:[] }
+ * Base items come from deal_checklist_items, augmented with deal_documents for received determination.
  */
 export async function GET(req: NextRequest, ctx: Context) {
   try {
@@ -83,29 +29,38 @@ export async function GET(req: NextRequest, ctx: Context) {
     const { dealId } = await ctx.params;
     const sb = supabaseAdmin();
 
-    // Fetch all documents for this deal
-    const { data: documents, error } = await sb
-      .from("deal_documents")
-      .select("id, checklist_key, original_filename, created_at")
+    // Fetch base checklist items from deal_checklist_items
+    const { data: checklistItems, error: checklistError } = await sb
+      .from("deal_checklist_items")
+      .select("id, deal_id, checklist_key, title, description, required, status, received_at, received_file_id, created_at")
       .eq("deal_id", dealId);
 
-    if (error) {
-      console.error("[/api/deals/[dealId]/checklist]", error);
-      // Return 200 with empty buckets to prevent UI breakage
+    if (checklistError) {
+      console.error("[/api/deals/[dealId]/checklist]", checklistError);
       return NextResponse.json({
+        ok: false,
         received: [],
         pending: [],
         optional: [],
+        error: "Failed to load checklist",
       });
     }
 
-    // Group documents by checklist_key
-    const documentsByKey = new Map<string, any[]>();
+    // Fetch documents to augment received determination
+    const { data: documents, error: docsError } = await sb
+      .from("deal_documents")
+      .select("checklist_key")
+      .eq("deal_id", dealId);
+
+    if (docsError) {
+      console.error("[/api/deals/[dealId]/checklist]", docsError);
+    }
+
+    // Build set of checklist_keys that have documents
+    const documentKeys = new Set<string>();
     (documents || []).forEach((doc) => {
       if (doc.checklist_key) {
-        const existing = documentsByKey.get(doc.checklist_key) || [];
-        existing.push(doc);
-        documentsByKey.set(doc.checklist_key, existing);
+        documentKeys.add(doc.checklist_key);
       }
     });
 
@@ -113,24 +68,16 @@ export async function GET(req: NextRequest, ctx: Context) {
     const pending: ChecklistItem[] = [];
     const optional: ChecklistItem[] = [];
 
-    // Build checklist items from definitions
-    CHECKLIST_DEFINITIONS.forEach((def) => {
-      const docs = documentsByKey.get(def.checklist_key) || [];
-      const hasDocuments = docs.length > 0;
+    // Bucket items based on required flag and received status
+    (checklistItems || []).forEach((item) => {
+      // Determine if received: check explicit status OR presence of document
+      const hasExplicitReceivedStatus = item.status === "received" || item.received_at !== null;
+      const hasDocument = documentKeys.has(item.checklist_key);
+      const isReceived = hasExplicitReceivedStatus || hasDocument;
 
-      const item = {
-        id: def.checklist_key,
-        checklist_key: def.checklist_key,
-        title: def.title,
-        required: def.required,
-        received_at: hasDocuments ? docs[0]?.created_at : null,
-        received_file_id: hasDocuments ? docs[0]?.id : null,
-        filename: hasDocuments ? docs[0]?.original_filename : null,
-      };
-
-      if (hasDocuments) {
+      if (isReceived) {
         received.push(item);
-      } else if (def.required) {
+      } else if (item.required) {
         pending.push(item);
       } else {
         optional.push(item);
@@ -138,17 +85,19 @@ export async function GET(req: NextRequest, ctx: Context) {
     });
 
     return NextResponse.json({
+      ok: true,
       received,
       pending,
       optional,
     });
   } catch (error: any) {
     console.error("[/api/deals/[dealId]/checklist]", error);
-    // Return 200 with empty buckets to prevent UI breakage
     return NextResponse.json({
+      ok: false,
       received: [],
       pending: [],
       optional: [],
+      error: "Failed to load checklist",
     });
   }
 }
