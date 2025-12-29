@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
+import type { AuditLedgerRow } from "@/types/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,18 +9,12 @@ type Context = {
   params: Promise<{ dealId: string }>;
 };
 
-type DealEvent = {
-  id: string;
-  kind: string;
-  metadata: Record<string, any>;
-  created_at: string;
-};
-
 /**
  * GET /api/deals/[dealId]/events
  * 
  * Returns recent deal events for activity feed.
- * Derives events from deal_documents (canonical source) instead of legacy deal_events table.
+ * Primary source: audit_ledger (canonical event ledger)
+ * Fallback: deal_documents (if audit_ledger table doesn't exist)
  */
 export async function GET(req: NextRequest, ctx: Context) {
   try {
@@ -29,41 +24,76 @@ export async function GET(req: NextRequest, ctx: Context) {
 
     const sb = supabaseAdmin();
 
-    // Fetch recent document uploads/changes as events
-    const { data: documents, error } = await sb
-      .from("deal_documents")
-      .select("id, original_filename, doc_type, created_at, updated_at")
+    // Try to fetch from audit_ledger first (canonical source)
+    const { data: auditEvents, error: auditError } = await sb
+      .from("audit_ledger")
+      .select("id, deal_id, actor_user_id, scope, action, kind, input_json, output_json, confidence, evidence_json, requires_human_review, created_at")
       .eq("deal_id", dealId)
       .order("created_at", { ascending: false })
       .limit(limit);
 
-    if (error) {
-      console.error("[/api/deals/[dealId]/events]", error);
-      // Return 200 with empty array to prevent UI breakage
+    // Check if error indicates audit_ledger table doesn't exist
+    if (auditError) {
+      const errorMessage = auditError.message || "";
+      const isTableMissing = errorMessage.includes("audit_ledger") && 
+                           (errorMessage.includes("does not exist") || errorMessage.includes("relation"));
+
+      if (isTableMissing) {
+        // Fallback to deal_documents
+        const { data: documents, error: docsError } = await sb
+          .from("deal_documents")
+          .select("id, original_filename, doc_type, created_at")
+          .eq("deal_id", dealId)
+          .order("created_at", { ascending: false })
+          .limit(limit);
+
+        if (docsError) {
+          console.error("[/api/deals/[dealId]/events]", docsError);
+          return NextResponse.json({
+            ok: false,
+            events: [],
+            error: "Failed to load events",
+          });
+        }
+
+        // Transform documents into event format
+        const fallbackEvents = (documents || []).map((doc) => ({
+          id: doc.id,
+          kind: "document_uploaded",
+          metadata: {
+            filename: doc.original_filename,
+            doc_type: doc.doc_type,
+          },
+          created_at: doc.created_at,
+        }));
+
+        return NextResponse.json({
+          ok: true,
+          events: fallbackEvents,
+          source: "deal_documents_fallback",
+        });
+      }
+
+      // Other error (not table missing)
+      console.error("[/api/deals/[dealId]/events]", auditError);
       return NextResponse.json({
+        ok: false,
         events: [],
+        error: "Failed to load events",
       });
     }
 
-    // Transform documents into event format
-    const events: DealEvent[] = (documents || []).map((doc) => ({
-      id: doc.id,
-      kind: "document_uploaded",
-      metadata: {
-        filename: doc.original_filename,
-        doc_type: doc.doc_type,
-      },
-      created_at: doc.created_at,
-    }));
-
+    // Successfully retrieved from audit_ledger
     return NextResponse.json({
-      events,
+      ok: true,
+      events: auditEvents || [],
     });
   } catch (error: any) {
     console.error("[/api/deals/[dealId]/events]", error);
-    // Return 200 with empty array to prevent UI breakage
     return NextResponse.json({
+      ok: false,
       events: [],
+      error: "Failed to load events",
     });
   }
 }

@@ -42,12 +42,15 @@ export type AuditLedgerRow = {
 
   action?: string;
   scope?: string;
+  kind?: string;
 
   input_json?: unknown;
   inputJson?: unknown;
 
   output_json?: unknown;
   outputJson?: unknown;
+
+  confidence?: number | null;
 
   evidence_json?: unknown;
   evidenceJson?: unknown;
