@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { auth } from "@clerk/nextjs/server";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export const runtime = "nodejs";
@@ -55,22 +54,20 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    // Verify tenant access
+    // Verify deal exists (authorization already happened at /files/sign)
     const sb = supabaseAdmin();
-    const bankId = await getCurrentBankId();
 
     const { data: deal, error: dealErr } = await sb
       .from("deals")
-      .select("id")
+      .select("id, bank_id")
       .eq("id", dealId)
-      .eq("bank_id", bankId)
       .maybeSingle();
 
     if (dealErr || !deal) {
-      console.error("[files/record] deal access denied", { dealId, bankId, dealErr });
+      console.error("[files/record] deal not found", { dealId, dealErr });
       return NextResponse.json(
-        { ok: false, error: "Deal not found or access denied" },
-        { status: 403 },
+        { ok: false, error: "Deal not found" },
+        { status: 404 },
       );
     }
 
@@ -96,6 +93,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     const { error: insertErr } = await sb.from("deal_documents").insert({
       id: file_id,
       deal_id: dealId,
+      bank_id: deal.bank_id, // Required: inherited from deal
       storage_bucket: "deal-documents",
       storage_path: object_path,
       original_filename,

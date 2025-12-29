@@ -66,6 +66,21 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     const dealId = link.deal_id;
 
+    // Fetch deal to get bank_id (required for insert)
+    const { data: deal, error: dealErr } = await sb
+      .from("deals")
+      .select("bank_id")
+      .eq("id", dealId)
+      .maybeSingle();
+
+    if (dealErr || !deal) {
+      console.error("[portal/files/record] deal not found", { dealId, dealErr });
+      return NextResponse.json(
+        { ok: false, error: "Deal not found" },
+        { status: 404 },
+      );
+    }
+
     // Verify file exists in storage (optional but recommended)
     const { data: fileExists, error: checkErr } = await sb.storage
       .from("deal-documents")
@@ -88,6 +103,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     const { error: insertErr } = await sb.from("deal_documents").insert({
       id: file_id,
       deal_id: dealId,
+      bank_id: deal.bank_id, // Required: inherited from deal
       storage_bucket: "deal-documents",
       storage_path: object_path,
       original_filename,
