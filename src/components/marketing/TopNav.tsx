@@ -19,8 +19,11 @@ export function TopNav() {
           <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="#governance">
             Governance
           </a>
-          <a className="rounded-xl border px-3 py-2 text-sm font-medium hover:bg-muted" href="/deals">
-            Open App
+          <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="/sign-in">
+            Sign In
+          </a>
+          <a className="rounded-xl border bg-black text-white px-3 py-2 text-sm font-medium hover:bg-gray-800" href="/sign-up">
+            Sign Up
           </a>
         </div>
       </div>

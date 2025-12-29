@@ -8,12 +8,14 @@ import { NextResponse } from "next/server";
  */
 const isPublicRoute = createRouteMatcher([
   "/",
+  "/pricing",
   "/health",
   "/api/health(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/s(.*)",
   "/share(.*)",
+  "/api/public(.*)",
   // Keep Stitch public for now to prevent surprises; tighten later if desired.
   "/stitch(.*)",
 ]);

@@ -18,11 +18,18 @@ export function Hero() {
       </p>
       <div className="flex justify-center gap-4 flex-wrap">
         <Link
-          href="/signup"
+          href="/sign-up"
           onClick={() => capture("cta_click", { location: "hero", cta: "signup" })}
           className="px-8 py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-800"
         >
           Start Free Trial
+        </Link>
+        <Link
+          href="/sign-in"
+          onClick={() => capture("cta_click", { location: "hero", cta: "signin" })}
+          className="px-8 py-3 border-2 border-gray-300 rounded-lg font-semibold hover:border-gray-400"
+        >
+          Sign In
         </Link>
         <Link
           href="/pricing"
