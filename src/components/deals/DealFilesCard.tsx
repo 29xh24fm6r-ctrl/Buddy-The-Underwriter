@@ -20,6 +20,8 @@ type DealFile = {
 export default function DealFilesCard({ dealId }: { dealId: string }) {
   const [files, setFiles] = useState<DealFile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [matching, setMatching] = useState(false);
+  const [matchResult, setMatchResult] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<DealFile | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -34,6 +36,32 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
     }
     load();
   }, [dealId]);
+
+  async function handleAutoMatch() {
+    setMatching(true);
+    setMatchResult(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/files/auto-match-checklist`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (json?.ok) {
+        setMatchResult(
+          `Matched ${json.totalUpdated} checklist items from ${json.filesProcessed} files`
+        );
+        // Reload files to see updated checklist keys
+        const reloadRes = await fetch(`/api/deals/${dealId}/files/list`);
+        const reloadJson = await reloadRes.json();
+        if (reloadJson?.ok && reloadJson.files) setFiles(reloadJson.files);
+      } else {
+        setMatchResult(`Error: ${json?.error || "Failed to match"}`);
+      }
+    } catch (error: any) {
+      setMatchResult(`Error: ${error?.message || "Unknown error"}`);
+    } finally {
+      setMatching(false);
+    }
+  }
 
   async function handleDownload(file: DealFile) {
     const res = await fetch(`/api/deals/${dealId}/files/signed-url?fileId=${file.id}`);
@@ -82,7 +110,27 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
   return (
     <>
       <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-4 shadow-sm">
-        <div className="text-base font-semibold text-neutral-50">Deal Files ({files.length})</div>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-base font-semibold text-neutral-50">Deal Files ({files.length})</div>
+            <div className="mt-1 text-sm text-neutral-400">
+              Upload files above, then click "Auto-Match Checklist" to update pending items
+            </div>
+          </div>
+          <button
+            onClick={handleAutoMatch}
+            disabled={matching || files.length === 0}
+            className="rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+          >
+            {matching ? "Matching..." : "Auto-Match Checklist"}
+          </button>
+        </div>
+
+        {matchResult && (
+          <div className="mt-3 rounded-xl border border-neutral-800 bg-neutral-900/40 p-3 text-sm text-neutral-200">
+            {matchResult}
+          </div>
+        )}
 
         {files.length === 0 ? (
           <div className="mt-2 text-sm text-neutral-400">No files uploaded yet</div>

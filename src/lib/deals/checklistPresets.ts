@@ -1,7 +1,10 @@
 // src/lib/deals/checklistPresets.ts
 import "server-only";
 
-export type LoanType = "CRE" | "LOC" | "TERM" | "SBA_7A" | "SBA_504";
+export type LoanType = "CRE" | "CRE_OWNER_OCCUPIED" | "CRE_INVESTOR" | "CRE_OWNER_OCCUPIED_WITH_RENT" | "LOC" | "TERM" | "SBA_7A" | "SBA_504";
+
+// Legacy CRE defaults to owner-occupied for backwards compatibility
+export type CRESubtype = "owner_occupied" | "investor" | "owner_occupied_with_rent";
 
 export type ChecklistSeedRow = {
   checklist_key: string;
@@ -55,9 +58,29 @@ export function buildChecklistForLoanType(loanType: LoanType): ChecklistSeedRow[
     { checklist_key: "CONTRACTOR_BIDS", title: "Contractor bids / construction budget", required: false },
   ];
 
+  const CRE_INVESTOR_SPECIFIC: ChecklistSeedRow[] = [
+    { checklist_key: "OPERATING_AGREEMENT", title: "Operating agreement / entity docs", required: false },
+    { checklist_key: "EXIT_STRATEGY", title: "Exit strategy / business plan", required: false },
+  ];
+
+  const CRE_OWNER_OCC_SPECIFIC: ChecklistSeedRow[] = [
+    // Note: Business plans only required for SBA startups, not conventional loans with 2+ years history
+    { checklist_key: "PROPERTY_USE_STATEMENT", title: "Property use statement / occupancy plan", required: false },
+  ];
+
+  const CRE_MIXED_USE_SPECIFIC: ChecklistSeedRow[] = [
+    { checklist_key: "LEASE_SCHEDULE", title: "Schedule of leased vs occupied space", required: true },
+    { checklist_key: "RENTAL_INCOME_PROJECTION", title: "Rental income projection (<49% space)", required: true },
+  ];
+
   switch (loanType) {
     case "CRE":
-      return [...CORE, ...CRE];
+    case "CRE_OWNER_OCCUPIED":
+      return [...CORE, ...CRE, ...CRE_OWNER_OCC_SPECIFIC];
+    case "CRE_INVESTOR":
+      return [...CORE, ...CRE, ...CRE_INVESTOR_SPECIFIC];
+    case "CRE_OWNER_OCCUPIED_WITH_RENT":
+      return [...CORE, ...CRE, ...CRE_OWNER_OCC_SPECIFIC, ...CRE_MIXED_USE_SPECIFIC];
     case "LOC":
       return [...CORE, ...LOC];
     case "TERM":

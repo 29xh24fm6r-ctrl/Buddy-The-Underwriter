@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 
-type LoanType = "CRE" | "LOC" | "TERM" | "SBA_7A" | "SBA_504";
+type LoanType = "CRE" | "CRE_OWNER_OCCUPIED" | "CRE_INVESTOR" | "CRE_OWNER_OCCUPIED_WITH_RENT" | "LOC" | "TERM" | "SBA_7A" | "SBA_504";
 
 type Intake = {
   loan_type: LoanType;
@@ -14,7 +14,7 @@ type Intake = {
 
 export default function DealIntakeCard({ dealId }: { dealId: string }) {
   const [intake, setIntake] = useState<Intake>({
-    loan_type: "CRE",
+    loan_type: "CRE_OWNER_OCCUPIED",
     sba_program: null,
     borrower_name: null,
     borrower_email: null,
@@ -23,6 +23,7 @@ export default function DealIntakeCard({ dealId }: { dealId: string }) {
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [matchMessage, setMatchMessage] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -37,7 +38,8 @@ export default function DealIntakeCard({ dealId }: { dealId: string }) {
 
   async function save(autoSeed = true) {
     setSaving(true);
-    await fetch(`/api/deals/${dealId}/intake/set`, {
+    setMatchMessage(null);
+    const res = await fetch(`/api/deals/${dealId}/intake/set`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -49,7 +51,14 @@ export default function DealIntakeCard({ dealId }: { dealId: string }) {
         autoSeed,
       }),
     });
+    const json = await res.json();
     setSaving(false);
+    
+    // Show auto-match results if any
+    if (json?.matchResult?.updated > 0) {
+      setMatchMessage(`✅ Automatically matched ${json.matchResult.updated} uploaded documents to checklist items!`);
+    }
+    
     window.location.reload(); // refresh to show new checklist
   }
 
@@ -68,6 +77,12 @@ export default function DealIntakeCard({ dealId }: { dealId: string }) {
       <div className="mt-1 text-sm text-neutral-400">Set loan type to auto-generate checklist presets</div>
 
       <div className="mt-4 space-y-3">
+        {matchMessage && (
+          <div className="rounded-xl border border-green-800 bg-green-950/20 p-3 text-sm text-green-200">
+            {matchMessage}
+          </div>
+        )}
+        
         <div>
           <label className="text-xs text-neutral-400">Loan Type</label>
           <select
@@ -75,11 +90,17 @@ export default function DealIntakeCard({ dealId }: { dealId: string }) {
             onChange={(e) => setIntake({ ...intake, loan_type: e.target.value as LoanType })}
             className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
           >
-            <option value="CRE">CRE (Commercial Real Estate)</option>
-            <option value="LOC">LOC (Line of Credit)</option>
-            <option value="TERM">TERM (Term Loan)</option>
-            <option value="SBA_7A">SBA 7(a)</option>
-            <option value="SBA_504">SBA 504</option>
+            <optgroup label="Commercial Real Estate (CRE)">
+              <option value="CRE_OWNER_OCCUPIED">CRE - Owner Occupied</option>
+              <option value="CRE_INVESTOR">CRE - Investor (Rental Property)</option>
+              <option value="CRE_OWNER_OCCUPIED_WITH_RENT">CRE - Owner Occupied with Rent (&lt;49% leased)</option>
+            </optgroup>
+            <optgroup label="Other Loan Types">
+              <option value="LOC">LOC (Line of Credit)</option>
+              <option value="TERM">TERM (Term Loan)</option>
+              <option value="SBA_7A">SBA 7(a)</option>
+              <option value="SBA_504">SBA 504</option>
+            </optgroup>
           </select>
         </div>
 

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { auth } from "@clerk/nextjs/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,6 +85,34 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       size: bytes.length,
       mime: file.type,
     });
+
+    // Insert into database
+    const { userId } = await auth();
+    const sb = supabaseAdmin();
+    
+    const { data: dbFile, error: dbError } = await sb
+      .from("deal_files")
+      .insert({
+        id: fileId,
+        deal_id: dealId,
+        storage_bucket: "local_tmp",
+        storage_path: storedPath,
+        original_filename: file.name || "upload.pdf",
+        mime_type: file.type || null,
+        size_bytes: bytes.length,
+        uploaded_by_user: userId || null,
+        uploader_type: "internal",
+        checklist_key: null,
+      })
+      .select()
+      .single();
+
+    if (dbError) {
+      console.error("[upload] database error", dbError);
+      // Don't fail the upload if DB insert fails, just log it
+    } else {
+      console.log("[upload] saved to database", { fileId, dealId });
+    }
 
     return NextResponse.json({
       ok: true,

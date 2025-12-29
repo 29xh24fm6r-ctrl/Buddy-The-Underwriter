@@ -7,6 +7,7 @@ import {
   buildChecklistForLoanType,
   LoanType,
 } from "@/lib/deals/checklistPresets";
+import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,7 +41,7 @@ export async function POST(
       { status: 400 },
     );
 
-  if (!["CRE", "LOC", "TERM", "SBA_7A", "SBA_504"].includes(loanType)) {
+  if (!["CRE", "CRE_OWNER_OCCUPIED", "CRE_INVESTOR", "CRE_OWNER_OCCUPIED_WITH_RENT", "LOC", "TERM", "SBA_7A", "SBA_504"].includes(loanType)) {
     return NextResponse.json(
       { ok: false, error: "Invalid loanType" },
       { status: 400 },
@@ -102,6 +103,8 @@ export async function POST(
   }
 
   const autoSeed = body?.autoSeed ?? true;
+  let matchResult = { matched: 0, updated: 0 };
+  
   if (autoSeed) {
     const rows = buildChecklistForLoanType(loanType).map((r) => ({
       deal_id: dealId,
@@ -120,7 +123,34 @@ export async function POST(
         { ok: false, error: seedErr.message },
         { status: 500 },
       );
+
+    // Auto-match any previously uploaded files to the new checklist
+    try {
+      const { data: files } = await sb
+        .from("deal_files")
+        .select("id, original_filename")
+        .eq("deal_id", dealId);
+
+      if (files && files.length > 0) {
+        let totalUpdated = 0;
+        for (const file of files) {
+          const result = await autoMatchChecklistFromFilename({
+            dealId,
+            filename: file.original_filename,
+            fileId: file.id,
+          });
+          totalUpdated += result.updated;
+        }
+        matchResult = { matched: files.length, updated: totalUpdated };
+      }
+    } catch (matchErr) {
+      console.error("Auto-match error:", matchErr);
+      // Don't fail the request if matching fails
+    }
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ 
+    ok: true, 
+    matchResult: matchResult.updated > 0 ? matchResult : undefined 
+  });
 }
