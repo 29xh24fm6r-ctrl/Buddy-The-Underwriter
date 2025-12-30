@@ -172,7 +172,7 @@ export function DemoStrip() {
                             {s.chips.map((c) => (
                               <span
                                 key={c}
-                                className="rounded-full border border-black/10 bg-black/[0.02] px-3 py-1 text-xs text-ink-body">
+                                className="rounded-full border border-black/10 bg-black/[0.02] px-3 py-1 text-xs text-ink-body"
                               >
                                 {c}
                               </span>
