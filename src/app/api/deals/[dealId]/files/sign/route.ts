@@ -135,15 +135,47 @@ export async function POST(req: NextRequest, ctx: Context) {
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const objectPath = `deals/${dealId}/${fileId}__${safeName}`;
 
+    // Canonical bucket (matches DB default)
+    const bucket = "deal-files";
+
+    // Diagnostic logging (will show in Vercel function logs)
+    console.log("[files/sign] pre-flight check", {
+      dealId,
+      fileId,
+      bucket,
+      objectPath,
+      has_service_role: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+      has_url: Boolean(process.env.SUPABASE_URL),
+    });
+
+    // Guard: Verify Supabase JS version supports signed uploads
+    const bucketRef = sb.storage.from(bucket);
+    if (typeof (bucketRef as any).createSignedUploadUrl !== "function") {
+      console.error("[files/sign] Supabase JS client does not support createSignedUploadUrl");
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Supabase JS client does not support createSignedUploadUrl. Upgrade @supabase/supabase-js to latest.",
+        },
+        { status: 500 },
+      );
+    }
+
     // Create signed upload URL (valid for 5 minutes)
-    const { data: signed, error: signErr } = await sb.storage
-      .from("deal-files")
-      .createSignedUploadUrl(objectPath);
+    const { data: signed, error: signErr } = await (bucketRef as any).createSignedUploadUrl(objectPath);
 
     if (signErr || !signed) {
-      console.error("[files/sign] failed to create signed URL", signErr);
+      console.error("[files/sign] failed to create signed URL", {
+        error: signErr,
+        errorMessage: signErr?.message,
+        errorDetails: signErr,
+      });
       return NextResponse.json(
-        { ok: false, error: "Failed to generate upload URL" },
+        {
+          ok: false,
+          error: "Failed to generate upload URL",
+          details: signErr?.message || "Unknown storage error",
+        },
         { status: 500 },
       );
     }
@@ -153,6 +185,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       fileId,
       filename: safeName,
       size_bytes,
+      bucket,
     });
 
     return NextResponse.json({
@@ -163,12 +196,21 @@ export async function POST(req: NextRequest, ctx: Context) {
         signed_url: signed.signedUrl,
         token: signed.token,
         checklist_key,
+        bucket, // Diagnostic: client can verify bucket alignment
       },
     });
   } catch (error: any) {
-    console.error("[files/sign]", error);
+    console.error("[files/sign] uncaught exception", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    });
     return NextResponse.json(
-      { ok: false, error: "Internal server error" },
+      {
+        ok: false,
+        error: "Internal server error",
+        details: error.message || String(error),
+      },
       { status: 500 },
     );
   }
