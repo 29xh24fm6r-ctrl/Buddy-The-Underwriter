@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireValidInvite } from "@/lib/portal/auth";
 import { rateLimit } from "@/lib/portal/ratelimit";
+import { signUploadUrl } from "@/lib/uploads/sign";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,21 +43,31 @@ export async function POST(req: Request) {
   const safeName = filename.replace(/[^a-zA-Z0-9._-]+/g, "_");
   const path = `${invite.deal_id}/${Date.now()}_${safeName}`;
 
-  const { data, error } = await sb.storage
-    .from("borrower_uploads")
-    .createSignedUploadUrl(path);
-  if (error || !data)
+  const bucket = process.env.SUPABASE_UPLOAD_BUCKET || "borrower_uploads";
+  const signResult = await signUploadUrl({ bucket, objectPath: path });
+
+  if (!signResult.ok) {
+    console.error("[portal/upload/prepare] failed to create signed URL", {
+      requestId: signResult.requestId,
+      error: signResult.error,
+      detail: signResult.detail,
+    });
     return NextResponse.json(
-      { error: "Failed to create upload URL" },
+      {
+        error: "Failed to create upload URL",
+        requestId: signResult.requestId,
+        details: signResult.detail,
+      },
       { status: 500 },
     );
+  }
 
   return NextResponse.json({
-    bucket: "borrower_uploads",
+    bucket,
     path,
-    signedUrl: data.signedUrl,
-    token: data.token,
+    signedUrl: signResult.signedUrl,
+    token: signResult.token,
     mimeType,
-    requestId,
+    requestId: signResult.requestId,
   });
 }

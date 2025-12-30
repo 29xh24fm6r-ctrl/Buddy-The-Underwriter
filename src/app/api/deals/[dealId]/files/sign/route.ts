@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { auth } from "@clerk/nextjs/server";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { signUploadUrl } from "@/lib/uploads/sign";
 import crypto from "node:crypto";
 
 export const runtime = "nodejs";
@@ -148,37 +149,31 @@ export async function POST(req: NextRequest, ctx: Context) {
       has_url: Boolean(process.env.SUPABASE_URL),
     });
 
-    // Guard: Verify Supabase JS version supports signed uploads
-    const bucketRef = sb.storage.from(bucket);
-    if (typeof (bucketRef as any).createSignedUploadUrl !== "function") {
-      console.error("[files/sign] Supabase JS client does not support createSignedUploadUrl");
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Supabase JS client does not support createSignedUploadUrl. Upgrade @supabase/supabase-js to latest.",
-        },
-        { status: 500 },
-      );
-    }
+    // Use centralized signing utility
+    const signResult = await signUploadUrl({ bucket, objectPath });
 
-    // Create signed upload URL (valid for 5 minutes)
-    const { data: signed, error: signErr } = await (bucketRef as any).createSignedUploadUrl(objectPath);
-
-    if (signErr || !signed) {
+    if (!signResult.ok) {
       console.error("[files/sign] failed to create signed URL", {
-        error: signErr,
-        errorMessage: signErr?.message,
-        errorDetails: signErr,
+        requestId: signResult.requestId,
+        error: signResult.error,
+        detail: signResult.detail,
       });
       return NextResponse.json(
         {
           ok: false,
-          error: "Failed to generate upload URL",
-          details: signErr?.message || "Unknown storage error",
+          requestId: signResult.requestId,
+          error: signResult.error,
+          details: signResult.detail || "Unknown storage error",
         },
         { status: 500 },
       );
     }
+
+    const signed = {
+      signedUrl: signResult.signedUrl,
+      token: signResult.token,
+      path: signResult.path,
+    };
 
     console.log("[files/sign] created signed URL", {
       dealId,

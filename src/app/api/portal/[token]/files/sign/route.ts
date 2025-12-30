@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { signUploadUrl } from "@/lib/uploads/sign";
 import crypto from "node:crypto";
 
 export const runtime = "nodejs";
@@ -83,18 +84,32 @@ export async function POST(req: NextRequest, ctx: Context) {
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const objectPath = `deals/${dealId}/${fileId}__${safeName}`;
 
-    // Create signed upload URL (valid for 5 minutes)
-    const { data: signed, error: signErr } = await sb.storage
-      .from("deal-files")
-      .createSignedUploadUrl(objectPath);
+    // Use centralized signing utility
+    const bucket = process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
+    const signResult = await signUploadUrl({ bucket, objectPath });
 
-    if (signErr || !signed) {
-      console.error("[portal/files/sign] failed to create signed URL", signErr);
+    if (!signResult.ok) {
+      console.error("[portal/files/sign] failed to create signed URL", {
+        requestId: signResult.requestId,
+        error: signResult.error,
+        detail: signResult.detail,
+      });
       return NextResponse.json(
-        { ok: false, error: "Failed to generate upload URL" },
+        {
+          ok: false,
+          requestId: signResult.requestId,
+          error: signResult.error,
+          details: signResult.detail,
+        },
         { status: 500 },
       );
     }
+
+    const signed = {
+      signedUrl: signResult.signedUrl,
+      token: signResult.token,
+      path: signResult.path,
+    };
 
     console.log("[portal/files/sign] created signed URL", {
       dealId,
