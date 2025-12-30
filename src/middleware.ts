@@ -14,7 +14,7 @@ const isPublicRoute = createRouteMatcher([
   "/sign-up(.*)",
 ]);
 
-export default clerkMiddleware((auth, req) => {
+export default clerkMiddleware(async (auth, req) => {
   const p = req.nextUrl.pathname;
 
   // ✅ ABSOLUTE BYPASS FOR API
@@ -24,7 +24,7 @@ export default clerkMiddleware((auth, req) => {
 
   if (isPublicRoute(req)) return;
 
-  auth.protect();
+  await auth.protect();
 });
 
 export const config = {
