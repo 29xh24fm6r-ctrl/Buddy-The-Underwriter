@@ -30,6 +30,15 @@ export async function signUploadUrl(args: SignUploadArgs): Promise<SignUploadOk 
 
   try {
     const { bucket, objectPath } = args;
+
+    console.log("[signUploadUrl] start", {
+      requestId,
+      bucket,
+      objectPath,
+      has_url: Boolean(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL),
+      has_service_role: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE),
+    });
+
     if (!bucket) return { ok: false, requestId, error: "Missing bucket" };
     if (!objectPath) return { ok: false, requestId, error: "Missing objectPath" };
 
@@ -39,8 +48,20 @@ export async function signUploadUrl(args: SignUploadArgs): Promise<SignUploadOk 
     // Prefer signed upload URLs (PUT direct-to-storage)
     if (typeof bucketRef.createSignedUploadUrl === "function") {
       const { data, error } = await bucketRef.createSignedUploadUrl(objectPath);
+
+      console.log("[signUploadUrl] createSignedUploadUrl result", {
+        requestId,
+        hasData: Boolean(data),
+        error: error ? (error.message ?? String(error)) : null,
+      });
+
       if (error) {
-        console.error("[signUploadUrl] createSignedUploadUrl error", { requestId, bucket, objectPath, error });
+        console.error("[signUploadUrl] createSignedUploadUrl error", {
+          requestId,
+          bucket,
+          objectPath,
+          error,
+        });
         return {
           ok: false,
           requestId,
@@ -61,8 +82,20 @@ export async function signUploadUrl(args: SignUploadArgs): Promise<SignUploadOk 
     if (typeof bucketRef.createSignedUrl === "function") {
       const exp = args.expiresInSeconds ?? 60 * 5;
       const { data, error } = await bucketRef.createSignedUrl(objectPath, exp);
+
+      console.log("[signUploadUrl] createSignedUrl result", {
+        requestId,
+        hasData: Boolean(data),
+        error: error ? (error.message ?? String(error)) : null,
+      });
+
       if (error) {
-        console.error("[signUploadUrl] createSignedUrl error", { requestId, bucket, objectPath, error });
+        console.error("[signUploadUrl] createSignedUrl error", {
+          requestId,
+          bucket,
+          objectPath,
+          error,
+        });
         return {
           ok: false,
           requestId,
@@ -73,10 +106,15 @@ export async function signUploadUrl(args: SignUploadArgs): Promise<SignUploadOk 
       return { ok: true, requestId, bucket, objectPath, ...data };
     }
 
-    console.error("[signUploadUrl] No signing method available", { requestId, bucket, objectPath });
+    console.error("[signUploadUrl] no signing method", { requestId, bucket, objectPath });
     return { ok: false, requestId, error: "No supported signing method on Supabase client" };
   } catch (e: any) {
-    console.error("[signUploadUrl] fatal", { requestId, error: e?.message ?? String(e), stack: e?.stack });
+    console.error("[signUploadUrl] fatal", {
+      requestId,
+      message: e?.message ?? String(e),
+      stack: e?.stack,
+      name: e?.name,
+    });
     return { ok: false, requestId, error: "Internal error", detail: e?.message ?? String(e) };
   }
 }
