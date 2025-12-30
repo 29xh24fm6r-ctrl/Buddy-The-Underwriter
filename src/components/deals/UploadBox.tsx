@@ -397,8 +397,10 @@ if (!res.ok || !data?.ok) {
         packId: packId || null,
       });
 
-      if (!result.ok) {
-        throw new Error(result.error ?? "Upload failed");
+      // Guard: Never assume nested fields exist
+      if (!result?.ok) {
+        setUiError(result?.error ?? "Upload failed");
+        return;
       }
 
       await refreshUploads();

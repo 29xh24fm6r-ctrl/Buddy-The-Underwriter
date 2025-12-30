@@ -11,6 +11,14 @@
  * 4. Emit ledger event + checklist resolution
  */
 
+/**
+ * Canonical upload result shape (uniform across all upload flows)
+ * Never use arrays or conditional shapes.
+ */
+export type UploadResult =
+  | { ok: true; file_id: string; checklist_key?: string | null }
+  | { ok: false; error: string };
+
 export interface SignedUploadResponse {
   ok: boolean;
   upload?: {
@@ -19,16 +27,11 @@ export interface SignedUploadResponse {
     signed_url: string;
     token?: string;
     checklist_key?: string | null;
-    mime_type?: string;
+    bucket?: string;
   };
   deal_id?: string; // For borrower portal
   error?: string;
-}
-
-export interface RecordFileResponse {
-  ok: boolean;
-  file_id?: string;
-  error?: string;
+  details?: string; // Extended error info
 }
 
 export interface DirectUploadArgs {
@@ -85,7 +88,7 @@ export async function uploadViaSignedUrl(
  */
 export async function directDealDocumentUpload(
   args: DirectUploadArgs,
-): Promise<{ ok: boolean; fileId?: string; error?: string }> {
+): Promise<UploadResult> {
   const { dealId, file, checklistKey = null, source = "internal", packId = null } = args;
 
   try {
@@ -138,12 +141,12 @@ export async function directDealDocumentUpload(
       return { ok: false, error: err.error || "Failed to record file" };
     }
 
-    const recordData: RecordFileResponse = await recordRes.json();
-    if (!recordData.ok) {
-      return { ok: false, error: recordData.error };
+    const recordData = await recordRes.json();
+    if (!recordData?.ok) {
+      return { ok: false, error: recordData?.error || "Failed to record file" };
     }
 
-    return { ok: true, fileId: file_id };
+    return { ok: true, file_id, checklist_key: checklistKey };
   } catch (error: any) {
     console.error("[directDealDocumentUpload]", error);
     return { ok: false, error: error.message || "Upload failed" };
@@ -158,7 +161,7 @@ export async function uploadBorrowerFile(
   file: File,
   checklistKey?: string | null,
   onProgress?: (percent: number) => void,
-): Promise<{ ok: boolean; fileId?: string; error?: string }> {
+): Promise<UploadResult> {
   try {
     // Step 1: Get signed URL (token-based auth)
     const signRes = await fetch(`/api/borrower/portal/${token}/files/sign`, {
@@ -208,12 +211,12 @@ export async function uploadBorrowerFile(
       return { ok: false, error: err.error || "Failed to record file" };
     }
 
-    const recordData: RecordFileResponse = await recordRes.json();
-    if (!recordData.ok) {
-      return { ok: false, error: recordData.error };
+    const recordData = await recordRes.json();
+    if (!recordData?.ok) {
+      return { ok: false, error: recordData?.error || "Failed to record file" };
     }
 
-    return { ok: true, fileId: file_id };
+    return { ok: true, file_id, checklist_key: checklistKey };
   } catch (error: any) {
     console.error("[uploadBorrowerFile]", error);
     return { ok: false, error: error.message || "Upload failed" };

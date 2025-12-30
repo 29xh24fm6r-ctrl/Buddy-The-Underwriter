@@ -148,11 +148,23 @@ export async function POST(req: NextRequest, ctx: Context) {
       checklist_key,
     });
 
-    return NextResponse.json({ ok: true, file_id });
+    return NextResponse.json({
+      ok: true,
+      file_id,
+      checklist_key: checklist_key || null,
+    });
   } catch (error: any) {
-    console.error("[files/record]", error);
+    console.error("[files/record] uncaught exception", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    });
     return NextResponse.json(
-      { ok: false, error: "Internal server error" },
+      {
+        ok: false,
+        error: "Internal server error",
+        details: error.message || String(error),
+      },
       { status: 500 },
     );
   }
