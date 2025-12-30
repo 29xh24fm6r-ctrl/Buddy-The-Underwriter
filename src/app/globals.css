@@ -64,3 +64,6 @@
 }
 
 /* End Stitch embed isolation */
+html {
+  scroll-behavior: smooth;
+}
