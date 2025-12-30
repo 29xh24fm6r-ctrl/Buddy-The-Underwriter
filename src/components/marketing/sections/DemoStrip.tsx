@@ -2,7 +2,6 @@
 
 import { Container, Section } from "@/components/marketing/MarketingShell";
 import { Badge } from "@/components/ui/Badge";
-import { motion } from "framer-motion";
 
 type StepRow = {
   k: string;
@@ -138,13 +137,8 @@ export function DemoStrip() {
 
                 <div className="mt-8 grid gap-6">
                   {steps.map((s, i) => (
-                    <motion.div
-                      key={s.k}
-                      initial={{ opacity: 0, y: 10 }}
-                      whileInView={{ opacity: 1, y: 0 }}
-                      viewport={{ once: true, amount: 0.3 }}
-                      transition={{ duration: 0.35, delay: i * 0.05 }}
-                      className="relative"
+                    <div
+                      key={s.k}className="relative"
                     >
                       {/* connector line */}
                       {i !== steps.length - 1 && (
@@ -180,7 +174,7 @@ export function DemoStrip() {
                           </div>
                         </div>
                       </div>
-                    </motion.div>
+                    </div>
                   ))}
                 </div>
 
