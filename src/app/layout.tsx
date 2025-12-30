@@ -16,12 +16,12 @@ const inter = Inter({
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.buddytheunderwriter.com"),
   title: {
-    default: "Buddy the Underwriter",
+    default: "Buddy — Loan Operations System",
     template: "%s • Buddy",
   },
   description:
-    "Buddy turns SBA underwriting into a guided, automated, examiner-safe workflow that borrowers actually enjoy completing.",
-  keywords: ["SBA lending", "underwriting software", "loan origination", "credit analysis", "SBA 7(a)"],
+    "Buddy is the world's first Loan Operations System. Intake, documents, verification, underwriting, compliance, communication, and decisions — end to end.",
+  keywords: ["Loan Operations System", "SBA lending", "underwriting software", "loan origination", "credit analysis", "SBA 7(a)"],
   authors: [{ name: "Buddy" }],
   alternates: {
     canonical: "/",
@@ -30,10 +30,10 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: "https://www.buddytheunderwriter.com",
-    siteName: "Buddy the Underwriter",
-    title: "Buddy the Underwriter",
+    siteName: "Buddy — Loan Operations System",
+    title: "Buddy — Loan Operations System",
     description:
-      "SBA lending, without the chaos. Guided intake, underwriting automation, and examiner-safe audit trails.",
+      "Not lending software. A new category: Loan Operations System.",
     images: [
       {
         url: "/og.png",
