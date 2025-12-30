@@ -137,7 +137,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     const objectPath = `deals/${dealId}/${fileId}__${safeName}`;
 
     // Canonical bucket (matches DB default)
-    const bucket = "deal-files";
+    const bucket = process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
 
     // Diagnostic logging (will show in Vercel function logs)
     console.log("[files/sign] pre-flight check", {
@@ -146,7 +146,8 @@ export async function POST(req: NextRequest, ctx: Context) {
       bucket,
       objectPath,
       has_service_role: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-      has_url: Boolean(process.env.SUPABASE_URL),
+      has_url: Boolean(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL),
+      env_bucket: process.env.SUPABASE_UPLOAD_BUCKET || null,
     });
 
     // Use centralized signing utility
