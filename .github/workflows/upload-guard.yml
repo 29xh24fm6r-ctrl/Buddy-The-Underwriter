@@ -37,6 +37,12 @@ jobs:
       
       - name: Run upload architecture guard
         run: ./scripts/guard-no-multipart-deal-uploads.sh
+
+      - name: Guard - No Legacy Upload Endpoints
+        run: ./scripts/guard-no-legacy-upload-endpoints.sh
+
+      - name: Guard - UploadResult Usage
+        run: ./scripts/guard-uploadresult-usage.sh
       
       - name: Verify signed upload endpoints exist
         run: |

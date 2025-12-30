@@ -11,13 +11,10 @@
  * 4. Emit ledger event + checklist resolution
  */
 
-/**
- * Canonical upload result shape (uniform across all upload flows)
- * Never use arrays or conditional shapes.
- */
-export type UploadResult =
-  | { ok: true; file_id: string; checklist_key?: string | null }
-  | { ok: false; error: string };
+import type { UploadResult, UploadOk, UploadErr } from "./types";
+import { readJson, toUploadErr, assertUploadResult, generateRequestId } from "./parse";
+
+export type { UploadResult, UploadOk, UploadErr } from "./types";
 
 export interface SignedUploadResponse {
   ok: boolean;
@@ -32,6 +29,7 @@ export interface SignedUploadResponse {
   deal_id?: string; // For borrower portal
   error?: string;
   details?: string; // Extended error info
+  request_id?: string;
 }
 
 export interface DirectUploadArgs {
@@ -44,13 +42,14 @@ export interface DirectUploadArgs {
 
 /**
  * Upload file via signed URL (direct to storage, no server involvement)
+ * Returns UploadResult (never throws)
  */
 export async function uploadViaSignedUrl(
   signedUrl: string,
   file: File,
   onProgress?: (percent: number) => void,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
+): Promise<UploadResult> {
+  return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
 
     xhr.upload.addEventListener("progress", (e) => {
@@ -62,18 +61,30 @@ export async function uploadViaSignedUrl(
 
     xhr.addEventListener("load", () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve();
+        resolve({ ok: true, file_id: "" }); // file_id filled by caller
       } else {
-        reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
+        resolve({
+          ok: false,
+          error: `Upload failed: ${xhr.status} ${xhr.statusText}`,
+          code: `HTTP_${xhr.status}`,
+        });
       }
     });
 
     xhr.addEventListener("error", () => {
-      reject(new Error("Network error during upload"));
+      resolve({
+        ok: false,
+        error: "Network error during upload",
+        code: "NETWORK_ERROR",
+      });
     });
 
     xhr.addEventListener("abort", () => {
-      reject(new Error("Upload aborted"));
+      resolve({
+        ok: false,
+        error: "Upload aborted",
+        code: "UPLOAD_ABORTED",
+      });
     });
 
     xhr.open("PUT", signedUrl);
@@ -90,12 +101,16 @@ export async function directDealDocumentUpload(
   args: DirectUploadArgs,
 ): Promise<UploadResult> {
   const { dealId, file, checklistKey = null, source = "internal", packId = null } = args;
+  const requestId = generateRequestId();
 
   try {
     // Step 1: Get signed URL
     const signRes = await fetch(`/api/deals/${dealId}/files/sign`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-request-id": requestId,
+      },
       body: JSON.stringify({
         filename: file.name,
         mime_type: file.type,
@@ -105,25 +120,34 @@ export async function directDealDocumentUpload(
       }),
     });
 
-    if (!signRes.ok) {
-      const err = await signRes.json();
-      return { ok: false, error: err.error || "Failed to get signed URL" };
-    }
-
-    const signData: SignedUploadResponse = await signRes.json();
-    if (!signData.ok || !signData.upload) {
-      return { ok: false, error: signData.error || "No upload data returned" };
+    const signData = await readJson<SignedUploadResponse>(signRes);
+    if (!signRes.ok || !signData?.ok || !signData.upload) {
+      console.warn("[upload] sign failed", { requestId, status: signRes.status, error: signData?.error });
+      return {
+        ok: false,
+        error: signData?.error || `Failed to get signed URL (${signRes.status})`,
+        code: signData?.details || `HTTP_${signRes.status}`,
+        request_id: requestId,
+      };
     }
 
     const { file_id, object_path, signed_url } = signData.upload;
 
     // Step 2: Upload directly to storage
-    await uploadViaSignedUrl(signed_url, file);
+    const uploadResult = await uploadViaSignedUrl(signed_url, file);
+    if (!uploadResult.ok) {
+      const err = uploadResult as UploadErr;
+      console.warn("[upload] storage upload failed", { requestId, file_id, error: err.error });
+      return { ...err, request_id: requestId };
+    }
 
     // Step 3: Record metadata
     const recordRes = await fetch(`/api/deals/${dealId}/files/record`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-request-id": requestId,
+      },
       body: JSON.stringify({
         file_id,
         object_path,
@@ -136,20 +160,23 @@ export async function directDealDocumentUpload(
       }),
     });
 
-    if (!recordRes.ok) {
-      const err = await recordRes.json();
-      return { ok: false, error: err.error || "Failed to record file" };
+    const recordData = await readJson<UploadResult>(recordRes);
+    if (!recordRes.ok || !recordData?.ok) {
+      const errMsg = (recordData && !recordData.ok) ? (recordData as UploadErr).error : null;
+      console.warn("[upload] record failed", { requestId, file_id, status: recordRes.status, error: errMsg });
+      return {
+        ok: false,
+        error: errMsg || `Failed to record file (${recordRes.status})`,
+        code: `HTTP_${recordRes.status}`,
+        request_id: requestId,
+      };
     }
 
-    const recordData = await recordRes.json();
-    if (!recordData?.ok) {
-      return { ok: false, error: recordData?.error || "Failed to record file" };
-    }
-
-    return { ok: true, file_id, checklist_key: checklistKey };
+    console.log("[upload] success", { requestId, file_id, filename: file.name });
+    return { ok: true, file_id, checklist_key: checklistKey, request_id: requestId } as UploadResult;
   } catch (error: any) {
-    console.error("[directDealDocumentUpload]", error);
-    return { ok: false, error: error.message || "Upload failed" };
+    console.warn("[upload] unexpected error", { requestId, error: error.message });
+    return toUploadErr(error, requestId);
   }
 }
 
@@ -162,11 +189,16 @@ export async function uploadBorrowerFile(
   checklistKey?: string | null,
   onProgress?: (percent: number) => void,
 ): Promise<UploadResult> {
+  const requestId = generateRequestId();
+
   try {
     // Step 1: Get signed URL (token-based auth)
     const signRes = await fetch(`/api/borrower/portal/${token}/files/sign`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-request-id": requestId,
+      },
       body: JSON.stringify({
         filename: file.name,
         mime_type: file.type,
@@ -175,26 +207,34 @@ export async function uploadBorrowerFile(
       }),
     });
 
-    if (!signRes.ok) {
-      const err = await signRes.json();
-      return { ok: false, error: err.error || "Failed to get signed URL" };
-    }
-
-    const signData: SignedUploadResponse = await signRes.json();
-    if (!signData.ok || !signData.upload || !signData.deal_id) {
-      return { ok: false, error: signData.error || "No upload data returned" };
+    const signData = await readJson<SignedUploadResponse>(signRes);
+    if (!signRes.ok || !signData?.ok || !signData.upload || !signData.deal_id) {
+      console.warn("[upload] borrower sign failed", { requestId, status: signRes.status });
+      return {
+        ok: false,
+        error: signData?.error || "Failed to get signed URL",
+        request_id: requestId,
+      };
     }
 
     const { file_id, object_path, signed_url } = signData.upload;
     const dealId = signData.deal_id;
 
     // Step 2: Upload directly to storage
-    await uploadViaSignedUrl(signed_url, file, onProgress);
+    const uploadResult = await uploadViaSignedUrl(signed_url, file, onProgress);
+    if (!uploadResult.ok) {
+      const err = uploadResult as UploadErr;
+      console.warn("[upload] borrower storage failed", { requestId, file_id });
+      return { ...err, request_id: requestId };
+    }
 
     // Step 3: Record metadata
     const recordRes = await fetch(`/api/deals/${dealId}/files/record`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-request-id": requestId,
+      },
       body: JSON.stringify({
         file_id,
         object_path,
@@ -206,19 +246,21 @@ export async function uploadBorrowerFile(
       }),
     });
 
-    if (!recordRes.ok) {
-      const err = await recordRes.json();
-      return { ok: false, error: err.error || "Failed to record file" };
+    const recordData = await readJson<UploadResult>(recordRes);
+    if (!recordRes.ok || !recordData?.ok) {
+      const errMsg = (recordData && !recordData.ok) ? (recordData as UploadErr).error : null;
+      console.warn("[upload] borrower record failed", { requestId, file_id });
+      return {
+        ok: false,
+        error: errMsg || "Failed to record file",
+        request_id: requestId,
+      };
     }
 
-    const recordData = await recordRes.json();
-    if (!recordData?.ok) {
-      return { ok: false, error: recordData?.error || "Failed to record file" };
-    }
-
-    return { ok: true, file_id, checklist_key: checklistKey };
+    console.log("[upload] borrower success", { requestId, file_id });
+    return { ok: true, file_id, checklist_key: checklistKey, request_id: requestId } as UploadResult;
   } catch (error: any) {
-    console.error("[uploadBorrowerFile]", error);
-    return { ok: false, error: error.message || "Upload failed" };
+    console.warn("[upload] borrower unexpected error", { requestId, error: error.message });
+    return toUploadErr(error, requestId);
   }
 }
