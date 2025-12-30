@@ -15,13 +15,13 @@ export function Moat() {
       <Container>
         <div className="grid gap-10 lg:grid-cols-12">
           <div className="lg:col-span-5">
-            <div className="text-sm font-medium text-black/60">Why this wins</div>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+            <div className="text-sm font-medium text-ink-muted">Why this wins</div>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-ink-strong sm:text-4xl">
               This isn&apos;t a feature set.
               <br />
               It&apos;s an operating system.
             </h2>
-            <p className="mt-4 text-base text-black/70 leading-relaxed">
+            <p className="mt-4 text-base text-ink-body leading-relaxed">
               You can&apos;t bolt this on. You have to build it this way — with evidence, truth,
               and execution as the foundation.
             </p>
@@ -31,15 +31,15 @@ export function Moat() {
             <div className="grid gap-4 sm:grid-cols-2">
               {moat.map((m) => (
                 <div key={m.title} className="rounded-[28px] border border-black/10 bg-white p-6">
-                  <div className="text-sm font-semibold">{m.title}</div>
-                  <div className="mt-2 text-sm text-black/70 leading-relaxed">{m.body}</div>
+                  <div className="text-sm font-semibold text-ink-strong">{m.title}</div>
+                  <div className="mt-2 text-sm text-ink-body leading-relaxed">{m.body}</div>
                 </div>
               ))}
             </div>
 
-            <div className="mt-6 rounded-[28px] border border-black/10 bg-white p-6">
-              <div className="text-sm font-semibold">The punchline</div>
-              <div className="mt-2 text-sm text-black/70 leading-relaxed">
+            <div className="mt-8 rounded-2xl border border-black/10 bg-black/[0.02] p-5">
+              <div className="text-sm font-semibold text-ink-strong">The punchline</div>
+              <div className="mt-2 text-sm text-ink-body leading-relaxed">
                 Buddy turns lending from &quot;heroic effort&quot; into &quot;repeatable execution.&quot;
               </div>
             </div>

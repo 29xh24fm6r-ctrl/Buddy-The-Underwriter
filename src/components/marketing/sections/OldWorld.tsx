@@ -16,11 +16,11 @@ export function OldWorld() {
       <Container>
         <div className="grid gap-8 lg:grid-cols-12">
           <div className="lg:col-span-5">
-            <div className="text-sm font-medium text-black/60">The old world</div>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+            <div className="text-sm font-medium text-ink-muted">The old world</div>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-ink-strong sm:text-4xl">
               Commercial lending is held together by duct tape.
             </h2>
-            <p className="mt-4 text-base text-black/70 leading-relaxed">
+            <p className="mt-4 text-base text-ink-body leading-relaxed">
               Most &quot;lending software&quot; is a thin layer over chaos. The result is
               constant rework, constant follow-ups, and constant uncertainty.
             </p>
@@ -30,17 +30,17 @@ export function OldWorld() {
             <div className="rounded-[28px] border border-black/10 bg-white p-6">
               <div className="grid gap-3 sm:grid-cols-2">
                 {bullets.map((b) => (
-                  <div key={b} className="rounded-2xl border border-black/10 p-4 text-sm text-black/80">
+                  <div key={b} className="rounded-2xl border border-black/10 p-4 text-sm text-ink-body">
                     {b}
                   </div>
                 ))}
               </div>
 
               <Hairline />
-              <div className="mt-5 text-lg font-semibold">
+              <div className="mt-5 text-lg font-semibold text-ink-strong">
                 Every loan is rebuilt from scratch. Every time.
               </div>
-              <div className="mt-1 text-sm text-black/60">
+              <div className="mt-1 text-sm text-ink-muted">
                 Buddy exists because this is not fixable with another &quot;tool.&quot;
               </div>
             </div>

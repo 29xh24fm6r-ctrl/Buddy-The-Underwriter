@@ -26,7 +26,7 @@ export function Hero() {
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.55, delay: 0.05 }}
-              className="mt-6 text-4xl font-semibold leading-[1.05] tracking-tight sm:text-6xl"
+              className="mt-6 text-4xl font-semibold leading-[1.05] tracking-tight text-ink-strong sm:text-6xl"
             >
               Buddy is not an SBA platform.
               <br />
@@ -40,7 +40,7 @@ export function Hero() {
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.55, delay: 0.1 }}
-              className="mt-6 max-w-xl text-base leading-relaxed text-black/70 sm:text-lg"
+              className="mt-6 max-w-xl text-base leading-relaxed text-ink-body sm:text-lg"
             >
               One system that runs intake, documents, verification, underwriting,
               compliance, communication, and decisions — end to end.
@@ -50,7 +50,7 @@ export function Hero() {
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.55, delay: 0.15 }}
-              className="mt-3 text-sm text-black/60"
+              className="mt-3 text-sm text-ink-muted"
             >
               If Salesforce ran commercial lending, this is what it would look like.
             </motion.p>
@@ -77,8 +77,8 @@ export function Hero() {
               transition={{ duration: 0.6, delay: 0.15 }}
               className="rounded-[28px] border border-black/10 bg-gradient-to-b from-black/[0.03] to-transparent p-6 shadow-[0_18px_60px_rgba(0,0,0,0.07)]"
             >
-              <div className="text-sm font-medium">What you feel in week 1</div>
-              <div className="mt-2 text-sm text-black/70 leading-relaxed">
+              <div className="text-sm font-medium text-ink-strong">What you feel in week 1</div>
+              <div className="mt-2 text-sm text-ink-body leading-relaxed">
                 • Uploads become typed evidence<br />
                 • Data becomes confirmed truth<br />
                 • Underwriting becomes a repeatable system<br />
@@ -87,14 +87,14 @@ export function Hero() {
               </div>
 
               <div className="mt-6 rounded-2xl border border-black/10 bg-white p-4">
-                <div className="text-xs font-medium text-black/60">Buddy&apos;s promise</div>
-                <div className="mt-2 text-sm leading-relaxed">
+                <div className="text-xs font-medium text-ink-muted">Buddy&apos;s promise</div>
+                <div className="mt-2 text-sm leading-relaxed text-ink-body">
                   Every loan follows the same operating flow — not a different
                   &quot;process&quot; per banker, per team, per day.
                 </div>
               </div>
 
-              <div className="mt-6 text-xs text-black/50">
+              <div className="mt-6 text-xs text-ink-faint">
                 Built for regulated workflows. Designed for speed.
               </div>
             </motion.div>

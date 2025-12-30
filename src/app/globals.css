@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+@layer base {
+  :root {
+    --ink-strong: 17 24 39;    /* near-black, not pure black */
+    --ink-body: 55 65 81;      /* slate-700 */
+    --ink-muted: 107 114 128;  /* gray-500 */
+    --ink-faint: 156 163 175;  /* gray-400 */
+  }
+}
+
 /* ============================================================
    Stitch embed isolation (single source of truth)
    - App shell can be dark; Stitch exports should render light.

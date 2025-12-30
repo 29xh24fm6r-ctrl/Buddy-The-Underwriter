@@ -44,11 +44,11 @@ export function Capabilities() {
     <Section>
       <Container>
         <div className="max-w-2xl">
-          <div className="text-sm font-medium text-black/60">What Buddy actually does</div>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+          <div className="text-sm font-medium text-ink-muted">What Buddy actually does</div>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-ink-strong sm:text-4xl">
             The &quot;Holy moly&quot; part is simple:
           </h2>
-          <p className="mt-4 text-base text-black/70 leading-relaxed">
+          <p className="mt-4 text-base text-ink-body leading-relaxed">
             Buddy turns messy lending into a clean operating flow — from intake to decision —
             without losing the nuance that real commercial underwriting requires.
           </p>
@@ -62,10 +62,10 @@ export function Capabilities() {
             >
               <div className="text-sm font-semibold">{c.title}</div>
               <div className="mt-3 rounded-2xl border border-black/10 bg-black/[0.02] p-4 text-sm">
-                <div className="text-xs font-medium text-black/60">Buddy believes</div>
-                <div className="mt-1 font-medium">{c.quote}</div>
+                <div className="text-xs font-medium text-ink-muted">Buddy believes</div>
+                <div className="mt-1 font-medium text-ink-strong">{c.quote}</div>
               </div>
-              <div className="mt-4 text-sm text-black/70 leading-relaxed">{c.body}</div>
+              <div className="mt-4 text-sm text-ink-body leading-relaxed">{c.body}</div>
             </div>
           ))}
         </div>

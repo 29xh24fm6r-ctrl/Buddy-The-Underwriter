@@ -29,11 +29,11 @@ export function HowItWorks() {
       <Container>
         <div className="grid gap-10 lg:grid-cols-12">
           <div className="lg:col-span-5">
-            <div className="text-sm font-medium text-black/60">How it works</div>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+            <div className="text-sm font-medium text-ink-muted">How it works</div>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-ink-strong sm:text-4xl">
               Same flow. Every loan. Every time.
             </h2>
-            <p className="mt-4 text-base text-black/70 leading-relaxed">
+            <p className="mt-4 text-base text-ink-body leading-relaxed">
               Buddy is designed so execution doesn&apos;t depend on who&apos;s having a &quot;busy week.&quot;
               It&apos;s a system — not a scramble.
             </p>
@@ -45,9 +45,9 @@ export function HowItWorks() {
                 <div key={s.n} className="rounded-[28px] border border-black/10 bg-white p-6">
                   <div className="flex items-start justify-between gap-6">
                     <div>
-                      <div className="text-xs font-medium text-black/60">Step {s.n}</div>
-                      <div className="mt-2 text-lg font-semibold">{s.title}</div>
-                      <div className="mt-2 text-sm text-black/70 leading-relaxed">{s.body}</div>
+                      <div className="text-xs font-medium text-ink-muted">Step {s.n}</div>
+                      <div className="mt-2 text-lg font-semibold text-ink-strong">{s.title}</div>
+                      <div className="mt-2 text-sm text-ink-body leading-relaxed">{s.body}</div>
                     </div>
                     <div className="hidden sm:grid h-12 w-12 place-items-center rounded-2xl border border-black/10 bg-black/[0.02] text-sm font-semibold">
                       {s.n}
@@ -58,8 +58,8 @@ export function HowItWorks() {
             </div>
 
             <div className="mt-6 rounded-[28px] border border-black/10 bg-white p-6">
-              <div className="text-sm font-semibold">The rule</div>
-              <div className="mt-2 text-sm text-black/70 leading-relaxed">
+              <div className="text-sm font-semibold text-ink-strong">The rule</div>
+              <div className="mt-2 text-sm text-ink-body leading-relaxed">
                 If a fact matters, Buddy ties it to evidence. If a decision happens, Buddy logs it.
                 If someone needs an update, Buddy sends it with context.
               </div>

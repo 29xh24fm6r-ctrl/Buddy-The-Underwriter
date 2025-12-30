@@ -13,19 +13,19 @@ export function MarketingNav() {
             B
           </div>
           <div className="leading-tight">
-            <div className="text-sm font-semibold">Buddy</div>
-            <div className="text-xs text-black/60">Loan Operations System</div>
+            <div className="text-sm font-semibold text-ink-strong">Buddy</div>
+            <div className="text-xs text-ink-muted">Loan Operations System</div>
           </div>
           <div className="hidden sm:block">
             <Badge className="ml-3">New category: LOS++</Badge>
           </div>
         </div>
 
-        <nav className="hidden md:flex items-center gap-6 text-sm text-black/70">
-          <a href="#what" className="hover:text-black">What it is</a>
-          <a href="#how" className="hover:text-black">How it works</a>
-          <a href="#who" className="hover:text-black">Who it&apos;s for</a>
-          <a href="#moat" className="hover:text-black">Why it wins</a>
+        <nav className="hidden md:flex items-center gap-6 text-sm text-ink-body">
+          <a href="#what" className="hover:text-ink-strong">What it is</a>
+          <a href="#how" className="hover:text-ink-strong">How it works</a>
+          <a href="#who" className="hover:text-ink-strong">Who it&apos;s for</a>
+          <a href="#moat" className="hover:text-ink-strong">Why it wins</a>
         </nav>
 
         <div className="flex items-center gap-2">

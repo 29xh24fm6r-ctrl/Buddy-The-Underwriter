@@ -24,11 +24,11 @@ export function WhoItsFor() {
     <Section id="who">
       <Container>
         <div className="max-w-2xl">
-          <div className="text-sm font-medium text-black/60">Who it&apos;s for</div>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+          <div className="text-sm font-medium text-ink-muted">Who it&apos;s for</div>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-ink-strong sm:text-4xl">
             Built for every actor in the loan.
           </h2>
-          <p className="mt-4 text-base text-black/70 leading-relaxed">
+          <p className="mt-4 text-base text-ink-body leading-relaxed">
             Buddy isn&apos;t a portal. It&apos;s the shared operating layer across banker, borrower,
             underwriting, and compliance — with the same truth underneath.
           </p>
@@ -37,8 +37,8 @@ export function WhoItsFor() {
         <div className="mt-10 grid gap-4 sm:grid-cols-2">
           {personas.map((p) => (
             <div key={p.title} className="rounded-[28px] border border-black/10 bg-white p-6">
-              <div className="text-lg font-semibold">{p.title}</div>
-              <div className="mt-4 grid gap-2 text-sm text-black/70">
+              <div className="text-lg font-semibold text-ink-strong">{p.title}</div>
+              <div className="mt-4 grid gap-2 text-sm text-ink-body">
                 {p.bullets.map((b) => (
                   <div key={b} className="rounded-2xl border border-black/10 p-3">
                     {b}

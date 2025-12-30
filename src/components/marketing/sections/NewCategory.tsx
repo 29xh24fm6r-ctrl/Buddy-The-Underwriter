@@ -6,16 +6,16 @@ export function NewCategory() {
       <Container>
         <div className="grid gap-10 lg:grid-cols-12 lg:items-center">
           <div className="lg:col-span-6">
-            <div className="text-sm font-medium text-black/60">Meet the new category</div>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+            <div className="text-sm font-medium text-ink-muted">Meet the new category</div>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-ink-strong sm:text-4xl">
               Buddy replaces the stack.
             </h2>
-            <p className="mt-4 text-base text-black/70 leading-relaxed">
+            <p className="mt-4 text-base text-ink-body leading-relaxed">
               Buddy doesn&apos;t &quot;integrate&quot; lending. Buddy understands lending.
               Documents become evidence. Evidence becomes verified truth.
               Truth powers underwriting, compliance, and communication — automatically.
             </p>
-            <p className="mt-4 text-sm text-black/60">
+            <p className="mt-4 text-sm text-ink-muted">
               This is not a feature set. It&apos;s an operating system for loans.
             </p>
           </div>
@@ -41,7 +41,7 @@ export function NewCategory() {
               </div>
 
               <div className="mt-6 rounded-2xl border border-black/10 bg-black/[0.02] p-4">
-                <div className="text-xs font-medium text-black/60">The shift</div>
+                <div className="text-xs font-medium text-ink-muted">The shift</div>
                 <div className="mt-2 text-sm leading-relaxed">
                   From &quot;files and follow-ups&quot; → to &quot;evidence and execution.&quot;
                 </div>
