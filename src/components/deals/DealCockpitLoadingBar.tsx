@@ -21,6 +21,12 @@ type Probe =
 export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
   const dealId = props.dealId ?? null;
 
+  // Validate UUID format
+  const isValidUuid =
+    !!dealId &&
+    dealId !== "undefined" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(dealId);
+
   const [step, setStep] = useState<Step>("route");
   const [probe, setProbe] = useState<Probe | null>(null);
   const [pipelineOk, setPipelineOk] = useState<boolean | null>(null);
@@ -62,6 +68,13 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
       // ignore
     }
   };
+
+  // Auto-advance from 'route' step when we get a valid dealId
+  useEffect(() => {
+    if (isValidUuid && step === "route") {
+      setStep("context");
+    }
+  }, [isValidUuid, step]);
 
   // Poll context + pipeline for health
   useEffect(() => {
@@ -129,7 +142,7 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
   }, [dealId]);
 
   // Derived health pills
-  const routeOk = dealId && dealId !== "undefined" ? true : false;
+  const routeOk = isValidUuid;
   const ctxOk = probe && "ok" in probe && probe.ok === true ? true : false;
   const bankOk = ctxOk && probe.ok ? (probe.deal?.bank_id ? true : false) : null;
 
@@ -167,6 +180,13 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
           <div className="text-xs text-neutral-400">
             {badge.secs}s • last ok {badge.lastOk} • ctx {ctxStatus ?? "—"}
           </div>
+        </div>
+
+        <div className="hidden md:block text-[11px] text-neutral-500">
+          bar.dealId:{" "}
+          <span className="font-mono text-neutral-400">
+            {dealId || "null"}
+          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
