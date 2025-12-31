@@ -35,12 +35,18 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
   const [ctxStatus, setCtxStatus] = useState<number | null>(null);
   const [pulse, setPulse] = useState<number>(0);
   const [lastChangeAt, setLastChangeAt] = useState<number | null>(null);
-  const [now, setNow] = useState<number>(Date.now());
+  const [now, setNow] = useState<number>(() => Date.now());
 
   const startedAtRef = useRef<number>(Date.now());
   const elapsedMs = now - startedAtRef.current;
   const lastSnapshotRef = useRef<string>("");
   const pollMsRef = useRef<number>(2000);
+
+  // ✅ Real UI timer: forces re-render so seconds/last ok/last change update live
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, []);
 
   // 🔥 REAL TIMER: forces re-render so secs/lastOk/lastChange update live
   useEffect(() => {
