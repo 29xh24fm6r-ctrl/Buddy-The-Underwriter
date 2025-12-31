@@ -122,15 +122,15 @@ export async function directDealDocumentUpload(
 
     const signData = await readJson<SignedUploadResponse>(signRes);
     if (!signRes.ok || !signData?.ok || !signData.upload) {
-      const errorDetail = signData?.detail ? `: ${signData.detail}` : "";
+      const errorDetail = signData?.details ? `: ${signData.details}` : "";
       const errorMsg = (signData?.error || `Failed to get signed URL (${signRes.status})`) + errorDetail;
       
       console.warn("[upload] sign failed", {
         requestId,
         status: signRes.status,
         error: signData?.error,
-        detail: signData?.detail,
-        requestId: signData?.requestId,
+        details: signData?.details,
+        request_id: signData?.request_id,
       });
       
       return {
