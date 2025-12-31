@@ -30,7 +30,9 @@ export default function DealCockpitClient({ dealId }: { dealId: string }) {
   // Intake triggers checklist refresh after seeding
   const handleChecklistSeeded = useCallback(async () => {
     if (checklistRefresh) {
-      console.log("[DealCockpitClient] Refreshing checklist after auto-seed");
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[DealCockpitClient] Refreshing checklist after auto-seed");
+      }
       await checklistRefresh();
     }
   }, [checklistRefresh]);
@@ -49,11 +51,16 @@ export default function DealCockpitClient({ dealId }: { dealId: string }) {
           {/* Left Column */}
           <div className="space-y-6">
             <SafeBoundary>
-              <DealIntakeCard dealId={dealId} onChecklistSeeded={handleChecklistSeeded} />
+              <DealIntakeCard
+                dealId={dealId}
+                onChecklistSeeded={handleChecklistSeeded}
+              />
             </SafeBoundary>
+
             <SafeBoundary>
               <BorrowerRequestComposerCard dealId={dealId} />
             </SafeBoundary>
+
             <SafeBoundary>
               <DealFilesCard dealId={dealId} />
             </SafeBoundary>
@@ -64,15 +71,22 @@ export default function DealCockpitClient({ dealId }: { dealId: string }) {
             <SafeBoundary>
               <UnderwritingControlPanel dealId={dealId} />
             </SafeBoundary>
+
             <SafeBoundary>
               <DealProgressWidget dealId={dealId} />
             </SafeBoundary>
+
             <SafeBoundary>
-              <EnhancedChecklistCard dealId={dealId} onRefresh={handleChecklistRefresh} />
+              <EnhancedChecklistCard
+                dealId={dealId}
+                onRefresh={handleChecklistRefresh}
+              />
             </SafeBoundary>
+
             <SafeBoundary>
               <BorrowerUploadLinksCard dealId={dealId} />
             </SafeBoundary>
+
             <SafeBoundary>
               <UploadAuditCard dealId={dealId} />
             </SafeBoundary>
