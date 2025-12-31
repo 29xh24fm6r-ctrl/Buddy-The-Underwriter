@@ -1,7 +1,7 @@
 "use client";
 
 import { Container, Section } from "@/components/marketing/MarketingShell";
-import { Badge } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui/badge";
 
 type StepRow = {
   k: string;
