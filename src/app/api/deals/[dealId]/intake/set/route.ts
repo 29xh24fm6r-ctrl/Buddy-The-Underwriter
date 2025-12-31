@@ -104,11 +104,12 @@ export async function POST(
     );
 
   if (upErr) {
-    console.error("[/api/deals/[dealId]/intake/set]", upErr);
+    console.error("[/api/deals/[dealId]/intake/set] deal_intake upsert failed:", upErr);
     return NextResponse.json(
       {
         ok: false,
-        error: "Failed to set intake",
+        error: "intake_upsert_failed",
+        message: "Failed to save intake data",
         details: upErr.message,
         hint: (upErr as any)?.hint ?? null,
         code: (upErr as any)?.code ?? null,
@@ -230,11 +231,12 @@ export async function POST(
       event_emitted: true,
     });
   } catch (error: any) {
-    console.error("[/api/deals/[dealId]/intake/set]", error);
+    console.error("[/api/deals/[dealId]/intake/set] unexpected error:", error);
     return NextResponse.json(
       {
         ok: false,
-        error: "Failed to set intake",
+        error: "intake_set_failed",
+        message: "Failed to save intake",
         details: error?.message ?? String(error),
       },
       { status: 500 },
