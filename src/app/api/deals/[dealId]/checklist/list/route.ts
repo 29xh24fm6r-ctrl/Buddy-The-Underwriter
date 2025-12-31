@@ -32,11 +32,11 @@ export async function GET(
     const { dealId } = await ctx.params;
     const sb = supabaseAdmin();
 
-    // ✅ Only select columns that exist in deal_checklist_items schema
-    const { data: items, error } = await sb
+    // ✅ Select ONLY columns that exist in the actual table schema
+    const { data, error } = await sb
       .from("deal_checklist_items")
       .select(
-        "id, deal_id, checklist_key, title, description, required, status, received_at, received_file_id, created_at"
+        "id, deal_id, checklist_key, title, description, required, status, requested_at, received_at, received_upload_id, created_at, updated_at"
       )
       .eq("deal_id", dealId);
 
@@ -45,30 +45,29 @@ export async function GET(
       return NextResponse.json({ ok: false, items: [], error: "Failed to load checklist" });
     }
 
-    const enrichedItems: ChecklistItem[] = (items || []).map((item: any) => {
-      const def = CHECKLIST_DEFINITIONS[item.checklist_key];
-      return {
-        ...item,
-        title: item.title || def?.title || item.checklist_key,
-        required:
-          typeof item.required === "boolean" ? item.required : (def?.required ?? false),
-      };
-    });
+    // Normalize to minimal contract that UI needs
+    const items = (data ?? []).map((row) => ({
+      id: row.id,
+      deal_id: row.deal_id,
+      checklist_key: row.checklist_key,
+      title: row.title ?? CHECKLIST_DEFINITIONS[row.checklist_key]?.title ?? row.checklist_key,
+      description: row.description ?? null,
+      required: !!row.required,
+      status: row.status ?? "missing",
+      received_at: row.received_at,
+      created_at: row.created_at,
+    }));
 
-    enrichedItems.sort((a: any, b: any) => {
-      // 1) required first
+    // Sort: required first, then by created_at
+    items.sort((a, b) => {
       if (a.required !== b.required) return a.required ? -1 : 1;
-
-      // 2) created_at asc (earliest first)
       if (a.created_at && b.created_at && a.created_at !== b.created_at) {
         return String(a.created_at).localeCompare(String(b.created_at));
       }
-
-      // 3) stable tie-breaker by checklist_key
       return String(a.checklist_key).localeCompare(String(b.checklist_key));
     });
 
-    return NextResponse.json({ ok: true, items: enrichedItems });
+    return NextResponse.json({ ok: true, items });
   } catch (error: any) {
     console.error("[/api/deals/[dealId]/checklist/list]", error);
     return NextResponse.json({ ok: false, items: [], error: "Failed to load checklist" });
