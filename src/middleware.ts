@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
 /**
  * HARD RULE:
@@ -14,17 +15,30 @@ const isPublicRoute = createRouteMatcher([
   "/sign-up(.*)",
 ]);
 
+function withBuildHeader() {
+  const res = NextResponse.next();
+  const build =
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ||
+    process.env.GIT_COMMIT_SHA ||
+    "unknown";
+  res.headers.set("x-buddy-build", build);
+  return res;
+}
+
 export default clerkMiddleware(async (auth, req) => {
   const p = req.nextUrl.pathname;
 
   // ✅ ABSOLUTE BYPASS FOR API
   if (p === "/api" || p.startsWith("/api/") || p === "/trpc" || p.startsWith("/trpc/")) {
-    return;
+    return withBuildHeader();
   }
 
-  if (isPublicRoute(req)) return;
+  if (isPublicRoute(req)) return withBuildHeader();
 
   await auth.protect();
+
+  return withBuildHeader();
 });
 
 export const config = {
