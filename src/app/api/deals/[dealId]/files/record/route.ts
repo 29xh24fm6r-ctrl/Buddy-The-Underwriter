@@ -117,7 +117,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       // Upload tracking
       source: "internal",
       uploader_user_id: userId,
-    }).select("id, checklist_key, original_filename").single();
+    }).select("id, checklist_key, original_filename, mime_type").single();
 
     if (insertErr || !inserted) {
       console.error("[files/record] failed to insert metadata", insertErr);
