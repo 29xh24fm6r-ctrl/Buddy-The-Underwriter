@@ -104,3 +104,60 @@ export async function reconcileDealChecklist(dealId: string) {
     docsMatched,
   };
 }
+
+/**
+ * Match and stamp a single document with checklist_key + doc_year.
+ * Called at upload time (all 4 writers).
+ */
+export async function matchAndStampDealDocument(opts: {
+  sb: any; // supabase client (admin)
+  dealId: string;
+  documentId: string;
+  originalFilename: string | null;
+  mimeType: string | null;
+  extractedFields?: any;
+  metadata?: any;
+}) {
+  const { sb, dealId, documentId, originalFilename } = opts;
+
+  // Run filename matcher
+  const m = matchChecklistKeyFromFilename(originalFilename || "");
+  
+  if (!m.matchedKey || m.confidence < 0.6) {
+    // Not confident enough, leave unmatched
+    return { matched: false, reason: "low_confidence" };
+  }
+
+  // Stamp the document with checklist_key + doc_year
+  const { error: updErr } = await sb
+    .from("deal_documents")
+    .update({
+      checklist_key: m.matchedKey,
+      doc_year: m.docYear ?? null,
+      match_confidence: m.confidence,
+      match_reason: m.reason,
+      match_source: m.source || "filename",
+    })
+    .eq("id", documentId);
+
+  if (updErr) {
+    console.error("[matchAndStampDealDocument] update failed:", updErr);
+    return { matched: false, error: updErr.message };
+  }
+
+  return {
+    matched: true,
+    checklist_key: m.matchedKey,
+    doc_year: m.docYear ?? null,
+    confidence: m.confidence,
+  };
+}
+
+/**
+ * Reconcile checklist for a deal (wrapper for reconcileDealChecklist).
+ * Called after document stamping to update satisfaction + status.
+ */
+export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string }) {
+  const { dealId } = opts;
+  return reconcileDealChecklist(dealId);
+}

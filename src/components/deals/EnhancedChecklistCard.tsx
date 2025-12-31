@@ -72,6 +72,20 @@ export function EnhancedChecklistCard({
       const checklistData = await j<{ ok: boolean; items: ChecklistItem[] }>(
         `/api/deals/${dealId}/checklist/list`
       );
+
+      // Fetch doc summary keyed by checklist_key (v2 with years)
+      const docSummary = await j<{ ok: boolean; counts: Record<string, number>; years: Record<string, number[]> }>(
+        `/api/deals/${dealId}/checklist/doc-summary`
+      );
+
+      const counts = docSummary?.counts || {};
+      const years = docSummary?.years || {};
+      const merged = (checklistData.items || []).map((it) => {
+        const k = String(it.checklist_key || "");
+        const c = counts[k] || 0;
+        return { ...it, _doc_count: c };
+      });
+
       console.log("[EnhancedChecklistCard] Checklist data:", checklistData);
       setItems(checklistData.items || []);
 

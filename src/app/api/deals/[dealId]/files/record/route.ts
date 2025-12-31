@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { auth } from "@clerk/nextjs/server";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { matchChecklistKeyFromFilename } from "@/lib/checklist/matchers";
+import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -126,10 +127,19 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    // 🔥 Checklist Engine v2: if no checklist_key provided, attempt filename-based match
-    // NOTE: This logic is only needed if we get the inserted record back.
-    // Since we don't have "inserted" variable, we'll fetch it or skip this optimization.
-    // For now, we rely on the DB trigger to handle checklist matching.
+    // 🔥 Checklist Engine v2: stamp checklist_key + doc_year + reconcile
+    await matchAndStampDealDocument({
+      sb,
+      dealId,
+      documentId: file_id,
+      originalFilename: original_filename ?? null,
+      mimeType: mime_type ?? null,
+      extractedFields: {},
+      metadata: {},
+    });
+
+    // Reconcile entire checklist (year-aware satisfaction + status updates)
+    await reconcileChecklistForDeal({ sb, dealId });
 
     // Emit ledger event
     await writeEvent({
