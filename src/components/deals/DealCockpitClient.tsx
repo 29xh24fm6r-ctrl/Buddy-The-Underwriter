@@ -11,7 +11,7 @@ import { EnhancedChecklistCard } from "@/components/deals/EnhancedChecklistCard"
 import { UnderwritingControlPanel } from "@/components/deals/UnderwritingControlPanel";
 import { SafeBoundary } from "@/components/SafeBoundary";
 import { PipelineIndicator } from "@/components/deals/PipelineStatus";
-import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
+import DealCockpitLoadingBar from "@/components/deals/DealCockpitLoadingBar";
 
 /**
  * Client wrapper for Deal Cockpit.

@@ -244,3 +244,5 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
     </div>
   );
 }
+
+export default DealCockpitLoadingBar;
