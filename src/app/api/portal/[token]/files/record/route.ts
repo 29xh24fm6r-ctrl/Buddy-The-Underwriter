@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     // Insert metadata record
-    const { error: insertErr } = await sb.from("deal_documents").insert({
+    const { data: inserted, error: insertErr } = await sb.from("deal_documents").insert({
       id: file_id,
       deal_id: dealId,
       bank_id: deal.bank_id, // Required: inherited from deal
@@ -125,15 +126,28 @@ export async function POST(req: NextRequest, ctx: Context) {
       // Upload tracking
       source: "borrower",
       uploader_user_id: null, // Borrower upload, no Clerk user
-    });
+    }).select("*").single();
 
-    if (insertErr) {
+    if (insertErr || !inserted) {
       console.error("[portal/files/record] failed to insert metadata", insertErr);
       return NextResponse.json(
         { ok: false, error: "Failed to record file metadata" },
         { status: 500 },
       );
     }
+
+    // 🔥 Checklist Engine v2: stamp + reconcile
+    await matchAndStampDealDocument({
+      sb,
+      dealId,
+      documentId: inserted.id,
+      originalFilename: inserted.original_filename ?? null,
+      mimeType: inserted.mime_type ?? null,
+      extractedFields: inserted.extracted_fields,
+      metadata: inserted.metadata,
+    });
+
+    await reconcileChecklistForDeal({ sb, dealId });
 
     // Emit ledger event (no actorUserId for borrower uploads)
     await writeEvent({

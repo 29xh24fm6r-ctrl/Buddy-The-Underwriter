@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { constantTimeEqual, hashPassword, sha256 } from "@/lib/security/tokens";
+import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -186,6 +187,19 @@ export async function POST(req: Request) {
 
     chaosPoint(req, "after_db_insert");
 
+    // 🔥 Checklist Engine v2: stamp + reconcile
+    await matchAndStampDealDocument({
+      sb: supabaseAdmin(),
+      dealId,
+      documentId: docRow.id,
+      originalFilename: f.name || "upload",
+      mimeType: f.type || null,
+      extractedFields: {},
+      metadata: {},
+    });
+
+    // Note: reconcile will be called once after all files processed (see below)
+
     // 5) Audit trail (view-backed or table-backed depending on your schema)
     // If deal_upload_audit is a VIEW and not insertable, skip inserts here.
     // If you have a write table (like deal_upload_events), use that instead.
@@ -221,20 +235,16 @@ export async function POST(req: Request) {
       );
     }
 
-    // 6) Checklist update if present
-    if (checklistKey) {
-      await supabaseAdmin()
-        .from("deal_checklist_items")
-        .update({
-          status: "received",
-          received_at: new Date().toISOString(),
-          received_document_id: docRow.id,
-        })
-        .eq("deal_id", dealId)
-        .eq("checklist_key", checklistKey);
-    }
-
     successCount++;
+  }
+
+  // 🔥 Reconcile checklist once after all files processed
+  if (successCount > 0) {
+    try {
+      await reconcileChecklistForDeal({ sb: supabaseAdmin(), dealId });
+    } catch (e) {
+      console.error("Reconcile failed (non-blocking):", e);
+    }
   }
 
   // 7) Mark link used if single_use

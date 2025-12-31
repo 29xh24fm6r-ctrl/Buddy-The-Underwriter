@@ -87,7 +87,7 @@ export function EnhancedChecklistCard({
         return { ...it, _doc_count: c };
       });
 
-      setItems(mergedd] Checklist data:", checklistData);
+      console.log("[EnhancedChecklistCard] Checklist data:", checklistData);
       setItems(checklistData.items || []);
 
       // Fetch recent deal events
