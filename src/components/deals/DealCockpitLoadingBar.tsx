@@ -35,18 +35,25 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
   const [ctxStatus, setCtxStatus] = useState<number | null>(null);
   const [pulse, setPulse] = useState<number>(0);
   const [lastChangeAt, setLastChangeAt] = useState<number | null>(null);
+  const [now, setNow] = useState<number>(Date.now());
 
   const startedAtRef = useRef<number>(Date.now());
-  const elapsedMs = Date.now() - startedAtRef.current;
+  const elapsedMs = now - startedAtRef.current;
   const lastSnapshotRef = useRef<string>("");
   const pollMsRef = useRef<number>(2000);
+
+  // 🔥 REAL TIMER: forces re-render so secs/lastOk/lastChange update live
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, []);
 
   const badge = useMemo(() => {
     const secs = Math.floor(elapsedMs / 1000);
     const lastOk = lastOkAt ? `${Math.floor((Date.now() - lastOkAt) / 1000)}s ago` : "—";
     const lastChange = lastChangeAt ? `${Math.floor((Date.now() - lastChangeAt) / 1000)}s ago` : "—";
     return { secs, lastOk, lastChange };
-  }, [elapsedMs, lastOkAt, lastChangeAt]);
+  }, [elapsedMs, lastOkAt, lastChangeAt, now]);
 
   const debugBundle = useMemo(() => {
     return {
@@ -132,12 +139,17 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
       }
     };
 
-    // immediate + adaptive interval
-    void poll();
-    const t = setInterval(() => void poll(), pollMsRef.current);
+    // ✅ immediate + truly adaptive scheduling (interval can't change after creation)
+    let timeout: any = null;
+    const loop = async () => {
+      await poll();
+      if (!alive) return;
+      timeout = setTimeout(loop, pollMsRef.current);
+    };
+    void loop();
     return () => {
       alive = false;
-      clearInterval(t);
+      if (timeout) clearTimeout(timeout);
     };
   }, [dealId]);
 
