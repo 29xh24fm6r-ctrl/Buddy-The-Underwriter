@@ -23,7 +23,7 @@ type Body = {
 
 export async function POST(
   req: Request,
-  ctx: { params: Promise<{ dealId: string }> },
+  ctx: { params: { dealId: string } },
 ) {
   try {
     const { userId } = await auth();
@@ -33,7 +33,7 @@ export async function POST(
         { status: 401 },
       );
 
-    const { dealId } = await ctx.params;
+    const { dealId } = ctx.params;
     const body = (await req.json().catch(() => null)) as Body | null;
 
   const loanType = body?.loanType;
@@ -56,17 +56,26 @@ export async function POST(
   const sb = supabaseAdmin();
 
   // Get deal bank_id for phone link
-  const { data: deal } = await sb
+  const { data: deal, error: dealErr } = await sb
     .from("deals")
     .select("id, bank_id")
     .eq("id", dealId)
     .single();
+
+  if (dealErr || !deal?.bank_id) {
+    console.error("[/api/deals/[dealId]/intake/set] deal lookup failed", { dealId, dealErr });
+    return NextResponse.json(
+      { ok: false, error: "Deal not found or missing bank context" },
+      { status: 400 },
+    );
+  }
 
   const { error: upErr } = await sb
     .from("deal_intake")
     .upsert(
       {
         deal_id: dealId,
+        bank_id: deal.bank_id,
         loan_type: loanType,
         sba_program: sbaProgram,
         borrower_name: body?.borrowerName ?? null,
@@ -78,10 +87,16 @@ export async function POST(
 
   if (upErr) {
     console.error("[/api/deals/[dealId]/intake/set]", upErr);
-    return NextResponse.json({
-      ok: false,
-      error: "Failed to set intake",
-    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Failed to set intake",
+        details: upErr.message,
+        hint: (upErr as any)?.hint ?? null,
+        code: (upErr as any)?.code ?? null,
+      },
+      { status: 500 },
+    );
   }
 
   // Create phone link if borrower phone provided
@@ -198,9 +213,13 @@ export async function POST(
     });
   } catch (error: any) {
     console.error("[/api/deals/[dealId]/intake/set]", error);
-    return NextResponse.json({
-      ok: false,
-      error: "Failed to set intake",
-    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Failed to set intake",
+        details: error?.message ?? String(error),
+      },
+      { status: 500 },
+    );
   }
 }
