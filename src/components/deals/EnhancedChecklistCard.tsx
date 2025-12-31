@@ -9,9 +9,11 @@ type ChecklistItem = {
   title: string;
   description: string | null;
   required: boolean;
+  status?: string; // missing | received | waived
   received_at: string | null;
   doc_type?: string | null;
   filename?: string | null;
+  created_at?: string;
 };
 
 type DealEvent = {
