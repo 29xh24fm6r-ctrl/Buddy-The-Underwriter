@@ -1,7 +1,7 @@
 "use client";
 
 import { Container, Section } from "@/components/marketing/MarketingShell";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 
 export function FinalCTA() {
   return (
