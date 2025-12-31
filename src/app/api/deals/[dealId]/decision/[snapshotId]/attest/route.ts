@@ -4,6 +4,7 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { writeDealEvent } from "@/lib/events/dealEvents";
 import { auth } from "@clerk/nextjs/server";
 import crypto from "crypto";
+import { fetchDealBankId } from "@/lib/deals/fetchDealContext";
 
 export async function POST(
   req: Request,
@@ -28,8 +29,8 @@ export async function POST(
   }
 
   // Verify deal belongs to bank
-  const { data: deal } = await sb.from("deals").select("id, bank_id").eq("id", dealId).single();
-  if (!deal || deal.bank_id !== bankId) {
+  const dealBankId = await fetchDealBankId(dealId);
+  if (dealBankId !== bankId) {
     return NextResponse.json({ error: "Deal not found" }, { status: 404 });
   }
 
@@ -107,8 +108,8 @@ export async function GET(
   const sb = supabaseAdmin();
 
   // Verify deal belongs to bank
-  const { data: deal } = await sb.from("deals").select("id, bank_id").eq("id", dealId).single();
-  if (!deal || deal.bank_id !== bankId) {
+  const dealBankId = await fetchDealBankId(dealId);
+  if (dealBankId !== bankId) {
     return NextResponse.json({ error: "Deal not found" }, { status: 404 });
   }
 

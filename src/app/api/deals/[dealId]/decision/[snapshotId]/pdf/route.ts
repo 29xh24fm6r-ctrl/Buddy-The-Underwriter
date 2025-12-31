@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { renderDecisionPdf } from "@/lib/pdf/decisionPdf";
 import { getActiveLetterhead, downloadLetterheadBuffer } from "@/lib/bank/letterhead";
+import { fetchDealBankId } from "@/lib/deals/fetchDealContext";
 
 export async function GET(
   _req: Request,
@@ -13,10 +14,10 @@ export async function GET(
   const bankId = await getCurrentBankId();
   const sb = supabaseAdmin();
 
-  // Fetch snapshot (tenant-scoped via deal)
-  const { data: deal } = await sb.from("deals").select("id, bank_id").eq("id", dealId).single();
+  // Fetch deal via canonical context endpoint (ensures tenant enforcement)
+  const dealBankId = await fetchDealBankId(dealId);
 
-  if (!deal || deal.bank_id !== bankId) {
+  if (dealBankId !== bankId) {
     return NextResponse.json({ error: "Deal not found" }, { status: 404 });
   }
 

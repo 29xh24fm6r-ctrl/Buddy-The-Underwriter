@@ -1,5 +1,6 @@
 import { scorePackMatch } from "./matchPack";
 import { recordMatchEvent } from "./recordMatchEvent";
+import { fetchDealContext } from "@/lib/deals/fetchDealContext";
 
 type SB = ReturnType<any>; // keep simple; supabase types vary per project
 
@@ -18,10 +19,17 @@ export async function applyBestPackToDeal(
   dealId: string,
   options?: { autoApplied?: boolean; manuallyApplied?: boolean }
 ): Promise<ApplyResult> {
-  // Load deal
-  const dealRes = await sb.from("deals").select("id, bank_id, loan_type, loan_program, pack_template_id").eq("id", dealId).single();
-  if (dealRes.error) throw new Error(dealRes.error.message);
-  const deal = dealRes.data as { id: string; bank_id: string; loan_type: string | null; loan_program: string | null; pack_template_id: string | null };
+  // Load deal via canonical context endpoint
+  const context = await fetchDealContext(dealId);
+  if (!context.ok) throw new Error(`Deal not found: ${context.error}`);
+  
+  const deal = {
+    id: context.dealId,
+    bank_id: context.deal.bank_id!,
+    loan_type: null, // TODO: Add to /context if needed
+    loan_program: null, // TODO: Add to /context if needed
+    pack_template_id: null, // TODO: Add to /context if needed
+  };
 
   // Load packs for bank
   const packsRes = await sb

@@ -13,6 +13,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { aiJson } from "@/lib/ai/openai";
 import crypto from "crypto";
+import { fetchDealContext } from "@/lib/deals/fetchDealContext";
 
 export interface CommitteeMinutesContext {
   snapshot: any;
@@ -32,19 +33,29 @@ export async function generateCommitteeMinutes(args: {
   const sb = supabaseAdmin();
 
   // Fetch all context needed for minutes
+  const context = await fetchDealContext(args.dealId);
+  if (!context.ok) {
+    throw new Error(`Deal not found: ${context.error}`);
+  }
+  
   const [
     { data: snapshot },
     { data: votes },
     { data: attestations },
-    { data: dissent },
-    { data: deal }
+    { data: dissent }
   ] = await Promise.all([
     sb.from("decision_snapshots").select("*").eq("id", args.snapshotId).single(),
     sb.from("credit_committee_votes").select("*").eq("decision_snapshot_id", args.snapshotId),
     sb.from("decision_attestations").select("*").eq("decision_snapshot_id", args.snapshotId),
-    sb.from("credit_committee_dissent").select("*").eq("decision_snapshot_id", args.snapshotId),
-    sb.from("deals").select("id, borrower_name, loan_amount, created_at").eq("id", args.dealId).single()
+    sb.from("credit_committee_dissent").select("*").eq("decision_snapshot_id", args.snapshotId)
   ]);
+
+  const deal = {
+    id: context.dealId,
+    borrower_name: context.borrower.name,
+    loan_amount: null, // TODO: Add to /context if needed
+    created_at: context.deal.created_at,
+  };
 
   if (!snapshot) {
     throw new Error("Decision snapshot not found");

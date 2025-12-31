@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { getPolicySnapshot } from "@/lib/policy/snapshot";
+import { fetchDealBankId } from "@/lib/deals/fetchDealContext";
 
 function diffKeys(a: any, b: any) {
   const keys = new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})]);
@@ -36,8 +37,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ dealId: string
     if (!r.error && r.data) { currentInputs = r.data; break; }
   }
 
-  const { data: deal } = await sb.from("deals").select("bank_id").eq("id", dealId).single();
-  const currentPolicy = deal?.bank_id ? await getPolicySnapshot(deal.bank_id).catch(() => []) : [];
+  const dealBankId = await fetchDealBankId(dealId);
+  const currentPolicy = dealBankId ? await getPolicySnapshot(dealBankId).catch(() => []) : [];
 
   return NextResponse.json({
     snapshot: snap,
