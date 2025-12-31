@@ -19,6 +19,28 @@ export default function DealIntakeCard({
   dealId: string;
   onChecklistSeeded?: () => void | Promise<void>;
 }) {
+  // Never call APIs with a missing/invalid dealId (prevents uuid "undefined" errors).
+  if (!dealId || dealId === "undefined") {
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[DealIntakeCard] invalid dealId prop:", dealId);
+    }
+    return (
+      <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-4 shadow-sm">
+        <div className="text-base font-semibold text-neutral-50">Deal Intake</div>
+        <div className="mt-2 text-sm text-neutral-400">
+          Deal context is still loading. Refresh the page if this persists.
+        </div>
+        <button
+          type="button"
+          disabled
+          className="mt-4 w-full rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold text-neutral-200 opacity-60 cursor-not-allowed"
+        >
+          Save + Auto-Seed Checklist
+        </button>
+      </div>
+    );
+  }
+
   console.log("🔴 DealIntakeCard MOUNTED - dealId:", dealId);
   
   const [intake, setIntake] = useState<Intake>({
