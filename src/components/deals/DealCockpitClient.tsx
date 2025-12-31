@@ -18,7 +18,7 @@ import { PipelineIndicator } from "@/components/deals/PipelineStatus";
  * Wires together DealIntakeCard's auto-seed with EnhancedChecklistCard's refresh.
  * This ensures checklist updates immediately after "Save + Auto-Seed" completes.
  */
-export function DealCockpitClient({ dealId }: { dealId: string }) {
+export default function DealCockpitClient({ dealId }: { dealId: string }) {
   const [checklistRefresh, setChecklistRefresh] = useState<(() => Promise<void>) | null>(null);
 
   // Callback for checklist to register its refresh function
