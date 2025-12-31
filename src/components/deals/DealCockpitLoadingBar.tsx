@@ -55,16 +55,15 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
     };
   }, [dealId, step, ctxStatus, pipelineOk, lastOkAt, lastChangeAt, probe]);
 
-  useEffect(() => {
-    // Route param step
-    if (!dealId || dealId === "undefined") {
-      setStep("route");
-      setErr(null);
-      return;
+  const handleCopyDebug = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(debugBundle, null, 2));
+    } catch {
+      // ignore
     }
-    setStep("auth");
-  }, [dealId]);
+  };
 
+  // Poll context + pipeline for health
   useEffect(() => {
     let alive = true;
     if (!dealId || dealId === "undefined") return;
@@ -129,23 +128,29 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
     };
   }, [dealId]);
 
+  // Derived health pills
+  const routeOk = dealId && dealId !== "undefined" ? true : false;
+  const ctxOk = probe && "ok" in probe && probe.ok === true ? true : false;
+  const bankOk = ctxOk && probe.ok ? (probe.deal?.bank_id ? true : false) : null;
+
   const pill = (label: string, ok: boolean | null) => {
-    const cls =
-      ok === true
-        ? "border-emerald-800 bg-emerald-950/40 text-emerald-200"
-        : ok === false
-        ? "border-red-800 bg-red-950/40 text-red-200"
-        : "border-neutral-800 bg-neutral-950/40 text-neutral-300";
+    const color = ok === true ? "emerald" : ok === false ? "red" : "neutral";
     return (
-      <span className={`rounded-full border px-2 py-1 text-xs ${cls}`}>
+      <span
+        key={label}
+        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
+          color === "emerald"
+            ? "border-emerald-800 bg-emerald-950/40 text-emerald-200"
+            : color === "red"
+            ? "border-red-800 bg-red-950/40 text-red-200"
+            : "border-neutral-800 bg-neutral-950/40 text-neutral-400"
+        }`}
+      >
+        {ok === true ? "✅" : ok === false ? "❌" : "⏳"}
         {label}
       </span>
     );
   };
-
-  const routeOk = !!dealId && dealId !== "undefined";
-  const ctxOk = probe?.ok === true;
-  const bankOk = ctxOk ? !!probe.deal.bank_id : null;
 
   return (
     <div className="sticky top-0 z-[60] border-b border-neutral-800 bg-black/60 backdrop-blur">
@@ -172,25 +177,19 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
 
           <button
             type="button"
-
-          <button
-            type="button"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(JSON.stringify(debugBundle, null, 2));
-              } catch {
-                // ignore
-              }
-            }}
-            className="rounded-full border border-neutral-800 bg-neutral-950/40 px-3 py-1 text-xs text-neutral-200 hover:bg-neutral-900"
-            title="Copies dealId + probe payload + pipeline health"
-          >
-            Copy debug
-          </button>
             onClick={() => window.location.reload()}
             className="rounded-full border border-neutral-800 bg-neutral-950/40 px-3 py-1 text-xs text-neutral-200 hover:bg-neutral-900"
           >
             Hard refresh
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleCopyDebug()}
+            className="rounded-full border border-neutral-800 bg-neutral-950/40 px-3 py-1 text-xs text-neutral-200 hover:bg-neutral-900"
+            title="Copies dealId + probe payload + pipeline health"
+          >
+            Copy debug
           </button>
         </div>
       </div>
