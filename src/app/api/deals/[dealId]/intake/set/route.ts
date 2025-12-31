@@ -130,7 +130,20 @@ export async function POST(
       });
     }
 
-    // Auto-match any previously uploaded files to the new checklist
+    // Normalize status for newly seeded rows without clobbering existing received items.
+    try {
+      const seededKeys = rows.map((r) => r.checklist_key);
+      await sb
+        .from("deal_checklist_items")
+        .update({ status: "missing" })
+        .eq("deal_id", dealId)
+        .in("checklist_key", seededKeys)
+        .is("status", null);
+    } catch (e) {
+      console.warn("[/api/deals/[dealId]/intake/set] status normalization failed (non-fatal):", e);
+    }
+
+    // Auto-match any previously uploaded files to the new checklist (doc_intel first; filename fallback)
     try {
       const { data: files } = await sb
         .rpc("list_deal_documents", { p_deal_id: dealId });
@@ -144,6 +157,14 @@ export async function POST(
             fileId: file.id,
           });
           totalUpdated += result.updated;
+
+          // Best-effort: stamp the document row with the matched checklist key
+          if (!file.checklist_key && result.matched.length > 0) {
+            await sb
+              .from("deal_documents")
+              .update({ checklist_key: result.matched[0] })
+              .eq("id", file.id);
+          }
         }
         matchResult = { matched: files.length, updated: totalUpdated };
       }

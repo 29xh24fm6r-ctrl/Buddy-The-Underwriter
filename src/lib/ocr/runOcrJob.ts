@@ -1,7 +1,8 @@
 // src/lib/ocr/runOcrJob.ts
 import "server-only";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
-type RunArgs = { dealId: string; jobId: string; reqId?: string };
+type RunArgs = { dealId: string; jobId: string; reqId?: string; bankId?: string };
 
 function nowIso() {
   return new Date().toISOString();
@@ -28,12 +29,25 @@ function extractTextPreview(raw: any, maxChars = 14000): string {
   return text.length > maxChars ? text.slice(0, maxChars) : text;
 }
 
-export async function runOcrJob({ dealId, jobId, reqId }: RunArgs) {
+export async function runOcrJob({ dealId, jobId, reqId, bankId }: RunArgs) {
   const endpoint = process.env.AZURE_DI_ENDPOINT;
   const apiKey = process.env.AZURE_DI_KEY;
 
   if (!endpoint || !apiKey) {
     throw new Error("Missing AZURE_DI_ENDPOINT or AZURE_DI_KEY");
+  }
+
+  const sb = supabaseAdmin();
+
+  // 🔥 LEDGER: Log OCR start
+  if (bankId) {
+    await sb.from("deal_pipeline_ledger").insert({
+      deal_id: dealId,
+      bank_id: bankId,
+      stage: "ocr_running",
+      status: "pending",
+      payload: { job_id: jobId },
+    });
   }
 
   const fs = await import("node:fs/promises");
@@ -122,12 +136,41 @@ export async function runOcrJob({ dealId, jobId, reqId }: RunArgs) {
     job.error = null;
 
     await fs.writeFile(jobPath, JSON.stringify(job, null, 2), "utf-8");
+
+    // 🔥 LEDGER: Log OCR completion
+    if (bankId) {
+      await sb.from("deal_pipeline_ledger").insert({
+        deal_id: dealId,
+        bank_id: bankId,
+        stage: "ocr_complete",
+        status: "ok",
+        payload: {
+          job_id: jobId,
+          pages: result.pages_estimate,
+          elapsed_ms: result.elapsed_ms,
+        },
+      });
+    }
+
     return result;
   } catch (e: any) {
     job.status = "failed";
     job.updated_at = nowIso();
     job.error = safeError(e);
     await fs.writeFile(jobPath, JSON.stringify(job, null, 2), "utf-8");
+
+    // 🔥 LEDGER: Log OCR failure
+    if (bankId) {
+      await sb.from("deal_pipeline_ledger").insert({
+        deal_id: dealId,
+        bank_id: bankId,
+        stage: "ocr_complete",
+        status: "error",
+        payload: { job_id: jobId },
+        error: e?.message ?? String(e),
+      });
+    }
+
     throw e;
   }
 }

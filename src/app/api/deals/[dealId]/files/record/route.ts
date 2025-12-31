@@ -138,6 +138,21 @@ export async function POST(req: NextRequest, ctx: Context) {
       },
     });
 
+    // 🔥 LEDGER: Log upload stage
+    await sb.from("deal_pipeline_ledger").insert({
+      deal_id: dealId,
+      bank_id: deal.bank_id,
+      stage: "upload",
+      status: "ok",
+      payload: {
+        file_id,
+        filename: original_filename,
+        object_path,
+        size_bytes,
+        checklist_key,
+      },
+    });
+
     // Checklist auto-resolution happens via DB trigger when checklist_key is set
     // No additional code needed here
 

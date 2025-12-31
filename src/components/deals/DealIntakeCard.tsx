@@ -12,7 +12,15 @@ type Intake = {
   borrower_phone: string | null;
 };
 
-export default function DealIntakeCard({ dealId }: { dealId: string }) {
+export default function DealIntakeCard({ 
+  dealId,
+  onChecklistSeeded,
+}: { 
+  dealId: string;
+  onChecklistSeeded?: () => void | Promise<void>;
+}) {
+  console.log("🔴 DealIntakeCard MOUNTED - dealId:", dealId);
+  
   const [intake, setIntake] = useState<Intake>({
     loan_type: "CRE_OWNER_OCCUPIED",
     sba_program: null,
@@ -23,6 +31,7 @@ export default function DealIntakeCard({ dealId }: { dealId: string }) {
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [autoSeeding, setAutoSeeding] = useState(false);
   const [matchMessage, setMatchMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,29 +46,88 @@ export default function DealIntakeCard({ dealId }: { dealId: string }) {
   }, [dealId]);
 
   async function save(autoSeed = true) {
+    console.log("🚨 BUTTON CLICKED! save() function called with autoSeed:", autoSeed);
     setSaving(true);
     setMatchMessage(null);
-    const res = await fetch(`/api/deals/${dealId}/intake/set`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        loanType: intake.loan_type,
-        sbaProgram: intake.sba_program,
-        borrowerName: intake.borrower_name,
-        borrowerEmail: intake.borrower_email,
-        borrowerPhone: intake.borrower_phone,
-        autoSeed,
-      }),
-    });
-    const json = await res.json();
-    setSaving(false);
     
-    // Show auto-match results if any
-    if (json?.matchResult?.updated > 0) {
-      setMatchMessage(`✅ Automatically matched ${json.matchResult.updated} uploaded documents to checklist items!`);
+    try {
+      console.log("[DealIntakeCard] Saving intake with loan_type:", intake.loan_type);
+      
+      // Step 1: Save intake
+      const res = await fetch(`/api/deals/${dealId}/intake/set`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          loanType: intake.loan_type,
+          sbaProgram: intake.sba_program,
+          borrowerName: intake.borrower_name,
+          borrowerEmail: intake.borrower_email,
+          borrowerPhone: intake.borrower_phone,
+          autoSeed: false, // Don't auto-seed in this endpoint
+        }),
+      });
+      
+      const json = await res.json();
+      console.log("[DealIntakeCard] Intake save response:", json);
+      
+      if (!res.ok || !json?.ok) {
+        setMatchMessage(`❌ Failed to save intake: ${json?.error || "Unknown error"}`);
+        setSaving(false);
+        return;
+      }
+
+      setMatchMessage(`✅ Intake saved (loan type: ${intake.loan_type})`);
+
+      // Step 2: Call auto-seed endpoint
+      if (autoSeed) {
+        setAutoSeeding(true);
+        setMatchMessage(`✅ Intake saved. Auto-seeding checklist for ${intake.loan_type}...`);
+        
+        console.log("[DealIntakeCard] Calling auto-seed endpoint...");
+        const seedRes = await fetch(`/api/deals/${dealId}/auto-seed`, {
+          method: "POST",
+        });
+
+        const seedJson = await seedRes.json();
+        console.log("[DealIntakeCard] Auto-seed response:", seedJson);
+
+        if (seedJson.ok) {
+          const summary = seedJson.checklist || {};
+          setMatchMessage(
+            `✅ Success!\n` +
+            `• Loan type: ${intake.loan_type}\n` +
+            `• Checklist items created: ${summary.seeded || 0}\n` +
+            `• Files matched: ${summary.matched || 0}\n` +
+            `\nRefreshing page in 2 seconds...`
+          );
+          
+          // 🔥 CRITICAL FIX: Trigger checklist refresh
+          if (onChecklistSeeded) {
+            console.log("[DealIntakeCard] Triggering checklist refresh callback");
+            await onChecklistSeeded();
+          }
+          
+          // Refresh after delay to show updates
+          setTimeout(() => {
+            console.log("[DealIntakeCard] Reloading page...");
+            window.location.reload();
+          }, 2000);
+        } else {
+          setMatchMessage(
+            `⚠️ Saved intake but auto-seed ${seedJson.status || "failed"}:\n${seedJson.error || seedJson.message || "Unknown error"}\n\nCheck browser console for details.`
+          );
+          console.error("[DealIntakeCard] Auto-seed failed:", seedJson);
+        }
+        setAutoSeeding(false);
+      } else {
+        setTimeout(() => window.location.reload(), 1000);
+      }
+    } catch (error: any) {
+      console.error("[DealIntakeCard] Error during save:", error);
+      setMatchMessage(`❌ Error: ${error?.message || "Unknown error"}\n\nCheck browser console for details.`);
+    } finally {
+      setSaving(false);
     }
-    
-    window.location.reload(); // refresh to show new checklist
   }
 
   if (loading) {
@@ -76,16 +144,21 @@ export default function DealIntakeCard({ dealId }: { dealId: string }) {
       <div className="text-base font-semibold text-neutral-50">Deal Intake</div>
       <div className="mt-1 text-sm text-neutral-400">Set loan type to auto-generate checklist presets</div>
 
-      <div className="mt-4 space-y-3">
-        {matchMessage && (
-          <div className="rounded-xl border border-green-800 bg-green-950/20 p-3 text-sm text-green-200">
-            {matchMessage}
-          </div>
-        )}
-        
+      <form
+        className="mt-4 space-y-3"
+        method="post"
+        action={`/deals/${dealId}/cockpit/seed`}
+        onSubmit={(e) => {
+          // If JS is working, keep the snappy fetch-based flow.
+          // If hydration is broken, this handler won't attach and the POST still works.
+          e.preventDefault();
+          void save(true);
+        }}
+      >
         <div>
           <label className="text-xs text-neutral-400">Loan Type</label>
           <select
+            name="loanType"
             value={intake.loan_type}
             onChange={(e) => setIntake({ ...intake, loan_type: e.target.value as LoanType })}
             className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
@@ -107,6 +180,7 @@ export default function DealIntakeCard({ dealId }: { dealId: string }) {
         <div>
           <label className="text-xs text-neutral-400">Borrower Name</label>
           <input
+            name="borrowerName"
             value={intake.borrower_name || ""}
             onChange={(e) => setIntake({ ...intake, borrower_name: e.target.value })}
             className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
@@ -117,6 +191,7 @@ export default function DealIntakeCard({ dealId }: { dealId: string }) {
         <div>
           <label className="text-xs text-neutral-400">Borrower Email</label>
           <input
+            name="borrowerEmail"
             value={intake.borrower_email || ""}
             onChange={(e) => setIntake({ ...intake, borrower_email: e.target.value })}
             className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
@@ -127,6 +202,7 @@ export default function DealIntakeCard({ dealId }: { dealId: string }) {
         <div>
           <label className="text-xs text-neutral-400">Borrower Phone</label>
           <input
+            name="borrowerPhone"
             value={intake.borrower_phone || ""}
             onChange={(e) => setIntake({ ...intake, borrower_phone: e.target.value })}
             className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
@@ -134,14 +210,26 @@ export default function DealIntakeCard({ dealId }: { dealId: string }) {
           />
         </div>
 
+        {matchMessage && (
+          <div className={`rounded-xl border p-3 text-sm whitespace-pre-line ${
+            matchMessage.startsWith("✅") 
+              ? "border-emerald-800 bg-emerald-950/40 text-emerald-200" 
+              : matchMessage.startsWith("⚠️")
+              ? "border-amber-800 bg-amber-950/40 text-amber-200"
+              : "border-red-800 bg-red-950/40 text-red-200"
+          }`}>
+            {matchMessage}
+          </div>
+        )}
+
         <button
-          onClick={() => save(true)}
-          disabled={saving}
-          className="w-full rounded-xl bg-white px-3 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-50"
+          type="submit"
+          disabled={saving || autoSeeding}
+          className="w-full rounded-xl bg-white px-3 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-50 hover:bg-neutral-100 transition-colors"
         >
-          {saving ? "Saving..." : "Save + Auto-Seed Checklist"}
+          {saving ? "Saving intake..." : autoSeeding ? "Auto-seeding checklist..." : "Save + Auto-Seed Checklist"}
         </button>
-      </div>
+      </form>
     </div>
   );
 }
