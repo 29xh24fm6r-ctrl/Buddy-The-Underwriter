@@ -68,7 +68,7 @@ export async function generateCommitteeMinutes(args: {
     .digest("hex");
 
   // Prepare context for AI
-  const context = {
+  const aiContext = {
     deal: {
       borrower_name: deal?.borrower_name,
       loan_amount: deal?.loan_amount
@@ -128,7 +128,7 @@ RULES:
 - Length: 300-500 words`,
     user: `Generate credit committee meeting minutes from the following data:
 
-${JSON.stringify(context, null, 2)}
+${JSON.stringify(aiContext, null, 2)}
 
 Return ONLY the minutes text (no JSON wrapper, no markdown formatting).`,
     jsonSchemaHint: JSON.stringify({
