@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Reduce memory during production builds (webpack)
+  productionBrowserSourceMaps: false,
+  
   // Skip TypeScript checks during build (errors handled in CI)
   typescript: {
     ignoreBuildErrors: true,
