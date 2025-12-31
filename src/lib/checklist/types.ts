@@ -18,5 +18,6 @@ export type ChecklistRuleSet = {
 export type MatchResult = {
   matchedKey: string | null;
   confidence: number; // 0..1
-  reason: string;
-};
+  reason: string;  docYear?: number | null;
+  yearsFound?: number[];
+  source?: "filename" | "doc_intel" | "manual";};

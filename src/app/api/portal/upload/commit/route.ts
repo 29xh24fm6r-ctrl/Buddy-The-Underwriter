@@ -129,7 +129,7 @@ export async function POST(req: Request) {
     filename,
   });
 
-  // Auto-match checklist key from filename (borrower upload path)
+  // Auto-match checklist key from filename (borrower upload path - v2 with year extraction)
   try {
     const match = matchChecklistKeyFromFilename(filename);
     if (match.matchedKey && match.confidence >= 0.6) {
@@ -143,7 +143,13 @@ export async function POST(req: Request) {
       if (doc?.deal_document_id) {
         await sb
           .from("deal_documents")
-          .update({ checklist_key: match.matchedKey })
+          .update({
+            checklist_key: match.matchedKey,
+            doc_year: match.docYear ?? null,
+            match_confidence: match.confidence,
+            match_reason: match.reason,
+            match_source: match.source || "filename",
+          })
           .eq("id", doc.deal_document_id);
 
         // Log to ledger
@@ -158,6 +164,7 @@ export async function POST(req: Request) {
             document_id: doc.deal_document_id,
             filename,
             checklist_key: match.matchedKey,
+            doc_year: match.docYear ?? null,
             confidence: match.confidence,
             reason: match.reason,
           },

@@ -26,20 +26,27 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
 
     const { data, error } = await sb
       .from("deal_documents")
-      .select("checklist_key")
+      .select("checklist_key, doc_year")
       .eq("deal_id", dealId)
       .not("checklist_key", "is", null);
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
     const counts: Record<string, number> = {};
+    const years: Record<string, number[]> = {};
     for (const r of data || []) {
       const k = String((r as any).checklist_key || "");
       if (!k) continue;
       counts[k] = (counts[k] || 0) + 1;
+      const y = (r as any).doc_year;
+      if (typeof y === "number") {
+        years[k] = years[k] || [];
+        if (!years[k].includes(y)) years[k].push(y);
+        years[k].sort((a, b) => b - a);
+      }
     }
 
-    return NextResponse.json({ ok: true, counts });
+    return NextResponse.json({ ok: true, counts, years });
   } catch (e: any) {
     console.error("[checklist/doc-summary]", e);
     return NextResponse.json({ ok: false, error: e?.message || "Failed" }, { status: 500 });

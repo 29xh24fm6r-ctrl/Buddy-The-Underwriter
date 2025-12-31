@@ -11,6 +11,8 @@ type ChecklistItem = {
   required: boolean;
   status?: string; // missing | received | waived
   received_at: string | null;
+  satisfied_at?: string | null;
+  satisfaction_json?: any;
   doc_type?: string | null;
   filename?: string | null;
   created_at?: string;
@@ -45,7 +47,7 @@ export function EnhancedChecklistCard({
   const [showEvents, setShowEvents] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const isReceived = (i: ChecklistItem) => Boolean(i?.received_at) || Number(i?._doc_count || 0) > 0 || i?.status === "received";
+  const isReceived = (i: ChecklistItem) => Boolean(i?.satisfied_at) || i?.status === "received";
   const received = items.filter((i) => isReceived(i));
   const pending = items.filter((i) => i.required && !isReceived(i));
   const optional = items.filter((i) => !i.required && !isReceived(i));
@@ -72,12 +74,13 @@ export function EnhancedChecklistCard({
         `/api/deals/${dealId}/checklist/list`
       );
 
-      // Fetch doc summary keyed by checklist_key
-      const docSummary = await j<{ ok: boolean; counts: Record<string, number> }>(
+      // Fetch doc summary keyed by checklist_key (v2 with years)
+      const docSummary = await j<{ ok: boolean; counts: Record<string, number>; years: Record<string, number[]> }>(
         `/api/deals/${dealId}/checklist/doc-summary`
       );
 
       const counts = docSummary?.counts || {};
+      const years = docSummary?.years || {};
       const merged = (checklistData.items || []).map((it) => {
         const k = String(it.checklist_key || "");
         const c = counts[k] || 0;
@@ -243,6 +246,12 @@ export function EnhancedChecklistCard({
                           </div>
                           <div className="mt-1 text-xs text-emerald-600">
                             Key: {item.checklist_key}
+                            {item?.satisfaction_json?.requires_years ? (
+                              <span className="ml-2">
+                                Years: {(item?.satisfaction_json?.years || []).join(", ") || "—"} (
+                                {item?.satisfaction_json?.year_count || 0}/{item?.satisfaction_json?.requires_years})
+                              </span>
+                            ) : null}
                           </div>
                           <div className="mt-1 text-xs text-emerald-600">
                             Received:{" "}
@@ -289,6 +298,12 @@ export function EnhancedChecklistCard({
                           )}
                           <div className="mt-1 text-xs text-amber-600">
                             Key: {item.checklist_key}
+                            {item?.satisfaction_json?.requires_years ? (
+                              <span className="ml-2">
+                                Years: {(item?.satisfaction_json?.years || []).join(", ") || "—"} (
+                                {item?.satisfaction_json?.year_count || 0}/{item?.satisfaction_json?.requires_years})
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                         <Icon name="pending" className="h-4 w-4 text-amber-600 shrink-0" />

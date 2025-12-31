@@ -126,14 +126,20 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    // 🔥 Checklist Engine v1: if no checklist_key provided, attempt filename-based match
-    // NOTE: DB trigger will mark deal_checklist_items received once checklist_key is set.
+    // 🔥 Checklist Engine v2: if no checklist_key provided, attempt filename-based match
+    // NOTE: DB trigger will compute satisfaction and mark items received when year requirements met.
     if (!inserted.checklist_key) {
       const m = matchChecklistKeyFromFilename(inserted.original_filename || "");
       if (m.matchedKey && m.confidence >= 0.6) {
         const { error: updErr } = await sb
           .from("deal_documents")
-          .update({ checklist_key: m.matchedKey })
+          .update({
+            checklist_key: m.matchedKey,
+            doc_year: m.docYear ?? null,
+            match_confidence: m.confidence,
+            match_reason: m.reason,
+            match_source: m.source || "filename",
+          })
           .eq("id", inserted.id);
         
         if (!updErr) {
@@ -146,6 +152,7 @@ export async function POST(req: NextRequest, ctx: Context) {
             payload: {
               filename: inserted.original_filename,
               checklist_key: m.matchedKey,
+              doc_year: m.docYear ?? null,
               confidence: m.confidence,
               reason: m.reason,
               document_id: inserted.id,

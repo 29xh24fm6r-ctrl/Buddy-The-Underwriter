@@ -62,32 +62,40 @@ export async function reconcileDealChecklist(dealId: string) {
 
   if (seedErr) throw new Error(`checklist_seed_failed: ${seedErr.message}`);
 
-  // 3) Fetch deal_documents with NULL checklist_key
+  // 3) Fetch deal_documents with NULL checklist_key OR NULL doc_year
   const { data: docs, error: docsErr } = await sb
     .from("deal_documents")
-    .select("id, original_filename, checklist_key")
+    .select("id, original_filename, checklist_key, doc_year")
     .eq("deal_id", dealId);
 
   if (docsErr) throw new Error(`docs_read_failed: ${docsErr.message}`);
 
   let docsMatched = 0;
 
-  // 4) For each doc missing checklist_key, attempt match
+  // 4) For each doc missing checklist_key or doc_year, attempt match
   for (const d of docs || []) {
-    if (d.checklist_key) continue;
+    const needsKey = !d.checklist_key;
+    const needsYear = !d.doc_year;
+    if (!needsKey && !needsYear) continue;
 
     const m = matchChecklistKeyFromFilename(d.original_filename || "");
     if (!m.matchedKey || m.confidence < 0.6) continue;
 
     const { error: updErr } = await sb
       .from("deal_documents")
-      .update({ checklist_key: m.matchedKey })
+      .update({
+        checklist_key: d.checklist_key || m.matchedKey,
+        doc_year: d.doc_year || (m.docYear ?? null),
+        match_confidence: m.confidence,
+        match_reason: m.reason,
+        match_source: m.source || "filename",
+      })
       .eq("id", d.id);
 
     if (!updErr) docsMatched += 1;
   }
 
-  // DB trigger handles checklist received updates.
+  // DB trigger handles satisfaction computation and checklist status updates.
 
   return {
     ok: true,
