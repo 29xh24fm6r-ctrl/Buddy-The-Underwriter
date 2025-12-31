@@ -2,7 +2,7 @@
 "use client";
 
 import UploadBox from "@/components/deals/UploadBox";
-import { UploadErrorBoundary } from "@/components/ui/UploadErrorBoundary";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import DealAssigneesCard from "@/components/deals/DealAssigneesCard";
 import BankFormsCard from "@/components/deals/BankFormsCard";
 import NextBestActionCard from "@/components/deals/NextBestActionCard";
@@ -72,15 +72,15 @@ export default function DealWorkspaceClient({
           {/* CENTER */}
           <div className="col-span-12 space-y-4 lg:col-span-6">
             <div id="upload" className="scroll-mt-24">
-              <UploadErrorBoundary>
+              <ErrorBoundary context="UploadBox">
                 <UploadBox dealId={dealId} />
-              </UploadErrorBoundary>
+              </ErrorBoundary>
             </div>
 
             <div id="jobs" className="scroll-mt-24">
-              <UploadErrorBoundary>
+              <ErrorBoundary context="DocumentInsights">
                 <DocumentInsightsCard dealId={dealId} />
-              </UploadErrorBoundary>
+              </ErrorBoundary>
             </div>
 
             <div id="forms" className="scroll-mt-24">

@@ -22,6 +22,12 @@ const config: Config = {
         success: "#10b981",
         warning: "#f59e0b",
         danger: "#ef4444",
+        ink: {
+          strong: "rgb(var(--ink-strong))",
+          body: "rgb(var(--ink-body))",
+          muted: "rgb(var(--ink-muted))",
+          faint: "rgb(var(--ink-faint))",
+        },
       },
       fontFamily: {
         inter: ["var(--font-inter)", "Inter", "sans-serif"],

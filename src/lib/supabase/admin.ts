@@ -9,25 +9,39 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
  */
 export type Database = any;
 
+function first(...vals: Array<string | undefined>) {
+  return vals.find((v) => typeof v === "string" && v.length > 0) || "";
+}
+
+function need(name: string) {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing env: ${name}`);
+  return v;
+}
+
 let _admin: SupabaseClient<Database> | null = null;
 
 export function supabaseAdmin(): SupabaseClient<Database> {
   if (_admin) return _admin;
 
-  const url =
-    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
-  const serviceKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY ||
-    "";
+  const url = first(
+    process.env.SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_URL
+  ) || need("SUPABASE_URL");
 
-  if (!url || !serviceKey) {
+  const service = first(
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    process.env.SUPABASE_SERVICE_KEY,
+    process.env.SUPABASE_SERVICE_ROLE
+  );
+
+  if (!service) {
     throw new Error(
-      "Missing Supabase admin credentials. Set NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY."
+      "Missing env: SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_KEY / SUPABASE_SERVICE_ROLE)"
     );
   }
 
-  _admin = createClient<Database>(url, serviceKey, {
+  _admin = createClient<Database>(url, service, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 

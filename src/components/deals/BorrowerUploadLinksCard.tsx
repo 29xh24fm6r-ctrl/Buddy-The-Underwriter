@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 type LinkRow = {
   id: string;
@@ -36,15 +36,14 @@ export default function BorrowerUploadLinksCard({ dealId }: { dealId: string }) 
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
+  // Avoid hydration mismatch: server render has no window, so keep this empty
+  // on first client render and fill it after mount.
+  const [origin, setOrigin] = useState("");
+
   const [expiresHours, setExpiresHours] = useState(72);
   const [singleUse, setSingleUse] = useState(true);
   const [password, setPassword] = useState("");
   const [label, setLabel] = useState("Borrower docs");
-
-  const appUrl = useMemo(() => {
-    // server returns fully-qualified URL, but keep for display fallback
-    return typeof window !== "undefined" ? window.location.origin : "";
-  }, []);
 
   async function refresh() {
     setMsg(null);
@@ -58,6 +57,7 @@ export default function BorrowerUploadLinksCard({ dealId }: { dealId: string }) 
   }
 
   useEffect(() => {
+    setOrigin(window.location.origin);
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dealId]);
@@ -188,7 +188,7 @@ export default function BorrowerUploadLinksCard({ dealId }: { dealId: string }) 
             Single-use
           </label>
           <div className="text-xs text-neutral-500">
-            Borrower link page: <span className="text-neutral-300">{appUrl}/upload/&lt;token&gt;</span>
+            Borrower link page: <span className="text-neutral-300">{origin}/upload/&lt;token&gt;</span>
           </div>
         </div>
       </div>

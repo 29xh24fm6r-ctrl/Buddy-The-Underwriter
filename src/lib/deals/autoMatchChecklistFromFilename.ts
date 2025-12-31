@@ -2,6 +2,66 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+function normDocType(x: string) {
+  return String(x || "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .toUpperCase();
+}
+
+function parseTaxYear(v: any): number | null {
+  if (v == null) return null;
+  const n = typeof v === "number" ? v : Number(String(v).trim());
+  if (!Number.isFinite(n)) return null;
+  if (n < 1900 || n > 2100) return null;
+  return Math.trunc(n);
+}
+
+function isPlausiblyRecentTaxYear(year: number | null) {
+  if (!year) return true; // If unknown, don't block match
+  const nowYear = new Date().getFullYear();
+  // Keep it permissive: accept last ~6 years to avoid false negatives.
+  return year >= nowYear - 6 && year <= nowYear + 1;
+}
+
+function checklistKeysFromDocIntel(docTypeRaw: string, taxYearRaw: any): string[] {
+  const dt = normDocType(docTypeRaw);
+  const taxYear = parseTaxYear(taxYearRaw);
+
+  // If tax year is clearly stale, don't auto-resolve tax-return-driven checklist.
+  const okYear = isPlausiblyRecentTaxYear(taxYear);
+
+  // Canonical mapping to deal_checklist_items.checklist_key
+  // Keep mapping conservative and deterministic.
+  if (dt === "PFS" || dt === "SBA_413") return ["PFS_CURRENT", "SBA_413"];
+
+  if (["IRS_1040", "K1", "IRS_PERSONAL"].includes(dt)) {
+    return okYear ? ["IRS_PERSONAL_2Y"] : [];
+  }
+
+  if (["IRS_1065", "IRS_1120", "IRS_1120S", "IRS_BUSINESS"].includes(dt)) {
+    return okYear ? ["IRS_BUSINESS_2Y"] : [];
+  }
+
+  if (dt === "FINANCIAL_STATEMENT" || dt === "INCOME_STATEMENT" || dt === "BALANCE_SHEET") {
+    return ["FIN_STMT_YTD"];
+  }
+
+  if (dt === "BANK_STATEMENT") return ["BANK_STMT_3M"];
+
+  if (dt === "AR_AGING" || dt === "ACCOUNTS_RECEIVABLE_AGING") return ["AR_AGING"];
+  if (dt === "AP_AGING" || dt === "ACCOUNTS_PAYABLE_AGING") return ["AP_AGING"];
+
+  if (dt === "LEASE" || dt === "LEASE_AGREEMENT") return ["LEASES_TOP"];
+
+  if (dt === "SBA_1919") return ["SBA_1919"];
+  if (dt === "SBA_912") return ["SBA_912"];
+  if (dt === "SBA_1244") return ["SBA_1244"];
+  if (dt === "SBA_DEBT_SCHED" || dt === "DEBT_SCHEDULE") return ["SBA_DEBT_SCHED"];
+
+  return [];
+}
+
 /**
  * Auto-match and update checklist items based on uploaded filename.
  * This bridges banker uploads to checklist auto-completion.
@@ -90,6 +150,76 @@ export async function autoMatchChecklistFromFilename(params: {
 }): Promise<{ matched: string[]; updated: number }> {
   const sb = supabaseAdmin();
 
+  // 0) Prefer doc_intel (OCR/classification) when available for this file.
+  // This makes matching resilient to arbitrary filenames.
+  if (params.fileId) {
+    try {
+      const { data: intel } = await sb
+        .from("doc_intel_results")
+        .select("doc_type,tax_year,confidence")
+        .eq("deal_id", params.dealId)
+        .eq("file_id", params.fileId)
+        .maybeSingle();
+
+      const docType = intel?.doc_type ? String(intel.doc_type) : "";
+      const confidence = typeof intel?.confidence === "number" ? intel!.confidence : null;
+
+      // Only trust doc_intel when it has a real doc type and decent confidence.
+      if (docType && normDocType(docType) !== "UNKNOWN" && (confidence == null || confidence >= 60)) {
+        const intelKeys = checklistKeysFromDocIntel(docType, intel?.tax_year);
+        if (intelKeys.length > 0) {
+          // Proceed to update checklist items below using intelKeys.
+          // We still return matched keys; caller can optionally stamp deal_documents.checklist_key.
+          const matchedKeys = intelKeys;
+
+          const { data: items, error } = await sb
+            .from("deal_checklist_items")
+            .select("id, checklist_key, status")
+            .eq("deal_id", params.dealId)
+            .in("checklist_key", matchedKeys);
+
+          if (error) {
+            console.error("Error fetching checklist items:", error);
+            return { matched: matchedKeys, updated: 0 };
+          }
+
+          if (!items || items.length === 0) {
+            return { matched: matchedKeys, updated: 0 };
+          }
+
+          const toUpdate = items.filter(
+            (item) => item.status === "missing" || item.status == null,
+          );
+
+          if (toUpdate.length === 0) {
+            return { matched: matchedKeys, updated: 0 };
+          }
+
+          const updates = toUpdate.map((item) => ({
+            id: item.id,
+            status: "received",
+            received_at: new Date().toISOString(),
+            received_file_id: params.fileId || null,
+          }));
+
+          const { error: updateError } = await sb
+            .from("deal_checklist_items")
+            .upsert(updates, { onConflict: "id" });
+
+          if (updateError) {
+            console.error("Error updating checklist items:", updateError);
+            return { matched: matchedKeys, updated: 0 };
+          }
+
+          return { matched: matchedKeys, updated: toUpdate.length };
+        }
+      }
+    } catch (e) {
+      // Non-fatal: fall back to filename heuristics
+      console.warn("doc_intel lookup failed (non-fatal):", e);
+    }
+  }
+
   // Find matching checklist keys
   const matchedKeys: string[] = [];
   for (const { pattern, keys } of FILENAME_PATTERNS) {
@@ -118,8 +248,10 @@ export async function autoMatchChecklistFromFilename(params: {
     return { matched: matchedKeys, updated: 0 };
   }
 
-  // Update items that are currently "missing"
-  const toUpdate = items.filter((item) => item.status === "missing");
+  // Update items that are currently "missing" (or null right after seeding)
+  const toUpdate = items.filter(
+    (item) => item.status === "missing" || item.status == null,
+  );
   if (toUpdate.length === 0) {
     return { matched: matchedKeys, updated: 0 };
   }

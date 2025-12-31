@@ -2,86 +2,48 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 /**
- * Canonical auth gate.
- * Public routes are explicitly allowlisted.
- * Everything else is protected.
+ * HARD RULE:
+ * - Never protect /api/** in middleware.
+ *   API routes must return JSON 401/403 and must be curl/automation-friendly.
  */
 const isPublicRoute = createRouteMatcher([
   "/",
-  "/pricing",
-  "/health",
-  "/api/health(.*)",
+  "/pricing(.*)",
+  "/borrower-portal(.*)",
+  "/upload(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
-  "/s(.*)",
-  "/share(.*)",
-  "/api/public(.*)",
-  // Keep Stitch public for now to prevent surprises; tighten later if desired.
-  "/stitch(.*)",
 ]);
 
+function withBuildHeader() {
+  const res = NextResponse.next();
+  const build =
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ||
+    process.env.GIT_COMMIT_SHA ||
+    "unknown";
+  res.headers.set("x-buddy-build", build);
+  return res;
+}
+
 export default clerkMiddleware(async (auth, req) => {
-  const { pathname, searchParams } = req.nextUrl;
+  const p = req.nextUrl.pathname;
 
-  // Allow Next internals + static
-  if (
-    pathname.startsWith("/_next") ||
-    pathname === "/favicon.ico" ||
-    pathname === "/robots.txt" ||
-    pathname === "/sitemap.xml"
-  ) {
-    return NextResponse.next();
+  // ✅ ABSOLUTE BYPASS FOR API
+  if (p === "/api" || p.startsWith("/api/") || p === "/trpc" || p.startsWith("/trpc/")) {
+    return withBuildHeader();
   }
 
-  // Skip Vercel bypass logic for API routes (they use headers, not cookies)
-  if (pathname.startsWith("/api/")) {
-    if (isPublicRoute(req)) return NextResponse.next();
-    await auth.protect();
-    return NextResponse.next();
-  }
-
-  // Vercel Deployment Protection Auto-Bypass
-  // Only run in preview environments with VERCEL_AUTOMATION_BYPASS_SECRET set
-  const bypassToken = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-  const isPreview = process.env.VERCEL_ENV === "preview";
-  
-  if (isPreview && bypassToken) {
-    // Check if user already has Vercel bypass cookie
-    const hasBypassCookie = 
-      req.cookies.get("_vercel_protection_bypass") ||
-      req.cookies.get("_vercel_jwt") ||
-      req.cookies.get("_vercel_sso_nonce");
-
-    // Check if this is the redirect callback (to prevent loops)
-    const isSettingBypass = searchParams.get("x-vercel-set-bypass-cookie") === "true";
-
-    // If no bypass cookie and not currently setting it, redirect to set it
-    if (!hasBypassCookie && !isSettingBypass) {
-      const url = req.nextUrl.clone();
-      url.searchParams.set("x-vercel-set-bypass-cookie", "true");
-      url.searchParams.set("x-vercel-protection-bypass", bypassToken);
-      
-      console.log("[middleware] Setting Vercel bypass cookie for:", pathname);
-      return NextResponse.redirect(url);
-    }
-
-    // If we just set the bypass, redirect back to clean URL
-    if (isSettingBypass) {
-      const url = req.nextUrl.clone();
-      url.searchParams.delete("x-vercel-set-bypass-cookie");
-      url.searchParams.delete("x-vercel-protection-bypass");
-      
-      console.log("[middleware] Vercel bypass cookie set, redirecting to clean URL:", pathname);
-      return NextResponse.redirect(url);
-    }
-  }
-
-  if (isPublicRoute(req)) return NextResponse.next();
+  if (isPublicRoute(req)) return withBuildHeader();
 
   await auth.protect();
-  return NextResponse.next();
+
+  return withBuildHeader();
 });
 
 export const config = {
-  matcher: ["/((?!.+\\.[\\w]+$).*)", "/(api|trpc)(.*)"],
+  matcher: [
+    // Run on everything except static assets
+    "/((?!_next|.*\\..*).*)",
+  ],
 };

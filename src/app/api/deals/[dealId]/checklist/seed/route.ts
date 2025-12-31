@@ -106,6 +106,22 @@ export async function POST(
       });
     }
 
+    // Normalize status for newly seeded rows without clobbering existing received items.
+    try {
+      const sb = supabaseAdmin();
+      await sb
+        .from("deal_checklist_items")
+        .update({ status: "missing" })
+        .eq("deal_id", dealId)
+        .in(
+          "checklist_key",
+          rows.map((r) => r.checklist_key),
+        )
+        .is("status", null);
+    } catch (e) {
+      console.warn("[/api/deals/[dealId]/checklist/seed] status normalization failed (non-fatal):", e);
+    }
+
     // Emit ledger event
     await writeEvent({
       dealId,
