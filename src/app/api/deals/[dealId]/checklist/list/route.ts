@@ -32,11 +32,11 @@ export async function GET(
     const { dealId } = await ctx.params;
     const sb = supabaseAdmin();
 
-    // ✅ Select ONLY columns that exist in the actual table schema
+    // ✅ Select columns including v2 satisfaction fields
     const { data, error } = await sb
       .from("deal_checklist_items")
       .select(
-        "id, deal_id, checklist_key, title, description, required, status, requested_at, received_at, received_upload_id, created_at, updated_at"
+        "id, deal_id, checklist_key, title, description, required, status, requested_at, received_at, satisfied_at, satisfaction_json, received_upload_id, created_at, updated_at"
       )
       .eq("deal_id", dealId);
 
@@ -45,7 +45,7 @@ export async function GET(
       return NextResponse.json({ ok: false, items: [], error: "Failed to load checklist" });
     }
 
-    // Normalize to minimal contract that UI needs
+    // Normalize to minimal contract that UI needs (including v2 fields)
     const items = (data ?? []).map((row) => ({
       id: row.id,
       deal_id: row.deal_id,
@@ -55,6 +55,8 @@ export async function GET(
       required: !!row.required,
       status: row.status ?? "missing",
       received_at: row.received_at,
+      satisfied_at: row.satisfied_at,
+      satisfaction_json: row.satisfaction_json,
       created_at: row.created_at,
     }));
 
