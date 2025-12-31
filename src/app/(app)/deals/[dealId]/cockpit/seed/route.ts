@@ -10,7 +10,7 @@ import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFr
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Ctx = { params: Promise<{ dealId: string }> };
+type Ctx = { params: { dealId: string } };
 
 function isLoanType(x: unknown): x is LoanType {
   return (
@@ -37,7 +37,7 @@ function isLoanType(x: unknown): x is LoanType {
  */
 export async function POST(req: Request, ctx: Ctx) {
   const { userId } = await auth();
-  const { dealId } = await ctx.params;
+  const { dealId } = ctx.params;
 
   const redirectTo = new URL(`/deals/${dealId}/cockpit`, req.url);
 
@@ -82,6 +82,7 @@ export async function POST(req: Request, ctx: Ctx) {
     .upsert(
       {
         deal_id: dealId,
+        bank_id: bankId,
         loan_type: loanType,
         sba_program: sbaProgram,
         borrower_name: borrowerName,
