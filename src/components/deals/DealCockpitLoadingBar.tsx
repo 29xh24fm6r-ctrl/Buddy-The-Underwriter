@@ -1,6 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, usePathname } from "next/navigation";
+
+function coerceDealId(x: unknown): string | null {
+  if (typeof x !== "string") return null;
+  const v = x.trim();
+  return v.length ? v : null;
+}
+
+function dealIdFromPath(pathname: string | null): string | null {
+  if (!pathname) return null;
+  const m = pathname.match(/\/deals\/([^/]+)\/cockpit(?:\/|$)/);
+  return m?.[1] ? m[1] : null;
+}
 
 type Step = "route" | "context" | "pipeline" | "ready";
 
@@ -18,7 +31,27 @@ type Probe =
   | { dealId: string; [k: string]: any };
 
 export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
-  const dealId = props.dealId ?? null;
+  const params = useParams<{ dealId?: string }>();
+  const pathname = usePathname();
+
+  const resolvedDealId = useMemo(() => {
+    // 1) Props (authoritative from server page)
+    const fromProps = coerceDealId(props.dealId);
+    if (fromProps) return fromProps;
+
+    // 2) Router params (best effort)
+    const fromParams = coerceDealId(params?.dealId);
+    if (fromParams) return fromParams;
+
+    // 3) Pathname fallback (bulletproof)
+    const fromPath = coerceDealId(dealIdFromPath(pathname));
+    if (fromPath) return fromPath;
+
+    return null;
+  }, [props.dealId, params?.dealId, pathname]);
+
+  // Use resolvedDealId everywhere below
+  const dealId = resolvedDealId;
 
   const isValidUuid =
     !!dealId &&

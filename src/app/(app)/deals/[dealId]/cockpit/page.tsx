@@ -6,7 +6,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Props = {
-  params: { dealId?: string };
+  // Next.js App Router (Next 15): params may be delivered as a Promise in server components.
+  params: Promise<{ dealId?: string }>;
 };
 
 export default async function DealCockpitPage({ params }: Props) {
@@ -23,7 +24,7 @@ export default async function DealCockpitPage({ params }: Props) {
     );
   }
 
-  const dealId = params?.dealId;
+  const { dealId } = await params;
 
   // 🚫 Do NOT throw/notFound here — client transitions can briefly yield undefined params.
   // Instead render a live status bar + safe loading shell.
