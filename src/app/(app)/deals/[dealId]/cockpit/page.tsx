@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
+import { redirect, notFound } from "next/navigation";
 import DealCockpitClient from "@/components/deals/DealCockpitClient";
 
 export const runtime = "nodejs";
@@ -51,7 +51,7 @@ export default async function DealCockpitPage({ params }: Props) {
     );  }
 
   if (!params?.dealId || params.dealId === "undefined") {
-    throw new Error(`[DealCockpitPage] invalid dealId param: ${String(params?.dealId)}`);
+    notFound();
   }
 
   return <DealCockpitClient dealId={params.dealId} />;
