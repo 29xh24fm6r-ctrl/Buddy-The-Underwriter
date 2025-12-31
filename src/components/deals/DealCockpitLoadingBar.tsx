@@ -50,8 +50,8 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
 
   const badge = useMemo(() => {
     const secs = Math.floor(elapsedMs / 1000);
-    const lastOk = lastOkAt ? `${Math.floor((Date.now() - lastOkAt) / 1000)}s ago` : "—";
-    const lastChange = lastChangeAt ? `${Math.floor((Date.now() - lastChangeAt) / 1000)}s ago` : "—";
+    const lastOk = lastOkAt ? `${Math.floor((now - lastOkAt) / 1000)}s ago` : "—";
+    const lastChange = lastChangeAt ? `${Math.floor((now - lastChangeAt) / 1000)}s ago` : "—";
     return { secs, lastOk, lastChange };
   }, [elapsedMs, lastOkAt, lastChangeAt, now]);
 
