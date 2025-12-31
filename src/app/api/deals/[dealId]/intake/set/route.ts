@@ -9,6 +9,7 @@ import {
 } from "@/lib/deals/checklistPresets";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { ensureDealHasBank } from "@/lib/banks/ensureDealHasBank";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,17 +56,15 @@ export async function POST(
 
   const sb = supabaseAdmin();
 
-  // Get deal bank_id for phone link
-  const { data: deal, error: dealErr } = await sb
-    .from("deals")
-    .select("id, bank_id")
-    .eq("id", dealId)
-    .single();
-
-  if (dealErr || !deal?.bank_id) {
-    console.error("[/api/deals/[dealId]/intake/set] deal lookup failed", { dealId, dealErr });
+  // Ensure deal has bank context (assign default bank if missing)
+  let bankId: string;
+  try {
+    const ensured = await ensureDealHasBank({ supabase: sb, dealId });
+    bankId = ensured.bankId;
+  } catch (e: any) {
+    console.error("[/api/deals/[dealId]/intake/set] ensureDealHasBank failed", e);
     return NextResponse.json(
-      { ok: false, error: "Deal not found or missing bank context" },
+      { ok: false, error: "Deal not found or missing bank context", details: e?.message ?? String(e) },
       { status: 400 },
     );
   }
@@ -75,7 +74,7 @@ export async function POST(
     .upsert(
       {
         deal_id: dealId,
-        bank_id: deal.bank_id,
+        bank_id: bankId,
         loan_type: loanType,
         sba_program: sbaProgram,
         borrower_name: body?.borrowerName ?? null,
@@ -106,7 +105,7 @@ export async function POST(
       try {
         await upsertBorrowerPhoneLink({
           phoneE164: normalized,
-          bankId: deal?.bank_id || null,
+          bankId,
           dealId: dealId,
           source: "intake_form",
           metadata: {
