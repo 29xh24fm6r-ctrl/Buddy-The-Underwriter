@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { auth } from "@clerk/nextjs/server";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { matchChecklistKeyFromFilename } from "@/lib/checklist/matchers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     // Insert metadata record
-    const { error: insertErr } = await sb.from("deal_documents").insert({
+    const { data: inserted, error: insertErr } = await sb.from("deal_documents").insert({
       id: file_id,
       deal_id: dealId,
       bank_id: deal.bank_id, // Required: inherited from deal
@@ -115,14 +116,45 @@ export async function POST(req: NextRequest, ctx: Context) {
       // Upload tracking
       source: "internal",
       uploader_user_id: userId,
-    });
+    }).select("id, checklist_key, original_filename").single();
 
-    if (insertErr) {
+    if (insertErr || !inserted) {
       console.error("[files/record] failed to insert metadata", insertErr);
       return NextResponse.json(
         { ok: false, error: "Failed to record file metadata" },
         { status: 500 },
       );
+    }
+
+    // 🔥 Checklist Engine v1: if no checklist_key provided, attempt filename-based match
+    // NOTE: DB trigger will mark deal_checklist_items received once checklist_key is set.
+    if (!inserted.checklist_key) {
+      const m = matchChecklistKeyFromFilename(inserted.original_filename || "");
+      if (m.matchedKey && m.confidence >= 0.6) {
+        const { error: updErr } = await sb
+          .from("deal_documents")
+          .update({ checklist_key: m.matchedKey })
+          .eq("id", inserted.id);
+        
+        if (!updErr) {
+          // Log checklist key inference to ledger
+          await sb.from("deal_pipeline_ledger").insert({
+            deal_id: dealId,
+            bank_id: deal.bank_id,
+            stage: "doc_checklist_key_inferred",
+            status: "ok",
+            payload: {
+              filename: inserted.original_filename,
+              checklist_key: m.matchedKey,
+              confidence: m.confidence,
+              reason: m.reason,
+              document_id: inserted.id,
+            },
+          });
+        } else {
+          console.warn("[files/record] checklist match update failed (non-fatal):", updErr);
+        }
+      }
     }
 
     // Emit ledger event

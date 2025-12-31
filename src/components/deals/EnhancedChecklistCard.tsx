@@ -14,6 +14,7 @@ type ChecklistItem = {
   doc_type?: string | null;
   filename?: string | null;
   created_at?: string;
+  _doc_count?: number; // UI-derived doc count
 };
 
 type DealEvent = {
@@ -44,9 +45,10 @@ export function EnhancedChecklistCard({
   const [showEvents, setShowEvents] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const received = items.filter((i) => i.received_at);
-  const pending = items.filter((i) => i.required && !i.received_at);
-  const optional = items.filter((i) => !i.required && !i.received_at);
+  const isReceived = (i: ChecklistItem) => Boolean(i?.received_at) || Number(i?._doc_count || 0) > 0 || i?.status === "received";
+  const received = items.filter((i) => isReceived(i));
+  const pending = items.filter((i) => i.required && !isReceived(i));
+  const optional = items.filter((i) => !i.required && !isReceived(i));
 
   console.log("[EnhancedChecklistCard] Render state:", {
     totalItems: items.length,
@@ -69,7 +71,20 @@ export function EnhancedChecklistCard({
       const checklistData = await j<{ ok: boolean; items: ChecklistItem[] }>(
         `/api/deals/${dealId}/checklist/list`
       );
-      console.log("[EnhancedChecklistCard] Checklist data:", checklistData);
+
+      // Fetch doc summary keyed by checklist_key
+      const docSummary = await j<{ ok: boolean; counts: Record<string, number> }>(
+        `/api/deals/${dealId}/checklist/doc-summary`
+      );
+
+      const counts = docSummary?.counts || {};
+      const merged = (checklistData.items || []).map((it) => {
+        const k = String(it.checklist_key || "");
+        const c = counts[k] || 0;
+        return { ...it, _doc_count: c };
+      });
+
+      setItems(mergedd] Checklist data:", checklistData);
       setItems(checklistData.items || []);
 
       // Fetch recent deal events
@@ -144,6 +159,22 @@ export function EnhancedChecklistCard({
               aria-label="Toggle event history"
             >
               <Icon name="history" className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await fetch(`/api/deals/${dealId}/checklist/reconcile`, { method: "POST" });
+                  await refresh();
+                } catch (e) {
+                  console.error("Reconcile failed:", e);
+                }
+              }}
+              className="rounded-lg border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900"
+              aria-label="Reconcile checklist"
+              title="Re-scan documents and auto-match to checklist items"
+            >
+              <Icon name="sync" className="h-3 w-3" />
             </button>
             <button
               type="button"
