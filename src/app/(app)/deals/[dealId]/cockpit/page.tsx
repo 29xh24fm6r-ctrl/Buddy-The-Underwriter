@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect, notFound } from "next/navigation";
 import DealCockpitClient from "@/components/deals/DealCockpitClient";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +52,18 @@ export default async function DealCockpitPage({ params }: Props) {
     );  }
 
   if (!params?.dealId || params.dealId === "undefined") {
+    notFound();
+  }
+
+  // Verify the deal exists (prevents white screen / ghost URLs)
+  const sb = supabaseAdmin();
+  const { data: deal, error } = await sb
+    .from("deals")
+    .select("id")
+    .eq("id", params.dealId)
+    .maybeSingle();
+
+  if (error || !deal) {
     notFound();
   }
 
