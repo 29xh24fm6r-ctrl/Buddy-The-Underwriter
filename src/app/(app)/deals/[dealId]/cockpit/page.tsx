@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import DealCockpitClient from "@/components/deals/DealCockpitClient";
-import DealCockpitLoadingBar from "@/components/deals/DealCockpitLoadingBar";
+import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

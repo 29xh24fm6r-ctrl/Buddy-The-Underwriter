@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams } from "next/navigation";
 
 type Step =
   | "route"
@@ -19,7 +20,9 @@ type Probe =
     };
 
 export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
-  const dealId = props.dealId ?? null;
+  const routeParams = useParams();
+  const routeDealId = (routeParams as any)?.dealId as string | undefined;
+  const dealId = (props.dealId ?? routeDealId ?? null);
 
   // Validate UUID format
   const isValidUuid =
