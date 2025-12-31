@@ -32,25 +32,11 @@ export async function GET(
     const { dealId } = await ctx.params;
     const sb = supabaseAdmin();
 
+    // ✅ Only select columns that exist in deal_checklist_items schema
     const { data: items, error } = await sb
       .from("deal_checklist_items")
       .select(
-        [
-          "id",
-          "deal_id",
-          "checklist_key",
-          "title",
-          "description",
-          "required",
-          "status",
-          "received_at",
-          "received_file_id",
-          "created_at",
-          "updated_at",
-          "due_at",
-          "notes",
-          "sort_order",
-        ].join(","),
+        "id, deal_id, checklist_key, title, description, required, status, received_at, received_file_id, created_at"
       )
       .eq("deal_id", dealId);
 
@@ -73,22 +59,12 @@ export async function GET(
       // 1) required first
       if (a.required !== b.required) return a.required ? -1 : 1;
 
-      const aHas = typeof a.sort_order === "number";
-      const bHas = typeof b.sort_order === "number";
-
-      // 2) sort_order if present
-      if (aHas && bHas) {
-        if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
-      } else if (aHas !== bHas) {
-        return aHas ? -1 : 1;
-      }
-
-      // 3) created_at asc
+      // 2) created_at asc (earliest first)
       if (a.created_at && b.created_at && a.created_at !== b.created_at) {
         return String(a.created_at).localeCompare(String(b.created_at));
       }
 
-      // 4) stable tie-breaker
+      // 3) stable tie-breaker by checklist_key
       return String(a.checklist_key).localeCompare(String(b.checklist_key));
     });
 
