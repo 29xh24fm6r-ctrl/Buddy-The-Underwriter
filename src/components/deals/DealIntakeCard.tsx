@@ -95,7 +95,14 @@ export default function DealIntakeCard({
       console.log("[DealIntakeCard] Intake save response:", json);
       
       if (!res.ok || !json?.ok) {
-        setMatchMessage(`❌ Failed to save intake: ${json?.error || "Unknown error"}`);
+        // 🔥 Show truthful error messages based on error type
+        const errorMsg = json?.message || 
+          (json?.error === "tenant_mismatch" ? "You don't have access to this deal's bank" :
+           json?.error === "bank_context_missing" ? "No bank membership found for your user" :
+           json?.error === "deal_not_found" ? "Deal not found in this environment" :
+           json?.error || "Unknown error");
+        
+        setMatchMessage(`❌ Failed to save intake: ${errorMsg}`);
         setSaving(false);
         return;
       }

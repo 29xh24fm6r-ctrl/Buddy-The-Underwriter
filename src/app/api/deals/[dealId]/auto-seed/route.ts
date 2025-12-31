@@ -2,14 +2,12 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { buildChecklistForLoanType } from "@/lib/deals/checklistPresets";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-type Ctx = { params: Promise<{ dealId: string }> };
 
 /**
  * 🔥 CANONICAL AUTO-SEED ENDPOINT
@@ -22,10 +20,41 @@ type Ctx = { params: Promise<{ dealId: string }> };
  * 
  * Returns deterministic status, UI renders accordingly.
  */
-export async function POST(req: Request, ctx: Ctx) {
+export async function POST(req: Request, ctx: any) {
   try {
-    const { dealId } = await ctx.params;
-    const bankId = await getCurrentBankId();
+    const params = ctx?.params?.then ? await ctx.params : ctx.params;
+    const dealId = params?.dealId;
+    if (!dealId) {
+      return NextResponse.json(
+        { ok: false, error: "invalid_deal_id" },
+        { status: 400 },
+      );
+    }
+
+    // 🔥 Bank-grade deal+bank enforcement (same contract as /context)
+    const ensured = await ensureDealBankAccess(dealId);
+    if (!ensured.ok) {
+      const statusCode = 
+        ensured.error === "deal_not_found" ? 404 :
+        ensured.error === "tenant_mismatch" ? 403 :
+        400;
+      
+      return NextResponse.json(
+        { 
+          ok: false, 
+          error: ensured.error,
+          message: 
+            ensured.error === "tenant_mismatch" ? "You don't have access to this deal's bank" :
+            ensured.error === "bank_context_missing" ? "No bank membership found for your user" :
+            ensured.error === "deal_not_found" ? "Deal not found in this environment" :
+            "Failed to ensure bank access",
+          details: ensured.details,
+        },
+        { status: statusCode },
+      );
+    }
+
+    const bankId = ensured.bankId;
     const sb = supabaseAdmin();
 
     console.log("[auto-seed] Processing request for dealId:", dealId);

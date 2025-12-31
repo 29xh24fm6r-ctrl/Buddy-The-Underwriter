@@ -9,7 +9,7 @@ import {
 } from "@/lib/deals/checklistPresets";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
 import { writeEvent } from "@/lib/ledger/writeEvent";
-import { ensureDealHasBank } from "@/lib/banks/ensureDealHasBank";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ type Body = {
 
 export async function POST(
   req: Request,
-  ctx: { params: { dealId: string } },
+  ctx: any,
 ) {
   try {
     const { userId } = await auth();
@@ -34,7 +34,14 @@ export async function POST(
         { status: 401 },
       );
 
-    const { dealId } = ctx.params;
+    const params = ctx?.params?.then ? await ctx.params : ctx.params;
+    const dealId = params?.dealId;
+    if (!dealId) {
+      return NextResponse.json(
+        { ok: false, error: "invalid_deal_id" },
+        { status: 400 },
+      );
+    }
     const body = (await req.json().catch(() => null)) as Body | null;
 
   const loanType = body?.loanType;
@@ -56,18 +63,30 @@ export async function POST(
 
   const sb = supabaseAdmin();
 
-  // Ensure deal has bank context (assign default bank if missing)
-  let bankId: string;
-  try {
-    const ensured = await ensureDealHasBank({ supabase: sb, dealId });
-    bankId = ensured.bankId;
-  } catch (e: any) {
-    console.error("[/api/deals/[dealId]/intake/set] ensureDealHasBank failed", e);
+  // 🔥 Bank-grade deal+bank enforcement (same contract as /context)
+  const ensured = await ensureDealBankAccess(dealId);
+  if (!ensured.ok) {
+    const statusCode = 
+      ensured.error === "deal_not_found" ? 404 :
+      ensured.error === "tenant_mismatch" ? 403 :
+      400;
+    
     return NextResponse.json(
-      { ok: false, error: "Deal not found or missing bank context", details: e?.message ?? String(e) },
-      { status: 400 },
+      { 
+        ok: false, 
+        error: ensured.error,
+        message: 
+          ensured.error === "tenant_mismatch" ? "You don't have access to this deal's bank" :
+          ensured.error === "bank_context_missing" ? "No bank membership found for your user" :
+          ensured.error === "deal_not_found" ? "Deal not found in this environment" :
+          "Failed to ensure bank access",
+        details: ensured.details,
+      },
+      { status: statusCode },
     );
   }
+
+  const bankId = ensured.bankId;
 
   const { error: upErr } = await sb
     .from("deal_intake")
