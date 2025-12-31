@@ -13,7 +13,7 @@ type ProbeOk = {
   server_ts: string;
 };
 
-type ProbeErr = { ok: false; error: string; details?: string | null; dealId?: string | null };
+type ProbeErr = { ok: false; error: string; details?: string | null; dealId?: string | null; hint?: string };
 
 export async function GET(req: NextRequest, ctx: { params: { dealId: string } }) {
   try {
@@ -22,7 +22,10 @@ export async function GET(req: NextRequest, ctx: { params: { dealId: string } })
       return NextResponse.json({ ok: false, error: "invalid_deal_id", dealId: dealId ?? null } satisfies ProbeErr, { status: 400 });
     }
 
-    const bankId = await getCurrentBankId(); // may throw / may be null depending on your impl
+    const bankId = await getCurrentBankId().catch((e) => {
+      console.error(`[context] getCurrentBankId failed for dealId ${dealId}:`, e);
+      return null;
+    });
     const sb = supabaseAdmin();
 
     // 1) Load deal by id first (do NOT filter by bank_id here — we validate after)
@@ -41,8 +44,26 @@ export async function GET(req: NextRequest, ctx: { params: { dealId: string } })
 
     if (!deal) {
       return NextResponse.json(
-        { ok: false, error: "deal_not_found", dealId } satisfies ProbeErr,
+        { 
+          ok: false, 
+          error: "deal_not_found", 
+          dealId,
+          hint: "This dealId does not exist in the connected Supabase environment. Verify Vercel env vars point to the intended Supabase project."
+        } satisfies ProbeErr,
         { status: 404 }
+      );
+    }
+
+    // Check if we have bank context
+    if (!bankId && !deal.bank_id) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "bank_context_missing",
+          dealId,
+          hint: "Signed-in user has no bank context yet. Auto-provisioning should have created one - check getCurrentBankId() logs."
+        } satisfies ProbeErr,
+        { status: 400 }
       );
     }
 
