@@ -6,6 +6,20 @@ import type { DealContext } from "@/lib/deals/contextTypes";
 
 export const dynamic = "force-dynamic";
 
+function dealIdFromReq(req: NextRequest): string | null {
+  // /api/deals/<dealId>/context
+  const m = req.nextUrl.pathname.match(/\/api\/deals\/([^/]+)\/context(?:\/|$)/);
+  return m?.[1] ? m[1] : null;
+}
+
+async function resolveParams(ctx: any): Promise<{ dealId?: string }> {
+  // Next 15 can deliver params as object OR Promise depending on route compilation/runtime.
+  const p = ctx?.params;
+  if (!p) return {};
+  if (typeof p.then === "function") return await p;
+  return p;
+}
+
 type ProbeOk = {
   ok: true;
   deal: { id: string; bank_id: string | null; created_at: string | null };
@@ -13,11 +27,14 @@ type ProbeOk = {
   server_ts: string;
 };
 
-type ProbeErr = { ok: false; error: string; details?: string | null; dealId?: string | null; hint?: string };
+type ProbeErr = { ok: false; error: string; details?: string | null; dealId?: string | null; hint?: string; received_path?: string };
 
-export async function GET(req: NextRequest, ctx: { params: { dealId: string } }) {
+export async function GET(req: NextRequest, ctx: any) {
   try {
-    const dealId = ctx.params?.dealId;
+    const params = await resolveParams(ctx);
+    const dealId =
+      (typeof params?.dealId === "string" ? params.dealId : null) ??
+      dealIdFromReq(req);
     
     // ✅ Always validate and echo the received dealId (never return null here).
     if (typeof dealId !== "string" || !dealId || dealId === "undefined" || dealId === "null") {
@@ -26,6 +43,7 @@ export async function GET(req: NextRequest, ctx: { params: { dealId: string } })
           ok: false,
           error: "invalid_deal_id",
           dealId: dealId ?? "(missing)",
+          received_path: req.nextUrl.pathname,
           hint:
             "Client called /context without a valid dealId. This usually indicates a race where the UI fired the probe before dealId was latched.",
         } satisfies ProbeErr,
