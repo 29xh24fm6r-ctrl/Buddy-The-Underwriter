@@ -26,15 +26,34 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
   const [pipelineOk, setPipelineOk] = useState<boolean | null>(null);
   const [lastOkAt, setLastOkAt] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [ctxStatus, setCtxStatus] = useState<number | null>(null);
+  const [pulse, setPulse] = useState<number>(0);
+  const [lastChangeAt, setLastChangeAt] = useState<number | null>(null);
 
   const startedAtRef = useRef<number>(Date.now());
   const elapsedMs = Date.now() - startedAtRef.current;
+  const lastSnapshotRef = useRef<string>("");
+  const pollMsRef = useRef<number>(2000);
 
   const badge = useMemo(() => {
     const secs = Math.floor(elapsedMs / 1000);
     const lastOk = lastOkAt ? `${Math.floor((Date.now() - lastOkAt) / 1000)}s ago` : "—";
-    return { secs, lastOk };
-  }, [elapsedMs, lastOkAt]);
+    const lastChange = lastChangeAt ? `${Math.floor((Date.now() - lastChangeAt) / 1000)}s ago` : "—";
+    return { secs, lastOk, lastChange };
+  }, [elapsedMs, lastOkAt, lastChangeAt]);
+
+  const debugBundle = useMemo(() => {
+    return {
+      dealId,
+      step,
+      ctxStatus,
+      pipelineOk,
+      lastOkAt,
+      lastChangeAt,
+      probe,
+      client_ts: new Date().toISOString(),
+    };
+  }, [dealId, step, ctxStatus, pipelineOk, lastOkAt, lastChangeAt, probe]);
 
   useEffect(() => {
     // Route param step
@@ -53,20 +72,33 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
     const poll = async () => {
       try {
         setErr(null);
+        setPulse((p) => (p + 1) % 1000000);
 
         // 1) Context probe (deal exists + bank context)
         setStep("context");
         const r = await fetch(`/api/deals/${dealId}/context`, { cache: "no-store" });
+        if (!alive) return;
+        setCtxStatus(r.status);
         const j = (await r.json()) as Probe;
         if (!alive) return;
         setProbe(j);
 
+        // detect meaningful changes for "since last change"
+        const snapshot = JSON.stringify({ ctxStatus: r.status, j, pipelineOk });
+        if (snapshot !== lastSnapshotRef.current) {
+          lastSnapshotRef.current = snapshot;
+          setLastChangeAt(Date.now());
+        }
+
         if (!r.ok || !("ok" in j) || j.ok === false) {
           setErr((j as any)?.error ?? `context_failed_${r.status}`);
+          pollMsRef.current = 2000; // stay aggressive while failing
           return;
         }
 
         setLastOkAt(Date.now());
+        // backoff when healthy (2s → 5s → 10s max)
+        pollMsRef.current = pollMsRef.current >= 10000 ? 10000 : pollMsRef.current === 2000 ? 5000 : 10000;
 
         // 2) Pipeline health (non-fatal if missing, but tells us the app is alive)
         setStep("pipeline");
@@ -84,12 +116,13 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
       } catch (e: any) {
         if (!alive) return;
         setErr(e?.message ?? String(e));
+        pollMsRef.current = 2000;
       }
     };
 
-    // immediate + interval
+    // immediate + adaptive interval
     void poll();
-    const t = setInterval(poll, 2000);
+    const t = setInterval(() => void poll(), pollMsRef.current);
     return () => {
       alive = false;
       clearInterval(t);
@@ -118,11 +151,16 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
     <div className="sticky top-0 z-[60] border-b border-neutral-800 bg-black/60 backdrop-blur">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-2">
         <div className="flex items-center gap-2">
+          <span
+            className="inline-block h-2 w-2 rounded-full bg-emerald-400/70"
+            style={{ opacity: 0.35 + (pulse % 2) * 0.35 }}
+            title="polling heartbeat"
+          />
           <div className="text-sm font-semibold text-neutral-100">
             Resolving deal context
           </div>
           <div className="text-xs text-neutral-400">
-            {badge.secs}s • last ok {badge.lastOk}
+            {badge.secs}s • last ok {badge.lastOk} • ctx {ctxStatus ?? "—"}
           </div>
         </div>
 
@@ -134,6 +172,21 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
 
           <button
             type="button"
+
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(JSON.stringify(debugBundle, null, 2));
+              } catch {
+                // ignore
+              }
+            }}
+            className="rounded-full border border-neutral-800 bg-neutral-950/40 px-3 py-1 text-xs text-neutral-200 hover:bg-neutral-900"
+            title="Copies dealId + probe payload + pipeline health"
+          >
+            Copy debug
+          </button>
             onClick={() => window.location.reload()}
             className="rounded-full border border-neutral-800 bg-neutral-950/40 px-3 py-1 text-xs text-neutral-200 hover:bg-neutral-900"
           >
