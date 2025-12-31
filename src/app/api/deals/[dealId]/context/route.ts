@@ -18,8 +18,19 @@ type ProbeErr = { ok: false; error: string; details?: string | null; dealId?: st
 export async function GET(req: NextRequest, ctx: { params: { dealId: string } }) {
   try {
     const dealId = ctx.params?.dealId;
-    if (!dealId || dealId === "undefined") {
-      return NextResponse.json({ ok: false, error: "invalid_deal_id", dealId: dealId ?? null } satisfies ProbeErr, { status: 400 });
+    
+    // ✅ Always validate and echo the received dealId (never return null here).
+    if (typeof dealId !== "string" || !dealId || dealId === "undefined" || dealId === "null") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "invalid_deal_id",
+          dealId: dealId ?? "(missing)",
+          hint:
+            "Client called /context without a valid dealId. This usually indicates a race where the UI fired the probe before dealId was latched.",
+        } satisfies ProbeErr,
+        { status: 400 }
+      );
     }
 
     const bankId = await getCurrentBankId().catch((e) => {

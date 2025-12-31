@@ -1,63 +1,27 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, usePathname } from "next/navigation";
 
-function coerceDealId(x: unknown): string | null {
-  if (typeof x !== "string") return null;
-  const v = x.trim();
-  return v.length ? v : null;
-}
-
-function dealIdFromPath(pathname: string | null): string | null {
-  if (!pathname) return null;
-  const m = pathname.match(/\/deals\/([^/]+)\/cockpit(?:\/|$)/);
-  return m?.[1] ? m[1] : null;
-}
-
-type Step = "route" | "context" | "pipeline" | "ready";
+type Step =
+  | "route"
+  | "auth"
+  | "context"
+  | "pipeline"
+  | "ready";
 
 type Probe =
   | { ok: false; error: string; details?: string | null; dealId?: string | null }
   | {
       ok: true;
-      deal: { id: string; bank_id: string | null; created_at: string | null };
-      ensured_bank: { ok: true; bankId: string; updated: boolean } | null;
+      deal: { id: string; bank_id: string | null; created_at: string };
+      ensured_bank: { ok: true; bankId: string; updated: boolean };
       server_ts: string;
-      // legacy fields can coexist (dealId/stage/borrower/etc)
-      [k: string]: any;
-    }
-  // legacy /context shape (no ok field)
-  | { dealId: string; [k: string]: any };
+    };
 
 export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
-  const params = useParams<{ dealId?: string }>();
-  const pathname = usePathname();
+  const dealId = props.dealId ?? null;
 
-  const resolvedDealId = useMemo(() => {
-    // 1) Props (authoritative from server page)
-    const fromProps = coerceDealId(props.dealId);
-    if (fromProps) return fromProps;
-
-    // 2) Router params (best effort)
-    const fromParams = coerceDealId(params?.dealId);
-    if (fromParams) return fromParams;
-
-    // 3) Pathname fallback (bulletproof)
-    const fromPath = coerceDealId(dealIdFromPath(pathname));
-    if (fromPath) return fromPath;
-
-    return null;
-  }, [props.dealId, params?.dealId, pathname]);
-
-  // ✅ Latch: once we have a real dealId, never allow it to drop back to null
-  // (prevents fetches to /api/deals/null/context during hydration/transitions)
-  const latchedDealIdRef = useRef<string | null>(null);
-  if (resolvedDealId && !latchedDealIdRef.current) {
-    latchedDealIdRef.current = resolvedDealId;
-  }
-  const dealId = latchedDealIdRef.current;
-
+  // Validate UUID format
   const isValidUuid =
     !!dealId &&
     dealId !== "undefined" &&
@@ -71,34 +35,35 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
   const [ctxStatus, setCtxStatus] = useState<number | null>(null);
   const [pulse, setPulse] = useState<number>(0);
   const [lastChangeAt, setLastChangeAt] = useState<number | null>(null);
+  const [now, setNow] = useState<number>(() => Date.now());
 
   const startedAtRef = useRef<number>(Date.now());
-  const [now, setNow] = useState<number>(() => Date.now()); // timer tick
   const elapsedMs = now - startedAtRef.current;
-
   const lastSnapshotRef = useRef<string>("");
   const pollMsRef = useRef<number>(2000);
-  const timerRef = useRef<any>(null);
 
-  // 1s UI timer tick (independent of polling)
+  // ✅ Real UI timer: forces re-render so seconds/last ok/last change update live
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, []);
+
+  // 🔥 REAL TIMER: forces re-render so secs/lastOk/lastChange update live
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(t);
   }, []);
 
   const badge = useMemo(() => {
     const secs = Math.floor(elapsedMs / 1000);
-    const lastOk = lastOkAt ? `${Math.floor((Date.now() - lastOkAt) / 1000)}s ago` : "—";
-    const lastChange = lastChangeAt ? `${Math.floor((Date.now() - lastChangeAt) / 1000)}s ago` : "—";
+    const lastOk = lastOkAt ? `${Math.floor((now - lastOkAt) / 1000)}s ago` : "—";
+    const lastChange = lastChangeAt ? `${Math.floor((now - lastChangeAt) / 1000)}s ago` : "—";
     return { secs, lastOk, lastChange };
-  }, [elapsedMs, lastOkAt, lastChangeAt]);
+  }, [elapsedMs, lastOkAt, lastChangeAt, now]);
 
   const debugBundle = useMemo(() => {
     return {
       dealId,
-      resolvedDealId,
-      latchedDealId: latchedDealIdRef.current,
-      requested_url: dealId ? `/api/deals/${dealId}/context` : null,
       step,
       ctxStatus,
       pipelineOk,
@@ -107,7 +72,7 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
       probe,
       client_ts: new Date().toISOString(),
     };
-  }, [dealId, resolvedDealId, step, ctxStatus, pipelineOk, lastOkAt, lastChangeAt, probe]);
+  }, [dealId, step, ctxStatus, pipelineOk, lastOkAt, lastChangeAt, probe]);
 
   const handleCopyDebug = async () => {
     try {
@@ -117,69 +82,53 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
     }
   };
 
-  // Auto-advance from 'route' when dealId becomes valid
+  // Auto-advance from 'route' step when we get a valid dealId
   useEffect(() => {
-    if (isValidUuid && step === "route") setStep("context");
+    if (isValidUuid && step === "route") {
+      setStep("context");
+    }
   }, [isValidUuid, step]);
 
-  // Poller (adaptive)
+  // Poll context + pipeline for health
   useEffect(() => {
     let alive = true;
-    // ✅ Never fetch with null/undefined dealId (prevents /api/deals/null/context)
-    if (!dealId || dealId === "undefined" || dealId === "null") return;
+    if (!dealId || dealId === "undefined") return;
 
     const poll = async () => {
       try {
         setErr(null);
         setPulse((p) => (p + 1) % 1000000);
 
+        // 1) Context probe (deal exists + bank context)
         setStep("context");
-        const url = `/api/deals/${encodeURIComponent(dealId)}/context`;
-        const r = await fetch(url, { cache: "no-store" });
+        const r = await fetch(`/api/deals/${dealId}/context`, { cache: "no-store" });
         if (!alive) return;
-
         setCtxStatus(r.status);
         const j = (await r.json()) as Probe;
         if (!alive) return;
         setProbe(j);
 
+        // detect meaningful changes for "since last change"
         const snapshot = JSON.stringify({ ctxStatus: r.status, j, pipelineOk });
         if (snapshot !== lastSnapshotRef.current) {
           lastSnapshotRef.current = snapshot;
           setLastChangeAt(Date.now());
         }
 
-        // HTTP failure
-        if (!r.ok) {
-          setErr(`http_${r.status}`);
-          pollMsRef.current = 2000;
-          return;
-        }
-
-        // If new shape says ok:false, honor it
-        if ((j as any)?.ok === false) {
+        if (!r.ok || !("ok" in j) || j.ok === false) {
           setErr((j as any)?.error ?? `context_failed_${r.status}`);
-          pollMsRef.current = 2000;
-          return;
-        }
-
-        // Legacy shape: treat presence of dealId as success
-        const legacyOk = !!(j as any)?.dealId;
-        const newOk = (j as any)?.ok === true;
-
-        if (!legacyOk && !newOk) {
-          setErr(`context_unrecognized_shape_${r.status}`);
-          pollMsRef.current = 2000;
+          pollMsRef.current = 2000; // stay aggressive while failing
           return;
         }
 
         setLastOkAt(Date.now());
+        // backoff when healthy (2s → 5s → 10s max)
         pollMsRef.current = pollMsRef.current >= 10000 ? 10000 : pollMsRef.current === 2000 ? 5000 : 10000;
 
+        // 2) Pipeline health (non-fatal if missing, but tells us the app is alive)
         setStep("pipeline");
         try {
-          const pipelineUrl = `/api/deals/${encodeURIComponent(dealId)}/pipeline/latest`;
-          const pr = await fetch(pipelineUrl, { cache: "no-store" });
+          const pr = await fetch(`/api/deals/${dealId}/pipeline/latest`, { cache: "no-store" });
           if (!alive) return;
           setPipelineOk(pr.ok);
         } catch {
@@ -187,37 +136,33 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
           setPipelineOk(false);
         }
 
+        // If we got here, we're "ready enough" (at least backend is responding)
         setStep("ready");
       } catch (e: any) {
         if (!alive) return;
         setErr(e?.message ?? String(e));
         pollMsRef.current = 2000;
-      } finally {
-        // adaptive reschedule (setTimeout, not setInterval)
-        if (!alive) return;
-        clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => void poll(), pollMsRef.current);
       }
     };
 
-    void poll();
+    // ✅ immediate + truly adaptive scheduling (interval can't change after creation)
+    let timeout: any = null;
+    const loop = async () => {
+      await poll();
+      if (!alive) return;
+      timeout = setTimeout(loop, pollMsRef.current);
+    };
+    void loop();
     return () => {
       alive = false;
-      clearTimeout(timerRef.current);
+      if (timeout) clearTimeout(timeout);
     };
-  }, [dealId, pipelineOk]);
+  }, [dealId]);
 
-  // Pills
+  // Derived health pills
   const routeOk = isValidUuid;
-
-  const ctxOk = probe
-    ? ((probe as any).ok === true || !!(probe as any).dealId)
-    : false;
-
-  const bankOk =
-    probe && (probe as any)?.deal && typeof (probe as any)?.deal?.bank_id !== "undefined"
-      ? !!(probe as any).deal.bank_id
-      : null;
+  const ctxOk = probe && "ok" in probe && probe.ok === true ? true : false;
+  const bankOk = ctxOk && probe.ok ? (probe.deal?.bank_id ? true : false) : null;
 
   const pill = (label: string, ok: boolean | null) => {
     const color = ok === true ? "emerald" : ok === false ? "red" : "neutral";
@@ -247,14 +192,19 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
             style={{ opacity: 0.35 + (pulse % 2) * 0.35 }}
             title="polling heartbeat"
           />
-          <div className="text-sm font-semibold text-neutral-100">Resolving deal context</div>
+          <div className="text-sm font-semibold text-neutral-100">
+            Resolving deal context
+          </div>
           <div className="text-xs text-neutral-400">
             {badge.secs}s • last ok {badge.lastOk} • ctx {ctxStatus ?? "—"}
           </div>
         </div>
 
         <div className="hidden md:block text-[11px] text-neutral-500">
-          bar.dealId: <span className="font-mono text-neutral-400">{dealId || "null"}</span>
+          bar.dealId:{" "}
+          <span className="font-mono text-neutral-400">
+            {dealId || "null"}
+          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -282,13 +232,14 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
         </div>
       </div>
 
+      {/* Detail strip */}
       <div className="mx-auto w-full max-w-7xl px-4 pb-2">
         {err ? (
           <div className="rounded-xl border border-red-800 bg-red-950/30 p-2 text-xs text-red-200">
             <div className="font-semibold">Still working…</div>
             <div className="mt-1">
               {err}
-              {(probe as any)?.details ? ` • ${(probe as any).details}` : ""}
+              {probe && (probe as any)?.details ? ` • ${(probe as any).details}` : ""}
             </div>
           </div>
         ) : step !== "ready" ? (
@@ -312,5 +263,4 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
   );
 }
 
-// ✅ default export so both import styles work
 export default DealCockpitLoadingBar;
