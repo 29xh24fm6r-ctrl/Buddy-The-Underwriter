@@ -41,7 +41,9 @@ export default function DealIntakeCard({
     );
   }
 
-  console.log("🔴 DealIntakeCard MOUNTED - dealId:", dealId);
+  if (process.env.NODE_ENV !== "production") {
+    console.log("🔴 DealIntakeCard MOUNTED - dealId:", dealId);
+  }
   
   const [intake, setIntake] = useState<Intake>({
     loan_type: "CRE_OWNER_OCCUPIED",

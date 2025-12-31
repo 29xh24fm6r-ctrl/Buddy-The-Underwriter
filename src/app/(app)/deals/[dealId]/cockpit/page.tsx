@@ -48,7 +48,10 @@ export default async function DealCockpitPage({ params }: Props) {
           </div>
         </div>
       </div>
-    );
+    );  }
+
+  if (!params?.dealId || params.dealId === "undefined") {
+    throw new Error(`[DealCockpitPage] invalid dealId param: ${String(params?.dealId)}`);
   }
 
   return <DealCockpitClient dealId={params.dealId} />;
