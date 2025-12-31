@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import DealCockpitClient from "@/components/deals/DealCockpitClient";
+import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,14 +25,18 @@ export default async function DealCockpitPage({ params }: Props) {
 
   const dealId = params?.dealId;
 
-  // Soft fallback for hydration issues (DO NOT hard-404 here)
+  // 🚫 Do NOT throw/notFound here — client transitions can briefly yield undefined params.
+  // Instead render a live status bar + safe loading shell.
   if (!dealId || dealId === "undefined") {
     return (
-      <div className="container mx-auto p-6">
-        <h1 className="text-2xl font-bold">Loading deal…</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Resolving deal context. If this persists, refresh the page.
-        </p>
+      <div className="min-h-[60vh]">
+        <DealCockpitLoadingBar dealId={dealId ?? null} />
+        <div className="container mx-auto p-6">
+          <h1 className="text-2xl font-bold text-neutral-100">Loading deal…</h1>
+          <p className="mt-2 text-sm text-neutral-400">
+            Resolving deal context. If this persists, click <span className="font-semibold">Hard refresh</span> above.
+          </p>
+        </div>
       </div>
     );
   }

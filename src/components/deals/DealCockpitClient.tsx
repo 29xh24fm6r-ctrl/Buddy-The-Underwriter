@@ -11,6 +11,7 @@ import { EnhancedChecklistCard } from "@/components/deals/EnhancedChecklistCard"
 import { UnderwritingControlPanel } from "@/components/deals/UnderwritingControlPanel";
 import { SafeBoundary } from "@/components/SafeBoundary";
 import { PipelineIndicator } from "@/components/deals/PipelineStatus";
+import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
 
 /**
  * 🔥 CRITICAL FIX: Client wrapper for Deal Cockpit
@@ -35,7 +36,10 @@ export default function DealCockpitClient({ dealId }: { dealId: string }) {
   }, [checklistRefresh]);
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="min-h-[70vh]">
+      {/* Always show live status at top (proves app is working while cards load). */}
+      <DealCockpitLoadingBar dealId={dealId} />
+      <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Deal Cockpit</h1>
         <PipelineIndicator dealId={dealId} />
