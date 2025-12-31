@@ -88,12 +88,12 @@ export async function POST(
 
   const bankId = ensured.bankId;
 
+  // Update deal_intake (NOTE: deal_intake table does NOT have bank_id column - it's on deals table)
   const { error: upErr } = await sb
     .from("deal_intake")
     .upsert(
       {
         deal_id: dealId,
-        bank_id: bankId,
         loan_type: loanType,
         sba_program: sbaProgram,
         borrower_name: body?.borrowerName ?? null,
