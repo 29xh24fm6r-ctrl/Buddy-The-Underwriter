@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Force dynamic rendering to skip static page generation during build
+  output: 'standalone',
+  
   // Reduce memory during production builds (webpack)
   productionBrowserSourceMaps: false,
   
