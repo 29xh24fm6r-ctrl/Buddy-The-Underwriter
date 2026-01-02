@@ -4,6 +4,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { matchChecklistKeyFromFilename } from "@/lib/checklist/matchers";
 import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { recomputeDealReady } from "@/lib/deals/readiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -138,8 +139,26 @@ export async function POST(req: NextRequest, ctx: Context) {
       metadata: {},
     });
 
+    // 🔥 FINALIZE: Mark document as fully processed and safe to reconcile
+    await sb
+      .from("deal_documents")
+      .update({ finalized_at: new Date().toISOString() })
+      .eq("id", file_id);
+
+    // 🔥 LEDGER: Log finalization
+    await sb.from("deal_pipeline_ledger").insert({
+      deal_id: dealId,
+      bank_id: deal.bank_id,
+      stage: "upload",
+      status: "completed",
+      payload: { document_id: file_id, filename: original_filename },
+    } as any);
+
     // Reconcile entire checklist (year-aware satisfaction + status updates)
     await reconcileChecklistForDeal({ sb, dealId });
+
+    // 🧠 CONVERGENCE: Recompute deal readiness
+    await recomputeDealReady(dealId);
 
     // Emit ledger event
     await writeEvent({

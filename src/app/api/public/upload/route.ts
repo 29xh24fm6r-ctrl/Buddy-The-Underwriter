@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { constantTimeEqual, hashPassword, sha256 } from "@/lib/security/tokens";
 import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { recomputeDealReady } from "@/lib/deals/readiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -198,6 +199,12 @@ export async function POST(req: Request) {
       metadata: {},
     });
 
+    // 🔥 FINALIZE: Mark document as fully processed
+    await supabaseAdmin()
+      .from("deal_documents")
+      .update({ finalized_at: new Date().toISOString() })
+      .eq("id", docRow.id);
+
     // Note: reconcile will be called once after all files processed (see below)
 
     // 5) Audit trail (view-backed or table-backed depending on your schema)
@@ -242,6 +249,8 @@ export async function POST(req: Request) {
   if (successCount > 0) {
     try {
       await reconcileChecklistForDeal({ sb: supabaseAdmin(), dealId });
+      // 🧠 CONVERGENCE: Recompute deal readiness
+      await recomputeDealReady(dealId);
     } catch (e) {
       console.error("Reconcile failed (non-blocking):", e);
     }

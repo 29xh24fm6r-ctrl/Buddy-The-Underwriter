@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { emitChecklistRefresh } from "@/lib/events/uiEvents";
 
 type LoanType = "CRE" | "CRE_OWNER_OCCUPIED" | "CRE_INVESTOR" | "CRE_OWNER_OCCUPIED_WITH_RENT" | "LOC" | "TERM" | "SBA_7A" | "SBA_504";
 
@@ -119,6 +120,17 @@ export default function DealIntakeCard({
         const seedJson = await seedRes.json();
         console.log("[DealIntakeCard] Auto-seed response:", seedJson);
 
+        // Handle 409: uploads still processing
+        if (seedRes.status === 409) {
+          setMatchMessage(
+            `⏳ Still processing ${seedJson.remaining || "some"} upload(s)\n\n` +
+            `Please wait for all uploads to finish before auto-seeding.\n` +
+            `The checklist will auto-update when uploads complete.`
+          );
+          setAutoSeeding(false);
+          return;
+        }
+
         if (seedJson.ok) {
           const summary = seedJson.checklist || {};
           setMatchMessage(
@@ -128,6 +140,10 @@ export default function DealIntakeCard({
             `• Files matched: ${summary.matched || 0}\n` +
             `\nRefreshing page in 2 seconds...`
           );
+          
+          // 🔥 Emit checklist refresh event for auto-updates
+          console.log("[DealIntakeCard] Emitting checklist refresh event");
+          emitChecklistRefresh(dealId);
           
           // 🔥 CRITICAL FIX: Trigger checklist refresh
           if (onChecklistSeeded) {

@@ -6,6 +6,7 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildChecklistForLoanType } from "@/lib/deals/checklistPresets";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { recomputeDealReady } from "@/lib/deals/readiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,36 @@ export async function POST(req: Request, ctx: Ctx) {
     const sb = supabaseAdmin();
 
     console.log("[auto-seed] Processing request for dealId:", dealId);
+
+    // 🔒 HARD GATE: Block if uploads still processing
+    const { count: inFlight } = await sb
+      .from("deal_documents")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .is("finalized_at", null);
+
+    if (inFlight && inFlight > 0) {
+      console.warn("[auto-seed] Blocked: uploads still processing", { inFlight });
+      
+      // 🔥 LEDGER: Log blocking event
+      await sb.from("deal_pipeline_ledger").insert({
+        deal_id: dealId,
+        bank_id: bankId,
+        stage: "auto_seed",
+        status: "blocked",
+        payload: { remaining: inFlight },
+      } as any);
+
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Uploads still processing",
+          remaining: inFlight,
+          status: "blocked",
+        },
+        { status: 409 }
+      );
+    }
 
     // 1️⃣ Get deal intake info (loan_type lives in deal_intake table, NOT deals table)
     const { data: intake, error: intakeErr } = await sb
@@ -222,6 +253,9 @@ export async function POST(req: Request, ctx: Ctx) {
     // - consistent status updates
     // - prevents UI staleness after save + auto-seed
     await reconcileChecklistForDeal({ sb, dealId });
+
+    // 🧠 CONVERGENCE: Recompute deal readiness after auto-seed
+    await recomputeDealReady(dealId);
 
 
     return NextResponse.json({

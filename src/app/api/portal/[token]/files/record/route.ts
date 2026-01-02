@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { recomputeDealReady } from "@/lib/deals/readiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -147,7 +148,16 @@ export async function POST(req: NextRequest, ctx: Context) {
       metadata: inserted.metadata,
     });
 
+    // 🔥 FINALIZE: Mark document as fully processed
+    await sb
+      .from("deal_documents")
+      .update({ finalized_at: new Date().toISOString() })
+      .eq("id", inserted.id);
+
     await reconcileChecklistForDeal({ sb, dealId });
+
+    // 🧠 CONVERGENCE: Recompute deal readiness
+    await recomputeDealReady(dealId);
 
     // Emit ledger event (no actorUserId for borrower uploads)
     await writeEvent({

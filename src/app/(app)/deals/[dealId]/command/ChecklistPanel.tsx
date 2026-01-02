@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { UI_EVENT_CHECKLIST_REFRESH } from "@/lib/events/uiEvents";
 
 type ChecklistItem = {
   id: string;
@@ -10,6 +11,8 @@ type ChecklistItem = {
   required: boolean;
   receivedAt?: string | null;
   status?: string | null;
+  matchConfidence?: number | null;
+  matchReason?: string | null;
 };
 
 type ChecklistBucket = {
@@ -22,6 +25,7 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
   const [checklist, setChecklist] = useState<ChecklistBucket | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
 
   const fetchChecklist = React.useCallback(async () => {
     try {
@@ -39,6 +43,7 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
       }
 
       setChecklist(data.checklist || { received: [], pending: [], optional: [] });
+      setLastUpdatedAt(new Date().toISOString());
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
@@ -48,7 +53,22 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
 
   useEffect(() => {
     fetchChecklist();
-  }, [fetchChecklist]);
+    const onVis = () => {
+      if (document.visibilityState === "visible") fetchChecklist();
+    };
+    const onEvt = (e: any) => {
+      const d = e?.detail?.dealId;
+      if (!d || d === dealId) fetchChecklist();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener(UI_EVENT_CHECKLIST_REFRESH, onEvt as any);
+    const t = window.setInterval(fetchChecklist, 15000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener(UI_EVENT_CHECKLIST_REFRESH, onEvt as any);
+      window.clearInterval(t);
+    };
+  }, [dealId, fetchChecklist]);
 
   if (loading) {
     return (
@@ -103,7 +123,12 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white">
       <div className="flex items-center justify-between p-4 border-b border-gray-200">
-        <h3 className="text-sm font-semibold text-gray-900">Document Checklist</h3>
+        <div className="flex flex-col">
+          <h3 className="text-sm font-semibold text-gray-900">Document Checklist</h3>
+          {lastUpdatedAt && (
+            <div className="text-xs text-gray-500">Updated just now</div>
+          )}
+        </div>
         <button
           onClick={fetchChecklist}
           className="text-xs text-blue-600 hover:text-blue-700 underline"
