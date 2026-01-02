@@ -92,8 +92,9 @@ Response:
 ```
 
 ### Database Table (SQL Required)
+**Run in Supabase SQL Editor:**
 ```sql
-CREATE TABLE borrower_request_packs (
+CREATE TABLE IF NOT EXISTS public.borrower_request_packs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   bank_id uuid NOT NULL,
   deal_id uuid NOT NULL,
@@ -111,6 +112,11 @@ CREATE TABLE borrower_request_packs (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS idx_borrower_request_packs_deal 
+  ON public.borrower_request_packs(deal_id);
+
+ALTER TABLE public.borrower_request_packs ENABLE ROW LEVEL SECURITY;
 ```
 
 ---
@@ -211,10 +217,13 @@ Response:
 ```
 
 ### Database Table (SQL Required)
+**Run in Supabase SQL Editor:**
 ```sql
-CREATE TABLE deal_pipeline_ledger (
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.deal_pipeline_ledger (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  bank_id uuid,
+  bank_id uuid NOT NULL,
   deal_id uuid NOT NULL,
   event_type text NOT NULL,
   status text NOT NULL,
@@ -223,8 +232,15 @@ CREATE TABLE deal_pipeline_ledger (
   created_at timestamptz DEFAULT now()
 );
 
-CREATE INDEX idx_pipeline_ledger_deal ON deal_pipeline_ledger(deal_id, created_at DESC);
-CREATE INDEX idx_pipeline_ledger_bank ON deal_pipeline_ledger(bank_id, event_type);
+CREATE INDEX IF NOT EXISTS deal_pipeline_ledger_deal_created_idx
+  ON public.deal_pipeline_ledger (deal_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS deal_pipeline_ledger_bank_created_idx
+  ON public.deal_pipeline_ledger (bank_id, created_at DESC);
+
+ALTER TABLE public.deal_pipeline_ledger ENABLE ROW LEVEL SECURITY;
+
+COMMIT;
 ```
 
 ---
@@ -277,13 +293,84 @@ pnpm lint
 
 ## SQL Migrations Required
 
-**⚠️ IMPORTANT:** Run these in Supabase SQL Editor (NOT in Cursor terminal)
+**⚠️ IMPORTANT:** Run these in **Supabase SQL Editor ONLY** (NOT in Cursor terminal)
 
-### 1. Pipeline Ledger Table
+### Pipeline Ledger - Add bank_id + RLS
+
+If the table already exists, run this migration to add bank_id scoping:
+
 ```sql
-CREATE TABLE IF NOT EXISTS deal_pipeline_ledger (
+BEGIN;
+
+-- A) Confirm table exists (optional check)
+SELECT to_regclass('public.deal_pipeline_ledger') AS deal_pipeline_ledger;
+
+-- B) Add bank_id column if missing
+ALTER TABLE public.deal_pipeline_ledger
+  ADD COLUMN IF NOT EXISTS bank_id uuid;
+
+-- C) Backfill bank_id from deals table
+UPDATE public.deal_pipeline_ledger l
+SET bank_id = d.bank_id
+FROM public.deals d
+WHERE d.id = l.deal_id
+  AND l.bank_id IS NULL;
+
+-- D) Enforce NOT NULL
+ALTER TABLE public.deal_pipeline_ledger
+  ALTER COLUMN bank_id SET NOT NULL;
+
+-- E) Add FK constraint (idempotent)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'deal_pipeline_ledger_bank_id_fkey'
+  ) THEN
+    ALTER TABLE public.deal_pipeline_ledger
+      ADD CONSTRAINT deal_pipeline_ledger_bank_id_fkey
+      FOREIGN KEY (bank_id) REFERENCES public.banks(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+-- F) Add indexes
+CREATE INDEX IF NOT EXISTS deal_pipeline_ledger_deal_created_idx
+  ON public.deal_pipeline_ledger (deal_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS deal_pipeline_ledger_bank_created_idx
+  ON public.deal_pipeline_ledger (bank_id, created_at DESC);
+
+-- G) Enable RLS + bank-scoped SELECT policy
+ALTER TABLE public.deal_pipeline_ledger ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS deal_pipeline_ledger_select ON public.deal_pipeline_ledger;
+CREATE POLICY deal_pipeline_ledger_select ON public.deal_pipeline_ledger
+FOR SELECT
+USING (bank_id = current_setting('app.current_bank_id', true)::uuid);
+
+COMMIT;
+```
+
+**Verify the migration:**
+```sql
+SELECT column_name, is_nullable, data_type
+FROM information_schema.columns
+WHERE table_schema='public'
+  AND table_name='deal_pipeline_ledger'
+ORDER BY ordinal_position;
+```
+
+---
+
+### If table doesn't exist, create it fresh:
+
+```sql
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.deal_pipeline_ledger (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  bank_id uuid,
+  bank_id uuid NOT NULL,
   deal_id uuid NOT NULL,
   event_type text NOT NULL,
   status text NOT NULL,
@@ -292,16 +379,31 @@ CREATE TABLE IF NOT EXISTS deal_pipeline_ledger (
   created_at timestamptz DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_pipeline_ledger_deal 
-  ON deal_pipeline_ledger(deal_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS deal_pipeline_ledger_deal_created_idx
+  ON public.deal_pipeline_ledger (deal_id, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_pipeline_ledger_bank 
-  ON deal_pipeline_ledger(bank_id, event_type);
+CREATE INDEX IF NOT EXISTS deal_pipeline_ledger_bank_created_idx
+  ON public.deal_pipeline_ledger (bank_id, created_at DESC);
+
+ALTER TABLE public.deal_pipeline_ledger
+  ADD CONSTRAINT deal_pipeline_ledger_bank_id_fkey
+  FOREIGN KEY (bank_id) REFERENCES public.banks(id) ON DELETE CASCADE;
+
+ALTER TABLE public.deal_pipeline_ledger ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY deal_pipeline_ledger_select ON public.deal_pipeline_ledger
+FOR SELECT
+USING (bank_id = current_setting('app.current_bank_id', true)::uuid);
+
+COMMIT;
 ```
 
-### 2. Borrower Request Packs Table
+---
+
+### Borrower Request Packs Table (optional - for tracking)
+
 ```sql
-CREATE TABLE IF NOT EXISTS borrower_request_packs (
+CREATE TABLE IF NOT EXISTS public.borrower_request_packs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   bank_id uuid NOT NULL,
   deal_id uuid NOT NULL,
@@ -321,19 +423,25 @@ CREATE TABLE IF NOT EXISTS borrower_request_packs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_borrower_request_packs_deal 
-  ON borrower_request_packs(deal_id);
-```
+  ON public.borrower_request_packs(deal_id);
 
-### 3. Refresh PostgREST Schema Cache
-```sql
-NOTIFY pgrst, 'reload schema';
+ALTER TABLE public.borrower_request_packs ENABLE ROW LEVEL SECURITY;
 ```
 
 ---
 
 ## Verification Commands
 
-### Test Borrower Request API
+**These run in Cursor/Terminal (NOT Supabase):**
+
+### 1. Check migration files exist
+```bash
+cd /workspaces/Buddy-The-Underwriter
+rg -n "deal_pipeline_ledger" supabase/migrations
+ls -la supabase/migrations | rg "ledger"
+```
+
+### 2. Test Borrower Request API
 ```bash
 curl -X POST http://localhost:3000/api/deals/<DEAL_ID>/borrower-request \
   -H "Content-Type: application/json" \
@@ -342,17 +450,29 @@ curl -X POST http://localhost:3000/api/deals/<DEAL_ID>/borrower-request \
     "requestedKeys": ["business_tax_2022"],
     "expiresHours": 72,
     "channelEmail": true
-  }'
+  }' | jq .
 ```
 
-### Test Credit Memo Generation
+### 3. Test Credit Memo Generation
 ```bash
-curl -X POST http://localhost:3000/api/deals/<DEAL_ID>/credit-memo/generate
+curl -X POST http://localhost:3000/api/deals/<DEAL_ID>/credit-memo/generate \
+  -H "Content-Type: application/json" | jq .
 ```
 
-### Test Pipeline Reconcile
+### 4. Test Pipeline Reconcile
 ```bash
-curl -X POST http://localhost:3000/api/deals/<DEAL_ID>/pipeline/reconcile
+curl -X POST http://localhost:3000/api/deals/<DEAL_ID>/pipeline/reconcile \
+  -H "Content-Type: application/json" | jq .
+```
+
+---
+
+**Verify ledger writes (run in Supabase SQL Editor):**
+```sql
+SELECT id, bank_id, deal_id, event_type, status, created_at
+FROM public.deal_pipeline_ledger
+ORDER BY created_at DESC
+LIMIT 25;
 ```
 
 ---
