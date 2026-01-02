@@ -36,15 +36,18 @@ export async function GET(req: NextRequest, ctx: Context) {
       .eq("deal_id", dealId);
 
     if (checklistError) {
-      console.error("[/api/deals/[dealId]/checklist]", checklistError);
+      console.error("[/api/deals/[dealId]/checklist] DB error:", checklistError);
       return NextResponse.json({
         ok: false,
         received: [],
         pending: [],
         optional: [],
-        error: "Failed to load checklist",
-      });
+        error: "Database error loading checklist",
+      }, { status: 500 });
     }
+
+    // Empty checklist is a valid state (not seeded yet)
+    const items = checklistItems ?? [];
 
     // Fetch documents to augment received determination
     const { data: documents, error: docsError } = await sb
@@ -69,7 +72,7 @@ export async function GET(req: NextRequest, ctx: Context) {
     const optional: ChecklistItem[] = [];
 
     // Bucket items based on required flag and received status
-    (checklistItems || []).forEach((item) => {
+    items.forEach((item) => {
       // Determine if received: check explicit status OR presence of document
       const hasExplicitReceivedStatus = item.status === "received" || item.received_at !== null;
       const hasDocument = documentKeys.has(item.checklist_key);
@@ -84,20 +87,23 @@ export async function GET(req: NextRequest, ctx: Context) {
       }
     });
 
+    const state = items.length === 0 ? "empty" : "ready";
+
     return NextResponse.json({
       ok: true,
+      state,
       received,
       pending,
       optional,
     });
   } catch (error: any) {
-    console.error("[/api/deals/[dealId]/checklist]", error);
+    console.error("[/api/deals/[dealId]/checklist] Unexpected error:", error);
     return NextResponse.json({
       ok: false,
       received: [],
       pending: [],
       optional: [],
-      error: "Failed to load checklist",
-    });
+      error: error?.message || "Unexpected error loading checklist",
+    }, { status: 500 });
   }
 }
