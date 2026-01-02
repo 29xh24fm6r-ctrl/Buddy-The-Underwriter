@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 export default function NotFound() {
   return (
     <div className="mx-auto max-w-2xl px-6 py-16">
