@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
+import ClerkGate from "./ClerkGate";
 import { Inter } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
 import { ConditionalHeroBar } from "@/components/nav/ConditionalHeroBar";
 import FrameGuard from "@/components/dev/FrameGuard";
 import { PHProvider } from "@/components/analytics/PostHogProvider";
@@ -69,12 +69,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider
-      signInUrl="/sign-in"
-      signUpUrl="/sign-up"
-      afterSignInUrl="/deals"
-      afterSignUpUrl="/deals"
-    >
+    <ClerkGate>
       <html lang="en" className="dark">
         <head>
           {/* Material Symbols - Updated with all required parameters for icon rendering */}
@@ -91,7 +86,7 @@ export default function RootLayout({
           </PHProvider>
         </body>
       </html>
-    </ClerkProvider>
+    </ClerkGate>
   );
 }
 
