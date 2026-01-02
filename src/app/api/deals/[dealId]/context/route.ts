@@ -15,7 +15,7 @@ type ProbeOk = {
 
 type ProbeErr = { ok: false; error: string; details?: string | null; dealId?: string | null; hint?: string };
 
-export async function GET(req: NextRequest, ctx: { params: { dealId: string } }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
   try {
     const dealId = ctx.params?.dealId;
     if (!dealId || dealId === "undefined") {

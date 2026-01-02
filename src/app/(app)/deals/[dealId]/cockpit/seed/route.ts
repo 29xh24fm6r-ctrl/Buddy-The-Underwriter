@@ -10,7 +10,7 @@ import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFr
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Ctx = { params: { dealId: string } };
+type Ctx = { params: Promise<{ dealId: string }> };
 
 function isLoanType(x: unknown): x is LoanType {
   return (

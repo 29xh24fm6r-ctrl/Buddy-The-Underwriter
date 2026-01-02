@@ -24,7 +24,7 @@ type Body = {
 
 export async function POST(
   req: Request,
-  ctx: { params: { dealId: string } },
+  ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
     const { userId } = await auth();
