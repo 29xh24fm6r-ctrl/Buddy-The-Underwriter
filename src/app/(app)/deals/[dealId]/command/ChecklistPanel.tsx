@@ -36,7 +36,7 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [dealId]);
+  }, [fetchChecklist]);
 
   // Initial load + polling
   useEffect(() => {
