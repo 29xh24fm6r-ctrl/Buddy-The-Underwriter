@@ -46,8 +46,8 @@ export async function POST(req: Request, ctx: Ctx) {
       await sb.from("deal_pipeline_ledger").insert({
         deal_id: dealId,
         bank_id: bankId,
-        event_type: "auto_seed_blocked",
-        status: "warn",
+        stage: "auto_seed",
+        status: "blocked",
         payload: { remaining: inFlight },
       } as any);
 

@@ -149,8 +149,8 @@ export async function POST(req: NextRequest, ctx: Context) {
     await sb.from("deal_pipeline_ledger").insert({
       deal_id: dealId,
       bank_id: deal.bank_id,
-      event_type: "doc_finalized",
-      status: "ok",
+      stage: "upload",
+      status: "completed",
       payload: { document_id: file_id, filename: original_filename },
     } as any);
 

@@ -117,10 +117,13 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
     await sb.from("deal_pipeline_ledger").insert({
       deal_id: dealId,
       bank_id: null, // Will be backfilled by trigger if needed
-      event_type: "deal_ready",
-      status: "ok",
-      payload: result.details,
-    } as any);
+      stage: "readiness",
+      status: "completed",
+      payload: {
+        ready_at: new Date().toISOString(),
+        ...result.details,
+      },
+    });
   } else {
     // Deal not ready - clear timestamp, update reason
     await sb
