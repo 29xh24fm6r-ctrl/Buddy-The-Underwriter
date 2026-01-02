@@ -44,7 +44,7 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [dealId]);
+  }, [fetchChecklist]);
 
   useEffect(() => {
     fetchChecklist();
