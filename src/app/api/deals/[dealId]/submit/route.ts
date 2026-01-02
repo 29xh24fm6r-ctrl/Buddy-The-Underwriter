@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { assertDealReady } from "@/lib/deals/assertDealReady";
+import { generateLenderPackage } from "@/lib/lender/packageDeal";
 
 export const dynamic = "force-dynamic";
 
@@ -98,11 +99,23 @@ export async function POST(
       },
     });
 
+    // 📦 AUTOMATIC PACKAGING: Generate lender package
+    let packageId: string | undefined;
+    try {
+      const pkg = await generateLenderPackage(dealId);
+      packageId = pkg.package_id;
+      console.log("[submit] Lender package generated", { dealId, packageId });
+    } catch (pkgErr: any) {
+      // Non-fatal: submission succeeded, packaging failed
+      console.error("[submit] Package generation failed", { dealId, error: pkgErr.message });
+    }
+
     console.log("[submit] Deal submitted successfully", { dealId, submittedAt });
 
     return NextResponse.json({
       ok: true,
       submitted_at: submittedAt,
+      package_id: packageId,
     });
   } catch (err: any) {
     console.error("[submit] Unexpected error", { dealId, error: err.message });
