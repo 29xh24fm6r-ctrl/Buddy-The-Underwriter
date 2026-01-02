@@ -48,7 +48,7 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
 
   useEffect(() => {
     fetchChecklist();
-  }, [dealId]);
+  }, [fetchChecklist]);
 
   if (loading) {
     return (
