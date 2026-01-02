@@ -12,6 +12,7 @@ import { UnderwritingControlPanel } from "@/components/deals/UnderwritingControl
 import { SafeBoundary } from "@/components/SafeBoundary";
 import { PipelineIndicator } from "@/components/deals/PipelineStatus";
 import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
+import DealStatusBanner from "@/components/deals/DealStatusBanner";
 
 /**
  * Client wrapper for Deal Cockpit.
@@ -49,6 +50,9 @@ export default function DealCockpitClient({ dealId }: { dealId: string }) {
           <h1 className="text-3xl font-bold">Deal Cockpit</h1>
           <PipelineIndicator dealId={dealId} />
         </div>
+
+        {/* 🧠 READINESS BANNER - Single source of truth */}
+        <DealStatusBanner dealId={dealId} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left Column */}

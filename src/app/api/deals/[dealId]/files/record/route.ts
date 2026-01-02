@@ -4,6 +4,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { matchChecklistKeyFromFilename } from "@/lib/checklist/matchers";
 import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { recomputeDealReady } from "@/lib/deals/readiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -155,6 +156,9 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     // Reconcile entire checklist (year-aware satisfaction + status updates)
     await reconcileChecklistForDeal({ sb, dealId });
+
+    // 🧠 CONVERGENCE: Recompute deal readiness
+    await recomputeDealReady(dealId);
 
     // Emit ledger event
     await writeEvent({

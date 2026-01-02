@@ -6,6 +6,7 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildChecklistForLoanType } from "@/lib/deals/checklistPresets";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { recomputeDealReady } from "@/lib/deals/readiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -252,6 +253,9 @@ export async function POST(req: Request, ctx: Ctx) {
     // - consistent status updates
     // - prevents UI staleness after save + auto-seed
     await reconcileChecklistForDeal({ sb, dealId });
+
+    // 🧠 CONVERGENCE: Recompute deal readiness after auto-seed
+    await recomputeDealReady(dealId);
 
 
     return NextResponse.json({

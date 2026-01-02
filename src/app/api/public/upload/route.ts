@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { constantTimeEqual, hashPassword, sha256 } from "@/lib/security/tokens";
 import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { recomputeDealReady } from "@/lib/deals/readiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -248,6 +249,8 @@ export async function POST(req: Request) {
   if (successCount > 0) {
     try {
       await reconcileChecklistForDeal({ sb: supabaseAdmin(), dealId });
+      // 🧠 CONVERGENCE: Recompute deal readiness
+      await recomputeDealReady(dealId);
     } catch (e) {
       console.error("Reconcile failed (non-blocking):", e);
     }

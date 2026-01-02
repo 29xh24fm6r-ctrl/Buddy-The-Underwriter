@@ -6,6 +6,7 @@ import { rateLimit } from "@/lib/portal/ratelimit";
 import { recordReceipt } from "@/lib/portal/receipts";
 import { matchChecklistKeyFromFilename } from "@/lib/checklist/matchers";
 import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { recomputeDealReady } from "@/lib/deals/readiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -158,6 +159,9 @@ export async function POST(req: Request) {
         .eq("id", doc.deal_document_id);
 
       await reconcileChecklistForDeal({ sb, dealId: invite.deal_id });
+
+      // 🧠 CONVERGENCE: Recompute deal readiness
+      await recomputeDealReady(invite.deal_id);
     }
   } catch (e) {
     console.error("Checklist auto-match failed (non-blocking):", e);
