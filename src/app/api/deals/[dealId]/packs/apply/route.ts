@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { applyBestPackToDeal } from "@/lib/packs/applyPack";
 import { recordLearningEvent } from "@/lib/packs/recordLearningEvent";

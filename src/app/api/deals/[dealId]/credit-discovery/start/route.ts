@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/credit-discovery/start/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { startOrGetSession } from "@/lib/creditDiscovery/engine";
 
 export const runtime = "nodejs";

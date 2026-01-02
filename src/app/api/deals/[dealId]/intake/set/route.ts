@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { upsertBorrowerPhoneLink } from "@/lib/sms/phoneLinks";

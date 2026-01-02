@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/voice/token/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 // If you already have Clerk in this repo (you likely do), keep this.
 // If not, swap this auth check to whatever you use.
 import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";

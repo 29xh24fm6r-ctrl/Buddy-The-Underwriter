@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/timeline/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerPlaybookForStage } from "@/lib/deals/playbook";
 import { computeChecklistHighlight } from "@/lib/borrower/highlightChecklist";

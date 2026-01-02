@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/portal/requests/create-from-upload/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { upsertDealHint, upsertBankPrior } from "@/lib/portal/learning";
 

@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/voice/turn/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { createClient } from "@supabase/supabase-js";
 

@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/status/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { upsertDealStatusAndLog, DealStage } from "@/lib/deals/status";
 
