@@ -60,16 +60,34 @@ for (let i = 1; i < args.length; i++) {
   const a = args[i];
   const next = args[i + 1];
 
-  if (a === "--schema") opts.schema = next, i++;
-  else if (a === "--tenantCol") opts.tenantCol = next, i++;
-  else if (a === "--idCol") opts.idCol = next, i++;
-  else if (a === "--parent") opts.parent = next, i++;
-  else if (a === "--parentSchema") opts.parentSchema = next, i++;
-  else if (a === "--parentIdCol") opts.parentIdCol = next, i++;
-  else if (a === "--parentTenantCol") opts.parentTenantCol = next, i++;
-  else if (a === "--index") opts.index = true;
-  else if (a === "--no-index") opts.index = false;
-  else usage();
+  if (a === "--schema") {
+    opts.schema = next;
+    i++;
+  } else if (a === "--tenantCol") {
+    opts.tenantCol = next;
+    i++;
+  } else if (a === "--idCol") {
+    opts.idCol = next;
+    i++;
+  } else if (a === "--parent") {
+    opts.parent = next;
+    i++;
+  } else if (a === "--parentSchema") {
+    opts.parentSchema = next;
+    i++;
+  } else if (a === "--parentIdCol") {
+    opts.parentIdCol = next;
+    i++;
+  } else if (a === "--parentTenantCol") {
+    opts.parentTenantCol = next;
+    i++;
+  } else if (a === "--index") {
+    opts.index = true;
+  } else if (a === "--no-index") {
+    opts.index = false;
+  } else {
+    usage();
+  }
 }
 
 function qIdent(x) {
