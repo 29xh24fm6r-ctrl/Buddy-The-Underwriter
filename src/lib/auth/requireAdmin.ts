@@ -1,8 +1,9 @@
 import "server-only";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 
 export async function requireSignedIn() {
-  const a = await auth();
+  if (!isClerkConfigured()) throw new Error("auth_not_configured");
+  const a = await clerkAuth();
   const userId = (a as any)?.userId;
   if (!userId) throw new Error("unauthorized");
   return { userId };
@@ -25,7 +26,8 @@ export async function requireSuperAdmin() {
  * Later: check roles table (e.g. user_roles) or Clerk org role/metadata.
  */
 export async function requireAdmin() {
-  const a = await auth();
+  if (!isClerkConfigured()) throw new Error("auth_not_configured");
+  const a = await clerkAuth();
   const userId = (a as any)?.userId;
   if (!userId) {
     throw new Error("Not authenticated");

@@ -1,5 +1,5 @@
 // src/lib/tenant/getCurrentBankId.ts
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 type BankPick =
@@ -13,7 +13,10 @@ type BankPick =
  * - Prevents redirect loops by separating auth from tenant resolution
  */
 export async function getCurrentBankId(): Promise<string> {
-  const { userId } = await auth();
+  if (!isClerkConfigured()) {
+    throw new Error("Auth not configured (Clerk keys missing/placeholder).");
+  }
+  const { userId } = await clerkAuth();
   
   if (!userId) {
     throw new Error("not_authenticated");

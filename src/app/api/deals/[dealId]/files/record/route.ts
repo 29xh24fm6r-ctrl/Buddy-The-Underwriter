@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { matchChecklistKeyFromFilename } from "@/lib/checklist/matchers";
 import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
@@ -29,7 +29,7 @@ type Context = {
  */
 export async function POST(req: NextRequest, ctx: Context) {
   try {
-    const { userId } = await auth();
+    const { userId } = await clerkAuth();
     if (!userId) {
       return NextResponse.json(
         { ok: false, error: "Unauthorized" },

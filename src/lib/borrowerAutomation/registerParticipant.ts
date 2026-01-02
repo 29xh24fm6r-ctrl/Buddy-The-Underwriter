@@ -8,7 +8,7 @@
  * to automatically register borrower as participant on deal.
  */
 
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { registerBorrowerParticipant as registerParticipant } from "@/lib/deals/participants";
 
 /**
@@ -19,7 +19,7 @@ import { registerBorrowerParticipant as registerParticipant } from "@/lib/deals/
  */
 export async function registerBorrowerParticipant(dealId: string): Promise<boolean> {
   try {
-    const { userId } = await auth();
+    const { userId } = await clerkAuth();
     if (!userId) return false;
 
     await registerParticipant(dealId, userId);

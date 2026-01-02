@@ -17,7 +17,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { isCommitteeMember } from "@/lib/committee/committeeLogic";
 
 type Ctx = { params: Promise<{ dealId: string; snapshotId: string }> };
@@ -25,7 +25,7 @@ type Ctx = { params: Promise<{ dealId: string; snapshotId: string }> };
 export async function POST(req: NextRequest, ctx: Ctx) {
   const { dealId, snapshotId } = await ctx.params;
   const bankId = await getCurrentBankId();
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
 
   if (!userId) {
     return NextResponse.json(

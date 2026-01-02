@@ -9,11 +9,7 @@ const nextConfig = {
   // Skip TypeScript checks during build (errors handled in CI)
   typescript: {
     ignoreBuildErrors: true,
-  },
-  
-  // Empty turbopack config to silence webpack/turbopack conflict warning
-  turbopack: {},
-  
+  },  
   async headers() {
     return [
       {

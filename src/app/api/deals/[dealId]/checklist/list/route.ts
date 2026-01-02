@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import type { ChecklistItem } from "@/types/db";
 
 export const runtime = "nodejs";
@@ -24,7 +24,7 @@ export async function GET(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    const { userId } = await auth();
+    const { userId } = await clerkAuth();
     if (!userId) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }

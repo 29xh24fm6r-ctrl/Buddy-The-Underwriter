@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { upsertBorrowerPhoneLink } from "@/lib/sms/phoneLinks";
 import { normalizeE164 } from "@/lib/sms/phone";
@@ -27,7 +27,7 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    const { userId } = await auth();
+    const { userId } = await clerkAuth();
     if (!userId)
       return NextResponse.json(
         { ok: false, error: "Unauthorized" },

@@ -1,6 +1,6 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -32,7 +32,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   requireSuperAdmin();
   const supabase = supabaseAdmin();
-  const { userId: actor } = await auth();
+  const { userId: actor } = await clerkAuth();
 
   const body = await req.json().catch(() => ({}));
   const from = String(body?.from_clerk_user_id ?? "");

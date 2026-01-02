@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { getRequestId } from "@/lib/obs/requestId";
 import { requireOpenAIKey } from "@/lib/env";
 
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const requestId = getRequestId();
 
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   if (!userId) {
     return NextResponse.json({ ok: false, error: "not_authenticated", requestId }, { status: 401 });
   }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { writeDealEvent } from "@/lib/events/dealEvents";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import crypto from "crypto";
 import { fetchDealBankId } from "@/lib/deals/fetchDealContext";
 
@@ -23,7 +23,7 @@ export async function POST(
   }
 
   // Get authenticated user
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

@@ -1,11 +1,11 @@
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { SbaScoreCard } from "@/components/sba/SbaScoreCard";
 import { SbaIssuesPanel } from "@/components/sba/SbaIssuesPanel";
 import { SbaActionsPanel } from "@/components/sba/SbaActionsPanel";
 
 export default async function DealSbaPage({ params }: { params: Promise<{ dealId: string }> }) {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   if (!userId) return null;
 
   const { dealId } = await params;

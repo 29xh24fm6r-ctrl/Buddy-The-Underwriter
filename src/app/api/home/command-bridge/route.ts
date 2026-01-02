@@ -1,13 +1,13 @@
 // src/app/api/home/command-bridge/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { currentUser } from "@clerk/nextjs/server";
+import { clerkCurrentUser, isClerkConfigured } from "@/lib/auth/clerkServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const user = await currentUser();
+  const user = await clerkCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

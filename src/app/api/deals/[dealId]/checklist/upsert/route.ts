@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export const runtime = "nodejs";
@@ -18,7 +18,7 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    const { userId } = await auth();
+    const { userId } = await clerkAuth();
     if (!userId)
       return NextResponse.json(
         { ok: false, error: "Unauthorized" },

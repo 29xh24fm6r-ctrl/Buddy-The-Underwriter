@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { redirect } from "next/navigation";
 import { getMetrics } from "@/lib/admin/metrics";
 import { MetricChart } from "@/components/admin/MetricChart";
@@ -10,7 +10,7 @@ export default async function AdminMetricsPage({
 }: {
   searchParams: Promise<{ range?: "24h" | "7d" }>;
 }) {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   if (!userId) redirect("/sign-in");
 
   const params = await searchParams;

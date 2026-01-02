@@ -1,6 +1,6 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
-import { clerkClient } from "@clerk/nextjs/server";
+import { clerkClient, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import { isBuddyRole } from "@/lib/auth/roles";
 

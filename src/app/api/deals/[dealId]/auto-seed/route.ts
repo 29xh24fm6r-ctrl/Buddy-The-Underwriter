@@ -221,6 +221,7 @@ export async function POST(req: Request, ctx: Ctx) {
     // - year-aware satisfaction
     // - consistent status updates
     // - prevents UI staleness after save + auto-seed
+    await reconcileChecklistForDeal({ sb, dealId });
 
 
     return NextResponse.json({

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
 export async function POST() {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
 
   if (!userId) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });

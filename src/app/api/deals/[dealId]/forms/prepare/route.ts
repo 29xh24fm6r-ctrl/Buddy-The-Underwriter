@@ -1,6 +1,6 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { fillEngine } from "@/lib/forms/fillEngine";
@@ -29,7 +29,7 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   requireSuperAdmin();
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   const { dealId } = await ctx.params;
   const supabase = supabaseAdmin();
 

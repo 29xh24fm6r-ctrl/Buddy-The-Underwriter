@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import Link from "next/link";
 
 export default async function DealsPage() {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   if (!userId) redirect("/sign-in");
 
   // TODO: Fetch actual deals from database

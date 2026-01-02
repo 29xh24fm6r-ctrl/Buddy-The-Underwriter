@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import DealCockpitClient from "@/components/deals/DealCockpitClient";
 import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
 
@@ -11,7 +11,7 @@ type Props = {
 };
 
 export default async function DealCockpitPage({ params }: Props) {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
 
   if (!userId) {
     return (

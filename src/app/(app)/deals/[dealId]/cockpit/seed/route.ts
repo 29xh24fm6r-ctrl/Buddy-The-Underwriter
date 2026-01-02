@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildChecklistForLoanType, LoanType } from "@/lib/deals/checklistPresets";
@@ -36,7 +36,7 @@ function isLoanType(x: unknown): x is LoanType {
  * This route makes the action work with a plain HTML form POST.
  */
 export async function POST(req: Request, ctx: Ctx) {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   const { dealId } = await ctx.params;
 
   const redirectTo = new URL(`/deals/${dealId}/cockpit`, req.url);

@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import Link from "next/link";
 
 export default async function DocumentsPage() {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   if (!userId) redirect("/sign-in");
 
   return (

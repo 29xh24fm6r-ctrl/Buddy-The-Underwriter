@@ -1,6 +1,6 @@
 // src/app/api/deals/[dealId]/voice/turn/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -22,7 +22,7 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   if (!userId)
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 

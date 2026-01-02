@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { getRequestId } from "@/lib/obs/requestId";
 import { rateLimit } from "@/lib/api/rateLimit";
 
@@ -21,7 +21,13 @@ export function withApiGuard(
       let userId: string | null = null;
 
       if (opts.requireAuth) {
-        const a = await auth();
+        if (!isClerkConfigured()) {
+          return NextResponse.json(
+            { ok: false, error: "auth_not_configured", requestId } as any,
+            { status: 503, headers: { "x-request-id": requestId } }
+          );
+        }
+        const a = await clerkAuth();
         userId = a.userId ?? null;
         if (!userId) {
           return NextResponse.json(

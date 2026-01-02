@@ -1,13 +1,13 @@
 // src/app/api/auth/whoami/route.ts
 
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const { userId, sessionId } = await auth();
+  const { userId, sessionId } = await clerkAuth();
 
   if (!userId) {
     return NextResponse.json(
