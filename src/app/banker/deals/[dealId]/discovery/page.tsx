@@ -38,10 +38,15 @@ export default function BankerDealDiscoveryPage({ params }: { params: Promise<{ 
     setErr(null);
     setUwDraft(null);
     try {
-      const r = await fetch(`/api/deals/${dealId}/uw/copilot`, { method: "POST" });
+      // Call the enhanced credit memo generation endpoint
+      const r = await fetch(`/api/deals/${dealId}/credit-memo/generate`, { method: "POST" });
       const d = await r.json();
-      if (!d.ok) throw new Error(d.error || "UW copilot failed");
-      setUwDraft(d.result);
+      if (!d.ok) throw new Error(d.error || "Credit memo generation failed");
+      setUwDraft({ 
+        memo: d.memo, 
+        memoId: d.memoId,
+        message: "Credit memo generated successfully with citations" 
+      });
     } catch (e: any) {
       setErr(e?.message || "Unknown error");
     }

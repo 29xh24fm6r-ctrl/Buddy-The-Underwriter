@@ -3,6 +3,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/requireRole";
 import { aiJson } from "@/lib/ai/openai";
 import { recordAiEvent } from "@/lib/ai/audit";
+import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { logPipelineLedger } from "@/lib/pipeline/logPipelineLedger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +15,7 @@ export async function POST(
 ) {
   await requireRole(["super_admin", "bank_admin", "underwriter"]);
   const { dealId } = await ctx.params;
+  const bankId = await getCurrentBankId();
   const sb = supabaseAdmin();
 
   // Pull top doc intel + ownership + discovery summaries (adjust selectors as needed)
@@ -93,8 +96,16 @@ export async function POST(
     requires_human_review: true,
   });
 
-  if (!ai.ok)
+  if (!ai.ok) {
+    await logPipelineLedger(sb, {
+      bank_id: bankId,
+      deal_id: dealId,
+      event_type: "credit_memo_generation_failed",
+      status: "error",
+      payload: { error: ai.error },
+    });
     return NextResponse.json({ ok: false, error: ai.error }, { status: 500 });
+  }
 
   // Insert memo
   const memoIns = await sb
@@ -136,6 +147,14 @@ export async function POST(
     const citIns = await sb.from("credit_memo_citations").insert(rows);
     if (citIns.error) throw citIns.error;
   }
+
+  await logPipelineLedger(sb, {
+    bank_id: bankId,
+    deal_id: dealId,
+    event_type: "credit_memo_generated",
+    status: "ok",
+    payload: { memo_id: memoId, version: 1, blocks_count: blocks.length, citations_count: rows.length },
+  });
 
   return NextResponse.json({ ok: true, memo: memoIns.data, memoId });
 }
