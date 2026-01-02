@@ -77,7 +77,7 @@ export function MilestoneToast({ milestone, onDismiss }: MilestoneToastProps) {
           </div>
           <button
             onClick={() => {
-              setVisible(false);
+              setDismissed(true);
               setTimeout(onDismiss, 300);
             }}
             className="text-white/75 hover:text-white transition-colors"

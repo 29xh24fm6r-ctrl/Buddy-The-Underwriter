@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { DocHighlightModal } from "@/components/evidence/DocHighlightModal";
 import type { MemoCitation } from "@/lib/evidence/memoCitations";
 
@@ -145,7 +145,7 @@ export function MemoEditorWithCitations(props: MemoEditorWithCitationsProps) {
                 Start writing to see citation suggestions...
               </div>
             ) : (
-              suggestions.map((sug, idx) => (
+              suggestions.map((sug: any, idx: number) => (
                 <button
                   key={idx}
                   type="button"
