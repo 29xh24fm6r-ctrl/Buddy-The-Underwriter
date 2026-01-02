@@ -42,11 +42,7 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
         throw new Error(data.error || "Unable to load checklist");
       }
 
-<<<<<<< HEAD
-      setChecklist(data.checklist || { received: [], pending: [], optional: [] });
-=======
       setChecklist(data || { received: [], pending: [], optional: [] });
->>>>>>> fix/checklist-empty-not-error
       setLastUpdatedAt(new Date().toISOString());
     } catch (e: any) {
       setError(String(e?.message ?? e));
