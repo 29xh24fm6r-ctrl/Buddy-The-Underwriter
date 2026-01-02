@@ -15,6 +15,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Vendor/third-party code:
     "public/pdfjs/**",
+    "scripts/probes/**",
   ]),
   {
     plugins: {
