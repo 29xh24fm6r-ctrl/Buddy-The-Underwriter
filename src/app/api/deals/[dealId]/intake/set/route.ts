@@ -34,7 +34,7 @@ export async function POST(
         { status: 401 },
       );
 
-    const { dealId } = ctx.params;
+    const { dealId } = await ctx.params;
     const body = (await req.json().catch(() => null)) as Body | null;
 
   const loanType = body?.loanType;

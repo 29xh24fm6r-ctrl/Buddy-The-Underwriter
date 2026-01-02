@@ -17,7 +17,7 @@ type ProbeErr = { ok: false; error: string; details?: string | null; dealId?: st
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
   try {
-    const dealId = ctx.params?.dealId;
+    const { dealId } = await ctx.params;
     if (!dealId || dealId === "undefined") {
       return NextResponse.json({ ok: false, error: "invalid_deal_id", dealId: dealId ?? null } satisfies ProbeErr, { status: 400 });
     }

@@ -37,7 +37,7 @@ function isLoanType(x: unknown): x is LoanType {
  */
 export async function POST(req: Request, ctx: Ctx) {
   const { userId } = await auth();
-  const { dealId } = ctx.params;
+  const { dealId } = await ctx.params;
 
   const redirectTo = new URL(`/deals/${dealId}/cockpit`, req.url);
 
