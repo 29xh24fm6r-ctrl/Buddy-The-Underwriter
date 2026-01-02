@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildChecklistForLoanType } from "@/lib/deals/checklistPresets";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
+import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -215,6 +216,12 @@ export async function POST(req: Request, ctx: Ctx) {
       matched: matchedCount,
       total: checklistRows.length,
     });
+
+    // ✅ Canonical Checklist Engine v2 reconciliation:
+    // - year-aware satisfaction
+    // - consistent status updates
+    // - prevents UI staleness after save + auto-seed
+
 
     return NextResponse.json({
       ok: true,
