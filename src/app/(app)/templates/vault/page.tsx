@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import StitchFrame from "@/components/stitch/StitchFrame";
 
 const TITLE = "Document Template Vault - Buddy";

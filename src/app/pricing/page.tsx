@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { NavBar } from "@/components/NavBar";
 import { PricingTable } from "@/components/marketing/PricingTable";
 import { Footer } from "@/components/marketing/Footer";
