@@ -1,7 +1,6 @@
-export const dynamic = "force-dynamic";
+"use client";
 
 // src/app/banker/dashboard/page.tsx
-"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
