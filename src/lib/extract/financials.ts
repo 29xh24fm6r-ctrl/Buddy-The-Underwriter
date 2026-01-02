@@ -1,6 +1,10 @@
 import fs from "fs/promises";
-// @ts-ignore - pdf-parse doesn't have proper TS types
-import pdfParse from "pdf-parse";
+
+async function loadPdfParse() {
+  const mod = await import("pdf-parse");
+  // @ts-expect-error - pdf-parse has ESM/CJS module confusion, fallback to named export if default missing
+  return (mod && (mod.default ?? mod)) as any;
+}
 
 type Evidence = {
   id: string;
@@ -225,7 +229,7 @@ export async function extractFinancialsFromPdf(params: {
   docName: string;
 }): Promise<FinancialsExtract> {
   const buf = await fs.readFile(params.filePath);
-  const parsed = await pdfParse(buf);
+  const parsed = (await loadPdfParse())(buf);
 
   const text = parsed.text || "";
   const lines = text
