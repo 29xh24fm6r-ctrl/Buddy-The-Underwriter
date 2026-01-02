@@ -41,11 +41,15 @@ export async function GET(
       .eq("deal_id", dealId);
 
     if (error) {
-      console.error("[/api/deals/[dealId]/checklist/list]", error);
-      return NextResponse.json({ ok: false, items: [], error: "Failed to load checklist" });
+      console.error("[/api/deals/[dealId]/checklist/list] DB error:", error);
+      return NextResponse.json({ 
+        ok: false, 
+        items: [], 
+        error: "Database error loading checklist" 
+      }, { status: 500 });
     }
 
-    // Normalize to minimal contract that UI needs (including v2 fields)
+    // Empty checklist is a valid state (not seeded yet)
     const items = (data ?? []).map((row) => ({
       id: row.id,
       deal_id: row.deal_id,
@@ -69,9 +73,14 @@ export async function GET(
       return String(a.checklist_key).localeCompare(String(b.checklist_key));
     });
 
-    return NextResponse.json({ ok: true, items });
+    const state = items.length === 0 ? "empty" : "ready";
+    return NextResponse.json({ ok: true, state, items });
   } catch (error: any) {
-    console.error("[/api/deals/[dealId]/checklist/list]", error);
-    return NextResponse.json({ ok: false, items: [], error: "Failed to load checklist" });
+    console.error("[/api/deals/[dealId]/checklist/list] Unexpected error:", error);
+    return NextResponse.json({ 
+      ok: false, 
+      items: [], 
+      error: error?.message || "Unexpected error loading checklist" 
+    }, { status: 500 });
   }
 }
