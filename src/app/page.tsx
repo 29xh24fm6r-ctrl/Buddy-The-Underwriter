@@ -1,29 +1,21 @@
-import { MarketingNav } from "@/components/marketing/MarketingNav";
-import { Hero } from "@/components/marketing/sections/Hero";
-import { DemoStrip } from "@/components/marketing/sections/DemoStrip";
-import { OldWorld } from "@/components/marketing/sections/OldWorld";
-import { NewCategory } from "@/components/marketing/sections/NewCategory";
-import { Capabilities } from "@/components/marketing/sections/Capabilities";
-import { HowItWorks } from "@/components/marketing/sections/HowItWorks";
-import { WhoItsFor } from "@/components/marketing/sections/WhoItsFor";
-import { Moat } from "@/components/marketing/sections/Moat";
-import { FinalCTA } from "@/components/marketing/sections/FinalCTA";
-import { MarketingFooter } from "@/components/marketing/MarketingFooter";
+import { HeroConvergence } from "@/components/marketing/HeroConvergence";
+import { ConvergenceTimeline } from "@/components/marketing/ConvergenceTimeline";
+import { ProofBand } from "@/components/marketing/ProofBand";
+import { HowItWorks3Steps } from "@/components/marketing/HowItWorks3Steps";
+import { OutcomesGrid } from "@/components/marketing/OutcomesGrid";
+import { FAQ } from "@/components/marketing/FAQ";
+import { FinalCTA } from "@/components/marketing/FinalCTA";
 
 export default function Home() {
   return (
-    <main className="min-h-screen">
-      <MarketingNav />
-      <Hero />
-      <DemoStrip />
-      <OldWorld />
-      <NewCategory />
-      <Capabilities />
-      <HowItWorks />
-      <WhoItsFor />
-      <Moat />
+    <main className="bg-slate-950">
+      <HeroConvergence />
+      <ConvergenceTimeline />
+      <ProofBand />
+      <HowItWorks3Steps />
+      <OutcomesGrid />
+      <FAQ />
       <FinalCTA />
-      <MarketingFooter />
     </main>
   );
 }
