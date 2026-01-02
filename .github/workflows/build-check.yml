@@ -47,7 +47,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Build Next.js app
-        run: pnpm exec next build
+        run: pnpm exec next build --webpack
         env:
           NEXT_TELEMETRY_DISABLED: "1"
           NODE_OPTIONS: "--max-old-space-size=8192"
