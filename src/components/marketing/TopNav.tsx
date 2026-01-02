@@ -12,19 +12,19 @@ export function TopNav() {
         <div className="flex items-center gap-2">
           <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="#product">
             Product
-          </a>
+          </Link>
           <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="#replay">
             Replay
-          </a>
+          </Link>
           <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="#governance">
             Governance
-          </a>
-          <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="/sign-in">
+          </Link>
+          <Link className="rounded-xl border px-3 py-2 text-sm hover:bg-muted"  href="/sign-in">
             Sign In
-          </a>
-          <a className="rounded-xl border bg-black text-white px-3 py-2 text-sm font-medium hover:bg-gray-800" href="/sign-up">
+          </Link>
+          <Link className="rounded-xl border bg-black text-white px-3 py-2 text-sm font-medium hover:bg-gray-800"  href="/sign-up">
             Sign Up
-          </a>
+          </Link>
         </div>
       </div>
     </div>

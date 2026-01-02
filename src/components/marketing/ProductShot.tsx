@@ -37,12 +37,12 @@ export function ProductShot(args: {
           </div>
 
           <div className="flex gap-2 pt-2">
-            <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="/deals">
+            <Link className="rounded-xl border px-3 py-2 text-sm hover:bg-muted"  href="/deals">
               Open app
-            </a>
+            </Link>
             <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="#top">
               Back to top
-            </a>
+            </Link>
           </div>
         </div>
 

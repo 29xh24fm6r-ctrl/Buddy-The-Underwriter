@@ -39,9 +39,9 @@ export class StitchErrorBoundary extends React.Component<
           >
             Try again
           </button>
-          <a className="rounded-xl bg-white/10 px-4 py-2 hover:bg-white/15" href="/deals">
+          <Link className="rounded-xl bg-white/10 px-4 py-2 hover:bg-white/15"  href="/deals">
             Back to Deals
-          </a>
+          </Link>
         </div>
       </div>
     );

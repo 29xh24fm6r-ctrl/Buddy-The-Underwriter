@@ -14,9 +14,9 @@ export function Close() {
             </div>
           </div>
           <div className="lg:col-span-4 flex flex-col gap-2">
-            <a className="rounded-2xl border px-5 py-3 text-sm font-medium hover:bg-muted text-center" href="/deals">
+            <Link className="rounded-2xl border px-5 py-3 text-sm font-medium hover:bg-muted text-center"  href="/deals">
               Open Buddy
-            </a>
+            </Link>
             <div className="text-xs text-muted-foreground text-center">
               (Your app is the proof.)
             </div>
