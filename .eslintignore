@@ -1,0 +1,4 @@
+
+# Vendor/minified bundles (do not lint)
+public/pdfjs/
+public/pdfjs/pdf.worker.min.mjs
