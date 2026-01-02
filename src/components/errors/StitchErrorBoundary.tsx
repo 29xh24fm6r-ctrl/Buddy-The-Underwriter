@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 
 export class StitchErrorBoundary extends React.Component<
   { children: React.ReactNode; title?: string },
@@ -13,7 +14,7 @@ export class StitchErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error) {
-    // eslint-disable-next-line no-console
+     
     console.error("[StitchErrorBoundary]", error);
   }
 
@@ -39,9 +40,9 @@ export class StitchErrorBoundary extends React.Component<
           >
             Try again
           </button>
-          <a className="rounded-xl bg-white/10 px-4 py-2 hover:bg-white/15" href="/deals">
+          <Link className="rounded-xl bg-white/10 px-4 py-2 hover:bg-white/15"  href="/deals">
             Back to Deals
-          </a>
+          </Link>
         </div>
       </div>
     );

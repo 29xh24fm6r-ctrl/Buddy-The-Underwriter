@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/portal/uploads/suggest/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -36,7 +36,7 @@ function scoreMatch(
     ),
   );
 
-  let hits: string[] = [];
+  const hits: string[] = [];
   let score = 0;
 
   if (title && f.includes(title)) {

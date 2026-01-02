@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 
 export default function ClerkTestPage() {

@@ -2,7 +2,7 @@
 // Record when a banker overrides pack recommendation
 // Feeds learning system to improve future confidence
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { recordLearningEvent } from "@/lib/packs/recordLearningEvent";
 
 export const runtime = "nodejs";

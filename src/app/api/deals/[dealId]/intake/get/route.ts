@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -9,7 +9,7 @@ export async function GET(
   _req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   if (!userId)
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },

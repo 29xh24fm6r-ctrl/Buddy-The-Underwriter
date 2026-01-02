@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { clerkAuth, clerkCurrentUser } from "@/lib/auth/clerkServer";
 import { SignJWT } from "jose";
 import { createClient } from "@supabase/supabase-js";
 
@@ -22,10 +22,10 @@ function redact(v: string | null) {
  */
 export async function GET() {
   try {
-    const { userId: clerkUserId } = await auth();
+    const { userId: clerkUserId } = await clerkAuth();
     if (!clerkUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-    const user = await currentUser();
+    const user = await clerkCurrentUser();
     const email = user?.emailAddresses?.[0]?.emailAddress ?? null;
 
     const SUPABASE_URL = getEnv("NEXT_PUBLIC_SUPABASE_URL");

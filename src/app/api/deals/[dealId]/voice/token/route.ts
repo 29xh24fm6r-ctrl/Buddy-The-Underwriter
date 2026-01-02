@@ -1,8 +1,8 @@
 // src/app/api/deals/[dealId]/voice/token/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 // If you already have Clerk in this repo (you likely do), keep this.
 // If not, swap this auth check to whatever you use.
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 
 export const runtime = "nodejs";
 
@@ -16,7 +16,7 @@ export async function GET(
   _req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   if (!userId)
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 

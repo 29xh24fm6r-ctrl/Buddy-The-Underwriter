@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import type { ChecklistItem } from "@/types/db";
 
 export const runtime = "nodejs";
@@ -18,7 +18,7 @@ type Context = {
  */
 export async function GET(req: NextRequest, ctx: Context) {
   try {
-    const { userId } = await auth();
+    const { userId } = await clerkAuth();
     if (!userId) {
       return NextResponse.json(
         { error: "Unauthorized" },

@@ -1182,6 +1182,7 @@ if (!res.ok || !data?.ok) {
                       <div className="rounded border bg-neutral-50 p-3">
                         {previewUrl ? (
                           previewMimeType?.startsWith("image/") ? (
+                            // eslint-disable-next-line @next/next/no-img-element
                             <img
                               src={previewUrl}
                               alt="Document preview"

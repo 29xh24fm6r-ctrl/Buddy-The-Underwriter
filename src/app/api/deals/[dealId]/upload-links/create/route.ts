@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/upload-links/create/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   hashPassword,

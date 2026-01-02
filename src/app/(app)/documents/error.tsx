@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 export default function DocumentsError({
   error,
   reset,
@@ -38,12 +40,12 @@ export default function DocumentsError({
             >
               Try Again
             </button>
-            <a
-              href="/deals"
+            <Link
+               href="/deals"
               className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-lg transition-colors"
             >
               Go to Deals
-            </a>
+            </Link>
           </div>
         </div>
 

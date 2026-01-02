@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { motion, useScroll, useTransform } from "framer-motion";
 import { useMemo, useRef } from "react";
 import { cn } from "@/lib/ui/cn";
@@ -17,34 +18,34 @@ function TopNav() {
   return (
     <div className="sticky top-0 z-50 border-b border-white/10 bg-black/40 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
-        <a href="/" className="flex items-center gap-3">
+        <Link  href="/" className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-xl bg-white/10 ring-1 ring-white/15" />
           <div className="text-sm font-semibold tracking-wide text-white/90">
             Buddy <span className="text-white/50">Loan Ops OS</span>
           </div>
-        </a>
+        </Link>
 
         <div className="hidden items-center gap-6 md:flex">
           <a href="#product" className="text-sm text-white/70 hover:text-white">Product</a>
           <a href="#how" className="text-sm text-white/70 hover:text-white">How it works</a>
           <a href="#solutions" className="text-sm text-white/70 hover:text-white">Solutions</a>
           <a href="#security" className="text-sm text-white/70 hover:text-white">Security</a>
-          <a href="/sign-in" className="text-sm text-white/70 hover:text-white">Sign in</a>
-          <a
-            href="/sign-up"
+          <Link  href="/sign-in" className="text-sm text-white/70 hover:text-white">Sign in</Link>
+          <Link
+             href="/sign-up"
             className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-black hover:opacity-90"
           >
             Start free trial
-          </a>
+          </Link>
         </div>
 
         <div className="flex items-center gap-2 md:hidden">
-          <a href="/sign-in" className="rounded-xl border border-white/15 px-3 py-2 text-sm text-white/80">
+          <Link  href="/sign-in" className="rounded-xl border border-white/15 px-3 py-2 text-sm text-white/80">
             Sign in
-          </a>
-          <a href="/sign-up" className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-black">
+          </Link>
+          <Link  href="/sign-up" className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-black">
             Try
-          </a>
+          </Link>
         </div>
       </div>
     </div>
@@ -90,12 +91,12 @@ function Hero() {
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <a
-                href="/sign-up"
+              <Link
+                 href="/sign-up"
                 className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-black hover:opacity-90"
               >
                 Start free trial
-              </a>
+              </Link>
               <a
                 href="#how"
                 className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-white/90 hover:bg-white/10"
@@ -373,20 +374,20 @@ function FinalCTA() {
             operating system—built for audit reality.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <a
-              href="/sign-up"
+            <Link
+               href="/sign-up"
               className={cn(
                 "inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-black hover:opacity-90",
               )}
             >
               Start free trial
-            </a>
-            <a
-              href="/contact"
+            </Link>
+            <Link
+               href="/contact"
               className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-white/90 hover:bg-white/10"
             >
               Talk to us
-            </a>
+            </Link>
           </div>
           <div className="mt-6 text-xs text-white/45">
             Category: <span className="text-white/65 font-semibold">Loan Operations OS</span> — not a portal, not a CRM, not a doc vault.
@@ -405,9 +406,9 @@ function Footer() {
           © {new Date().getFullYear()} Buddy — Loan Operations OS
         </div>
         <div className="flex items-center gap-4 text-sm text-white/60">
-          <a className="hover:text-white" href="/privacy">Privacy</a>
-          <a className="hover:text-white" href="/terms">Terms</a>
-          <a className="hover:text-white" href="/security">Security</a>
+          <Link className="hover:text-white"  href="/privacy">Privacy</Link>
+          <Link className="hover:text-white"  href="/terms">Terms</Link>
+          <Link className="hover:text-white"  href="/security">Security</Link>
         </div>
       </div>
     </footer>

@@ -52,8 +52,8 @@ function evalRule(packIndex: any, rule: RequirementRule): { ok: boolean; message
         byYear.get(y)!.push(d);
       }
 
-      let missingYears: number[] = [];
-      let evidence: any[] = [];
+      const missingYears: number[] = [];
+      const evidence: any[] = [];
 
       for (const y of rule.years) {
         const yearDocs = byYear.get(y) ?? [];

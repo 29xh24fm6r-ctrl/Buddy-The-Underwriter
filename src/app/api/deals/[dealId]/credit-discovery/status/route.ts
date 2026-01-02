@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/credit-discovery/status/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getDiscoveryStatus } from "@/lib/creditDiscovery/engine";
 
 export const runtime = "nodejs";

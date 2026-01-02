@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/pricing/quote/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { quotePricing } from "@/lib/pricing/engine";
 

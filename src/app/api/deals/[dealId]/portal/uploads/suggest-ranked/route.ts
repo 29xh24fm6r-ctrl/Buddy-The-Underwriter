@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/portal/uploads/suggest-ranked/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   loadEvidenceForUpload,
@@ -42,7 +42,7 @@ function scoreFilename(
     ),
   );
 
-  let hits: string[] = [];
+  const hits: string[] = [];
   let score = 0;
 
   if (title && f.includes(title)) {

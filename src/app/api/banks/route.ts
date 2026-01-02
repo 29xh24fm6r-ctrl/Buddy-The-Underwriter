@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
 
   if (!userId) {
     return NextResponse.json(

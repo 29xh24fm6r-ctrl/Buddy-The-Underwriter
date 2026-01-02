@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { matchChecklistKeyFromFilename } from "@/lib/checklist/matchers";
+import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +29,7 @@ type Context = {
  */
 export async function POST(req: NextRequest, ctx: Context) {
   try {
-    const { userId } = await auth();
+    const { userId } = await clerkAuth();
     if (!userId) {
       return NextResponse.json(
         { ok: false, error: "Unauthorized" },
@@ -124,6 +126,20 @@ export async function POST(req: NextRequest, ctx: Context) {
         { status: 500 },
       );
     }
+
+    // 🔥 Checklist Engine v2: stamp checklist_key + doc_year + reconcile
+    await matchAndStampDealDocument({
+      sb,
+      dealId,
+      documentId: file_id,
+      originalFilename: original_filename ?? null,
+      mimeType: mime_type ?? null,
+      extractedFields: {},
+      metadata: {},
+    });
+
+    // Reconcile entire checklist (year-aware satisfaction + status updates)
+    await reconcileChecklistForDeal({ sb, dealId });
 
     // Emit ledger event
     await writeEvent({

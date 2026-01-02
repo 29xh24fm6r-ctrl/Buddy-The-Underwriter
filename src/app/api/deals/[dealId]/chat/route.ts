@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/chat/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { listDealMessages, sendDealMessage } from "@/lib/deals/chat";
 
 export const runtime = "nodejs";

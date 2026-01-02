@@ -1,5 +1,5 @@
 import "server-only";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /**
@@ -127,7 +127,7 @@ export async function registerUnderwriterParticipant(
  * @throws Error with "forbidden" if borrower not participant on deal
  */
 export async function requireBorrowerOnDeal(dealId: string): Promise<string> {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   if (!userId) throw new Error("unauthorized");
 
   const supabase = supabaseAdmin();
@@ -154,7 +154,7 @@ export async function requireBorrowerOnDeal(dealId: string): Promise<string> {
  * @throws Error with "forbidden" if underwriter not assigned to deal
  */
 export async function requireUnderwriterOnDeal(dealId: string): Promise<string> {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   if (!userId) throw new Error("unauthorized");
 
   const supabase = supabaseAdmin();

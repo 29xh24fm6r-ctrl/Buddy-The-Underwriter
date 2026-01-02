@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import type { ChecklistItem } from "@/types/db";
 
 export const runtime = "nodejs";
@@ -24,7 +24,7 @@ export async function GET(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    const { userId } = await auth();
+    const { userId } = await clerkAuth();
     if (!userId) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
@@ -32,25 +32,11 @@ export async function GET(
     const { dealId } = await ctx.params;
     const sb = supabaseAdmin();
 
-    const { data: items, error } = await sb
+    // ✅ Select columns including v2 satisfaction fields
+    const { data, error } = await sb
       .from("deal_checklist_items")
       .select(
-        [
-          "id",
-          "deal_id",
-          "checklist_key",
-          "title",
-          "description",
-          "required",
-          "status",
-          "received_at",
-          "received_file_id",
-          "created_at",
-          "updated_at",
-          "due_at",
-          "notes",
-          "sort_order",
-        ].join(","),
+        "id, deal_id, checklist_key, title, description, required, status, requested_at, received_at, satisfied_at, satisfaction_json, received_upload_id, created_at, updated_at"
       )
       .eq("deal_id", dealId);
 
@@ -59,40 +45,31 @@ export async function GET(
       return NextResponse.json({ ok: false, items: [], error: "Failed to load checklist" });
     }
 
-    const enrichedItems: ChecklistItem[] = (items || []).map((item: any) => {
-      const def = CHECKLIST_DEFINITIONS[item.checklist_key];
-      return {
-        ...item,
-        title: item.title || def?.title || item.checklist_key,
-        required:
-          typeof item.required === "boolean" ? item.required : (def?.required ?? false),
-      };
-    });
+    // Normalize to minimal contract that UI needs (including v2 fields)
+    const items = (data ?? []).map((row) => ({
+      id: row.id,
+      deal_id: row.deal_id,
+      checklist_key: row.checklist_key,
+      title: row.title ?? CHECKLIST_DEFINITIONS[row.checklist_key]?.title ?? row.checklist_key,
+      description: row.description ?? null,
+      required: !!row.required,
+      status: row.status ?? "missing",
+      received_at: row.received_at,
+      satisfied_at: row.satisfied_at,
+      satisfaction_json: row.satisfaction_json,
+      created_at: row.created_at,
+    }));
 
-    enrichedItems.sort((a: any, b: any) => {
-      // 1) required first
+    // Sort: required first, then by created_at
+    items.sort((a, b) => {
       if (a.required !== b.required) return a.required ? -1 : 1;
-
-      const aHas = typeof a.sort_order === "number";
-      const bHas = typeof b.sort_order === "number";
-
-      // 2) sort_order if present
-      if (aHas && bHas) {
-        if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
-      } else if (aHas !== bHas) {
-        return aHas ? -1 : 1;
-      }
-
-      // 3) created_at asc
       if (a.created_at && b.created_at && a.created_at !== b.created_at) {
         return String(a.created_at).localeCompare(String(b.created_at));
       }
-
-      // 4) stable tie-breaker
       return String(a.checklist_key).localeCompare(String(b.checklist_key));
     });
 
-    return NextResponse.json({ ok: true, items: enrichedItems });
+    return NextResponse.json({ ok: true, items });
   } catch (error: any) {
     console.error("[/api/deals/[dealId]/checklist/list]", error);
     return NextResponse.json({ ok: false, items: [], error: "Failed to load checklist" });

@@ -246,7 +246,7 @@ export default function WarRoom() {
     const url = new URL(window.location.href);
     const m = url.searchParams.get("mode");
     if (m === "tail" || m === "grafana" || m === "movie") setMode(m);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   function setModeAndUrl(m: Mode) {

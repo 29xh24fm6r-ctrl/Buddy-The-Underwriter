@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export const runtime = "nodejs";
@@ -22,7 +22,7 @@ type Context = {
  */
 export async function POST(req: NextRequest, ctx: Context) {
   try {
-    const { userId } = await auth();
+    const { userId } = await clerkAuth();
     if (!userId)
       return NextResponse.json(
         { ok: false, error: "Unauthorized" },
@@ -103,7 +103,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       `)
       .eq("deal_id", dealId);
 
-    let lowConfidenceFields: any[] = [];
+    const lowConfidenceFields: any[] = [];
     let totalFields = 0;
     let highConfidenceFields = 0;
 

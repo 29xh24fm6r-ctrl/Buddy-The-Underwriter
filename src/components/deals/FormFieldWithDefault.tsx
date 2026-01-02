@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 
 interface PolicyDefault {
   field_name: string;
@@ -39,17 +39,15 @@ export function FormFieldWithDefault({
   className = "",
 }: FormFieldWithDefaultProps) {
   const [showTooltip, setShowTooltip] = useState(false);
-  const [isDeviation, setIsDeviation] = useState(false);
 
   // Check if current value deviates from policy default
-  useEffect(() => {
+  const isDeviation = useMemo(() => {
     if (policyDefault && value) {
       const defaultVal = policyDefault.default_value?.toString() || "";
       const currentVal = value.toString();
-      setIsDeviation(currentVal !== defaultVal && defaultVal !== "");
-    } else {
-      setIsDeviation(false);
+      return currentVal !== defaultVal && defaultVal !== "";
     }
+    return false;
   }, [value, policyDefault]);
 
   function handleApplyDefault() {

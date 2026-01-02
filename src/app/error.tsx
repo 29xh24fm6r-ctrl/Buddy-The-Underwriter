@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect } from "react";
 
 export default function GlobalError({
@@ -10,7 +11,7 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // eslint-disable-next-line no-console
+     
     console.error("[GlobalError]", error);
   }, [error]);
 
@@ -38,9 +39,9 @@ export default function GlobalError({
             >
               Try again
             </button>
-            <a className="rounded-xl bg-white/10 px-4 py-2 hover:bg-white/15" href="/">
+            <Link className="rounded-xl bg-white/10 px-4 py-2 hover:bg-white/15"  href="/">
               Go home
-            </a>
+            </Link>
           </div>
         </div>
       </body>

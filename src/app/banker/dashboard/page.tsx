@@ -1,5 +1,6 @@
-// src/app/banker/dashboard/page.tsx
 "use client";
+
+// src/app/banker/dashboard/page.tsx
 
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";

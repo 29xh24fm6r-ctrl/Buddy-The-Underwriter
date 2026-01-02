@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { upsertBorrowerPhoneLink } from "@/lib/sms/phoneLinks";
 import { normalizeE164 } from "@/lib/sms/phone";
@@ -24,17 +24,17 @@ type Body = {
 
 export async function POST(
   req: Request,
-  ctx: { params: { dealId: string } },
+  ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    const { userId } = await auth();
+    const { userId } = await clerkAuth();
     if (!userId)
       return NextResponse.json(
         { ok: false, error: "Unauthorized" },
         { status: 401 },
       );
 
-    const { dealId } = ctx.params;
+    const { dealId } = await ctx.params;
     const body = (await req.json().catch(() => null)) as Body | null;
 
   const loanType = body?.loanType;

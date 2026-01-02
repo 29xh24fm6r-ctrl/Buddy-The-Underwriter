@@ -1,140 +1,63 @@
-"use client";
+import Link from "next/link";
 
-import { useState } from "react";
-import { NavBar } from "@/components/NavBar";
-import { useCapture } from "@/components/analytics/useCapture";
+function clerkConfigured() {
+  const pk = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "";
+  if (!pk) return false;
+  if (pk.includes("placeholder")) return false;
+  if (pk === "pk_test_placeholder") return false;
+  return true;
+}
 
 export default function ContactPage() {
-  const capture = useCapture();
-
-  const demoUrl = process.env.NEXT_PUBLIC_DEMO_CALENDAR_URL;
-
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [company, setCompany] = useState("");
-  const [message, setMessage] = useState("");
-
-  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
-    "idle"
-  );
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit() {
-    setStatus("sending");
-    setError(null);
-    capture("contact_submit_click");
-
-    try {
-      const res = await fetch("/api/contact", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, email, company, message }),
-      });
-
-      const json = await res.json();
-      if (!json?.ok) throw new Error(json?.error || "Failed to submit");
-
-      setStatus("sent");
-      capture("contact_submit_success");
-    } catch (e: any) {
-      setStatus("error");
-      setError(e?.message || "Failed to submit");
-      capture("contact_submit_error", { error: e?.message });
-    }
-  }
+  const clerkOk = clerkConfigured();
 
   return (
-    <main>
-      <NavBar />
+    <main className="mx-auto max-w-3xl px-6 py-16">
+      <h1 className="text-3xl font-semibold tracking-tight">Contact</h1>
+      <p className="mt-4 text-sm opacity-80">
+        Questions, demos, partnerships — we'd love to talk.
+      </p>
 
-      <section className="py-16 px-8 max-w-xl mx-auto">
-        <h1 className="text-3xl font-bold mb-3">Contact Sales</h1>
-        <p className="text-gray-600 mb-8">
-          Tell us about your bank and we'll set up pricing + overlays.
-        </p>
-
-        {demoUrl && (
-          <div className="mb-8">
-            <a
-              href={demoUrl}
-              target="_blank"
-              rel="noreferrer"
-              onClick={() => capture("demo_request_click")}
-              className="px-4 py-2 rounded bg-black text-white inline-block"
-            >
-              Request a Demo
-            </a>
+      <div className="mt-8 space-y-4 rounded-xl border p-6">
+        <div>
+          <div className="text-sm font-medium">Email</div>
+          <div className="text-sm opacity-80">
+            support@buddy.ai (replace with your real inbox)
           </div>
-        )}
+        </div>
 
-        {status === "sent" ? (
-          <div className="border rounded-xl p-6">
-            <div className="font-semibold mb-1">✅ Message sent</div>
-            <p className="text-gray-600 mb-4">
-              We'll get back to you shortly.
-            </p>
-            {demoUrl && (
-              <div>
-                <a
-                  href={demoUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => capture("demo_request_click", { location: "contact_success" })}
-                  className="px-4 py-2 rounded bg-black text-white inline-block"
-                >
-                  Book a demo now
-                </a>
-              </div>
-            )}
+        <div>
+          <div className="text-sm font-medium">Schedule</div>
+          <div className="text-sm opacity-80">
+            Book a demo and we'll walk through Buddy's Loan Ops OS.
           </div>
-        ) : (
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (status !== "sending") submit();
-            }}
-          >
-            <input
-              className="w-full border rounded p-2"
-              placeholder="Name *"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <input
-              className="w-full border rounded p-2"
-              placeholder="Work email *"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <input
-              className="w-full border rounded p-2"
-              placeholder="Bank / company"
-              value={company}
-              onChange={(e) => setCompany(e.target.value)}
-            />
-            <textarea
-              className="w-full border rounded p-2"
-              placeholder="What are you trying to accomplish? *"
-              rows={5}
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-            />
+        </div>
 
-            {status === "error" && (
-              <div className="text-sm text-red-600">{error}</div>
-            )}
-
-            <button
-              type="submit"
-              disabled={status === "sending"}
-              className="px-4 py-2 rounded bg-black text-white disabled:opacity-60"
+        <div className="pt-2">
+          {clerkOk ? (
+            <Link
+              href="/sign-in"
+              className="inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm font-medium"
             >
-              {status === "sending" ? "Sending..." : "Send"}
-            </button>
-          </form>
+              Sign in to message us
+            </Link>
+          ) : (
+            <Link
+              href="/"
+              className="inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm font-medium"
+            >
+              Back to home
+            </Link>
+          )}
+        </div>
+
+        {!clerkOk && (
+          <p className="text-xs opacity-70">
+            Auth is disabled in CI builds (placeholder Clerk keys). This page is
+            intentionally prerender-safe.
+          </p>
         )}
-      </section>
+      </div>
     </main>
   );
 }

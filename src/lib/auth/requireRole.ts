@@ -1,5 +1,5 @@
 import "server-only";
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { clerkAuth, clerkClient, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { redirect } from "next/navigation";
 import type { BuddyRole } from "@/lib/auth/roles";
 import { isBuddyRole } from "@/lib/auth/roles";
@@ -13,7 +13,8 @@ function superAdminAllowlist(userId: string) {
 }
 
 export async function getCurrentRole(): Promise<{ userId: string; role: BuddyRole | null }> {
-  const { userId } = await auth();
+  if (!isClerkConfigured()) redirect("/sign-in");
+  const { userId } = await clerkAuth();
   if (!userId) redirect("/sign-in");
 
   // Phase 0 always wins
@@ -21,6 +22,7 @@ export async function getCurrentRole(): Promise<{ userId: string; role: BuddyRol
 
   // Read user metadata from Clerk (authoritative)
   const client = await clerkClient();
+  if (!client) return { userId, role: null };
   const user = await client.users.getUser(userId);
   const roleRaw = (user.publicMetadata as any)?.role;
 

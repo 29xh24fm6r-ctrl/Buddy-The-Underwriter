@@ -28,7 +28,6 @@ export default function StitchFrame({
 }: StitchFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
   
   // Debug mode (add ?stitchDebug=1 to URL)
   const stitchDebug =
@@ -36,7 +35,9 @@ export default function StitchFrame({
     new URLSearchParams(window.location.search).get("stitchDebug") === "1";
 
   // Set mounted flag to avoid hydration mismatch
+  const [mounted, setMounted] = useState(false);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 

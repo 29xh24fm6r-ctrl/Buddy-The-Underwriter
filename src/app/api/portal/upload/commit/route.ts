@@ -4,6 +4,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireValidInvite } from "@/lib/portal/auth";
 import { rateLimit } from "@/lib/portal/ratelimit";
 import { recordReceipt } from "@/lib/portal/receipts";
+import { matchChecklistKeyFromFilename } from "@/lib/checklist/matchers";
+import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -127,6 +129,33 @@ export async function POST(req: Request) {
     storagePath: path,
     filename,
   });
+
+  // Auto-match checklist key from filename (borrower upload path - v2 with engine)
+  try {
+    // Look up the deal_document record via borrower_uploads foreign key
+    const { data: doc } = await sb
+      .from("borrower_uploads")
+      .select("deal_document_id")
+      .eq("id", upload.id)
+      .single();
+
+    if (doc?.deal_document_id) {
+      // Use engine to stamp + reconcile
+      await matchAndStampDealDocument({
+        sb,
+        dealId: invite.deal_id,
+        documentId: doc.deal_document_id,
+        originalFilename: filename,
+        mimeType: mimeType,
+        extractedFields: {},
+        metadata: {},
+      });
+
+      await reconcileChecklistForDeal({ sb, dealId: invite.deal_id });
+    }
+  } catch (e) {
+    console.error("Checklist auto-match failed (non-blocking):", e);
+  }
 
   // Record receipt + auto-highlight checklist (best-effort)
   try {

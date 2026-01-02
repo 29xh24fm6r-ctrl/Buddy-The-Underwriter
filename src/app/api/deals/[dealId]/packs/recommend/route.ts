@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/packs/recommend/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getPackRecommendation } from "@/lib/packs/getPackRecommendation";
 
 export const runtime = "nodejs";

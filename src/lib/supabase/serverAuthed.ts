@@ -1,6 +1,6 @@
 // src/lib/supabase/serverAuthed.ts
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 
 type AuthedSupabase = {
   supabase: SupabaseClient;
@@ -17,7 +17,7 @@ type AuthedSupabase = {
  * - Clerk JWT template named "supabase" configured to mint a Supabase-compatible JWT
  */
 export async function getAuthedSupabase(): Promise<AuthedSupabase> {
-  const { userId, getToken } = await auth();
+  const { userId, getToken } = await clerkAuth();
 
   if (!userId) {
     throw new Error("unauthorized: missing clerk userId");

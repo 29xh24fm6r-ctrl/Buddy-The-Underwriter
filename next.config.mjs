@@ -1,16 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Force dynamic rendering to skip static page generation during build
+  output: 'standalone',
+  
   // Reduce memory during production builds (webpack)
   productionBrowserSourceMaps: false,
   
   // Skip TypeScript checks during build (errors handled in CI)
   typescript: {
     ignoreBuildErrors: true,
-  },
-  
-  // Empty turbopack config to silence webpack/turbopack conflict warning
-  turbopack: {},
-  
+  },  
   async headers() {
     return [
       {

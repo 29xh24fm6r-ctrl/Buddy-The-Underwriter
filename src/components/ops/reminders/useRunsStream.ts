@@ -21,15 +21,15 @@ export function useRunsStream({
 
   useEffect(() => {
     if (!enabled) {
-      setStreamStatus("closed");
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
       return;
     }
-
+    
     // Simulate "live" with fast polling (500ms)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStreamStatus("connecting");
     
     const poll = async () => {

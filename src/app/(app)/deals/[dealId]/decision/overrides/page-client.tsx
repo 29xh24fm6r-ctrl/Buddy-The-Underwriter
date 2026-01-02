@@ -3,6 +3,7 @@
  */
 "use client";
 
+import * as React from "react";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
@@ -20,18 +21,19 @@ export default function OverridesPage() {
   const [justification, setJustification] = useState("");
   const [requiresReview, setRequiresReview] = useState(false);
 
-  useEffect(() => {
-    loadOverrides();
-  }, [dealId]);
-
-  async function loadOverrides() {
+  const loadOverrides = React.useCallback(async () => {
     const res = await fetch(`/api/deals/${dealId}/overrides`);
     const data = await res.json();
     if (data.ok) {
       setOverrides(data.overrides || []);
     }
     setLoading(false);
-  }
+  }, [dealId]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadOverrides();
+  }, [dealId]);
 
   async function submit() {
     await fetch(`/api/deals/${dealId}/overrides`, {

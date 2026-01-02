@@ -25,7 +25,7 @@ export default function OwnersPortalPage({ params }: { params: Promise<{ dealId:
     }
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { load();   }, []);
 
   const reqs = graph?.requirements || [];
   const ents = graph?.entities || [];

@@ -29,11 +29,14 @@ export default function DealCockpitClient({ dealId }: { dealId: string }) {
 
   // Intake triggers checklist refresh after seeding
   const handleChecklistSeeded = useCallback(async () => {
-    if (checklistRefresh) {
-      if (process.env.NODE_ENV !== "production") {
-        console.log("[DealCockpitClient] Refreshing checklist after auto-seed");
-      }
+    if (!checklistRefresh) return;
+    try {
+      console.log("[DealCockpitClient] Refreshing checklist after auto-seed");
+      // Allow state to settle (prevents rare latch/race)
+      await new Promise((r) => setTimeout(r, 0));
       await checklistRefresh();
+    } catch (e) {
+      console.error("[DealCockpitClient] Checklist refresh failed:", e);
     }
   }, [checklistRefresh]);
 

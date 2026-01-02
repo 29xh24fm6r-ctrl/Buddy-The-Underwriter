@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 export function TopNav() {
   return (
     <div className="sticky top-0 z-40 border-b bg-background/70 backdrop-blur">
@@ -19,12 +21,12 @@ export function TopNav() {
           <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="#governance">
             Governance
           </a>
-          <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="/sign-in">
+          <Link className="rounded-xl border px-3 py-2 text-sm hover:bg-muted"  href="/sign-in">
             Sign In
-          </a>
-          <a className="rounded-xl border bg-black text-white px-3 py-2 text-sm font-medium hover:bg-gray-800" href="/sign-up">
+          </Link>
+          <Link className="rounded-xl border bg-black text-white px-3 py-2 text-sm font-medium hover:bg-gray-800"  href="/sign-up">
             Sign Up
-          </a>
+          </Link>
         </div>
       </div>
     </div>

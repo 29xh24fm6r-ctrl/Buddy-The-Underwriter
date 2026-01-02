@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { DocHighlightModal } from "@/components/evidence/DocHighlightModal";
 import type { MemoCitation } from "@/lib/evidence/memoCitations";
 
@@ -21,7 +21,6 @@ export function MemoEditorWithCitations(props: MemoEditorWithCitationsProps) {
   const [text, setText] = useState(initialText);
   const [citations, setCitations] = useState<MemoCitation[]>(initialCitations);
   const [availableSpans, setAvailableSpans] = useState<any[]>([]);
-  const [suggestions, setSuggestions] = useState<any[]>([]);
   const [selectedCitation, setSelectedCitation] = useState<MemoCitation | null>(null);
   const [showCitationModal, setShowCitationModal] = useState(false);
 
@@ -47,10 +46,9 @@ export function MemoEditorWithCitations(props: MemoEditorWithCitationsProps) {
   }, [dealId]);
 
   // Auto-suggest citations when text changes
-  useEffect(() => {
+  const suggestions = useMemo(() => {
     if (!text || availableSpans.length === 0) {
-      setSuggestions([]);
-      return;
+      return [];
     }
 
     // Simple keyword matching (production would use NLP/embeddings)
@@ -64,13 +62,13 @@ export function MemoEditorWithCitations(props: MemoEditorWithCitationsProps) {
       }
     }
 
-    setSuggestions(matched.slice(0, 5));
+    return matched.slice(0, 5);
   }, [text, availableSpans]);
 
   const insertCitation = (span: any) => {
     const cursorPos = textareaRef.current?.selectionStart || text.length;
 
-    const citationId = `cite_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+    const citationId = crypto.randomUUID();
     const citationNum = citations.length + 1;
 
     const newCitation: MemoCitation = {
@@ -147,7 +145,7 @@ export function MemoEditorWithCitations(props: MemoEditorWithCitationsProps) {
                 Start writing to see citation suggestions...
               </div>
             ) : (
-              suggestions.map((sug, idx) => (
+              suggestions.map((sug: any, idx: number) => (
                 <button
                   key={idx}
                   type="button"

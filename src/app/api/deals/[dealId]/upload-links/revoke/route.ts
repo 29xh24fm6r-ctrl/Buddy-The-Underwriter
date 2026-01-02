@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   if (!userId)
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },

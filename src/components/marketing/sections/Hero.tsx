@@ -1,8 +1,8 @@
 "use client";
 
 import { Container, Section } from "@/components/marketing/MarketingShell";
-import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 export function Hero() {
   return (

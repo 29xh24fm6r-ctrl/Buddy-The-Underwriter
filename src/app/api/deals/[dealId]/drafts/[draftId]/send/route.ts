@@ -1,7 +1,7 @@
 // src/app/api/deals/[dealId]/drafts/[draftId]/send/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { currentUser } from "@clerk/nextjs/server";
+import { clerkCurrentUser } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -44,7 +44,7 @@ export async function POST(
     }
 
     // Auth
-    const user = await currentUser();
+    const user = await clerkCurrentUser();
     if (!user) {
       return NextResponse.json(
         { ok: false, error: "not_authenticated" },

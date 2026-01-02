@@ -60,7 +60,7 @@ export function AutopilotConsole({ dealId, bankId }: AutopilotConsoleProps) {
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadStatus = async () => {
+  const loadStatus = React.useCallback(async () => {
     try {
       const res = await fetch(`/api/deals/${dealId}/autopilot/status`);
       const data = await res.json();
@@ -71,7 +71,7 @@ export function AutopilotConsole({ dealId, bankId }: AutopilotConsoleProps) {
     } catch (err) {
       console.error("Failed to load autopilot status:", err);
     }
-  };
+  }, [dealId]);
 
   const startAutopilot = async () => {
     setError(null);
@@ -107,10 +107,11 @@ export function AutopilotConsole({ dealId, bankId }: AutopilotConsoleProps) {
   };
 
   useEffect(() => {
-    loadStatus();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadStatus();
     const interval = setInterval(loadStatus, 5000);
     return () => clearInterval(interval);
-  }, [dealId]);
+  }, [loadStatus]);
 
   const readinessPercent = status ? Math.round(status.readiness.overall_score * 100) : 0;
   const isComplete = readinessPercent >= 100;

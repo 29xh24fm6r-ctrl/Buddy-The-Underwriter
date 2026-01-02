@@ -6,11 +6,13 @@ import { SmsTimelineCard } from "@/components/timeline/SmsTimelineCard";
  * Fetches data server-side and renders client component
  */
 export async function DealSmsTimeline({ dealId }: { dealId: string }) {
+  let items;
   try {
-    const items = await getDealSmsTimeline(dealId);
-    return <SmsTimelineCard items={items} />;
+    items = await getDealSmsTimeline(dealId);
   } catch (error) {
     console.error("DealSmsTimeline error:", error);
     return null;
   }
+  
+  return <SmsTimelineCard items={items} />;
 }

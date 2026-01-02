@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { presentEvent } from "@/lib/ledger/present";
 import type { AuditLedgerRow } from "@/types/db";
 
@@ -9,7 +9,7 @@ export function EventsFeed({ dealId }: { dealId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchEvents = async () => {
+  const fetchEvents = React.useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -30,7 +30,7 @@ export function EventsFeed({ dealId }: { dealId: string }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [dealId]);
 
   useEffect(() => {
     fetchEvents();

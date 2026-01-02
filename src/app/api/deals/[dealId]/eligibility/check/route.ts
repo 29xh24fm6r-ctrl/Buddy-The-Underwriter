@@ -57,7 +57,20 @@ export async function POST(
       const context = await fetchDealContext(dealId);
       if (!context.ok) {
         return NextResponse.json(
-          { ok: false, error: "deal_not_found", message: context.error } as EligibilityCheckResponse,
+          { 
+            ok: false, 
+            overall: "UNKNOWN" as const,
+            confidence: 0,
+            rules: {
+              passed: [],
+              failed: [],
+              unknown: []
+            },
+            missingFacts: ["deal_context"],
+            nextCriticalFact: null,
+            requiredActions: [context.error || "Deal not found"],
+            citations: []
+          } satisfies EligibilityCheckResponse,
           { status: 404 }
         );
       }

@@ -1,6 +1,6 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import {
   registerUnderwriterParticipant,
@@ -25,7 +25,7 @@ export async function POST(
 ) {
   requireSuperAdmin();
   const { dealId } = await ctx.params;
-  const { userId: actor } = await auth();
+  const { userId: actor } = await clerkAuth();
 
   const body = await req.json().catch(() => ({}));
   const clerk_user_id = String(body?.clerk_user_id ?? "");

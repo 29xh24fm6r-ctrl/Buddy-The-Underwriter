@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
 
@@ -16,7 +16,7 @@ export async function POST(
   _req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const { userId } = await auth();
+  const { userId } = await clerkAuth();
   if (!userId) {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
