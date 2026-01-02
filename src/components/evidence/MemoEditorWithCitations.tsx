@@ -21,7 +21,6 @@ export function MemoEditorWithCitations(props: MemoEditorWithCitationsProps) {
   const [text, setText] = useState(initialText);
   const [citations, setCitations] = useState<MemoCitation[]>(initialCitations);
   const [availableSpans, setAvailableSpans] = useState<any[]>([]);
-  const [suggestions, setSuggestions] = useState<any[]>([]);
   const [selectedCitation, setSelectedCitation] = useState<MemoCitation | null>(null);
   const [showCitationModal, setShowCitationModal] = useState(false);
 
@@ -47,10 +46,9 @@ export function MemoEditorWithCitations(props: MemoEditorWithCitationsProps) {
   }, [dealId]);
 
   // Auto-suggest citations when text changes
-  useEffect(() => {
+  const suggestions = useMemo(() => {
     if (!text || availableSpans.length === 0) {
-      setSuggestions([]);
-      return;
+      return [];
     }
 
     // Simple keyword matching (production would use NLP/embeddings)
@@ -64,7 +62,7 @@ export function MemoEditorWithCitations(props: MemoEditorWithCitationsProps) {
       }
     }
 
-    setSuggestions(matched.slice(0, 5));
+    return matched.slice(0, 5);
   }, [text, availableSpans]);
 
   const insertCitation = (span: any) => {

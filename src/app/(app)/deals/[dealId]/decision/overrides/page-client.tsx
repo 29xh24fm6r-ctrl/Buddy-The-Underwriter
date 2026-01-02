@@ -31,8 +31,9 @@ export default function OverridesPage() {
   }, [dealId]);
 
   useEffect(() => {
-    loadOverrides();
-  }, [loadOverrides]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadOverrides();
+  }, [dealId]);
 
   async function submit() {
     await fetch(`/api/deals/${dealId}/overrides`, {

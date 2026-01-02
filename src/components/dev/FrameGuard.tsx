@@ -3,15 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 
 export default function FrameGuard() {
-  const [framed, setFramed] = useState(false);
   const isDev = useMemo(() => process.env.NODE_ENV !== "production", []);
-
-  useEffect(() => {
-    if (!isDev) return;
+  
+  const framed = useMemo(() => {
+    if (!isDev || typeof window === "undefined") return false;
     try {
-      setFramed(window.self !== window.top);
+      return window.self !== window.top;
     } catch {
-      setFramed(true);
+      return true;
     }
   }, [isDev]);
 

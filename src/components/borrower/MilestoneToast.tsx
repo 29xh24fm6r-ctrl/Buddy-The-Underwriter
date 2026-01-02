@@ -15,18 +15,20 @@ interface MilestoneToastProps {
 }
 
 export function MilestoneToast({ milestone, onDismiss }: MilestoneToastProps) {
-  const [visible, setVisible] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const visible = Boolean(milestone && !dismissed);
 
   useEffect(() => {
-    if (milestone) {
-      setVisible(true);
-      const timer = setTimeout(() => {
-        setVisible(false);
-        setTimeout(onDismiss, 300); // Wait for fade-out animation
-      }, 5000);
-      
-      return () => clearTimeout(timer);
-    }
+    if (!milestone) return;
+    
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDismissed(false);
+    const timer = setTimeout(() => {
+      setDismissed(true);
+      setTimeout(onDismiss, 300); // Wait for fade-out animation
+    }, 5000);
+    
+    return () => clearTimeout(timer);
   }, [milestone, onDismiss]);
 
   if (!milestone || !visible) return null;
