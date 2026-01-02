@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 type ChecklistItem = {
   id: string;
@@ -23,7 +23,7 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchChecklist = async () => {
+  const fetchChecklist = React.useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -44,7 +44,7 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [dealId]);
 
   useEffect(() => {
     fetchChecklist();

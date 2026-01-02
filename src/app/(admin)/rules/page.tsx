@@ -24,11 +24,11 @@ export default function RulesAdminPage() {
     )
   );
 
-  async function refresh() {
+  const refresh = React.useCallback(async () => {
     const r = await fetch(`/api/rules/sba/active?rule_set_key=${encodeURIComponent(ruleSetKey)}`);
     const j = await r.json();
     setLatest(j?.latest ?? null);
-  }
+  }, [ruleSetKey]);
 
   async function sync() {
     setBusy(true);
@@ -42,7 +42,7 @@ export default function RulesAdminPage() {
     }
   }
 
-  useEffect(() => { refresh(); }, [ruleSetKey]);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   return (
     <div className="p-6 space-y-4">
