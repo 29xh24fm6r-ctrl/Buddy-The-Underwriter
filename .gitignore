@@ -4,6 +4,7 @@
 /node_modules
 /.pnp
 .pnp.*
+.pnpm/
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
@@ -23,6 +24,7 @@
 # misc
 .DS_Store
 *.pem
+.ignored/
 
 # debug
 npm-debug.log*
