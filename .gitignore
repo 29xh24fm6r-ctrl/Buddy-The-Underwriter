@@ -25,6 +25,8 @@
 .DS_Store
 *.pem
 .ignored/
+.bak*/
+*.bak.*
 
 # debug
 npm-debug.log*

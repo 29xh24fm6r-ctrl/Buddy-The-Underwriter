@@ -13,7 +13,7 @@ export class StitchErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error) {
-    // eslint-disable-next-line no-console
+     
     console.error("[StitchErrorBoundary]", error);
   }
 

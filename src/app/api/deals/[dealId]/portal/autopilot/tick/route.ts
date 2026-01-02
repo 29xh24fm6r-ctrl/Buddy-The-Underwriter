@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/portal/autopilot/tick/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { runPortalAutopilotForDeal } from "@/lib/portal/autopilot";
 
 export const runtime = "nodejs";

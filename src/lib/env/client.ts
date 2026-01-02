@@ -10,7 +10,7 @@ const ClientEnvSchema = z.object({
 export function clientEnv() {
   const parsed = ClientEnvSchema.safeParse(process.env);
   if (!parsed.success) {
-    // eslint-disable-next-line no-console
+     
     console.error("❌ Invalid client env:", parsed.error.flatten().fieldErrors);
     throw new Error("Invalid client environment variables (see logs).");
   }

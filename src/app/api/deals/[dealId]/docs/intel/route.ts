@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/docs/intel/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { analyzeDocument } from "@/lib/docIntel/engine";
 

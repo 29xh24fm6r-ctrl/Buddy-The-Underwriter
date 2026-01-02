@@ -53,7 +53,7 @@ export function withApiGuard(
       res.headers.set("x-request-id", requestId);
       return res;
     } catch (err: any) {
-      // eslint-disable-next-line no-console
+       
       console.error(`[api:${opts.tag}]`, requestId, err?.message || err);
       return NextResponse.json(
         { ok: false, error: "internal_error", requestId } as any,

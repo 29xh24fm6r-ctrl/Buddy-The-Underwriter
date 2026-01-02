@@ -1,6 +1,6 @@
 // src/lib/supabase/serverAuthed.ts
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 
 type AuthedSupabase = {
   supabase: SupabaseClient;

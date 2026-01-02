@@ -1,7 +1,7 @@
 // src/app/api/deals/[dealId]/drafts/[draftId]/approve/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { clerkCurrentUser, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkCurrentUser } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";

@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/portal/templates/apply/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";

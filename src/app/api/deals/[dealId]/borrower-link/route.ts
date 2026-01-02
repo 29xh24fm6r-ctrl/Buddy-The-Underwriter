@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import * as crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { upsertBorrowerPhoneLink } from "@/lib/sms/phoneLinks";

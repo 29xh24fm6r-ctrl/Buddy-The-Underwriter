@@ -32,7 +32,7 @@ const ServerEnvSchema = z.object({
 export function serverEnv() {
   const parsed = ServerEnvSchema.safeParse(process.env);
   if (!parsed.success) {
-    // eslint-disable-next-line no-console
+     
     console.error("❌ Invalid server env:", parsed.error.flatten().fieldErrors);
     throw new Error("Invalid server environment variables (see logs).");
   }

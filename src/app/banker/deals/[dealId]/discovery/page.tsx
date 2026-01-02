@@ -32,7 +32,7 @@ export default function BankerDealDiscoveryPage({ params }: { params: Promise<{ 
     }
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { load();   }, []);
 
   async function generateUwDraft() {
     setErr(null);

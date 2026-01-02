@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/ownership/compute/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { computeOwnershipFromDiscovery } from "@/lib/ownership/engine";
 
 export const runtime = "nodejs";

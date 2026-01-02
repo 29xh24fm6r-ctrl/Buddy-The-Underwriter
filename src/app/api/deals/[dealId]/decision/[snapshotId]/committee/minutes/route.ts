@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { generateCommitteeMinutes, getCommitteeMinutes } from "@/lib/committee/generateMinutes";
 
 type Ctx = { params: Promise<{ dealId: string; snapshotId: string }> };

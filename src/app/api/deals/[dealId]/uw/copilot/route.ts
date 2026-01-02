@@ -1,5 +1,5 @@
 // src/app/api/deals/[dealId]/uw/copilot/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { draftUwPackage } from "@/lib/uwCopilot/engine";
 
 export const runtime = "nodejs";

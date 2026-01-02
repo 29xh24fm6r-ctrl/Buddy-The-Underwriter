@@ -14,7 +14,7 @@ type ShareInfo = {
   error?: string;
 };
 
-export default async function PortalSharePage({ params }: { params: Promise<{ token: string }> }) {
+export default function PortalSharePage({ params }: { params: Promise<{ token: string }> }) {
   const [token, setToken] = React.useState<string | null>(null);
   const [data, setData] = React.useState<ShareInfo | null>(null);
   const [error, setError] = React.useState<string | null>(null);

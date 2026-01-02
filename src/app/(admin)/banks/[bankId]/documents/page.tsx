@@ -46,7 +46,7 @@ const [templates, setTemplates] = useState<Template[]>([]);
 
   useEffect(() => {
     if (selectedTemplate?.id) loadMaps(selectedTemplate.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [selectedTemplate?.id]);
 
   const pdfFields = useMemo(() => {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { signUploadUrl } from "@/lib/uploads/sign";
 import crypto from "node:crypto";
