@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 export function TopNav() {
   return (
     <div className="sticky top-0 z-40 border-b bg-background/70 backdrop-blur">
@@ -12,13 +14,13 @@ export function TopNav() {
         <div className="flex items-center gap-2">
           <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="#product">
             Product
-          </Link>
+          </a>
           <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="#replay">
             Replay
-          </Link>
+          </a>
           <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="#governance">
             Governance
-          </Link>
+          </a>
           <Link className="rounded-xl border px-3 py-2 text-sm hover:bg-muted"  href="/sign-in">
             Sign In
           </Link>

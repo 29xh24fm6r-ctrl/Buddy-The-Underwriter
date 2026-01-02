@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 
 export class StitchErrorBoundary extends React.Component<
   { children: React.ReactNode; title?: string },

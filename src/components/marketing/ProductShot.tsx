@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
 
@@ -42,7 +43,7 @@ export function ProductShot(args: {
             </Link>
             <a className="rounded-xl border px-3 py-2 text-sm hover:bg-muted" href="#top">
               Back to top
-            </Link>
+            </a>
           </div>
         </div>
 

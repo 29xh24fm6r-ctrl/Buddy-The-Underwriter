@@ -247,7 +247,7 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
 
             <div className="p-4">
               {previewFile!.mime_type?.startsWith("image/") ? (
-                {/* eslint-disable-next-line @next/next/no-img-element */}
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={previewUrl!}
                   alt={previewFile!.original_name}

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 export function Close() {
   return (
     <section className="mx-auto max-w-6xl px-6 py-16">

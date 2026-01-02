@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { motion, useScroll, useTransform } from "framer-motion";
 import { useMemo, useRef } from "react";
 import { cn } from "@/lib/ui/cn";
@@ -25,10 +26,10 @@ function TopNav() {
         </Link>
 
         <div className="hidden items-center gap-6 md:flex">
-          <a href="#product" className="text-sm text-white/70 hover:text-white">Product</Link>
-          <a href="#how" className="text-sm text-white/70 hover:text-white">How it works</Link>
-          <a href="#solutions" className="text-sm text-white/70 hover:text-white">Solutions</Link>
-          <a href="#security" className="text-sm text-white/70 hover:text-white">Security</Link>
+          <a href="#product" className="text-sm text-white/70 hover:text-white">Product</a>
+          <a href="#how" className="text-sm text-white/70 hover:text-white">How it works</a>
+          <a href="#solutions" className="text-sm text-white/70 hover:text-white">Solutions</a>
+          <a href="#security" className="text-sm text-white/70 hover:text-white">Security</a>
           <Link  href="/sign-in" className="text-sm text-white/70 hover:text-white">Sign in</Link>
           <Link
              href="/sign-up"
@@ -101,7 +102,7 @@ function Hero() {
                 className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-white/90 hover:bg-white/10"
               >
                 See how it works
-              </Link>
+              </a>
               <div className="text-xs text-white/50 sm:ml-2">
                 Built for SBA + CRE + C&I. Forged in audit reality.
               </div>
