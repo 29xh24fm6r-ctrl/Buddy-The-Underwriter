@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 // src/app/banker/dashboard/page.tsx
 "use client";
 
