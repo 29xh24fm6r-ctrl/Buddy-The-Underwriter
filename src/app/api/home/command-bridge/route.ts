@@ -1,7 +1,7 @@
 // src/app/api/home/command-bridge/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { clerkCurrentUser, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkCurrentUser } from "@/lib/auth/clerkServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

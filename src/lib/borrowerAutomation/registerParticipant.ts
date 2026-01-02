@@ -8,7 +8,7 @@
  * to automatically register borrower as participant on deal.
  */
 
-import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { registerBorrowerParticipant as registerParticipant } from "@/lib/deals/participants";
 
 /**

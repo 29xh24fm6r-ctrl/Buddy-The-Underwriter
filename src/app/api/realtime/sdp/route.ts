@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getRequestId } from "@/lib/obs/requestId";
 import { requireOpenAIKey } from "@/lib/env";
 

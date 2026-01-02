@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { upsertBorrowerPhoneLink } from "@/lib/sms/phoneLinks";
 import { normalizeE164 } from "@/lib/sms/phone";
