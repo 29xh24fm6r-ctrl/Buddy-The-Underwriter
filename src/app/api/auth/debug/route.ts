@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { clerkAuth, clerkCurrentUser, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkAuth, clerkCurrentUser } from "@/lib/auth/clerkServer";
 
 export async function GET() {
   const { userId, sessionId } = await clerkAuth(); // ✅ MUST be awaited in route handlers

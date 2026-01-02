@@ -1,4 +1,4 @@
-import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { redirect } from "next/navigation";
 import { getMetrics } from "@/lib/admin/metrics";
 import { MetricChart } from "@/components/admin/MetricChart";

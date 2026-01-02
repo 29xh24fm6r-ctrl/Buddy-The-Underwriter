@@ -1,4 +1,4 @@
-import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { SbaScoreCard } from "@/components/sba/SbaScoreCard";
 import { SbaIssuesPanel } from "@/components/sba/SbaIssuesPanel";

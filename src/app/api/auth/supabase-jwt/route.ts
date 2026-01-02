@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { clerkAuth, clerkCurrentUser, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkAuth, clerkCurrentUser } from "@/lib/auth/clerkServer";
 import { SignJWT } from "jose";
 import { createClient } from "@supabase/supabase-js";
 

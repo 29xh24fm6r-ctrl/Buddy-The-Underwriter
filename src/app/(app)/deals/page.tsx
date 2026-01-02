@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import Link from "next/link";
 
 export default async function DealsPage() {
