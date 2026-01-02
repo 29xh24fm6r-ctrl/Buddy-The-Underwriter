@@ -20,6 +20,12 @@ export async function GET() {
     requireSuperAdmin();
 
     const client = await clerkClient();
+    if (!client) {
+      return NextResponse.json(
+        { ok: false, error: "Clerk not configured" },
+        { status: 503 },
+      );
+    }
     const users = await client.users.getUserList({ limit: 100 });
 
     const rows = users.data.map((u) => ({

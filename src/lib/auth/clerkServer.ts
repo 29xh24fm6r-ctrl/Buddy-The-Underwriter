@@ -46,7 +46,7 @@ export async function clerkAuth(_req?: NextRequest): Promise<SafeAuth> {
   }
   const mod = await import("@clerk/nextjs/server");
   // auth() signature does not require req in App Router; keep param for flexibility.
-  const a = mod.auth();
+  const a = await mod.auth();
   return {
     userId: a.userId ?? null,
     sessionId: a.sessionId ?? null,
@@ -63,5 +63,5 @@ export async function clerkCurrentUser() {
 export async function clerkClient() {
   if (!isClerkConfigured()) return null;
   const mod = await import("@clerk/nextjs/server");
-  return mod.clerkClient;
+  return await mod.clerkClient();
 }
