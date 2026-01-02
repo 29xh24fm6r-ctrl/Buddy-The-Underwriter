@@ -198,6 +198,12 @@ export async function POST(req: Request) {
       metadata: {},
     });
 
+    // 🔥 FINALIZE: Mark document as fully processed
+    await supabaseAdmin()
+      .from("deal_documents")
+      .update({ finalized_at: new Date().toISOString() })
+      .eq("id", docRow.id);
+
     // Note: reconcile will be called once after all files processed (see below)
 
     // 5) Audit trail (view-backed or table-backed depending on your schema)

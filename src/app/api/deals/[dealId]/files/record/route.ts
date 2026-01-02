@@ -138,6 +138,21 @@ export async function POST(req: NextRequest, ctx: Context) {
       metadata: {},
     });
 
+    // 🔥 FINALIZE: Mark document as fully processed and safe to reconcile
+    await sb
+      .from("deal_documents")
+      .update({ finalized_at: new Date().toISOString() })
+      .eq("id", file_id);
+
+    // 🔥 LEDGER: Log finalization
+    await sb.from("deal_pipeline_ledger").insert({
+      deal_id: dealId,
+      bank_id: deal.bank_id,
+      event_type: "doc_finalized",
+      status: "ok",
+      payload: { document_id: file_id, filename: original_filename },
+    } as any);
+
     // Reconcile entire checklist (year-aware satisfaction + status updates)
     await reconcileChecklistForDeal({ sb, dealId });
 

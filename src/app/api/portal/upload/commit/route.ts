@@ -151,6 +151,12 @@ export async function POST(req: Request) {
         metadata: {},
       });
 
+      // 🔥 FINALIZE: Mark document as fully processed
+      await sb
+        .from("deal_documents")
+        .update({ finalized_at: new Date().toISOString() })
+        .eq("id", doc.deal_document_id);
+
       await reconcileChecklistForDeal({ sb, dealId: invite.deal_id });
     }
   } catch (e) {
