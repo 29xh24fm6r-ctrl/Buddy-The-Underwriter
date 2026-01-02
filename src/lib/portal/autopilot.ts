@@ -32,7 +32,7 @@ function scoreMatch(filename: string, req: RequestRow): { score: number; hits: s
   const fTokens = new Set(f.split(" ").filter(Boolean));
   const reqTokens = new Set([...title.split(" "), ...desc.split(" "), ...cat.split(" ")].filter(Boolean));
 
-  let hits: string[] = [];
+  const hits: string[] = [];
   let score = 0;
 
   // strong signal: direct substring title in filename

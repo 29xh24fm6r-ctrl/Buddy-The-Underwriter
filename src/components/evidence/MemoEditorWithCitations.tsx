@@ -70,7 +70,7 @@ export function MemoEditorWithCitations(props: MemoEditorWithCitationsProps) {
   const insertCitation = (span: any) => {
     const cursorPos = textareaRef.current?.selectionStart || text.length;
 
-    const citationId = `cite_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+    const citationId = crypto.randomUUID();
     const citationNum = citations.length + 1;
 
     const newCitation: MemoCitation = {

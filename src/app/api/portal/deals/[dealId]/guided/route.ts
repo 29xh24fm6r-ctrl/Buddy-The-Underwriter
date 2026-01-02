@@ -41,7 +41,7 @@ export async function GET(
 
     // Borrower-safe display fields: deal name + borrower name
     // Best-effort: if your deals schema differs, we fail soft.
-    let display = { dealName: "Your application", borrowerName: "Borrower" };
+    const display = { dealName: "Your application", borrowerName: "Borrower" };
     try {
       const { data: d } = await sb
         .from("deals")

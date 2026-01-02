@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { getOpenAI, getModel } from "@/lib/ai/openaiClient";
 import type { RetrievedChunk } from "./types";
 import { mapEvidenceChunkRow } from "@/lib/db/rowCase";
@@ -37,11 +38,10 @@ export async function aiRerankChunks(args: {
 
   // Use zod-to-json-schema helper (same pattern as other files)
   function jsonSchemaFor(name: string, schema: any) {
-    const zodToJsonSchema = require("zod-to-json-schema");
     return {
       name,
       strict: true,
-      schema: zodToJsonSchema.zodToJsonSchema(schema, name),
+      schema: zodToJsonSchema(schema, name),
     };
   }
 

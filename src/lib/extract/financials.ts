@@ -1,5 +1,6 @@
 import fs from "fs/promises";
-const pdfParse = require("pdf-parse");
+// @ts-ignore - pdf-parse doesn't have proper TS types
+import pdfParse from "pdf-parse";
 
 type Evidence = {
   id: string;

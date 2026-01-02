@@ -103,7 +103,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       `)
       .eq("deal_id", dealId);
 
-    let lowConfidenceFields: any[] = [];
+    const lowConfidenceFields: any[] = [];
     let totalFields = 0;
     let highConfidenceFields = 0;
 

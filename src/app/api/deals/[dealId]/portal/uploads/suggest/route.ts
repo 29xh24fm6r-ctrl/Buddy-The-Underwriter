@@ -36,7 +36,7 @@ function scoreMatch(
     ),
   );
 
-  let hits: string[] = [];
+  const hits: string[] = [];
   let score = 0;
 
   if (title && f.includes(title)) {

@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
     // 2. Deal type only (industry = NULL)
     // 3. Global (both NULL)
 
-    let query = supabaseAdmin()
+    const query = supabaseAdmin()
       .from("bank_policy_defaults")
       .select("*")
       .eq("bank_id", bankId);

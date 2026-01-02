@@ -19,8 +19,36 @@ export default function DealIntakeCard({
   dealId: string;
   onChecklistSeeded?: () => void | Promise<void>;
 }) {
+  const [intake, setIntake] = useState<Intake>({
+    loan_type: "CRE_OWNER_OCCUPIED",
+    sba_program: null,
+    borrower_name: null,
+    borrower_email: null,
+    borrower_phone: null,
+  });
+
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [autoSeeding, setAutoSeeding] = useState(false);
+  const [matchMessage, setMatchMessage] = useState<string | null>(null);
+
   // Never call APIs with a missing/invalid dealId (prevents uuid "undefined" errors).
-  if (!dealId || dealId === "undefined") {
+  const hasValidDealId = dealId && dealId !== "undefined";
+
+  useEffect(() => {
+    if (!hasValidDealId) return;
+    
+    async function load() {
+      setLoading(true);
+      const res = await fetch(`/api/deals/${dealId}/intake/get`);
+      const json = await res.json();
+      if (json?.ok && json.intake) setIntake(json.intake);
+      setLoading(false);
+    }
+    load();
+  }, [dealId, hasValidDealId]);
+
+  if (!hasValidDealId) {
     if (process.env.NODE_ENV !== "production") {
       console.error("[DealIntakeCard] invalid dealId prop:", dealId);
     }
@@ -45,30 +73,6 @@ export default function DealIntakeCard({
     console.log("🔴 DealIntakeCard MOUNTED - dealId:", dealId);
   }
   
-  const [intake, setIntake] = useState<Intake>({
-    loan_type: "CRE_OWNER_OCCUPIED",
-    sba_program: null,
-    borrower_name: null,
-    borrower_email: null,
-    borrower_phone: null,
-  });
-
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [autoSeeding, setAutoSeeding] = useState(false);
-  const [matchMessage, setMatchMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      const res = await fetch(`/api/deals/${dealId}/intake/get`);
-      const json = await res.json();
-      if (json?.ok && json.intake) setIntake(json.intake);
-      setLoading(false);
-    }
-    load();
-  }, [dealId]);
-
   async function save(autoSeed = true) {
     console.log("🚨 BUTTON CLICKED! save() function called with autoSeed:", autoSeed);
     setSaving(true);

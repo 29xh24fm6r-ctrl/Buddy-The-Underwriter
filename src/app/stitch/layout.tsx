@@ -2,7 +2,7 @@ export default function StitchLayout({ children }: { children: React.ReactNode }
   return (
     <>
       <style
-        // eslint-disable-next-line react/no-danger
+         
         dangerouslySetInnerHTML={{
           __html: `
 /* ✅ Force stitch segment to appear "light" even if the app root is dark */

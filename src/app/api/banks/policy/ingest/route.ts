@@ -198,7 +198,7 @@ function chunkText(
   const words = text.split(/\s+/);
   const chunks: ChunkResult[] = [];
 
-  let currentPage = 1;
+  const currentPage = 1;
   let currentSection: string | null = null;
 
   for (let i = 0; i < words.length; i += chunkSize - overlap) {

@@ -66,7 +66,7 @@ export async function computePricing(input: PricingInput): Promise<PricingResult
     );
   }
 
-  let baseSpreadBps = Number(gridRow.base_spread_bps);
+  const baseSpreadBps = Number(gridRow.base_spread_bps);
   let overrideSpreadBps = 0;
   let overrideReason: string | null = null;
 

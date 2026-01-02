@@ -50,12 +50,12 @@ export function evaluateEntityRequirements(
 /**
  * Evaluate requirements across all entities (GROUP view)
  */
-export function evaluateGroupRequirements(
+export async function evaluateGroupRequirements(
   allJobs: any[], // All jobs with entity_id populated
   entities: DealEntity[],
   requirements: PackRequirement[]
-): GroupCoverageSummary {
-  const { buildPackIndex } = require('@/lib/deals/pack/buildPackIndex');
+): Promise<GroupCoverageSummary> {
+  const { buildPackIndex } = await import('@/lib/deals/pack/buildPackIndex');
   
   // Build pack index for entire group (no entity filter)
   const groupPackIndex = buildPackIndex({
