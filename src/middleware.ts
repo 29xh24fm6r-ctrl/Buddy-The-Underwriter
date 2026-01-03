@@ -23,6 +23,15 @@ function withBuildHeader() {
     process.env.GIT_COMMIT_SHA ||
     "unknown";
   res.headers.set("x-buddy-build", build);
+  
+  // INTERNAL TEST MODE HEADER
+  // Adds x-buddy-internal=true for non-prod or when explicitly enabled
+  const isProd = process.env.NODE_ENV === "production";
+  const internalEnabled = !isProd || process.env.BUDDY_INTERNAL_FORCE === "true";
+  if (internalEnabled) {
+    res.headers.set("x-buddy-internal", "true");
+  }
+  
   return res;
 }
 
