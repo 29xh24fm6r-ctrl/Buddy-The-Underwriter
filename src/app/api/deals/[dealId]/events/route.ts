@@ -14,6 +14,7 @@ type Context = {
  * 
  * Returns recent deal events for activity feed.
  * Source: public.audit_ledger (canonical event ledger)
+ * Contract: { ok:true, events:[...] } - compatible with EventsFeed
  * 
  * ⚠️ IMPORTANT: Always read from audit_ledger view, NEVER from deal_events table directly.
  * audit_ledger provides the canonical read interface with input_json/output_json fields.
@@ -23,8 +24,6 @@ export async function GET(req: NextRequest, ctx: Context) {
     const { dealId } = await ctx.params;
     const { searchParams } = new URL(req.url);
     const limit = parseInt(searchParams.get("limit") || "20", 10);
-
-    console.log("[events] has_service_role", Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY));
 
     const sb = supabaseAdmin();
 
@@ -49,6 +48,7 @@ export async function GET(req: NextRequest, ctx: Context) {
       });
     }
 
+    // Return events array (EventsFeed expects data.events)
     return NextResponse.json({
       ok: true,
       events: events || [],
