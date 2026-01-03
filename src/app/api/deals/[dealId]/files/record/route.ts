@@ -49,6 +49,14 @@ export async function POST(req: NextRequest, ctx: Context) {
       checklist_key = null,
     } = body;
 
+    console.log("[UPLOAD RECORD ROUTE HIT]", {
+      dealId,
+      object_path,
+      original_filename,
+      file_id,
+      checklist_key,
+    });
+
     if (!file_id || !object_path || !original_filename) {
       return NextResponse.json(
         { ok: false, error: "Missing required fields" },

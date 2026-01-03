@@ -151,7 +151,7 @@ export function usePortalUpload(token: string) {
         if (hints?.hinted_doc_type) fd.append("hinted_doc_type", hints.hinted_doc_type);
         if (hints?.hinted_category) fd.append("hinted_category", hints.hinted_category);
 
-        const url = `/api/borrower/portal/upload?token=${encodeURIComponent(token)}`;
+        const url = `/api/borrower/portal/${encodeURIComponent(token)}/upload`;
         const { promise, abort } = xhrUploadJsonWithController(url, fd, (p) => setProgress(p));
         abortRef.current = abort;
 
