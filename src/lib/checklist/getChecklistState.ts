@@ -71,8 +71,9 @@ export async function getChecklistState(args: {
       .eq("deal_id", dealId);
       
     if (rowsErr) {
-      // Convergence-safe: never 500. Return processing if the system is actively working.
       const le = latestEvent?.created_at;
+
+      // If the system is actively working, never flash red
       if (le && isRecent(le, 30)) {
         return {
           ok: true,
@@ -85,6 +86,27 @@ export async function getChecklistState(args: {
           meta: { latestEvent: latestEvent ?? null },
         };
       }
+
+      // If schema drift (missing table/column/function), stay calm and "empty"
+      const msg = String((rowsErr as any)?.message ?? "");
+      if (
+        msg.includes("does not exist") ||
+        msg.includes("relation") ||
+        msg.includes("column") ||
+        msg.includes("function")
+      ) {
+        return {
+          ok: true,
+          state: "empty",
+          dealId,
+          totalItems: 0,
+          received: 0,
+          pending: 0,
+          optional: 0,
+          meta: { latestEvent: latestEvent ?? null },
+        };
+      }
+
       return { ok: false, error: "Database error loading checklist", details: rowsErr };
     }
 
