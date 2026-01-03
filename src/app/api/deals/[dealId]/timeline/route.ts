@@ -67,12 +67,23 @@ export async function GET(
         })
       : null;
 
+    // Map events to include 'ts' field for CinematicTimeline compatibility
+    const mappedEvents = (events ?? []).map((e) => ({
+      id: e.id,
+      ts: e.created_at,
+      kind: e.kind,
+      title: e.title,
+      detail: e.detail,
+      meta: (e as any).meta,
+      visible_to_borrower: e.visible_to_borrower,
+    }));
+
     return NextResponse.json({
       ok: true,
       status: status ?? null,
       playbook,
       highlight,
-      events: events ?? [],
+      events: mappedEvents,
     });
   } catch (e: any) {
     return NextResponse.json(

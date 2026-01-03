@@ -50,7 +50,7 @@ export async function POST(
       );
     }
 
-    // Log event
+    // Log event (best-effort, don't fail request if this fails)
     const event: DealEvent = {
       dealId,
       type: action,
@@ -59,13 +59,17 @@ export async function POST(
       timestamp: new Date().toISOString(),
     };
 
-    await sb.from("deal_events").insert({
+    const insertResult = await sb.from("deal_events").insert({
       deal_id: dealId,
       event_type: action,
       actor_id: userId,
       payload: event.payload,
       created_at: event.timestamp,
     });
+
+    if (insertResult.error) {
+      console.warn("[actions] Event insert failed (non-fatal):", insertResult.error);
+    }
 
     // Handle action (placeholder implementations)
     switch (action) {
