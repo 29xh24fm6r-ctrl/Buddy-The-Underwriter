@@ -2,18 +2,20 @@
 
 import * as React from "react";
 import { deriveDealMode } from "@/lib/deals/deriveDealMode";
+import { usePipelineState } from "@/lib/pipeline/usePipelineState";
 
 type Props = {
   dealId: string;
 };
 
 export function DealCockpitNarrator({ dealId }: Props) {
+  const { pipeline } = usePipelineState(dealId);
+  
   const [checklistState, setChecklistState] = React.useState<{
     state: "empty" | "ready";
     pendingCount: number;
   }>({ state: "empty", pendingCount: 0 });
 
-  const [pipeline, setPipeline] = React.useState<{ status?: string }>({});
   const [uploads, setUploads] = React.useState<{ processing?: number }>({});
 
   React.useEffect(() => {
@@ -28,15 +30,6 @@ export function DealCockpitNarrator({ dealId }: Props) {
               state: checklistData.state || "ready",
               pendingCount: (checklistData.pending || []).length,
             });
-          }
-        }
-
-        // Fetch pipeline status
-        const pipelineRes = await fetch(`/api/deals/${dealId}/pipeline`);
-        if (pipelineRes.ok) {
-          const pipelineData = await pipelineRes.json();
-          if (pipelineData.ok) {
-            setPipeline({ status: pipelineData.status });
           }
         }
 
@@ -58,20 +51,32 @@ export function DealCockpitNarrator({ dealId }: Props) {
     return () => clearInterval(interval);
   }, [dealId]);
 
-  const derivedMode = deriveDealMode({
-    checklistState: checklistState.state,
-    pendingCount: checklistState.pendingCount,
-    uploadsProcessingCount: uploads?.processing,
-    pipelineStatus: pipeline?.status as any,
-  });
+  // Use pipeline message if available, otherwise derive mode
+  const message = pipeline.lastMessage || (() => {
+    // Map pipeline ui_state to legacy pipelineStatus for deriveDealMode
+    const legacyStatus = 
+      pipeline.uiState === "working" ? "running" :
+      pipeline.uiState === "waiting" ? "blocked" :
+      "idle";
+
+    const derivedMode = deriveDealMode({
+      checklistState: checklistState.state,
+      pendingCount: checklistState.pendingCount,
+      uploadsProcessingCount: uploads?.processing,
+      pipelineStatus: legacyStatus,
+    });
+
+    if (derivedMode === "initializing") return "Preparing deal workspace…";
+    if (derivedMode === "processing") return "Processing uploads and analysis…";
+    if (derivedMode === "needs_input") return "Waiting on borrower input…";
+    if (derivedMode === "ready") return "Deal is ready for decision.";
+    if (derivedMode === "blocked") return "Deal is blocked and needs attention.";
+    return "Buddy is standing by…";
+  })();
 
   return (
     <div className="text-sm text-neutral-700">
-      {derivedMode === "initializing" && "Preparing deal workspace…"}
-      {derivedMode === "processing" && "Processing uploads and analysis…"}
-      {derivedMode === "needs_input" && "Waiting on borrower input…"}
-      {derivedMode === "ready" && "Deal is ready for decision."}
-      {derivedMode === "blocked" && "Deal is blocked and needs attention."}
+      {message}
     </div>
   );
 }

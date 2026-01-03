@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, usePathname } from "next/navigation";
+import { usePipelineState } from "@/lib/pipeline/usePipelineState";
 
 function coerceDealId(x: unknown): string | null {
   if (typeof x !== "string") return null;
@@ -60,12 +61,15 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
 
   const [step, setStep] = useState<Step>("route");
   const [probe, setProbe] = useState<Probe | null>(null);
-  const [pipelineOk, setPipelineOk] = useState<boolean | null>(null);
   const [lastOkAt, setLastOkAt] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [ctxStatus, setCtxStatus] = useState<number | null>(null);
   const [pulse, setPulse] = useState<number>(0);
   const [lastChangeAt, setLastChangeAt] = useState<number | null>(null);
+
+  // Use centralized pipeline hook
+  const { pipeline } = usePipelineState(dealId);
+  const pipelineOk = pipeline.lastUpdatedAt !== null;
 
   const startedAtRef = useRef<number>(Date.now());
   const [now, setNow] = useState<number>(() => Date.now()); // timer tick
@@ -167,15 +171,7 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
         pollMsRef.current = pollMsRef.current >= 10000 ? 10000 : pollMsRef.current === 2000 ? 5000 : 10000;
 
         setStep("pipeline");
-        try {
-          const pr = await fetch(`/api/deals/${dealId}/pipeline/latest`, { cache: "no-store" });
-          if (!alive) return;
-          setPipelineOk(pr.ok);
-        } catch {
-          if (!alive) return;
-          setPipelineOk(false);
-        }
-
+        // Pipeline state now comes from hook
         setStep("ready");
       } catch (e: any) {
         if (!alive) return;

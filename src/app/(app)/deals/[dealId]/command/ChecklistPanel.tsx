@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { UI_EVENT_CHECKLIST_REFRESH } from "@/lib/events/uiEvents";
+import { usePipelineState } from "@/lib/pipeline/usePipelineState";
 
 type ChecklistItem = {
   id: string;
@@ -22,6 +23,8 @@ type ChecklistBucket = {
 };
 
 export function ChecklistPanel({ dealId }: { dealId: string }) {
+  const { pipeline } = usePipelineState(dealId);
+  
   const [checklist, setChecklist] = useState<ChecklistBucket | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,21 +55,21 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
   }, [dealId]);
 
   useEffect(() => {
-    fetchChecklist();
-    const onVis = () => {
-      if (document.visibilityState === "visible") fetchChecklist();
-    };
+    // Auto-refresh when pipeline emits new events (zero timers!)
+    if (!dealId) return;
+    void fetchChecklist();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dealId, pipeline.lastUpdatedAt]);
+
+  useEffect(() => {
+    // Listen for manual refresh events
     const onEvt = (e: any) => {
       const d = e?.detail?.dealId;
       if (!d || d === dealId) fetchChecklist();
     };
-    document.addEventListener("visibilitychange", onVis);
     window.addEventListener(UI_EVENT_CHECKLIST_REFRESH, onEvt as any);
-    const t = window.setInterval(fetchChecklist, 15000);
     return () => {
-      document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener(UI_EVENT_CHECKLIST_REFRESH, onEvt as any);
-      window.clearInterval(t);
     };
   }, [dealId, fetchChecklist]);
 

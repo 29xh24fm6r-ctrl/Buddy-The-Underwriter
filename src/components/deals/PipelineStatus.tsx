@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ProcessingState, ErrorPanel } from "@/components/SafeBoundary";
+import { usePipelineState } from "@/lib/pipeline/usePipelineState";
 
 type PipelineStage = "upload" | "ocr_queued" | "ocr_running" | "ocr_complete" | "auto_seeded" | "failed";
 type PipelineStatus = "ok" | "pending" | "error";
@@ -35,41 +36,26 @@ export function PipelineStatus({
   dealId: string;
   children: (state: PipelineState | null) => React.ReactNode;
 }) {
-  const [state, setState] = useState<PipelineState | null>(null);
+  const { pipeline } = usePipelineState(dealId);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchState() {
-      try {
-        const res = await fetch(`/api/deals/${dealId}/pipeline/latest`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.ok && data.state) {
-            setState(data.state);
-          }
-        }
-      } catch (err) {
-        console.error("[PipelineStatus] fetch error:", err);
-      } finally {
-        setLoading(false);
-      }
+    // Mark as loaded once we have any pipeline data
+    if (pipeline.lastUpdatedAt !== null) {
+      setLoading(false);
     }
+  }, [pipeline.lastUpdatedAt]);
 
-    fetchState();
-
-    // Poll every 5 seconds when in pending states
-    const interval = setInterval(() => {
-      if (
-        state?.status === "pending" ||
-        state?.stage === "ocr_running" ||
-        state?.stage === "ocr_queued"
-      ) {
-        fetchState();
+  // Build legacy state shape for backwards compatibility
+  const state: PipelineState | null = pipeline.lastMessage
+    ? {
+        stage: (pipeline.meta?.stage as PipelineStage) ?? "upload",
+        status: (pipeline.meta?.status as PipelineStatus) ?? "ok",
+        payload: pipeline.meta,
+        error: pipeline.meta?.error as string | undefined,
+        created_at: pipeline.lastUpdatedAt ?? new Date().toISOString(),
       }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [dealId, state?.status, state?.stage]);
+    : null;
 
   if (loading) {
     return <ProcessingState label="Loading pipeline status..." />;
@@ -84,37 +70,19 @@ export function PipelineStatus({
  * Lightweight status badge for showing pipeline state.
  */
 export function PipelineIndicator({ dealId }: { dealId: string }) {
-  const [state, setState] = useState<PipelineState | null>(null);
+  const { pipeline } = usePipelineState(dealId);
 
-  useEffect(() => {
-    async function fetchState() {
-      try {
-        const res = await fetch(`/api/deals/${dealId}/pipeline/latest`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.ok && data.state) {
-            setState(data.state);
-          }
-        }
-      } catch (err) {
-        console.error("[PipelineIndicator] fetch error:", err);
-      }
-    }
+  if (!pipeline.lastMessage) return null;
 
-    fetchState();
-  }, [dealId]);
-
-  if (!state) return null;
-
-  const isProcessing = state.stage === "ocr_running" || state.stage === "ocr_queued";
-  const isError = state.status === "error";
+  const isProcessing = pipeline.isWorking;
+  const isError = !!(pipeline.uiState === "waiting" && pipeline.meta?.error);
 
   return (
     <div className="flex items-center gap-2 text-xs">
       {isProcessing && (
         <div className="flex items-center gap-1.5 text-blue-400">
           <div className="h-2 w-2 animate-pulse rounded-full bg-blue-400" />
-          <span>Processing documents...</span>
+          <span>{pipeline.lastMessage}</span>
         </div>
       )}
       {isError && (
@@ -123,7 +91,7 @@ export function PipelineIndicator({ dealId }: { dealId: string }) {
           <span>Pipeline error</span>
         </div>
       )}
-      {state.stage === "auto_seeded" && state.status === "ok" && (
+      {pipeline.uiState === "done" && !isError && (
         <div className="flex items-center gap-1.5 text-green-400">
           <div className="h-2 w-2 rounded-full bg-green-400" />
           <span>Ready</span>
