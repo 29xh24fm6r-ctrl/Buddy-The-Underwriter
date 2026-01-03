@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import type { ChecklistItem } from "@/types/db";
+import { getChecklistState } from "@/lib/checklist/getChecklistState";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +19,12 @@ const CHECKLIST_DEFINITIONS: Record<string, { title: string; required: boolean }
   SBA_DEBT_SCHED: { title: "Business debt schedule", required: false },
 };
 
+/**
+ * GET /api/deals/[dealId]/checklist/list
+ * 
+ * Returns full checklist items array with v2 satisfaction fields
+ * CONVERGENCE-SAFE: Returns state:"processing" instead of 500 during auto-seed/upload
+ */
 export async function GET(
   _req: Request,
   ctx: { params: Promise<{ dealId: string }> },
@@ -30,27 +36,31 @@ export async function GET(
     }
 
     const { dealId } = await ctx.params;
-    const sb = supabaseAdmin();
-
-    // ✅ Select columns including v2 satisfaction fields
-    const { data, error } = await sb
-      .from("deal_checklist_items")
-      .select(
-        "id, deal_id, checklist_key, title, description, required, status, requested_at, received_at, satisfied_at, satisfaction_json, received_upload_id, created_at, updated_at"
-      )
-      .eq("deal_id", dealId);
-
-    if (error) {
-      console.error("[/api/deals/[dealId]/checklist/list] DB error:", error);
+    
+    // Use convergence-safe helper
+    const checklistState = await getChecklistState({ dealId, includeItems: true });
+    
+    if (!checklistState.ok) {
+      const status = checklistState.error === "Unauthorized" ? 403 : 500;
       return NextResponse.json({ 
         ok: false, 
         items: [], 
-        error: "Database error loading checklist" 
-      }, { status: 500 });
+        error: checklistState.error 
+      }, { status });
+    }
+    
+    // If processing or empty, return calm state with metadata
+    if (checklistState.state === "processing" || checklistState.state === "empty") {
+      return NextResponse.json({ 
+        ok: true, 
+        state: checklistState.state, 
+        items: [],
+        meta: checklistState.meta,
+      });
     }
 
-    // Empty checklist is a valid state (not seeded yet)
-    const items = (data ?? []).map((row) => ({
+    // Ready state: format and sort items
+    const items = (checklistState.items ?? []).map((row: any) => ({
       id: row.id,
       deal_id: row.deal_id,
       checklist_key: row.checklist_key,
@@ -73,8 +83,12 @@ export async function GET(
       return String(a.checklist_key).localeCompare(String(b.checklist_key));
     });
 
-    const state = items.length === 0 ? "empty" : "ready";
-    return NextResponse.json({ ok: true, state, items });
+    return NextResponse.json({ 
+      ok: true, 
+      state: "ready", 
+      items,
+      meta: checklistState.meta,
+    });
   } catch (error: any) {
     console.error("[/api/deals/[dealId]/checklist/list] Unexpected error:", error);
     return NextResponse.json({ 

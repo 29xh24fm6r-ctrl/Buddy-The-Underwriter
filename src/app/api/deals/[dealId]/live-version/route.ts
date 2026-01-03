@@ -41,24 +41,34 @@ export async function GET(
   req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  await requireRole(["super_admin", "bank_admin", "underwriter"]);
+  try {
+    await requireRole(["super_admin", "bank_admin", "underwriter"]);
+  } catch (e) {
+    // Graceful degradation for unauthorized requests
+    return NextResponse.json({ ok: true, version: 0 }, { status: 200 });
+  }
 
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
-  // Add/remove tables as your UI grows.
-  const candidates = await Promise.all([
-    latestMs(sb, "borrower_document_requests", dealId, "updated_at"),
-    latestMs(sb, "borrower_uploads", dealId, "uploaded_at"),
-    latestMs(sb, "borrower_messages", dealId, "created_at"),
-    latestMs(sb, "deal_conditions", dealId, "updated_at"),
-    latestMs(sb, "credit_discovery_sessions", dealId, "updated_at"),
-    latestMs(sb, "owner_requirements", dealId, "updated_at"),
-    latestMs(sb, "doc_intel_results", dealId, "created_at"),
-    latestMs(sb, "ai_events", dealId, "created_at"),
-  ]);
+  try {
+    // Add/remove tables as your UI grows.
+    const candidates = await Promise.all([
+      latestMs(sb, "borrower_document_requests", dealId, "updated_at"),
+      latestMs(sb, "borrower_uploads", dealId, "uploaded_at"),
+      latestMs(sb, "borrower_messages", dealId, "created_at"),
+      latestMs(sb, "deal_conditions", dealId, "updated_at"),
+      latestMs(sb, "credit_discovery_sessions", dealId, "updated_at"),
+      latestMs(sb, "owner_requirements", dealId, "updated_at"),
+      latestMs(sb, "doc_intel_results", dealId, "created_at"),
+      latestMs(sb, "ai_events", dealId, "created_at"),
+    ]);
 
-  const version = Math.max(0, ...candidates);
+    const version = Math.max(0, ...candidates);
 
-  return NextResponse.json({ ok: true, version });
+    return NextResponse.json({ ok: true, version });
+  } catch (e: any) {
+    console.warn("[live-version] Error (returning version:0):", e);
+    return NextResponse.json({ ok: true, version: 0 });
+  }
 }

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import type { ChecklistItem } from "@/types/db";
 import { isDemoMode, demoState } from "@/lib/demo/demoMode";
 import { mockChecklistData } from "@/lib/demo/mocks";
+import { getChecklistState } from "@/lib/checklist/getChecklistState";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ type Context = {
  * Base items come from deal_checklist_items, augmented with deal_documents for received determination.
  * 
  * DEMO MODE: Supports ?__mode=demo&__state=empty|converging|ready|blocked
+ * CONVERGENCE-SAFE: Returns state:"processing" instead of 500 during auto-seed/upload
  */
 export async function GET(req: NextRequest, ctx: Context) {
   try {
@@ -36,11 +38,12 @@ export async function GET(req: NextRequest, ctx: Context) {
       return NextResponse.json({
         ok: true,
         state: mockData.state,
-        received: mockData.items?.filter(i => i.status === "satisfied") ?? [],
-        pending: mockData.items?.filter(i => i.status === "missing" || i.status === "pending") ?? [],
+        received: mockData.items?.filter((i: any) => i.status === "satisfied" || i.status === "received") ?? [],
+        pending: mockData.items?.filter((i: any) => i.status === "missing" || i.status === "pending") ?? [],
         optional: [],
       });
     }
+    
     const { userId } = await clerkAuth();
     if (!userId) {
       return NextResponse.json(
@@ -50,37 +53,54 @@ export async function GET(req: NextRequest, ctx: Context) {
     }
 
     const { dealId } = await ctx.params;
-    const sb = supabaseAdmin();
-
-    // Fetch base checklist items from deal_checklist_items
-    const { data: checklistItems, error: checklistError } = await sb
-      .from("deal_checklist_items")
-      .select("id, deal_id, checklist_key, title, description, required, status, received_at, received_file_id, created_at")
-      .eq("deal_id", dealId);
-
-    if (checklistError) {
-      console.error("[/api/deals/[dealId]/checklist] DB error:", checklistError);
+    
+    // Use convergence-safe helper
+    const checklistState = await getChecklistState({ dealId, includeItems: true });
+    
+    if (!checklistState.ok) {
+      const status = checklistState.error === "Unauthorized" ? 403 : 500;
       return NextResponse.json({
         ok: false,
         received: [],
         pending: [],
         optional: [],
-        error: "Database error loading checklist",
-      }, { status: 500 });
+        error: checklistState.error,
+      }, { status });
+    }
+    
+    // If processing, return calm state (not an error)
+    if (checklistState.state === "processing") {
+      return NextResponse.json({
+        ok: true,
+        state: "processing",
+        received: [],
+        pending: [],
+        optional: [],
+        meta: checklistState.meta,
+      });
+    }
+    
+    // Empty state
+    if (checklistState.state === "empty") {
+      return NextResponse.json({
+        ok: true,
+        state: "empty",
+        received: [],
+        pending: [],
+        optional: [],
+        meta: checklistState.meta,
+      });
     }
 
-    // Empty checklist is a valid state (not seeded yet)
-    const items = checklistItems ?? [];
-
+    // Ready state: bucket items by status
+    const items = checklistState.items ?? [];
+    const sb = supabaseAdmin();
+    
     // Fetch documents to augment received determination
-    const { data: documents, error: docsError } = await sb
+    const { data: documents } = await sb
       .from("deal_documents")
       .select("checklist_key")
       .eq("deal_id", dealId);
-
-    if (docsError) {
-      console.error("[/api/deals/[dealId]/checklist]", docsError);
-    }
 
     // Build set of checklist_keys that have documents
     const documentKeys = new Set<string>();
@@ -97,7 +117,11 @@ export async function GET(req: NextRequest, ctx: Context) {
     // Bucket items based on required flag and received status
     items.forEach((item) => {
       // Determine if received: check explicit status OR presence of document
-      const hasExplicitReceivedStatus = item.status === "received" || item.received_at !== null;
+      const hasExplicitReceivedStatus =
+        item.status === "received" ||
+        item.status === "satisfied" ||
+        item.received_at !== null ||
+        item.satisfied_at !== null;
       const hasDocument = documentKeys.has(item.checklist_key);
       const isReceived = hasExplicitReceivedStatus || hasDocument;
 
@@ -110,14 +134,13 @@ export async function GET(req: NextRequest, ctx: Context) {
       }
     });
 
-    const state = items.length === 0 ? "empty" : "ready";
-
     return NextResponse.json({
       ok: true,
-      state,
+      state: "ready",
       received,
       pending,
       optional,
+      meta: checklistState.meta,
     });
   } catch (error: any) {
     console.error("[/api/deals/[dealId]/checklist] Unexpected error:", error);

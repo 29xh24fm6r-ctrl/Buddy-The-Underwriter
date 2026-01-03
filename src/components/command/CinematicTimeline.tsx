@@ -24,7 +24,7 @@ export function CinematicTimeline({ dealId }: { dealId: string }) {
 
   const fetchTimeline = React.useCallback(async () => {
     try {
-      const res = await fetch(`/api/deals/${dealId}/timeline`);
+      const res = await fetch(`/api/deals/${dealId}/timeline?simple=true`);
       if (!res.ok) throw new Error("Failed to load timeline");
       const json = await res.json();
       setData(json);
