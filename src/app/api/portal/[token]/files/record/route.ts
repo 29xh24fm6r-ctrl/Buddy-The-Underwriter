@@ -112,7 +112,6 @@ export async function POST(req: NextRequest, ctx: Context) {
         storagePath: object_path,
       },
       source: "borrower_portal",
-      uploaderLabel: "borrower",
       metadata: { checklist_key },
     });
 

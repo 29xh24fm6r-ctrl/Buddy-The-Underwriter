@@ -103,7 +103,6 @@ export async function POST(req: NextRequest, ctx: Context) {
       },
       source: "banker_upload",
       uploaderUserId: userId,
-      uploaderLabel: "banker",
       metadata: { checklist_key },
     });
 

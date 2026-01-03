@@ -151,7 +151,6 @@ export async function POST(req: Request) {
           storagePath: path,
         },
         source: "borrower_portal",
-        uploaderLabel: "borrower",
       });
 
       // 🧠 CONVERGENCE: Recompute deal readiness

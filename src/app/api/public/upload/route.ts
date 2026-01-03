@@ -185,7 +185,6 @@ export async function POST(req: Request) {
         storagePath,
       },
       source: "public_link",
-      uploaderLabel: "public",
       metadata: {
         checklist_key: checklistKey || null,
         uploaded_via_link_id: link.id,
