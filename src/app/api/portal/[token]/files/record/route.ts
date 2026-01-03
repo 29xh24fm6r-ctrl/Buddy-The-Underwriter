@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { writeEvent } from "@/lib/ledger/writeEvent";
-import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { recomputeDealReady } from "@/lib/deals/readiness";
 
 export const runtime = "nodejs";
@@ -101,65 +101,25 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    // Insert metadata record
-    const { data: inserted, error: insertErr } = await sb.from("deal_documents").insert({
-      id: file_id,
-      deal_id: dealId,
-      bank_id: deal.bank_id, // Required: inherited from deal
-      
-      // Storage paths (must match table default)
-      storage_bucket: "deal-files",
-      storage_path: object_path,
-      
-      // File metadata
-      original_filename,
-      mime_type: mime_type ?? "application/octet-stream",
-      size_bytes: size_bytes ?? 0,
-      
-      // Required business keys (NOT NULL columns)
-      document_key: checklist_key ?? "UNCLASSIFIED",
-      checklist_key: checklist_key ?? null,
-      
-      // Required JSON fields (NOT NULL columns)
-      extracted_fields: {},
-      metadata: {},
-      
-      // Upload tracking
-      source: "borrower",
-      uploader_user_id: null, // Borrower upload, no Clerk user
-    }).select("*").single();
-
-    if (insertErr || !inserted) {
-      console.error("[portal/files/record] failed to insert metadata", insertErr);
-      return NextResponse.json(
-        { ok: false, error: "Failed to record file metadata" },
-        { status: 500 },
-      );
-    }
-
-    // 🔥 Checklist Engine v2: stamp + reconcile
-    await matchAndStampDealDocument({
-      sb,
+    // Canonical ingestion: insert doc + stamp checklist + reconcile + log ledger
+    const result = await ingestDocument({
       dealId,
-      documentId: inserted.id,
-      originalFilename: inserted.original_filename ?? null,
-      mimeType: inserted.mime_type ?? null,
-      extractedFields: inserted.extracted_fields,
-      metadata: inserted.metadata,
+      bankId: deal.bank_id,
+      file: {
+        filename: original_filename,
+        mimeType: mime_type ?? "application/octet-stream",
+        sizeBytes: size_bytes ?? 0,
+        storagePath: object_path,
+      },
+      source: "borrower_portal",
+      uploaderLabel: "borrower",
+      metadata: { checklist_key },
     });
-
-    // 🔥 FINALIZE: Mark document as fully processed
-    await sb
-      .from("deal_documents")
-      .update({ finalized_at: new Date().toISOString() })
-      .eq("id", inserted.id);
-
-    await reconcileChecklistForDeal({ sb, dealId });
 
     // 🧠 CONVERGENCE: Recompute deal readiness
     await recomputeDealReady(dealId);
 
-    // Emit ledger event (no actorUserId for borrower uploads)
+    // Emit ledger event (legacy - no actorUserId for borrower uploads)
     await writeEvent({
       dealId,
       actorUserId: null,
@@ -173,8 +133,6 @@ export async function POST(req: NextRequest, ctx: Context) {
       },
     });
 
-    // Checklist auto-resolution happens via DB trigger when checklist_key is set
-
     console.log("[portal/files/record] recorded borrower file", {
       dealId,
       file_id,
@@ -182,7 +140,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       checklist_key,
     });
 
-    return NextResponse.json({ ok: true, file_id });
+    return NextResponse.json({ ok: true, file_id, ...result });
   } catch (error: any) {
     console.error("[portal/files/record]", error);
     return NextResponse.json(

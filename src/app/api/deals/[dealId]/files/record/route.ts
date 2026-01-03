@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { writeEvent } from "@/lib/ledger/writeEvent";
-import { matchChecklistKeyFromFilename } from "@/lib/checklist/matchers";
-import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { recomputeDealReady } from "@/lib/deals/readiness";
 
 export const runtime = "nodejs";
@@ -92,75 +91,26 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    // Insert metadata record
-    const { error: insertErr } = await sb.from("deal_documents").insert({
-      id: file_id,
-      deal_id: dealId,
-      bank_id: deal.bank_id, // Required: inherited from deal
-      
-      // Storage paths (must match table default)
-      storage_bucket: "deal-files",
-      storage_path: object_path,
-      
-      // File metadata
-      original_filename,
-      mime_type: mime_type ?? "application/octet-stream",
-      size_bytes: size_bytes ?? 0,
-      
-      // Required business keys (NOT NULL columns)
-      document_key: checklist_key ?? "UNCLASSIFIED",
-      checklist_key: checklist_key ?? null,
-      
-      // Required JSON fields (NOT NULL columns)
-      extracted_fields: {},
-      metadata: {},
-      
-      // Upload tracking
-      source: "internal",
-      uploader_user_id: userId,
-    });
-
-    if (insertErr) {
-      console.error("[files/record] failed to insert metadata", insertErr);
-      return NextResponse.json(
-        { ok: false, error: "Failed to record file metadata" },
-        { status: 500 },
-      );
-    }
-
-    // 🔥 Checklist Engine v2: stamp checklist_key + doc_year + reconcile
-    await matchAndStampDealDocument({
-      sb,
+    // Canonical ingestion: insert doc + stamp checklist + reconcile + log ledger
+    const result = await ingestDocument({
       dealId,
-      documentId: file_id,
-      originalFilename: original_filename ?? null,
-      mimeType: mime_type ?? null,
-      extractedFields: {},
-      metadata: {},
+      bankId: deal.bank_id,
+      file: {
+        filename: original_filename,
+        mimeType: mime_type ?? "application/octet-stream",
+        sizeBytes: size_bytes ?? 0,
+        storagePath: object_path,
+      },
+      source: "banker_upload",
+      uploaderUserId: userId,
+      uploaderLabel: "banker",
+      metadata: { checklist_key },
     });
-
-    // 🔥 FINALIZE: Mark document as fully processed and safe to reconcile
-    await sb
-      .from("deal_documents")
-      .update({ finalized_at: new Date().toISOString() })
-      .eq("id", file_id);
-
-    // 🔥 LEDGER: Log finalization
-    await sb.from("deal_pipeline_ledger").insert({
-      deal_id: dealId,
-      bank_id: deal.bank_id,
-      stage: "upload",
-      status: "completed",
-      payload: { document_id: file_id, filename: original_filename },
-    } as any);
-
-    // Reconcile entire checklist (year-aware satisfaction + status updates)
-    await reconcileChecklistForDeal({ sb, dealId });
 
     // 🧠 CONVERGENCE: Recompute deal readiness
     await recomputeDealReady(dealId);
 
-    // Emit ledger event
+    // Emit ledger event (legacy - can be removed after ledger consolidation)
     await writeEvent({
       dealId,
       actorUserId: userId,
@@ -173,24 +123,6 @@ export async function POST(req: NextRequest, ctx: Context) {
       },
     });
 
-    // 🔥 LEDGER: Log upload stage
-    await sb.from("deal_pipeline_ledger").insert({
-      deal_id: dealId,
-      bank_id: deal.bank_id,
-      stage: "upload",
-      status: "ok",
-      payload: {
-        file_id,
-        filename: original_filename,
-        object_path,
-        size_bytes,
-        checklist_key,
-      },
-    });
-
-    // Checklist auto-resolution happens via DB trigger when checklist_key is set
-    // No additional code needed here
-
     console.log("[files/record] recorded file", {
       dealId,
       file_id,
@@ -202,6 +134,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       ok: true,
       file_id,
       checklist_key: checklist_key || null,
+      ...result,
     });
   } catch (error: any) {
     console.error("[files/record] uncaught exception", {

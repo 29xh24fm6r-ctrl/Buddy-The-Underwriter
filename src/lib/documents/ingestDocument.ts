@@ -23,6 +23,7 @@ export interface IngestDocumentInput {
   source: IngestSource;
   uploaderUserId?: string;
   uploaderLabel?: string;
+  metadata?: Record<string, any>;
 }
 
 export async function ingestDocument(input: IngestDocumentInput) {
@@ -41,6 +42,7 @@ export async function ingestDocument(input: IngestDocumentInput) {
       source: input.source,
       uploader_user_id: input.uploaderUserId ?? null,
       uploader_label: input.uploaderLabel ?? null,
+      metadata: input.metadata ?? {},
     })
     .select()
     .single();
