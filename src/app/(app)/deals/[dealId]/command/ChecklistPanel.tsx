@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { UI_EVENT_CHECKLIST_REFRESH } from "@/lib/events/uiEvents";
 import { usePipelineState } from "@/lib/pipeline/usePipelineState";
+import { PIPELINE_COPY } from "@/lib/pipeline/pipelineCopy";
 
 type ChecklistItem = {
   id: string;
@@ -79,7 +80,7 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-gray-900">Document Checklist</h3>
         </div>
-        <div className="text-sm text-gray-500">Loading checklist...</div>
+        <div className="text-sm text-gray-500">{PIPELINE_COPY.working.short}</div>
       </div>
     );
   }

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { deriveDealMode } from "@/lib/deals/deriveDealMode";
 import { usePipelineState } from "@/lib/pipeline/usePipelineState";
+import { PIPELINE_COPY } from "@/lib/pipeline/pipelineCopy";
 
 type Props = {
   dealId: string;
@@ -51,28 +52,8 @@ export function DealCockpitNarrator({ dealId }: Props) {
     return () => clearInterval(interval);
   }, [dealId]);
 
-  // Use pipeline message if available, otherwise derive mode
-  const message = pipeline.lastMessage || (() => {
-    // Map pipeline ui_state to legacy pipelineStatus for deriveDealMode
-    const legacyStatus = 
-      pipeline.uiState === "working" ? "running" :
-      pipeline.uiState === "waiting" ? "blocked" :
-      "idle";
-
-    const derivedMode = deriveDealMode({
-      checklistState: checklistState.state,
-      pendingCount: checklistState.pendingCount,
-      uploadsProcessingCount: uploads?.processing,
-      pipelineStatus: legacyStatus,
-    });
-
-    if (derivedMode === "initializing") return "Preparing deal workspace…";
-    if (derivedMode === "processing") return "Processing uploads and analysis…";
-    if (derivedMode === "needs_input") return "Waiting on borrower input…";
-    if (derivedMode === "ready") return "Deal is ready for decision.";
-    if (derivedMode === "blocked") return "Deal is blocked and needs attention.";
-    return "Buddy is standing by…";
-  })();
+  // Use pipeline message if available, otherwise use canonical copy
+  const message = pipeline.lastMessage || PIPELINE_COPY[pipeline.uiState].long;
 
   return (
     <div className="text-sm text-neutral-700">

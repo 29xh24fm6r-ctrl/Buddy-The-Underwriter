@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ProcessingState, ErrorPanel } from "@/components/SafeBoundary";
 import { usePipelineState } from "@/lib/pipeline/usePipelineState";
+import { PIPELINE_COPY } from "@/lib/pipeline/pipelineCopy";
 
 type PipelineStage = "upload" | "ocr_queued" | "ocr_running" | "ocr_complete" | "auto_seeded" | "failed";
 type PipelineStatus = "ok" | "pending" | "error";
@@ -58,7 +59,7 @@ export function PipelineStatus({
     : null;
 
   if (loading) {
-    return <ProcessingState label="Loading pipeline status..." />;
+    return <ProcessingState label={PIPELINE_COPY.working.short} />;
   }
 
   return <>{children(state)}</>;
@@ -77,12 +78,14 @@ export function PipelineIndicator({ dealId }: { dealId: string }) {
   const isProcessing = pipeline.isWorking;
   const isError = !!(pipeline.uiState === "waiting" && pipeline.meta?.error);
 
+  const copy = PIPELINE_COPY[pipeline.uiState];
+  
   return (
     <div className="flex items-center gap-2 text-xs">
       {isProcessing && (
         <div className="flex items-center gap-1.5 text-blue-400">
           <div className="h-2 w-2 animate-pulse rounded-full bg-blue-400" />
-          <span>{pipeline.lastMessage}</span>
+          <span>{pipeline.lastMessage || copy.short}</span>
         </div>
       )}
       {isError && (
@@ -94,7 +97,7 @@ export function PipelineIndicator({ dealId }: { dealId: string }) {
       {pipeline.uiState === "done" && !isError && (
         <div className="flex items-center gap-1.5 text-green-400">
           <div className="h-2 w-2 rounded-full bg-green-400" />
-          <span>Ready</span>
+          <span>{copy.short}</span>
         </div>
       )}
     </div>

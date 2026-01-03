@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PIPELINE_COPY } from "@/lib/pipeline/pipelineCopy";
 
 type DealStatusBannerProps = {
   dealId: string;
@@ -50,7 +51,7 @@ export default function DealStatusBanner({ dealId }: DealStatusBannerProps) {
   if (loading) {
     return (
       <div className="rounded-2xl border border-neutral-700 bg-neutral-900/50 px-6 py-4">
-        <div className="text-sm text-neutral-400">Checking readiness...</div>
+        <div className="text-sm text-neutral-400">{PIPELINE_COPY.working.short}</div>
       </div>
     );
   }
@@ -75,7 +76,7 @@ export default function DealStatusBanner({ dealId }: DealStatusBannerProps) {
         <div className="text-2xl">⏳</div>
         <div>
           <div className="text-lg font-semibold text-amber-100">
-            {state.reason || "Processing..."}
+            {state.reason || PIPELINE_COPY.waiting.short}
           </div>
           <div className="text-sm text-amber-200/80">
             The system is converging. No action required.
