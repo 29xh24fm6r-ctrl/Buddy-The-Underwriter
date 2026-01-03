@@ -39,10 +39,10 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
       const data = await res.json();
 
       if (!data.ok) {
-        throw new Error(data.error || "Failed to fetch checklist");
+        throw new Error(data.error || "Unable to load checklist");
       }
 
-      setChecklist(data.checklist || { received: [], pending: [], optional: [] });
+      setChecklist(data || { received: [], pending: [], optional: [] });
       setLastUpdatedAt(new Date().toISOString());
     } catch (e: any) {
       setError(String(e?.message ?? e));
@@ -105,17 +105,20 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
 
   if (totalItems === 0) {
     return (
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-900">Document Checklist</h3>
+          <h3 className="text-sm font-semibold text-amber-900">Document Checklist</h3>
           <button
             onClick={fetchChecklist}
-            className="text-xs text-gray-600 hover:text-gray-700 underline"
+            className="text-xs text-amber-700 hover:text-amber-800 underline"
           >
             Refresh
           </button>
         </div>
-        <div className="text-sm text-gray-500 italic">No checklist items yet</div>
+        <div className="text-sm text-amber-800">
+          <div className="font-medium mb-1">Initializing checklist…</div>
+          <div className="text-xs text-amber-700">Your documents are saved. The checklist will appear automatically.</div>
+        </div>
       </div>
     );
   }
