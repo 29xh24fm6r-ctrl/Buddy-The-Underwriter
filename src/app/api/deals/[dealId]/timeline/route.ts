@@ -1,8 +1,10 @@
 // src/app/api/deals/[dealId]/timeline/route.ts
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerPlaybookForStage } from "@/lib/deals/playbook";
 import { computeChecklistHighlight } from "@/lib/borrower/highlightChecklist";
+import { isDemoMode, demoState } from "@/lib/demo/demoMode";
+import { mockTimelineData } from "@/lib/demo/mocks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,11 +14,19 @@ export const dynamic = "force-dynamic";
 // For now:
 // - Banker UI can call with header x-user-id (optional)
 // - Borrower portal can call with invite token and you can validate upstream
+// DEMO MODE: Supports ?__mode=demo&__state=empty|converging|ready|blocked
 export async function GET(
-  _req: Request,
+  req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
+    // Demo mode support
+    const searchParams = req.nextUrl.searchParams;
+    if (isDemoMode(searchParams)) {
+      const state = demoState(searchParams);
+      return NextResponse.json(mockTimelineData(state));
+    }
+
     const { dealId } = await ctx.params;
     const sb = supabaseAdmin();
 
