@@ -23,6 +23,37 @@ export interface PipelineState {
   lastUpdatedAt: string | null;
   eventKey: string | null;
   meta: Record<string, unknown> | null;
+  source?: "ledger" | "demo"; // demo override indicator
+}
+
+/**
+ * Check if demo mode is active via URL params
+ * ?__mode=demo&__state=working&__message=Analyzing tax returns...
+ */
+function getDemoOverride(): PipelineState | null {
+  if (typeof window === "undefined") return null;
+  
+  const params = new URLSearchParams(window.location.search);
+  const mode = params.get("__mode");
+  
+  if (mode !== "demo") return null;
+  
+  const state = params.get("__state") as PipelineUiState | null;
+  const message = params.get("__message");
+  
+  if (!state || !["working", "done", "waiting"].includes(state)) {
+    return null;
+  }
+  
+  return {
+    uiState: state,
+    isWorking: state === "working",
+    lastMessage: message || `Demo mode: ${state}`,
+    lastUpdatedAt: new Date().toISOString(),
+    eventKey: "demo_override",
+    meta: { demo: true },
+    source: "demo",
+  };
 }
 
 async function fetchLatest(dealId: string): Promise<PipelineLatestResponse> {
@@ -37,20 +68,32 @@ async function fetchLatest(dealId: string): Promise<PipelineLatestResponse> {
 }
 
 export function usePipelineState(dealId: string | null) {
-  const [pipeline, setPipeline] = useState<PipelineState>({
-    uiState: "done",
-    isWorking: false,
-    lastMessage: null,
-    lastUpdatedAt: null,
-    eventKey: null,
-    meta: null,
-  });
+  // Check for demo mode override first
+  const demoOverride = getDemoOverride();
+  
+  const [pipeline, setPipeline] = useState<PipelineState>(
+    demoOverride || {
+      uiState: "done",
+      isWorking: false,
+      lastMessage: null,
+      lastUpdatedAt: null,
+      eventKey: null,
+      meta: null,
+      source: "ledger",
+    }
+  );
 
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
   const inflightRef = useRef(false);
 
   useEffect(() => {
+    // If demo mode active, skip polling and use override
+    if (demoOverride) {
+      setPipeline(demoOverride);
+      return;
+    }
+    
     if (!dealId) return;
 
     let cancelled = false;
@@ -83,6 +126,7 @@ export function usePipelineState(dealId: string | null) {
           lastUpdatedAt: ev?.created_at ?? null,
           eventKey: ev?.event_key ?? null,
           meta: (ev?.meta as Record<string, unknown>) ?? null,
+          source: "ledger",
         });
 
         setError(null);
