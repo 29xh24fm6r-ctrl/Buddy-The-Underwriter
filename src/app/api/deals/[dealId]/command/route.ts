@@ -93,7 +93,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     // Pull latest ledger events for the deal (most recent first)
     const { data, error } = await sb
       .from("deal_pipeline_ledger")
-      .select("id, created_at, stage, status, payload")
+      .select("id, created_at, stage, status, payload, error")
       .eq("deal_id", dealId)
       .order("created_at", { ascending: false })
       .limit(100);
@@ -110,9 +110,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       id: row.id,
       at: row.created_at,
       type: row.stage ?? "event",
-      title: row.status ?? "Event",
-      detail: row.payload ? JSON.stringify(row.payload) : null,
-      level: row.status === "error" ? "error" : row.status === "success" ? "success" : "info",
+      title: `${row.stage ?? "event"}: ${row.status ?? "unknown"}`,
+      detail: row.error || (row.payload ? JSON.stringify(row.payload) : null),
+      level: row.error ? "error" : row.status === "success" || row.status === "completed" ? "success" : "info",
     }));
 
     const state = items.length === 0 ? "empty" : "ready";
