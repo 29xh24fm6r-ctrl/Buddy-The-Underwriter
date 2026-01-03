@@ -11,6 +11,34 @@ export type IngestSource =
   | "public_link"
   | "system_backfill";
 
+/**
+ * Normalize source value to ensure DB constraint compliance.
+ * Maps any input to one of the allowed values in deal_documents_source_check.
+ * 
+ * Constraint allows: internal, borrower, system, sys, banker_upload, borrower_portal, public_link, system_backfill
+ * 
+ * @param raw - Raw source value from caller
+ * @returns Normalized source value that will pass CHECK constraint
+ */
+function normalizeDealDocSource(raw?: string | null): IngestSource {
+  const v = String(raw || "").toLowerCase().trim();
+  
+  // Direct match to IngestSource values (most common path)
+  if (v === "banker_upload") return "banker_upload";
+  if (v === "borrower_portal") return "borrower_portal";
+  if (v === "public_link") return "public_link";
+  if (v === "system_backfill") return "system_backfill";
+  
+  // Legacy value normalization (backward compatibility)
+  if (v === "banker" || v === "internal") return "banker_upload";
+  if (v === "borrower" || v === "portal") return "borrower_portal";
+  if (v === "public") return "public_link";
+  if (v === "system" || v === "sys") return "system_backfill";
+  
+  // Default: treat unknown values as internal banker uploads (safest assumption)
+  return "banker_upload";
+}
+
 export interface IngestDocumentInput {
   dealId: string;
   bankId: string;
@@ -47,7 +75,7 @@ export async function ingestDocument(input: IngestDocumentInput) {
     mime_type: input.file.mimeType,
     size_bytes: input.file.sizeBytes,
     storage_path: input.file.storagePath,
-    source: input.source,
+    source: normalizeDealDocSource(input.source), // 🔒 Normalized to pass CHECK constraint
     uploader_user_id: input.uploaderUserId ?? null,
     document_key: documentKey,
     metadata: input.metadata ?? {},
