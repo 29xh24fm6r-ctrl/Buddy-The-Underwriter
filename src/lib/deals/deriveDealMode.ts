@@ -1,17 +1,17 @@
 import type { DealMode } from "./dealMode";
 
 /**
- * deriveDealMode - Compute current deal mode from system state
- * 
- * This is the canonical truth function for deal convergence state.
- * NEVER store this value - always derive it fresh.
- * 
- * Priority order (highest to lowest):
- * 1. blocked - pipeline explicitly blocked
- * 2. processing - uploads currently processing
- * 3. initializing - empty checklist (system converging)
- * 4. needs_input - checklist has pending items
- * 5. ready - all conditions met
+ * deriveDealMode
+ *
+ * Canonical convergence state resolver.
+ * This value is NEVER stored in the database — it is always derived live.
+ *
+ * Priority order (highest → lowest):
+ * 1. blocked      – hard system or validation blocker
+ * 2. processing   – uploads / OCR / pipeline actively running
+ * 3. initializing – checklist empty, system converging
+ * 4. needs_input  – user action required
+ * 5. ready        – all conditions satisfied
  */
 export function deriveDealMode({
   checklist,
@@ -20,7 +20,7 @@ export function deriveDealMode({
 }: {
   checklist: {
     state: "empty" | "ready";
-    pending: number;
+    pendingCount: number;
   };
   pipeline?: {
     status?: "blocked" | "completed" | string;
@@ -29,26 +29,26 @@ export function deriveDealMode({
     processing?: number;
   };
 }): DealMode {
-  // Hard blocker takes priority
+  // 1. Hard blocker always wins
   if (pipeline?.status === "blocked") {
     return "blocked";
   }
 
-  // Processing uploads - system working
-  if (uploads?.processing && uploads.processing > 0) {
+  // 2. System actively working
+  if ((uploads?.processing ?? 0) > 0) {
     return "processing";
   }
 
-  // Empty checklist - system initializing
+  // 3. Empty checklist → initializing
   if (checklist.state === "empty") {
     return "initializing";
   }
 
-  // Has pending items - user action required
-  if (checklist.pending > 0) {
+  // 4. Missing required items → needs input
+  if (checklist.pendingCount > 0) {
     return "needs_input";
   }
 
-  // All clear - ready to proceed
+  // 5. Everything satisfied
   return "ready";
 }
