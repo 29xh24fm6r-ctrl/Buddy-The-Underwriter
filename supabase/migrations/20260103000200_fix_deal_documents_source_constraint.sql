@@ -1,36 +1,41 @@
 -- Fix deal_documents.source CHECK constraint
 -- 
--- PROBLEM: Existing constraint only allows: internal, borrower, system, sys (truncated list from error)
---          App writes: banker_upload, borrower_portal, public_link, system_backfill
---          Result: Storage upload succeeds, DB insert fails silently on constraint violation
+-- PROBLEM: Existing constraint only allows: internal, borrower, system, sys
+--          App writes normalized values including 'public' (from public_link)
+--          Result: Storage upload succeeds, DB insert fails on constraint violation
 -- 
--- SOLUTION: 
---   1. Expand constraint to include 'public' (for public_link mapping)
---   2. App normalizes IngestSource values to allowed constraint values
+-- SOLUTION: Add 'public' to allowed constraint values
 --
 -- Run in Supabase SQL Editor (production + preview environments)
+-- Safe + idempotent: drops existing constraint if present, recreates with updated values
 
-begin;
+DO $$
+DECLARE
+  cname text;
+BEGIN
+  -- Find the constraint if it exists
+  SELECT c.conname INTO cname
+  FROM pg_constraint c
+  JOIN pg_class t ON c.conrelid = t.oid
+  JOIN pg_namespace n ON t.relnamespace = n.oid
+  WHERE n.nspname = 'public'
+    AND t.relname = 'deal_documents'
+    AND c.contype = 'c'
+    AND c.conname = 'deal_documents_source_check'
+  LIMIT 1;
 
--- Drop the overly strict enum check
-alter table public.deal_documents
-drop constraint if exists deal_documents_source_check;
+  -- Drop it if found
+  IF cname IS NOT NULL THEN
+    EXECUTE 'ALTER TABLE public.deal_documents DROP CONSTRAINT ' || quote_ident(cname) || ';';
+  END IF;
+END $$;
 
 -- Recreate with expanded allowed values
--- Keep legacy values + add 'public' for public_link mapping
-alter table public.deal_documents
-add constraint deal_documents_source_check
-check (
-  source is null
-  or source = any (
-    array[
-      'internal',        -- used by banker_upload
-      'borrower',        -- used by borrower_portal
-      'public',          -- used by public_link (NEW)
-      'system',          -- used by system_backfill
-      'sys'              -- legacy alias for system
-    ]::text[]
-  )
-);
-
-commit;
+-- Maps to normalized values from normalizeDealDocSource():
+--   banker_upload → internal
+--   borrower_portal → borrower
+--   public_link → public (NEW)
+--   system_backfill → system
+ALTER TABLE public.deal_documents
+ADD CONSTRAINT deal_documents_source_check
+CHECK (source = ANY (ARRAY['internal'::text, 'borrower'::text, 'public'::text, 'system'::text, 'sys'::text]));
