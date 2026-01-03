@@ -13,30 +13,32 @@ export type IngestSource =
 
 /**
  * Normalize source value to ensure DB constraint compliance.
- * Maps any input to one of the allowed values in deal_documents_source_check.
+ * Prod has a CHECK constraint on deal_documents.source that only allows specific values.
+ * Maps all caller variants into the allowed set to prevent constraint violations.
  * 
- * Constraint allows: internal, borrower, system, sys, banker_upload, borrower_portal, public_link, system_backfill
+ * Allowed values (per prod constraint): internal, borrower, public, system
+ * Caller values (IngestSource): banker_upload, borrower_portal, public_link, system_backfill
  * 
  * @param raw - Raw source value from caller
  * @returns Normalized source value that will pass CHECK constraint
  */
-function normalizeDealDocSource(raw?: string | null): IngestSource {
+function normalizeDealDocSource(raw: IngestSource | string | null | undefined): string {
   const v = String(raw || "").toLowerCase().trim();
-  
-  // Direct match to IngestSource values (most common path)
-  if (v === "banker_upload") return "banker_upload";
-  if (v === "borrower_portal") return "borrower_portal";
-  if (v === "public_link") return "public_link";
-  if (v === "system_backfill") return "system_backfill";
-  
-  // Legacy value normalization (backward compatibility)
-  if (v === "banker" || v === "internal") return "banker_upload";
-  if (v === "borrower" || v === "portal") return "borrower_portal";
-  if (v === "public") return "public_link";
-  if (v === "system" || v === "sys") return "system_backfill";
-  
-  // Default: treat unknown values as internal banker uploads (safest assumption)
-  return "banker_upload";
+  if (!v) return "internal";
+
+  // Canonical allowed values (align to DB constraint)
+  if (v === "internal") return "internal";
+  if (v === "borrower") return "borrower";
+  if (v === "public") return "public";
+  if (v === "system") return "system";
+
+  // Legacy / caller aliases
+  if (v === "banker" || v === "banker_upload") return "internal";
+  if (v === "borrower_portal" || v === "portal") return "borrower";
+  if (v === "public_link") return "public";
+  if (v === "system_backfill") return "system";
+
+  return "internal";
 }
 
 export interface IngestDocumentInput {
