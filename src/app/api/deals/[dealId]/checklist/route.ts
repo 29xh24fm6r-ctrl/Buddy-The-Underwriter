@@ -38,8 +38,8 @@ export async function GET(req: NextRequest, ctx: Context) {
       return NextResponse.json({
         ok: true,
         state: mockData.state,
-        received: mockData.items?.filter(i => i.status === "satisfied" || i.status === "received") ?? [],
-        pending: mockData.items?.filter(i => i.status === "missing" || i.status === "pending") ?? [],
+        received: mockData.items?.filter((i: any) => i.status === "satisfied" || i.status === "received") ?? [],
+        pending: mockData.items?.filter((i: any) => i.status === "missing" || i.status === "pending") ?? [],
         optional: [],
       });
     }
@@ -121,7 +121,6 @@ export async function GET(req: NextRequest, ctx: Context) {
         item.status === "received" ||
         item.status === "satisfied" ||
         item.received_at !== null ||
-        // @ts-expect-error - some rows may include v2 fields depending on select
         item.satisfied_at !== null;
       const hasDocument = documentKeys.has(item.checklist_key);
       const isReceived = hasExplicitReceivedStatus || hasDocument;
