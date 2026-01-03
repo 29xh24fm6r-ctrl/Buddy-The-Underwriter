@@ -5,39 +5,40 @@ import {
   reconcileChecklistForDeal,
 } from "@/lib/checklist/engine";
 
+/**
+ * IMPORTANT:
+ * - DB check constraint for deal_documents.source is production-locked.
+ * - We normalize app-level sources (banker_upload, borrower_portal, public_link, system_backfill)
+ *   into DB-allowed values (internal, borrower, public, system).
+ */
 export type IngestSource =
+  | "internal"
+  | "borrower"
+  | "public"
+  | "system"
+  | "sys"
   | "banker_upload"
   | "borrower_portal"
   | "public_link"
   | "system_backfill";
 
-/**
- * Normalize source value to ensure DB constraint compliance.
- * Prod has a CHECK constraint on deal_documents.source that only allows specific values.
- * Maps all caller variants into the allowed set to prevent constraint violations.
- * 
- * Allowed values (per prod constraint): internal, borrower, public, system
- * Caller values (IngestSource): banker_upload, borrower_portal, public_link, system_backfill
- * 
- * @param raw - Raw source value from caller
- * @returns Normalized source value that will pass CHECK constraint
- */
-function normalizeDealDocSource(raw: IngestSource | string | null | undefined): string {
-  const v = String(raw || "").toLowerCase().trim();
-  if (!v) return "internal";
+function normalizeDealDocumentSource(src: IngestSource): "internal" | "borrower" | "public" | "system" | "sys" {
+  const v = String(src);
 
-  // Canonical allowed values (align to DB constraint)
+  // Canonical values (DB allowed)
   if (v === "internal") return "internal";
   if (v === "borrower") return "borrower";
   if (v === "public") return "public";
   if (v === "system") return "system";
+  if (v === "sys") return "sys";
 
-  // Legacy / caller aliases
-  if (v === "banker" || v === "banker_upload") return "internal";
-  if (v === "borrower_portal" || v === "portal") return "borrower";
+  // Legacy / caller aliases (app-level)
+  if (v === "banker_upload") return "internal";
+  if (v === "borrower_portal") return "borrower";
   if (v === "public_link") return "public";
   if (v === "system_backfill") return "system";
 
+  // Safe fallback
   return "internal";
 }
 
@@ -66,8 +67,8 @@ export async function ingestDocument(input: IngestDocumentInput) {
   const fallbackDocumentKey =
     input.documentKey ??
     `path:${input.file.storagePath}`.replace(/[^a-z0-9_:/-]/gi, "_");
-  
-  const documentKey = checklistKey ?? fallbackDocumentKey;
+
+  const documentKey = (checklistKey ?? fallbackDocumentKey) as string;
 
   // 1️⃣ Insert canonical document row
   const payload = {
@@ -77,15 +78,13 @@ export async function ingestDocument(input: IngestDocumentInput) {
     mime_type: input.file.mimeType,
     size_bytes: input.file.sizeBytes,
     storage_path: input.file.storagePath,
-    source: normalizeDealDocSource(input.source), // 🔒 Normalized to pass CHECK constraint
+    source: normalizeDealDocumentSource(input.source),
     uploader_user_id: input.uploaderUserId ?? null,
     document_key: documentKey,
     metadata: input.metadata ?? {},
   };
 
-  // Schema drift guard: if someone adds a key here that doesn't exist in the DB schema,
-  // we want to fail immediately (rather than ship 500s to prod).
-  // Keep this list in sync with public.deal_documents columns actually written by ingestDocument.
+  // Schema drift guard: fail immediately if we attempt to write a column that doesn't exist.
   const ALLOWED_DEAL_DOCUMENT_COLUMNS = new Set([
     "deal_id",
     "bank_id",
@@ -101,7 +100,9 @@ export async function ingestDocument(input: IngestDocumentInput) {
 
   for (const k of Object.keys(payload)) {
     if (!ALLOWED_DEAL_DOCUMENT_COLUMNS.has(k)) {
-      throw new Error(`[ingestDocument] payload contains unknown deal_documents column: ${k}`);
+      throw new Error(
+        `[ingestDocument] payload contains unknown deal_documents column: ${k}`
+      );
     }
   }
 
@@ -124,7 +125,7 @@ export async function ingestDocument(input: IngestDocumentInput) {
     uiMessage: "File received — processing started",
     meta: {
       document_id: doc.id,
-      source: input.source,
+      source: payload.source,
     },
   });
 
@@ -160,6 +161,8 @@ export async function ingestDocument(input: IngestDocumentInput) {
     checklistKey: stamped.matched ? stamped.checklist_key ?? null : null,
     docYear: stamped.matched ? stamped.doc_year ?? null : null,
     matchConfidence: stamped.matched ? stamped.confidence ?? null : null,
-    matchReason: stamped.matched ? "filename_match" : stamped.reason ?? "no_match",
+    matchReason: stamped.matched
+      ? "filename_match"
+      : stamped.reason ?? "no_match",
   };
 }
