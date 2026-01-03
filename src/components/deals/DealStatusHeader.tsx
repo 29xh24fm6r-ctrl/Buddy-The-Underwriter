@@ -19,22 +19,39 @@ type DealStatusHeaderProps = {
  * DealStatusHeader - Single canonical status display
  * 
  * Replaces all checklist banners, color-coded statuses, and guessing games.
- * Shows ONE truth in calm, plain language.
+ * Shows ONE truth in calm, plain language using narrated convergence.
  * 
  * Color rules (SACRED):
  * - Red: blocked ONLY (requires immediate attention)
  * - Green: ready (can proceed)
  * - Amber: all intermediate states (system working or needs input)
  * 
- * Optional: Shows latest ledger event to build trust
+ * Never shows spinners. System narrates what it's doing in human language.
+ * Optional: Shows latest ledger event to build trust.
  */
 export function DealStatusHeader({ mode, latestEvent }: DealStatusHeaderProps) {
-  const copy: Record<DealMode, string> = {
-    initializing: "Initializing checklist from uploaded documents…",
-    processing: "Documents processing — underwriting will unlock automatically",
-    needs_input: "Action required: missing required documents",
-    ready: "Deal ready for underwriting",
-    blocked: "Deal blocked — attention required",
+  // Narrated convergence - system explains itself
+  const copy: Record<DealMode, { title: string; message: string }> = {
+    initializing: {
+      title: "Getting things ready",
+      message: "I'm organizing your deal and preparing everything in the background.",
+    },
+    processing: {
+      title: "Almost there",
+      message: "Documents are processing and checklist items are being matched automatically.",
+    },
+    needs_input: {
+      title: "Action required",
+      message: "I'm missing a few required documents to continue.",
+    },
+    ready: {
+      title: "Deal ready",
+      message: "Everything is in place. You're clear to proceed.",
+    },
+    blocked: {
+      title: "Action needed",
+      message: "This deal requires immediate attention to move forward.",
+    },
   };
 
   const tone: Record<DealMode, string> = {
@@ -53,19 +70,22 @@ export function DealStatusHeader({ mode, latestEvent }: DealStatusHeaderProps) {
     needs_input: "📋",
   };
 
+  const { title, message } = copy[mode];
+
   return (
     <div>
       <div
-        className={`rounded-lg border px-4 py-3 text-sm font-medium ${tone[mode]}`}
+        className={`rounded-lg border px-4 py-3 ${tone[mode]}`}
         role="status"
         aria-live="polite"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mb-1">
           <span className="text-base" aria-hidden="true">
             {icon[mode]}
           </span>
-          <span>{copy[mode]}</span>
+          <span className="text-sm font-semibold">{title}</span>
         </div>
+        <div className="text-sm pl-6">{message}</div>
       </div>
       {latestEvent && <DealLedgerSnippet event={latestEvent} />}
     </div>
