@@ -3,6 +3,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { PortalUploadResponse, PortalActivityEvent } from "@/lib/borrower/portalTypes";
+import { uploadBorrowerFile } from "@/lib/uploads/uploadFile";
 
 type UploadState =
   | { status: "idle"; error: null; last: null }
@@ -143,57 +144,73 @@ export function usePortalUpload(token: string) {
       setState({ status: "uploading", error: null, last: null });
 
       try {
-        setQueue((prev) => prev.map((x) => ({ ...x, state: "uploading", message: "Uploading…" })));
+        // Upload files sequentially using canonical uploadBorrowerFile
+        const results = [];
+        let totalLoaded = 0;
+        const totalBytes = list.reduce((s, f) => s + (f.size || 0), 0);
 
-        const fd = new FormData();
-        for (const f of list) fd.append("files", f, f.name);
+        for (const file of list) {
+          const itemId = q.find((x) => x.filename === file.name)?.id;
+          if (itemId) {
+            setQueue((prev) =>
+              prev.map((x) =>
+                x.id === itemId ? { ...x, state: "uploading", message: "Uploading…" } : x
+              )
+            );
+          }
 
-        if (hints?.hinted_doc_type) fd.append("hinted_doc_type", hints.hinted_doc_type);
-        if (hints?.hinted_category) fd.append("hinted_category", hints.hinted_category);
+          const result = await uploadBorrowerFile(
+            token,
+            file,
+            hints?.hinted_doc_type || null,
+            (pct) => {
+              const fileProgress = (file.size || 0) * (pct / 100);
+              const currentTotal = totalLoaded + fileProgress;
+              const overallPct = totalBytes > 0 ? Math.round((currentTotal / totalBytes) * 100) : 0;
+              setProgress({
+                pct: overallPct,
+                loaded: currentTotal,
+                total: totalBytes,
+              });
+            }
+          );
 
-        const url = `/api/borrower/portal/upload?token=${encodeURIComponent(token)}`;
-        const { promise, abort } = xhrUploadJsonWithController(url, fd, (p) => setProgress(p));
-        abortRef.current = abort;
+          totalLoaded += file.size || 0;
 
-        const { status, json } = await promise;
-        abortRef.current = null;
-
-        if (!status || status < 200 || status >= 300 || !json?.ok) {
-          throw new Error(json?.error || `Upload failed (${status || "0"})`);
+          if (result.ok) {
+            results.push({ filename: file.name, success: true });
+            if (itemId) {
+              setQueue((prev) =>
+                prev.map((x) =>
+                  x.id === itemId ? { ...x, state: "uploaded", message: "Uploaded successfully" } : x
+                )
+              );
+            }
+          } else {
+            results.push({ filename: file.name, success: false, error: result.error });
+            if (itemId) {
+              setQueue((prev) =>
+                prev.map((x) =>
+                  x.id === itemId ? { ...x, state: "failed", message: result.error || "Failed" } : x
+                )
+              );
+            }
+          }
         }
 
-        setState({ status: "success", error: null, last: json as PortalUploadResponse });
-        setProgress((p) => (p ? { ...p, pct: 100 } : { pct: 100, loaded: 1, total: 1 }));
-
-        const serverUploaded = Array.isArray((json as any)?.uploaded) ? (json as any).uploaded : [];
-        const serverFailed = Array.isArray((json as any)?.failed) ? (json as any).failed : [];
-
-        const okNames = new Set<string>(serverUploaded.map((u: any) => String(u.filename || u.original_name || "")));
-        const failNames = new Map<string, string>();
-        for (const f of serverFailed) failNames.set(String(f.filename || ""), String(f.error || "failed"));
-
-        setQueue((prev) =>
-          prev.map((item) => {
-            if (failNames.has(item.filename)) {
-              return { ...item, state: "failed", message: `Failed: ${failNames.get(item.filename)}` };
-            }
-            if (okNames.has(item.filename)) {
-              const u = serverUploaded.find((x: any) => String(x.filename || x.original_name || "") === item.filename);
-              const matched = !!u?.matched;
-              return { ...item, state: "uploaded", message: matched ? "Filed automatically" : "Received — organizing" };
-            }
-            // If not mentioned by server, treat as received (best effort)
-            return { ...item, state: "uploaded", message: "Received" };
-          })
-        );
-
-        // instant activity from server
-        const act = Array.isArray((json as any)?.activity) ? (json as any).activity : [];
-        if (act.length) {
-          setLocalActivity((prev) => [...act, ...prev].slice(0, 12));
+        const allSucceeded = results.every((r) => r.success);
+        if (allSucceeded) {
+          setState({ status: "success", error: null, last: { ok: true } as any });
+          setLocalActivity((prev) => [
+            { kind: "NOTE", message: "Upload complete.", created_at: nowIso() },
+            ...prev,
+          ].slice(0, 12));
         } else {
-          setLocalActivity((prev) => [{ kind: "NOTE", message: "Upload complete.", created_at: nowIso() }, ...prev].slice(0, 12));
+          const failedCount = results.filter((r) => !r.success).length;
+          setState({ status: "error", error: `${failedCount} file(s) failed`, last: null });
         }
+
+        setProgress((p) => (p ? { ...p, pct: 100 } : { pct: 100, loaded: 1, total: 1 }));
       } catch (e: any) {
         abortRef.current = null;
 

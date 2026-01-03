@@ -179,13 +179,12 @@ export async function POST(req: Request) {
       dealId,
       bankId: deal.bank_id,
       file: {
-        filename: f.name || "upload",
+        original_filename: f.name || "upload",
         mimeType: f.type || "application/octet-stream",
         sizeBytes: bytes.length,
         storagePath,
       },
       source: "public_link",
-      uploaderLabel: "public",
       metadata: {
         checklist_key: checklistKey || null,
         uploaded_via_link_id: link.id,

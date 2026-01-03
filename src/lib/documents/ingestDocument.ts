@@ -15,35 +15,69 @@ export interface IngestDocumentInput {
   dealId: string;
   bankId: string;
   file: {
-    filename: string;
+    original_filename: string;
     mimeType: string;
     sizeBytes: number;
     storagePath: string;
   };
   source: IngestSource;
   uploaderUserId?: string;
-  uploaderLabel?: string;
+  // Optional override for document_key when callers have a better semantic key
+  documentKey?: string | null;
   metadata?: Record<string, any>;
 }
 
 export async function ingestDocument(input: IngestDocumentInput) {
   const sb = supabaseAdmin();
 
+  // Derive document_key (NOT NULL constraint)
+  // Priority: explicit checklist_key > explicit documentKey > stable fallback
+  const checklistKey = input.metadata?.checklist_key;
+  const fallbackDocumentKey =
+    input.documentKey ??
+    `path:${input.file.storagePath}`.replace(/[^a-z0-9_:/-]/gi, "_");
+  
+  const documentKey = checklistKey ?? fallbackDocumentKey;
+
   // 1️⃣ Insert canonical document row
+  const payload = {
+    deal_id: input.dealId,
+    bank_id: input.bankId,
+    original_filename: input.file.original_filename,
+    mime_type: input.file.mimeType,
+    size_bytes: input.file.sizeBytes,
+    storage_path: input.file.storagePath,
+    source: input.source,
+    uploader_user_id: input.uploaderUserId ?? null,
+    document_key: documentKey,
+    metadata: input.metadata ?? {},
+  };
+
+  // Schema drift guard: if someone adds a key here that doesn't exist in the DB schema,
+  // we want to fail immediately (rather than ship 500s to prod).
+  // Keep this list in sync with public.deal_documents columns actually written by ingestDocument.
+  const ALLOWED_DEAL_DOCUMENT_COLUMNS = new Set([
+    "deal_id",
+    "bank_id",
+    "original_filename",
+    "mime_type",
+    "size_bytes",
+    "storage_path",
+    "source",
+    "uploader_user_id",
+    "document_key",
+    "metadata",
+  ]);
+
+  for (const k of Object.keys(payload)) {
+    if (!ALLOWED_DEAL_DOCUMENT_COLUMNS.has(k)) {
+      throw new Error(`[ingestDocument] payload contains unknown deal_documents column: ${k}`);
+    }
+  }
+
   const { data: doc, error: insertErr } = await sb
     .from("deal_documents")
-    .insert({
-      deal_id: input.dealId,
-      bank_id: input.bankId,
-      filename: input.file.filename,
-      mime_type: input.file.mimeType,
-      size_bytes: input.file.sizeBytes,
-      storage_path: input.file.storagePath,
-      source: input.source,
-      uploader_user_id: input.uploaderUserId ?? null,
-      uploader_label: input.uploaderLabel ?? null,
-      metadata: input.metadata ?? {},
-    })
+    .insert(payload)
     .select()
     .single();
 
@@ -69,7 +103,7 @@ export async function ingestDocument(input: IngestDocumentInput) {
     sb,
     dealId: input.dealId,
     documentId: doc.id,
-    originalFilename: input.file.filename,
+    originalFilename: input.file.original_filename,
     mimeType: input.file.mimeType,
   });
 

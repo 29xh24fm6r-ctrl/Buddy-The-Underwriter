@@ -49,6 +49,14 @@ export async function POST(req: NextRequest, ctx: Context) {
       checklist_key = null,
     } = body;
 
+    console.log("[UPLOAD RECORD ROUTE HIT]", {
+      dealId,
+      object_path,
+      original_filename,
+      file_id,
+      checklist_key,
+    });
+
     if (!file_id || !object_path || !original_filename) {
       return NextResponse.json(
         { ok: false, error: "Missing required fields" },
@@ -96,14 +104,13 @@ export async function POST(req: NextRequest, ctx: Context) {
       dealId,
       bankId: deal.bank_id,
       file: {
-        filename: original_filename,
+        original_filename,
         mimeType: mime_type ?? "application/octet-stream",
         sizeBytes: size_bytes ?? 0,
         storagePath: object_path,
       },
       source: "banker_upload",
       uploaderUserId: userId,
-      uploaderLabel: "banker",
       metadata: { checklist_key },
     });
 
@@ -117,7 +124,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       kind: "document.uploaded",
       input: {
         file_id,
-        filename: original_filename,
+        original_filename,
         size_bytes,
         checklist_key,
       },
@@ -126,7 +133,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     console.log("[files/record] recorded file", {
       dealId,
       file_id,
-      filename: original_filename,
+      original_filename,
       checklist_key,
     });
 

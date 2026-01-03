@@ -145,13 +145,12 @@ export async function POST(req: Request) {
         dealId: invite.deal_id,
         bankId: invite.bank_id,
         file: {
-          filename,
+          original_filename: filename,
           mimeType: mimeType ?? "application/octet-stream",
           sizeBytes: sizeBytes ?? 0,
           storagePath: path,
         },
         source: "borrower_portal",
-        uploaderLabel: "borrower",
       });
 
       // 🧠 CONVERGENCE: Recompute deal readiness

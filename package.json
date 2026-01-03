@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "postinstall": "node src/scripts/copy-pdf-worker.mjs",
+    "smoke:upload-record": "node scripts/smoke-upload-record.mjs",
     "guard:admin": "node scripts/admin-routes-guard.mjs",
     "guard:canonical": "node scripts/guard-no-deal-files.mjs && node scripts/guard-no-legacy-reminder-fields.mjs && node scripts/guard-reminder-subscriptions-canonical.mjs",
     "guard:reminders": "node scripts/guard-no-legacy-reminder-fields.mjs && node scripts/guard-reminder-subscriptions-canonical.mjs",

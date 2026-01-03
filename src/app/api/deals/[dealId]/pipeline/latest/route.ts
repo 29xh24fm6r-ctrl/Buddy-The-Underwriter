@@ -21,8 +21,11 @@ export async function GET(req: Request, ctx: Ctx) {
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
 
-    // Get latest pipeline event
-    const { data, error } = await sb
+    // Try "new" ledger shape first (canonical UI-ready fields).
+    // If the DB hasn't been migrated yet, fall back to the older columns.
+    let data: any = null;
+
+    const primary = await sb
       .from("deal_pipeline_ledger")
       .select("event_key, ui_state, ui_message, meta, created_at")
       .eq("deal_id", dealId)
@@ -31,13 +34,37 @@ export async function GET(req: Request, ctx: Ctx) {
       .limit(1)
       .maybeSingle();
 
-    if (error) {
-      console.error("[pipeline/latest] query error:", error);
-      return NextResponse.json({
-        ok: true,
-        latestEvent: null,
-        state: null,
-      });
+    if (!primary.error) {
+      data = primary.data ?? null;
+    } else {
+      // Fallback: older shape still in DB
+      const fallback = await sb
+        .from("deal_pipeline_ledger")
+        .select("stage, status, payload, error, created_at")
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!fallback.error && fallback.data) {
+        const row: any = fallback.data;
+        data = {
+          event_key: row.stage ?? "unknown",
+          ui_state: row.status ?? "waiting",
+          ui_message: null,
+          meta: {
+            payload: row.payload ?? null,
+            error: row.error ?? null,
+            legacy: true,
+          },
+          created_at: row.created_at,
+        };
+      } else {
+        console.error("[pipeline/latest] query error:", primary.error ?? fallback.error);
+        // Never hard-fail the UI: return calm null state.
+        return NextResponse.json({ ok: true, latestEvent: null, state: null });
+      }
     }
 
     if (!data) {
@@ -63,6 +90,7 @@ export async function GET(req: Request, ctx: Ctx) {
 
   } catch (error: any) {
     console.error("[pipeline/latest] unexpected error:", error);
+    // Never hard-fail the UI: return calm null state.
     return NextResponse.json({
       ok: true,
       latestEvent: null,
