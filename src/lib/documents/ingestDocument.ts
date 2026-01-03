@@ -28,6 +28,13 @@ export interface IngestDocumentInput {
 export async function ingestDocument(input: IngestDocumentInput) {
   const sb = supabaseAdmin();
 
+  // Derive document_key (NOT NULL constraint)
+  // Priority: explicit checklist_key > filename-derived fallback
+  const checklistKey = input.metadata?.checklist_key;
+  const documentKey =
+    checklistKey ??
+    input.file.original_filename.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+
   // 1️⃣ Insert canonical document row
   const { data: doc, error: insertErr } = await sb
     .from("deal_documents")
@@ -40,6 +47,7 @@ export async function ingestDocument(input: IngestDocumentInput) {
       storage_path: input.file.storagePath,
       source: input.source,
       uploader_user_id: input.uploaderUserId ?? null,
+      document_key: documentKey,
       metadata: input.metadata ?? {},
     })
     .select()
