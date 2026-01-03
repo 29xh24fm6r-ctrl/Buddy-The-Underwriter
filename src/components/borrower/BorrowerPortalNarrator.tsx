@@ -19,12 +19,10 @@ export function BorrowerPortalNarrator({
   uploads,
 }: Props) {
   const derivedMode = deriveDealMode({
-    checklist: {
-      state: checklistState.state,
-      pendingCount: checklistState.pendingCount,
-    },
-    pipeline,
-    uploads,
+    checklistState: checklistState.state,
+    pendingCount: checklistState.pendingCount,
+    uploadsProcessingCount: uploads?.processing,
+    pipelineStatus: pipeline?.status as any,
   });
 
   return (

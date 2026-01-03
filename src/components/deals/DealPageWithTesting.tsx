@@ -69,13 +69,9 @@ export function DealPageWithTesting({ dealId }: DealPageWithTestingProps) {
       }
 
       const derivedMode = deriveDealMode({
-        checklist: {
-          state: checklistData.state || "empty",
-          pendingCount: checklistData.items?.filter((item: any) => !item.is_satisfied).length || 0,
-        },
-        uploads: {
-          processing: 0,
-        },
+        checklistState: checklistData.state || "empty",
+        pendingCount: checklistData.items?.filter((item: any) => !item.is_satisfied).length || 0,
+        uploadsProcessingCount: 0,
       });
 
       setRealMode(derivedMode);
@@ -131,8 +127,6 @@ export function DealPageWithTesting({ dealId }: DealPageWithTestingProps) {
       {isTestMode && (
         <TestControlPanel
           onSimulate={setSimulatedMode}
-          currentMode={realMode}
-          simulatedMode={simulatedMode}
         />
       )}
     </div>

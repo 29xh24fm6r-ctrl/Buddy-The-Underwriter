@@ -26,5 +26,8 @@ export function formatTimeAgo(isoString: string): string {
   return `${diffMonth}mo ago`;
 }
 
-// Export alias for components that import relativeTime
+// Back-compat: older components import `relativeTime`
 export const relativeTime = formatTimeAgo;
+
+// Legacy alias: timeAgo
+export const timeAgo = formatTimeAgo;

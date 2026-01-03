@@ -57,10 +57,8 @@ export function DealPageSimplified({ dealId }: { dealId: string }) {
 
           // Derive deal mode
           const mode = deriveDealMode({
-            checklist: {
-              state: checklistData.state || (pending.length === 0 ? "ready" : "needs_input"),
-              pendingCount: pending.length,
-            },
+            checklistState: checklistData.state || (pending.length === 0 ? "ready" : "needs_input"),
+            pendingCount: pending.length,
           });
 
           // Check for mode transition (ready)
