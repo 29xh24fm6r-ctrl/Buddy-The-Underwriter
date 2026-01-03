@@ -2,23 +2,12 @@
 
 import * as React from "react";
 import { Icon } from "@/components/ui/Icon";
-import { usePathname } from "next/navigation";
 
 type DemoState = "empty" | "converging" | "ready" | "blocked";
 
 export function DemoControlPanel() {
   const [isOpen, setIsOpen] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
-  const pathname = usePathname();
-
-  // Only show in non-production
-  if (typeof window !== "undefined" && window.location.hostname.includes("vercel.app")) {
-    return null;
-  }
-
-  if (process.env.NODE_ENV === "production") {
-    return null;
-  }
 
   const copyLink = (state: DemoState) => {
     const url = new URL(window.location.href);
@@ -30,6 +19,16 @@ export function DemoControlPanel() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const shouldHide = React.useMemo(() => {
+    // Never show in production builds
+    if (process.env.NODE_ENV === "production") return true;
+    // Hide on hosted preview deployments
+    if (typeof window !== "undefined" && window.location.hostname.includes("vercel.app")) {
+      return true;
+    }
+    return false;
+  }, []);
+
   const currentDemoState = React.useMemo(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
@@ -38,6 +37,8 @@ export function DemoControlPanel() {
     }
     return null;
   }, []);
+
+  if (shouldHide) return null;
 
   return (
     <>
