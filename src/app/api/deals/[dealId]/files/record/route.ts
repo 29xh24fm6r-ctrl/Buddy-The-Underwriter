@@ -152,7 +152,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Internal server error",
+        error: error?.message || "Internal server error",
         details: error.message || String(error),
       },
       { status: 500 },

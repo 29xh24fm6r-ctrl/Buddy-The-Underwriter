@@ -214,6 +214,8 @@ export function usePortalUpload(token: string) {
       } catch (e: any) {
         abortRef.current = null;
 
+        console.error("[usePortalUpload] uploadFiles failed:", e?.message || e);
+
         if (e?.message === "upload_aborted") {
           setState({ status: "idle", error: null, last: null });
           setProgress(null);

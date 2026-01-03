@@ -406,6 +406,7 @@ if (!res.ok || !data?.ok) {
       await refreshUploads();
       await refreshJobs();
     } catch (e: any) {
+      console.error("[UploadBox] handleUpload failed:", e?.message || e);
       setUiError(e?.message ?? String(e));
     } finally {
       setBusyUpload(false);

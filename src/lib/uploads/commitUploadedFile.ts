@@ -62,6 +62,8 @@ export async function commitUploadedFile(args: CommitUploadedFileArgs): Promise<
         detail = "";
       }
     }
-    throw new Error(`Upload commit failed (${res.status}) ${detail}`.trim());
+    const msg = `Upload commit failed (${res.status}) ${detail}`.trim();
+    console.error("[commitUploadedFile] FAILED", { url, status: res.status, msg, args });
+    throw new Error(msg);
   }
 }
