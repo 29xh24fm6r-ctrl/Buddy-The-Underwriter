@@ -1,57 +1,49 @@
 import type { DealMode } from "@/lib/deals/dealMode";
 
-type DealNarratorProps = {
+export function DealNarrator({
+  mode,
+  detail,
+}: {
   mode: DealMode;
   detail?: string | null;
-};
-
-/**
- * DealNarrator
- *
- * Purpose:
- * - Calm, authoritative system voice
- * - Explains what is happening, not what the user must do
- * - Never panics, never asks questions
- *
- * This is the "Holy crap, this feels handled" moment.
- */
-export function DealNarrator({ mode, detail }: DealNarratorProps) {
-  const copy: Record<DealMode, { tone: string; text: string }> = {
+}) {
+  const script: Record<DealMode, { tone: "amber" | "blue" | "green" | "red"; text: string }> = {
     initializing: {
-      tone: "neutral",
-      text: "We’re setting things up and reviewing your documents.",
+      tone: "amber",
+      text: "I'm building the checklist from your uploaded documents.",
     },
     processing: {
-      tone: "calm",
-      text: "Your documents are processing. Everything updates automatically.",
+      tone: "blue",
+      text: "Documents are processing. I'll update everything automatically.",
     },
     needs_input: {
-      tone: "guidance",
-      text: detail
-        ? `A few required items are still missing: ${detail}`
-        : "A few required items are still missing.",
+      tone: "amber",
+      text: detail ? `I'm missing a few required items: ${detail}` : "I'm missing a few required items.",
     },
     blocked: {
-      tone: "firm",
-      text: detail
-        ? `We can’t move forward yet: ${detail}`
-        : "We can’t move forward yet. A blocking issue needs attention.",
+      tone: "red",
+      text: detail ? `I can't move forward yet — ${detail}` : "I can't move forward yet.",
     },
     ready: {
-      tone: "positive",
-      text: "This deal is complete and ready to move forward.",
+      tone: "green",
+      text: "✅ This deal is complete and ready to move forward.",
     },
   };
 
-  const message = copy[mode];
+  const { tone, text } = script[mode];
+
+  const toneClass =
+    tone === "red"
+      ? "bg-red-500/10 text-red-300 border-red-500/20"
+      : tone === "green"
+      ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+      : tone === "blue"
+      ? "bg-sky-500/10 text-sky-300 border-sky-500/20"
+      : "bg-amber-500/10 text-amber-200 border-amber-500/20";
 
   return (
-    <div
-      className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"
-      role="status"
-      aria-live="polite"
-    >
-      {message.text}
+    <div className={`rounded-xl border px-5 py-4 text-sm leading-relaxed ${toneClass}`}>
+      {text}
     </div>
   );
 }

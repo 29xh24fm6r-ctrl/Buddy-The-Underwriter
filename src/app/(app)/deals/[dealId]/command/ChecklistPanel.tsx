@@ -49,7 +49,7 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [fetchChecklist]);
+  }, [dealId]);
 
   useEffect(() => {
     fetchChecklist();
