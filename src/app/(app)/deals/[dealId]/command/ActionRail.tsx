@@ -4,6 +4,8 @@ import { useState } from "react";
 import type { DealContext, DealAction } from "@/lib/deals/contextTypes";
 import { EventsFeed } from "./EventsFeed";
 import { ChecklistPanel } from "./ChecklistPanel";
+import { CinematicTimeline } from "@/components/command/CinematicTimeline";
+import { BuddyExplainsCard } from "@/components/deals/BuddyExplainsCard";
 
 export function ActionRail({
   dealId,
@@ -125,6 +127,12 @@ export function ActionRail({
 
       {/* Checklist Panel */}
       <ChecklistPanel dealId={dealId} />
+
+      {/* Buddy Explains */}
+      <BuddyExplainsCard dealId={dealId} />
+
+      {/* Cinematic Timeline */}
+      <CinematicTimeline dealId={dealId} />
 
       {/* Events Feed */}
       <EventsFeed dealId={dealId} />

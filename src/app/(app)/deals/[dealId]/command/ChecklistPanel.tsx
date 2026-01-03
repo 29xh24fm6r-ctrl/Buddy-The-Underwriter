@@ -49,7 +49,7 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [fetchChecklist]);
+  }, [dealId]);
 
   useEffect(() => {
     fetchChecklist();
@@ -68,7 +68,8 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
       window.removeEventListener(UI_EVENT_CHECKLIST_REFRESH, onEvt as any);
       window.clearInterval(t);
     };
-  }, [dealId, fetchChecklist]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dealId]);
 
   if (loading) {
     return (
