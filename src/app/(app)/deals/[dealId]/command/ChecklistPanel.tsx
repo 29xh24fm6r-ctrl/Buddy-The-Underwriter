@@ -70,7 +70,8 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
     };
   }, [dealId, fetchChecklist]);
 
-  if (loading) {
+  if (loading && checklist === null) {
+    // Only show loading on initial load, not on refreshes
     return (
       <div className="rounded-lg border border-gray-200 bg-white p-4">
         <div className="flex items-center justify-between mb-3">
@@ -104,19 +105,17 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
     (checklist?.optional.length || 0);
 
   if (totalItems === 0) {
+    // Initializing state - calm language, no spinner
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-amber-900">Document Checklist</h3>
-          <button
-            onClick={fetchChecklist}
-            className="text-xs text-amber-700 hover:text-amber-800 underline"
-          >
-            Refresh
-          </button>
         </div>
         <div className="text-sm text-amber-800">
-          <div className="font-medium mb-1">Initializing checklist…</div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-base">⏳</span>
+            <span className="font-medium">Initializing checklist…</span>
+          </div>
           <div className="text-xs text-amber-700">Your documents are saved. The checklist will appear automatically.</div>
         </div>
       </div>

@@ -1,9 +1,18 @@
 "use client";
 
 import type { DealMode } from "@/lib/deals/dealMode";
+import { DealLedgerSnippet } from "./DealLedgerSnippet";
+
+type LedgerEvent = {
+  stage: string;
+  status: string;
+  created_at: string;
+  payload?: Record<string, any>;
+};
 
 type DealStatusHeaderProps = {
   mode: DealMode;
+  latestEvent?: LedgerEvent | null;
 };
 
 /**
@@ -12,12 +21,14 @@ type DealStatusHeaderProps = {
  * Replaces all checklist banners, color-coded statuses, and guessing games.
  * Shows ONE truth in calm, plain language.
  * 
- * Color rules:
- * - Red: blocked (requires attention)
+ * Color rules (SACRED):
+ * - Red: blocked ONLY (requires immediate attention)
  * - Green: ready (can proceed)
  * - Amber: all intermediate states (system working or needs input)
+ * 
+ * Optional: Shows latest ledger event to build trust
  */
-export function DealStatusHeader({ mode }: DealStatusHeaderProps) {
+export function DealStatusHeader({ mode, latestEvent }: DealStatusHeaderProps) {
   const copy: Record<DealMode, string> = {
     initializing: "Initializing checklist from uploaded documents…",
     processing: "Documents processing — underwriting will unlock automatically",
@@ -43,17 +54,20 @@ export function DealStatusHeader({ mode }: DealStatusHeaderProps) {
   };
 
   return (
-    <div
-      className={`rounded-lg border px-4 py-3 text-sm font-medium ${tone[mode]}`}
-      role="status"
-      aria-live="polite"
-    >
-      <div className="flex items-center gap-2">
-        <span className="text-base" aria-hidden="true">
-          {icon[mode]}
-        </span>
-        <span>{copy[mode]}</span>
+    <div>
+      <div
+        className={`rounded-lg border px-4 py-3 text-sm font-medium ${tone[mode]}`}
+        role="status"
+        aria-live="polite"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-base" aria-hidden="true">
+            {icon[mode]}
+          </span>
+          <span>{copy[mode]}</span>
+        </div>
       </div>
+      {latestEvent && <DealLedgerSnippet event={latestEvent} />}
     </div>
   );
 }
