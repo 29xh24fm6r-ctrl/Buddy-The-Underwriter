@@ -4,6 +4,8 @@ import * as React from "react";
 import { PortalShell } from "@/components/borrower/PortalShell";
 import { DocToolbar } from "@/components/borrower/DocToolbar";
 import { Icon } from "@/components/ui/Icon";
+import { BorrowerMagicStatus } from "@/components/borrower/BorrowerMagicStatus";
+import { BorrowerNextUploadCard } from "@/components/borrower/BorrowerNextUploadCard";
 import { createClient } from "@supabase/supabase-js";
 
 // Borrower uses anon client + RPCs (SECURITY DEFINER pattern)
@@ -160,6 +162,15 @@ export function PortalClient({ token }: { token: string }) {
       subtitle={deal?.name ? `Deal: ${deal.name}` : "Review extracted data and confirm your documents."}
       left={
         <div className="space-y-4">
+          {/* Borrower Magic Status */}
+          <BorrowerMagicStatus token={token} />
+
+          {/* Next Upload Card */}
+          <BorrowerNextUploadCard 
+            token={token}
+            onUploadClick={() => alert("Upload flow: use /upload/[token] (wired separately)")}
+          />
+
           <div className="rounded-xl border border-neutral-200 p-4">
             <button
               type="button"
