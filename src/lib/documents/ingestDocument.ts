@@ -15,7 +15,7 @@ export interface IngestDocumentInput {
   dealId: string;
   bankId: string;
   file: {
-    filename: string;
+    original_filename: string;
     mimeType: string;
     sizeBytes: number;
     storagePath: string;
@@ -35,7 +35,7 @@ export async function ingestDocument(input: IngestDocumentInput) {
     .insert({
       deal_id: input.dealId,
       bank_id: input.bankId,
-      filename: input.file.filename,
+      original_filename: input.file.original_filename,
       mime_type: input.file.mimeType,
       size_bytes: input.file.sizeBytes,
       storage_path: input.file.storagePath,
@@ -69,7 +69,7 @@ export async function ingestDocument(input: IngestDocumentInput) {
     sb,
     dealId: input.dealId,
     documentId: doc.id,
-    originalFilename: input.file.filename,
+    originalFilename: input.file.original_filename,
     mimeType: input.file.mimeType,
   });
 

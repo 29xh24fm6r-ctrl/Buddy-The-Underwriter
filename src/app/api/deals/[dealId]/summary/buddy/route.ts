@@ -197,8 +197,8 @@ async function gatherDealContext(dealId: string, bankId: string) {
 
   // Get document inventory
   const { data: docs } = await sb
-    .from("deal_uploads")
-    .select("filename, checklist_key, doc_year, status")
+    .from("deal_documents")
+    .select("original_filename, checklist_key, doc_year, status")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId);
 
@@ -230,7 +230,7 @@ async function gatherDealContext(dealId: string, bankId: string) {
     },
     documents: {
       count: docs?.length ?? 0,
-      filenames: docs?.map((d) => d.filename) ?? [],
+      filenames: docs?.map((d) => d.original_filename) ?? [],
     },
   };
 }

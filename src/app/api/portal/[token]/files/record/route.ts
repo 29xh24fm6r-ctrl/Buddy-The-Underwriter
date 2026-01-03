@@ -106,7 +106,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       dealId,
       bankId: deal.bank_id,
       file: {
-        filename: original_filename,
+        original_filename,
         mimeType: mime_type ?? "application/octet-stream",
         sizeBytes: size_bytes ?? 0,
         storagePath: object_path,
@@ -126,7 +126,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       kind: "document.uploaded",
       input: {
         file_id,
-        filename: original_filename,
+        original_filename,
         size_bytes,
         checklist_key,
         source: "borrower",
@@ -136,7 +136,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     console.log("[portal/files/record] recorded borrower file", {
       dealId,
       file_id,
-      filename: original_filename,
+      original_filename,
       checklist_key,
     });
 
