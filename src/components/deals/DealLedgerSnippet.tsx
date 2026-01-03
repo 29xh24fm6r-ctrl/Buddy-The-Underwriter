@@ -1,4 +1,4 @@
-import { relativeTime } from "@/lib/ui/relativeTime";
+import { relativeTime } from "@/lib/ui/timeAgo";
 
 export function DealLedgerSnippet({
   latestEvent,
@@ -7,7 +7,7 @@ export function DealLedgerSnippet({
 }) {
   if (!latestEvent) return null;
 
-  const rt = relativeTime(latestEvent.created_at ?? null);
+  const rt = latestEvent.created_at ? relativeTime(latestEvent.created_at) : null;
   const stage = latestEvent.stage ?? "system";
   const status = latestEvent.status ?? "";
 
