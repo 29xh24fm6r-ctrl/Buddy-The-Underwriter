@@ -24,7 +24,7 @@ export async function GET(req: Request, ctx: Ctx) {
     // Get latest pipeline event
     const { data, error } = await sb
       .from("deal_pipeline_ledger")
-      .select("stage, status, payload, error, created_at")
+      .select("event_key, ui_state, ui_message, meta, created_at")
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
       .order("created_at", { ascending: false })
@@ -34,8 +34,9 @@ export async function GET(req: Request, ctx: Ctx) {
     if (error) {
       console.error("[pipeline/latest] query error:", error);
       return NextResponse.json({
-        ok: false,
-        error: "Failed to fetch pipeline state",
+        ok: true,
+        latestEvent: null,
+        state: null,
       });
     }
 
@@ -43,20 +44,29 @@ export async function GET(req: Request, ctx: Ctx) {
       // No pipeline events yet - deal just created
       return NextResponse.json({
         ok: true,
+        latestEvent: null,
         state: null,
       });
     }
 
     return NextResponse.json({
       ok: true,
-      state: data,
+      latestEvent: {
+        event_key: data.event_key,
+        ui_state: data.ui_state,
+        ui_message: data.ui_message,
+        meta: data.meta ?? {},
+        created_at: data.created_at,
+      },
+      state: data, // keep for backward compatibility
     });
 
   } catch (error: any) {
     console.error("[pipeline/latest] unexpected error:", error);
     return NextResponse.json({
-      ok: false,
-      error: "Internal server error",
-    }, { status: 500 });
+      ok: true,
+      latestEvent: null,
+      state: null,
+    });
   }
 }

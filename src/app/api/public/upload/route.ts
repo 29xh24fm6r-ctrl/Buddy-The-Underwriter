@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { constantTimeEqual, hashPassword, sha256 } from "@/lib/security/tokens";
-import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { recomputeDealReady } from "@/lib/deals/readiness";
 
 export const runtime = "nodejs";
@@ -128,6 +128,19 @@ export async function POST(req: Request) {
   const dealId = String(link.deal_id);
   const bucket = "deal-uploads";
 
+  // Fetch deal to get bank_id (required for ingestion)
+  const { data: deal } = await supabaseAdmin()
+    .from("deals")
+    .select("bank_id")
+    .eq("id", dealId)
+    .maybeSingle();
+
+  if (!deal)
+    return NextResponse.json(
+      { ok: false, error: "Deal not found." },
+      { status: 404 },
+    );
+
   const ip = getClientIp(req);
   const ua = req.headers.get("user-agent");
 
@@ -161,51 +174,26 @@ export async function POST(req: Request) {
 
     chaosPoint(req, "after_storage_upload");
 
-    // 4) Canonical record: deal_documents
-    const { data: docRow, error: docErr } = await supabaseAdmin()
-      .from("deal_documents")
-      .insert({
-        deal_id: dealId,
-        storage_bucket: bucket,
-        storage_path: storagePath,
-        original_filename: f.name || "upload",
-        mime_type: f.type || null,
-        size_bytes: bytes.length,
-        uploader_user_id: null,
-        uploaded_via_link_id: link.id,
-        source: "borrower",
-        checklist_key: checklistKey || null,
-        sha256: sha256(bytes.toString("hex")),
-      })
-      .select("id")
-      .single();
-
-    if (docErr || !docRow)
-      return NextResponse.json(
-        { ok: false, error: "Failed to record file metadata." },
-        { status: 500 },
-      );
-
-    chaosPoint(req, "after_db_insert");
-
-    // 🔥 Checklist Engine v2: stamp + reconcile
-    await matchAndStampDealDocument({
-      sb: supabaseAdmin(),
+    // Canonical ingestion: insert doc + stamp checklist + reconcile + log ledger
+    const docResult = await ingestDocument({
       dealId,
-      documentId: docRow.id,
-      originalFilename: f.name || "upload",
-      mimeType: f.type || null,
-      extractedFields: {},
-      metadata: {},
+      bankId: deal.bank_id,
+      file: {
+        filename: f.name || "upload",
+        mimeType: f.type || "application/octet-stream",
+        sizeBytes: bytes.length,
+        storagePath,
+      },
+      source: "public_link",
+      uploaderLabel: "public",
+      metadata: {
+        checklist_key: checklistKey || null,
+        uploaded_via_link_id: link.id,
+        sha256: sha256(bytes.toString("hex")),
+      },
     });
 
-    // 🔥 FINALIZE: Mark document as fully processed
-    await supabaseAdmin()
-      .from("deal_documents")
-      .update({ finalized_at: new Date().toISOString() })
-      .eq("id", docRow.id);
-
-    // Note: reconcile will be called once after all files processed (see below)
+    chaosPoint(req, "after_db_insert");
 
     // 5) Audit trail (view-backed or table-backed depending on your schema)
     // If deal_upload_audit is a VIEW and not insertable, skip inserts here.
@@ -245,14 +233,12 @@ export async function POST(req: Request) {
     successCount++;
   }
 
-  // 🔥 Reconcile checklist once after all files processed
+  // 🧠 CONVERGENCE: Recompute deal readiness after all files processed
   if (successCount > 0) {
     try {
-      await reconcileChecklistForDeal({ sb: supabaseAdmin(), dealId });
-      // 🧠 CONVERGENCE: Recompute deal readiness
       await recomputeDealReady(dealId);
     } catch (e) {
-      console.error("Reconcile failed (non-blocking):", e);
+      console.error("Recompute readiness failed (non-blocking):", e);
     }
   }
 

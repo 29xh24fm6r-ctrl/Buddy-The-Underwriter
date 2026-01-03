@@ -4,8 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireValidInvite } from "@/lib/portal/auth";
 import { rateLimit } from "@/lib/portal/ratelimit";
 import { recordReceipt } from "@/lib/portal/receipts";
-import { matchChecklistKeyFromFilename } from "@/lib/checklist/matchers";
-import { matchAndStampDealDocument, reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { recomputeDealReady } from "@/lib/deals/readiness";
 
 export const runtime = "nodejs";
@@ -131,7 +130,7 @@ export async function POST(req: Request) {
     filename,
   });
 
-  // Auto-match checklist key from filename (borrower upload path - v2 with engine)
+  // Canonical ingestion: materialize borrower upload as deal document
   try {
     // Look up the deal_document record via borrower_uploads foreign key
     const { data: doc } = await sb
@@ -141,24 +140,19 @@ export async function POST(req: Request) {
       .single();
 
     if (doc?.deal_document_id) {
-      // Use engine to stamp + reconcile
-      await matchAndStampDealDocument({
-        sb,
+      // Canonical ingestion handles stamping + reconcile + ledger
+      await ingestDocument({
         dealId: invite.deal_id,
-        documentId: doc.deal_document_id,
-        originalFilename: filename,
-        mimeType: mimeType,
-        extractedFields: {},
-        metadata: {},
+        bankId: invite.bank_id,
+        file: {
+          filename,
+          mimeType: mimeType ?? "application/octet-stream",
+          sizeBytes: sizeBytes ?? 0,
+          storagePath: path,
+        },
+        source: "borrower_portal",
+        uploaderLabel: "borrower",
       });
-
-      // 🔥 FINALIZE: Mark document as fully processed
-      await sb
-        .from("deal_documents")
-        .update({ finalized_at: new Date().toISOString() })
-        .eq("id", doc.deal_document_id);
-
-      await reconcileChecklistForDeal({ sb, dealId: invite.deal_id });
 
       // 🧠 CONVERGENCE: Recompute deal readiness
       await recomputeDealReady(invite.deal_id);
