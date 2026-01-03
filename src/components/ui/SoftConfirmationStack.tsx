@@ -2,28 +2,31 @@
 
 import type { SoftConfirmation } from "@/lib/ui/useSoftConfirmations";
 
-type SoftConfirmationStackProps = {
-  items: SoftConfirmation[];
-};
-
 /**
- * SoftConfirmationStack - Subtle, auto-dismissing confirmation messages
- * 
- * Appears in top-right, fades in/out smoothly.
- * Non-blocking (pointer-events-none on container).
- * Dark, calm aesthetic.
+ * SoftConfirmationStack
+ *
+ * Subtle, non-blocking confirmation messages.
+ * Appears bottom-right, fades automatically.
+ *
+ * Rules:
+ * - Never blocks user flow
+ * - No spinners
+ * - No red unless truly broken
+ * - Calm, reassuring language only
  */
-export function SoftConfirmationStack({ items }: SoftConfirmationStackProps) {
-  if (!items || items.length === 0) {
-    return null;
-  }
+export function SoftConfirmationStack({
+  items,
+}: {
+  items: SoftConfirmation[];
+}) {
+  if (!items || items.length === 0) return null;
 
   return (
-    <div className="pointer-events-none fixed right-4 top-20 z-50 space-y-2">
+    <div className="pointer-events-none fixed bottom-4 right-4 z-50 space-y-2">
       {items.map((item) => (
         <div
           key={item.id}
-          className="animate-in fade-in slide-in-from-right-2 duration-200 rounded-lg bg-slate-900/90 px-4 py-2 text-xs text-slate-200 shadow-lg backdrop-blur-sm border border-slate-700/50"
+          className="pointer-events-auto rounded-lg bg-slate-900/95 px-4 py-2 text-sm text-white shadow-lg backdrop-blur transition-all animate-in fade-in slide-in-from-bottom-2"
         >
           {item.message}
         </div>

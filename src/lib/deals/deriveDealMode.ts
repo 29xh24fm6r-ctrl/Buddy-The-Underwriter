@@ -1,54 +1,66 @@
+// src/lib/deals/deriveDealMode.ts
 import type { DealMode } from "./dealMode";
 
 /**
- * deriveDealMode - Compute current deal mode from system state
- * 
- * This is the canonical truth function for deal convergence state.
- * NEVER store this value - always derive it fresh.
- * 
- * Priority order (highest to lowest):
- * 1. blocked - pipeline explicitly blocked
- * 2. processing - uploads currently processing
- * 3. initializing - empty checklist (system converging)
- * 4. needs_input - checklist has pending items
- * 5. ready - all conditions met
+ * deriveDealMode
+ *
+ * Canonical convergence state resolver.
+ * This value is NEVER stored in the database — it is always derived live.
+ *
+ * Priority order (highest → lowest):
+ * 1) blocked      — hard system / validation blocker
+ * 2) processing   — uploads / OCR / pipeline actively running
+ * 3) initializing — empty checklist, system converging
+ * 4) needs_input  — missing required items, user action required
+ * 5) ready        — all conditions satisfied
+ *
+ * NOTE: this function intentionally accepts a slightly-flexible input shape
+ * to stay compatible across UI callers (some pass checklistState directly).
  */
-export function deriveDealMode({
-  checklist,
-  pipeline,
-  uploads,
-}: {
-  checklist: {
-    state: "empty" | "ready";
-    pending: number;
-  };
-  pipeline?: {
-    status?: "blocked" | "completed" | string;
-  };
-  uploads?: {
-    processing?: number;
-  };
+export function deriveDealMode(input: {
+  checklist?:
+    | {
+        state?: "empty" | "ready" | string;
+        pendingCount?: number;
+      }
+    | null;
+  // legacy/alternate caller shape (e.g. narrator components)
+  checklistState?: "empty" | "ready" | string;
+  pendingCount?: number;
+
+  pipeline?:
+    | {
+        status?: "blocked" | "completed" | string;
+      }
+    | null;
+
+  uploads?:
+    | {
+        processing?: number;
+      }
+    | null;
 }): DealMode {
-  // Hard blocker takes priority
-  if (pipeline?.status === "blocked") {
-    return "blocked";
-  }
+  const checklistState =
+    input.checklist?.state ?? input.checklistState ?? "empty";
 
-  // Processing uploads - system working
-  if (uploads?.processing && uploads.processing > 0) {
-    return "processing";
-  }
+  const pendingCount =
+    input.checklist?.pendingCount ?? input.pendingCount ?? 0;
 
-  // Empty checklist - system initializing
-  if (checklist.state === "empty") {
-    return "initializing";
-  }
+  const pipelineStatus = input.pipeline?.status ?? "completed";
+  const processingUploads = input.uploads?.processing ?? 0;
 
-  // Has pending items - user action required
-  if (checklist.pending > 0) {
-    return "needs_input";
-  }
+  // 1) Hard blocker always wins
+  if (pipelineStatus === "blocked") return "blocked";
 
-  // All clear - ready to proceed
+  // 2) System actively working
+  if (processingUploads > 0) return "processing";
+
+  // 3) Empty checklist = initializing (system converging)
+  if (checklistState === "empty") return "initializing";
+
+  // 4) Missing required items => needs input
+  if (pendingCount > 0) return "needs_input";
+
+  // 5) Everything satisfied
   return "ready";
 }

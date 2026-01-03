@@ -1,70 +1,57 @@
-"use client";
-
 import type { DealMode } from "@/lib/deals/dealMode";
 
 type DealNarratorProps = {
   mode: DealMode;
-  detail?: string;
+  detail?: string | null;
 };
 
 /**
- * DealNarrator - The system's calm, confident voice
- * 
- * Replaces ALL banners, statuses, and color guessing.
- * Tells users what IS happening, not what they need to interpret.
- * 
- * This creates the "holy crap, this is easy" moment.
- * 
- * Script principles:
- * - First person ("I'm reviewing...")
- * - Present tense (happening now)
- * - Calm, confident tone
- * - Explains reality, doesn't ask questions
+ * DealNarrator
+ *
+ * Purpose:
+ * - Calm, authoritative system voice
+ * - Explains what is happening, not what the user must do
+ * - Never panics, never asks questions
+ *
+ * This is the "Holy crap, this feels handled" moment.
  */
 export function DealNarrator({ mode, detail }: DealNarratorProps) {
-  const script: Record<DealMode, { tone: string; text: string }> = {
+  const copy: Record<DealMode, { tone: string; text: string }> = {
     initializing: {
-      tone: "amber",
-      text: "I'm reviewing the documents you've uploaded and building the checklist.",
+      tone: "neutral",
+      text: "We’re setting things up and reviewing your documents.",
     },
     processing: {
-      tone: "blue",
-      text: "Documents are processing. I'll update everything automatically.",
+      tone: "calm",
+      text: "Your documents are processing. Everything updates automatically.",
     },
     needs_input: {
-      tone: "amber",
-      text: detail 
-        ? `I'm missing a few required items: ${detail}` 
-        : "I'm missing a few required items.",
+      tone: "guidance",
+      text: detail
+        ? `A few required items are still missing: ${detail}`
+        : "A few required items are still missing.",
     },
     blocked: {
-      tone: "red",
-      text: detail 
-        ? `I can't move forward yet — ${detail}` 
-        : "I can't move forward yet.",
+      tone: "firm",
+      text: detail
+        ? `We can’t move forward yet: ${detail}`
+        : "We can’t move forward yet. A blocking issue needs attention.",
     },
     ready: {
-      tone: "green",
+      tone: "positive",
       text: "This deal is complete and ready to move forward.",
     },
   };
 
-  const { tone, text } = script[mode];
-
-  const toneClass: Record<string, string> = {
-    amber: "bg-amber-500/10 text-amber-300 border-amber-500/20",
-    blue: "bg-sky-500/10 text-sky-300 border-sky-500/20",
-    green: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
-    red: "bg-red-500/10 text-red-400 border-red-500/20",
-  };
+  const message = copy[mode];
 
   return (
-    <div 
-      className={`rounded-xl border px-5 py-4 text-sm leading-relaxed ${toneClass[tone]}`}
+    <div
+      className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"
       role="status"
       aria-live="polite"
     >
-      {text}
+      {message.text}
     </div>
   );
 }

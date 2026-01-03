@@ -1,93 +1,73 @@
 "use client";
 
 import type { DealMode } from "@/lib/deals/dealMode";
-import { DealLedgerSnippet } from "./DealLedgerSnippet";
-
-type LedgerEvent = {
-  stage: string;
-  status: string;
-  created_at: string;
-  payload?: Record<string, any>;
-};
 
 type DealStatusHeaderProps = {
   mode: DealMode;
-  latestEvent?: LedgerEvent | null;
+  title?: string;
 };
 
 /**
- * DealStatusHeader - Single canonical status display
- * 
- * Replaces all checklist banners, color-coded statuses, and guessing games.
- * Shows ONE truth in calm, plain language using narrated convergence.
- * 
- * Color rules (SACRED):
- * - Red: blocked ONLY (requires immediate attention)
- * - Green: ready (can proceed)
- * - Amber: all intermediate states (system working or needs input)
- * 
- * Never shows spinners. System narrates what it's doing in human language.
- * Optional: Shows latest ledger event to build trust.
+ * DealStatusHeader
+ *
+ * Purpose:
+ * - Single, calm, authoritative status header
+ * - Replaces spinners, banners, alerts, and noisy indicators
+ * - Human-readable truth of deal convergence
  */
-export function DealStatusHeader({ mode, latestEvent }: DealStatusHeaderProps) {
-  // Narrated convergence - system explains itself
-  const copy: Record<DealMode, { title: string; message: string }> = {
+export function DealStatusHeader({
+  mode,
+  title = "Deal status",
+}: DealStatusHeaderProps) {
+  const copy: Record<
+    DealMode,
+    { label: string; detail: string; tone: "neutral" | "warn" | "good" }
+  > = {
     initializing: {
-      title: "Getting things ready",
-      message: "I'm organizing your deal and preparing everything in the background.",
+      label: "Initializing",
+      detail: "We’re organizing your deal and preparing everything in the background.",
+      tone: "neutral",
     },
     processing: {
-      title: "Almost there",
-      message: "Documents are processing and checklist items are being matched automatically.",
+      label: "Processing",
+      detail: "Documents are being reviewed and matched automatically.",
+      tone: "neutral",
     },
     needs_input: {
-      title: "Action required",
-      message: "I'm missing a few required documents to continue.",
+      label: "Action needed",
+      detail: "A few required items are still missing.",
+      tone: "warn",
     },
     ready: {
-      title: "Deal ready",
-      message: "Everything is in place. You're clear to proceed.",
+      label: "Ready",
+      detail: "Everything is in place. You’re clear to proceed.",
+      tone: "good",
     },
     blocked: {
-      title: "Action needed",
-      message: "This deal requires immediate attention to move forward.",
+      label: "Blocked",
+      detail: "This deal needs attention before it can move forward.",
+      tone: "warn",
     },
   };
 
-  const tone: Record<DealMode, string> = {
-    blocked: "bg-red-500/10 text-red-900 border-red-200",
-    ready: "bg-green-500/10 text-green-900 border-green-200",
-    initializing: "bg-amber-500/10 text-amber-900 border-amber-200",
-    processing: "bg-amber-500/10 text-amber-900 border-amber-200",
-    needs_input: "bg-amber-500/10 text-amber-900 border-amber-200",
-  };
+  const current = copy[mode];
 
-  const icon: Record<DealMode, string> = {
-    blocked: "🚫",
-    ready: "✅",
-    initializing: "⏳",
-    processing: "⚙️",
-    needs_input: "📋",
-  };
-
-  const { title, message } = copy[mode];
+  const toneStyles =
+    current.tone === "good"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+      : current.tone === "warn"
+      ? "border-amber-200 bg-amber-50 text-amber-900"
+      : "border-slate-200 bg-white text-slate-900";
 
   return (
-    <div>
-      <div
-        className={`rounded-lg border px-4 py-3 ${tone[mode]}`}
-        role="status"
-        aria-live="polite"
-      >
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-base" aria-hidden="true">
-            {icon[mode]}
-          </span>
-          <span className="text-sm font-semibold">{title}</span>
-        </div>
-        <div className="text-sm pl-6">{message}</div>
+    <div className={`rounded-lg border p-4 ${toneStyles}`}>
+      <div className="text-xs uppercase tracking-wide opacity-70 mb-1">
+        {title}
       </div>
-      {latestEvent && <DealLedgerSnippet event={latestEvent} />}
+
+      <div className="text-lg font-semibold">{current.label}</div>
+
+      <div className="mt-1 text-sm opacity-80">{current.detail}</div>
     </div>
   );
 }

@@ -1,122 +1,88 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { UI_EVENT_CHECKLIST_REFRESH } from "@/lib/events/uiEvents";
+import { useCallback, useEffect, useState } from "react";
 
 type ChecklistItem = {
   id: string;
-  checklistKey: string;
+  checklist_key: string;
   title: string;
-  description?: string | null;
   required: boolean;
-  receivedAt?: string | null;
-  status?: string | null;
-  matchConfidence?: number | null;
-  matchReason?: string | null;
 };
 
-type ChecklistBucket = {
+type ChecklistResponse = {
+  ok: boolean;
+  state: "empty" | "ready";
   received: ChecklistItem[];
   pending: ChecklistItem[];
   optional: ChecklistItem[];
 };
 
 export function ChecklistPanel({ dealId }: { dealId: string }) {
-  const [checklist, setChecklist] = useState<ChecklistBucket | null>(null);
+  const [data, setData] = useState<ChecklistResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
 
-  const fetchChecklist = React.useCallback(async () => {
+  const fetchChecklist = useCallback(async () => {
     try {
-      setLoading(true);
-      setError(null);
-
       const res = await fetch(`/api/deals/${dealId}/checklist`, {
         cache: "no-store",
       });
-
-      const data = await res.json();
-
-      if (!data.ok) {
-        throw new Error(data.error || "Unable to load checklist");
-      }
-
-      setChecklist(data || { received: [], pending: [], optional: [] });
-      setLastUpdatedAt(new Date().toISOString());
-    } catch (e: any) {
-      setError(String(e?.message ?? e));
+      if (!res.ok) throw new Error("Failed to load checklist");
+      const json = (await res.json()) as ChecklistResponse;
+      setData(json);
+      setLastUpdatedAt(Date.now());
+    } catch (err) {
+      console.error("Checklist fetch failed:", err);
     } finally {
       setLoading(false);
     }
   }, [dealId]);
 
+  // Initial load + polling
   useEffect(() => {
     fetchChecklist();
-    const onVis = () => {
-      if (document.visibilityState === "visible") fetchChecklist();
+    const interval = setInterval(fetchChecklist, 15000);
+    return () => clearInterval(interval);
+  }, [fetchChecklist]);
+
+  // Refresh when tab becomes visible
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        fetchChecklist();
+      }
     };
-    const onEvt = (e: any) => {
-      const d = e?.detail?.dealId;
-      if (!d || d === dealId) fetchChecklist();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    window.addEventListener(UI_EVENT_CHECKLIST_REFRESH, onEvt as any);
-    const t = window.setInterval(fetchChecklist, 15000);
-    return () => {
-      document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener(UI_EVENT_CHECKLIST_REFRESH, onEvt as any);
-      window.clearInterval(t);
-    };
-  }, [dealId, fetchChecklist]);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [fetchChecklist]);
 
-  if (loading && checklist === null) {
-    // Only show loading on initial load, not on refreshes
-    return (
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-900">Document Checklist</h3>
-        </div>
-        <div className="text-sm text-gray-500">Loading checklist...</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-red-900">Document Checklist</h3>
-          <button
-            onClick={fetchChecklist}
-            className="text-xs text-red-600 hover:text-red-700 underline"
-          >
-            Retry
-          </button>
-        </div>
-        <div className="text-sm text-red-600">{error}</div>
-      </div>
-    );
-  }
-
-  const totalItems = 
-    (checklist?.received.length || 0) + 
-    (checklist?.pending.length || 0) + 
-    (checklist?.optional.length || 0);
-
-  if (totalItems === 0) {
-    // Initializing state - calm language, no spinner
+  if (loading || !data) {
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-amber-900">Document Checklist</h3>
+        <div className="text-sm font-medium text-amber-900">
+          Document Checklist
         </div>
-        <div className="text-sm text-amber-800">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-base">⏳</span>
-            <span className="font-medium">Initializing checklist…</span>
-          </div>
-          <div className="text-xs text-amber-700">Your documents are saved. The checklist will appear automatically.</div>
+        <div className="mt-2 text-sm text-amber-700">
+          Initializing checklist…
+        </div>
+      </div>
+    );
+  }
+
+  const { received, pending, optional } = data;
+  const totalItems = received.length + pending.length + optional.length;
+
+  if (totalItems === 0) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <div className="text-sm font-medium text-amber-900">
+          Document Checklist
+        </div>
+        <div className="mt-2 text-sm text-amber-700">
+          Initializing checklist…
+        </div>
+        <div className="mt-1 text-xs text-amber-600">
+          Your documents are saved. The checklist will appear automatically.
         </div>
       </div>
     );
@@ -124,9 +90,11 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white">
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
-        <div className="flex flex-col">
-          <h3 className="text-sm font-semibold text-gray-900">Document Checklist</h3>
+      <div className="flex items-center justify-between border-b border-gray-200 p-4">
+        <div>
+          <div className="text-sm font-semibold text-gray-900">
+            Document Checklist
+          </div>
           {lastUpdatedAt && (
             <div className="text-xs text-gray-500">Updated just now</div>
           )}
@@ -134,59 +102,47 @@ export function ChecklistPanel({ dealId }: { dealId: string }) {
         <button
           onClick={fetchChecklist}
           className="text-xs text-blue-600 hover:text-blue-700 underline"
-          disabled={loading}
         >
           Refresh
         </button>
       </div>
-      
-      <div className="p-4 space-y-4">
-        {/* Received */}
-        {checklist && checklist.received.length > 0 && (
-          <div>
-            <div className="text-xs font-semibold text-green-700 uppercase mb-2">
-              ✓ Received ({checklist.received.length})
-            </div>
-            <div className="space-y-2">
-              {checklist.received.map((item) => (
-                <div key={item.id} className="text-xs text-gray-700 pl-3 border-l-2 border-green-500">
-                  {item.title}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
-        {/* Pending */}
-        {checklist && checklist.pending.length > 0 && (
-          <div>
-            <div className="text-xs font-semibold text-amber-700 uppercase mb-2">
-              ⏳ Pending ({checklist.pending.length})
-            </div>
-            <div className="space-y-2">
-              {checklist.pending.map((item) => (
-                <div key={item.id} className="text-xs text-gray-700 pl-3 border-l-2 border-amber-500">
-                  {item.title}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+      <div className="divide-y divide-gray-100">
+        {received.map((item) => (
+          <Row key={item.id} item={item} status="received" />
+        ))}
+        {pending.map((item) => (
+          <Row key={item.id} item={item} status="pending" />
+        ))}
+        {optional.map((item) => (
+          <Row key={item.id} item={item} status="optional" />
+        ))}
+      </div>
+    </div>
+  );
+}
 
-        {/* Optional */}
-        {checklist && checklist.optional.length > 0 && (
-          <div>
-            <div className="text-xs font-semibold text-gray-500 uppercase mb-2">
-              Optional ({checklist.optional.length})
-            </div>
-            <div className="space-y-2">
-              {checklist.optional.map((item) => (
-                <div key={item.id} className="text-xs text-gray-500 pl-3 border-l-2 border-gray-300">
-                  {item.title}
-                </div>
-              ))}
-            </div>
-          </div>
+function Row({
+  item,
+  status,
+}: {
+  item: ChecklistItem;
+  status: "received" | "pending" | "optional";
+}) {
+  const dotColor =
+    status === "received"
+      ? "bg-green-500"
+      : status === "pending"
+      ? "bg-amber-500"
+      : "bg-gray-300";
+
+  return (
+    <div className="flex items-center gap-3 p-3">
+      <div className={`h-2.5 w-2.5 rounded-full ${dotColor}`} />
+      <div className="flex-1">
+        <div className="text-sm text-gray-900">{item.title}</div>
+        {!item.required && (
+          <div className="text-xs text-gray-500">Optional</div>
         )}
       </div>
     </div>

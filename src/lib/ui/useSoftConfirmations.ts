@@ -2,6 +2,12 @@
 
 import { useCallback, useState } from "react";
 
+/**
+ * SoftConfirmation
+ *
+ * Lightweight, non-blocking confirmation message.
+ * Used for subtle UX feedback (e.g. "Checklist updated").
+ */
 export type SoftConfirmation = {
   id: string;
   message: string;
@@ -9,16 +15,15 @@ export type SoftConfirmation = {
 };
 
 /**
- * useSoftConfirmations - Subtle, auto-dismissing confirmations
- * 
- * Shows calm feedback for state changes without demanding attention.
- * Messages auto-dismiss after 2.5 seconds.
- * 
+ * useSoftConfirmations
+ *
+ * Subtle, auto-dismissing confirmation system.
+ *
  * Rules:
- * - Never trigger on page load
- * - Never trigger repeatedly for same state
- * - Only trigger on real state changes
- * - Non-blocking, informational only
+ * - Non-blocking
+ * - Auto-dismiss after 2.5s
+ * - Never throws
+ * - Safe to call repeatedly
  */
 export function useSoftConfirmations() {
   const [items, setItems] = useState<SoftConfirmation[]>([]);
@@ -26,12 +31,12 @@ export function useSoftConfirmations() {
   const push = useCallback((message: string) => {
     const id = crypto.randomUUID();
     const timestamp = Date.now();
-    
-    setItems((v) => [...v, { id, message, timestamp }]);
+
+    setItems((prev) => [...prev, { id, message, timestamp }]);
 
     // Auto-dismiss after 2.5 seconds
-    setTimeout(() => {
-      setItems((v) => v.filter((i) => i.id !== id));
+    window.setTimeout(() => {
+      setItems((prev) => prev.filter((item) => item.id !== id));
     }, 2500);
   }, []);
 
@@ -39,5 +44,9 @@ export function useSoftConfirmations() {
     setItems([]);
   }, []);
 
-  return { items, push, clear };
+  return {
+    items,
+    push,
+    clear,
+  };
 }

@@ -1,6 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireValidInvite } from "@/lib/portal/auth";
+import { isDemoMode, demoState } from "@/lib/demo/demoMode";
+import { mockBorrowerStatus } from "@/lib/demo/mocks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,10 +45,18 @@ function statusIsReceived(status?: string | null) {
 }
 
 export async function GET(
-  req: Request,
+  req: NextRequest,
   ctx: { params: Promise<{ token: string }> },
 ) {
   const { token } = await ctx.params;
+  
+  // Demo mode support
+  const searchParams = req.nextUrl.searchParams;
+  if (isDemoMode(searchParams)) {
+    const state = demoState(searchParams);
+    return NextResponse.json(mockBorrowerStatus(state));
+  }
+  
   const sb = supabaseAdmin();
 
   try {

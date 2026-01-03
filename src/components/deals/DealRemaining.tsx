@@ -1,5 +1,3 @@
-"use client";
-
 type RemainingItem = {
   key: string;
   label: string;
@@ -7,39 +5,34 @@ type RemainingItem = {
 };
 
 type DealRemainingProps = {
-  items: RemainingItem[];
+  items?: RemainingItem[] | null;
 };
 
 /**
- * DealRemaining - What's still needed (if anything)
- * 
- * Only shows missing items.
- * Never shows satisfied items here.
- * No checkboxes, no buttons, no interaction.
- * 
- * Removes 70% of visual clutter by showing ONLY what matters.
- * 
- * Rules:
- * - Hide when empty
- * - Show only pending required items
- * - Simple bullet list
- * - Calm, minimal design
+ * DealRemaining
+ *
+ * Purpose:
+ * - Show what is still required, if anything
+ * - No actions, no buttons, no urgency
+ * - Calm, minimal, factual
  */
 export function DealRemaining({ items }: DealRemainingProps) {
-  if (!items || items.length === 0) {
-    return null;
-  }
+  if (!items || items.length === 0) return null;
 
   return (
-    <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-      <div className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-400">
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
         Still needed
       </div>
-      <ul className="space-y-2">
+
+      <ul className="space-y-1 text-sm text-slate-700">
         {items.map((item) => (
-          <li key={item.key} className="flex items-start gap-2 text-sm text-slate-200">
-            <span className="mt-1 text-slate-500">•</span>
+          <li key={item.key} className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
             <span>{item.label}</span>
+            {item.required && (
+              <span className="text-xs text-slate-400">(required)</span>
+            )}
           </li>
         ))}
       </ul>
