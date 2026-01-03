@@ -12,6 +12,7 @@
     "guard:canonical": "node scripts/guard-no-deal-files.mjs && node scripts/guard-no-legacy-reminder-fields.mjs && node scripts/guard-reminder-subscriptions-canonical.mjs",
     "guard:reminders": "node scripts/guard-no-legacy-reminder-fields.mjs && node scripts/guard-reminder-subscriptions-canonical.mjs",
     "guard:tenant-rls": "node scripts/guards/guard-tenant-rls.mjs",
+    "guard:writers": "bash scripts/guard_no_direct_deal_documents_inserts.sh",
     "gen:tenant-sql": "node scripts/generate-tenant-sql.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check:icons": "node scripts/check-no-material-icon-tokens.mjs",
