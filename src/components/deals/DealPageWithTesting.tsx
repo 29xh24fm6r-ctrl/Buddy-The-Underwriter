@@ -71,7 +71,7 @@ export function DealPageWithTesting({ dealId }: DealPageWithTestingProps) {
       const derivedMode = deriveDealMode({
         checklist: {
           state: checklistData.state || "empty",
-          pending: checklistData.items?.filter((item: any) => !item.is_satisfied).length || 0,
+          pendingCount: checklistData.items?.filter((item: any) => !item.is_satisfied).length || 0,
         },
         uploads: {
           processing: 0,
@@ -120,6 +120,7 @@ export function DealPageWithTesting({ dealId }: DealPageWithTestingProps) {
 
         <DealEvidence docs={documents.map(d => ({
           id: d.id,
+          title: d.title || d.name || d.display_name || "Document",
           display_name: d.name || d.display_name,
           checklist_key: d.checklist_key,
           matched: d.matched,

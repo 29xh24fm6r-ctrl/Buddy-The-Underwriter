@@ -59,7 +59,7 @@ export function BorrowerPageSimplified({ dealId }: BorrowerPageSimplifiedProps) 
       const derivedMode = deriveDealMode({
         checklist: {
           state: checklistData.state || "empty",
-          pending: checklistData.items?.filter((item: any) => !item.is_satisfied).length || 0,
+          pendingCount: checklistData.items?.filter((item: any) => !item.is_satisfied).length || 0,
         },
         uploads: {
           processing: 0, // Borrowers don't see processing details

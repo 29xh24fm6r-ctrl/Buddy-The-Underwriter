@@ -59,7 +59,7 @@ export function DealPageSimplified({ dealId }: { dealId: string }) {
           const mode = deriveDealMode({
             checklist: {
               state: checklistData.state || (pending.length === 0 ? "ready" : "needs_input"),
-              pending: pending.length,
+              pendingCount: pending.length,
             },
           });
 

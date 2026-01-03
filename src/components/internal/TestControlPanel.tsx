@@ -3,14 +3,28 @@
 import { useState } from "react";
 import type { DealMode } from "@/lib/deals/dealMode";
 
+type Props = {
+  currentMode?: DealMode | null;
+  simulatedMode?: DealMode | null;
+  onSimulate?: (mode: DealMode | null) => void;
+};
+
 /**
  * TestControlPanel
  *
  * Internal-only panel for simulating deal convergence states.
  * This does NOT affect the database or real users.
  */
-export function TestControlPanel() {
-  const [simulatedMode, setSimulatedMode] = useState<DealMode | null>(null);
+export function TestControlPanel({
+  currentMode: externalCurrentMode,
+  simulatedMode: externalSimulatedMode,
+  onSimulate: externalOnSimulate,
+}: Props = {}) {
+  const [internalSimulatedMode, setInternalSimulatedMode] = useState<DealMode | null>(null);
+  
+  // Use external props if provided, otherwise use internal state
+  const simulatedMode = externalSimulatedMode !== undefined ? externalSimulatedMode : internalSimulatedMode;
+  const setSimulatedMode = externalOnSimulate || setInternalSimulatedMode;
 
   const modes: { mode: DealMode; label: string }[] = [
     { mode: "initializing", label: "Initializing" },

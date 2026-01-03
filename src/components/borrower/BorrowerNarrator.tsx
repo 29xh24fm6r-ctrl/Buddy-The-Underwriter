@@ -1,9 +1,7 @@
-type BorrowerNarratorMode =
-  | "initializing"
-  | "processing"
-  | "remaining"
-  | "ready"
-  | "blocked";
+import type { DealMode } from "@/lib/deals/dealMode";
+
+// Align narrator mode with canonical DealMode
+export type BorrowerNarratorMode = DealMode;
 
 export function BorrowerNarrator({
   mode,
@@ -15,7 +13,7 @@ export function BorrowerNarrator({
   const messages: Record<BorrowerNarratorMode, string> = {
     initializing: "We’re getting things ready for you…",
     processing: "We’re reviewing what you’ve uploaded so far.",
-    remaining:
+    needs_input:
       remainingCount > 0
         ? `You’re almost there — just ${remainingCount} item${
             remainingCount === 1 ? "" : "s"
