@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { fireWebhook } from "@/lib/webhooks/fireWebhook";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
@@ -98,9 +99,20 @@ export async function computeDealReadiness(
  * - Checklist reconciled
  * - Auto-seed run
  * - Manual checklist update
+ * 
+ * 🔔 Fires webhooks on readiness transition (null → set)
  */
 export async function recomputeDealReady(dealId: string): Promise<void> {
   const sb = supabaseAdmin();
+  
+  // Fetch current state (for transition detection)
+  const { data: currentDeal } = await sb
+    .from("deals")
+    .select("ready_at, bank_id")
+    .eq("id", dealId)
+    .single();
+
+  const wasReady = !!currentDeal?.ready_at;
   const result = await computeDealReadiness(dealId);
 
   if (result.ready) {
@@ -124,6 +136,18 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
         ...result.details,
       },
     });
+
+    // 🔔 WEBHOOK: Fire on transition from not-ready → ready
+    if (!wasReady && currentDeal?.bank_id) {
+      await fireWebhook("deal.ready", {
+        deal_id: dealId,
+        bank_id: currentDeal.bank_id,
+        data: {
+          ready_at: new Date().toISOString(),
+          ...result.details,
+        },
+      });
+    }
   } else {
     // Deal not ready - clear timestamp, update reason
     await sb

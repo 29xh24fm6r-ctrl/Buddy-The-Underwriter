@@ -1,29 +1,80 @@
 "use client";
 
+import { useState } from "react";
 import type { DealMode } from "@/lib/deals/dealMode";
 
+type Props = {
+  currentMode?: DealMode | null;
+  simulatedMode?: DealMode | null;
+  onSimulate?: (mode: DealMode | null) => void;
+};
+
+/**
+ * TestControlPanel
+ *
+ * Internal-only panel for simulating deal convergence states.
+ * This does NOT affect the database or real users.
+ */
 export function TestControlPanel({
-  onSimulate,
-}: {
-  onSimulate: (mode: DealMode) => void;
-}) {
-  const modes: DealMode[] = ["initializing", "processing", "needs_input", "ready", "blocked"];
+  currentMode: externalCurrentMode,
+  simulatedMode: externalSimulatedMode,
+  onSimulate: externalOnSimulate,
+}: Props = {}) {
+  const [internalSimulatedMode, setInternalSimulatedMode] = useState<DealMode | null>(null);
+  
+  // Use external props if provided, otherwise use internal state
+  const simulatedMode = externalSimulatedMode !== undefined ? externalSimulatedMode : internalSimulatedMode;
+  const setSimulatedMode = externalOnSimulate || setInternalSimulatedMode;
+
+  const modes: { mode: DealMode; label: string }[] = [
+    { mode: "initializing", label: "Initializing" },
+    { mode: "processing", label: "Processing" },
+    { mode: "needs_input", label: "Needs input" },
+    { mode: "ready", label: "Ready" },
+    { mode: "blocked", label: "Blocked" },
+  ];
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-56 rounded-xl border border-slate-800 bg-black/80 p-3 text-xs text-white shadow-xl backdrop-blur">
-      <div className="mb-2 font-semibold">Test Buddy</div>
-      <div className="grid grid-cols-2 gap-2">
-        {modes.map((m) => (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+        Internal test controls
+      </div>
+
+      <div className="mb-3 text-xs text-slate-600">
+        Simulate deal convergence states for UX testing only.
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {modes.map(({ mode, label }) => (
           <button
-            key={m}
-            onClick={() => onSimulate(m)}
-            className="rounded-lg bg-slate-800 px-2 py-1 hover:bg-slate-700"
+            key={mode}
+            onClick={() => setSimulatedMode(mode)}
+            className={`rounded px-2 py-1 text-xs transition ${
+              simulatedMode === mode
+                ? "bg-slate-900 text-white"
+                : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-100"
+            }`}
           >
-            {m}
+            {label}
           </button>
         ))}
+
+        <button
+          onClick={() => setSimulatedMode(null)}
+          className="rounded px-2 py-1 text-xs border border-slate-300 text-slate-500 hover:bg-slate-100"
+        >
+          Reset
+        </button>
       </div>
-      <div className="mt-2 text-[10px] text-slate-400">In-memory only · no DB writes</div>
+
+      {simulatedMode && (
+        <div className="mt-3 text-xs text-slate-600">
+          Simulating mode:{" "}
+          <span className="font-semibold text-slate-900">
+            {simulatedMode}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
