@@ -36,6 +36,7 @@ export function AdminJobDiagnostics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [replayingDeal, setReplayingDeal] = useState<string | null>(null);
 
   const fetchDiagnostics = async () => {
     try {
@@ -112,6 +113,37 @@ export function AdminJobDiagnostics() {
     return "text-gray-600 bg-gray-50";
   };
 
+  const replayEvent = async (dealId: string, eventKey: string) => {
+    if (!confirm(`Replay event "${eventKey}" for deal ${dealId}?\n\nThis will re-emit the event with a new timestamp for UI testing.`)) {
+      return;
+    }
+
+    try {
+      setReplayingDeal(dealId);
+
+      const res = await fetch("/api/admin/pipeline/replay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deal_id: dealId, event_key: eventKey }),
+      });
+
+      const json = await res.json();
+
+      if (!json.ok) {
+        throw new Error(json.error || "Failed to replay event");
+      }
+
+      alert(`Event replayed! UI should update within 2-15 seconds.`);
+      
+      // Refresh diagnostics to show new event
+      void fetchDiagnostics();
+    } catch (e: any) {
+      alert(`Failed to replay: ${e.message}`);
+    } finally {
+      setReplayingDeal(null);
+    }
+  };
+
   const DealRow = ({ deal }: { deal: DiagnosticsDeal }) => (
     <tr className={deal.is_stuck ? "bg-red-50" : ""}>
       <td className="px-4 py-3 text-sm">
@@ -132,6 +164,15 @@ export function AdminJobDiagnostics() {
       <td className="px-4 py-3 text-xs text-gray-700">{deal.latest_message}</td>
       <td className="px-4 py-3 text-xs text-gray-500">
         {deal.minutes_since_update}m ago
+      </td>
+      <td className="px-4 py-3">
+        <button
+          onClick={() => replayEvent(deal.deal_id, deal.latest_event)}
+          disabled={replayingDeal === deal.deal_id}
+          className="rounded bg-purple-100 px-2 py-1 text-xs font-medium text-purple-700 hover:bg-purple-200 disabled:opacity-50"
+        >
+          {replayingDeal === deal.deal_id ? "..." : "Replay"}
+        </button>
       </td>
     </tr>
   );
@@ -216,6 +257,9 @@ export function AdminJobDiagnostics() {
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-700">
                 Last Update
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-700">
+                Actions
               </th>
             </tr>
           </thead>

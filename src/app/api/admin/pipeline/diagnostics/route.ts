@@ -38,10 +38,14 @@ type DiagnosticsResponse =
  * - Aggregates ledger by deal_id
  */
 export async function GET(req: NextRequest): Promise<NextResponse<DiagnosticsResponse>> {
-  // Require super admin
-  const authCheck = await requireSuperAdmin();
-  if (!authCheck.ok) {
-    return NextResponse.json({ ok: false, error: authCheck.error }, { status: 401 });
+  try {
+    // Require super admin
+    await requireSuperAdmin();
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Unauthorized" },
+      { status: 401 }
+    );
   }
 
   try {
