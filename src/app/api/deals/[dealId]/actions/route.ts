@@ -7,6 +7,25 @@ import type { DealAction, DealEvent } from "@/lib/deals/contextTypes";
 
 export const dynamic = "force-dynamic";
 
+function describeAction(action: string) {
+  switch (action) {
+    case "request-document":
+      return { title: "Requested document", level: "info", kind: "checklist", event_type: "checklist", status: "info" };
+    case "mark-condition":
+      return { title: "Condition satisfied", level: "success", kind: "checklist", event_type: "checklist", status: "completed" };
+    case "approve":
+      return { title: "Deal approved", level: "success", kind: "readiness", event_type: "readiness", status: "completed" };
+    case "decline":
+      return { title: "Deal declined", level: "error", kind: "readiness", event_type: "readiness", status: "failed" };
+    case "escalate":
+      return { title: "Escalated to committee", level: "warning", kind: "other", event_type: "other", status: "blocked" };
+    case "share":
+      return { title: "Shared deal", level: "info", kind: "other", event_type: "other", status: "info" };
+    default:
+      return { title: `Action: ${action}`, level: "info", kind: "other", event_type: "other", status: "info" };
+  }
+}
+
 export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> }
@@ -59,6 +78,27 @@ export async function POST(
       timestamp: new Date().toISOString(),
     };
 
+    const desc = describeAction(action);
+
+    // Try to write to deal_timeline_events (for CinematicTimeline)
+    const timelineInsert = await sb.from("deal_timeline_events").insert({
+      deal_id: dealId,
+      event_type: desc.event_type,
+      title: desc.title,
+      detail: JSON.stringify({ action, by: userId }),
+      level: desc.level,
+      kind: desc.kind,
+      status: desc.status,
+      meta: { action, by: userId },
+      visible_to_borrower: false,
+      created_at: event.timestamp,
+    });
+
+    if (timelineInsert.error) {
+      console.warn("[actions] Timeline insert failed (non-fatal):", timelineInsert.error);
+    }
+
+    // Also write to deal_events for backward compatibility
     const insertResult = await sb.from("deal_events").insert({
       deal_id: dealId,
       event_type: action,
