@@ -1,4 +1,6 @@
 // src/lib/auth/clerkServer.ts
+import "server-only";
+
 // Purpose: prevent CI/build/runtime crashes when Clerk env vars are missing/placeholder.
 // We avoid top-level imports from @clerk/nextjs/server and instead dynamically import only when configured.
 
