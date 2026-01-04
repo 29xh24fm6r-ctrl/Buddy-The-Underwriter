@@ -1,12 +1,13 @@
 // src/app/api/deals/[dealId]/auto-seed/route.ts
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildChecklistForLoanType } from "@/lib/deals/checklistPresets";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 import { recomputeDealReady } from "@/lib/deals/readiness";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,58 +24,68 @@ type Ctx = { params: Promise<{ dealId: string }> };
  * - No uploads
  * 
  * New capabilities:
- * - Admin override: { adminOverride: true } bypasses upload processing checks
- * - Partial mode: { mode: "partial" } seeds only matched documents
+ * - Admin override: force=1 query param bypasses upload processing checks
+ * - Partial mode: partial=1 query param seeds only matched documents
+ * - Readiness-driven: uses persisted doc count vs expected
  * 
  * Returns deterministic status, UI renders accordingly.
  */
-export async function POST(req: Request, ctx: Ctx) {
+export async function POST(req: NextRequest, ctx: Ctx) {
   try {
     const { dealId } = await ctx.params;
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
 
-    // Parse request body
-    const body = await req.json().catch(() => ({}));
-    const { adminOverride = false, mode = "full" } = body as {
-      adminOverride?: boolean;
-      mode?: "full" | "partial";
-    };
+    // Parse query params for readiness-driven logic
+    const url = new URL(req.url);
+    const expectedRaw = url.searchParams.get("expected");
+    const expected = expectedRaw ? Math.max(0, parseInt(expectedRaw, 10) || 0) : null;
+    const partial = url.searchParams.get("partial") === "1";
+    const force = url.searchParams.get("force") === "1";
 
-    console.log("[auto-seed] Processing request for dealId:", dealId, { adminOverride, mode });
+    console.log("[auto-seed] Processing request for dealId:", dealId, { expected, partial, force });
 
-    // 🔒 HARD GATE: Block if uploads still processing (unless admin override)
-    const { count: inFlight } = await sb
+    // Admin gate (Clerk): only admins can force
+    const { userId } = await clerkAuth();
+    const adminIds = (process.env.ADMIN_CLERK_USER_IDS ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const isAdmin = userId ? adminIds.includes(userId) : false;
+
+    // Persisted docs = source of truth
+    const { count, error: countErr } = await sb
       .from("deal_documents")
       .select("id", { count: "exact", head: true })
       .eq("deal_id", dealId)
-      .is("finalized_at", null);
+      .eq("bank_id", bankId);
 
-    if (inFlight && inFlight > 0 && !adminOverride) {
-      console.warn("[auto-seed] Blocked: uploads still processing", { inFlight });
-      
-      // 🔥 LEDGER: Log blocking event
-      await sb.from("deal_pipeline_ledger").insert({
-        deal_id: dealId,
-        bank_id: bankId,
-        stage: "auto_seed",
-        status: "blocked",
-        payload: { remaining: inFlight },
-      } as any);
+    if (countErr) throw countErr;
 
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Uploads still processing",
-          remaining: inFlight,
-          status: "blocked",
-        },
-        { status: 409 }
-      );
+    const persisted = count ?? 0;
+    const exp = expected ?? persisted;
+    const remaining = Math.max(0, exp - persisted);
+    const ready = remaining === 0;
+
+    // Blocking rules
+    if (!ready && !partial) {
+      if (force && !isAdmin) {
+        return NextResponse.json(
+          { ok: false, error: "Forbidden", status: "forbidden" },
+          { status: 403 }
+        );
+      }
+      if (!force) {
+        return NextResponse.json(
+          { ok: false, error: "Uploads still processing", remaining, status: "blocked" },
+          { status: 409 }
+        );
+      }
+      // force + admin => allowed
     }
 
     // Admin override audit log
-    if (adminOverride) {
+    if (force && isAdmin) {
       await sb.from("deal_pipeline_ledger").insert({
         deal_id: dealId,
         bank_id: bankId,
@@ -82,13 +93,13 @@ export async function POST(req: Request, ctx: Ctx) {
         status: "admin_override",
         payload: { 
           adminOverride: true,
-          uploadsRemaining: inFlight || 0 
+          uploadsRemaining: remaining
         },
       } as any);
     }
 
     // Partial mode audit log
-    if (mode === "partial") {
+    if (partial) {
       await sb.from("deal_pipeline_ledger").insert({
         deal_id: dealId,
         bank_id: bankId,
@@ -125,8 +136,8 @@ export async function POST(req: Request, ctx: Ctx) {
       status: "started",
       payload: { 
         loan_type: intake.loan_type,
-        mode,
-        adminOverride 
+        partial,
+        force 
       },
     } as any);
 
@@ -288,8 +299,8 @@ export async function POST(req: Request, ctx: Ctx) {
         checklist_count: checklistRows.length,
         files_matched: matchedCount,
         ocr_complete: hasOcrCompleted,
-        mode,
-        adminOverride,
+        partial,
+        force,
       },
     });
 
