@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { emitChecklistRefresh } from "@/lib/events/uiEvents";
+import { cn } from "@/lib/utils";
 
 type LoanType = "CRE" | "CRE_OWNER_OCCUPIED" | "CRE_INVESTOR" | "CRE_OWNER_OCCUPIED_WITH_RENT" | "LOC" | "TERM" | "SBA_7A" | "SBA_504";
 
@@ -32,6 +33,8 @@ export default function DealIntakeCard({
   const [saving, setSaving] = useState(false);
   const [autoSeeding, setAutoSeeding] = useState(false);
   const [matchMessage, setMatchMessage] = useState<string | null>(null);
+  const [uploadsReady, setUploadsReady] = useState<boolean>(true);
+  const [uploadsPending, setUploadsPending] = useState<number>(0);
 
   // Never call APIs with a missing/invalid dealId (prevents uuid "undefined" errors).
   const hasValidDealId = dealId && dealId !== "undefined";
@@ -47,6 +50,52 @@ export default function DealIntakeCard({
       setLoading(false);
     }
     load();
+  }, [dealId, hasValidDealId]);
+
+  // Check upload readiness status (polls every 2 seconds)
+  useEffect(() => {
+    if (!hasValidDealId) return;
+
+    let mounted = true;
+    
+    async function checkReadiness() {
+      try {
+        const res = await fetch(`/api/deals/${dealId}/auto-seed`, {
+          method: "POST",
+        });
+        const json = await res.json();
+        
+        if (!mounted) return;
+
+        // Status codes:
+        // 409 = uploads still processing (blocked)
+        // 200 = ready to seed
+        if (res.status === 409) {
+          setUploadsReady(false);
+          setUploadsPending(json.remaining || 0);
+        } else {
+          setUploadsReady(true);
+          setUploadsPending(0);
+        }
+      } catch (e) {
+        // Network error - assume ready (don't block on error)
+        if (mounted) {
+          setUploadsReady(true);
+          setUploadsPending(0);
+        }
+      }
+    }
+
+    // Check immediately
+    checkReadiness();
+
+    // Poll every 2 seconds while uploads might be processing
+    const interval = setInterval(checkReadiness, 2000);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, [dealId, hasValidDealId]);
 
   if (!hasValidDealId) {
@@ -266,12 +315,44 @@ export default function DealIntakeCard({
           </div>
         )}
 
+        {/* Upload readiness indicator */}
+        {!uploadsReady && uploadsPending > 0 && (
+          <div className="flex items-center gap-2 text-sm text-orange-400">
+            <div className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
+            Uploads processing… ({uploadsPending} remaining)
+          </div>
+        )}
+        {uploadsReady && !autoSeeding && !saving && (
+          <div className="flex items-center gap-2 text-sm text-green-400">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+            Documents ready
+          </div>
+        )}
+
         <button
           type="submit"
-          disabled={saving || autoSeeding}
-          className="w-full rounded-xl bg-white px-3 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-50 hover:bg-neutral-100 transition-colors"
+          disabled={!uploadsReady || saving || autoSeeding}
+          className={cn(
+            "w-full rounded-xl px-3 py-2 text-sm font-semibold transition-all",
+            !uploadsReady && "bg-gray-600 text-gray-300 cursor-not-allowed",
+            uploadsReady && !saving && !autoSeeding && "bg-green-600 hover:bg-green-700 text-white",
+            (saving || autoSeeding) && "bg-blue-600 text-white cursor-wait"
+          )}
+          title={
+            !uploadsReady
+              ? `Waiting for ${uploadsPending} upload(s) to finish`
+              : (saving || autoSeeding)
+              ? "Processing..."
+              : "Ready to auto-seed checklist"
+          }
         >
-          {saving ? "Saving intake..." : autoSeeding ? "Auto-seeding checklist..." : "Save + Auto-Seed Checklist"}
+          {saving 
+            ? "Saving intake..." 
+            : autoSeeding 
+            ? "Auto-seeding checklist..." 
+            : uploadsReady 
+            ? "Auto-Seed Checklist ✓" 
+            : `Waiting for ${uploadsPending} upload(s)…`}
         </button>
       </form>
     </div>
