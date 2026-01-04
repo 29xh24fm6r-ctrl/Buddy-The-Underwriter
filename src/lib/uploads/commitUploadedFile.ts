@@ -63,8 +63,7 @@ export async function commitUploadedFile(
     );
   }
 
-  await logLedgerEvent({
-    event: "document_committed",
+  await logLedgerEvent("document_committed", {
     source: args.kind,
     ref_id: args.file_id,
   });

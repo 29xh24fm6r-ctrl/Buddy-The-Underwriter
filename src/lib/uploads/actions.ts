@@ -8,5 +8,5 @@ import { markUploadsCompleted } from "@/lib/uploads/commitUploadedFile";
  */
 
 export async function markUploadsCompletedAction(dealId: string, bankId: string) {
-  return markUploadsCompleted(dealId, bankId);
+  return await markUploadsCompleted();
 }
