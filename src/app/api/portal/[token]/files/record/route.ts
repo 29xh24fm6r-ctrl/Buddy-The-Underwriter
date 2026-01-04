@@ -149,9 +149,13 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     return NextResponse.json({ ok: true, file_id, ...result });
   } catch (error: any) {
-    console.error("[portal/files/record]", error);
+    console.error("[portal/files/record] uncaught exception", {
+      message: error?.message,
+      stack: error?.stack,
+      name: error?.name,
+    });
     return NextResponse.json(
-      { ok: false, error: "Internal server error" },
+      { ok: false, error: error?.message || "Internal server error" },
       { status: 500 },
     );
   }
