@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from "uuid";
 import BorrowerWowCard from "@/components/deals/BorrowerWowCard";
 import FinancialStatementWowCard from "@/components/deals/FinancialStatementWowCard";
 import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
-import { markUploadsCompleted } from "@/lib/uploads/commitUploadedFile";
+import { markUploadsCompletedAction } from "@/lib/uploads/actions";
 
 import MoodyPnlSpreadCard from "@/components/deals/MoodyPnlSpreadCard";
 import DocumentCoverageCard from "@/components/deals/DocumentCoverageCard";
@@ -456,7 +456,7 @@ if (!res.ok || !data?.ok) {
         const bankRes = await fetch('/api/tenant/current-bank');
         if (bankRes.ok) {
           const { bankId } = await bankRes.json();
-          await markUploadsCompleted(safeDealId, bankId);
+          await markUploadsCompletedAction(safeDealId, bankId);
           console.log(`✅ Marked ${successCount} uploads completed for deal ${safeDealId}`);
         }
       } catch (e) {

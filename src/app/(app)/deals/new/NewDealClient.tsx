@@ -4,7 +4,7 @@ import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
-import { markUploadsCompleted } from "@/lib/uploads/commitUploadedFile";
+import { markUploadsCompletedAction } from "./actions";
 
 export default function NewDealClient({ bankId }: { bankId: string }) {
   const router = useRouter();
@@ -102,7 +102,7 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
 
       // 🔥 CRITICAL: Mark upload batch as complete to unblock auto-seed
       if (successCount > 0) {
-        await markUploadsCompleted(dealId, bankId);
+        await markUploadsCompletedAction(dealId, bankId);
         console.log(`✅ Marked uploads completed for deal ${dealId}`);
       }
 
