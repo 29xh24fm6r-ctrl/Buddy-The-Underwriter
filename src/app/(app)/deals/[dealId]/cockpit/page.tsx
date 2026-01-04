@@ -24,6 +24,13 @@ export default async function DealCockpitPage({ params }: Props) {
     );
   }
 
+  // Check if user is admin
+  const adminIds = (process.env.ADMIN_CLERK_USER_IDS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const isAdmin = adminIds.includes(userId);
+
   const { dealId } = await params;
 
   // 🚫 Do NOT throw/notFound here — client transitions can briefly yield undefined params.
@@ -42,5 +49,5 @@ export default async function DealCockpitPage({ params }: Props) {
     );
   }
 
-  return <DealCockpitClient dealId={dealId} />;
+  return <DealCockpitClient dealId={dealId} isAdmin={isAdmin} />;
 }

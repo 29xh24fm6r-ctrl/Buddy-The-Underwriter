@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from "uuid";
 import BorrowerWowCard from "@/components/deals/BorrowerWowCard";
 import FinancialStatementWowCard from "@/components/deals/FinancialStatementWowCard";
 import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
+import { markUploadsCompletedAction } from "@/lib/uploads/actions";
 
 import MoodyPnlSpreadCard from "@/components/deals/MoodyPnlSpreadCard";
 import DocumentCoverageCard from "@/components/deals/DocumentCoverageCard";
@@ -430,6 +431,7 @@ if (!res.ok || !data?.ok) {
     setPackUploadQueue(queueItems);
     
     // Upload files sequentially
+    let successCount = 0;
     for (let i = 0; i < queueItems.length; i++) {
       setPackUploadQueue(prev => prev.map((item, idx) => 
         idx === i ? { ...item, status: 'uploading' as const } : item
@@ -440,10 +442,25 @@ if (!res.ok || !data?.ok) {
         setPackUploadQueue(prev => prev.map((item, idx) => 
           idx === i ? { ...item, status: 'completed' as const } : item
         ));
+        successCount++;
       } catch (error) {
         setPackUploadQueue(prev => prev.map((item, idx) => 
           idx === i ? { ...item, status: 'failed' as const } : item
         ));
+      }
+    }
+
+    // 🔥 CRITICAL: Mark upload batch as complete to unblock auto-seed
+    if (successCount > 0) {
+      try {
+        const bankRes = await fetch('/api/tenant/current-bank');
+        if (bankRes.ok) {
+          const { bankId } = await bankRes.json();
+          await markUploadsCompletedAction(safeDealId, bankId);
+          console.log(`✅ Marked ${successCount} uploads completed for deal ${safeDealId}`);
+        }
+      } catch (e) {
+        console.error('[UploadBox] Failed to mark uploads completed:', e);
       }
     }
   }

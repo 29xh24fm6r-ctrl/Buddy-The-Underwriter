@@ -1,4 +1,9 @@
-type CommitUploadedFileArgs =
+// src/lib/uploads/commitUploadedFile.ts
+import "server-only";
+
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+
+export type CommitUploadedFileArgs =
   | {
       kind: "deal";
       dealId: string;
@@ -7,7 +12,7 @@ type CommitUploadedFileArgs =
       original_filename: string;
       mime_type: string;
       size_bytes: number;
-      checklist_key?: string | null;
+      checklist_key: string | null;
       sha256?: string;
     }
   | {
@@ -18,7 +23,7 @@ type CommitUploadedFileArgs =
       original_filename: string;
       mime_type: string;
       size_bytes: number;
-      checklist_key?: string | null;
+      checklist_key: string | null;
       sha256?: string;
     };
 
@@ -38,42 +43,33 @@ export async function commitUploadedFile(
     size_bytes: args.size_bytes,
   };
 
-  if ("checklist_key" in args && args.checklist_key) {
+  if (args.checklist_key) {
     payload.checklist_key = args.checklist_key;
   }
 
-  if ("sha256" in args && args.sha256) {
+  if (args.sha256) {
     payload.sha256 = args.sha256;
   }
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
   });
 
   if (!res.ok) {
-    let details = "";
-    try {
-      const json = await res.json();
-      details = json?.error || JSON.stringify(json);
-    } catch {
-      try {
-        details = await res.text();
-      } catch {
-        details = "";
-      }
-    }
-
-    console.error("[commitUploadedFile] FAILED", {
-      url,
-      status: res.status,
-      details,
-      payload,
-    });
-
     throw new Error(
-      `upload commit failed (${res.status})${details ? `: ${details}` : ""}`
+      `commitUploadedFile failed (${res.status}): ${await res.text()}`
     );
   }
+
+  await logLedgerEvent({
+    source: args.kind,
+    ref_id: args.file_id,
+  } as any);
+}
+
+// TEMP compatibility shim (used by older callers)
+export async function markUploadsCompleted(): Promise<void> {
+  return;
 }

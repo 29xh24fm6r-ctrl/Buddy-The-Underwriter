@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
+import { motion } from "framer-motion";
 import { emitChecklistRefresh } from "@/lib/events/uiEvents";
+import { cn } from "@/lib/utils";
 
 type LoanType = "CRE" | "CRE_OWNER_OCCUPIED" | "CRE_INVESTOR" | "CRE_OWNER_OCCUPIED_WITH_RENT" | "LOC" | "TERM" | "SBA_7A" | "SBA_504";
 
@@ -13,13 +15,30 @@ type Intake = {
   borrower_phone: string | null;
 };
 
-export default function DealIntakeCard({ 
-  dealId,
-  onChecklistSeeded,
-}: { 
+type ReadinessState = {
+  ok: boolean;
+  expected: number;
+  persisted: number;
+  remaining: number;
+  ready: boolean;
+};
+
+export type DealIntakeCardHandle = {
+  startUploadBatch: (fileCount: number) => void;
+  setOptimisticReady: () => void;
+};
+
+type DealIntakeCardProps = {
   dealId: string;
   onChecklistSeeded?: () => void | Promise<void>;
-}) {
+  isAdmin?: boolean;
+};
+
+const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({ 
+  dealId,
+  onChecklistSeeded,
+  isAdmin = false,
+}, ref) => {
   const [intake, setIntake] = useState<Intake>({
     loan_type: "CRE_OWNER_OCCUPIED",
     sba_program: null,
@@ -32,6 +51,13 @@ export default function DealIntakeCard({
   const [saving, setSaving] = useState(false);
   const [autoSeeding, setAutoSeeding] = useState(false);
   const [matchMessage, setMatchMessage] = useState<string | null>(null);
+  const [partialMode, setPartialMode] = useState(false);
+  
+  // Readiness state (canonical)
+  const [expectedUploads, setExpectedUploads] = useState(0);
+  const [persistedUploads, setPersistedUploads] = useState(0);
+  const [remainingUploads, setRemainingUploads] = useState(0);
+  const [isReady, setIsReady] = useState(true);
 
   // Never call APIs with a missing/invalid dealId (prevents uuid "undefined" errors).
   const hasValidDealId = dealId && dealId !== "undefined";
@@ -48,6 +74,60 @@ export default function DealIntakeCard({
     }
     load();
   }, [dealId, hasValidDealId]);
+
+  // Poll readiness endpoint
+  async function pollReadiness() {
+    if (!hasValidDealId) return;
+    
+    try {
+      const res = await fetch(`/api/deals/${dealId}/uploads/readiness?expected=${expectedUploads}`);
+      const json: ReadinessState = await res.json();
+      
+      if (json.ok) {
+        setPersistedUploads(json.persisted);
+        setRemainingUploads(json.remaining);
+        setIsReady(json.ready);
+        
+        if (!json.ready) {
+          console.log("[DealIntakeCard] Not ready:", json);
+        }
+      }
+    } catch (e) {
+      // Network error - assume ready (don't block on error)
+      console.error("[DealIntakeCard] Readiness check failed:", e);
+      setIsReady(true);
+    }
+  }
+
+  // Start upload batch (called when user uploads files)
+  function startUploadBatch(fileCount: number) {
+    setExpectedUploads(fileCount);
+    setPersistedUploads(0);
+    setRemainingUploads(fileCount);
+    setIsReady(false);
+  }
+
+  // Optimistic UI: immediately mark as ready
+  function setOptimisticReady() {
+    setIsReady(true);
+    setRemainingUploads(0);
+    setPersistedUploads(expectedUploads);
+    emitChecklistRefresh(dealId);
+  }
+
+  // Expose imperative methods to parent
+  useImperativeHandle(ref, () => ({
+    startUploadBatch,
+    setOptimisticReady,
+  }), [expectedUploads, dealId]);
+
+  // Poll while not ready
+  useEffect(() => {
+    if (isReady || !hasValidDealId) return;
+
+    const interval = setInterval(pollReadiness, 1000); // 1s polling
+    return () => clearInterval(interval);
+  }, [isReady, hasValidDealId, expectedUploads]);
 
   if (!hasValidDealId) {
     if (process.env.NODE_ENV !== "production") {
@@ -74,8 +154,8 @@ export default function DealIntakeCard({
     console.log("🔴 DealIntakeCard MOUNTED - dealId:", dealId);
   }
   
-  async function save(autoSeed = true) {
-    console.log("🚨 BUTTON CLICKED! save() function called with autoSeed:", autoSeed);
+  async function save(autoSeed = true, forceOverride = false) {
+    console.log("🚨 BUTTON CLICKED! save() function called with autoSeed:", autoSeed, "forceOverride:", forceOverride);
     setSaving(true);
     setMatchMessage(null);
     
@@ -107,27 +187,48 @@ export default function DealIntakeCard({
 
       setMatchMessage(`✅ Intake saved (loan type: ${intake.loan_type})`);
 
-      // Step 2: Call auto-seed endpoint
+      // Step 2: Call auto-seed endpoint with query params
       if (autoSeed) {
         setAutoSeeding(true);
-        setMatchMessage(`✅ Intake saved. Auto-seeding checklist for ${intake.loan_type}...`);
+        
+        // 🔥 OPTIMISTIC UI: Emit refresh immediately
+        console.log("[DealIntakeCard] Emitting optimistic checklist refresh");
+        emitChecklistRefresh(dealId);
+        
+        setMatchMessage(`✅ Intake saved. Seeding checklist for ${intake.loan_type}...`);
         
         console.log("[DealIntakeCard] Calling auto-seed endpoint...");
-        const seedRes = await fetch(`/api/deals/${dealId}/auto-seed`, {
+        
+        // Build query params
+        const params = new URLSearchParams();
+        if (expectedUploads > 0) params.set("expected", expectedUploads.toString());
+        if (partialMode) params.set("partial", "1");
+        if (forceOverride) params.set("force", "1");
+        
+        const seedRes = await fetch(`/api/deals/${dealId}/auto-seed?${params}`, {
           method: "POST",
         });
 
         const seedJson = await seedRes.json();
         console.log("[DealIntakeCard] Auto-seed response:", seedJson);
 
+        // Handle 403: admin required for force
+        if (seedRes.status === 403) {
+          setMatchMessage("❌ Admin privileges required for force override");
+          setAutoSeeding(false);
+          setSaving(false);
+          return;
+        }
+
         // Handle 409: uploads still processing
-        if (seedRes.status === 409) {
+        if (seedRes.status === 409 && !forceOverride) {
           setMatchMessage(
             `⏳ Still processing ${seedJson.remaining || "some"} upload(s)\n\n` +
-            `Please wait for all uploads to finish before auto-seeding.\n` +
+            `${isAdmin ? "As admin, you can force auto-seed using the override button below." : "Please wait for all uploads to finish."}\n` +
             `The checklist will auto-update when uploads complete.`
           );
           setAutoSeeding(false);
+          setSaving(false);
           return;
         }
 
@@ -138,11 +239,13 @@ export default function DealIntakeCard({
             `• Loan type: ${intake.loan_type}\n` +
             `• Checklist items created: ${summary.seeded || 0}\n` +
             `• Files matched: ${summary.matched || 0}\n` +
+            `${forceOverride ? "• Admin override used\n" : ""}` +
+            `${partialMode ? "• Partial mode (matched docs only)\n" : ""}` +
             `\nRefreshing page in 2 seconds...`
           );
           
           // 🔥 Emit checklist refresh event for auto-updates
-          console.log("[DealIntakeCard] Emitting checklist refresh event");
+          console.log("[DealIntakeCard] Emitting final checklist refresh event");
           emitChecklistRefresh(dealId);
           
           // 🔥 CRITICAL FIX: Trigger checklist refresh
@@ -258,7 +361,7 @@ export default function DealIntakeCard({
           <div className={`rounded-xl border p-3 text-sm whitespace-pre-line ${
             matchMessage.startsWith("✅") 
               ? "border-emerald-800 bg-emerald-950/40 text-emerald-200" 
-              : matchMessage.startsWith("⚠️")
+              : matchMessage.startsWith("⏳")
               ? "border-amber-800 bg-amber-950/40 text-amber-200"
               : "border-red-800 bg-red-950/40 text-red-200"
           }`}>
@@ -266,14 +369,92 @@ export default function DealIntakeCard({
           </div>
         )}
 
+        {/* Animated upload progress bar */}
+        {expectedUploads > 0 && (
+          <div className="space-y-2">
+            <div className="flex justify-between text-xs text-neutral-400">
+              <span>Upload Progress</span>
+              <span>{persistedUploads} / {expectedUploads}</span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-neutral-800 overflow-hidden">
+              <motion.div
+                className={cn(
+                  "h-full rounded-full transition-colors",
+                  isReady ? "bg-green-500" : "bg-blue-500"
+                )}
+                initial={{ width: 0 }}
+                animate={{ 
+                  width: expectedUploads > 0 
+                    ? `${(persistedUploads / expectedUploads) * 100}%` 
+                    : "0%"
+                }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+              />
+            </div>
+            {!isReady && (
+              <p className="text-xs text-neutral-500">
+                Uploading {remainingUploads} remaining file{remainingUploads !== 1 ? "s" : ""}...
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Partial mode checkbox */}
+        {expectedUploads > 0 && (
+          <label className="flex items-center gap-2 text-sm text-neutral-300">
+            <input
+              type="checkbox"
+              checked={partialMode}
+              onChange={(e) => setPartialMode(e.target.checked)}
+              className="rounded border-neutral-700 bg-neutral-900"
+            />
+            <span>Partial mode (seed with incomplete uploads)</span>
+          </label>
+        )}
+
         <button
           type="submit"
-          disabled={saving || autoSeeding}
-          className="w-full rounded-xl bg-white px-3 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-50 hover:bg-neutral-100 transition-colors"
+          disabled={(!isReady && !partialMode) || saving || autoSeeding}
+          className={cn(
+            "w-full rounded-xl px-3 py-2 text-sm font-semibold transition-all",
+            (!isReady && !partialMode) && "bg-gray-600 text-gray-300 cursor-not-allowed",
+            isReady && !saving && !autoSeeding && "bg-green-600 hover:bg-green-700 text-white",
+            (saving || autoSeeding) && "bg-blue-600 text-white cursor-wait animate-pulse"
+          )}
+          title={
+            (!isReady && !partialMode)
+              ? `Waiting for ${remainingUploads} upload(s) to finish`
+              : (saving || autoSeeding)
+              ? "Processing..."
+              : "Ready to auto-seed checklist"
+          }
         >
-          {saving ? "Saving intake..." : autoSeeding ? "Auto-seeding checklist..." : "Save + Auto-Seed Checklist"}
+          {saving 
+            ? "Saving intake..." 
+            : autoSeeding 
+            ? "Seeding checklist…" 
+            : isReady 
+            ? "Auto-Seed Checklist ✓" 
+            : `Processing ${persistedUploads}/${expectedUploads}…`}
         </button>
+
+        {/* Admin override button */}
+        {isAdmin && !isReady && (
+          <button
+            type="button"
+            onClick={() => save(true, true)}
+            disabled={saving || autoSeeding}
+            className="w-full rounded-xl px-3 py-2 text-sm font-semibold bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-50"
+            title="Force auto-seed even with uploads processing (admin only)"
+          >
+            🔒 Admin Override: Force Seed
+          </button>
+        )}
       </form>
     </div>
   );
-}
+});
+
+DealIntakeCard.displayName = "DealIntakeCard";
+
+export default DealIntakeCard;

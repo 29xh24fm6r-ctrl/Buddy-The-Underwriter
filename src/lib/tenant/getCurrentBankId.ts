@@ -1,4 +1,6 @@
 // src/lib/tenant/getCurrentBankId.ts
+import "server-only";
+
 import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 

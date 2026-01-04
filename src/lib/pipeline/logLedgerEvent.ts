@@ -1,3 +1,5 @@
+import "server-only";
+
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 interface LogLedgerEventInput {
