@@ -205,11 +205,21 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         if (partialMode) params.set("partial", "1");
         if (forceOverride) params.set("force", "1");
         
-        const seedRes = await fetch(`/api/deals/${dealId}/auto-seed?${params}`, {
-          method: "POST",
-        });
+        const seedUrl = `/api/deals/${dealId}/auto-seed?${params}`;
+        let seedRes = await fetch(seedUrl, { method: "POST" });
+        // Some deployments use GET-only for auto-seed. If POST not allowed, retry GET.
+        if (seedRes.status === 405) {
+          console.warn("[DealIntakeCard] auto-seed POST not allowed; retrying GET");
+          seedRes = await fetch(seedUrl, { method: "GET" });
+        }
 
-        const seedJson = await seedRes.json();
+        let seedJson: any = {};
+        try {
+          seedJson = await seedRes.json();
+        } catch (e) {
+          console.error("[DealIntakeCard] auto-seed non-JSON response", e);
+          seedJson = { ok: false, error: `Auto-seed returned non-JSON (status ${seedRes.status})` };
+        }
         console.log("[DealIntakeCard] Auto-seed response:", seedJson);
 
         // Handle 403: admin required for force
@@ -254,11 +264,11 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
             await onChecklistSeeded();
           }
           
-          // Refresh after delay to show updates
+          // Force UI refresh (no full reload)
           setTimeout(() => {
-            console.log("[DealIntakeCard] Reloading page...");
-            window.location.reload();
-          }, 2000);
+            console.log("[DealIntakeCard] Forcing checklist refresh (no reload)...");
+            emitChecklistRefresh(dealId);
+          }, 300);
         } else {
           setMatchMessage(
             `⚠️ Saved intake but auto-seed ${seedJson.status || "failed"}:\n${seedJson.error || seedJson.message || "Unknown error"}\n\nCheck browser console for details.`
@@ -267,7 +277,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         }
         setAutoSeeding(false);
       } else {
-        setTimeout(() => window.location.reload(), 1000);
+        setTimeout(() => emitChecklistRefresh(dealId), 300);
       }
     } catch (error: any) {
       console.error("[DealIntakeCard] Error during save:", error);
@@ -291,17 +301,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
       <div className="text-base font-semibold text-neutral-50">Deal Intake</div>
       <div className="mt-1 text-sm text-neutral-400">Set loan type to auto-generate checklist presets</div>
 
-      <form
-        className="mt-4 space-y-3"
-        method="post"
-        action={`/deals/${dealId}/cockpit/seed`}
-        onSubmit={(e) => {
-          // If JS is working, keep the snappy fetch-based flow.
-          // If hydration is broken, this handler won't attach and the POST still works.
-          e.preventDefault();
-          void save(true);
-        }}
-      >
+      <div className="mt-4 space-y-3">
         <div>
           <label className="text-xs text-neutral-400">Loan Type</label>
           <select
@@ -413,7 +413,8 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         )}
 
         <button
-          type="submit"
+          type="button"
+          onClick={() => void save(true)}
           disabled={(!isReady && !partialMode) || saving || autoSeeding}
           className={cn(
             "w-full rounded-xl px-3 py-2 text-sm font-semibold transition-all",
@@ -450,7 +451,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
             🔒 Admin Override: Force Seed
           </button>
         )}
-      </form>
+      </div>
     </div>
   );
 });
