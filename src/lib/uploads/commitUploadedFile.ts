@@ -64,8 +64,13 @@ export async function commitUploadedFile(
   }
 
   await logLedgerEvent({
-    kind: "document_committed",
+    event: "document_committed",
     source: args.kind,
-    ref: args.file_id,
+    ref_id: args.file_id,
   });
+}
+
+// TEMP compatibility shim (used by older callers)
+export async function markUploadsCompleted(): Promise<void> {
+  return;
 }
