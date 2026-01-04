@@ -68,14 +68,54 @@ export async function GET(req: NextRequest, ctx: Context) {
       }, { status });
     }
     
-    // If processing, return calm state (not an error)
+    // If processing, return items with state metadata (not empty)
     if (checklistState.state === "processing") {
+      const items = checklistState.items ?? [];
+      const sb = supabaseAdmin();
+      
+      // Fetch documents to augment received determination
+      const { data: documents } = await sb
+        .from("deal_documents")
+        .select("checklist_key")
+        .eq("deal_id", dealId);
+
+      // Build set of checklist_keys that have documents
+      const documentKeys = new Set<string>();
+      (documents || []).forEach((doc) => {
+        if (doc.checklist_key) {
+          documentKeys.add(doc.checklist_key);
+        }
+      });
+
+      const received: ChecklistItem[] = [];
+      const pending: ChecklistItem[] = [];
+      const optional: ChecklistItem[] = [];
+
+      // Bucket items based on required flag and received status
+      items.forEach((item) => {
+        const hasExplicitReceivedStatus =
+          item.status === "received" ||
+          item.status === "satisfied" ||
+          item.received_at !== null ||
+          item.satisfied_at !== null;
+        const hasDocument = documentKeys.has(item.checklist_key);
+        const isReceived = hasExplicitReceivedStatus || hasDocument;
+
+        if (isReceived) {
+          received.push(item);
+        } else if (item.required) {
+          pending.push(item);
+        } else {
+          optional.push(item);
+        }
+      });
+
       return NextResponse.json({
         ok: true,
         state: "processing",
-        received: [],
-        pending: [],
-        optional: [],
+        received,
+        pending,
+        optional,
         meta: checklistState.meta,
       });
     }

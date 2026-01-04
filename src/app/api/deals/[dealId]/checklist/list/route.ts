@@ -49,11 +49,43 @@ export async function GET(
       }, { status });
     }
     
-    // If processing or empty, return calm state with metadata
-    if (checklistState.state === "processing" || checklistState.state === "empty") {
+    // If processing or empty, return items with state metadata
+    if (checklistState.state === "processing") {
+      // Format and sort items even during processing
+      const items = (checklistState.items ?? []).map((row: any) => ({
+        id: row.id,
+        deal_id: row.deal_id,
+        checklist_key: row.checklist_key,
+        title: row.title ?? CHECKLIST_DEFINITIONS[row.checklist_key]?.title ?? row.checklist_key,
+        description: row.description ?? null,
+        required: !!row.required,
+        status: row.status ?? "missing",
+        received_at: row.received_at,
+        satisfied_at: row.satisfied_at,
+        satisfaction_json: row.satisfaction_json,
+        created_at: row.created_at,
+      }));
+
+      items.sort((a, b) => {
+        if (a.required !== b.required) return a.required ? -1 : 1;
+        if (a.created_at && b.created_at && a.created_at !== b.created_at) {
+          return String(a.created_at).localeCompare(String(b.created_at));
+        }
+        return String(a.checklist_key).localeCompare(String(b.checklist_key));
+      });
+
       return NextResponse.json({ 
         ok: true, 
         state: checklistState.state, 
+        items,
+        meta: checklistState.meta,
+      });
+    }
+    
+    if (checklistState.state === "empty") {
+      return NextResponse.json({ 
+        ok: true, 
+        state: "empty", 
         items: [],
         meta: checklistState.meta,
       });
