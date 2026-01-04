@@ -1,4 +1,11 @@
-type CommitUploadedFileArgs =
+// src/lib/uploads/commitUploadedFile.ts
+//
+// Canonical "commit" step after storage upload.
+// Storage upload ≠ persisted document. This ensures DB rows are written.
+
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+
+export type CommitUploadedFileArgs =
   | {
       kind: "deal";
       dealId: string;
@@ -76,4 +83,22 @@ export async function commitUploadedFile(
       `upload commit failed (${res.status})${details ? `: ${details}` : ""}`
     );
   }
+}
+
+/**
+ * Mark upload batch as completed.
+ * Emits terminal ledger event to unblock auto-seed and advance pipeline.
+ * 
+ * CRITICAL: Call this ONCE per batch after all files commit successfully.
+ * Without this event, uploadsProcessingCount never reaches 0.
+ */
+export async function markUploadsCompleted(dealId: string, bankId: string) {
+  await logLedgerEvent({
+    dealId,
+    bankId,
+    eventKey: "uploads_completed",
+    uiState: "done",
+    uiMessage: "All uploads completed",
+    meta: {},
+  });
 }

@@ -4,6 +4,8 @@ import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
+import { markUploadsCompleted } from "@/lib/uploads/commitUploadedFile";
+import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 export default function DealIntakePage() {
   const router = useRouter();
@@ -98,6 +100,13 @@ export default function DealIntakePage() {
       }
 
       console.log(`Uploaded ${successCount}/${files.length} files to deal ${dealId}`);
+
+      // 🔥 CRITICAL: Mark upload batch as complete to unblock auto-seed
+      if (successCount > 0) {
+        const bankId = await getCurrentBankId();
+        await markUploadsCompleted(dealId, bankId);
+        console.log(`✅ Marked uploads completed for deal ${dealId}`);
+      }
 
       // 3. Redirect to the deal cockpit (command center)
       router.push(`/deals/${dealId}/cockpit`);
