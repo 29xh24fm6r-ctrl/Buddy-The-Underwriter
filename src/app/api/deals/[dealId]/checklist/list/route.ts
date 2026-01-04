@@ -34,10 +34,15 @@ export async function GET(_req: Request, ctx: Ctx) {
       state: items && items.length > 0 ? "ready" : "empty",
       items: items || [],
     });
-  } catch (e) {
-    console.error("[checklist list GET]", e);
+  } catch (e: any) {
+    console.error("[/api/deals/[dealId]/checklist/list] error", e);
     return NextResponse.json(
-      { ok: false, error: "Failed to load checklist", items: [] },
+      { 
+        ok: false, 
+        error: "Failed to load checklist", 
+        items: [],
+        debug_error: e?.message || String(e)
+      },
       { status: 500 }
     );
   }
