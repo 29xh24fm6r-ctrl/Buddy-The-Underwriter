@@ -1,13 +1,8 @@
-// src/lib/uploads/commitUploadedFile.ts
-//
-// Canonical "commit" step after storage upload.
-// Storage upload ≠ persisted document. This ensures DB rows are written.
-
-export type CommitUploadedFileArgs =
+type CommitUploadedFileArgs =
   | {
       kind: "deal";
       dealId: string;
-      file_id?: string;
+      file_id: string;
       object_path: string;
       original_filename: string;
       mime_type: string;
@@ -18,7 +13,7 @@ export type CommitUploadedFileArgs =
   | {
       kind: "portal";
       token: string;
-      file_id?: string;
+      file_id: string;
       object_path: string;
       original_filename: string;
       mime_type: string;
@@ -27,7 +22,9 @@ export type CommitUploadedFileArgs =
       sha256?: string;
     };
 
-export async function commitUploadedFile(args: CommitUploadedFileArgs): Promise<void> {
+export async function commitUploadedFile(
+  args: CommitUploadedFileArgs
+): Promise<void> {
   const url =
     args.kind === "deal"
       ? `/api/deals/${args.dealId}/files/record`
@@ -41,8 +38,13 @@ export async function commitUploadedFile(args: CommitUploadedFileArgs): Promise<
     size_bytes: args.size_bytes,
   };
 
-  if (args.checklist_key) payload.checklist_key = args.checklist_key;
-  if (args.sha256) payload.sha256 = args.sha256;
+  if ("checklist_key" in args && args.checklist_key) {
+    payload.checklist_key = args.checklist_key;
+  }
+
+  if ("sha256" in args && args.sha256) {
+    payload.sha256 = args.sha256;
+  }
 
   const res = await fetch(url, {
     method: "POST",
@@ -51,19 +53,27 @@ export async function commitUploadedFile(args: CommitUploadedFileArgs): Promise<
   });
 
   if (!res.ok) {
-    let detail = "";
+    let details = "";
     try {
-      const j = await res.json();
-      detail = j?.error ? String(j.error) : JSON.stringify(j);
+      const json = await res.json();
+      details = json?.error || JSON.stringify(json);
     } catch {
       try {
-        detail = await res.text();
+        details = await res.text();
       } catch {
-        detail = "";
+        details = "";
       }
     }
-    const msg = `Upload commit failed (${res.status}) ${detail}`.trim();
-    console.error("[commitUploadedFile] FAILED", { url, status: res.status, msg, args });
-    throw new Error(msg);
+
+    console.error("[commitUploadedFile] FAILED", {
+      url,
+      status: res.status,
+      details,
+      payload,
+    });
+
+    throw new Error(
+      `upload commit failed (${res.status})${details ? `: ${details}` : ""}`
+    );
   }
 }

@@ -7,38 +7,38 @@ import {
 
 /**
  * IMPORTANT:
- * - DB check constraint for deal_documents.source is production-locked.
- * - We normalize app-level sources (banker_upload, borrower_portal, public_link, system_backfill)
- *   into DB-allowed values (internal, borrower, public, system).
+ * This must align EXACTLY with the prod DB constraint:
+ *
+ * CHECK (source IN ('internal','borrower','public','system','sys'))
  */
-export type IngestSource =
+export type CanonicalSource =
   | "internal"
   | "borrower"
   | "public"
   | "system"
-  | "sys"
-  | "banker_upload"
-  | "borrower_portal"
-  | "public_link"
-  | "system_backfill";
+  | "sys";
 
-function normalizeDealDocumentSource(src: IngestSource): "internal" | "borrower" | "public" | "system" | "sys" {
-  const v = String(src);
+/**
+ * All caller-level / legacy values funnel through here.
+ * This is the ONLY place normalization should happen.
+ */
+function normalizeDealDocumentSource(src: unknown): CanonicalSource {
+  const v = String(src ?? "").toLowerCase();
 
-  // Canonical values (DB allowed)
+  // Canonical (already valid)
   if (v === "internal") return "internal";
   if (v === "borrower") return "borrower";
   if (v === "public") return "public";
   if (v === "system") return "system";
   if (v === "sys") return "sys";
 
-  // Legacy / caller aliases (app-level)
+  // Legacy / app-level aliases
   if (v === "banker_upload") return "internal";
   if (v === "borrower_portal") return "borrower";
   if (v === "public_link") return "public";
   if (v === "system_backfill") return "system";
 
-  // Safe fallback
+  // Absolute safe fallback
   return "internal";
 }
 
@@ -51,9 +51,8 @@ export interface IngestDocumentInput {
     sizeBytes: number;
     storagePath: string;
   };
-  source: IngestSource;
-  uploaderUserId?: string;
-  // Optional override for document_key when callers have a better semantic key
+  source: unknown;
+  uploaderUserId?: string | null;
   documentKey?: string | null;
   metadata?: Record<string, any>;
 }
@@ -61,16 +60,20 @@ export interface IngestDocumentInput {
 export async function ingestDocument(input: IngestDocumentInput) {
   const sb = supabaseAdmin();
 
-  // Derive document_key (NOT NULL constraint)
-  // Priority: explicit checklist_key > explicit documentKey > stable fallback
+  /**
+   * Derive document_key (NOT NULL)
+   * Priority:
+   * 1. checklist_key (engine-driven)
+   * 2. explicit documentKey
+   * 3. stable path-based fallback
+   */
   const checklistKey = input.metadata?.checklist_key;
   const fallbackDocumentKey =
     input.documentKey ??
     `path:${input.file.storagePath}`.replace(/[^a-z0-9_:/-]/gi, "_");
 
-  const documentKey = (checklistKey ?? fallbackDocumentKey) as string;
+  const documentKey = checklistKey ?? fallbackDocumentKey;
 
-  // 1️⃣ Insert canonical document row
   const payload = {
     deal_id: input.dealId,
     bank_id: input.bankId,
@@ -84,8 +87,11 @@ export async function ingestDocument(input: IngestDocumentInput) {
     metadata: input.metadata ?? {},
   };
 
-  // Schema drift guard: fail immediately if we attempt to write a column that doesn't exist.
-  const ALLOWED_DEAL_DOCUMENT_COLUMNS = new Set([
+  /**
+   * Hard schema guard — if this throws, someone edited code
+   * without updating the DB schema.
+   */
+  const ALLOWED_COLUMNS = new Set([
     "deal_id",
     "bank_id",
     "original_filename",
@@ -98,25 +104,25 @@ export async function ingestDocument(input: IngestDocumentInput) {
     "metadata",
   ]);
 
-  for (const k of Object.keys(payload)) {
-    if (!ALLOWED_DEAL_DOCUMENT_COLUMNS.has(k)) {
+  for (const key of Object.keys(payload)) {
+    if (!ALLOWED_COLUMNS.has(key)) {
       throw new Error(
-        `[ingestDocument] payload contains unknown deal_documents column: ${k}`
+        `[ingestDocument] Unknown deal_documents column attempted: ${key}`
       );
     }
   }
 
-  const { data: doc, error: insertErr } = await sb
+  const { data: doc, error } = await sb
     .from("deal_documents")
     .insert(payload)
     .select()
     .single();
 
-  if (insertErr || !doc) {
-    throw insertErr ?? new Error("Failed to insert deal_document");
+  if (error || !doc) {
+    throw error ?? new Error("Failed to insert deal_document");
   }
 
-  // 2️⃣ Emit upload-received ledger event
+  // Ledger: upload received
   await logLedgerEvent({
     dealId: input.dealId,
     bankId: input.bankId,
@@ -129,7 +135,7 @@ export async function ingestDocument(input: IngestDocumentInput) {
     },
   });
 
-  // 3️⃣ Match + stamp checklist metadata
+  // Checklist match + stamp
   const stamped = await matchAndStampDealDocument({
     sb,
     dealId: input.dealId,
@@ -138,10 +144,10 @@ export async function ingestDocument(input: IngestDocumentInput) {
     mimeType: input.file.mimeType,
   });
 
-  // 4️⃣ Reconcile checklist (year-aware)
+  // Reconcile checklist (year-aware)
   await reconcileChecklistForDeal({ sb, dealId: input.dealId });
 
-  // 5️⃣ Emit checklist-updated ledger event
+  // Ledger: checklist updated
   await logLedgerEvent({
     dealId: input.dealId,
     bankId: input.bankId,
@@ -155,7 +161,6 @@ export async function ingestDocument(input: IngestDocumentInput) {
     },
   });
 
-  // 6️⃣ Canonical return
   return {
     documentId: doc.id,
     checklistKey: stamped.matched ? stamped.checklist_key ?? null : null,
