@@ -1,3 +1,5 @@
+import "server-only";
+
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 

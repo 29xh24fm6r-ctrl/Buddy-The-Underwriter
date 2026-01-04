@@ -1,4 +1,6 @@
 // src/lib/uploads/commitUploadedFile.ts
+import "server-only";
+
 //
 // Canonical "commit" step after storage upload.
 // Storage upload ≠ persisted document. This ensures DB rows are written.
