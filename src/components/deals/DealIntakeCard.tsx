@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { emitChecklistRefresh } from "@/lib/events/uiEvents";
 import { cn } from "@/lib/utils";
+import { UploadProgressBar, type UploadStatus } from "./UploadProgressBar";
 
 type LoanType = "CRE" | "CRE_OWNER_OCCUPIED" | "CRE_INVESTOR" | "CRE_OWNER_OCCUPIED_WITH_RENT" | "LOC" | "TERM" | "SBA_7A" | "SBA_504";
 
@@ -17,9 +18,11 @@ type Intake = {
 export default function DealIntakeCard({ 
   dealId,
   onChecklistSeeded,
+  isAdmin = false,
 }: { 
   dealId: string;
   onChecklistSeeded?: () => void | Promise<void>;
+  isAdmin?: boolean;
 }) {
   const [intake, setIntake] = useState<Intake>({
     loan_type: "CRE_OWNER_OCCUPIED",
@@ -33,8 +36,14 @@ export default function DealIntakeCard({
   const [saving, setSaving] = useState(false);
   const [autoSeeding, setAutoSeeding] = useState(false);
   const [matchMessage, setMatchMessage] = useState<string | null>(null);
-  const [uploadsReady, setUploadsReady] = useState<boolean>(true);
-  const [uploadsPending, setUploadsPending] = useState<number>(0);
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>({
+    ok: true,
+    status: "ready",
+    total: 0,
+    processed: 0,
+    remaining: 0,
+  });
+  const [partialMode, setPartialMode] = useState(false);
 
   // Never call APIs with a missing/invalid dealId (prevents uuid "undefined" errors).
   const hasValidDealId = dealId && dealId !== "undefined";
@@ -52,45 +61,40 @@ export default function DealIntakeCard({
     load();
   }, [dealId, hasValidDealId]);
 
-  // Check upload readiness status (polls every 2 seconds)
+  // Check upload status (polls every 2 seconds)
   useEffect(() => {
     if (!hasValidDealId) return;
 
     let mounted = true;
     
-    async function checkReadiness() {
+    async function checkUploadStatus() {
       try {
-        const res = await fetch(`/api/deals/${dealId}/auto-seed`, {
-          method: "POST",
-        });
+        const res = await fetch(`/api/deals/${dealId}/uploads/status`);
         const json = await res.json();
         
         if (!mounted) return;
-
-        // Status codes:
-        // 409 = uploads still processing (blocked)
-        // 200 = ready to seed
-        if (res.status === 409) {
-          setUploadsReady(false);
-          setUploadsPending(json.remaining || 0);
-        } else {
-          setUploadsReady(true);
-          setUploadsPending(0);
+        if (json?.ok) {
+          setUploadStatus(json);
         }
       } catch (e) {
         // Network error - assume ready (don't block on error)
         if (mounted) {
-          setUploadsReady(true);
-          setUploadsPending(0);
+          setUploadStatus({
+            ok: true,
+            status: "ready",
+            total: 0,
+            processed: 0,
+            remaining: 0,
+          });
         }
       }
     }
 
     // Check immediately
-    checkReadiness();
+    checkUploadStatus();
 
-    // Poll every 2 seconds while uploads might be processing
-    const interval = setInterval(checkReadiness, 2000);
+    // Poll every 2 seconds
+    const interval = setInterval(checkUploadStatus, 2000);
 
     return () => {
       mounted = false;
@@ -123,8 +127,8 @@ export default function DealIntakeCard({
     console.log("🔴 DealIntakeCard MOUNTED - dealId:", dealId);
   }
   
-  async function save(autoSeed = true) {
-    console.log("🚨 BUTTON CLICKED! save() function called with autoSeed:", autoSeed);
+  async function save(autoSeed = true, forceOverride = false) {
+    console.log("🚨 BUTTON CLICKED! save() function called with autoSeed:", autoSeed, "forceOverride:", forceOverride);
     setSaving(true);
     setMatchMessage(null);
     
@@ -159,21 +163,31 @@ export default function DealIntakeCard({
       // Step 2: Call auto-seed endpoint
       if (autoSeed) {
         setAutoSeeding(true);
-        setMatchMessage(`✅ Intake saved. Auto-seeding checklist for ${intake.loan_type}...`);
+        
+        // 🔥 OPTIMISTIC UI: Emit refresh immediately
+        console.log("[DealIntakeCard] Emitting optimistic checklist refresh");
+        emitChecklistRefresh(dealId);
+        
+        setMatchMessage(`✅ Intake saved. Seeding checklist for ${intake.loan_type}...`);
         
         console.log("[DealIntakeCard] Calling auto-seed endpoint...");
         const seedRes = await fetch(`/api/deals/${dealId}/auto-seed`, {
           method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            adminOverride: forceOverride,
+            mode: partialMode ? "partial" : "full",
+          }),
         });
 
         const seedJson = await seedRes.json();
         console.log("[DealIntakeCard] Auto-seed response:", seedJson);
 
         // Handle 409: uploads still processing
-        if (seedRes.status === 409) {
+        if (seedRes.status === 409 && !forceOverride) {
           setMatchMessage(
             `⏳ Still processing ${seedJson.remaining || "some"} upload(s)\n\n` +
-            `Please wait for all uploads to finish before auto-seeding.\n` +
+            `${isAdmin ? "As admin, you can force auto-seed using the override button below." : "Please wait for all uploads to finish."}\n` +
             `The checklist will auto-update when uploads complete.`
           );
           setAutoSeeding(false);
@@ -187,11 +201,13 @@ export default function DealIntakeCard({
             `• Loan type: ${intake.loan_type}\n` +
             `• Checklist items created: ${summary.seeded || 0}\n` +
             `• Files matched: ${summary.matched || 0}\n` +
+            `${forceOverride ? "• Admin override used\n" : ""}` +
+            `${partialMode ? "• Partial mode (matched docs only)\n" : ""}` +
             `\nRefreshing page in 2 seconds...`
           );
           
           // 🔥 Emit checklist refresh event for auto-updates
-          console.log("[DealIntakeCard] Emitting checklist refresh event");
+          console.log("[DealIntakeCard] Emitting final checklist refresh event");
           emitChecklistRefresh(dealId);
           
           // 🔥 CRITICAL FIX: Trigger checklist refresh
@@ -315,32 +331,36 @@ export default function DealIntakeCard({
           </div>
         )}
 
-        {/* Upload readiness indicator */}
-        {!uploadsReady && uploadsPending > 0 && (
-          <div className="flex items-center gap-2 text-sm text-orange-400">
-            <div className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
-            Uploads processing… ({uploadsPending} remaining)
-          </div>
+        {/* Upload progress bar */}
+        {uploadStatus.total > 0 && (
+          <UploadProgressBar status={uploadStatus} />
         )}
-        {uploadsReady && !autoSeeding && !saving && (
-          <div className="flex items-center gap-2 text-sm text-green-400">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-            Documents ready
-          </div>
+
+        {/* Partial mode checkbox (show if docs uploaded but not all matched) */}
+        {uploadStatus.total > 0 && uploadStatus.documents && uploadStatus.documents.some(d => d.matched) && (
+          <label className="flex items-center gap-2 text-sm text-neutral-300">
+            <input
+              type="checkbox"
+              checked={partialMode}
+              onChange={(e) => setPartialMode(e.target.checked)}
+              className="rounded border-neutral-700 bg-neutral-900"
+            />
+            <span>Partial mode (seed only matched documents)</span>
+          </label>
         )}
 
         <button
           type="submit"
-          disabled={!uploadsReady || saving || autoSeeding}
+          disabled={uploadStatus.status === "blocked" && !isAdmin || saving || autoSeeding}
           className={cn(
             "w-full rounded-xl px-3 py-2 text-sm font-semibold transition-all",
-            !uploadsReady && "bg-gray-600 text-gray-300 cursor-not-allowed",
-            uploadsReady && !saving && !autoSeeding && "bg-green-600 hover:bg-green-700 text-white",
-            (saving || autoSeeding) && "bg-blue-600 text-white cursor-wait"
+            (uploadStatus.status === "blocked" && !isAdmin) && "bg-gray-600 text-gray-300 cursor-not-allowed",
+            uploadStatus.status === "ready" && !saving && !autoSeeding && "bg-green-600 hover:bg-green-700 text-white",
+            (saving || autoSeeding) && "bg-blue-600 text-white cursor-wait animate-pulse"
           )}
           title={
-            !uploadsReady
-              ? `Waiting for ${uploadsPending} upload(s) to finish`
+            uploadStatus.status === "blocked" && !isAdmin
+              ? `Waiting for ${uploadStatus.remaining} upload(s) to finish`
               : (saving || autoSeeding)
               ? "Processing..."
               : "Ready to auto-seed checklist"
@@ -349,11 +369,24 @@ export default function DealIntakeCard({
           {saving 
             ? "Saving intake..." 
             : autoSeeding 
-            ? "Auto-seeding checklist..." 
-            : uploadsReady 
+            ? "Seeding checklist…" 
+            : uploadStatus.status === "ready" 
             ? "Auto-Seed Checklist ✓" 
-            : `Waiting for ${uploadsPending} upload(s)…`}
+            : `Processing ${uploadStatus.processed}/${uploadStatus.total}…`}
         </button>
+
+        {/* Admin override button */}
+        {isAdmin && uploadStatus.status === "blocked" && (
+          <button
+            type="button"
+            onClick={() => save(true, true)}
+            disabled={saving || autoSeeding}
+            className="w-full rounded-xl px-3 py-2 text-sm font-semibold bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-50"
+            title="Force auto-seed even with uploads processing (admin only)"
+          >
+            🔒 Admin Override: Force Seed
+          </button>
+        )}
       </form>
     </div>
   );

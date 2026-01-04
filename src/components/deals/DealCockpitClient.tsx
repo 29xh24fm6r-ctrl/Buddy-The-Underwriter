@@ -19,7 +19,7 @@ import { DealCockpitNarrator } from "@/components/deals/DealCockpitNarrator";
  * - Wires DealIntakeCard auto-seed → EnhancedChecklistCard refresh
  * - Shows live status bar to prove backend is responding during load
  */
-export default function DealCockpitClient({ dealId }: { dealId: string }) {
+export default function DealCockpitClient({ dealId, isAdmin = false }: { dealId: string; isAdmin?: boolean }) {
   const [checklistRefresh, setChecklistRefresh] =
     useState<(() => Promise<void>) | null>(null);
 
@@ -61,6 +61,7 @@ export default function DealCockpitClient({ dealId }: { dealId: string }) {
               <DealIntakeCard
                 dealId={dealId}
                 onChecklistSeeded={handleChecklistSeeded}
+                isAdmin={isAdmin}
               />
             </SafeBoundary>
 

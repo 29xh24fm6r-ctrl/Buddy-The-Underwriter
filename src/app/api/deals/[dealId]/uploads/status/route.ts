@@ -10,8 +10,15 @@ type Ctx = { params: Promise<{ dealId: string }> };
 
 /**
  * GET /api/deals/[dealId]/uploads/status
- * Back-compat alias for older UI pollers.
- * Never throws red — returns calm defaults when unknown.
+ * 
+ * Returns upload processing status for UX state management.
+ * Used by progress bar and auto-seed button readiness.
+ * 
+ * Contract:
+ * - status: "processing" | "blocked" | "ready"
+ * - total: total documents uploaded
+ * - processed: documents successfully committed
+ * - remaining: documents still processing
  */
 export async function GET(_req: Request, ctx: Ctx) {
   try {
@@ -19,33 +26,63 @@ export async function GET(_req: Request, ctx: Ctx) {
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
 
-    // If you have a canonical uploads table/view, swap this query.
-    // For now: infer "uploads processing" from very recent pipeline activity.
-    const { data: latest } = await sb
+    // Get all documents for this deal
+    const { data: docs, error: docsErr } = await sb
+      .from("deal_documents")
+      .select("id, document_key, metadata")
+      .eq("deal_id", dealId)
+      .eq("bank_id", bankId);
+
+    if (docsErr) throw docsErr;
+
+    const total = docs?.length || 0;
+    const processed = docs?.filter((d) => d.document_key).length || 0;
+    const remaining = total - processed;
+
+    // Check if uploads_completed event was emitted
+    const { data: completedEvent } = await sb
       .from("deal_pipeline_ledger")
-      .select("created_at, stage, status")
+      .select("created_at")
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
+      .eq("event_key", "uploads_completed")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    const createdAt = latest?.created_at ? new Date(latest.created_at).getTime() : 0;
-    const isRecent = createdAt && Date.now() - createdAt < 30_000;
-
-    const uploadsProcessingCount =
-      isRecent && (latest?.stage === "upload" || latest?.stage === "auto_seed") ? 1 : 0;
+    // Determine status
+    let status: "processing" | "blocked" | "ready";
+    if (completedEvent) {
+      status = "ready";
+    } else if (remaining > 0) {
+      status = "blocked";
+    } else if (total === 0) {
+      status = "ready"; // No uploads yet, ready for initial seed
+    } else {
+      status = "ready"; // All processed
+    }
 
     return NextResponse.json({
       ok: true,
-      uploadsProcessingCount,
-      latest: latest ?? null,
+      status,
+      total,
+      processed,
+      remaining,
+      documents: docs?.map((d) => ({
+        id: d.id,
+        document_key: d.document_key || "processing",
+        matched: !!(d.metadata as any)?.checklist_key,
+      })) || [],
     });
-  } catch {
+  } catch (error: any) {
+    console.error("[uploads/status] Error:", error);
     return NextResponse.json({
       ok: true,
-      uploadsProcessingCount: 0,
-      latest: null,
+      status: "ready" as const,
+      total: 0,
+      processed: 0,
+      remaining: 0,
+      documents: [],
     });
   }
 }

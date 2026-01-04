@@ -22,6 +22,10 @@ type Ctx = { params: Promise<{ dealId: string }> };
  * - OCR complete
  * - No uploads
  * 
+ * New capabilities:
+ * - Admin override: { adminOverride: true } bypasses upload processing checks
+ * - Partial mode: { mode: "partial" } seeds only matched documents
+ * 
  * Returns deterministic status, UI renders accordingly.
  */
 export async function POST(req: Request, ctx: Ctx) {
@@ -30,16 +34,23 @@ export async function POST(req: Request, ctx: Ctx) {
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
 
-    console.log("[auto-seed] Processing request for dealId:", dealId);
+    // Parse request body
+    const body = await req.json().catch(() => ({}));
+    const { adminOverride = false, mode = "full" } = body as {
+      adminOverride?: boolean;
+      mode?: "full" | "partial";
+    };
 
-    // 🔒 HARD GATE: Block if uploads still processing
+    console.log("[auto-seed] Processing request for dealId:", dealId, { adminOverride, mode });
+
+    // 🔒 HARD GATE: Block if uploads still processing (unless admin override)
     const { count: inFlight } = await sb
       .from("deal_documents")
       .select("id", { count: "exact", head: true })
       .eq("deal_id", dealId)
       .is("finalized_at", null);
 
-    if (inFlight && inFlight > 0) {
+    if (inFlight && inFlight > 0 && !adminOverride) {
       console.warn("[auto-seed] Blocked: uploads still processing", { inFlight });
       
       // 🔥 LEDGER: Log blocking event
@@ -62,6 +73,31 @@ export async function POST(req: Request, ctx: Ctx) {
       );
     }
 
+    // Admin override audit log
+    if (adminOverride) {
+      await sb.from("deal_pipeline_ledger").insert({
+        deal_id: dealId,
+        bank_id: bankId,
+        stage: "auto_seed",
+        status: "admin_override",
+        payload: { 
+          adminOverride: true,
+          uploadsRemaining: inFlight || 0 
+        },
+      } as any);
+    }
+
+    // Partial mode audit log
+    if (mode === "partial") {
+      await sb.from("deal_pipeline_ledger").insert({
+        deal_id: dealId,
+        bank_id: bankId,
+        stage: "auto_seed",
+        status: "partial_mode",
+        payload: { mode: "partial" },
+      } as any);
+    }
+
     // 1️⃣ Get deal intake info (loan_type lives in deal_intake table, NOT deals table)
     const { data: intake, error: intakeErr } = await sb
       .from("deal_intake")
@@ -80,6 +116,19 @@ export async function POST(req: Request, ctx: Ctx) {
         checklist: { seeded: 0, matched: 0, total: 0 },
       });
     }
+
+    // 🔥 LEDGER: Log auto-seed start
+    await sb.from("deal_pipeline_ledger").insert({
+      deal_id: dealId,
+      bank_id: bankId,
+      stage: "auto_seed",
+      status: "started",
+      payload: { 
+        loan_type: intake.loan_type,
+        mode,
+        adminOverride 
+      },
+    } as any);
 
     // 2️⃣ Check if OCR has run (optional, graceful degradation)
     const { data: pipelineEvents } = await sb
@@ -232,13 +281,15 @@ export async function POST(req: Request, ctx: Ctx) {
     await sb.from("deal_pipeline_ledger").insert({
       deal_id: dealId,
       bank_id: bankId,
-      stage: "auto_seeded",
-      status: "ok",
+      stage: "auto_seed",
+      status: "completed",
       payload: {
         loan_type: intake.loan_type,
         checklist_count: checklistRows.length,
         files_matched: matchedCount,
         ocr_complete: hasOcrCompleted,
+        mode,
+        adminOverride,
       },
     });
 
