@@ -1,3 +1,10 @@
+// src/app/(app)/deals/new/actions.ts
 "use server";
 
-export { markUploadsCompletedAction } from "@/lib/uploads/actions";
+import { markUploadsCompletedAction as _markUploadsCompletedAction } from "@/lib/uploads/actions";
+
+export async function markUploadsCompletedAction(
+  ...args: Parameters<typeof _markUploadsCompletedAction>
+) {
+  return _markUploadsCompletedAction(...args);
+}
