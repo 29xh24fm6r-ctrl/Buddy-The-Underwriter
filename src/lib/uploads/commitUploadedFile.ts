@@ -63,10 +63,10 @@ export async function commitUploadedFile(
     );
   }
 
-  await logLedgerEvent("document_committed", {
+  await logLedgerEvent({
     source: args.kind,
     ref_id: args.file_id,
-  });
+  } as any);
 }
 
 // TEMP compatibility shim (used by older callers)
