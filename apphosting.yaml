@@ -1,0 +1,49 @@
+kind: "AppStack"
+runConfig:
+  cpu: 1
+  memoryMiB: 512
+  minInstances: 0
+  maxInstances: 10
+env:
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: "buddy-the-underwriter"
+  - variable: NODE_ENV
+    value: "development"
+  - variable: NEXT_PUBLIC_APP_URL
+    secret: NEXT_PUBLIC_APP_URL
+  - variable: NEXT_PUBLIC_SUPABASE_URL
+    secret: NEXT_PUBLIC_SUPABASE_URL
+  - variable: NEXT_PUBLIC_SUPABASE_ANON_KEY
+    secret: NEXT_PUBLIC_SUPABASE_ANON_KEY
+  - variable: SUPABASE_URL
+    secret: SUPABASE_URL
+  - variable: SUPABASE_SERVICE_ROLE_KEY
+    secret: SUPABASE_SERVICE_ROLE_KEY
+  - variable: SUPABASE_JWT_SECRET
+    secret: SUPABASE_JWT_SECRET
+  - variable: SUPABASE_UPLOADS_BUCKET
+    secret: SUPABASE_UPLOADS_BUCKET
+  - variable: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+    secret: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+  - variable: CLERK_SECRET_KEY
+    secret: CLERK_SECRET_KEY
+  - variable: ADMIN_CLERK_USER_IDS
+    secret: ADMIN_CLERK_USER_IDS
+  - variable: OPENAI_API_KEY
+    secret: OPENAI_API_KEY
+  - variable: OPENAI_MODEL
+    secret: OPENAI_MODEL
+  - variable: OPENAI_QA_MODEL
+    secret: OPENAI_QA_MODEL
+  - variable: OPENAI_FACT_SUGGEST_MODEL
+    secret: OPENAI_FACT_SUGGEST_MODEL
+  - variable: SRA_LENDER_ID
+    secret: SRA_LENDER_ID
+  - variable: ENABLE_SBA
+    secret: ENABLE_SBA
+  - variable: RESEND_API_KEY
+    secret: RESEND_API_KEY
+  - variable: EMAIL_FROM
+    secret: EMAIL_FROM
+  - variable: OUTBOUND_FROM_EMAIL
+    secret: OUTBOUND_FROM_EMAIL
