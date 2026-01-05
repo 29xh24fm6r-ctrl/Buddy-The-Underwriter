@@ -1,4 +1,3 @@
-import "server-only";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
@@ -6,83 +5,66 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Ctx = { params: Promise<{ dealId: string }> };
-
-/**
- * GET /api/deals/[dealId]/uploads/status
- * 
- * Returns upload processing status for UX state management.
- * Used by progress bar and auto-seed button readiness.
- * 
- * Contract:
- * - status: "processing" | "blocked" | "ready"
- * - total: total documents uploaded
- * - processed: documents successfully committed
- * - remaining: documents still processing
- */
-export async function GET(_req: Request, ctx: Ctx) {
+// GET /api/deals/[dealId]/uploads/status
+// Returns live status of document uploads for a deal
+export async function GET(
+  _req: Request,
+  ctx: { params: { dealId: string } }
+) {
   try {
-    const { dealId } = await ctx.params;
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
+    const { dealId } = ctx.params;
 
-    // Get all documents for this deal
-    const { data: docs, error: docsErr } = await sb
-      .from("deal_documents")
-      .select("id, document_key, metadata")
-      .eq("deal_id", dealId)
-      .eq("bank_id", bankId);
-
-    if (docsErr) throw docsErr;
-
-    const total = docs?.length || 0;
-    const processed = docs?.filter((d) => d.document_key).length || 0;
-    const remaining = total - processed;
-
-    // Check if uploads_completed event was emitted
-    const { data: completedEvent } = await sb
-      .from("deal_pipeline_ledger")
-      .select("created_at")
-      .eq("deal_id", dealId)
+    // Validate deal access
+    const { data: deal, error: dealErr } = await sb
+      .from("deals")
+      .select("id, bank_id")
+      .eq("id", dealId)
       .eq("bank_id", bankId)
-      .eq("event_key", "uploads_completed")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .single();
 
-    // Determine status
-    let status: "processing" | "blocked" | "ready";
-    if (completedEvent) {
-      status = "ready";
-    } else if (remaining > 0) {
-      status = "blocked";
-    } else if (total === 0) {
-      status = "ready"; // No uploads yet, ready for initial seed
-    } else {
-      status = "ready"; // All processed
+    if (dealErr || !deal) {
+      return NextResponse.json(
+        { ok: false, error: "Deal not found or unauthorized" },
+        { status: 404 }
+      );
     }
 
+    // Get all uploads for the deal
+    const { data: uploads, error: uploadsErr } = await sb
+      .from("deal_uploads")
+      .select("id, status, original_filename")
+      .eq("deal_id", dealId);
+
+    if (uploadsErr) {
+      console.error("Failed to fetch deal uploads:", uploadsErr);
+      return NextResponse.json(
+        { ok: false, error: "Database error fetching uploads" },
+        { status: 500 }
+      );
+    }
+
+    const total = uploads.length;
+    const processed = uploads.filter(
+      (u) => u.status === "processed" || u.status === "matched" || u.status === "failed"
+    ).length;
+    
+    const isProcessing = total > 0 && processed < total;
+    const allDocsReceived = total > 0 && processed === total;
+
     return NextResponse.json({
       ok: true,
-      status,
       total,
       processed,
-      remaining,
-      documents: docs?.map((d) => ({
-        id: d.id,
-        document_key: d.document_key || "processing",
-        matched: !!(d.metadata as any)?.checklist_key,
-      })) || [],
+      isProcessing,
+      allDocsReceived,
+      uploads: uploads,
     });
-  } catch (error: any) {
-    console.error("[uploads/status] Error:", error);
-    return NextResponse.json({
-      ok: true,
-      status: "ready" as const,
-      total: 0,
-      processed: 0,
-      remaining: 0,
-      documents: [],
-    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e.message },
+      { status: 500 }
+    );
   }
 }
