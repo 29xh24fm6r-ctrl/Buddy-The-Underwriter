@@ -8,7 +8,7 @@ env:
   - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
     value: "buddy-the-underwriter"
   - variable: NODE_ENV
-    value: "development"
+    value: "production"
   - variable: NEXT_PUBLIC_APP_URL
     secret: NEXT_PUBLIC_APP_URL
   - variable: NEXT_PUBLIC_SUPABASE_URL
