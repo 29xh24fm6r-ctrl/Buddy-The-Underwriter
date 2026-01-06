@@ -3,11 +3,21 @@
 import * as React from 'react';
 import { Icon } from '@/components/ui/Icon';
 import useSWR from 'swr';
+import { onChecklistRefresh } from '@/lib/events/uiEvents';
 
 const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then((res) => res.json());
 
 export function EnhancedChecklistCard({ dealId }: { dealId: string }) {
   const { data, error, isLoading, mutate } = useSWR(`/api/deals/${dealId}/checklist/list`, fetcher);
+
+  // Listen for checklist refresh events
+  React.useEffect(() => {
+    const cleanup = onChecklistRefresh(dealId, () => {
+      console.log('[EnhancedChecklistCard] Checklist refresh event received, revalidating...');
+      mutate();
+    });
+    return cleanup;
+  }, [dealId, mutate]);
 
   const isProcessing = data?.state === 'processing';
   const items = data?.items || [];
