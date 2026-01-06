@@ -19,6 +19,17 @@ export function EnhancedChecklistCard({ dealId }: { dealId: string }) {
     return cleanup;
   }, [dealId, mutate]);
 
+  // Debug logging
+  React.useEffect(() => {
+    console.log('[EnhancedChecklistCard] DATA UPDATE:', {
+      ok: data?.ok,
+      state: data?.state,
+      itemsCount: data?.items?.length,
+      items: data?.items,
+      error: error
+    });
+  }, [data, error]);
+
   const isProcessing = data?.state === 'processing';
   const items = data?.items || [];
   const received = items.filter((i: any) => i.status === 'received' || i.status === 'satisfied');
