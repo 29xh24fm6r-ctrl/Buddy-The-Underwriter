@@ -49,8 +49,8 @@ export async function GET(
       }, { status });
     }
     
-    // If processing or empty, return calm state with metadata
-    if (checklistState.state === "processing" || checklistState.state === "empty") {
+    // If empty, return early (no items to format)
+    if (checklistState.state === "empty") {
       return NextResponse.json({ 
         ok: true, 
         state: checklistState.state, 
@@ -59,7 +59,7 @@ export async function GET(
       });
     }
 
-    // Ready state: format and sort items
+    // Format items (for both "ready" and "processing" states)
     const items = (checklistState.items ?? []).map((row: any) => ({
       id: row.id,
       deal_id: row.deal_id,

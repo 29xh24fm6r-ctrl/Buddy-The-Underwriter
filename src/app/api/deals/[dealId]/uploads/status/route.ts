@@ -33,27 +33,27 @@ export async function GET(
       );
     }
 
-    // Get all uploads for the deal
+    // Get all uploads for the deal (using canonical deal_documents table)
     const { data: uploads, error: uploadsErr } = await sb
-      .from("deal_uploads")
-      .select("id, status, original_filename")
-      .eq("deal_id", dealId);
+      .from("deal_documents")
+      .select("id, original_filename, created_at")
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false });
 
     if (uploadsErr) {
-      console.error("Failed to fetch deal uploads:", uploadsErr);
+      console.error("Failed to fetch deal documents:", uploadsErr);
       return NextResponse.json(
-        { ok: false, error: "Database error fetching uploads" },
+        { ok: false, error: "Database error fetching documents" },
         { status: 500 }
       );
     }
 
-    const total = uploads.length;
-    const processed = uploads.filter(
-      (u) => u.status === "processed" || u.status === "matched" || u.status === "failed"
-    ).length;
+    // All documents in deal_documents are considered "processed"
+    const total = uploads?.length || 0;
+    const processed = total; // All docs in deal_documents are already processed
     
-    const isProcessing = total > 0 && processed < total;
-    const allDocsReceived = total > 0 && processed === total;
+    const isProcessing = false; // No processing needed - all in DB are done
+    const allDocsReceived = total > 0;
 
     return NextResponse.json({
       ok: true,
@@ -61,7 +61,11 @@ export async function GET(
       processed,
       isProcessing,
       allDocsReceived,
-      uploads: uploads,
+      uploads: (uploads || []).map(u => ({
+        id: u.id,
+        status: "processed",
+        original_filename: u.original_filename,
+      })),
     });
   } catch (e: any) {
     return NextResponse.json(
