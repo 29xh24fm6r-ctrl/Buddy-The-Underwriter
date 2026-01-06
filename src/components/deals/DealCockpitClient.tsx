@@ -87,7 +87,6 @@ export default function DealCockpitClient({ dealId, isAdmin = false }: { dealId:
             <SafeBoundary>
               <EnhancedChecklistCard
                 dealId={dealId}
-                onRefresh={handleChecklistRefresh}
               />
             </SafeBoundary>
 
