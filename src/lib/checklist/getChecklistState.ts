@@ -73,6 +73,45 @@ export async function getChecklistState(args: {
       .eq("deal_id", dealId);
       
     if (rowsErr) {
+      const le = latestEvent?.created_at;
+
+      // If the system is actively working, never flash red
+      if (le && isRecent(le, 30)) {
+        return {
+          ok: true,
+          state: "processing",
+          dealId,
+          totalItems: 0,
+          received: 0,
+          pending: 0,
+          optional: 0,
+          meta: { latestEvent: latestEvent ?? null },
+        };
+      }
+
+      // If schema drift or column doesn't exist, return empty state instead of error
+      const msg = String((rowsErr as any)?.message ?? rowsErr?.toString() ?? "");
+      if (
+        msg.includes("does not exist") ||
+        msg.includes("relation") ||
+        msg.includes("column") ||
+        msg.includes("function") ||
+        msg.includes("could not find")
+      ) {
+        console.warn("[getChecklistState] Schema issue detected, returning empty:", msg);
+        return {
+          ok: true,
+          state: "empty",
+          dealId,
+          totalItems: 0,
+          received: 0,
+          pending: 0,
+          optional: 0,
+          meta: { latestEvent: latestEvent ?? null },
+        };
+      }
+
+      console.error("[getChecklistState] Database error:", rowsErr);
       return { ok: false, error: "Database error loading checklist", details: rowsErr };
     }
 
