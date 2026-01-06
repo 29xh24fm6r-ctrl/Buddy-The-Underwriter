@@ -121,20 +121,26 @@ export async function getChecklistState(args: {
     const pending = items.filter((r: any) => r.status === "pending" || r.status === "missing").length;
     const optional = items.filter((r: any) => r.required === false).length;
 
-    // Derive state
+    // Derive state - prioritize actual data over pipeline events
     let state: ChecklistState = "ready";
-    if (totalItems === 0) state = "empty";
-
-    // If the ledger indicates the system is actively converging, show processing
-    if (latestEvent?.created_at && isRecent(latestEvent.created_at, 30)) {
-      if (
-        latestEvent.stage === "auto_seed" ||
-        latestEvent.stage === "upload" ||
-        latestEvent.stage === "readiness"
-      ) {
-        if (totalItems === 0) state = "processing";
+    
+    if (totalItems === 0) {
+      // Only show processing if there's a very recent event AND no items
+      if (latestEvent?.created_at && isRecent(latestEvent.created_at, 30)) {
+        if (
+          latestEvent.stage === "auto_seed" ||
+          latestEvent.stage === "upload" ||
+          latestEvent.stage === "readiness"
+        ) {
+          state = "processing";
+        } else {
+          state = "empty";
+        }
+      } else {
+        state = "empty";
       }
     }
+    // If items exist, always show ready (don't let pipeline events override actual data)
 
     return {
       ok: true,
