@@ -3,17 +3,46 @@
 import * as React from 'react';
 import { Icon } from '@/components/ui/Icon';
 import useSWR from 'swr';
+import { onChecklistRefresh } from '@/lib/events/uiEvents';
 
 const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then((res) => res.json());
 
 export function EnhancedChecklistCard({ dealId }: { dealId: string }) {
   const { data, error, isLoading, mutate } = useSWR(`/api/deals/${dealId}/checklist/list`, fetcher);
 
+  // Listen for checklist refresh events
+  React.useEffect(() => {
+    const cleanup = onChecklistRefresh(dealId, () => {
+      console.log('[EnhancedChecklistCard] Checklist refresh event received, revalidating...');
+      mutate();
+    });
+    return cleanup;
+  }, [dealId, mutate]);
+
+  // Debug logging
+  React.useEffect(() => {
+    console.log('[EnhancedChecklistCard] DATA UPDATE:', {
+      ok: data?.ok,
+      state: data?.state,
+      itemsCount: data?.items?.length,
+      items: data?.items,
+      error: error
+    });
+  }, [data, error]);
+
   const isProcessing = data?.state === 'processing';
   const items = data?.items || [];
   const received = items.filter((i: any) => i.status === 'received' || i.status === 'satisfied');
-  const pending = items.filter((i: any) => i.status === 'pending' || i.status === 'missing');
+  const pending = items.filter((i: any) => i.status === 'pending' || i.status === 'missing' || !i.status);
   const optional = items.filter((i: any) => !i.required);
+  
+  console.log('[EnhancedChecklistCard] Items breakdown:', {
+    total: items.length,
+    received: received.length,
+    pending: pending.length,
+    optional: optional.length,
+    statuses: items.map((i: any) => i.status)
+  });
 
   if (isLoading || isProcessing) {
     return (

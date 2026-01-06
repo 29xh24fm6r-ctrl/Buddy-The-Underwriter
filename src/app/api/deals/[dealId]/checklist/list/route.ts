@@ -40,6 +40,13 @@ export async function GET(
     // Use convergence-safe helper
     const checklistState = await getChecklistState({ dealId, includeItems: true });
     
+    console.log('[checklist/list] getChecklistState result:', {
+      ok: checklistState.ok,
+      state: checklistState.ok ? checklistState.state : 'error',
+      totalItems: checklistState.ok ? checklistState.totalItems : 0,
+      itemsLength: checklistState.ok ? checklistState.items?.length : 0
+    });
+    
     if (!checklistState.ok) {
       const status = checklistState.error === "Unauthorized" ? 403 : 500;
       return NextResponse.json({ 
@@ -51,6 +58,7 @@ export async function GET(
     
     // If empty, return early (no items to format)
     if (checklistState.state === "empty") {
+      console.log('[checklist/list] Returning empty state');
       return NextResponse.json({ 
         ok: true, 
         state: checklistState.state, 
