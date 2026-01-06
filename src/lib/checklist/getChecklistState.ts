@@ -121,6 +121,8 @@ export async function getChecklistState(args: {
     const pending = items.filter((r: any) => r.status === "pending" || r.status === "missing").length;
     const optional = items.filter((r: any) => r.required === false).length;
 
+    console.log(`[getChecklistState] dealId=${dealId} totalItems=${totalItems} latestEvent=${latestEvent?.stage}`);
+
     // Derive state - prioritize actual data over pipeline events
     let state: ChecklistState = "ready";
     
@@ -141,6 +143,8 @@ export async function getChecklistState(args: {
       }
     }
     // If items exist, always show ready (don't let pipeline events override actual data)
+    
+    console.log(`[getChecklistState] final state=${state}`);
 
     return {
       ok: true,
