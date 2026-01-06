@@ -11,9 +11,9 @@ export function EnhancedChecklistCard({ dealId }: { dealId: string }) {
 
   const isProcessing = data?.state === 'processing';
   const items = data?.items || [];
-  const received = items.filter(i => i.status === 'received' || i.status === 'satisfied');
-  const pending = items.filter(i => i.status === 'pending' || i.status === 'missing');
-  const optional = items.filter(i => !i.required);
+  const received = items.filter((i: any) => i.status === 'received' || i.status === 'satisfied');
+  const pending = items.filter((i: any) => i.status === 'pending' || i.status === 'missing');
+  const optional = items.filter((i: any) => !i.required);
 
   if (isLoading || isProcessing) {
     return (

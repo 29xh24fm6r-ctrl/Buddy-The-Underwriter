@@ -5,16 +5,18 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type Ctx = { params: Promise<{ dealId: string }> };
+
 // GET /api/deals/[dealId]/uploads/status
 // Returns live status of document uploads for a deal
 export async function GET(
   _req: Request,
-  ctx: { params: { dealId: string } }
+  ctx: Ctx
 ) {
   try {
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
-    const { dealId } = ctx.params;
+    const { dealId } = await ctx.params;
 
     // Validate deal access
     const { data: deal, error: dealErr } = await sb

@@ -73,13 +73,13 @@ export function UploadStatusCard({ dealId, onStatusChange }: { dealId: string, o
         </div>
       )}
 
-      {isProcessing && uploads.filter(u => u.status === 'processing').length > 0 && (
+      {isProcessing && uploads.filter((u: any) => u.status === 'processing').length > 0 && (
         <div className="mt-4 space-y-2">
           <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Currently Processing</div>
           <div className="max-h-32 overflow-y-auto space-y-1 pr-2">
             {uploads
-              .filter(u => u.status === 'processing')
-              .map(u => (
+              .filter((u: any) => u.status === 'processing')
+              .map((u: any) => (
                 <div key={u.id} className="text-xs text-neutral-600 truncate">
                   - {u.original_filename}
                 </div>
