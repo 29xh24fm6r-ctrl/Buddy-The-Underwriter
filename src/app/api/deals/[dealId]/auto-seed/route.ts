@@ -156,13 +156,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // 3️⃣ Generate checklist items from loan type
     const checklistRows = buildChecklistForLoanType(intake.loan_type).map((r) => ({
       deal_id: dealId,
+      bank_id: bankId, // CRITICAL: Multi-tenant isolation
       checklist_key: r.checklist_key,
       title: r.title,
       description: r.description ?? null,
       required: r.required,
     }));
 
-    console.log("[auto-seed] Generated checklist rows:", checklistRows.length);
+    console.log("[auto-seed] Generated checklist rows:", checklistRows.length, "bank_id:", bankId);
 
     if (checklistRows.length === 0) {
       return NextResponse.json({
@@ -174,12 +175,32 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     // 4️⃣ Upsert checklist items (idempotent)
-    const { error: seedErr } = await sb
+    const { data: upsertedRows, error: seedErr } = await sb
       .from("deal_checklist_items")
-      .upsert(checklistRows, { onConflict: "deal_id,checklist_key" });
+      .upsert(checklistRows, { onConflict: "deal_id,checklist_key" })
+      .select('id');
+
+    console.log("[auto-seed] Upsert result:", { 
+      error: seedErr, 
+      rowsReturned: upsertedRows?.length 
+    });
 
     if (seedErr) {
       console.error("[auto-seed] checklist upsert failed:", seedErr);
+      
+      // Log error to pipeline
+      await sb.from("deal_pipeline_ledger").insert({
+        deal_id: dealId,
+        bank_id: bankId,
+        stage: "auto_seed",
+        status: "error",
+        payload: { 
+          error: seedErr.message,
+          code: seedErr.code,
+          details: seedErr.details
+        },
+      } as any);
+      
       return NextResponse.json({
         ok: false,
         status: "error",
@@ -188,7 +209,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       });
     }
 
-    console.log("[auto-seed] Checklist items upserted successfully");
+    console.log("[auto-seed] Checklist items upserted successfully, rows:", upsertedRows?.length);
 
     // Ensure seeded rows are in a deterministic initial state without clobbering received items.
     // (Older seeds may have inserted rows with status NULL.)

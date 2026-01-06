@@ -5,7 +5,19 @@ import { Icon } from '@/components/ui/Icon';
 import useSWR from 'swr';
 import { onChecklistRefresh } from '@/lib/events/uiEvents';
 
-const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then((res) => res.json());
+const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then(async (res) => {
+  const json = await res.json();
+  console.log('[EnhancedChecklistCard] API Response:', {
+    url,
+    status: res.status,
+    ok: json.ok,
+    state: json.state,
+    itemsCount: json.items?.length,
+    firstItem: json.items?.[0],
+    rawResponse: json
+  });
+  return json;
+});
 
 export function EnhancedChecklistCard({ dealId }: { dealId: string }) {
   const { data, error, isLoading, mutate } = useSWR(`/api/deals/${dealId}/checklist/list`, fetcher);
