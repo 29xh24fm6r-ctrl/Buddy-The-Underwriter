@@ -58,10 +58,10 @@ export async function GET(
     
     // If empty, return early (no items to format)
     if (checklistState.state === "empty") {
-      console.log('[checklist/list] Returning empty state');
-      return NextResponse.json({ 
-        ok: true, 
-        state: checklistState.state, 
+      console.log("[checklist/list] Returning empty state");
+      return NextResponse.json({
+        ok: true,
+        state: "empty",
         items: [],
         meta: checklistState.meta,
       });
@@ -91,9 +91,9 @@ export async function GET(
       return String(a.checklist_key).localeCompare(String(b.checklist_key));
     });
 
-    return NextResponse.json({ 
-      ok: true, 
-      state: "ready", 
+    return NextResponse.json({
+      ok: true,
+      state: checklistState.state,
       items,
       meta: checklistState.meta,
     });

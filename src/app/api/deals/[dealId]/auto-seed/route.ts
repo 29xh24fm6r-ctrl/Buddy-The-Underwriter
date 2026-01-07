@@ -1,6 +1,7 @@
 // src/app/api/deals/[dealId]/auto-seed/route.ts
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildChecklistForLoanType } from "@/lib/deals/checklistPresets";
@@ -72,12 +73,22 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // Blocking rules
     if (!ready && !partial) {
       if (force && !isAdmin) {
+        Sentry.captureMessage("auto-seed forbidden (force without admin)", {
+          level: "warning",
+          tags: { route: "auto-seed" },
+          extra: { dealId, bankId, expected, partial, force, match, remaining },
+        });
         return NextResponse.json(
           { ok: false, error: "Forbidden", status: "forbidden" },
           { status: 403 }
         );
       }
       if (!force) {
+        Sentry.captureMessage("auto-seed blocked (uploads still processing)", {
+          level: "info",
+          tags: { route: "auto-seed" },
+          extra: { dealId, bankId, expected, partial, force, match, remaining },
+        });
         return NextResponse.json(
           { ok: false, error: "Uploads still processing", remaining, status: "blocked" },
           { status: 409 }
@@ -157,18 +168,21 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       && pipelineEvents[0].status === "ok";
 
     // 3️⃣ Generate checklist items from loan type
-    const checklistRows = buildChecklistForLoanType(intake.loan_type).map((r) => ({
+    const checklistRowsWithBank = buildChecklistForLoanType(intake.loan_type).map((r) => ({
       deal_id: dealId,
-      bank_id: bankId, // CRITICAL: Multi-tenant isolation
+      bank_id: bankId, // CRITICAL: Multi-tenant isolation (if column exists)
       checklist_key: r.checklist_key,
       title: r.title,
       description: r.description ?? null,
       required: r.required,
     }));
 
-    console.log("[auto-seed] Generated checklist rows:", checklistRows.length, "bank_id:", bankId);
+        // Fallback for environments that don't yet have bank_id on deal_checklist_items
+        const checklistRowsNoBank = checklistRowsWithBank.map(({ bank_id: _bankId, ...rest }) => rest);
 
-    if (checklistRows.length === 0) {
+    console.log("[auto-seed] Generated checklist rows:", checklistRowsWithBank.length, "bank_id:", bankId);
+
+    if (checklistRowsWithBank.length === 0) {
       return NextResponse.json({
         ok: true,
         status: "ok",
@@ -178,10 +192,29 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     // 4️⃣ Upsert checklist items (idempotent)
-    const { data: upsertedRows, error: seedErr } = await sb
-      .from("deal_checklist_items")
-      .upsert(checklistRows, { onConflict: "deal_id,checklist_key" })
-      .select('id');
+    let upsertedRows: any[] | null = null;
+    let seedErr: any = null;
+
+    // Try with bank_id first (canonical). If schema doesn't have bank_id, retry without.
+    {
+      const attempt1 = await sb
+        .from("deal_checklist_items")
+        .upsert(checklistRowsWithBank as any, { onConflict: "deal_id,checklist_key" })
+        .select("id");
+
+      upsertedRows = attempt1.data as any;
+      seedErr = attempt1.error as any;
+
+      const msg = String(seedErr?.message ?? "");
+      if (seedErr && msg.includes("bank_id") && msg.includes("does not exist")) {
+        const attempt2 = await sb
+          .from("deal_checklist_items")
+          .upsert(checklistRowsNoBank as any, { onConflict: "deal_id,checklist_key" })
+          .select("id");
+        upsertedRows = attempt2.data as any;
+        seedErr = attempt2.error as any;
+      }
+    }
 
     console.log("[auto-seed] Upsert result:", { 
       error: seedErr, 
@@ -190,6 +223,22 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     if (seedErr) {
       console.error("[auto-seed] checklist upsert failed:", seedErr);
+      Sentry.captureException(seedErr, {
+        tags: { route: "auto-seed", phase: "checklist_upsert" },
+        extra: {
+          dealId,
+          bankId,
+          expected,
+          partial,
+          force,
+          match,
+          supabase: {
+            message: seedErr?.message,
+            code: seedErr?.code,
+            details: seedErr?.details,
+          },
+        },
+      });
       
       // Log error to pipeline
       await sb.from("deal_pipeline_ledger").insert({
@@ -217,7 +266,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // Ensure seeded rows are in a deterministic initial state without clobbering received items.
     // (Older seeds may have inserted rows with status NULL.)
     try {
-      const seededKeys = checklistRows.map((r) => r.checklist_key);
+      const seededKeys = checklistRowsWithBank.map((r) => r.checklist_key);
       await sb
         .from("deal_checklist_items")
         .update({ status: "missing" })
@@ -228,34 +277,32 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       console.warn("[auto-seed] status normalization failed (non-fatal):", e);
     }
 
-    // 5️⃣ Optional: Auto-match uploaded files to checklist (doc_intel first; filename fallback)
-    // Guarded behind match=1 to prevent auto-seed from mutating deal_documents (which can
-    // be interpreted by downstream systems as "doc processing started").
+    // 5️⃣ Auto-match uploaded files to checklist (doc_intel first; filename fallback)
+    // IMPORTANT: This only updates deal_checklist_items (marks items received) and does NOT
+    // mutate deal_documents rows. It is safe to run even when match=0.
     let matchedCount = 0;
-    if (match) {
-      try {
-        const { data: files } = await sb
-          .rpc("list_deal_documents", { p_deal_id: dealId });
+    try {
+      const { data: files } = await sb
+        .rpc("list_deal_documents", { p_deal_id: dealId });
 
-        console.log("[auto-seed] Found files for matching:", files?.length || 0);
+      console.log("[auto-seed] Found files for matching:", files?.length || 0);
 
-        if (files && Array.isArray(files) && files.length > 0) {
-          for (const file of files) {
-            const result = await autoMatchChecklistFromFilename({
-              dealId,
-              filename: file.original_filename,
-              fileId: file.id,
-            });
-            console.log("[auto-seed] Match result for", file.original_filename, ":", result);
-            if (result.updated > 0) {
-              matchedCount++;
-            }
+      if (files && Array.isArray(files) && files.length > 0) {
+        for (const file of files) {
+          const result = await autoMatchChecklistFromFilename({
+            dealId,
+            filename: file.original_filename,
+            fileId: file.id,
+          });
+          console.log("[auto-seed] Match result for", file.original_filename, ":", result);
+          if (result.updated > 0) {
+            matchedCount++;
           }
         }
-      } catch (matchErr) {
-        console.warn("[auto-seed] auto-match error (non-fatal):", matchErr);
-        // Continue anyway
       }
+    } catch (matchErr) {
+      console.warn("[auto-seed] auto-match error (non-fatal):", matchErr);
+      // Continue anyway
     }
 
     // 🔥 6️⃣ RECONCILE: Mark checklist items as received if matching docs exist
@@ -315,7 +362,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       status: "completed",
       payload: {
         loan_type: intake.loan_type,
-        checklist_count: checklistRows.length,
+        checklist_count: checklistRowsWithBank.length,
         files_matched: matchedCount,
         ocr_complete: hasOcrCompleted,
         partial,
@@ -325,9 +372,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     });
 
     console.log("[auto-seed] Success! Checklist:", {
-      seeded: checklistRows.length,
+      seeded: checklistRowsWithBank.length,
       matched: matchedCount,
-      total: checklistRows.length,
+      total: checklistRowsWithBank.length,
     });
 
     // ✅ Canonical Checklist Engine v2 reconciliation is intentionally skipped when match=0
@@ -342,21 +389,25 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       ok: true,
       dealId,
       status: "ok",
-      message: `Checklist created with ${checklistRows.length} items.${
+      message: `Checklist created with ${checklistRowsWithBank.length} items.${
         matchedCount > 0 ? ` Auto-matched ${matchedCount} files.` : ""
       }${
         !hasOcrCompleted ? " (Documents still processing in background.)" : ""
       }`,
       checklist: {
-        seeded: checklistRows.length,
+        seeded: checklistRowsWithBank.length,
         matched: matchedCount,
-        total: checklistRows.length,
+        total: checklistRowsWithBank.length,
       },
       pipeline_state: "checklist_seeded",
     });
 
   } catch (error: any) {
     console.error("[auto-seed] unexpected error:", error);
+
+    Sentry.captureException(error, {
+      tags: { route: "auto-seed", phase: "unexpected" },
+    });
     
     // Even on error, return graceful response
     return NextResponse.json({

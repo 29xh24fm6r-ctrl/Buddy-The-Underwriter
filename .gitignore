@@ -68,3 +68,9 @@ buddy-the-underwriter-full.zip
 .db_audit/*.txt
 .db_audit/*.sql
 .db_audit/*.log
+
+# Sentry Config File
+.env.sentry-build-plugin
+
+# VS Code
+.vscode/

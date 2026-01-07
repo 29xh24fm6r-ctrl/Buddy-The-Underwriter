@@ -62,9 +62,11 @@ export async function getChecklistState(args: {
       .limit(1)
       .maybeSingle();
 
-    // Fetch checklist rows
+    // Fetch checklist rows.
+    // IMPORTANT: Keep this select list conservative to survive schema drift in prod.
+    // Additional v2 fields can be added later once fully migrated everywhere.
     const sel = includeItems
-      ? "id,deal_id,checklist_key,status,requested_at,received_at,received_upload_id,title,description,required,satisfied_at,satisfaction_json,created_at,updated_at"
+      ? "id,deal_id,checklist_key,status,required,title,description,created_at,received_at"
       : "id,status,required";
 
     const { data: rows, error: rowsErr } = await sb
@@ -75,8 +77,15 @@ export async function getChecklistState(args: {
     if (rowsErr) {
       const le = latestEvent?.created_at;
 
-      // If the system is actively working, never flash red
-      if (le && isRecent(le, 30)) {
+      // If the system is actively working on checklist/upload/readiness, never flash red.
+      // Avoid getting stuck in "processing" due to unrelated frequent pipeline events.
+      if (
+        le &&
+        isRecent(le, 30) &&
+        (latestEvent?.stage === "auto_seed" ||
+          latestEvent?.stage === "upload" ||
+          latestEvent?.stage === "readiness")
+      ) {
         return {
           ok: true,
           state: "processing",

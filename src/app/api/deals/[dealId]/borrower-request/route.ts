@@ -81,7 +81,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     await logPipelineLedger(sb, {
       bank_id: bankId,
       deal_id: dealId,
-      event_type: "borrower_request_pack_created",
+      event_key: "borrower_request_pack_created",
       status: "ok",
       payload: { requestedKeys, expiresHours, channels: { email: channelEmail, sms: channelSms } },
     });
@@ -96,7 +96,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
       await sb2.from("deal_pipeline_ledger").insert({
         deal_id: dealId,
         bank_id: null,
-        event_type: "borrower_request_pack_created",
+        event_key: "borrower_request_pack_created",
+        stage: "borrower_request_pack_created",
         status: "error",
         error: String(e?.message ?? e),
       } as any);

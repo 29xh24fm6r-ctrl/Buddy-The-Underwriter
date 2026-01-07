@@ -21,71 +21,32 @@ export async function GET(req: Request, ctx: Ctx) {
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
 
-    // Try "new" ledger shape first (canonical UI-ready fields).
-    // If the DB hasn't been migrated yet, fall back to the older columns.
-    let data: any = null;
-
-    const primary = await sb
+    const { data, error } = await sb
       .from("deal_pipeline_ledger")
-      .select("event_key, ui_state, ui_message, meta, created_at")
+      .select(
+        "id, deal_id, bank_id, event_key, stage, status, ui_state, ui_message, payload, error, created_at, meta"
+      )
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (!primary.error) {
-      data = primary.data ?? null;
-    } else {
-      // Fallback: older shape still in DB
-      const fallback = await sb
-        .from("deal_pipeline_ledger")
-        .select("stage, status, payload, error, created_at")
-        .eq("deal_id", dealId)
-        .eq("bank_id", bankId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (!fallback.error && fallback.data) {
-        const row: any = fallback.data;
-        data = {
-          event_key: row.stage ?? "unknown",
-          ui_state: row.status ?? "waiting",
-          ui_message: null,
-          meta: {
-            payload: row.payload ?? null,
-            error: row.error ?? null,
-            legacy: true,
-          },
-          created_at: row.created_at,
-        };
-      } else {
-        console.error("[pipeline/latest] query error:", primary.error ?? fallback.error);
-        // Never hard-fail the UI: return calm null state.
-        return NextResponse.json({ ok: true, latestEvent: null, state: null });
-      }
+    if (error) {
+      console.error("[pipeline/latest] query error:", error);
+      // Never hard-fail the UI: return calm null state.
+      return NextResponse.json({ ok: true, latestEvent: null, state: null });
     }
 
     if (!data) {
       // No pipeline events yet - deal just created
-      return NextResponse.json({
-        ok: true,
-        latestEvent: null,
-        state: null,
-      });
+      return NextResponse.json({ ok: true, latestEvent: null, state: null });
     }
 
     return NextResponse.json({
       ok: true,
-      latestEvent: {
-        event_key: data.event_key,
-        ui_state: data.ui_state,
-        ui_message: data.ui_message,
-        meta: data.meta ?? {},
-        created_at: data.created_at,
-      },
-      state: data, // keep for backward compatibility
+      latestEvent: data,
+      state: data.stage ?? null,
     });
 
   } catch (error: any) {
