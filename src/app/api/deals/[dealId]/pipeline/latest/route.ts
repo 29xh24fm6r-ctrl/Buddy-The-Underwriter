@@ -45,6 +45,7 @@ export async function GET(req: Request, ctx: Ctx) {
 
     return NextResponse.json({
       ok: true,
+      __version: "pipeline-latest-v2-2026-01-07",
       latestEvent: data,
       state: data.stage ?? null,
     });
