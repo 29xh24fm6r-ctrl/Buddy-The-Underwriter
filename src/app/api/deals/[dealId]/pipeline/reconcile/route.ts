@@ -86,7 +86,7 @@ export async function POST(
     await logPipelineLedger(sb, {
       bank_id: bankId,
       deal_id: dealId,
-      event_type: "pipeline_reconcile_failed",
+      event_key: "pipeline_reconcile_failed",
       status: "error",
       payload: { error: updateErr.message },
     });
@@ -100,7 +100,7 @@ export async function POST(
   await logPipelineLedger(sb, {
     bank_id: bankId,
     deal_id: dealId,
-    event_type: "pipeline_reconciled",
+    event_key: "pipeline_reconciled",
     status: "ok",
     payload: {
       before: beforeState,

@@ -100,7 +100,7 @@ export async function POST(
     await logPipelineLedger(sb, {
       bank_id: bankId,
       deal_id: dealId,
-      event_type: "credit_memo_generation_failed",
+      event_key: "credit_memo_generation_failed",
       status: "error",
       payload: { error: ai.error },
     });
@@ -151,7 +151,7 @@ export async function POST(
   await logPipelineLedger(sb, {
     bank_id: bankId,
     deal_id: dealId,
-    event_type: "credit_memo_generated",
+    event_key: "credit_memo_generated",
     status: "ok",
     payload: { memo_id: memoId, version: 1, blocks_count: blocks.length, citations_count: rows.length },
   });

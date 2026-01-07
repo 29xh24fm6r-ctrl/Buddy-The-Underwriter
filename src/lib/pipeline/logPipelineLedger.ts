@@ -5,7 +5,7 @@ export async function logPipelineLedger(
   row: {
     bank_id: string | null;
     deal_id: string;
-    event_type: string;
+    event_key: string;
     status: "ok" | "error" | "warn" | string;
     payload?: any;
     error?: string | null;
@@ -14,7 +14,8 @@ export async function logPipelineLedger(
   await sb.from("deal_pipeline_ledger").insert({
     bank_id: row.bank_id,
     deal_id: row.deal_id,
-    event_type: row.event_type,
+    event_key: row.event_key,
+    stage: row.event_key,
     status: row.status,
     payload: row.payload ?? null,
     error: row.error ?? null,
