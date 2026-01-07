@@ -54,5 +54,8 @@ export default withSentryConfig(
   {
     // Sentry Webpack Plugin options
     hideSourceMaps: true,
+    // Only upload source maps when a token is configured.
+    // This keeps Preview deploys safe even before you add SENTRY_AUTH_TOKEN.
+    dryRun: !process.env.SENTRY_AUTH_TOKEN,
   }
 );
