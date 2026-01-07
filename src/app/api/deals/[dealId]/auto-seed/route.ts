@@ -10,6 +10,7 @@ import { recomputeDealReady } from "@/lib/deals/readiness";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { reconcileUploadsForDeal } from "@/lib/documents/reconcileUploads";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { reconcileDealChecklist } from "@/lib/checklist/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -290,6 +291,17 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       uiMessage: `Matched ${reconcileRes.matched} documents`,
       meta: { matched: reconcileRes.matched },
     });
+
+    // 5b) Canonical checklist engine reconciliation (stamps deal_documents + updates checklist)
+    // This is required for banker uploads that happened BEFORE intake/checklist seeding.
+    if (match) {
+      try {
+        const r = await reconcileDealChecklist(dealId);
+        console.log("[auto-seed] reconcileDealChecklist", r);
+      } catch (e) {
+        console.warn("[auto-seed] reconcileDealChecklist failed (non-fatal):", e);
+      }
+    }
 
     // 6️⃣ Auto-match uploaded files to checklist (doc_intel first; filename fallback)
     // IMPORTANT: This only updates deal_checklist_items (marks items received) and does NOT
