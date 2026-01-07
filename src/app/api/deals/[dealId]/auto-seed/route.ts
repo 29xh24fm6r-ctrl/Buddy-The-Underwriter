@@ -250,34 +250,32 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       console.warn("[auto-seed] status normalization failed (non-fatal):", e);
     }
 
-    // 5️⃣ Optional: Auto-match uploaded files to checklist (doc_intel first; filename fallback)
-    // Guarded behind match=1 to prevent auto-seed from mutating deal_documents (which can
-    // be interpreted by downstream systems as "doc processing started").
+    // 5️⃣ Auto-match uploaded files to checklist (doc_intel first; filename fallback)
+    // IMPORTANT: This only updates deal_checklist_items (marks items received) and does NOT
+    // mutate deal_documents rows. It is safe to run even when match=0.
     let matchedCount = 0;
-    if (match) {
-      try {
-        const { data: files } = await sb
-          .rpc("list_deal_documents", { p_deal_id: dealId });
+    try {
+      const { data: files } = await sb
+        .rpc("list_deal_documents", { p_deal_id: dealId });
 
-        console.log("[auto-seed] Found files for matching:", files?.length || 0);
+      console.log("[auto-seed] Found files for matching:", files?.length || 0);
 
-        if (files && Array.isArray(files) && files.length > 0) {
-          for (const file of files) {
-            const result = await autoMatchChecklistFromFilename({
-              dealId,
-              filename: file.original_filename,
-              fileId: file.id,
-            });
-            console.log("[auto-seed] Match result for", file.original_filename, ":", result);
-            if (result.updated > 0) {
-              matchedCount++;
-            }
+      if (files && Array.isArray(files) && files.length > 0) {
+        for (const file of files) {
+          const result = await autoMatchChecklistFromFilename({
+            dealId,
+            filename: file.original_filename,
+            fileId: file.id,
+          });
+          console.log("[auto-seed] Match result for", file.original_filename, ":", result);
+          if (result.updated > 0) {
+            matchedCount++;
           }
         }
-      } catch (matchErr) {
-        console.warn("[auto-seed] auto-match error (non-fatal):", matchErr);
-        // Continue anyway
       }
+    } catch (matchErr) {
+      console.warn("[auto-seed] auto-match error (non-fatal):", matchErr);
+      // Continue anyway
     }
 
     // 🔥 6️⃣ RECONCILE: Mark checklist items as received if matching docs exist
