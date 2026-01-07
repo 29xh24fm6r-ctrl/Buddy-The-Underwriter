@@ -157,18 +157,21 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       && pipelineEvents[0].status === "ok";
 
     // 3️⃣ Generate checklist items from loan type
-    const checklistRows = buildChecklistForLoanType(intake.loan_type).map((r) => ({
+    const checklistRowsWithBank = buildChecklistForLoanType(intake.loan_type).map((r) => ({
       deal_id: dealId,
-      bank_id: bankId, // CRITICAL: Multi-tenant isolation
+      bank_id: bankId, // CRITICAL: Multi-tenant isolation (if column exists)
       checklist_key: r.checklist_key,
       title: r.title,
       description: r.description ?? null,
       required: r.required,
     }));
 
-    console.log("[auto-seed] Generated checklist rows:", checklistRows.length, "bank_id:", bankId);
+    // Fallback for environments that don't yet have bank_id on deal_checklist_items
+    const checklistRowsNoBank = checklistRowsWithBank.map(({ bank_id: _bankId, ...rest }) => rest);
 
-    if (checklistRows.length === 0) {
+    console.log("[auto-seed] Generated checklist rows:", checklistRowsWithBank.length, "bank_id:", bankId);
+
+    if (checklistRowsWithBank.length === 0) {
       return NextResponse.json({
         ok: true,
         status: "ok",
@@ -178,10 +181,29 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     // 4️⃣ Upsert checklist items (idempotent)
-    const { data: upsertedRows, error: seedErr } = await sb
-      .from("deal_checklist_items")
-      .upsert(checklistRows, { onConflict: "deal_id,checklist_key" })
-      .select('id');
+    let upsertedRows: any[] | null = null;
+    let seedErr: any = null;
+
+    // Try with bank_id first (canonical). If schema doesn't have bank_id, retry without.
+    {
+      const attempt1 = await sb
+        .from("deal_checklist_items")
+        .upsert(checklistRowsWithBank as any, { onConflict: "deal_id,checklist_key" })
+        .select("id");
+
+      upsertedRows = attempt1.data as any;
+      seedErr = attempt1.error as any;
+
+      const msg = String(seedErr?.message ?? "");
+      if (seedErr && msg.includes("bank_id") && msg.includes("does not exist")) {
+        const attempt2 = await sb
+          .from("deal_checklist_items")
+          .upsert(checklistRowsNoBank as any, { onConflict: "deal_id,checklist_key" })
+          .select("id");
+        upsertedRows = attempt2.data as any;
+        seedErr = attempt2.error as any;
+      }
+    }
 
     console.log("[auto-seed] Upsert result:", { 
       error: seedErr, 
@@ -217,7 +239,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // Ensure seeded rows are in a deterministic initial state without clobbering received items.
     // (Older seeds may have inserted rows with status NULL.)
     try {
-      const seededKeys = checklistRows.map((r) => r.checklist_key);
+      const seededKeys = checklistRowsWithBank.map((r) => r.checklist_key);
       await sb
         .from("deal_checklist_items")
         .update({ status: "missing" })
@@ -315,7 +337,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       status: "completed",
       payload: {
         loan_type: intake.loan_type,
-        checklist_count: checklistRows.length,
+        checklist_count: checklistRowsWithBank.length,
         files_matched: matchedCount,
         ocr_complete: hasOcrCompleted,
         partial,
@@ -325,9 +347,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     });
 
     console.log("[auto-seed] Success! Checklist:", {
-      seeded: checklistRows.length,
+      seeded: checklistRowsWithBank.length,
       matched: matchedCount,
-      total: checklistRows.length,
+      total: checklistRowsWithBank.length,
     });
 
     // ✅ Canonical Checklist Engine v2 reconciliation is intentionally skipped when match=0
@@ -342,15 +364,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       ok: true,
       dealId,
       status: "ok",
-      message: `Checklist created with ${checklistRows.length} items.${
+      message: `Checklist created with ${checklistRowsWithBank.length} items.${
         matchedCount > 0 ? ` Auto-matched ${matchedCount} files.` : ""
       }${
         !hasOcrCompleted ? " (Documents still processing in background.)" : ""
       }`,
       checklist: {
-        seeded: checklistRows.length,
+        seeded: checklistRowsWithBank.length,
         matched: matchedCount,
-        total: checklistRows.length,
+        total: checklistRowsWithBank.length,
       },
       pipeline_state: "checklist_seeded",
     });
