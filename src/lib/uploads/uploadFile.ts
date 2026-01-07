@@ -172,12 +172,23 @@ export async function directDealDocumentUpload(
 
     const recordData = await readJson<UploadResult>(recordRes);
     if (!recordRes.ok || !recordData?.ok) {
-      const errMsg = (recordData && !recordData.ok) ? (recordData as UploadErr).error : null;
-      console.warn("[upload] record failed", { requestId, file_id, status: recordRes.status, error: errMsg });
+      const err = recordData && !recordData.ok ? (recordData as UploadErr) : null;
+      const errorDetail = err?.details ? `: ${typeof err.details === "string" ? err.details : JSON.stringify(err.details)}` : "";
+      const errMsg = err?.error ? err.error + errorDetail : null;
+
+      console.warn("[upload] record failed", {
+        requestId,
+        file_id,
+        status: recordRes.status,
+        error: err?.error,
+        details: err?.details,
+        request_id: err?.request_id,
+      });
       return {
         ok: false,
         error: errMsg || `Failed to record file (${recordRes.status})`,
         code: `HTTP_${recordRes.status}`,
+        details: err?.details,
         request_id: requestId,
       };
     }

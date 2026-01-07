@@ -49,18 +49,19 @@ export async function reconcileDealChecklist(dealId: string) {
   if (intakeErr) throw new Error(`intake_read_failed: ${intakeErr.message}`);
 
   const rs = getRuleSetForLoanType(intake?.loan_type ?? null);
-  if (!rs) {
-    return { ok: true, seeded: 0, docsMatched: 0, message: "No ruleset for loan type" };
+
+  // 2) Seed checklist (idempotent) when we have a ruleset.
+  // IMPORTANT: Even without intake/loan_type, we still want to stamp documents
+  // from filename (step 4) so uploads BEFORE intake can reconcile later.
+  const rows = rs ? buildChecklistRows(dealId, rs.items) : [];
+
+  if (rs) {
+    const { error: seedErr } = await sb
+      .from("deal_checklist_items")
+      .upsert(rows, { onConflict: "deal_id,checklist_key" });
+
+    if (seedErr) throw new Error(`checklist_seed_failed: ${seedErr.message}`);
   }
-
-  // 2) Seed checklist (idempotent)
-  const rows = buildChecklistRows(dealId, rs.items);
-
-  const { error: seedErr } = await sb
-    .from("deal_checklist_items")
-    .upsert(rows, { onConflict: "deal_id,checklist_key" });
-
-  if (seedErr) throw new Error(`checklist_seed_failed: ${seedErr.message}`);
 
   // 3) Fetch deal_documents with NULL checklist_key OR NULL doc_year
   const { data: docs, error: docsErr } = await sb
@@ -132,9 +133,10 @@ export async function reconcileDealChecklist(dealId: string) {
 
   return {
     ok: true,
-    ruleset: rs.key,
+    ruleset: rs?.key ?? null,
     seeded: rows.length,
     docsMatched,
+    message: rs ? undefined : "No ruleset for loan type (documents still stamped)",
   };
 }
 

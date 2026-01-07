@@ -21,25 +21,43 @@ export async function GET(req: NextRequest) {
   }
 
   const sb = supabaseAdmin();
-  const { data, error } = await sb
-    .from("deal_documents")
-    .select("id, original_filename, document_key, created_at, storage_path")
-    .eq("deal_id", dealId)
-    .order("created_at", { ascending: false })
-    .limit(10);
+  const [{ data: docs, error: docsErr }, { data: checklist, error: checklistErr }] =
+    await Promise.all([
+      sb
+        .from("deal_documents")
+        .select(
+          "id, original_filename, document_key, created_at, storage_path, checklist_key, match_source, match_confidence",
+        )
+        .eq("deal_id", dealId)
+        .order("created_at", { ascending: false })
+        .limit(10),
+      sb
+        .from("deal_checklist_items")
+        .select("status")
+        .eq("deal_id", dealId),
+    ]);
 
-  if (error) {
-    return NextResponse.json(
-      { ok: false, error: error.message },
-      { status: 500 }
-    );
+  if (docsErr) {
+    return NextResponse.json({ ok: false, error: docsErr.message }, { status: 500 });
+  }
+
+  // Non-fatal: this table may not exist in some environments.
+  const checklistStatusCounts: Record<string, number> = {};
+  if (!checklistErr && checklist && Array.isArray(checklist)) {
+    for (const row of checklist) {
+      const k = (row as any)?.status ?? "(null)";
+      checklistStatusCounts[String(k)] = (checklistStatusCounts[String(k)] || 0) + 1;
+    }
   }
 
   return NextResponse.json({
     ok: true,
     dealId,
-    count: data?.length ?? 0,
-    docs: data ?? [],
+    count: docs?.length ?? 0,
+    docs: docs ?? [],
+    checklist: checklistErr
+      ? { ok: false, error: checklistErr.message }
+      : { ok: true, status_counts: checklistStatusCounts },
     timestamp: new Date().toISOString(),
   });
 }

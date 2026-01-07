@@ -31,10 +31,11 @@ type Context = {
  */
 export async function POST(req: NextRequest, ctx: Context) {
   try {
+    const requestId = req.headers.get("x-request-id") || null;
     const { userId } = await clerkAuth();
     if (!userId) {
       return NextResponse.json(
-        { ok: false, error: "Unauthorized" },
+        { ok: false, error: "Unauthorized", request_id: requestId },
         { status: 401 },
       );
     }
@@ -58,11 +59,12 @@ export async function POST(req: NextRequest, ctx: Context) {
       original_filename,
       file_id,
       checklist_key,
+      requestId,
     });
 
     if (!file_id || !object_path || !original_filename) {
       return NextResponse.json(
-        { ok: false, error: "Missing required fields" },
+        { ok: false, error: "Missing required fields", request_id: requestId },
         { status: 400 },
       );
     }
@@ -79,14 +81,14 @@ export async function POST(req: NextRequest, ctx: Context) {
     if (dealErr || !deal) {
       console.error("[files/record] deal not found", { dealId, dealErr });
       return NextResponse.json(
-        { ok: false, error: "Deal not found" },
+        { ok: false, error: "Deal not found", request_id: requestId },
         { status: 404 },
       );
     }
 
     if (deal.bank_id !== bankId) {
       return NextResponse.json(
-        { ok: false, error: "Deal not found" },
+        { ok: false, error: "Deal not found", request_id: requestId },
         { status: 404 },
       );
     }
@@ -98,15 +100,17 @@ export async function POST(req: NextRequest, ctx: Context) {
         search: object_path.split("/").pop(),
       });
 
-    if (checkErr || !fileExists || fileExists.length === 0) {
-      console.error("[files/record] file not found in storage", {
+    // Best-effort only: signed upload succeeded client-side, so we should still
+    // materialize the canonical DB record even if list/search behaves oddly.
+    if (checkErr) {
+      console.warn("[files/record] storage check error (non-fatal)", {
         object_path,
         checkErr,
       });
-      return NextResponse.json(
-        { ok: false, error: "File not found in storage" },
-        { status: 404 },
-      );
+    } else if (!fileExists || fileExists.length === 0) {
+      console.warn("[files/record] storage check did not find file (non-fatal)", {
+        object_path,
+      });
     }
 
     // ✅ 1) Materialize banker upload into canonical deal_documents (idempotent)
@@ -119,6 +123,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       mime_type: mime_type ?? "application/octet-stream",
       size_bytes: size_bytes ?? 0,
       storage_path: object_path,
+      checklist_key: checklist_key ?? null,
       source: "internal",
       uploader_user_id: userId,
       document_key: documentKey,
@@ -132,12 +137,21 @@ export async function POST(req: NextRequest, ctx: Context) {
     // But even if that index isn't applied yet, we still want the write path to work.
     const existing = await sb
       .from("deal_documents")
-      .select("id")
+      .select("id, checklist_key")
       .eq("deal_id", dealId)
       .eq("storage_path", object_path)
       .maybeSingle();
 
     let documentId: string | null = existing.data?.id ? String(existing.data.id) : null;
+
+    // If we already have a record but it doesn't have checklist_key yet,
+    // and the caller provided one, persist it deterministically.
+    if (documentId && checklist_key && !existing.data?.checklist_key) {
+      await sb
+        .from("deal_documents")
+        .update({ checklist_key })
+        .eq("id", documentId);
+    }
 
     if (!documentId) {
       const ins = await sb
@@ -159,7 +173,12 @@ export async function POST(req: NextRequest, ctx: Context) {
         if (!documentId) {
           console.error("[files/record] deal_documents insert failed", ins.error);
           return NextResponse.json(
-            { ok: false, error: "Failed to record document" },
+            {
+              ok: false,
+              error: "Failed to record document",
+              details: ins.error?.message || ins.error,
+              request_id: requestId,
+            },
             { status: 500 },
           );
         }
@@ -214,6 +233,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       ok: true,
       file_id,
       checklist_key: checklist_key || null,
+      meta: { document_id: documentId },
     });
   } catch (error: any) {
     console.error("[files/record] uncaught exception", {
@@ -226,6 +246,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         ok: false,
         error: error?.message || "Internal server error",
         details: error.message || String(error),
+        request_id: req.headers.get("x-request-id") || null,
       },
       { status: 500 },
     );
