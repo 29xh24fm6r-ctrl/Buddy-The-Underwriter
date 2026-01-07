@@ -5,7 +5,6 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildChecklistForLoanType } from "@/lib/deals/checklistPresets";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
-import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 import { recomputeDealReady } from "@/lib/deals/readiness";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 
@@ -42,8 +41,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const expected = expectedRaw ? Math.max(0, parseInt(expectedRaw, 10) || 0) : null;
     const partial = url.searchParams.get("partial") === "1";
     const force = url.searchParams.get("force") === "1";
+    // IMPORTANT: When match=0, auto-seed should NOT touch deal_documents rows.
+    // This prevents downstream systems from treating auto-seed as a doc-processing trigger.
+    const match = url.searchParams.get("match") !== "0";
 
-    console.log("[auto-seed] Processing request for dealId:", dealId, { expected, partial, force });
+    console.log("[auto-seed] Processing request for dealId:", dealId, { expected, partial, force, match });
 
     // Admin gate (Clerk): only admins can force
     const { userId } = await clerkAuth();
@@ -137,7 +139,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       payload: { 
         loan_type: intake.loan_type,
         partial,
-        force 
+        force,
+        match,
       },
     } as any);
 
@@ -225,39 +228,34 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       console.warn("[auto-seed] status normalization failed (non-fatal):", e);
     }
 
-    // 5️⃣ Auto-match uploaded files to checklist (doc_intel first; filename fallback)
+    // 5️⃣ Optional: Auto-match uploaded files to checklist (doc_intel first; filename fallback)
+    // Guarded behind match=1 to prevent auto-seed from mutating deal_documents (which can
+    // be interpreted by downstream systems as "doc processing started").
     let matchedCount = 0;
-    try {
-      const { data: files } = await sb
-        .rpc("list_deal_documents", { p_deal_id: dealId });
+    if (match) {
+      try {
+        const { data: files } = await sb
+          .rpc("list_deal_documents", { p_deal_id: dealId });
 
-      console.log("[auto-seed] Found files for matching:", files?.length || 0);
+        console.log("[auto-seed] Found files for matching:", files?.length || 0);
 
-      if (files && Array.isArray(files) && files.length > 0) {
-        for (const file of files) {
-          const result = await autoMatchChecklistFromFilename({
-            dealId,
-            filename: file.original_filename,
-            fileId: file.id,
-          });
-          console.log("[auto-seed] Match result for", file.original_filename, ":", result);
-          if (result.updated > 0) {
-            matchedCount++;
-          }
-
-          // Best-effort: stamp the document row with the matched checklist key
-          // (helps other views that rely on deal_documents.checklist_key)
-          if (!file.checklist_key && result.matched.length > 0) {
-            await sb
-              .from("deal_documents")
-              .update({ checklist_key: result.matched[0] })
-              .eq("id", file.id);
+        if (files && Array.isArray(files) && files.length > 0) {
+          for (const file of files) {
+            const result = await autoMatchChecklistFromFilename({
+              dealId,
+              filename: file.original_filename,
+              fileId: file.id,
+            });
+            console.log("[auto-seed] Match result for", file.original_filename, ":", result);
+            if (result.updated > 0) {
+              matchedCount++;
+            }
           }
         }
+      } catch (matchErr) {
+        console.warn("[auto-seed] auto-match error (non-fatal):", matchErr);
+        // Continue anyway
       }
-    } catch (matchErr) {
-      console.warn("[auto-seed] auto-match error (non-fatal):", matchErr);
-      // Continue anyway
     }
 
     // 🔥 6️⃣ RECONCILE: Mark checklist items as received if matching docs exist
@@ -322,6 +320,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         ocr_complete: hasOcrCompleted,
         partial,
         force,
+        match,
       },
     });
 
@@ -331,11 +330,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       total: checklistRows.length,
     });
 
-    // ✅ Canonical Checklist Engine v2 reconciliation:
-    // - year-aware satisfaction
-    // - consistent status updates
-    // - prevents UI staleness after save + auto-seed
-    await reconcileChecklistForDeal({ sb, dealId });
+    // ✅ Canonical Checklist Engine v2 reconciliation is intentionally skipped when match=0
+    // because it may update deal_documents rows (stamping checklist_key/doc_year), which can
+    // kick off downstream document processing.
 
     // 🧠 CONVERGENCE: Recompute deal readiness after auto-seed
     await recomputeDealReady(dealId);

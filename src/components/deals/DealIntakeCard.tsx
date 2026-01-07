@@ -204,6 +204,8 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         if (expectedUploads > 0) params.set("expected", expectedUploads.toString());
         if (partialMode) params.set("partial", "1");
         if (forceOverride) params.set("force", "1");
+        // Do not mutate deal_documents rows from this button; it can trigger downstream doc processing.
+        params.set("match", "0");
         
         const seedRes = await fetch(`/api/deals/${dealId}/auto-seed?${params}`, {
           method: "POST",
