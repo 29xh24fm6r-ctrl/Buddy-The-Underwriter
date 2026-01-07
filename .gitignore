@@ -71,3 +71,6 @@ buddy-the-underwriter-full.zip
 
 # Sentry Config File
 .env.sentry-build-plugin
+
+# VS Code
+.vscode/
