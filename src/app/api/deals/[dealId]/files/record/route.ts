@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { writeEvent } from "@/lib/ledger/writeEvent";
-import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { recomputeDealReady } from "@/lib/deals/readiness";
-import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrowerUploadAndMaterialize";
+import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     const { dealId } = await ctx.params;
+    const bankId = await getCurrentBankId();
     const body = await req.json();
 
     const {
@@ -82,6 +84,13 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
+    if (deal.bank_id !== bankId) {
+      return NextResponse.json(
+        { ok: false, error: "Deal not found" },
+        { status: 404 },
+      );
+    }
+
     // Verify file exists in storage (optional but recommended)
     const { data: fileExists, error: checkErr } = await sb.storage
       .from("deal-files")
@@ -100,34 +109,56 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    // Canonical ingestion: insert doc + stamp checklist + reconcile + log ledger
-    const result = await ingestDocument({
-      dealId,
-      bankId: deal.bank_id,
-      file: {
-        original_filename,
-        mimeType: mime_type ?? "application/octet-stream",
-        sizeBytes: size_bytes ?? 0,
-        storagePath: object_path,
-      },
-      source: "banker_upload",
-      uploaderUserId: userId,
-      metadata: { checklist_key },
-    });
+    // ✅ 1) Materialize banker upload into canonical deal_documents (idempotent)
+    const documentKey = `path:${object_path}`.replace(/[^a-z0-9_:/-]/gi, "_");
 
-    // ✅ Audit trail: record borrower_uploads row for this upload (idempotent)
-    await recordBorrowerUploadAndMaterialize({
+    const doc = {
+      deal_id: dealId,
+      bank_id: bankId,
+      original_filename,
+      mime_type: mime_type ?? "application/octet-stream",
+      size_bytes: size_bytes ?? 0,
+      storage_path: object_path,
+      source: "internal",
+      uploader_user_id: userId,
+      document_key: documentKey,
+      metadata: {
+        ...(checklist_key ? { checklist_key } : {}),
+        committed_via: "banker_record_route",
+      },
+    };
+
+    const { data: upserted, error: upErr } = await sb
+      .from("deal_documents")
+      .upsert(doc as any, { onConflict: "deal_id,storage_path" } as any)
+      .select("id")
+      .single();
+
+    if (upErr || !upserted?.id) {
+      console.error("[files/record] deal_documents upsert failed", upErr);
+      return NextResponse.json(
+        { ok: false, error: "Failed to record document" },
+        { status: 500 },
+      );
+    }
+
+    // ✅ 2) Reconcile checklist immediately (THIS flips received/pending)
+    await reconcileChecklistForDeal({ sb, dealId });
+
+    // ✅ 3) Pipeline ledger audit trail
+    await logLedgerEvent({
       dealId,
-      bankId: deal.bank_id,
-      requestId: null,
-      storageBucket: "deal-files",
-      storagePath: object_path,
-      originalFilename: original_filename,
-      mimeType: mime_type ?? "application/octet-stream",
-      sizeBytes: size_bytes ?? 0,
-      source: "banker_upload",
-      // This route already materializes via ingestDocument.
-      materialize: false,
+      bankId,
+      eventKey: "upload_commit",
+      uiState: "done",
+      uiMessage: `Banker upload committed: ${original_filename}`,
+      meta: {
+        document_id: upserted.id,
+        storage_path: object_path,
+        original_filename,
+        mime_type: mime_type ?? null,
+        size_bytes: size_bytes ?? null,
+      },
     });
 
     // 🧠 CONVERGENCE: Recompute deal readiness
@@ -157,7 +188,6 @@ export async function POST(req: NextRequest, ctx: Context) {
       ok: true,
       file_id,
       checklist_key: checklist_key || null,
-      ...result,
     });
   } catch (error: any) {
     console.error("[files/record] uncaught exception", {
