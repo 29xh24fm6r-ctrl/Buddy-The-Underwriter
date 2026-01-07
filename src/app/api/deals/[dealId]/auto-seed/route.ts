@@ -1,6 +1,7 @@
 // src/app/api/deals/[dealId]/auto-seed/route.ts
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildChecklistForLoanType } from "@/lib/deals/checklistPresets";
@@ -72,12 +73,22 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // Blocking rules
     if (!ready && !partial) {
       if (force && !isAdmin) {
+        Sentry.captureMessage("auto-seed forbidden (force without admin)", {
+          level: "warning",
+          tags: { route: "auto-seed" },
+          extra: { dealId, bankId, expected, partial, force, match, remaining },
+        });
         return NextResponse.json(
           { ok: false, error: "Forbidden", status: "forbidden" },
           { status: 403 }
         );
       }
       if (!force) {
+        Sentry.captureMessage("auto-seed blocked (uploads still processing)", {
+          level: "info",
+          tags: { route: "auto-seed" },
+          extra: { dealId, bankId, expected, partial, force, match, remaining },
+        });
         return NextResponse.json(
           { ok: false, error: "Uploads still processing", remaining, status: "blocked" },
           { status: 409 }
@@ -212,6 +223,23 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     if (seedErr) {
       console.error("[auto-seed] checklist upsert failed:", seedErr);
+
+      Sentry.captureException(seedErr, {
+        tags: { route: "auto-seed", phase: "checklist_upsert" },
+        extra: {
+          dealId,
+          bankId,
+          expected,
+          partial,
+          force,
+          match,
+          supabase: {
+            message: seedErr?.message,
+            code: seedErr?.code,
+            details: seedErr?.details,
+          },
+        },
+      });
       
       // Log error to pipeline
       await sb.from("deal_pipeline_ledger").insert({
@@ -377,6 +405,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   } catch (error: any) {
     console.error("[auto-seed] unexpected error:", error);
+
+    Sentry.captureException(error, {
+      tags: { route: "auto-seed", phase: "unexpected" },
+    });
     
     // Even on error, return graceful response
     return NextResponse.json({
