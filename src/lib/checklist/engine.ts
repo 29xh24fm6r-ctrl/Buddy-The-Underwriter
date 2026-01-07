@@ -95,6 +95,39 @@ export async function reconcileDealChecklist(dealId: string) {
     if (!updErr) docsMatched += 1;
   }
 
+  // 5) Backstop: mark checklist items received when matching docs exist.
+  // We still keep the DB trigger path (preferred), but this prevents "0 received"
+  // in environments where migrations/triggers haven't been applied yet.
+  const { data: matchedDocs, error: matchedDocsErr } = await sb
+    .from("deal_documents")
+    .select("id, checklist_key")
+    .eq("deal_id", dealId)
+    .not("checklist_key", "is", null);
+
+  if (matchedDocsErr) {
+    throw new Error(`docs_matched_read_failed: ${matchedDocsErr.message}`);
+  }
+
+  const matchedKeys = Array.from(
+    new Set(
+      (matchedDocs || [])
+        .map((d: any) => String(d.checklist_key || "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (matchedKeys.length > 0) {
+    const { error: updChecklistErr } = await sb
+      .from("deal_checklist_items")
+      .update({ status: "received" })
+      .eq("deal_id", dealId)
+      .in("checklist_key", matchedKeys);
+
+    if (updChecklistErr) {
+      throw new Error(`checklist_mark_received_failed: ${updChecklistErr.message}`);
+    }
+  }
+
   // DB trigger handles satisfaction computation and checklist status updates.
 
   return {
