@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -50,6 +51,10 @@ export async function GET(
   const inboxRes = await inboxQuery;
 
   if (inboxRes.error) {
+    Sentry.captureException(inboxRes.error, {
+      tags: { route: "borrower_inbox", phase: "list_inbox" },
+      extra: { dealId, q, min_conf, include_received, req_q, req_category },
+    });
     return NextResponse.json(
       { ok: false, error: inboxRes.error.message },
       { status: 400 },
@@ -77,6 +82,10 @@ export async function GET(
   const reqsRes = await reqQuery;
 
   if (reqsRes.error) {
+    Sentry.captureException(reqsRes.error, {
+      tags: { route: "borrower_inbox", phase: "list_requests" },
+      extra: { dealId, q, min_conf, include_received, req_q, req_category },
+    });
     return NextResponse.json(
       { ok: false, error: reqsRes.error.message },
       { status: 400 },
