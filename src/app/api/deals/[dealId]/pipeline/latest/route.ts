@@ -8,7 +8,9 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VERSION_MARKER = "pipeline-latest-v2-2026-01-07";
+const VERCEL_ENV = process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "unknown";
+const VERCEL_SHA = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null;
+const VERSION_MARKER = `pipeline-latest-${VERCEL_ENV}${VERCEL_SHA ? `-${VERCEL_SHA}` : ""}`;
 
 function maskId(id: string | null | undefined) {
   const s = String(id ?? "");
