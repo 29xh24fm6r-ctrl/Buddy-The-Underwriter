@@ -7,6 +7,8 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const VERSION_MARKER = "pipeline-latest-v2-2026-01-07";
+
 type Ctx = { params: Promise<{ dealId: string }> };
 
 /**
@@ -35,16 +37,17 @@ export async function GET(req: Request, ctx: Ctx) {
     if (error) {
       console.error("[pipeline/latest] query error:", error);
       // Never hard-fail the UI: return calm null state.
-      return NextResponse.json({ ok: true, latestEvent: null, state: null });
+      return NextResponse.json({ ok: true, __version: VERSION_MARKER, latestEvent: null, state: null });
     }
 
     if (!data) {
       // No pipeline events yet - deal just created
-      return NextResponse.json({ ok: true, latestEvent: null, state: null });
+      return NextResponse.json({ ok: true, __version: VERSION_MARKER, latestEvent: null, state: null });
     }
 
     return NextResponse.json({
       ok: true,
+      __version: VERSION_MARKER,
       latestEvent: data,
       state: data.stage ?? null,
     });
@@ -54,6 +57,7 @@ export async function GET(req: Request, ctx: Ctx) {
     // Never hard-fail the UI: return calm null state.
     return NextResponse.json({
       ok: true,
+      __version: VERSION_MARKER,
       latestEvent: null,
       state: null,
     });
