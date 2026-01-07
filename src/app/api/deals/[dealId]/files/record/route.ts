@@ -128,18 +128,44 @@ export async function POST(req: NextRequest, ctx: Context) {
       },
     };
 
-    const { data: upserted, error: upErr } = await sb
+    // Prefer true idempotency via unique index on (deal_id, storage_path).
+    // But even if that index isn't applied yet, we still want the write path to work.
+    const existing = await sb
       .from("deal_documents")
-      .upsert(doc as any, { onConflict: "deal_id,storage_path" } as any)
       .select("id")
-      .single();
+      .eq("deal_id", dealId)
+      .eq("storage_path", object_path)
+      .maybeSingle();
 
-    if (upErr || !upserted?.id) {
-      console.error("[files/record] deal_documents upsert failed", upErr);
-      return NextResponse.json(
-        { ok: false, error: "Failed to record document" },
-        { status: 500 },
-      );
+    let documentId: string | null = existing.data?.id ? String(existing.data.id) : null;
+
+    if (!documentId) {
+      const ins = await sb
+        .from("deal_documents")
+        .insert(doc as any)
+        .select("id")
+        .single();
+
+      if (ins.error || !ins.data?.id) {
+        // If the DB now has a unique constraint and we raced, try read-after-write.
+        const reRead = await sb
+          .from("deal_documents")
+          .select("id")
+          .eq("deal_id", dealId)
+          .eq("storage_path", object_path)
+          .maybeSingle();
+
+        documentId = reRead.data?.id ? String(reRead.data.id) : null;
+        if (!documentId) {
+          console.error("[files/record] deal_documents insert failed", ins.error);
+          return NextResponse.json(
+            { ok: false, error: "Failed to record document" },
+            { status: 500 },
+          );
+        }
+      } else {
+        documentId = String(ins.data.id);
+      }
     }
 
     // ✅ 2) Reconcile checklist immediately (THIS flips received/pending)
@@ -153,7 +179,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       uiState: "done",
       uiMessage: `Banker upload committed: ${original_filename}`,
       meta: {
-        document_id: upserted.id,
+        document_id: documentId,
         storage_path: object_path,
         original_filename,
         mime_type: mime_type ?? null,
