@@ -8,6 +8,8 @@ import { buildChecklistForLoanType } from "@/lib/deals/checklistPresets";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
 import { recomputeDealReady } from "@/lib/deals/readiness";
 import { clerkAuth } from "@/lib/auth/clerkServer";
+import { reconcileUploadsForDeal } from "@/lib/documents/reconcileUploads";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -277,7 +279,19 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       console.warn("[auto-seed] status normalization failed (non-fatal):", e);
     }
 
-    // 5️⃣ Auto-match uploaded files to checklist (doc_intel first; filename fallback)
+    // 5️⃣ RECONCILE UPLOADS → deal_documents (canonical)
+    // borrower_uploads are raw/immutable; deal_documents is canonical.
+    const reconcileRes = await reconcileUploadsForDeal(dealId, bankId);
+    await logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "reconcile_uploads",
+      uiState: "done",
+      uiMessage: `Matched ${reconcileRes.matched} documents`,
+      meta: { matched: reconcileRes.matched },
+    });
+
+    // 6️⃣ Auto-match uploaded files to checklist (doc_intel first; filename fallback)
     // IMPORTANT: This only updates deal_checklist_items (marks items received) and does NOT
     // mutate deal_documents rows. It is safe to run even when match=0.
     let matchedCount = 0;
@@ -305,7 +319,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       // Continue anyway
     }
 
-    // 🔥 6️⃣ RECONCILE: Mark checklist items as received if matching docs exist
+    // 🔥 7️⃣ RECONCILE: Mark checklist items as received if matching docs exist
     // This handles:
     // - Docs uploaded BEFORE checklist seeded
     // - Checklist keys stamped during auto-match above
@@ -354,7 +368,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       console.warn("[auto-seed] reconcile non-fatal error:", reconcileErr);
     }
 
-    // 7️⃣ Log to canonical ledger
+    // 8️⃣ Log to canonical ledger
     await sb.from("deal_pipeline_ledger").insert({
       deal_id: dealId,
       bank_id: bankId,

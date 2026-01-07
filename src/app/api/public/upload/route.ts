@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { constantTimeEqual, hashPassword, sha256 } from "@/lib/security/tokens";
 import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { recomputeDealReady } from "@/lib/deals/readiness";
+import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrowerUploadAndMaterialize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -190,6 +191,22 @@ export async function POST(req: Request) {
         uploaded_via_link_id: link.id,
         sha256: sha256(bytes.toString("hex")),
       },
+    });
+
+    // ✅ Audit trail: record borrower_uploads row for this upload (idempotent)
+    // Note: borrower_uploads.request_id is a FK to borrower_document_requests, so we do NOT store link.id there.
+    await recordBorrowerUploadAndMaterialize({
+      dealId,
+      bankId: deal.bank_id,
+      requestId: null,
+      storageBucket: bucket,
+      storagePath,
+      originalFilename: f.name || "upload",
+      mimeType: f.type || "application/octet-stream",
+      sizeBytes: bytes.length,
+      source: "public_link",
+      // This route already materializes via ingestDocument.
+      materialize: false,
     });
 
     chaosPoint(req, "after_db_insert");

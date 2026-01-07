@@ -4,6 +4,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { recomputeDealReady } from "@/lib/deals/readiness";
+import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrowerUploadAndMaterialize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -112,6 +113,21 @@ export async function POST(req: NextRequest, ctx: Context) {
       source: "banker_upload",
       uploaderUserId: userId,
       metadata: { checklist_key },
+    });
+
+    // ✅ Audit trail: record borrower_uploads row for this upload (idempotent)
+    await recordBorrowerUploadAndMaterialize({
+      dealId,
+      bankId: deal.bank_id,
+      requestId: null,
+      storageBucket: "deal-files",
+      storagePath: object_path,
+      originalFilename: original_filename,
+      mimeType: mime_type ?? "application/octet-stream",
+      sizeBytes: size_bytes ?? 0,
+      source: "banker_upload",
+      // This route already materializes via ingestDocument.
+      materialize: false,
     });
 
     // 🧠 CONVERGENCE: Recompute deal readiness
