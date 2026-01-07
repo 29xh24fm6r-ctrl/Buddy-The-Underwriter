@@ -1,10 +1,13 @@
+import { withSentryConfig } from "@sentry/nextjs";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Force dynamic rendering to skip static page generation during build
   output: 'standalone',
   
-  // Reduce memory during production builds (webpack)
-  productionBrowserSourceMaps: false,
+  // Source maps: required for readable stack traces.
+  // Sentry will hide them from the public bundle via `hideSourceMaps`.
+  productionBrowserSourceMaps: true,
   
   // Skip TypeScript checks during build (errors handled in CI)
   typescript: {
@@ -42,4 +45,14 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(
+  nextConfig,
+  {
+    // Sentry build-time options
+    silent: true,
+  },
+  {
+    // Sentry Webpack Plugin options
+    hideSourceMaps: true,
+  }
+);
