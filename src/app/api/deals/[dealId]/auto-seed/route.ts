@@ -177,8 +177,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       required: r.required,
     }));
 
-    // Fallback for environments that don't yet have bank_id on deal_checklist_items
-    const checklistRowsNoBank = checklistRowsWithBank.map(({ bank_id: _bankId, ...rest }) => rest);
+        // Fallback for environments that don't yet have bank_id on deal_checklist_items
+        const checklistRowsNoBank = checklistRowsWithBank.map(({ bank_id: _bankId, ...rest }) => rest);
 
     console.log("[auto-seed] Generated checklist rows:", checklistRowsWithBank.length, "bank_id:", bankId);
 
@@ -223,7 +223,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     if (seedErr) {
       console.error("[auto-seed] checklist upsert failed:", seedErr);
-
       Sentry.captureException(seedErr, {
         tags: { route: "auto-seed", phase: "checklist_upsert" },
         extra: {

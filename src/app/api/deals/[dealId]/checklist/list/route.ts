@@ -58,21 +58,10 @@ export async function GET(
     
     // If empty, return early (no items to format)
     if (checklistState.state === "empty") {
-      console.log('[checklist/list] Returning empty state');
+      console.log("[checklist/list] Returning empty state");
       return NextResponse.json({
         ok: true,
         state: "empty",
-        items: [],
-        meta: checklistState.meta,
-      });
-    }
-
-    // If processing, return calm state (and do not misreport as ready)
-    if (checklistState.state === "processing") {
-      console.log('[checklist/list] Returning processing state');
-      return NextResponse.json({
-        ok: true,
-        state: "processing",
         items: [],
         meta: checklistState.meta,
       });
@@ -104,7 +93,7 @@ export async function GET(
 
     return NextResponse.json({
       ok: true,
-      state: "ready",
+      state: checklistState.state,
       items,
       meta: checklistState.meta,
     });
