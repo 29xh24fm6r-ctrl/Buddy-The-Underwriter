@@ -4,8 +4,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireValidInvite } from "@/lib/portal/auth";
 import { rateLimit } from "@/lib/portal/ratelimit";
 import { recordReceipt } from "@/lib/portal/receipts";
-import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { recomputeDealReady } from "@/lib/deals/readiness";
+import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrowerUploadAndMaterialize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,26 +92,18 @@ export async function POST(req: Request) {
     );
   }
 
-  const { data: upload, error } = await sb
-    .from("borrower_uploads")
-    .insert({
-      deal_id: invite.deal_id,
-      bank_id: invite.bank_id,
-      request_id: requestId,
-      storage_bucket: "borrower_uploads",
-      storage_path: path,
-      original_filename: filename,
-      mime_type: mimeType,
-      size_bytes: sizeBytes,
-    })
-    .select("id")
-    .single();
-
-  if (error || !upload)
-    return NextResponse.json(
-      { error: "Failed to record upload" },
-      { status: 500 },
-    );
+  const upload = await recordBorrowerUploadAndMaterialize({
+    dealId: invite.deal_id,
+    bankId: invite.bank_id,
+    requestId,
+    storageBucket: "borrower_uploads",
+    storagePath: path,
+    originalFilename: filename,
+    mimeType: mimeType ?? "application/octet-stream",
+    sizeBytes: sizeBytes ?? 0,
+    source: "borrower_portal",
+    materialize: true,
+  });
 
   if (requestId) {
     await sb
@@ -124,40 +116,17 @@ export async function POST(req: Request) {
   await tryEnqueueJobs(sb, {
     dealId: invite.deal_id,
     bankId: invite.bank_id,
-    uploadId: upload.id,
+    uploadId: upload.uploadId,
     storageBucket: "borrower_uploads",
     storagePath: path,
     filename,
   });
 
-  // Canonical ingestion: materialize borrower upload as deal document
+  // 🧠 CONVERGENCE: Recompute deal readiness (best-effort)
   try {
-    // Look up the deal_document record via borrower_uploads foreign key
-    const { data: doc } = await sb
-      .from("borrower_uploads")
-      .select("deal_document_id")
-      .eq("id", upload.id)
-      .single();
-
-    if (doc?.deal_document_id) {
-      // Canonical ingestion handles stamping + reconcile + ledger
-      await ingestDocument({
-        dealId: invite.deal_id,
-        bankId: invite.bank_id,
-        file: {
-          original_filename: filename,
-          mimeType: mimeType ?? "application/octet-stream",
-          sizeBytes: sizeBytes ?? 0,
-          storagePath: path,
-        },
-        source: "borrower_portal",
-      });
-
-      // 🧠 CONVERGENCE: Recompute deal readiness
-      await recomputeDealReady(invite.deal_id);
-    }
+    await recomputeDealReady(invite.deal_id);
   } catch (e) {
-    console.error("Checklist auto-match failed (non-blocking):", e);
+    console.error("Recompute readiness failed (non-blocking):", e);
   }
 
   // Record receipt + auto-highlight checklist (best-effort)
@@ -166,12 +135,12 @@ export async function POST(req: Request) {
       dealId: invite.deal_id,
       uploaderRole: "borrower",
       filename,
-      fileId: upload.id,
+      fileId: upload.uploadId,
       meta: { source: "portal_upload_commit" },
     });
   } catch {
     // swallow: don't block upload success
   }
 
-  return NextResponse.json({ ok: true, uploadId: upload.id });
+  return NextResponse.json({ ok: true, uploadId: upload.uploadId, reconciled: upload.reconciled });
 }

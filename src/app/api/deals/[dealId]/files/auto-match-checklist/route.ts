@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { reconcileUploadsForDeal } from "@/lib/documents/reconcileUploads";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +27,23 @@ export async function POST(
   }
 
   const { dealId } = await ctx.params;
+  const ensured = await ensureDealBankAccess(dealId);
+  if (!ensured.ok) {
+    const statusCode =
+      ensured.error === "deal_not_found" ? 404 :
+      ensured.error === "tenant_mismatch" ? 403 :
+      401;
+    return NextResponse.json(
+      { ok: false, error: ensured.error },
+      { status: statusCode },
+    );
+  }
+
   const sb = supabaseAdmin();
+
+  // Ensure borrower portal uploads are materialized into deal_documents first.
+  // This makes Auto-Match truly end-to-end.
+  const reconcileRes = await reconcileUploadsForDeal(dealId, ensured.bankId);
 
   // Get all files for this deal
   const { data: files, error: filesError } = await sb
@@ -41,9 +59,13 @@ export async function POST(
   if (!files || files.length === 0) {
     return NextResponse.json({
       ok: true,
-      message: "No files found to match",
+      message:
+        reconcileRes.matched > 0
+          ? "Uploads reconciled, but no files found to match"
+          : "No files found to match",
       matched: 0,
       updated: 0,
+      reconciled: reconcileRes.matched,
     });
   }
 
@@ -84,5 +106,6 @@ export async function POST(
     totalMatched,
     totalUpdated,
     results,
+    reconciled: reconcileRes.matched,
   });
 }
