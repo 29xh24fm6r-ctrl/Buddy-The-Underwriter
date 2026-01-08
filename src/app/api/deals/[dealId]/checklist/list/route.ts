@@ -7,8 +7,8 @@ export const dynamic = "force-dynamic";
 
 const CHECKLIST_DEFINITIONS: Record<string, { title: string; required: boolean }> = {
   PFS_CURRENT: { title: "Personal Financial Statement (current)", required: true },
-  IRS_BUSINESS_2Y: { title: "Business tax returns (last 2 years)", required: true },
-  IRS_PERSONAL_2Y: { title: "Personal tax returns (last 2 years)", required: true },
+  IRS_BUSINESS_2Y: { title: "Business tax returns", required: true },
+  IRS_PERSONAL_2Y: { title: "Personal tax returns", required: true },
   FIN_STMT_YTD: { title: "Year-to-date financial statement", required: true },
   AR_AP_AGING: { title: "A/R and A/P aging", required: false },
   BANK_STMT_3M: { title: "Bank statements (last 3 months)", required: false },
@@ -74,6 +74,8 @@ export async function GET(
       required: !!row.required,
       status: row.status ? String(row.status).toLowerCase() : "missing",
       received_at: (row as any).received_at ?? null,
+      required_years: (row as any).required_years ?? null,
+      satisfied_years: (row as any).satisfied_years ?? null,
       satisfied_at: (row as any).satisfied_at ?? null,
       satisfaction_json: (row as any).satisfaction_json ?? null,
       created_at: row.created_at ?? null,

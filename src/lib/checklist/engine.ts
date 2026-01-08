@@ -2,6 +2,36 @@ import { RULESETS } from "./rules";
 import { matchChecklistKeyFromFilename } from "./matchers";
 import type { ChecklistDefinition, ChecklistRuleSet } from "./types";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
+
+type DocTypeBucket = "business_tax_return" | "personal_tax_return";
+
+function inferDocTypeBucketFromChecklistKey(checklistKeyRaw: string): DocTypeBucket | null {
+  const key = String(checklistKeyRaw || "").toUpperCase();
+  if (!key) return null;
+
+  if (key.startsWith("IRS_BUSINESS")) return "business_tax_return";
+  if (key.startsWith("IRS_PERSONAL")) return "personal_tax_return";
+  return null;
+}
+
+function computeDefaultRequiredYearsFromChecklistKey(checklistKeyRaw: string): number[] | null {
+  const key = String(checklistKeyRaw || "").toUpperCase();
+  if (!key) return null;
+
+  const m = key.match(/_(\d)Y\b/);
+  if (!m) return null;
+
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return null;
+
+  // Tax returns are typically filed for last calendar year.
+  const currentYear = new Date().getUTCFullYear();
+  const lastFiled = currentYear - 1;
+  const years: number[] = [];
+  for (let i = 0; i < n; i++) years.push(lastFiled - i);
+  return years;
+}
 
 /** Normalize loan types into stable keys. Extend as needed. */
 export function normalizeLoanType(raw: string | null | undefined): string {
@@ -56,42 +86,108 @@ export async function reconcileDealChecklist(dealId: string) {
   const rows = rs ? buildChecklistRows(dealId, rs.items) : [];
 
   if (rs) {
-    const { error: seedErr } = await sb
+    const rowsWithYears = rows.map((r) => {
+      const years = computeDefaultRequiredYearsFromChecklistKey(r.checklist_key);
+      return years ? ({ ...r, required_years: years } as any) : r;
+    });
+
+    const attempt1 = await sb
       .from("deal_checklist_items")
-      .upsert(rows, { onConflict: "deal_id,checklist_key" });
+      .upsert(rowsWithYears as any, { onConflict: "deal_id,checklist_key" });
+
+    let seedErr = attempt1.error;
+    if (seedErr) {
+      const msg = String(seedErr.message || "");
+      if (msg.toLowerCase().includes("does not exist") && msg.includes("required_years")) {
+        const attempt2 = await sb
+          .from("deal_checklist_items")
+          .upsert(rows as any, { onConflict: "deal_id,checklist_key" });
+        seedErr = attempt2.error;
+      }
+    }
 
     if (seedErr) throw new Error(`checklist_seed_failed: ${seedErr.message}`);
   }
 
-  // 3) Fetch deal_documents with NULL checklist_key OR NULL doc_year
-  const { data: docs, error: docsErr } = await sb
-    .from("deal_documents")
-    .select("id, original_filename, checklist_key, doc_year")
-    .eq("deal_id", dealId);
+  // 3) Fetch deal_documents with NULL checklist_key OR missing year metadata
+  let docs: any[] = [];
+  {
+    const attempt = await sb
+      .from("deal_documents")
+      // doc_years/document_type may not exist yet in some environments.
+      .select("id, original_filename, checklist_key, doc_year, doc_years, document_type")
+      .eq("deal_id", dealId);
 
-  if (docsErr) throw new Error(`docs_read_failed: ${docsErr.message}`);
+    if (attempt.error) {
+      const msg = String(attempt.error.message || "");
+      if (msg.toLowerCase().includes("does not exist") && (msg.includes("doc_years") || msg.includes("document_type"))) {
+        const fallback = await sb
+          .from("deal_documents")
+          .select("id, original_filename, checklist_key, doc_year")
+          .eq("deal_id", dealId);
+        if (fallback.error) throw new Error(`docs_read_failed: ${fallback.error.message}`);
+        docs = fallback.data || [];
+      } else {
+        throw new Error(`docs_read_failed: ${attempt.error.message}`);
+      }
+    } else {
+      docs = attempt.data || [];
+    }
+  }
 
   let docsMatched = 0;
 
-  // 4) For each doc missing checklist_key or doc_year, attempt match
+  // 4) For each doc missing checklist_key or year metadata, attempt match (filename-only here).
   for (const d of docs || []) {
     const needsKey = !d.checklist_key;
     const needsYear = !d.doc_year;
-    if (!needsKey && !needsYear) continue;
+    const needsYears = !(d as any)?.doc_years;
+    const needsType = !(d as any)?.document_type;
+    if (!needsKey && !needsYear && !needsYears && !needsType) continue;
 
     const m = matchChecklistKeyFromFilename(d.original_filename || "");
-    if (!m.matchedKey || m.confidence < 0.6) continue;
+    const meta = inferDocumentMetadata({ originalFilename: d.original_filename || null });
+    const docYears = meta.doc_years ?? (Array.isArray(m.yearsFound) && m.yearsFound.length ? m.yearsFound : null);
+    const docYear = meta.doc_year ?? (m.docYear ?? null);
+    const documentType = meta.document_type !== "unknown" ? meta.document_type : null;
+    const matchConfidence = Math.max(Number(m.confidence ?? 0) || 0, Number(meta.confidence ?? 0) || 0);
+    const matchReason = [m.reason, meta.reason].filter(Boolean).join(" | ");
 
-    const { error: updErr } = await sb
+    const hasYearOrType = Boolean(documentType) || Boolean(docYear) || (Array.isArray(docYears) && docYears.length > 0);
+    const hasConfidentKey = Boolean(m.matchedKey) && Number(m.confidence ?? 0) >= 0.6;
+    if (!hasConfidentKey && !hasYearOrType) continue;
+
+    // Best-effort update: tolerate schema drift (doc_years/document_type may not exist).
+    const attempt1 = await sb
       .from("deal_documents")
       .update({
-        checklist_key: d.checklist_key || m.matchedKey,
-        doc_year: d.doc_year || (m.docYear ?? null),
-        match_confidence: m.confidence,
-        match_reason: m.reason,
+        checklist_key: hasConfidentKey ? (d.checklist_key || m.matchedKey) : d.checklist_key,
+        doc_year: d.doc_year || docYear,
+        doc_years: (d as any)?.doc_years || docYears,
+        document_type: (d as any)?.document_type || documentType,
+        match_confidence: matchConfidence,
+        match_reason: matchReason,
         match_source: m.source || "filename",
-      })
+      } as any)
       .eq("id", d.id);
+
+    let updErr = attempt1.error;
+    if (updErr) {
+      const msg = String(updErr.message || "");
+      if (msg.toLowerCase().includes("does not exist") && (msg.includes("doc_years") || msg.includes("document_type"))) {
+        const attempt2 = await sb
+          .from("deal_documents")
+          .update({
+            checklist_key: d.checklist_key || m.matchedKey,
+            doc_year: d.doc_year || docYear,
+            match_confidence: matchConfidence,
+            match_reason: matchReason,
+            match_source: m.source || "filename",
+          } as any)
+          .eq("id", d.id);
+        updErr = attempt2.error;
+      }
+    }
 
     if (!updErr) docsMatched += 1;
   }
@@ -99,61 +195,144 @@ export async function reconcileDealChecklist(dealId: string) {
   // 5) Backstop: mark checklist items received when matching docs exist.
   // We still keep the DB trigger path (preferred), but this prevents "0 received"
   // in environments where migrations/triggers haven't been applied yet.
-  const { data: matchedDocs, error: matchedDocsErr } = await sb
-    .from("deal_documents")
-    .select("id, checklist_key")
-    .eq("deal_id", dealId)
-    .not("checklist_key", "is", null);
+  // 5) Backstop: year-aware checklist satisfaction (schema-tolerant).
+  // Prefer the DB trigger path, but keep this to avoid "0 received" in environments
+  // where migrations/triggers haven't been applied yet.
+  let matchedDocs: any[] = [];
+  {
+    const attempt = await sb
+      .from("deal_documents")
+      .select("id, checklist_key, doc_year, doc_years, document_type")
+      .eq("deal_id", dealId);
 
-  if (matchedDocsErr) {
-    throw new Error(`docs_matched_read_failed: ${matchedDocsErr.message}`);
+    if (attempt.error) {
+      const msg = String(attempt.error.message || "");
+      if (msg.toLowerCase().includes("does not exist") && (msg.includes("doc_years") || msg.includes("document_type"))) {
+        const fallback = await sb
+          .from("deal_documents")
+          .select("id, checklist_key, doc_year")
+          .eq("deal_id", dealId)
+          ;
+        if (fallback.error) throw new Error(`docs_matched_read_failed: ${fallback.error.message}`);
+        matchedDocs = fallback.data || [];
+      } else {
+        throw new Error(`docs_matched_read_failed: ${attempt.error.message}`);
+      }
+    } else {
+      matchedDocs = attempt.data || [];
+    }
   }
 
-  const { data: checklistItems, error: checklistItemsErr } = await sb
-    .from("deal_checklist_items")
-    // NOTE: min_required column may not exist in some environments; do not select it.
-    .select("id, checklist_key, status")
-    .eq("deal_id", dealId);
+  let checklistItems: any[] = [];
+  let hasRequiredYearsColumn = true;
+  let hasSatisfiedYearsColumn = true;
+  {
+    const attempt = await sb
+      .from("deal_checklist_items")
+      .select("id, checklist_key, status, received_at, required_years, satisfied_years")
+      .eq("deal_id", dealId);
 
-  if (checklistItemsErr) {
-    throw new Error(`checklist_read_failed: ${checklistItemsErr.message}`);
+    if (attempt.error) {
+      const msg = String(attempt.error.message || "");
+      if (msg.toLowerCase().includes("does not exist") && (msg.includes("required_years") || msg.includes("satisfied_years"))) {
+        hasRequiredYearsColumn = !msg.includes("required_years");
+        hasSatisfiedYearsColumn = !msg.includes("satisfied_years");
+        const fallback = await sb
+          .from("deal_checklist_items")
+          .select("id, checklist_key, status, received_at")
+          .eq("deal_id", dealId);
+        if (fallback.error) throw new Error(`checklist_read_failed: ${fallback.error.message}`);
+        checklistItems = fallback.data || [];
+      } else {
+        throw new Error(`checklist_read_failed: ${attempt.error.message}`);
+      }
+    } else {
+      checklistItems = attempt.data || [];
+    }
   }
 
   const docsByKey = new Map<string, any[]>();
+  const docsByType = new Map<string, any[]>();
   for (const d of matchedDocs || []) {
     const key = String((d as any)?.checklist_key || "").trim();
-    if (!key) continue;
-    const arr = docsByKey.get(key) ?? [];
-    arr.push(d);
-    docsByKey.set(key, arr);
+    if (key) {
+      const arr = docsByKey.get(key) ?? [];
+      arr.push(d);
+      docsByKey.set(key, arr);
+    }
+
+    const dt = String((d as any)?.document_type || "").trim();
+    if (dt) {
+      const arr = docsByType.get(dt) ?? [];
+      arr.push(d);
+      docsByType.set(dt, arr);
+    }
   }
 
   let checklistMarkedReceived = 0;
 
-  // IMPORTANT: Reconcile must be checklist-driven, not document-driven.
-  // Loop each checklist item and see if we have enough docs for that key.
   for (const item of checklistItems || []) {
-    const key = String((item as any)?.checklist_key || "").trim();
-    if (!key) continue;
+    const itemKey = String((item as any)?.checklist_key || "").trim();
+    if (!itemKey) continue;
 
-    const docsForKey = docsByKey.get(key) ?? [];
-    if (docsForKey.length === 0) continue;
+    const bucket = inferDocTypeBucketFromChecklistKey(itemKey);
+    const docsForItem = bucket ? (docsByType.get(bucket) ?? []) : (docsByKey.get(itemKey) ?? []);
+    if (docsForItem.length === 0) continue;
 
-    const minRequiredParsed = Number((item as any)?.min_required);
-    const minRequired = Number.isFinite(minRequiredParsed) && minRequiredParsed > 0 ? minRequiredParsed : 1;
-    if (docsForKey.length < minRequired) continue;
+    const requiredYearsFromDb = Array.isArray((item as any)?.required_years)
+      ? ((item as any).required_years as any[]).map((x) => Number(x)).filter((x) => Number.isFinite(x))
+      : null;
+
+    const requiredYears =
+      (hasRequiredYearsColumn ? requiredYearsFromDb : null) ??
+      computeDefaultRequiredYearsFromChecklistKey(itemKey);
+
+    const satisfiedYearsSet = new Set<number>();
+    for (const d of docsForItem) {
+      const ys = (d as any)?.doc_years;
+      if (Array.isArray(ys)) {
+        for (const y of ys) {
+          const n = Number(y);
+          if (Number.isFinite(n)) satisfiedYearsSet.add(n);
+        }
+      }
+      const y1 = Number((d as any)?.doc_year);
+      if (Number.isFinite(y1)) satisfiedYearsSet.add(y1);
+    }
+    const satisfiedYears = Array.from(satisfiedYearsSet).sort((a, b) => b - a);
+
+    const isSatisfied = requiredYears && requiredYears.length
+      ? requiredYears.every((y) => satisfiedYearsSet.has(y))
+      : docsForItem.length > 0;
+
+    // Always attempt to persist satisfied_years (even when partial), when column exists.
+    if (hasSatisfiedYearsColumn) {
+      const upd = await sb
+        .from("deal_checklist_items")
+        .update({ satisfied_years: satisfiedYears } as any)
+        .eq("id", (item as any).id);
+      if (upd.error) {
+        const msg = String(upd.error.message || "");
+        if (!(msg.toLowerCase().includes("does not exist") && msg.includes("satisfied_years"))) {
+          throw new Error(`checklist_update_satisfied_years_failed: ${upd.error.message}`);
+        }
+        hasSatisfiedYearsColumn = false;
+      }
+    }
+
+    if (!isSatisfied) continue;
 
     if ((item as any)?.status !== "received") {
-      const { error: updChecklistErr } = await sb
+      const attempt = await sb
         .from("deal_checklist_items")
         .update({
           status: "received",
-          received_at: new Date().toISOString(),
-        })
+          received_at: (item as any)?.received_at ?? new Date().toISOString(),
+        } as any)
         .eq("id", (item as any).id);
 
-      if (updChecklistErr) {
-        throw new Error(`checklist_mark_received_failed: ${updChecklistErr.message}`);
+      if (attempt.error) {
+        throw new Error(`checklist_mark_received_failed: ${attempt.error.message}`);
       }
 
       checklistMarkedReceived += 1;
@@ -185,38 +364,76 @@ export async function matchAndStampDealDocument(opts: {
   extractedFields?: any;
   metadata?: any;
 }) {
-  const { sb, dealId, documentId, originalFilename } = opts;
+  const { sb, documentId, originalFilename } = opts;
 
-  // Run filename matcher
+  // Run filename matcher + metadata inference (best-effort)
   const m = matchChecklistKeyFromFilename(originalFilename || "");
-  
-  if (!m.matchedKey || m.confidence < 0.6) {
-    // Not confident enough, leave unmatched
+  const meta = inferDocumentMetadata({ originalFilename: originalFilename || null });
+
+  const docYears = meta.doc_years ?? (Array.isArray(m.yearsFound) && m.yearsFound.length ? m.yearsFound : null);
+  const docYear = meta.doc_year ?? (m.docYear ?? null);
+  const documentType = meta.document_type !== "unknown" ? meta.document_type : null;
+  const matchConfidence = Math.max(Number(m.confidence ?? 0) || 0, Number(meta.confidence ?? 0) || 0);
+  const matchReason = [m.reason, meta.reason].filter(Boolean).join(" | ");
+
+  const hasConfidentKey = Boolean(m.matchedKey) && Number(m.confidence ?? 0) >= 0.6;
+  const hasYearOrType = Boolean(documentType) || Boolean(docYear) || (Array.isArray(docYears) && docYears.length > 0);
+  if (!hasConfidentKey && !hasYearOrType) {
+    // Not confident enough to do anything
     return { matched: false, reason: "low_confidence" };
   }
 
-  // Stamp the document with checklist_key + doc_year
-  const { error: updErr } = await sb
+  // Stamp the document with checklist_key + year metadata. Tolerate schema drift.
+  const attempt1 = await sb
     .from("deal_documents")
     .update({
-      checklist_key: m.matchedKey,
-      doc_year: m.docYear ?? null,
-      match_confidence: m.confidence,
-      match_reason: m.reason,
+      checklist_key: hasConfidentKey ? m.matchedKey : undefined,
+      doc_year: docYear,
+      doc_years: docYears,
+      document_type: documentType,
+      match_confidence: matchConfidence,
+      match_reason: matchReason,
       match_source: m.source || "filename",
-    })
+    } as any)
     .eq("id", documentId);
+
+  let updErr = attempt1.error;
+  if (updErr) {
+    const msg = String(updErr.message || "");
+    if (msg.toLowerCase().includes("does not exist") && (msg.includes("doc_years") || msg.includes("document_type"))) {
+      const attempt2 = await sb
+        .from("deal_documents")
+        .update({
+          checklist_key: hasConfidentKey ? m.matchedKey : undefined,
+          doc_year: docYear,
+          match_confidence: matchConfidence,
+          match_reason: matchReason,
+          match_source: m.source || "filename",
+        } as any)
+        .eq("id", documentId);
+      updErr = attempt2.error;
+    }
+  }
 
   if (updErr) {
     console.error("[matchAndStampDealDocument] update failed:", updErr);
     return { matched: false, error: updErr.message };
   }
 
+  if (!hasConfidentKey) {
+    return {
+      matched: false,
+      reason: "meta_only",
+      doc_year: docYear,
+      confidence: matchConfidence,
+    } as any;
+  }
+
   return {
     matched: true,
     checklist_key: m.matchedKey,
-    doc_year: m.docYear ?? null,
-    confidence: m.confidence,
+    doc_year: docYear,
+    confidence: matchConfidence,
   };
 }
 

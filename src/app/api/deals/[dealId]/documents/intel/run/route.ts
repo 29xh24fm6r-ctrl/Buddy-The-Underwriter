@@ -8,6 +8,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { analyzeDocument } from "@/lib/docIntel/engine";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
+import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
+import { reconcileDealChecklist } from "@/lib/checklist/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +47,156 @@ async function extractTextWithAzureDI(bytes: Buffer): Promise<string> {
 
   const content = typeof (analyzeResult as any)?.content === "string" ? (analyzeResult as any).content : "";
   return content;
+}
+
+type DocTypeBucket = "business_tax_return" | "personal_tax_return";
+
+function normalizeAiDocTypeToBucket(aiDocTypeRaw: unknown): DocTypeBucket | null {
+  const s = String(aiDocTypeRaw ?? "").toLowerCase();
+  if (!s) return null;
+
+  // Business tax return signals
+  if (
+    s.includes("form 1120") ||
+    s.includes("1120s") ||
+    s.includes("1120-s") ||
+    s.includes("form 1065") ||
+    s.includes("1065") ||
+    s.includes("schedule k-1") ||
+    s.includes("k-1")
+  ) {
+    return "business_tax_return";
+  }
+
+  // Personal tax return signals
+  if (
+    s.includes("form 1040") ||
+    s.includes("1040") ||
+    s.includes("personal tax")
+  ) {
+    return "personal_tax_return";
+  }
+
+  if (s.includes("tax return")) {
+    // Ambiguous, avoid forcing a bucket.
+    return null;
+  }
+
+  return null;
+}
+
+function parseTaxYearToNumber(taxYearRaw: unknown): number | null {
+  const s = String(taxYearRaw ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/\b(20[0-3][0-9])\b/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 2000 || n > 2039) return null;
+  return n;
+}
+
+function mergeYears(primary: number | null, years: number[] | null): {
+  doc_year: number | null;
+  doc_years: number[] | null;
+} {
+  const set = new Set<number>();
+  if (Number.isFinite(primary as any)) set.add(Number(primary));
+  if (Array.isArray(years)) {
+    for (const y of years) {
+      const n = Number(y);
+      if (Number.isFinite(n)) set.add(n);
+    }
+  }
+  const merged = Array.from(set).sort((a, b) => b - a);
+  return {
+    doc_year: merged.length ? merged[0] : null,
+    doc_years: merged.length ? merged : null,
+  };
+}
+
+async function bestEffortStampDealDocument(args: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  docId: string;
+  filename: string;
+  extractedText?: string;
+  aiDocType?: unknown;
+  aiTaxYear?: unknown;
+  aiConfidence?: unknown;
+}) {
+  const { sb, docId, filename, extractedText, aiDocType, aiTaxYear, aiConfidence } =
+    args;
+
+  const meta = inferDocumentMetadata({
+    originalFilename: filename || null,
+    extractedText: extractedText ?? null,
+  });
+
+  const bucketFromAi = normalizeAiDocTypeToBucket(aiDocType);
+  const bucketFromDeterministic =
+    meta.document_type !== "unknown" ? meta.document_type : null;
+  const documentType = (bucketFromAi ?? bucketFromDeterministic) as
+    | DocTypeBucket
+    | null;
+
+  const taxYear = parseTaxYearToNumber(aiTaxYear);
+  const mergedYears = mergeYears(taxYear, meta.doc_years);
+
+  // Normalize confidence to 0..1 when possible.
+  const aiConfNum = Number(aiConfidence);
+  const aiConf01 =
+    Number.isFinite(aiConfNum) && aiConfNum > 1 ? aiConfNum / 100 : aiConfNum;
+  const confidence = Math.max(
+    Number(meta.confidence ?? 0) || 0,
+    Number.isFinite(aiConf01) ? Math.max(0, Math.min(1, aiConf01)) : 0,
+  );
+
+  const reasonParts = [
+    bucketFromAi ? `ai_bucket:${bucketFromAi}` : null,
+    taxYear ? `ai_tax_year:${taxYear}` : null,
+    meta.reason ? `det:${meta.reason}` : null,
+  ].filter(Boolean);
+  const matchReason = reasonParts.join(" | ");
+
+  // Nothing to stamp.
+  if (!documentType && !mergedYears.doc_year && !mergedYears.doc_years) return;
+
+  // Best-effort update: tolerate schema drift.
+  const attempt1 = await sb
+    .from("deal_documents")
+    .update({
+      document_type: documentType,
+      doc_year: mergedYears.doc_year,
+      doc_years: mergedYears.doc_years,
+      match_confidence: confidence,
+      match_reason: matchReason,
+      match_source: "ocr_ai",
+    } as any)
+    .eq("id", docId);
+
+  if (!attempt1.error) return;
+
+  const msg = String(attempt1.error.message || "");
+  if (
+    msg.toLowerCase().includes("does not exist") &&
+    (msg.includes("doc_years") || msg.includes("document_type"))
+  ) {
+    await sb
+      .from("deal_documents")
+      .update({
+        doc_year: mergedYears.doc_year,
+        match_confidence: confidence,
+        match_reason: matchReason,
+        match_source: "ocr_ai",
+      } as any)
+      .eq("id", docId);
+    return;
+  }
+
+  // If it's another error, treat as non-fatal (this route is best-effort).
+  console.error("[documents/intel/run] stamp_failed", {
+    docId,
+    error: attempt1.error,
+  });
 }
 
 /**
@@ -91,6 +243,7 @@ async function runIntelForDeal(args: {
   let analyzed = 0;
   let matched = 0;
   let updated = 0;
+  let stamped = 0;
 
   const results: Array<{
     document_id: string;
@@ -110,12 +263,21 @@ async function runIntelForDeal(args: {
       // If doc_intel already exists, skip heavy work.
       const existingIntel = await sb
         .from("doc_intel_results")
-        .select("id")
+        .select("id, doc_type, tax_year, confidence")
         .eq("deal_id", dealId)
         .eq("file_id", docId)
         .maybeSingle();
 
       if (!existingIntel.error && existingIntel.data?.id) {
+        await bestEffortStampDealDocument({
+          sb,
+          docId,
+          filename,
+          aiDocType: (existingIntel.data as any)?.doc_type,
+          aiTaxYear: (existingIntel.data as any)?.tax_year,
+          aiConfidence: (existingIntel.data as any)?.confidence,
+        });
+        stamped += 1;
         const m = await autoMatchChecklistFromFilename({ dealId, filename, fileId: docId });
         matched += m.matched.length;
         updated += m.updated;
@@ -177,13 +339,39 @@ async function runIntelForDeal(args: {
         continue;
       }
 
-      // Run doc-intel on extracted text
-      await analyzeDocument({
-        dealId,
-        fileId: docId,
+      let docIntelStatus: "ok" | "skipped" | "error" = "skipped";
+      let aiDocType: unknown = null;
+      let aiTaxYear: unknown = null;
+      let aiConfidence: unknown = null;
+
+      if (process.env.OPENAI_API_KEY) {
+        try {
+          const ai = await analyzeDocument({
+            dealId,
+            fileId: docId,
+            extractedText,
+          });
+          analyzed += 1;
+          docIntelStatus = "ok";
+          aiDocType = (ai as any)?.doc_type;
+          aiTaxYear = (ai as any)?.tax_year;
+          aiConfidence = (ai as any)?.confidence;
+        } catch (_e: any) {
+          // Non-fatal: still stamp deterministic metadata from OCR text.
+          docIntelStatus = "error";
+        }
+      }
+
+      await bestEffortStampDealDocument({
+        sb,
+        docId,
+        filename,
         extractedText,
+        aiDocType,
+        aiTaxYear,
+        aiConfidence,
       });
-      analyzed += 1;
+      stamped += 1;
 
       // Now match checklist using doc-intel preference
       const m = await autoMatchChecklistFromFilename({ dealId, filename, fileId: docId });
@@ -203,7 +391,7 @@ async function runIntelForDeal(args: {
         document_id: docId,
         filename,
         ocr: "ok",
-        doc_intel: "ok",
+        doc_intel: docIntelStatus,
         matched_keys: m.matched,
         updated_items: m.updated,
       });
@@ -220,6 +408,14 @@ async function runIntelForDeal(args: {
     }
   }
 
+  // After stamping years/types, run checklist reconcile once so year-aware
+  // satisfaction updates immediately.
+  try {
+    await reconcileDealChecklist(dealId);
+  } catch (e) {
+    console.error("[documents/intel/run] reconcile_failed (non-fatal)", e);
+  }
+
   return NextResponse.json(
     {
       ok: true,
@@ -228,6 +424,7 @@ async function runIntelForDeal(args: {
       analyzed,
       matched,
       updated,
+      stamped,
       results,
     },
     { headers: { "cache-control": "no-store" } },

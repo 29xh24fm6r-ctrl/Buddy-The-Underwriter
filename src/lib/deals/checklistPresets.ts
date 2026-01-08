@@ -17,8 +17,8 @@ export function buildChecklistForLoanType(loanType: LoanType): ChecklistSeedRow[
   // Deterministic. No LLM. Bulletproof defaults.
   const CORE: ChecklistSeedRow[] = [
     { checklist_key: "PFS_CURRENT", title: "Personal Financial Statement (current)", required: true },
-    { checklist_key: "IRS_PERSONAL_2Y", title: "Personal tax returns (last 2 years)", required: true },
-    { checklist_key: "IRS_BUSINESS_2Y", title: "Business tax returns (last 2 years)", required: true },
+    { checklist_key: "IRS_PERSONAL_2Y", title: "Personal tax returns", required: true },
+    { checklist_key: "IRS_BUSINESS_2Y", title: "Business tax returns", required: true },
     { checklist_key: "FIN_STMT_YTD", title: "Year-to-date financial statement", required: true },
     { checklist_key: "BANK_STMT_3M", title: "Bank statements (last 3 months)", required: false },
   ];

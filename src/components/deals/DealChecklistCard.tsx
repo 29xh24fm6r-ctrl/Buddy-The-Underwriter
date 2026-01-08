@@ -8,14 +8,18 @@ type Item = {
   title: string;
   description: string | null;
   required: boolean;
-  status: "missing" | "received" | "waived";
+  status: "missing" | "pending" | "received" | "satisfied" | "waived";
   received_at: string | null;
-  received_file_id: string | null;
+  satisfied_at?: string | null;
+  required_years?: number[] | null;
+  satisfied_years?: number[] | null;
   created_at: string;
 };
 
 function badgeTone(status: Item["status"]) {
-  if (status === "received") return "border-emerald-900/40 bg-emerald-950/20 text-emerald-200";
+  if (status === "received" || status === "satisfied") {
+    return "border-emerald-900/40 bg-emerald-950/20 text-emerald-200";
+  }
   if (status === "waived") return "border-neutral-700 bg-neutral-900/40 text-neutral-200";
   return "border-amber-900/40 bg-amber-950/20 text-amber-200";
 }
@@ -239,6 +243,33 @@ export default function DealChecklistCard({ dealId }: { dealId: string }) {
                   )}
                 </div>
                 <div className="mt-1 text-sm text-neutral-100">{it.title}</div>
+
+                {Array.isArray(it.required_years) && it.required_years.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {it.required_years
+                      .map((y) => Number(y))
+                      .filter((y) => Number.isFinite(y))
+                      .sort((a, b) => b - a)
+                      .map((y) => {
+                        const satisfied = Array.isArray(it.satisfied_years)
+                          ? it.satisfied_years.includes(y)
+                          : false;
+                        return (
+                          <span
+                            key={String(y)}
+                            className={
+                              satisfied
+                                ? "rounded-full border border-emerald-900/40 bg-emerald-950/20 px-2 py-0.5 text-[11px] text-emerald-200"
+                                : "rounded-full border border-amber-900/40 bg-amber-950/20 px-2 py-0.5 text-[11px] text-amber-200"
+                            }
+                          >
+                            {y}
+                          </span>
+                        );
+                      })}
+                  </div>
+                ) : null}
+
                 <div className="mt-1 text-xs opacity-80">
                   Key: <span className="font-mono">{it.checklist_key}</span>
                   {it.received_at ? ` • Received: ${new Date(it.received_at).toLocaleString()}` : ""}

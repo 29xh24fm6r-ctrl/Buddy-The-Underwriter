@@ -8,6 +8,21 @@ export const dynamic = "force-dynamic";
 
 type Preset = "core" | "sba7a" | "sba504";
 
+function defaultRequiredYearsFromKey(checklistKeyRaw: string): number[] | null {
+  const key = String(checklistKeyRaw || "").toUpperCase();
+  const m = key.match(/_(\d)Y\b/);
+  if (!m) return null;
+
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return null;
+
+  const currentYear = new Date().getUTCFullYear();
+  const lastFiled = currentYear - 1;
+  const years: number[] = [];
+  for (let i = 0; i < n; i++) years.push(lastFiled - i);
+  return years;
+}
+
 const PRESETS: Record<
   Preset,
   { checklist_key: string; title: string; required: boolean }[]
@@ -20,12 +35,12 @@ const PRESETS: Record<
     },
     {
       checklist_key: "IRS_BUSINESS_2Y",
-      title: "Business tax returns (last 2 years)",
+      title: "Business tax returns",
       required: true,
     },
     {
       checklist_key: "IRS_PERSONAL_2Y",
-      title: "Personal tax returns (last 2 years)",
+      title: "Personal tax returns",
       required: true,
     },
     {
@@ -87,16 +102,33 @@ export async function POST(
     } | null;
     const preset = (body?.preset || "core") as Preset;
 
-    const rows = (PRESETS[preset] || PRESETS.core).map((x) => ({
+    const baseRows = (PRESETS[preset] || PRESETS.core).map((x) => ({
       deal_id: dealId,
       checklist_key: x.checklist_key,
       title: x.title,
       required: x.required,
     }));
 
-    const { error } = await supabaseAdmin()
+    const rowsWithYears = baseRows.map((r) => {
+      const years = defaultRequiredYearsFromKey(r.checklist_key);
+      return years ? ({ ...r, required_years: years } as any) : r;
+    });
+
+    const sb = supabaseAdmin();
+    const attempt1 = await sb
       .from("deal_checklist_items")
-      .upsert(rows, { onConflict: "deal_id,checklist_key" });
+      .upsert(rowsWithYears as any, { onConflict: "deal_id,checklist_key" });
+
+    let error = attempt1.error;
+    if (error) {
+      const msg = String(error.message || "");
+      if (msg.toLowerCase().includes("does not exist") && msg.includes("required_years")) {
+        const attempt2 = await sb
+          .from("deal_checklist_items")
+          .upsert(baseRows as any, { onConflict: "deal_id,checklist_key" });
+        error = attempt2.error;
+      }
+    }
 
     if (error) {
       console.error("[/api/deals/[dealId]/checklist/seed]", error);
@@ -115,7 +147,7 @@ export async function POST(
         .eq("deal_id", dealId)
         .in(
           "checklist_key",
-          rows.map((r) => r.checklist_key),
+          baseRows.map((r) => r.checklist_key),
         )
         .is("status", null);
     } catch (e) {
@@ -129,13 +161,13 @@ export async function POST(
       actorUserId: userId,
       input: {
         preset,
-        checklist_keys: rows.map((r) => r.checklist_key),
-        count_inserted: rows.length,
+        checklist_keys: baseRows.map((r) => r.checklist_key),
+        count_inserted: baseRows.length,
       },
       meta: { route: "checklist/seed" },
     });
 
-    return NextResponse.json({ ok: true, count: rows.length, event_emitted: true });
+    return NextResponse.json({ ok: true, count: baseRows.length, event_emitted: true });
   } catch (error: any) {
     console.error("[/api/deals/[dealId]/checklist/seed]", error);
     return NextResponse.json({

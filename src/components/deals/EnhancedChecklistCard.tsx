@@ -19,17 +19,36 @@ const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then(async (r
   return json;
 });
 
-export function EnhancedChecklistCard({ dealId }: { dealId: string }) {
-  const { data, error, isLoading, mutate } = useSWR(`/api/deals/${dealId}/checklist/list`, fetcher);
+export function EnhancedChecklistCard({
+  dealId,
+  onRefresh,
+}: {
+  dealId: string;
+  onRefresh?: (refreshFn: () => Promise<void>) => void;
+}) {
+  const { data, error, isLoading, mutate } = useSWR(
+    `/api/deals/${dealId}/checklist/list`,
+    fetcher,
+  );
+
+  const refresh = React.useCallback(async () => {
+    await mutate();
+  }, [mutate]);
+
+  // Expose refresh function to parent (DealCockpitClient)
+  React.useEffect(() => {
+    if (!onRefresh) return;
+    onRefresh(refresh);
+  }, [onRefresh, refresh]);
 
   // Listen for checklist refresh events
   React.useEffect(() => {
     const cleanup = onChecklistRefresh(dealId, () => {
       console.log('[EnhancedChecklistCard] Checklist refresh event received, revalidating...');
-      mutate();
+      void refresh();
     });
     return cleanup;
-  }, [dealId, mutate]);
+  }, [dealId, refresh]);
 
   // Debug logging
   React.useEffect(() => {
@@ -93,7 +112,7 @@ export function EnhancedChecklistCard({ dealId }: { dealId: string }) {
             <h3 className="text-sm font-semibold">Deal Checklist</h3>
           </div>
           <button
-            onClick={() => mutate()}
+            onClick={() => void refresh()}
             className="rounded-lg border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50"
           >
             Refresh

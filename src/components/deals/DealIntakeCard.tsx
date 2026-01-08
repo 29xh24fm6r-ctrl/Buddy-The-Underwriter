@@ -51,6 +51,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [autoSeeding, setAutoSeeding] = useState(false);
+  const [aiRecognizing, setAiRecognizing] = useState(false);
   const [showManualRecognition, setShowManualRecognition] = useState(false);
   const [matchMessage, setMatchMessage] = useState<string | null>(null);
   const [partialMode, setPartialMode] = useState(false);
@@ -251,7 +252,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
             `${optionalTotal != null ? `• Optional items (total): ${optionalTotal}\n` : ""}` +
             `${forceOverride ? "• Admin override used\n" : ""}` +
             `${partialMode ? "• Partial mode (matched docs only)\n" : ""}` +
-            `\nRefreshing page in 2 seconds...`
+            `\nRefreshing checklist…`
           );
           
           // 🔥 Emit checklist refresh event for auto-updates
@@ -263,12 +264,6 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
             console.log("[DealIntakeCard] Triggering checklist refresh callback");
             await onChecklistSeeded();
           }
-          
-          // Refresh after delay to show updates
-          setTimeout(() => {
-            console.log("[DealIntakeCard] Reloading page...");
-            window.location.reload();
-          }, 2000);
         } else {
           setMatchMessage(
             `⚠️ Saved intake but auto-seed ${seedJson.status || "failed"}:\n${seedJson.error || seedJson.message || "Unknown error"}\n\nCheck browser console for details.`
@@ -277,13 +272,58 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         }
         setAutoSeeding(false);
       } else {
-        setTimeout(() => window.location.reload(), 1000);
+        // Intake saved without seeding; do not force-reload (avoids aborting in-flight API requests).
+        emitChecklistRefresh(dealId);
+        if (onChecklistSeeded) {
+          await onChecklistSeeded();
+        }
       }
     } catch (error: any) {
       console.error("[DealIntakeCard] Error during save:", error);
       setMatchMessage(`❌ Error: ${error?.message || "Unknown error"}\n\nCheck browser console for details.`);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function runAiDocRecognition() {
+    if (!hasValidDealId) return;
+    setAiRecognizing(true);
+    setMatchMessage("🧠 Running AI doc recognition (OCR + classify)…");
+    try {
+      const res = await fetch(`/api/deals/${dealId}/documents/intel/run`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit: 25 }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        setMatchMessage(
+          `⚠️ Doc recognition failed:\n${json?.error || "Unknown error"}`,
+        );
+        return;
+      }
+
+      const processed = Number(json?.processed ?? 0) || 0;
+      const stamped = Number(json?.stamped ?? 0) || 0;
+      const analyzed = Number(json?.analyzed ?? 0) || 0;
+
+      setMatchMessage(
+        `✅ Doc recognition complete.\n` +
+          `• Processed: ${processed}\n` +
+          `• Stamped type/years: ${stamped}\n` +
+          `• AI analyzed: ${analyzed}\n\n` +
+          `Refreshing checklist…`,
+      );
+
+      emitChecklistRefresh(dealId);
+      if (onChecklistSeeded) {
+        await onChecklistSeeded();
+      }
+    } catch (e: any) {
+      setMatchMessage(`❌ Doc recognition error: ${e?.message || String(e)}`);
+    } finally {
+      setAiRecognizing(false);
     }
   }
 
@@ -446,6 +486,21 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
             : isReady 
             ? "Auto-Seed Checklist ✓" 
             : `Processing ${persistedUploads}/${expectedUploads}…`}
+        </button>
+
+        <button
+          type="button"
+          onClick={runAiDocRecognition}
+          disabled={saving || autoSeeding || aiRecognizing}
+          className={cn(
+            "w-full rounded-xl px-3 py-2 text-sm font-semibold transition-all",
+            (saving || autoSeeding || aiRecognizing)
+              ? "bg-blue-600 text-white cursor-wait animate-pulse"
+              : "bg-white text-neutral-900",
+          )}
+          title="Runs Azure OCR + (optional) OpenAI classification to detect doc type + years"
+        >
+          {aiRecognizing ? "Recognizing docs…" : "AI Doc Recognition"}
         </button>
 
         <button

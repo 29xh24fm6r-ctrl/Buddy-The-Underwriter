@@ -63,16 +63,41 @@ export async function getChecklistState(args: {
       .maybeSingle();
 
     // Fetch checklist rows.
-    // IMPORTANT: Keep this select list conservative to survive schema drift in prod.
-    // Additional v2 fields can be added later once fully migrated everywhere.
-    const sel = includeItems
-      ? "id,deal_id,checklist_key,status,required,title,description,created_at"
+    // IMPORTANT: Be schema-tolerant: try selecting v2 fields, then fall back.
+    const baseSel = includeItems
+      ? "id,deal_id,checklist_key,status,required,title,description,created_at,received_at,satisfied_at,satisfaction_json,required_years,satisfied_years"
       : "id,status,required";
 
-    const { data: rows, error: rowsErr } = await sb
-      .from("deal_checklist_items")
-      .select(sel)
-      .eq("deal_id", dealId);
+    let rows: any[] | null = null;
+    let rowsErr: any = null;
+    {
+      const attempt = await sb
+        .from("deal_checklist_items")
+        .select(baseSel)
+        .eq("deal_id", dealId);
+
+      rows = attempt.data;
+      rowsErr = attempt.error;
+
+      if (rowsErr && includeItems) {
+        const msg = String((rowsErr as any)?.message ?? rowsErr?.toString() ?? "");
+        if (
+          msg.toLowerCase().includes("does not exist") &&
+          (msg.includes("required_years") ||
+            msg.includes("satisfied_years") ||
+            msg.includes("received_at") ||
+            msg.includes("satisfied_at") ||
+            msg.includes("satisfaction_json"))
+        ) {
+          const fallback = await sb
+            .from("deal_checklist_items")
+            .select("id,deal_id,checklist_key,status,required,title,description,created_at")
+            .eq("deal_id", dealId);
+          rows = fallback.data;
+          rowsErr = fallback.error;
+        }
+      }
+    }
       
     if (rowsErr) {
       const le = latestEvent?.created_at;
