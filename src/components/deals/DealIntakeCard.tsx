@@ -3,6 +3,7 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
 import { motion } from "framer-motion";
 import { emitChecklistRefresh } from "@/lib/events/uiEvents";
+import DealChecklistCard from "@/components/deals/DealChecklistCard";
 import { cn } from "@/lib/utils";
 
 type LoanType = "CRE" | "CRE_OWNER_OCCUPIED" | "CRE_INVESTOR" | "CRE_OWNER_OCCUPIED_WITH_RENT" | "LOC" | "TERM" | "SBA_7A" | "SBA_504";
@@ -50,6 +51,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [autoSeeding, setAutoSeeding] = useState(false);
+  const [showManualRecognition, setShowManualRecognition] = useState(false);
   const [matchMessage, setMatchMessage] = useState<string | null>(null);
   const [partialMode, setPartialMode] = useState(false);
   
@@ -446,6 +448,14 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
             : `Processing ${persistedUploads}/${expectedUploads}…`}
         </button>
 
+        <button
+          type="button"
+          onClick={() => setShowManualRecognition((v) => !v)}
+          className="w-full rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm font-semibold text-neutral-200 hover:bg-neutral-800"
+        >
+          {showManualRecognition ? "Hide Manual Doc Recognition" : "Manual Doc Recognition"}
+        </button>
+
         {/* Admin override button */}
         {isAdmin && !isReady && (
           <button
@@ -459,6 +469,12 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
           </button>
         )}
       </form>
+
+      {showManualRecognition ? (
+        <div className="mt-4">
+          <DealChecklistCard dealId={dealId} />
+        </div>
+      ) : null}
     </div>
   );
 });
