@@ -109,23 +109,54 @@ export async function reconcileDealChecklist(dealId: string) {
     throw new Error(`docs_matched_read_failed: ${matchedDocsErr.message}`);
   }
 
-  const matchedKeys = Array.from(
-    new Set(
-      (matchedDocs || [])
-        .map((d: any) => String(d.checklist_key || "").trim())
-        .filter(Boolean),
-    ),
-  );
+  const { data: checklistItems, error: checklistItemsErr } = await sb
+    .from("deal_checklist_items")
+    // NOTE: min_required is optional today; safe to select even if null in rows.
+    .select("id, checklist_key, status, min_required")
+    .eq("deal_id", dealId);
 
-  if (matchedKeys.length > 0) {
-    const { error: updChecklistErr } = await sb
-      .from("deal_checklist_items")
-      .update({ status: "received" })
-      .eq("deal_id", dealId)
-      .in("checklist_key", matchedKeys);
+  if (checklistItemsErr) {
+    throw new Error(`checklist_read_failed: ${checklistItemsErr.message}`);
+  }
 
-    if (updChecklistErr) {
-      throw new Error(`checklist_mark_received_failed: ${updChecklistErr.message}`);
+  const docsByKey = new Map<string, any[]>();
+  for (const d of matchedDocs || []) {
+    const key = String((d as any)?.checklist_key || "").trim();
+    if (!key) continue;
+    const arr = docsByKey.get(key) ?? [];
+    arr.push(d);
+    docsByKey.set(key, arr);
+  }
+
+  let checklistMarkedReceived = 0;
+
+  // IMPORTANT: Reconcile must be checklist-driven, not document-driven.
+  // Loop each checklist item and see if we have enough docs for that key.
+  for (const item of checklistItems || []) {
+    const key = String((item as any)?.checklist_key || "").trim();
+    if (!key) continue;
+
+    const docsForKey = docsByKey.get(key) ?? [];
+    if (docsForKey.length === 0) continue;
+
+    const minRequiredRaw = (item as any)?.min_required;
+    const minRequired = minRequiredRaw ? Number(minRequiredRaw) : 0;
+    if (minRequired && docsForKey.length < minRequired) continue;
+
+    if ((item as any)?.status !== "received") {
+      const { error: updChecklistErr } = await sb
+        .from("deal_checklist_items")
+        .update({
+          status: "received",
+          received_at: new Date().toISOString(),
+        })
+        .eq("id", (item as any).id);
+
+      if (updChecklistErr) {
+        throw new Error(`checklist_mark_received_failed: ${updChecklistErr.message}`);
+      }
+
+      checklistMarkedReceived += 1;
     }
   }
 
@@ -136,6 +167,7 @@ export async function reconcileDealChecklist(dealId: string) {
     ruleset: rs?.key ?? null,
     seeded: rows.length,
     docsMatched,
+    checklistMarkedReceived,
     message: rs ? undefined : "No ruleset for loan type (documents still stamped)",
   };
 }

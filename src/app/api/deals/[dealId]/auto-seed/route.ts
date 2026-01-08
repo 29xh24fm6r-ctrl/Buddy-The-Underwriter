@@ -457,51 +457,69 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       // Continue anyway
     }
 
-    // 🔥 7️⃣ RECONCILE: Mark checklist items as received if matching docs exist
+    // 🔥 7️⃣ RECONCILE (checklist-driven): Mark checklist items as received if matching docs exist
     // This handles:
     // - Docs uploaded BEFORE checklist seeded
     // - Checklist keys stamped during auto-match above
     // - Any ordering/timing issues
+    //
+    // IMPORTANT: This must be checklist-driven (loop items), not document-driven (loop docs).
+    // Also: do NOT stamp/mutate deal_documents rows here; only mark checklist received.
     try {
-      const [{ data: docs }, { data: files }] = await Promise.all([
-        sb.from("deal_documents")
-          .select("checklist_key")
-          .eq("deal_id", dealId)
-          .not("checklist_key", "is", null),
-        sb.from("deal_files")
-          .select("checklist_key")
-          .eq("deal_id", dealId)
-          .not("checklist_key", "is", null),
-      ]);
+      const [{ data: docs }, { data: files }, { data: items, error: itemsErr }] =
+        await Promise.all([
+          sb
+            .from("deal_documents")
+            .select("checklist_key")
+            .eq("deal_id", dealId)
+            .not("checklist_key", "is", null),
+          sb
+            .from("deal_files")
+            .select("checklist_key")
+            .eq("deal_id", dealId)
+            .not("checklist_key", "is", null),
+          sb
+            .from("deal_checklist_items")
+            .select("id, checklist_key, status, received_at, min_required")
+            .eq("deal_id", dealId),
+        ]);
 
-      const keys = new Set<string>();
-      (docs || []).forEach((r: any) => {
-        if (r.checklist_key && String(r.checklist_key).trim()) {
-          keys.add(String(r.checklist_key));
-        }
-      });
-      (files || []).forEach((r: any) => {
-        if (r.checklist_key && String(r.checklist_key).trim()) {
-          keys.add(String(r.checklist_key));
-        }
-      });
+      if (itemsErr) throw itemsErr;
 
-      const keyList = Array.from(keys);
-      if (keyList.length > 0) {
-        const { data: reconciled } = await sb
-          .from("deal_checklist_items")
-          .update({ 
-            received_at: new Date().toISOString(), 
-            status: "received",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("deal_id", dealId)
-          .in("checklist_key", keyList)
-          .is("received_at", null)
-          .select("id");
-
-        console.log("[auto-seed] Reconciled", reconciled?.length || 0, "items with existing docs");
+      const countsByKey = new Map<string, number>();
+      for (const r of [...(docs || []), ...(files || [])] as any[]) {
+        const key = String((r as any)?.checklist_key || "").trim();
+        if (!key) continue;
+        countsByKey.set(key, (countsByKey.get(key) ?? 0) + 1);
       }
+
+      let reconciledCount = 0;
+      for (const item of (items || []) as any[]) {
+        const key = String(item?.checklist_key || "").trim();
+        if (!key) continue;
+
+        const count = countsByKey.get(key) ?? 0;
+        if (count === 0) continue;
+
+        const minRequiredRaw = item?.min_required;
+        const minRequired = minRequiredRaw ? Number(minRequiredRaw) : 0;
+        if (minRequired && count < minRequired) continue;
+
+        if (item?.status !== "received" || !item?.received_at) {
+          const { error: updErr } = await sb
+            .from("deal_checklist_items")
+            .update({
+              received_at: item?.received_at ?? new Date().toISOString(),
+              status: "received",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", item.id);
+
+          if (!updErr) reconciledCount += 1;
+        }
+      }
+
+      console.log("[auto-seed] Reconciled", reconciledCount, "items with existing docs/files");
     } catch (reconcileErr) {
       console.warn("[auto-seed] reconcile non-fatal error:", reconcileErr);
     }
