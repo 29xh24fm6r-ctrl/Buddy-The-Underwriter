@@ -17,6 +17,10 @@ function uid() {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function requestId() {
+  return `req_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
 export default function NewDealClient({ bankId }: { bankId: string }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -82,10 +86,11 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
       // 1. Create the deal
       const ac = new AbortController();
       const t = setTimeout(() => ac.abort(), 20000);
+      const rid = requestId();
 
       const createRes = await fetch("/api/deals", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-request-id": rid },
         signal: ac.signal,
         body: JSON.stringify({ 
           name: dealName || `Deal - ${new Date().toLocaleDateString()}` 
@@ -137,7 +142,16 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
       router.push(`/deals/${dealId}/cockpit`);
     } catch (error) {
       console.error("Upload failed:", error);
-      alert(error instanceof Error ? error.message : "Upload failed");
+
+      const msg = (() => {
+        // Browser AbortError messages differ; make it actionable.
+        if ((error as any)?.name === "AbortError") {
+          return "Create deal timed out (20s). Open DevTools → Network and inspect POST /api/deals, or check Vercel logs for /api/deals.";
+        }
+        return error instanceof Error ? error.message : "Upload failed";
+      })();
+
+      alert(msg);
     } finally {
       setUploading(false);
     }

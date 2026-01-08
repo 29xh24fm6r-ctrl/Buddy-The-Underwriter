@@ -16,14 +16,24 @@ function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T
 }
 
 export async function POST(req: Request) {
+  const startedAt = Date.now();
+  const requestId = req.headers.get("x-request-id") || crypto.randomUUID();
   try {
+    console.log("[api/deals] start", {
+      requestId,
+      hasClerk: Boolean(process.env.CLERK_SECRET_KEY),
+      hasSupabaseUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL),
+      hasServiceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY),
+    });
+
     const bankId = await withTimeout(getCurrentBankId(), 12_000, "getCurrentBankId");
+    console.log("[api/deals] bank resolved", { requestId, ms: Date.now() - startedAt });
     const body = await req.json().catch(() => ({}) as any);
     const name = String(body?.name || "").trim();
 
     if (!name) {
       return NextResponse.json(
-        { ok: false, error: "missing_deal_name" },
+        { ok: false, error: "missing_deal_name", request_id: requestId },
         { status: 400 },
       );
     }
@@ -99,27 +109,36 @@ export async function POST(req: Request) {
 
     if (error || !deal?.id) {
       return NextResponse.json(
-        { ok: false, error: error?.message || "failed" },
+        { ok: false, error: error?.message || "failed", request_id: requestId },
         { status: 500 },
       );
     }
 
-    return NextResponse.json({ ok: true, dealId: deal.id }, { status: 201 });
+    console.log("[api/deals] created", {
+      requestId,
+      dealId: deal.id,
+      ms: Date.now() - startedAt,
+    });
+
+    return NextResponse.json(
+      { ok: true, dealId: deal.id, request_id: requestId },
+      { status: 201 },
+    );
   } catch (err: any) {
     if (String(err?.message || "").startsWith("timeout:")) {
       return NextResponse.json(
-        { ok: false, error: err.message },
+        { ok: false, error: err.message, request_id: requestId },
         { status: 504 },
       );
     }
     if (err?.message?.includes("bank_not_selected")) {
       return NextResponse.json(
-        { ok: false, error: "bank_not_selected" },
+        { ok: false, error: "bank_not_selected", request_id: requestId },
         { status: 403 },
       );
     }
     return NextResponse.json(
-      { ok: false, error: err?.message || "failed" },
+      { ok: false, error: err?.message || "failed", request_id: requestId },
       { status: 500 },
     );
   }
