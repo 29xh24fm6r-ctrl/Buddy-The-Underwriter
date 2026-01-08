@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { signUploadUrl } from "@/lib/uploads/sign";
 import crypto from "node:crypto";
@@ -63,8 +63,21 @@ export async function POST(req: NextRequest, ctx: Context) {
   try {
     const { userId } = await clerkAuth();
     if (!userId) {
+      console.warn("[files/sign] unauthorized", {
+        clerkConfigured: isClerkConfigured(),
+        hasCookie: Boolean(req.headers.get("cookie")),
+        host: req.headers.get("host"),
+        origin: req.headers.get("origin"),
+        referer: req.headers.get("referer"),
+        userAgent: req.headers.get("user-agent"),
+      });
       return NextResponse.json(
-        { ok: false, error: "Unauthorized" },
+        {
+          ok: false,
+          error: "Unauthorized",
+          details:
+            "No Clerk session on this request. Ensure you are signed in on this host and retry. If using a forwarded port domain (e.g. *.app.github.dev), ensure it is allowed in Clerk settings.",
+        },
         { status: 401 },
       );
     }

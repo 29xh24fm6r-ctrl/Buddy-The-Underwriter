@@ -2,6 +2,8 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+const AUTO_MATCH_CHECKLIST_VERSION = "2026-01-08-update";
+
 function normDocType(x: string) {
   return String(x || "")
     .trim()
@@ -175,6 +177,15 @@ export async function autoMatchChecklistFromFilename(params: {
 }): Promise<{ matched: string[]; updated: number }> {
   const sb = supabaseAdmin();
 
+  // Safe, one-time marker so Vercel logs can confirm the deployed version.
+  const g = globalThis as unknown as { __buddyAutoMatchChecklistVersion?: string };
+  if (g.__buddyAutoMatchChecklistVersion !== AUTO_MATCH_CHECKLIST_VERSION) {
+    g.__buddyAutoMatchChecklistVersion = AUTO_MATCH_CHECKLIST_VERSION;
+    console.log("[auto-match] version", {
+      version: AUTO_MATCH_CHECKLIST_VERSION,
+    });
+  }
+
   // 0) Prefer doc_intel (OCR/classification) when available for this file.
   // This makes matching resilient to arbitrary filenames.
   if (params.fileId) {
@@ -220,19 +231,26 @@ export async function autoMatchChecklistFromFilename(params: {
             return { matched: matchedKeys, updated: 0 };
           }
 
-          const updates = toUpdate.map((item) => ({
-            id: item.id,
-            status: "received",
-            received_at: new Date().toISOString(),
-            received_file_id: params.fileId || null,
-          }));
+          const ids = toUpdate.map((item) => item.id).filter(Boolean);
+          const nowIso = new Date().toISOString();
 
           const { error: updateError } = await sb
             .from("deal_checklist_items")
-            .upsert(updates, { onConflict: "id" });
+            .update({
+              status: "received",
+              received_at: nowIso,
+              received_file_id: params.fileId || null,
+            })
+            .eq("deal_id", params.dealId)
+            .in("id", ids);
 
           if (updateError) {
-            console.error("Error updating checklist items:", updateError);
+            console.error("Error updating checklist items:", {
+              version: AUTO_MATCH_CHECKLIST_VERSION,
+              dealId: params.dealId,
+              idsCount: ids.length,
+              updateError,
+            });
             return { matched: matchedKeys, updated: 0 };
           }
 
@@ -281,19 +299,26 @@ export async function autoMatchChecklistFromFilename(params: {
     return { matched: matchedKeys, updated: 0 };
   }
 
-  const updates = toUpdate.map((item) => ({
-    id: item.id,
-    status: "received",
-    received_at: new Date().toISOString(),
-    received_file_id: params.fileId || null,
-  }));
+  const ids = toUpdate.map((item) => item.id).filter(Boolean);
+  const nowIso = new Date().toISOString();
 
   const { error: updateError } = await sb
     .from("deal_checklist_items")
-    .upsert(updates, { onConflict: "id" });
+    .update({
+      status: "received",
+      received_at: nowIso,
+      received_file_id: params.fileId || null,
+    })
+    .eq("deal_id", params.dealId)
+    .in("id", ids);
 
   if (updateError) {
-    console.error("Error updating checklist items:", updateError);
+    console.error("Error updating checklist items:", {
+      version: AUTO_MATCH_CHECKLIST_VERSION,
+      dealId: params.dealId,
+      idsCount: ids.length,
+      updateError,
+    });
     return { matched: matchedKeys, updated: 0 };
   }
 
