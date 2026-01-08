@@ -194,6 +194,25 @@ export async function directDealDocumentUpload(
     }
 
     console.log("[upload] success", { requestId, file_id, filename: file.name });
+
+    // Best-effort: trigger OCR/doc-intel matching in the background.
+    // Do not block the upload UX on OCR latency.
+    try {
+      const documentId = (recordData as any)?.meta?.document_id;
+      if (documentId) {
+        void fetch(`/api/deals/${dealId}/documents/intel/run`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-request-id": requestId,
+          },
+          body: JSON.stringify({ documentId }),
+        });
+      }
+    } catch {
+      // ignore
+    }
+
     return { ok: true, file_id, checklist_key: checklistKey, request_id: requestId } as UploadResult;
   } catch (error: any) {
     console.warn("[upload] unexpected error", { requestId, error: error.message });

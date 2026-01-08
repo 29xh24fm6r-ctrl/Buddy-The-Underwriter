@@ -32,8 +32,26 @@ function checklistKeysFromDocIntel(docTypeRaw: string, taxYearRaw: any): string[
   const okYear = isPlausiblyRecentTaxYear(taxYear);
 
   // Canonical mapping to deal_checklist_items.checklist_key
-  // Keep mapping conservative and deterministic.
-  if (dt === "PFS" || dt === "SBA_413") return ["PFS_CURRENT", "SBA_413"];
+  // Keep mapping conservative and deterministic, but tolerate natural AI doc_type strings.
+  // Examples seen/expected: BusinessTaxReturn, PersonalTaxReturn, BankStatements, FinancialStatement.
+  const dtLoose = dt;
+
+  if (
+    dtLoose === "PFS" ||
+    dtLoose === "SBA_413" ||
+    dtLoose.includes("PERSONAL_FINANCIAL") ||
+    dtLoose.includes("PERSONAL_FINANCIAL_STATEMENT")
+  ) {
+    return ["PFS_CURRENT", "SBA_413"];
+  }
+
+  if (dtLoose.includes("BUSINESS") && dtLoose.includes("TAX")) {
+    return okYear ? ["IRS_BUSINESS_2Y"] : [];
+  }
+
+  if (dtLoose.includes("PERSONAL") && dtLoose.includes("TAX")) {
+    return okYear ? ["IRS_PERSONAL_2Y"] : [];
+  }
 
   if (["IRS_1040", "K1", "IRS_PERSONAL"].includes(dt)) {
     return okYear ? ["IRS_PERSONAL_2Y"] : [];
@@ -43,11 +61,18 @@ function checklistKeysFromDocIntel(docTypeRaw: string, taxYearRaw: any): string[
     return okYear ? ["IRS_BUSINESS_2Y"] : [];
   }
 
-  if (dt === "FINANCIAL_STATEMENT" || dt === "INCOME_STATEMENT" || dt === "BALANCE_SHEET") {
+  if (
+    dt === "FINANCIAL_STATEMENT" ||
+    dt === "INCOME_STATEMENT" ||
+    dt === "BALANCE_SHEET" ||
+    dtLoose.includes("FINANCIAL")
+  ) {
     return ["FIN_STMT_YTD"];
   }
 
-  if (dt === "BANK_STATEMENT") return ["BANK_STMT_3M"];
+  if (dt === "BANK_STATEMENT" || dtLoose.includes("BANK") && dtLoose.includes("STATEMENT")) {
+    return ["BANK_STMT_3M"];
+  }
 
   if (dt === "AR_AGING" || dt === "ACCOUNTS_RECEIVABLE_AGING") return ["AR_AGING"];
   if (dt === "AP_AGING" || dt === "ACCOUNTS_PAYABLE_AGING") return ["AP_AGING"];
