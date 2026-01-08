@@ -123,6 +123,9 @@ export async function register() {
         });
 
         const sdk = new NodeSDK({
+          // Vercel/serverless environments typically don't expose host machine IDs
+          // (e.g. /var/lib/dbus/machine-id). Auto-detection can spam logs.
+          autoDetectResources: false,
           resource: resources.resourceFromAttributes({
             [SEMRESATTRS_SERVICE_NAME]: serviceName,
             ...(serviceVersion
