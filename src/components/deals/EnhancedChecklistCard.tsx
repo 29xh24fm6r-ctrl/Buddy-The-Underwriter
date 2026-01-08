@@ -44,8 +44,15 @@ export function EnhancedChecklistCard({ dealId }: { dealId: string }) {
 
   const isProcessing = data?.state === 'processing';
   const items = data?.items || [];
-  const received = items.filter((i: any) => i.status === 'received' || i.status === 'satisfied');
-  const pending = items.filter((i: any) => i.status === 'pending' || i.status === 'missing' || !i.status);
+  const normStatus = (s: any) => String(s || '').toLowerCase().trim();
+  const received = items.filter((i: any) => {
+    const st = normStatus(i.status);
+    return st === 'received' || st === 'satisfied';
+  });
+  const pending = items.filter((i: any) => {
+    const st = normStatus(i.status);
+    return st === 'pending' || st === 'missing' || !st;
+  });
   const optional = items.filter((i: any) => !i.required);
   
   console.log('[EnhancedChecklistCard] Items breakdown:', {
