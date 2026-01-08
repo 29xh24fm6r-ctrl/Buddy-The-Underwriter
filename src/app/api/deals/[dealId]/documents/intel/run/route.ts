@@ -53,29 +53,13 @@ async function extractTextWithAzureDI(bytes: Buffer): Promise<string> {
  * Best-effort: For one document or a small batch, download from storage, run Azure DI OCR,
  * run doc-intel (OpenAI JSON), persist into doc_intel_results, then auto-match checklist.
  */
-export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
-  const { userId } = await clerkAuth();
-  if (!userId) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { dealId } = await ctx.params;
-  const ensured = await ensureDealBankAccess(dealId);
-  if (!ensured.ok) {
-    const statusCode = ensured.error === "deal_not_found" ? 404 : ensured.error === "tenant_mismatch" ? 403 : 401;
-    return NextResponse.json({ ok: false, error: ensured.error }, { status: statusCode });
-  }
-
-  let body: z.infer<typeof BodySchema>;
-  try {
-    body = BodySchema.parse(await req.json());
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const documentId = body?.documentId ?? null;
-  const limit = body?.limit ?? 5;
-
+async function runIntelForDeal(args: {
+  req: NextRequest;
+  dealId: string;
+  documentId: string | null;
+  limit: number;
+}) {
+  const { dealId, documentId, limit } = args;
   const sb = supabaseAdmin();
 
   // Load docs (one or small batch)
@@ -90,12 +74,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
   const { data: docs, error: docsErr } = await docsRes;
 
   if (docsErr) {
-    return NextResponse.json({ ok: false, error: "Failed to load deal documents", details: docsErr }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "Failed to load deal documents", details: docsErr },
+      { status: 500, headers: { "cache-control": "no-store" } },
+    );
   }
 
   const list = docs ?? [];
   if (list.length === 0) {
-    return NextResponse.json({ ok: true, processed: 0, analyzed: 0, matched: 0, updated: 0, results: [] });
+    return NextResponse.json(
+      { ok: true, processed: 0, analyzed: 0, matched: 0, updated: 0, results: [] },
+      { headers: { "cache-control": "no-store" } },
+    );
   }
 
   let analyzed = 0;
@@ -230,13 +220,103 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     }
   }
 
-  return NextResponse.json({
-    ok: true,
+  return NextResponse.json(
+    {
+      ok: true,
+      dealId,
+      processed: list.length,
+      analyzed,
+      matched,
+      updated,
+      results,
+    },
+    { headers: { "cache-control": "no-store" } },
+  );
+}
+
+/**
+ * GET /api/deals/[dealId]/documents/intel/run
+ *
+ * Browser-friendly: returns instructions by default.
+ * Add ?run=1 to actually execute.
+ */
+export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
+  const { userId } = await clerkAuth();
+  if (!userId) {
+    return NextResponse.json(
+      { ok: false, error: "Unauthorized" },
+      { status: 401, headers: { "cache-control": "no-store" } },
+    );
+  }
+
+  const { dealId } = await ctx.params;
+  const ensured = await ensureDealBankAccess(dealId);
+  if (!ensured.ok) {
+    const statusCode = ensured.error === "deal_not_found" ? 404 : ensured.error === "tenant_mismatch" ? 403 : 401;
+    return NextResponse.json(
+      { ok: false, error: ensured.error },
+      { status: statusCode, headers: { "cache-control": "no-store" } },
+    );
+  }
+
+  const url = new URL(req.url);
+  const run = url.searchParams.get("run") === "1";
+  const limit = Math.max(1, Math.min(25, Number(url.searchParams.get("limit") || "5") || 5));
+  const documentId = url.searchParams.get("documentId");
+
+  if (!run) {
+    return NextResponse.json(
+      {
+        ok: true,
+        message: "Use POST, or GET with ?run=1 to execute.",
+        examples: {
+          run_latest_5: `/api/deals/${dealId}/documents/intel/run?run=1&limit=5`,
+          run_one: `/api/deals/${dealId}/documents/intel/run?run=1&documentId=<document-uuid>`,
+        },
+      },
+      { headers: { "cache-control": "no-store" } },
+    );
+  }
+
+  return runIntelForDeal({
+    req,
     dealId,
-    processed: list.length,
-    analyzed,
-    matched,
-    updated,
-    results,
+    documentId: documentId && /^[0-9a-fA-F-]{36}$/.test(documentId) ? documentId : null,
+    limit,
   });
+}
+
+export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
+  const { userId } = await clerkAuth();
+  if (!userId) {
+    return NextResponse.json(
+      { ok: false, error: "Unauthorized" },
+      { status: 401, headers: { "cache-control": "no-store" } },
+    );
+  }
+
+  const { dealId } = await ctx.params;
+  const ensured = await ensureDealBankAccess(dealId);
+  if (!ensured.ok) {
+    const statusCode = ensured.error === "deal_not_found" ? 404 : ensured.error === "tenant_mismatch" ? 403 : 401;
+    return NextResponse.json(
+      { ok: false, error: ensured.error },
+      { status: statusCode, headers: { "cache-control": "no-store" } },
+    );
+  }
+
+  let body: z.infer<typeof BodySchema>;
+  try {
+    body = BodySchema.parse(await req.json());
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "Invalid JSON body" },
+      { status: 400, headers: { "cache-control": "no-store" } },
+    );
+  }
+
+  const documentId = body?.documentId ?? null;
+  const limit = body?.limit ?? 5;
+
+  return runIntelForDeal({ req, dealId, documentId, limit });
 }

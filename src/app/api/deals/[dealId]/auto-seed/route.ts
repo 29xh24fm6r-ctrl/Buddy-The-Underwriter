@@ -12,6 +12,7 @@ import { reconcileUploadsForDeal } from "@/lib/documents/reconcileUploads";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { reconcileDealChecklist } from "@/lib/checklist/engine";
 import { getChecklistState } from "@/lib/checklist/getChecklistState";
+import { SpanStatusCode, trace } from "@opentelemetry/api";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +36,40 @@ type Ctx = { params: Promise<{ dealId: string }> };
  * Returns deterministic status, UI renders accordingly.
  */
 export async function POST(req: NextRequest, ctx: Ctx) {
-  try {
+  const tracer = trace.getTracer("api.auto-seed");
+
+  return await tracer.startActiveSpan("auto-seed.POST", async (rootSpan) => {
+    try {
+      // Add standard HTTP attributes so Honeycomb queries can group/filter by http.*
+      // (Next.js auto-instrumentation may not always populate these for custom spans.)
+      rootSpan.setAttribute("http.method", req.method);
+      rootSpan.setAttribute("http.request.method", req.method);
+      rootSpan.setAttribute("http.route", "/api/deals/[dealId]/auto-seed");
+      rootSpan.setAttribute("http.target", req.nextUrl.pathname + req.nextUrl.search);
+      const host = req.headers.get("host");
+      if (host) rootSpan.setAttribute("http.host", host);
+
+      // One-time env diagnostic (safe, no secrets) to confirm Honeycomb/OTel is enabled in Vercel.
+      // This is intentionally logged from the auto-seed route so it shows up even when
+      // Vercel log filters are set to "auto-seed".
+      const g = globalThis as unknown as { __buddyOtelEnvLogged?: boolean };
+      if (!g.__buddyOtelEnvLogged) {
+        g.__buddyOtelEnvLogged = true;
+        console.log("[otel] env-check", {
+          hasHoneycombApiKey: Boolean(process.env.HONEYCOMB_API_KEY),
+          hasHoneycombDataset: Boolean(process.env.HONEYCOMB_DATASET),
+          honeycombDataset: process.env.HONEYCOMB_DATASET || null,
+          hasOtlpEndpoint: Boolean(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
+          hasOtlpHeaders: Boolean(process.env.OTEL_EXPORTER_OTLP_HEADERS),
+          serviceName:
+            process.env.OTEL_SERVICE_NAME ||
+            process.env.NEXT_PUBLIC_OTEL_SERVICE_NAME ||
+            "buddy-the-underwriter",
+          vercelEnv: process.env.VERCEL_ENV || null,
+          vercelRegion: process.env.VERCEL_REGION || null,
+        });
+      }
+
     const { dealId } = await ctx.params;
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
@@ -49,6 +83,13 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // IMPORTANT: When match=0, auto-seed should NOT touch deal_documents rows.
     // This prevents downstream systems from treating auto-seed as a doc-processing trigger.
     const match = url.searchParams.get("match") !== "0";
+
+    rootSpan.setAttribute("deal.id", dealId);
+    rootSpan.setAttribute("bank.id", bankId);
+    rootSpan.setAttribute("auto_seed.partial", partial);
+    rootSpan.setAttribute("auto_seed.force", force);
+    rootSpan.setAttribute("auto_seed.match", match);
+    if (expected !== null) rootSpan.setAttribute("auto_seed.expected", expected);
 
     console.log("[auto-seed] Processing request for dealId:", dealId, { expected, partial, force, match });
 
@@ -73,6 +114,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const exp = expected ?? persisted;
     const remaining = Math.max(0, exp - persisted);
     const ready = remaining === 0;
+
+    rootSpan.setAttribute("auto_seed.persisted", persisted);
+    rootSpan.setAttribute("auto_seed.exp", exp);
+    rootSpan.setAttribute("auto_seed.remaining", remaining);
+    rootSpan.setAttribute("auto_seed.ready", ready);
 
     // Blocking rules
     if (!ready && !partial) {
@@ -127,11 +173,28 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     // 1️⃣ Get deal intake info (loan_type lives in deal_intake table, NOT deals table)
-    const { data: intake, error: intakeErr } = await sb
-      .from("deal_intake")
-      .select("loan_type, sba_program")
-      .eq("deal_id", dealId)
-      .single();
+    const { data: intake, error: intakeErr } = await tracer.startActiveSpan(
+      "auto-seed.fetch-intake",
+      async (span) => {
+        try {
+          const res = await sb
+            .from("deal_intake")
+            .select("loan_type, sba_program")
+            .eq("deal_id", dealId)
+            .single();
+          span.setAttribute("supabase.table", "deal_intake");
+          span.setAttribute("supabase.ok", !res.error);
+          if (res.data?.loan_type) span.setAttribute("deal.loan_type", res.data.loan_type);
+          return res;
+        } catch (e: any) {
+          span.recordException(e);
+          span.setStatus({ code: SpanStatusCode.ERROR });
+          throw e;
+        } finally {
+          span.end();
+        }
+      }
+    );
 
     console.log("[auto-seed] Intake data:", { intake, intakeErr });
 
@@ -196,33 +259,52 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     // 4️⃣ Upsert checklist items (idempotent)
-    let upsertedRows: any[] | null = null;
+    let upsertedRows: any = null;
     let seedErr: any = null;
 
-    // Try with bank_id first (canonical). If schema doesn't have bank_id, retry without.
-    {
-      const attempt1 = await sb
-        .from("deal_checklist_items")
-        .upsert(checklistRowsWithBank as any, { onConflict: "deal_id,checklist_key" })
-        .select("id");
+    await tracer.startActiveSpan("auto-seed.upsert-checklist", async (span) => {
+      try {
+        span.setAttribute("supabase.table", "deal_checklist_items");
+        span.setAttribute("checklist.seed_count", checklistRowsWithBank.length);
 
-      upsertedRows = attempt1.data as any;
-      seedErr = attempt1.error as any;
-
-      const msg = String(seedErr?.message ?? "");
-      if (seedErr && msg.includes("bank_id") && msg.includes("does not exist")) {
-        const attempt2 = await sb
+        // Try with bank_id first (canonical). If schema doesn't have bank_id, retry without.
+        const attempt1 = await sb
           .from("deal_checklist_items")
-          .upsert(checklistRowsNoBank as any, { onConflict: "deal_id,checklist_key" })
+          .upsert(checklistRowsWithBank as any, { onConflict: "deal_id,checklist_key" })
           .select("id");
-        upsertedRows = attempt2.data as any;
-        seedErr = attempt2.error as any;
-      }
-    }
 
-    console.log("[auto-seed] Upsert result:", { 
-      error: seedErr, 
-      rowsReturned: upsertedRows?.length 
+        upsertedRows = attempt1.data as any;
+        seedErr = attempt1.error as any;
+
+        const msg = String(seedErr?.message ?? "");
+        if (seedErr && msg.includes("bank_id") && msg.includes("does not exist")) {
+          span.setAttribute("checklist.bank_id_column_missing", true);
+          const attempt2 = await sb
+            .from("deal_checklist_items")
+            .upsert(checklistRowsNoBank as any, { onConflict: "deal_id,checklist_key" })
+            .select("id");
+          upsertedRows = attempt2.data as any;
+          seedErr = attempt2.error as any;
+        }
+
+        span.setAttribute("supabase.ok", !seedErr);
+        span.setAttribute(
+          "checklist.upsert_rows_returned",
+          Array.isArray(upsertedRows) ? upsertedRows.length : 0
+        );
+        if (seedErr?.message) span.setAttribute("error.message", String(seedErr.message));
+      } catch (e: any) {
+        span.recordException(e);
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        throw e;
+      } finally {
+        span.end();
+      }
+    });
+
+    console.log("[auto-seed] Upsert result:", {
+      error: seedErr,
+      rowsReturned: Array.isArray(upsertedRows) ? upsertedRows.length : 0,
     });
 
     if (seedErr) {
@@ -265,7 +347,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       });
     }
 
-    console.log("[auto-seed] Checklist items upserted successfully, rows:", upsertedRows?.length);
+    console.log(
+      "[auto-seed] Checklist items upserted successfully, rows:",
+      Array.isArray(upsertedRows) ? upsertedRows.length : 0
+    );
 
     // Ensure seeded rows are in a deterministic initial state without clobbering received items.
     // (Older seeds may have inserted rows with status NULL.)
@@ -283,7 +368,23 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     // 5️⃣ RECONCILE UPLOADS → deal_documents (canonical)
     // borrower_uploads are raw/immutable; deal_documents is canonical.
-    const reconcileRes = await reconcileUploadsForDeal(dealId, bankId);
+    const reconcileRes = await tracer.startActiveSpan(
+      "auto-seed.reconcile-uploads",
+      async (span) => {
+        try {
+          const res = await reconcileUploadsForDeal(dealId, bankId);
+          span.setAttribute("reconcile.matched", res.matched);
+          span.setStatus({ code: SpanStatusCode.OK });
+          return res;
+        } catch (e: any) {
+          span.recordException(e);
+          span.setStatus({ code: SpanStatusCode.ERROR });
+          throw e;
+        } finally {
+          span.end();
+        }
+      }
+    );
     await logLedgerEvent({
       dealId,
       bankId,
@@ -297,8 +398,19 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // This is required for banker uploads that happened BEFORE intake/checklist seeding.
     if (match) {
       try {
-        const r = await reconcileDealChecklist(dealId);
-        console.log("[auto-seed] reconcileDealChecklist", r);
+        await tracer.startActiveSpan("auto-seed.reconcile-deal-checklist", async (span) => {
+          try {
+            const r = await reconcileDealChecklist(dealId);
+            span.setStatus({ code: SpanStatusCode.OK });
+            console.log("[auto-seed] reconcileDealChecklist", r);
+          } catch (e: any) {
+            span.recordException(e);
+            span.setStatus({ code: SpanStatusCode.ERROR });
+            throw e;
+          } finally {
+            span.end();
+          }
+        });
       } catch (e) {
         console.warn("[auto-seed] reconcileDealChecklist failed (non-fatal):", e);
       }
@@ -309,24 +421,37 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // mutate deal_documents rows. It is safe to run even when match=0.
     let matchedCount = 0;
     try {
-      const { data: files } = await sb
-        .rpc("list_deal_documents", { p_deal_id: dealId });
+      await tracer.startActiveSpan("auto-seed.auto-match", async (span) => {
+        try {
+          const { data: files } = await sb.rpc("list_deal_documents", { p_deal_id: dealId });
 
-      console.log("[auto-seed] Found files for matching:", files?.length || 0);
+          const fileCount = Array.isArray(files) ? files.length : 0;
+          span.setAttribute("docs.file_count", fileCount);
+          console.log("[auto-seed] Found files for matching:", fileCount);
 
-      if (files && Array.isArray(files) && files.length > 0) {
-        for (const file of files) {
-          const result = await autoMatchChecklistFromFilename({
-            dealId,
-            filename: file.original_filename,
-            fileId: file.id,
-          });
-          console.log("[auto-seed] Match result for", file.original_filename, ":", result);
-          if (result.updated > 0) {
-            matchedCount++;
+          if (files && Array.isArray(files) && files.length > 0) {
+            for (const file of files) {
+              const result = await autoMatchChecklistFromFilename({
+                dealId,
+                filename: file.original_filename,
+                fileId: file.id,
+              });
+              console.log("[auto-seed] Match result for", file.original_filename, ":", result);
+              if (result.updated > 0) {
+                matchedCount++;
+              }
+            }
           }
+          span.setAttribute("docs.matched_count", matchedCount);
+          span.setStatus({ code: SpanStatusCode.OK });
+        } catch (e: any) {
+          span.recordException(e);
+          span.setStatus({ code: SpanStatusCode.ERROR });
+          throw e;
+        } finally {
+          span.end();
         }
-      }
+      });
     } catch (matchErr) {
       console.warn("[auto-seed] auto-match error (non-fatal):", matchErr);
       // Continue anyway
@@ -409,13 +534,27 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // kick off downstream document processing.
 
     // 🧠 CONVERGENCE: Recompute deal readiness after auto-seed
-    await recomputeDealReady(dealId);
+    await tracer.startActiveSpan("auto-seed.recompute-readiness", async (span) => {
+      try {
+        await recomputeDealReady(dealId);
+        span.setStatus({ code: SpanStatusCode.OK });
+      } catch (e: any) {
+        span.recordException(e);
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        throw e;
+      } finally {
+        span.end();
+      }
+    });
 
     // Snapshot checklist counts after reconciliation so UI can display totals.
     // This avoids confusing UX where `matchedCount` can be 0 when items were already received.
     const postChecklist = await getChecklistState({ dealId, includeItems: false });
 
 
+    rootSpan.setStatus({ code: SpanStatusCode.OK });
+    rootSpan.setAttribute("http.status_code", 200);
+    rootSpan.setAttribute("http.response.status_code", 200);
     return NextResponse.json({
       ok: true,
       dealId,
@@ -441,8 +580,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       pipeline_state: "checklist_seeded",
     });
 
-  } catch (error: any) {
+    } catch (error: any) {
     console.error("[auto-seed] unexpected error:", error);
+
+    rootSpan.recordException(error);
+    rootSpan.setStatus({ code: SpanStatusCode.ERROR });
 
     Sentry.captureException(error, {
       tags: { route: "auto-seed", phase: "unexpected" },
@@ -454,5 +596,20 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       status: "error",
       error: "Auto-seed failed. Please try again or contact support.",
     }, { status: 500 });
-  }
+    } finally {
+      // Best-effort: set status code for error cases if not already set.
+      // (Many UIs filter on http.status_code.)
+      // If a response was returned earlier (403/409), the span still ends in finally;
+      // we don't know the exact code here, but at least mark unknown if missing.
+      // Honeycomb will still show the trace by name/deal.id.
+      //
+      // NOTE: we intentionally avoid overriding an existing status_code.
+      // @ts-ignore - attribute getter not exposed; this is best-effort only.
+      if (!(rootSpan as any)._attributes?.["http.status_code"]) {
+        rootSpan.setAttribute("http.status_code", 500);
+        rootSpan.setAttribute("http.response.status_code", 500);
+      }
+      rootSpan.end();
+    }
+  });
 }
