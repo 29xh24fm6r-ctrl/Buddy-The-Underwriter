@@ -66,7 +66,7 @@ export async function getChecklistState(args: {
     // IMPORTANT: Keep this select list conservative to survive schema drift in prod.
     // Additional v2 fields can be added later once fully migrated everywhere.
     const sel = includeItems
-      ? "id,deal_id,checklist_key,status,required,title,description,created_at,received_at"
+      ? "id,deal_id,checklist_key,status,required,title,description,created_at"
       : "id,status,required";
 
     const { data: rows, error: rowsErr } = await sb
