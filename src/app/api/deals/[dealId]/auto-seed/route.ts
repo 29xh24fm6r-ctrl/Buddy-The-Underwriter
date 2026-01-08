@@ -11,6 +11,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { reconcileUploadsForDeal } from "@/lib/documents/reconcileUploads";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { reconcileDealChecklist } from "@/lib/checklist/engine";
+import { getChecklistState } from "@/lib/checklist/getChecklistState";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -410,6 +411,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // 🧠 CONVERGENCE: Recompute deal readiness after auto-seed
     await recomputeDealReady(dealId);
 
+    // Snapshot checklist counts after reconciliation so UI can display totals.
+    // This avoids confusing UX where `matchedCount` can be 0 when items were already received.
+    const postChecklist = await getChecklistState({ dealId, includeItems: false });
+
 
     return NextResponse.json({
       ok: true,
@@ -424,6 +429,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         seeded: checklistRowsWithBank.length,
         matched: matchedCount,
         total: checklistRowsWithBank.length,
+        ...(postChecklist.ok
+          ? {
+              state: postChecklist.state,
+              received_total: postChecklist.received,
+              pending_total: postChecklist.pending,
+              optional_total: postChecklist.optional,
+            }
+          : {}),
       },
       pipeline_state: "checklist_seeded",
     });

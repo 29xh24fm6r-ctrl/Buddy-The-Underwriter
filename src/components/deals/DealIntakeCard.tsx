@@ -236,11 +236,17 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
 
         if (seedJson.ok) {
           const summary = seedJson.checklist || {};
+          const receivedTotal = typeof summary.received_total === "number" ? summary.received_total : null;
+          const pendingTotal = typeof summary.pending_total === "number" ? summary.pending_total : null;
+          const optionalTotal = typeof summary.optional_total === "number" ? summary.optional_total : null;
           setMatchMessage(
             `✅ Success!\n` +
             `• Loan type: ${intake.loan_type}\n` +
             `• Checklist items created: ${summary.seeded || 0}\n` +
-            `• Files matched: ${summary.matched || 0}\n` +
+            `• Files newly matched: ${summary.matched || 0}\n` +
+            `${receivedTotal != null ? `• Checklist received (total): ${receivedTotal}\n` : ""}` +
+            `${pendingTotal != null ? `• Checklist pending (total): ${pendingTotal}\n` : ""}` +
+            `${optionalTotal != null ? `• Optional items (total): ${optionalTotal}\n` : ""}` +
             `${forceOverride ? "• Admin override used\n" : ""}` +
             `${partialMode ? "• Partial mode (matched docs only)\n" : ""}` +
             `\nRefreshing page in 2 seconds...`
