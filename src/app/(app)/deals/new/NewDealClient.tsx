@@ -77,19 +77,27 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
     if (files.length === 0) return;
 
     setUploading(true);
+    setUploadProgress({ current: 0, total: files.length });
     try {
       // 1. Create the deal
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 20000);
+
       const createRes = await fetch("/api/deals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: ac.signal,
         body: JSON.stringify({ 
           name: dealName || `Deal - ${new Date().toLocaleDateString()}` 
         }),
       });
 
+      clearTimeout(t);
+
       if (!createRes.ok) {
-        const err = await createRes.json();
-        throw new Error(err.error || "Failed to create deal");
+        const errJson = await createRes.json().catch(() => null as any);
+        const errText = errJson?.error || `Failed to create deal (${createRes.status})`;
+        throw new Error(errText);
       }
 
       const { dealId } = await createRes.json();
