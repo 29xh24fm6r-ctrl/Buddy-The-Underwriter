@@ -111,8 +111,8 @@ export async function reconcileDealChecklist(dealId: string) {
 
   const { data: checklistItems, error: checklistItemsErr } = await sb
     .from("deal_checklist_items")
-    // NOTE: min_required is optional today; safe to select even if null in rows.
-    .select("id, checklist_key, status, min_required")
+    // NOTE: min_required column may not exist in some environments; do not select it.
+    .select("id, checklist_key, status")
     .eq("deal_id", dealId);
 
   if (checklistItemsErr) {
@@ -139,9 +139,9 @@ export async function reconcileDealChecklist(dealId: string) {
     const docsForKey = docsByKey.get(key) ?? [];
     if (docsForKey.length === 0) continue;
 
-    const minRequiredRaw = (item as any)?.min_required;
-    const minRequired = minRequiredRaw ? Number(minRequiredRaw) : 0;
-    if (minRequired && docsForKey.length < minRequired) continue;
+    const minRequiredParsed = Number((item as any)?.min_required);
+    const minRequired = Number.isFinite(minRequiredParsed) && minRequiredParsed > 0 ? minRequiredParsed : 1;
+    if (docsForKey.length < minRequired) continue;
 
     if ((item as any)?.status !== "received") {
       const { error: updChecklistErr } = await sb

@@ -480,7 +480,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
             .not("checklist_key", "is", null),
           sb
             .from("deal_checklist_items")
-            .select("id, checklist_key, status, received_at, min_required")
+            // min_required column may not exist in some environments; do not select it.
+            .select("id, checklist_key, status, received_at")
             .eq("deal_id", dealId),
         ]);
 
@@ -501,9 +502,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         const count = countsByKey.get(key) ?? 0;
         if (count === 0) continue;
 
-        const minRequiredRaw = item?.min_required;
-        const minRequired = minRequiredRaw ? Number(minRequiredRaw) : 0;
-        if (minRequired && count < minRequired) continue;
+        const minRequiredParsed = Number((item as any)?.min_required);
+        const minRequired = Number.isFinite(minRequiredParsed) && minRequiredParsed > 0 ? minRequiredParsed : 1;
+        if (count < minRequired) continue;
 
         if (item?.status !== "received" || !item?.received_at) {
           const { error: updErr } = await sb
