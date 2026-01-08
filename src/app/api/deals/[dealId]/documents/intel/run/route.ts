@@ -410,9 +410,12 @@ async function runIntelForDeal(args: {
 
   // After stamping years/types, run checklist reconcile once so year-aware
   // satisfaction updates immediately.
+  let reconcile: any = null;
+  let reconcile_error: string | null = null;
   try {
-    await reconcileDealChecklist(dealId);
+    reconcile = await reconcileDealChecklist(dealId);
   } catch (e) {
+    reconcile_error = (e as any)?.message || String(e);
     console.error("[documents/intel/run] reconcile_failed (non-fatal)", e);
   }
 
@@ -425,6 +428,8 @@ async function runIntelForDeal(args: {
       matched,
       updated,
       stamped,
+      reconcile,
+      reconcile_error,
       results,
     },
     { headers: { "cache-control": "no-store" } },

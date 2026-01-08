@@ -294,7 +294,8 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
       const res = await fetch(`/api/deals/${dealId}/documents/intel/run`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ limit: 25 }),
+        // Keep this conservative to avoid serverless timeouts; re-run if needed.
+        body: JSON.stringify({ limit: 10 }),
       });
       const json = await res.json();
       if (!res.ok || !json?.ok) {
@@ -308,11 +309,24 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
       const stamped = Number(json?.stamped ?? 0) || 0;
       const analyzed = Number(json?.analyzed ?? 0) || 0;
 
+      const reconcile = json?.reconcile || null;
+      const seeded = reconcile && typeof reconcile.seeded === "number" ? reconcile.seeded : null;
+      const docsMatched = reconcile && typeof reconcile.docsMatched === "number" ? reconcile.docsMatched : null;
+      const checklistMarkedReceived =
+        reconcile && typeof reconcile.checklistMarkedReceived === "number"
+          ? reconcile.checklistMarkedReceived
+          : null;
+      const reconcileError = typeof json?.reconcile_error === "string" ? json.reconcile_error : null;
+
       setMatchMessage(
         `✅ Doc recognition complete.\n` +
           `• Processed: ${processed}\n` +
           `• Stamped type/years: ${stamped}\n` +
           `• AI analyzed: ${analyzed}\n\n` +
+          `${seeded != null ? `• Checklist seeded: ${seeded}\n` : ""}` +
+          `${docsMatched != null ? `• Docs matched: ${docsMatched}\n` : ""}` +
+          `${checklistMarkedReceived != null ? `• Checklist marked received: ${checklistMarkedReceived}\n` : ""}` +
+          `${reconcileError ? `\n⚠️ Reconcile warning: ${reconcileError}\n` : ""}` +
           `Refreshing checklist…`,
       );
 
