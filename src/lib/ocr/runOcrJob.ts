@@ -30,11 +30,17 @@ function extractTextPreview(raw: any, maxChars = 14000): string {
 }
 
 export async function runOcrJob({ dealId, jobId, reqId, bankId }: RunArgs) {
-  const endpoint = process.env.AZURE_DI_ENDPOINT;
-  const apiKey = process.env.AZURE_DI_KEY;
+  const endpoint =
+    process.env.AZURE_DI_ENDPOINT ||
+    process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT;
+  const apiKey =
+    process.env.AZURE_DI_KEY ||
+    process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY;
 
   if (!endpoint || !apiKey) {
-    throw new Error("Missing AZURE_DI_ENDPOINT or AZURE_DI_KEY");
+    throw new Error(
+      "Missing Azure DI env vars. Set AZURE_DI_ENDPOINT/AZURE_DI_KEY (or AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT/AZURE_DOCUMENT_INTELLIGENCE_KEY).",
+    );
   }
 
   const sb = supabaseAdmin();
