@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
 
 type DealFile = {
   file_id: string;
@@ -20,6 +21,10 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
   const [loading, setLoading] = useState(true);
   const [matching, setMatching] = useState(false);
   const [matchResult, setMatchResult] = useState<string | null>(null);
+  const [checklistOptions, setChecklistOptions] = useState<
+    Array<{ key: string; title: string }>
+  >([]);
+  const [savingById, setSavingById] = useState<Record<string, boolean>>({});
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<DealFile | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -39,10 +44,66 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
       if (json?.ok && json.files) {
         setFiles(json.files);
       }
+
+      // Best-effort: load the actual seeded checklist so the dropdown shows the deal's real items.
+      const cl = await fetch(`/api/deals/${dealId}/checklist/list`, {
+        cache: "no-store",
+      }).catch(() => null as any);
+      const clJson = cl ? await cl.json().catch(() => ({})) : {};
+      if (clJson?.ok && Array.isArray(clJson.items)) {
+        const opts = (clJson.items as any[])
+          .map((it) => ({
+            key: String(it.checklist_key),
+            title: String(it.title || it.checklist_key),
+          }))
+          .filter((x) => x.key);
+
+        // De-dupe while preserving seeded order.
+        const seen = new Set<string>();
+        const unique = [] as Array<{ key: string; title: string }>;
+        for (const o of opts) {
+          if (seen.has(o.key)) continue;
+          seen.add(o.key);
+          unique.push(o);
+        }
+        setChecklistOptions(unique);
+      } else if (checklistOptions.length === 0) {
+        // Fallback only if we haven't already loaded something.
+        setChecklistOptions(CHECKLIST_KEY_OPTIONS);
+      }
     } catch (error) {
       console.error("[DealFilesCard] Failed to load files:", error);
+      if (checklistOptions.length === 0) setChecklistOptions(CHECKLIST_KEY_OPTIONS);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function setChecklistKey(file: DealFile, checklistKey: string | null) {
+    const id = file.file_id;
+    setSavingById((prev) => ({ ...prev, [id]: true }));
+    try {
+      const res = await fetch(
+        `/api/deals/${dealId}/documents/${encodeURIComponent(id)}/checklist-key`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ checklist_key: checklistKey }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) {
+        alert(json?.error || "Failed to update checklist key");
+        return;
+      }
+
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.file_id === id ? { ...f, checklist_key: json.checklist_key ?? null } : f,
+        ),
+      );
+    } finally {
+      setSavingById((prev) => ({ ...prev, [id]: false }));
     }
   }
 
@@ -194,6 +255,34 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                     </div>
                     <div className="text-xs text-neutral-500">
                       {file.source || "Unknown source"} • {new Date(file.created_at).toLocaleDateString()}
+                    </div>
+
+                    <div className="mt-2 flex items-center gap-2">
+                      <label className="text-xs text-neutral-400">Checklist</label>
+                      <select
+                        className="rounded-lg border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-100"
+                        value={file.checklist_key ?? ""}
+                        onChange={(e) =>
+                          void setChecklistKey(
+                            file,
+                            e.target.value ? e.target.value : null,
+                          )
+                        }
+                        disabled={!!savingById[file.file_id]}
+                        title="Manually attach this file to a checklist item"
+                      >
+                        <option value="">Unclassified</option>
+                        {(checklistOptions.length ? checklistOptions : CHECKLIST_KEY_OPTIONS).map(
+                          (opt) => (
+                            <option key={opt.key} value={opt.key}>
+                              {opt.title}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                      {savingById[file.file_id] ? (
+                        <span className="text-xs text-neutral-500">Saving…</span>
+                      ) : null}
                     </div>
                   </div>
 

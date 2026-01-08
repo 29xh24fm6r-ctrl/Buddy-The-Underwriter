@@ -215,15 +215,34 @@ async function runIntelForDeal(args: {
   const sb = supabaseAdmin();
 
   // Load docs (one or small batch)
-  const docsQ = sb
+  const docsQ1 = sb
     .from("deal_documents")
-    .select("id, storage_path, original_filename, mime_type")
+    .select("id, storage_bucket, storage_path, original_filename, mime_type")
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false })
     .limit(documentId ? 1 : limit);
 
-  const docsRes = documentId ? docsQ.eq("id", documentId) : docsQ;
-  const { data: docs, error: docsErr } = await docsRes;
+  const docsRes1 = documentId ? docsQ1.eq("id", documentId) : docsQ1;
+  let { data: docs, error: docsErr } = await docsRes1;
+
+  // Back-compat: tolerate older schemas where deal_documents.storage_bucket may not exist.
+  if (
+    docsErr &&
+    String(docsErr.message || "")
+      .toLowerCase()
+      .includes("storage_bucket")
+  ) {
+    const docsQ2 = sb
+      .from("deal_documents")
+      .select("id, storage_path, original_filename, mime_type")
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .limit(documentId ? 1 : limit);
+    const docsRes2 = documentId ? docsQ2.eq("id", documentId) : docsQ2;
+    const retry = await docsRes2;
+    docs = retry.data as any;
+    docsErr = retry.error;
+  }
 
   if (docsErr) {
     return NextResponse.json(
@@ -307,7 +326,8 @@ async function runIntelForDeal(args: {
         continue;
       }
 
-      const dl = await sb.storage.from("deal-files").download(storagePath);
+      const storageBucket = String((doc as any)?.storage_bucket || "deal-files");
+      const dl = await sb.storage.from(storageBucket).download(storagePath);
       if (dl.error || !dl.data) {
         results.push({
           document_id: docId,
@@ -316,7 +336,7 @@ async function runIntelForDeal(args: {
           doc_intel: "error",
           matched_keys: [],
           updated_items: 0,
-          error: `Storage download failed: ${dl.error?.message || "unknown"}`,
+          error: `Storage download failed (${storageBucket}): ${dl.error?.message || "unknown"}`,
         });
         continue;
       }
@@ -356,7 +376,7 @@ async function runIntelForDeal(args: {
           aiDocType = (ai as any)?.doc_type;
           aiTaxYear = (ai as any)?.tax_year;
           aiConfidence = (ai as any)?.confidence;
-        } catch (_e: any) {
+        } catch {
           // Non-fatal: still stamp deterministic metadata from OCR text.
           docIntelStatus = "error";
         }

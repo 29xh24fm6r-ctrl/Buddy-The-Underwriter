@@ -5,12 +5,23 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
 import { markUploadsCompletedAction } from "./actions";
+import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
+
+type SelectedFile = {
+  id: string;
+  file: File;
+  checklistKey: string; // empty = unclassified
+};
+
+function uid() {
+  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
 
 export default function NewDealClient({ bankId }: { bankId: string }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<SelectedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [dealName, setDealName] = useState(`Deal - ${new Date().toLocaleDateString()}`);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
@@ -18,7 +29,14 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
   const handleFiles = useCallback((selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
     const fileArray = Array.from(selectedFiles);
-    setFiles((prev) => [...prev, ...fileArray]);
+    setFiles((prev) => [
+      ...prev,
+      ...fileArray.map((file) => ({
+        id: uid(),
+        file,
+        checklistKey: "",
+      })),
+    ]);
   }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -51,8 +69,8 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
     [handleFiles]
   );
 
-  const removeFile = useCallback((index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
+  const removeFile = useCallback((id: string) => {
+    setFiles((prev) => prev.filter((x) => x.id !== id));
   }, []);
 
   const handleUpload = useCallback(async () => {
@@ -81,13 +99,14 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
       setUploadProgress({ current: 0, total: files.length });
       let successCount = 0;
       for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+        const item = files[i];
+        const file = item.file;
         setUploadProgress({ current: i + 1, total: files.length });
         
         const result = await directDealDocumentUpload({
           dealId,
           file,
-          checklistKey: null,
+          checklistKey: item.checklistKey ? item.checklistKey : null,
           source: "internal",
         });
 
@@ -227,9 +246,9 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
               </div>
 
               <div className="space-y-2">
-                {files.map((file, index) => (
+                {files.map((it) => (
                   <div
-                    key={index}
+                    key={it.id}
                     className="flex items-center justify-between p-3 bg-gray-700/30 rounded-lg"
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -237,15 +256,40 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
                         description
                       </span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white truncate">{file.name}</p>
+                        <p className="text-sm text-white truncate">{it.file.name}</p>
                         <p className="text-xs text-gray-400">
-                          {(file.size / 1024 / 1024).toFixed(2)} MB
+                          {(it.file.size / 1024 / 1024).toFixed(2)} MB
                         </p>
                       </div>
                     </div>
+
+                    <div className="ml-4 flex items-center gap-2">
+                      <label className="text-xs text-gray-400">Checklist</label>
+                      <select
+                        className="rounded-lg border border-gray-600 bg-gray-800 px-2 py-1 text-xs text-white"
+                        value={it.checklistKey}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setFiles((prev) =>
+                            prev.map((x) => (x.id === it.id ? { ...x, checklistKey: v } : x))
+                          );
+                        }}
+                        disabled={uploading}
+                        title="Optional: attach this file to a checklist item"
+                      >
+                        <option value="">Unclassified</option>
+                        {CHECKLIST_KEY_OPTIONS.map((opt) => (
+                          <option key={opt.key} value={opt.key}>
+                            {opt.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
                     <button
-                      onClick={() => removeFile(index)}
+                      onClick={() => removeFile(it.id)}
                       className="ml-4 p-1 text-gray-400 hover:text-red-400 transition-colors"
+                      disabled={uploading}
                     >
                       <span className="material-symbols-outlined text-[20px]">
                         close

@@ -7,6 +7,7 @@ import BorrowerWowCard from "@/components/deals/BorrowerWowCard";
 import FinancialStatementWowCard from "@/components/deals/FinancialStatementWowCard";
 import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
 import { markUploadsCompletedAction } from "@/lib/uploads/actions";
+import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
 
 import MoodyPnlSpreadCard from "@/components/deals/MoodyPnlSpreadCard";
 import DocumentCoverageCard from "@/components/deals/DocumentCoverageCard";
@@ -273,7 +274,17 @@ export default function UploadBox({ dealId }: Props) {
   const [previewMimeType, setPreviewMimeType] = useState<string | null>(null);
   const [memo, setMemo] = useState<CreditMemoV1 | null>(null);
   const [memoBusy, setMemoBusy] = useState(false);
-  const [packUploadQueue, setPackUploadQueue] = useState<Array<{ file: File; status: 'pending' | 'uploading' | 'completed' | 'failed'; packId: string }>>([]);
+  const [packUploadQueue, setPackUploadQueue] = useState<
+    Array<{
+      id: string;
+      file: File;
+      status: "pending" | "uploading" | "completed" | "failed";
+      packId: string;
+      checklistKey: string; // empty = unclassified
+    }>
+  >([]);
+  const packUploadQueueRef = useRef(packUploadQueue);
+  packUploadQueueRef.current = packUploadQueue;
 
   const pollingAliveRef = useRef(false);
   const safeDealId = useMemo(() => encodeURIComponent(dealId), [dealId]);
@@ -385,7 +396,7 @@ if (!res.ok || !data?.ok) {
     return () => clearTimeout(t);
   }, [copyToast]);
 
-  async function handleUpload(file: File, packId?: string) {
+  async function handleUpload(file: File, packId?: string, checklistKey?: string | null) {
     setUiError(null);
     setBusyUpload(true);
 
@@ -393,7 +404,7 @@ if (!res.ok || !data?.ok) {
       const result = await directDealDocumentUpload({
         dealId: safeDealId,
         file,
-        checklistKey: null,
+        checklistKey: checklistKey ? checklistKey : null,
         source: "internal",
         packId: packId || null,
       });
@@ -422,10 +433,12 @@ if (!res.ok || !data?.ok) {
     const packId = uuidv4();
     
     // Initialize queue
-    const queueItems = limitedFiles.map(file => ({
+    const queueItems = limitedFiles.map((file) => ({
+      id: uuidv4(),
       file,
-      status: 'pending' as const,
-      packId
+      status: "pending" as const,
+      packId,
+      checklistKey: "",
     }));
     
     setPackUploadQueue(queueItems);
@@ -438,7 +451,8 @@ if (!res.ok || !data?.ok) {
       ));
       
       try {
-        await handleUpload(queueItems[i].file, packId);
+        const selectedKey = packUploadQueueRef.current[i]?.checklistKey ?? "";
+        await handleUpload(queueItems[i].file, packId, selectedKey ? selectedKey : null);
         setPackUploadQueue(prev => prev.map((item, idx) => 
           idx === i ? { ...item, status: 'completed' as const } : item
         ));
@@ -852,13 +866,35 @@ if (!res.ok || !data?.ok) {
               </div>
             </div>
             <div className="space-y-2 max-h-60 overflow-y-auto">
-              {packUploadQueue.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between rounded border p-2 text-sm">
+              {packUploadQueue.map((item) => (
+                <div key={item.id} className="flex items-center justify-between gap-3 rounded border p-2 text-sm">
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{item.file.name}</div>
                     <div className="text-xs text-gray-500">
                       {humanBytes(item.file.size)} • Pack: {item.packId.slice(0, 8)}...
                     </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-500">Checklist</label>
+                    <select
+                      className="rounded border bg-white px-2 py-1 text-xs"
+                      value={item.checklistKey}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setPackUploadQueue((prev) =>
+                          prev.map((x) => (x.id === item.id ? { ...x, checklistKey: v } : x))
+                        );
+                      }}
+                      disabled={item.status !== "pending"}
+                      title="Optional: attach this file to a checklist item"
+                    >
+                      <option value="">Unclassified</option>
+                      {CHECKLIST_KEY_OPTIONS.map((opt) => (
+                        <option key={opt.key} value={opt.key}>
+                          {opt.title}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className={`text-xs px-2 py-1 rounded ${
                     item.status === 'completed' ? 'bg-green-100 text-green-800' :

@@ -2,12 +2,14 @@
 
 import React, { useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
 
 type UploadItem = {
   id: string;
   file: File;
   status: "queued" | "uploading" | "done" | "error" | "canceled";
   progress: number; // 0..100
+  checklistKey: string; // empty = unclassified
   error?: string;
   matched?: boolean;
   confidence?: number | null;
@@ -51,6 +53,7 @@ export default function BorrowerPortalPage() {
         file,
         status: "queued" as const,
         progress: 0,
+        checklistKey: "",
       })),
     ]);
   }
@@ -156,6 +159,8 @@ export default function BorrowerPortalPage() {
 
         // 3) Record in DB (deal_documents) using canonical record route
         try {
+          const selectedKey =
+            itemsRef.current.find((x) => x.id === id)?.checklistKey ?? "";
           const recordRes = await fetch(`/api/deals/${dealIdFromToken}/files/record`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -165,7 +170,7 @@ export default function BorrowerPortalPage() {
               original_filename: file.name,
               mime_type: file.type,
               size_bytes: file.size,
-              checklist_key: null,
+              checklist_key: selectedKey ? selectedKey : null,
               source: "borrower",
             }),
           });
@@ -219,6 +224,8 @@ export default function BorrowerPortalPage() {
       // 1) Ask server for signed upload URL (token -> deal_id + signed_url)
       (async () => {
         try {
+          const selectedKey =
+            itemsRef.current.find((x) => x.id === id)?.checklistKey ?? "";
           const signRes = await fetch(
             `/api/borrower/portal/${encodeURIComponent(token)}/files/sign`,
             {
@@ -228,7 +235,7 @@ export default function BorrowerPortalPage() {
                 filename: file.name,
                 mime_type: file.type,
                 size_bytes: file.size,
-                checklist_key: null,
+                checklist_key: selectedKey ? selectedKey : null,
               }),
             }
           );
@@ -392,6 +399,33 @@ export default function BorrowerPortalPage() {
                     <div className="truncate text-sm font-semibold">{it.file.name}</div>
                     <div className="mt-1 text-xs text-white/60">
                       {formatBytes(it.file.size)} · {it.file.type || "unknown type"}
+                    </div>
+
+                    <div className="mt-3 flex items-center gap-2">
+                      <label className="text-xs font-semibold text-white/60">
+                        Type
+                      </label>
+                      <select
+                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80"
+                        value={it.checklistKey}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setItems((prev) =>
+                            prev.map((x) =>
+                              x.id === it.id ? { ...x, checklistKey: v } : x
+                            )
+                          );
+                        }}
+                        disabled={it.status !== "queued"}
+                        title="Optional: choose what this file is"
+                      >
+                        <option value="">Unclassified</option>
+                        {CHECKLIST_KEY_OPTIONS.map((opt) => (
+                          <option key={opt.key} value={opt.key}>
+                            {opt.title}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     {/* Progress */}

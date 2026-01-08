@@ -54,9 +54,19 @@ export async function getCurrentBankId(): Promise<string> {
   const bankIds = (mem.data ?? []).map((r: any) => String(r.bank_id));
   
   if (bankIds.length === 0) {
-    // ✅ DEV SAFETY: if user is signed in but has no bank membership yet,
-    // auto-provision a bank + membership so the app can function.
+    // ✅ DEV SAFETY (guarded): if user is signed in but has no bank membership yet,
+    // optionally auto-provision a bank + membership so the app can function.
     // This prevents "missing bank context" 400s during early development.
+    //
+    // IMPORTANT: Do not run this in production by default.
+
+    const allowAutoProvision =
+      process.env.BUDDY_DEV_AUTO_PROVISION === "1" ||
+      process.env.NODE_ENV !== "production";
+
+    if (!allowAutoProvision) {
+      throw new Error("no_memberships");
+    }
     
     console.log(`[getCurrentBankId] No bank memberships found for user ${userId}, auto-provisioning...`);
     
