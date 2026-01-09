@@ -7,8 +7,17 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
+
+function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return Promise.race<T>([
+    Promise.resolve(p),
+    new Promise<T>((_resolve, reject) =>
+      setTimeout(() => reject(new Error(`timeout:${label}`)), ms)
+    ),
+  ]);
+}
 
 type Context = {
   params: Promise<{ dealId: string }>;
@@ -94,11 +103,24 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     // Verify file exists in storage (optional but recommended)
-    const { data: fileExists, error: checkErr } = await sb.storage
-      .from("deal-files")
-      .list(object_path.split("/").slice(0, -1).join("/"), {
-        search: object_path.split("/").pop(),
-      });
+    // This MUST be best-effort and bounded; do not block the upload UX.
+    let fileExists: any[] | null = null;
+    let checkErr: any = null;
+    try {
+      const res = await withTimeout(
+        sb.storage
+          .from("deal-files")
+          .list(object_path.split("/").slice(0, -1).join("/"), {
+            search: object_path.split("/").pop(),
+          }),
+        5_000,
+        "storageList",
+      );
+      fileExists = (res as any)?.data ?? null;
+      checkErr = (res as any)?.error ?? null;
+    } catch (e: any) {
+      checkErr = e;
+    }
 
     // Best-effort only: signed upload succeeded client-side, so we should still
     // materialize the canonical DB record even if list/search behaves oddly.

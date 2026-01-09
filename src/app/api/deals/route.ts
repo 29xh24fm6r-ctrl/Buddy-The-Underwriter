@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import crypto from "node:crypto";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
+
+function randomUUID() {
+  const c: any = (globalThis as any).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  // Extremely unlikely on modern runtimes, but keep a deterministic fallback.
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
+}
 
 function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
   return Promise.race<T>([
@@ -17,7 +23,7 @@ function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T
 
 export async function POST(req: Request) {
   const startedAt = Date.now();
-  const requestId = req.headers.get("x-request-id") || crypto.randomUUID();
+  const requestId = req.headers.get("x-request-id") || randomUUID();
   try {
     console.log("[api/deals] start", {
       requestId,
@@ -39,7 +45,7 @@ export async function POST(req: Request) {
     }
 
     const supabase = getSupabaseServerClient();
-    const dealId = crypto.randomUUID();
+  const dealId = randomUUID();
 
     const baseInsertData: Record<string, any> = {
       id: dealId,

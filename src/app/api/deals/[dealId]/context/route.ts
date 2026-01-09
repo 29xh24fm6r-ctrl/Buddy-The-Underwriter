@@ -4,7 +4,15 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import type { DealContext } from "@/lib/deals/contextTypes";
 
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
+
+function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return Promise.race<T>([
+    Promise.resolve(p),
+    new Promise<T>((_resolve, reject) => setTimeout(() => reject(new Error(`timeout:${label}`)), ms)),
+  ]);
+}
 
 type ProbeOk = {
   ok: true;
@@ -22,18 +30,22 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
       return NextResponse.json({ ok: false, error: "invalid_deal_id", dealId: dealId ?? null } satisfies ProbeErr, { status: 400 });
     }
 
-    const bankId = await getCurrentBankId().catch((e) => {
+    const bankId = await withTimeout(getCurrentBankId(), 8_000, "getCurrentBankId").catch((e) => {
       console.error(`[context] getCurrentBankId failed for dealId ${dealId}:`, e);
       return null;
     });
     const sb = supabaseAdmin();
 
     // 1) Load deal by id first (do NOT filter by bank_id here — we validate after)
-    const { data: deal, error: dealErr } = await sb
-      .from("deals")
-      .select("id, bank_id, borrower_name, entity_type, stage, risk_score, created_at")
-      .eq("id", dealId)
-      .maybeSingle();
+    const { data: deal, error: dealErr } = await withTimeout(
+      sb
+        .from("deals")
+        .select("id, bank_id, borrower_name, entity_type, stage, risk_score, created_at")
+        .eq("id", dealId)
+        .maybeSingle(),
+      10_000,
+      "dealLoad",
+    );
 
     if (dealErr) {
       return NextResponse.json(
@@ -82,7 +94,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
       }
 
       if (!deal.bank_id) {
-        const { error: uErr } = await sb.from("deals").update({ bank_id: bankId }).eq("id", dealId);
+        const { error: uErr } = await withTimeout(
+          sb.from("deals").update({ bank_id: bankId }).eq("id", dealId),
+          10_000,
+          "dealBankAssign",
+        );
         if (uErr) {
           return NextResponse.json(
             { ok: false, error: "deal_bank_assign_failed", details: uErr.message, dealId } satisfies ProbeErr,
@@ -97,18 +113,26 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
     }
 
     // 3) Count missing documents
-    const { count: missingDocs } = await sb
-      .from("deal_document_requirements")
-      .select("*", { count: "exact", head: true })
-      .eq("deal_id", dealId)
-      .eq("status", "missing");
+    const { count: missingDocs } = await withTimeout(
+      sb
+        .from("deal_document_requirements")
+        .select("*", { count: "exact", head: true })
+        .eq("deal_id", dealId)
+        .eq("status", "missing"),
+      10_000,
+      "missingDocsCount",
+    );
 
     // 4) Count open conditions
-    const { count: openConditions } = await sb
-      .from("deal_conditions")
-      .select("*", { count: "exact", head: true })
-      .eq("deal_id", dealId)
-      .in("status", ["pending", "in_progress"]);
+    const { count: openConditions } = await withTimeout(
+      sb
+        .from("deal_conditions")
+        .select("*", { count: "exact", head: true })
+        .eq("deal_id", dealId)
+        .in("status", ["pending", "in_progress"]),
+      10_000,
+      "openConditionsCount",
+    );
 
     // 5) Risk flags (placeholder)
     const riskFlags: string[] = [];
@@ -147,10 +171,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
 
     return NextResponse.json({ ...probe, ...context });
   } catch (e: any) {
+    const isTimeout = String(e?.message || "").startsWith("timeout:");
     console.error("GET /api/deals/[dealId]/context error:", e);
     return NextResponse.json(
-      { ok: false, error: "unhandled_error", details: String(e?.message ?? e) } satisfies ProbeErr,
-      { status: 500 }
+      { ok: false, error: isTimeout ? "timeout" : "unhandled_error", details: String(e?.message ?? e) } satisfies ProbeErr,
+      { status: isTimeout ? 504 : 500 }
     );
   }
 }

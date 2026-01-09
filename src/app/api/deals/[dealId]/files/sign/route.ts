@@ -3,10 +3,24 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { signUploadUrl } from "@/lib/uploads/sign";
-import crypto from "node:crypto";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
+
+function randomUUID() {
+  const c: any = (globalThis as any).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
+}
+
+function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return Promise.race<T>([
+    Promise.resolve(p),
+    new Promise<T>((_resolve, reject) =>
+      setTimeout(() => reject(new Error(`timeout:${label}`)), ms)
+    ),
+  ]);
+}
 
 // Bank-grade MIME type allowlist (SBA-compliant document types)
 const ALLOWED_MIME_TYPES = new Set([
@@ -61,7 +75,7 @@ type Context = {
  */
 export async function POST(req: NextRequest, ctx: Context) {
   try {
-    const { userId } = await clerkAuth();
+    const { userId } = await withTimeout(clerkAuth(), 8_000, "clerkAuth");
     if (!userId) {
       console.warn("[files/sign] unauthorized", {
         clerkConfigured: isClerkConfigured(),
@@ -127,14 +141,18 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     // Verify user has access to this deal (tenant check)
     const sb = supabaseAdmin();
-    const bankId = await getCurrentBankId();
+    const bankId = await withTimeout(getCurrentBankId(), 8_000, "getCurrentBankId");
 
-    const { data: deal, error: dealErr } = await sb
-      .from("deals")
-      .select("id")
-      .eq("id", dealId)
-      .eq("bank_id", bankId)
-      .maybeSingle();
+    const { data: deal, error: dealErr } = await withTimeout(
+      sb
+        .from("deals")
+        .select("id")
+        .eq("id", dealId)
+        .eq("bank_id", bankId)
+        .maybeSingle(),
+      8_000,
+      "checkDealAccess",
+    );
 
     if (dealErr || !deal) {
       console.error("[files/sign] deal access denied", { dealId, bankId, dealErr });
@@ -145,7 +163,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     // Generate unique file ID and safe path
-    const fileId = crypto.randomUUID();
+  const fileId = randomUUID();
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const objectPath = `deals/${dealId}/${fileId}__${safeName}`;
 
@@ -164,7 +182,11 @@ export async function POST(req: NextRequest, ctx: Context) {
     });
 
     // Use centralized signing utility
-    const signResult = await signUploadUrl({ bucket, objectPath });
+    const signResult = await withTimeout(
+      signUploadUrl({ bucket, objectPath }),
+      12_000,
+      "signUploadUrl",
+    );
 
     if (!signResult.ok) {
       console.error("[files/sign] failed to create signed URL", {
@@ -209,6 +231,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       },
     });
   } catch (error: any) {
+    const isTimeout = String(error?.message || "").startsWith("timeout:");
     console.error("[files/sign] uncaught exception", {
       message: error.message,
       stack: error.stack,
@@ -217,10 +240,10 @@ export async function POST(req: NextRequest, ctx: Context) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Internal server error",
+        error: isTimeout ? "Request timed out" : "Internal server error",
         details: error.message || String(error),
       },
-      { status: 500 },
+      { status: isTimeout ? 504 : 500 },
     );
   }
 }

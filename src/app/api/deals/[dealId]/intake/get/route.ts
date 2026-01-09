@@ -1,15 +1,23 @@
 import { NextResponse } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
+
+function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return Promise.race<T>([
+    Promise.resolve(p),
+    new Promise<T>((_resolve, reject) => setTimeout(() => reject(new Error(`timeout:${label}`)), ms)),
+  ]);
+}
 
 export async function GET(
   _req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const { userId } = await clerkAuth();
+  const { userId } = await withTimeout(clerkAuth(), 8_000, "clerkAuth");
   if (!userId)
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
@@ -17,11 +25,25 @@ export async function GET(
     );
 
   const { dealId } = await ctx.params;
-  const { data, error } = await supabaseAdmin()
-    .from("deal_intake")
-    .select("*")
-    .eq("deal_id", dealId)
-    .maybeSingle();
+
+  const bankId = await withTimeout(getCurrentBankId(), 8_000, "getCurrentBankId");
+  const sb = supabaseAdmin();
+
+  // Tenant enforcement
+  const { data: deal, error: dealErr } = await withTimeout(
+    sb.from("deals").select("id, bank_id").eq("id", dealId).maybeSingle(),
+    8_000,
+    "dealLookup",
+  );
+  if (dealErr || !deal || deal.bank_id !== bankId) {
+    return NextResponse.json({ ok: false, error: "Deal not found" }, { status: 404 });
+  }
+
+  const { data, error } = await withTimeout(
+    sb.from("deal_intake").select("*").eq("deal_id", dealId).maybeSingle(),
+    10_000,
+    "dealIntakeLoad",
+  );
 
   if (error)
     return NextResponse.json(

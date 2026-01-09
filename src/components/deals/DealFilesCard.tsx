@@ -34,22 +34,29 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
     return mime.startsWith("image/") || mime === "application/pdf";
   };
 
+  async function fetchJsonWithTimeout(url: string, ms: number) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), ms);
+    try {
+      const res = await fetch(url, { cache: "no-store", signal: ac.signal });
+      const json = await res.json().catch(() => ({}));
+      return { res, json };
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
   async function loadFiles() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/deals/${dealId}/files/list`, {
-        cache: "no-store",
-      });
-      const json = await res.json();
-      if (json?.ok && json.files) {
-        setFiles(json.files);
-      }
+      const { res, json } = await fetchJsonWithTimeout(`/api/deals/${dealId}/files/list`, 15_000);
+      if (res.ok && json?.ok && json.files) setFiles(json.files);
 
       // Best-effort: load the actual seeded checklist so the dropdown shows the deal's real items.
-      const cl = await fetch(`/api/deals/${dealId}/checklist/list`, {
-        cache: "no-store",
-      }).catch(() => null as any);
-      const clJson = cl ? await cl.json().catch(() => ({})) : {};
+      const clOut = await fetchJsonWithTimeout(`/api/deals/${dealId}/checklist/list`, 15_000).catch(
+        () => null as any,
+      );
+      const clJson = clOut?.json ?? {};
       if (clJson?.ok && Array.isArray(clJson.items)) {
         const opts = (clJson.items as any[])
           .map((it) => ({

@@ -1,5 +1,3 @@
-import * as Sentry from "@sentry/nextjs";
-
 function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
   return Promise.race<T>([
     Promise.resolve(p),
@@ -11,14 +9,18 @@ function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    const enableOtel = process.env.BUDDY_ENABLE_OTEL === "1";
+    const enableSentry = Boolean(
+      process.env.SENTRY_DSN ||
+        process.env.NEXT_PUBLIC_SENTRY_DSN ||
+        process.env.SENTRY_AUTH_TOKEN,
+    );
+
     // IMPORTANT: Never block request handling on telemetry startup.
     // Next will await register() during serverless init; keep it fast.
-    void (async () => {
-      try {
-        if (
-          (process.env.HONEYCOMB_API_KEY && process.env.HONEYCOMB_DATASET) ||
-          process.env.OTEL_EXPORTER_OTLP_ENDPOINT
-        ) {
+    if (enableOtel) {
+      void (async () => {
+        try {
           const g = globalThis as unknown as { __buddyOtelSdkStarted?: boolean };
           if (g.__buddyOtelSdkStarted) return;
           g.__buddyOtelSdkStarted = true;
@@ -155,26 +157,49 @@ export async function register() {
           } catch (e) {
             console.error("[otel] failed to start", e);
           }
+        } catch (e) {
+          console.error("[otel] init crashed (ignored)", e);
         }
-      } catch (e) {
-        console.error("[otel] init crashed (ignored)", e);
-      }
-    })();
+      })();
+    }
 
-    try {
-      await import("../sentry.server.config");
-    } catch (e) {
-      console.error("[sentry] failed to load server config (ignored)", e);
+    // Best-effort only: do not block serverless init on Sentry config load.
+    if (enableSentry) {
+      void withTimeout(import("../sentry.server.config"), 2_000, "sentry_server_import").catch(
+        (e) => {
+          console.error("[sentry] failed to load server config (ignored)", e);
+        },
+      );
     }
   }
 
   if (process.env.NEXT_RUNTIME === "edge") {
-    try {
-      await import("../sentry.edge.config");
-    } catch (e) {
-      console.error("[sentry] failed to load edge config (ignored)", e);
+    // Best-effort only: do not block edge init on Sentry config load.
+    const enableSentry = Boolean(
+      process.env.SENTRY_DSN ||
+        process.env.NEXT_PUBLIC_SENTRY_DSN ||
+        process.env.SENTRY_AUTH_TOKEN,
+    );
+    if (enableSentry) {
+      void withTimeout(import("../sentry.edge.config"), 2_000, "sentry_edge_import").catch((e) => {
+        console.error("[sentry] failed to load edge config (ignored)", e);
+      });
     }
   }
 }
 
-export const onRequestError = Sentry.captureRequestError;
+// Best-effort: avoid importing Sentry during bootstrap.
+// If Sentry is configured, this will forward the request error.
+export const onRequestError = (...args: any[]) => {
+  try {
+    void import("@sentry/nextjs")
+      .then((m: any) => {
+        if (typeof m?.captureRequestError === "function") {
+          return m.captureRequestError(...args);
+        }
+      })
+      .catch(() => {});
+  } catch {
+    // ignore
+  }
+};

@@ -25,6 +25,15 @@ export type SignUploadErr = {
   detail?: string;
 };
 
+function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return Promise.race<T>([
+    Promise.resolve(p),
+    new Promise<T>((_resolve, reject) =>
+      setTimeout(() => reject(new Error(`timeout:${label}`)), ms)
+    ),
+  ]);
+}
+
 export async function signUploadUrl(args: SignUploadArgs): Promise<SignUploadOk | SignUploadErr> {
   const requestId = `sign_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
@@ -47,7 +56,12 @@ export async function signUploadUrl(args: SignUploadArgs): Promise<SignUploadOk 
 
     // Prefer signed upload URLs (PUT direct-to-storage)
     if (typeof bucketRef.createSignedUploadUrl === "function") {
-      const { data, error } = await bucketRef.createSignedUploadUrl(objectPath);
+      const res: any = await withTimeout<any>(
+        bucketRef.createSignedUploadUrl(objectPath),
+        10_000,
+        "createSignedUploadUrl",
+      );
+      const { data, error } = res ?? {};
 
       console.log("[signUploadUrl] createSignedUploadUrl result", {
         requestId,
@@ -81,7 +95,12 @@ export async function signUploadUrl(args: SignUploadArgs): Promise<SignUploadOk 
     // Fallback: signed URL (time-limited)
     if (typeof bucketRef.createSignedUrl === "function") {
       const exp = args.expiresInSeconds ?? 60 * 5;
-      const { data, error } = await bucketRef.createSignedUrl(objectPath, exp);
+      const res: any = await withTimeout<any>(
+        bucketRef.createSignedUrl(objectPath, exp),
+        10_000,
+        "createSignedUrl",
+      );
+      const { data, error } = res ?? {};
 
       console.log("[signUploadUrl] createSignedUrl result", {
         requestId,
@@ -109,12 +128,18 @@ export async function signUploadUrl(args: SignUploadArgs): Promise<SignUploadOk 
     console.error("[signUploadUrl] no signing method", { requestId, bucket, objectPath });
     return { ok: false, requestId, error: "No supported signing method on Supabase client" };
   } catch (e: any) {
+    const isTimeout = String(e?.message || "").startsWith("timeout:");
     console.error("[signUploadUrl] fatal", {
       requestId,
       message: e?.message ?? String(e),
       stack: e?.stack,
       name: e?.name,
     });
-    return { ok: false, requestId, error: "Internal error", detail: e?.message ?? String(e) };
+    return {
+      ok: false,
+      requestId,
+      error: isTimeout ? "Timeout generating upload URL" : "Internal error",
+      detail: e?.message ?? String(e),
+    };
   }
 }

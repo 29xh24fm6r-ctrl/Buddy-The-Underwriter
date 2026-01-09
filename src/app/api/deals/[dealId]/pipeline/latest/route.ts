@@ -5,8 +5,15 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
+
+function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return Promise.race<T>([
+    Promise.resolve(p),
+    new Promise<T>((_resolve, reject) => setTimeout(() => reject(new Error(`timeout:${label}`)), ms)),
+  ]);
+}
 
 const VERCEL_ENV = process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "unknown";
 const VERCEL_SHA = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null;
@@ -34,7 +41,7 @@ export async function GET(req: Request, ctx: Ctx) {
     const url = new URL(req.url);
     wantDebug = url.searchParams.get("debug") === "1";
 
-    const { userId } = await clerkAuth();
+    const { userId } = await withTimeout(clerkAuth(), 8_000, "clerkAuth");
     if (!userId) {
       return NextResponse.json(
         {
@@ -49,7 +56,7 @@ export async function GET(req: Request, ctx: Ctx) {
       );
     }
 
-    const bankId = await getCurrentBankId();
+    const bankId = await withTimeout(getCurrentBankId(), 8_000, "getCurrentBankId");
     const sb = supabaseAdmin();
 
     const debug: any = wantDebug
@@ -59,23 +66,31 @@ export async function GET(req: Request, ctx: Ctx) {
         }
       : null;
 
-    const { data, error } = await sb
-      .from("deal_pipeline_ledger")
-      .select(
-        "id, deal_id, bank_id, event_key, stage, status, ui_state, ui_message, payload, error, created_at, meta"
-      )
-      .eq("deal_id", dealId)
-      .eq("bank_id", bankId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const { data, error } = await withTimeout(
+      sb
+        .from("deal_pipeline_ledger")
+        .select(
+          "id, deal_id, bank_id, event_key, stage, status, ui_state, ui_message, payload, error, created_at, meta"
+        )
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      10_000,
+      "pipelineLatest",
+    );
 
     if (wantDebug) {
-      const countRes = await sb
-        .from("deal_pipeline_ledger")
-        .select("id", { count: "exact", head: true })
-        .eq("deal_id", dealId)
-        .eq("bank_id", bankId);
+      const countRes = await withTimeout(
+        sb
+          .from("deal_pipeline_ledger")
+          .select("id", { count: "exact", head: true })
+          .eq("deal_id", dealId)
+          .eq("bank_id", bankId),
+        10_000,
+        "pipelineCount",
+      );
 
       debug.ledger = {
         count: countRes.count ?? null,
@@ -115,6 +130,7 @@ export async function GET(req: Request, ctx: Ctx) {
     });
 
   } catch (error: any) {
+    const isTimeout = String(error?.message || "").startsWith("timeout:");
     console.error("[pipeline/latest] unexpected error:", error);
     // Never hard-fail the UI: return calm null state.
     return NextResponse.json({
@@ -125,7 +141,7 @@ export async function GET(req: Request, ctx: Ctx) {
       ...(wantDebug
         ? {
             debug: {
-              error: String(error?.message ?? error),
+              error: isTimeout ? "timeout" : String(error?.message ?? error),
             },
           }
         : {}),

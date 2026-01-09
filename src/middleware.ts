@@ -40,7 +40,10 @@ export default clerkMiddleware(async (auth, req) => {
 
   // ✅ ABSOLUTE BYPASS FOR API
   if (p === "/api" || p.startsWith("/api/") || p === "/trpc" || p.startsWith("/trpc/")) {
-    return withBuildHeader();
+    // NOTE: For API routes we must return a bare `next()` response.
+    // Vercel's Next.js "Proxy" layer is sensitive here; adding headers can
+    // interfere with routing to Node lambdas in some environments.
+    return NextResponse.next();
   }
 
   if (isPublicRoute(req)) return withBuildHeader();

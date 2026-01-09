@@ -29,6 +29,9 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
   const [uploading, setUploading] = useState(false);
   const [dealName, setDealName] = useState(`Deal - ${new Date().toLocaleDateString()}`);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
+  const [debugInfo, setDebugInfo] = useState<{ requestId: string | null; stage: string | null }>(
+    { requestId: null, stage: null },
+  );
 
   const handleFiles = useCallback((selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
@@ -143,6 +146,7 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
 
     try {
       // 1. Create the deal
+      setDebugInfo({ requestId: null, stage: "create_deal" });
       const created = await createDealWithRetries();
       const dealId = created.dealId;
       console.log(`Created deal ${dealId} (request ${created.requestId}), uploading ${files.length} files...`);
@@ -153,6 +157,8 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
       for (let i = 0; i < files.length; i++) {
         const item = files[i];
         const file = item.file;
+        const rid = requestId();
+        setDebugInfo({ requestId: rid, stage: "starting_file" });
         setUploadProgress({ current: i + 1, total: files.length });
         
         const result = await directDealDocumentUpload({
@@ -160,6 +166,8 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
           file,
           checklistKey: item.checklistKey ? item.checklistKey : null,
           source: "internal",
+          requestId: rid,
+          onStage: (stageName) => setDebugInfo({ requestId: rid, stage: stageName }),
         });
 
         if (result.ok) {
@@ -174,7 +182,14 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
       // 🔥 CRITICAL: Mark upload batch as complete to unblock auto-seed
       if (successCount > 0) {
         try {
-          await markUploadsCompletedAction(dealId, bankId);
+          // Best-effort only. On some Vercel previews, Node-backed endpoints can hang;
+          // never block redirect on this.
+          await Promise.race([
+            markUploadsCompletedAction(dealId, bankId),
+            new Promise<void>((_resolve, reject) =>
+              setTimeout(() => reject(new Error("markUploadsCompletedAction_timeout")), 3000),
+            ),
+          ]);
           console.log(`✅ Marked uploads completed for deal ${dealId}`);
         } catch (e) {
           // Best-effort only: do not block redirect to cockpit.
@@ -190,13 +205,13 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
       const { isAbort, isNetwork, msg } = classifyNetworkError(error);
       if (isAbort) {
         alert(
-          "Create deal timed out (20s). This is usually a Vercel cold-start / serverless stall. Open DevTools → Network and inspect POST /api/deals, or check Vercel logs for /api/deals.",
+          "Create deal timed out (20s). This is usually a Vercel cold-start / serverless stall. No DevTools needed: retry once. If it keeps happening, tell me the Request ID shown during upload so I can correlate it in Vercel logs.",
         );
         return;
       }
       if (isNetwork) {
         alert(
-          "Network error calling the backend (Failed to fetch). This happens when the server closes the connection before responding (crash/cold-start) or a browser extension blocks the request. Open DevTools → Network and confirm whether POST /api/deals appears and what status it returns.",
+          "Network error calling the backend (Failed to fetch). No DevTools needed: retry once. If it keeps happening, tell me the Request ID + Stage shown during upload so I can pinpoint the failing step in Vercel logs.",
         );
         return;
       }
@@ -393,6 +408,13 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
                       progress_activity
                     </span>
                     Uploading...
+                    {debugInfo.requestId ? (
+                      <span className="ml-2 text-xs text-white/80">
+                        (Request: {debugInfo.requestId}{debugInfo.stage ? ` • ${debugInfo.stage}` : ""})
+                      </span>
+                    ) : debugInfo.stage ? (
+                      <span className="ml-2 text-xs text-white/80">({debugInfo.stage})</span>
+                    ) : null}
                   </>
                 ) : (
                   <>

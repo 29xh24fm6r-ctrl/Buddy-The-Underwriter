@@ -11,8 +11,8 @@
  * 4. Emit ledger event + checklist resolution
  */
 
-import type { UploadResult, UploadOk, UploadErr } from "./types";
-import { readJson, toUploadErr, assertUploadResult, generateRequestId } from "./parse";
+import type { UploadResult, UploadErr } from "./types";
+import { readJson, toUploadErr, generateRequestId } from "./parse";
 
 export type { UploadResult, UploadOk, UploadErr } from "./types";
 
@@ -38,6 +38,8 @@ export interface DirectUploadArgs {
   checklistKey?: string | null;
   source?: string;
   packId?: string | null;
+  requestId?: string;
+  onStage?: (stage: string, meta?: Record<string, unknown>) => void;
 }
 
 /**
@@ -51,6 +53,10 @@ export async function uploadViaSignedUrl(
 ): Promise<UploadResult> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
+
+    // Prevent the UI from hanging forever if the storage PUT never completes.
+    // 2 minutes is generous for 50MB (server-enforced) but still bounded.
+    xhr.timeout = 120_000;
 
     xhr.upload.addEventListener("progress", (e) => {
       if (e.lengthComputable && onProgress) {
@@ -69,6 +75,14 @@ export async function uploadViaSignedUrl(
           code: `HTTP_${xhr.status}`,
         });
       }
+    });
+
+    xhr.addEventListener("timeout", () => {
+      resolve({
+        ok: false,
+        error: "Upload timed out",
+        code: "UPLOAD_TIMEOUT",
+      });
     });
 
     xhr.addEventListener("error", () => {
@@ -93,6 +107,62 @@ export async function uploadViaSignedUrl(
   });
 }
 
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function emitClientTelemetry(payload: {
+  request_id: string;
+  stage: string;
+  message?: string;
+  meta?: Record<string, unknown>;
+}) {
+  try {
+    if (typeof navigator !== "undefined" && typeof (navigator as any).sendBeacon === "function") {
+      const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+      (navigator as any).sendBeacon("/api/debug/client-telemetry", blob);
+      return;
+    }
+
+    fetch("/api/debug/client-telemetry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-request-id": payload.request_id },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    // ignore
+  }
+}
+
+function stage(
+  requestId: string,
+  onStage: DirectUploadArgs["onStage"] | undefined,
+  stageName: string,
+  meta?: Record<string, unknown>,
+) {
+  try {
+    onStage?.(stageName, meta);
+  } catch {
+    // ignore
+  }
+  emitClientTelemetry({ request_id: requestId, stage: stageName, meta });
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  ms: number,
+): Promise<Response> {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), ms);
+  try {
+    return await fetch(input, { ...init, signal: ac.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 /**
  * Complete end-to-end upload for deal files (canonical)
  * Used by: UploadBox, deals/new, all internal banker uploads
@@ -101,33 +171,72 @@ export async function directDealDocumentUpload(
   args: DirectUploadArgs,
 ): Promise<UploadResult> {
   const { dealId, file, checklistKey = null, source = "internal", packId = null } = args;
-  const requestId = generateRequestId();
+  const requestId = args.requestId ?? generateRequestId();
+  const onStage = args.onStage;
 
   try {
-    // Step 1: Get signed URL
-    const signRes = await fetch(`/api/deals/${dealId}/files/sign`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-request-id": requestId,
-      },
-      body: JSON.stringify({
-        filename: file.name,
-        mime_type: file.type,
-        size_bytes: file.size,
-        checklist_key: checklistKey,
-        pack_id: packId,
-      }),
+    stage(requestId, onStage, "upload_start", {
+      dealId,
+      filename: file.name,
+      size_bytes: file.size,
+      mime_type: file.type || null,
     });
 
-    const signData = await readJson<SignedUploadResponse>(signRes);
-    if (!signRes.ok || !signData?.ok || !signData.upload) {
+    // Step 1: Get signed URL
+    const signUrl = `/api/deals/${dealId}/files/sign`;
+    let signRes: Response | null = null;
+    let signData: SignedUploadResponse | null = null;
+
+    // Retry a couple times to survive transient serverless stalls.
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        stage(requestId, onStage, "sign_start", { attempt });
+        signRes = await fetchWithTimeout(
+          signUrl,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-request-id": requestId,
+            },
+            body: JSON.stringify({
+              filename: file.name,
+              mime_type: file.type,
+              size_bytes: file.size,
+              checklist_key: checklistKey,
+              pack_id: packId,
+            }),
+          },
+          20_000,
+        );
+        signData = await readJson<SignedUploadResponse>(signRes);
+        stage(requestId, onStage, "sign_response", {
+          status: signRes.status,
+          ok: signRes.ok,
+          response_ok: Boolean(signData?.ok),
+        });
+        break;
+      } catch (e) {
+        const isAbort = (e as any)?.name === "AbortError";
+        const retryable = isAbort || String((e as any)?.message || e).includes("Failed to fetch");
+        stage(requestId, onStage, "sign_error", {
+          attempt,
+          isAbort,
+          message: (e as any)?.message ?? String(e),
+        });
+        if (!retryable || attempt === 3) throw e;
+        await sleep(300 * attempt);
+      }
+    }
+
+    if (!signRes || !signData || !signRes.ok || !signData?.ok || !signData.upload) {
+      const signStatus = signRes?.status ?? 0;
       const errorDetail = signData?.details ? `: ${signData.details}` : "";
-      const errorMsg = (signData?.error || `Failed to get signed URL (${signRes.status})`) + errorDetail;
+      const errorMsg = (signData?.error || `Failed to get signed URL (${signStatus || "no_response"})`) + errorDetail;
       
       console.warn("[upload] sign failed", {
         requestId,
-        status: signRes.status,
+        status: signStatus,
         error: signData?.error,
         details: signData?.details,
         request_id: signData?.request_id,
@@ -136,45 +245,68 @@ export async function directDealDocumentUpload(
       return {
         ok: false,
         error: errorMsg,
-        code: signData?.details || `HTTP_${signRes.status}`,
+        code: signData?.details || `HTTP_${signStatus || 0}`,
         request_id: requestId,
       };
     }
 
     const { file_id, object_path, signed_url } = signData.upload;
 
+    stage(requestId, onStage, "sign_ok", { file_id, object_path });
+
     // Step 2: Upload directly to storage
+    stage(requestId, onStage, "storage_put_start", { file_id });
     const uploadResult = await uploadViaSignedUrl(signed_url, file);
     if (!uploadResult.ok) {
       const err = uploadResult as UploadErr;
+      stage(requestId, onStage, "storage_put_error", {
+        file_id,
+        error: err.error,
+        code: (err as any)?.code ?? null,
+      });
       console.warn("[upload] storage upload failed", { requestId, file_id, error: err.error });
       return { ...err, request_id: requestId };
     }
 
+    stage(requestId, onStage, "storage_put_ok", { file_id });
+
     // Step 3: Record metadata
-    const recordRes = await fetch(`/api/deals/${dealId}/files/record`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-request-id": requestId,
+    stage(requestId, onStage, "record_start", { file_id });
+    const recordRes = await fetchWithTimeout(
+      `/api/deals/${dealId}/files/record`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-request-id": requestId,
+        },
+        body: JSON.stringify({
+          file_id,
+          object_path,
+          original_filename: file.name,
+          mime_type: file.type,
+          size_bytes: file.size,
+          checklist_key: checklistKey,
+          source,
+          pack_id: packId,
+        }),
       },
-      body: JSON.stringify({
-        file_id,
-        object_path,
-        original_filename: file.name,
-        mime_type: file.type,
-        size_bytes: file.size,
-        checklist_key: checklistKey,
-        source,
-        pack_id: packId,
-      }),
-    });
+      30_000,
+    );
 
     const recordData = await readJson<UploadResult>(recordRes);
     if (!recordRes.ok || !recordData?.ok) {
       const err = recordData && !recordData.ok ? (recordData as UploadErr) : null;
       const errorDetail = err?.details ? `: ${typeof err.details === "string" ? err.details : JSON.stringify(err.details)}` : "";
       const errMsg = err?.error ? err.error + errorDetail : null;
+
+      stage(requestId, onStage, "record_error", {
+        file_id,
+        status: recordRes.status,
+        ok: recordRes.ok,
+        error: err?.error ?? null,
+        details: err?.details ?? null,
+      });
 
       console.warn("[upload] record failed", {
         requestId,
@@ -192,6 +324,8 @@ export async function directDealDocumentUpload(
         request_id: requestId,
       };
     }
+
+    stage(requestId, onStage, "record_ok", { file_id });
 
     console.log("[upload] success", { requestId, file_id, filename: file.name });
 
@@ -215,6 +349,10 @@ export async function directDealDocumentUpload(
 
     return { ok: true, file_id, checklist_key: checklistKey, request_id: requestId } as UploadResult;
   } catch (error: any) {
+    stage(requestId, onStage, "upload_unexpected_error", {
+      message: error?.message ?? String(error),
+      name: error?.name ?? null,
+    });
     console.warn("[upload] unexpected error", { requestId, error: error.message });
     return toUploadErr(error, requestId);
   }

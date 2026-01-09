@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+
+export const runtime = "edge";
 
 export const dynamic = "force-dynamic";
+
+function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return Promise.race<T>([
+    Promise.resolve(p),
+    new Promise<T>((_resolve, reject) => setTimeout(() => reject(new Error(`timeout:${label}`)), ms)),
+  ]);
+}
 
 export async function GET(
   req: NextRequest,
@@ -10,18 +20,28 @@ export async function GET(
 ) {
   try {
     const { dealId } = await ctx.params;
-    const bankId = await getCurrentBankId();
+
+    const { userId } = await withTimeout(clerkAuth(), 8_000, "clerkAuth");
+    if (!userId) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const bankId = await withTimeout(getCurrentBankId(), 8_000, "getCurrentBankId");
     const sb = supabaseAdmin();
 
     const url = new URL(req.url);
     const expectedRaw = url.searchParams.get("expected");
     const expected = expectedRaw ? Math.max(0, parseInt(expectedRaw, 10) || 0) : null;
 
-    const { count, error } = await sb
-      .from("deal_documents")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId)
-      .eq("bank_id", bankId);
+    const { count, error } = await withTimeout(
+      sb
+        .from("deal_documents")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId),
+      10_000,
+      "documentsCount",
+    );
 
     if (error) throw error;
 
@@ -40,9 +60,10 @@ export async function GET(
       ready,
     });
   } catch (e: any) {
+    const isTimeout = String(e?.message || "").startsWith("timeout:");
     return NextResponse.json(
-      { ok: false, error: "Internal server error", details: String(e?.message ?? e) },
-      { status: 500 }
+      { ok: false, error: isTimeout ? "Request timed out" : "Internal server error", details: String(e?.message ?? e) },
+      { status: isTimeout ? 504 : 500 }
     );
   }
 }

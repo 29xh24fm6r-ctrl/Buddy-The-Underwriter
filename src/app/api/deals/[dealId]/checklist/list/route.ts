@@ -2,8 +2,15 @@ import { NextResponse } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getChecklistState } from "@/lib/checklist/getChecklistState";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
+
+function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return Promise.race<T>([
+    Promise.resolve(p),
+    new Promise<T>((_resolve, reject) => setTimeout(() => reject(new Error(`timeout:${label}`)), ms)),
+  ]);
+}
 
 const CHECKLIST_DEFINITIONS: Record<string, { title: string; required: boolean }> = {
   PFS_CURRENT: { title: "Personal Financial Statement (current)", required: true },
@@ -29,7 +36,7 @@ export async function GET(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    const { userId } = await clerkAuth();
+    const { userId } = await withTimeout(clerkAuth(), 8_000, "clerkAuth");
     if (!userId) {
       return NextResponse.json(
         { ok: false, error: "Unauthorized" },
@@ -38,7 +45,11 @@ export async function GET(
     }
 
     const { dealId } = await ctx.params;
-    const checklistState = await getChecklistState({ dealId, includeItems: true });
+    const checklistState = await withTimeout(
+      getChecklistState({ dealId, includeItems: true }),
+      12_000,
+      "getChecklistState",
+    );
 
     if (!checklistState.ok) {
       const status = checklistState.error === "Unauthorized" ? 403 : 500;
@@ -106,14 +117,15 @@ export async function GET(
       { headers: { "cache-control": "no-store" } },
     );
   } catch (error: any) {
+    const isTimeout = String(error?.message || "").startsWith("timeout:");
     console.error("[/api/deals/[dealId]/checklist/list] Unexpected error:", error);
     return NextResponse.json(
       {
         ok: false,
         items: [],
-        error: error?.message || "Unexpected error loading checklist",
+        error: isTimeout ? "Request timed out" : error?.message || "Unexpected error loading checklist",
       },
-      { status: 500, headers: { "cache-control": "no-store" } },
+      { status: isTimeout ? 504 : 500, headers: { "cache-control": "no-store" } },
     );
   }
 }

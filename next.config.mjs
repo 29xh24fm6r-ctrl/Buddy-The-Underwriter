@@ -3,7 +3,9 @@ import { withSentryConfig } from "@sentry/nextjs";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Force dynamic rendering to skip static page generation during build
-  output: 'standalone',
+  // NOTE: `output: 'standalone'` is for self-hosting. On Vercel it can break
+  // serverless function bundling/behavior, so we disable it there.
+  output: process.env.VERCEL ? undefined : 'standalone',
   
   // Source maps: required for readable stack traces.
   // Sentry will hide them from the public bundle via `hideSourceMaps`.
@@ -45,13 +47,22 @@ const nextConfig = {
   },
 };
 
-export default withSentryConfig(nextConfig, {
-  // Sentry build-time options
-  silent: true,
-}, {
-  // Sentry Webpack Plugin options
-  hideSourceMaps: true,
-  // Only upload source maps when a token is configured.
-  // This keeps Preview deploys safe even before you add SENTRY_AUTH_TOKEN.
-  dryRun: !process.env.SENTRY_AUTH_TOKEN,
-});
+// Only enable the Sentry Next.js plugin when we can actually upload source maps.
+// This reduces build/runtime surface area on Vercel previews and avoids
+// rare cases where the plugin integration can impact serverless behavior.
+const shouldEnableSentryPlugin = Boolean(process.env.SENTRY_AUTH_TOKEN);
+
+export default shouldEnableSentryPlugin
+  ? withSentryConfig(
+      nextConfig,
+      {
+        // Sentry build-time options
+        silent: true,
+      },
+      {
+        // Sentry Webpack Plugin options
+        hideSourceMaps: true,
+        dryRun: false,
+      },
+    )
+  : nextConfig;
