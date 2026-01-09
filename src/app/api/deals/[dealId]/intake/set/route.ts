@@ -204,11 +204,12 @@ export async function POST(
 
     // Auto-match any previously uploaded files to the new checklist (doc_intel first; filename fallback)
     try {
-      const { data: files } = await withTimeout(
+      const filesRes = await withTimeout<any>(
         sb.rpc("list_deal_documents", { p_deal_id: dealId }) as any,
         15_000,
         "list_deal_documents",
       );
+      const files = (filesRes as any)?.data as any[] | null;
 
       const startMs = Date.now();
       const budgetMs = 20_000;

@@ -123,11 +123,12 @@ async function bestEffortStampDealDocument(args: {
   aiTaxYear?: unknown;
   aiConfidence?: unknown;
 }) {
-  const { sb, docId, filename, extractedText, aiDocType, aiTaxYear, aiConfidence } =
+  const { sb, docId, filename: _filename, extractedText, aiDocType, aiTaxYear, aiConfidence } =
     args;
 
   const meta = inferDocumentMetadata({
-    originalFilename: filename || null,
+    // Do not rely on borrower-provided filenames for classification.
+    originalFilename: null,
     extractedText: extractedText ?? null,
   });
 
@@ -197,6 +198,76 @@ async function bestEffortStampDealDocument(args: {
     docId,
     error: attempt1.error,
   });
+}
+
+function toDocIntelDocType(metaType: string): string {
+  // Keep values compatible with checklistKeysFromDocIntel() which normalizes and
+  // matches based on BUSINESS/TAX and PERSONAL/TAX tokens.
+  if (metaType === "business_tax_return") return "business_tax_return";
+  if (metaType === "personal_tax_return") return "personal_tax_return";
+  return "Unknown";
+}
+
+async function bestEffortUpsertDocIntelFromOcr(args: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  dealId: string;
+  fileId: string;
+  extractedText: string;
+}) {
+  const { sb, dealId, fileId, extractedText } = args;
+
+  const meta = inferDocumentMetadata({
+    originalFilename: null,
+    extractedText: extractedText ?? null,
+  });
+
+  const docType = toDocIntelDocType(meta.document_type);
+  const confidence = Math.max(
+    0,
+    Math.min(100, Math.round((Number(meta.confidence ?? 0) || 0) * 100)),
+  );
+
+  const taxYear = meta.doc_year ?? null;
+
+  // Even if Unknown, persist so downstream screens can see OCR happened.
+  // Auto-match will only trust non-Unknown + confidence >= 60.
+  const up = await sb.from("doc_intel_results").upsert(
+    {
+      deal_id: dealId,
+      file_id: fileId,
+      doc_type: docType,
+      tax_year: taxYear,
+      extracted_json: {
+        source: "azure_di_ocr",
+        text_len: (extractedText || "").length,
+        det: {
+          document_type: meta.document_type,
+          doc_year: meta.doc_year,
+          doc_years: meta.doc_years,
+          confidence: meta.confidence,
+          reason: meta.reason,
+        },
+      },
+      quality_json: {
+        legible: null,
+        complete: null,
+        signed: null,
+        notes: ["deterministic_ocr_only"],
+      },
+      confidence,
+      evidence_json: { evidence_spans: [], evidence: [] },
+      created_at: new Date().toISOString(),
+    } as any,
+    { onConflict: "deal_id,file_id" },
+  );
+
+  if (up.error) {
+    console.error("[documents/intel/run] ocr_doc_intel_upsert_failed (non-fatal)", {
+      dealId,
+      fileId,
+      error: up.error,
+    });
+  }
 }
 
 /**
@@ -287,7 +358,20 @@ async function runIntelForDeal(args: {
         .eq("file_id", docId)
         .maybeSingle();
 
-      if (!existingIntel.error && existingIntel.data?.id) {
+      const existingDocType = String((existingIntel.data as any)?.doc_type || "");
+      const existingDocTypeNorm = existingDocType.trim().toLowerCase();
+      const existingConfidence =
+        typeof (existingIntel.data as any)?.confidence === "number"
+          ? Number((existingIntel.data as any)?.confidence)
+          : null;
+
+      const hasTrustedExistingIntel =
+        !existingIntel.error &&
+        !!existingIntel.data?.id &&
+        existingDocTypeNorm !== "unknown" &&
+        (existingConfidence == null || existingConfidence >= 60);
+
+      if (hasTrustedExistingIntel) {
         await bestEffortStampDealDocument({
           sb,
           docId,
@@ -380,6 +464,17 @@ async function runIntelForDeal(args: {
           // Non-fatal: still stamp deterministic metadata from OCR text.
           docIntelStatus = "error";
         }
+      }
+
+      // Ensure a minimal doc_intel_results record exists even when OpenAI is not configured
+      // or the AI call fails. This enables intel-only auto-match without filename guessing.
+      if (docIntelStatus !== "ok") {
+        await bestEffortUpsertDocIntelFromOcr({
+          sb,
+          dealId,
+          fileId: docId,
+          extractedText,
+        });
       }
 
       await bestEffortStampDealDocument({
