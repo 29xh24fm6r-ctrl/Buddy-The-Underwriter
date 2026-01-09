@@ -43,11 +43,24 @@ type Field = {
   confirmed: boolean;
 };
 
+type PortalChecklistItem = {
+  id: string;
+  code: string;
+  title: string;
+  description: string | null;
+  group: string;
+  required: boolean;
+  status: "missing" | "received" | "verified" | string;
+  completed_at: string | null;
+};
+
 export function PortalClient({ token }: { token: string }) {
   const [deal, setDeal] = React.useState<Deal | null>(null);
   const [docs, setDocs] = React.useState<Doc[]>([]);
   const [activeUploadId, setActiveUploadId] = React.useState<string | null>(null);
   const [fields, setFields] = React.useState<Field[]>([]);
+  const [checklist, setChecklist] = React.useState<PortalChecklistItem[]>([]);
+  const [checklistStats, setChecklistStats] = React.useState<{ required: number; missing: number; received: number } | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [err, setErr] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -78,6 +91,14 @@ export function PortalClient({ token }: { token: string }) {
     setFields(data as Field[]);
   }, [token]);
 
+  const refreshChecklist = React.useCallback(async () => {
+    const res = await fetch(`/api/portal/${token}/checklist`, { method: "GET" });
+    const json = await res.json();
+    if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+    setChecklist((json.checklist ?? []) as PortalChecklistItem[]);
+    setChecklistStats((json.stats ?? null) as any);
+  }, [token]);
+
   React.useEffect(() => {
     (async () => {
       try {
@@ -88,14 +109,14 @@ export function PortalClient({ token }: { token: string }) {
         });
         if (error) throw new Error(error.message);
         setDeal((data as any).deal);
-        await refreshDocs();
+        await Promise.all([refreshDocs(), refreshChecklist()]);
       } catch (e: any) {
         setErr(e?.message ?? "Failed to load portal");
       } finally {
         setLoading(false);
       }
     })();
-  }, [token, refreshDocs]);
+  }, [token, refreshDocs, refreshChecklist]);
 
   React.useEffect(() => {
     if (!activeUploadId) return;
@@ -181,6 +202,64 @@ export function PortalClient({ token }: { token: string }) {
               Upload New Document
             </button>
             <p className="mt-2 text-xs text-neutral-500">PDF, Excel, Word (Max 50MB)</p>
+          </div>
+
+          <div className="rounded-xl border border-neutral-200 p-4">
+            <div className="flex items-center gap-2">
+              <Icon name="checklist" className="h-5 w-5" />
+              <div className="text-sm font-semibold">Requested Documents</div>
+              <div className="ml-auto text-xs text-neutral-500">
+                {checklistStats ? `${checklistStats.received}/${checklistStats.required} received` : ""}
+              </div>
+            </div>
+
+            {checklist.length === 0 ? (
+              <div className="mt-3 text-sm text-neutral-500">No checklist items yet.</div>
+            ) : (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Missing</div>
+                  <ul className="mt-2 space-y-2">
+                    {checklist.filter((c) => c.required && (c.status ?? "missing") === "missing").map((c) => (
+                      <li key={c.id} className="rounded-lg border border-amber-200 bg-amber-50 p-2">
+                        <div className="text-sm font-medium text-amber-900">{c.title}</div>
+                        {c.description ? <div className="mt-1 text-xs text-amber-900/70">{c.description}</div> : null}
+                      </li>
+                    ))}
+                    {checklist.filter((c) => c.required && (c.status ?? "missing") === "missing").length === 0 ? (
+                      <li className="text-sm text-neutral-500">Nothing missing right now.</li>
+                    ) : null}
+                  </ul>
+                </div>
+
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Received</div>
+                  <ul className="mt-2 space-y-2">
+                    {checklist.filter((c) => c.required && (c.status ?? "missing") !== "missing").map((c) => (
+                      <li key={c.id} className="rounded-lg border border-emerald-200 bg-emerald-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0 truncate text-sm font-medium text-emerald-900">{c.title}</div>
+                          <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800">
+                            {c.status}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                    {checklist.filter((c) => c.required && (c.status ?? "missing") !== "missing").length === 0 ? (
+                      <li className="text-sm text-neutral-500">No documents received yet.</li>
+                    ) : null}
+                  </ul>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => refreshChecklist().catch((e: any) => setErr(e?.message ?? "Failed to refresh checklist"))}
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900"
+                >
+                  Refresh Checklist
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">

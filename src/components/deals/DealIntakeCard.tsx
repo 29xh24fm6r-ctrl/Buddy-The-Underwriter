@@ -242,11 +242,47 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
           const receivedTotal = typeof summary.received_total === "number" ? summary.received_total : null;
           const pendingTotal = typeof summary.pending_total === "number" ? summary.pending_total : null;
           const optionalTotal = typeof summary.optional_total === "number" ? summary.optional_total : null;
+
+          // Best-effort: after seeding, try to (1) stamp existing files with checklist keys and (2) reconcile
+          // so the Deal Checklist flips items to received without the user needing another click.
+          let postMatch: { ok: boolean; matched?: number; updated?: number; error?: string } | null = null;
+          let postReconcile: { ok: boolean; checklistMarkedReceived?: number; error?: string } | null = null;
+          try {
+            const mRes = await fetch(`/api/deals/${dealId}/files/auto-match-checklist`, { method: "POST" });
+            const mJson = await mRes.json();
+            postMatch = {
+              ok: !!mJson?.ok,
+              matched: typeof mJson?.matched === "number" ? mJson.matched : undefined,
+              updated: typeof mJson?.updated === "number" ? mJson.updated : undefined,
+              error: typeof mJson?.error === "string" ? mJson.error : undefined,
+            };
+          } catch (e: any) {
+            postMatch = { ok: false, error: e?.message || "auto_match_failed" };
+          }
+
+          try {
+            const rRes = await fetch(`/api/deals/${dealId}/checklist/reconcile`, { method: "POST" });
+            const rJson = await rRes.json();
+            postReconcile = {
+              ok: !!rJson?.ok,
+              checklistMarkedReceived:
+                typeof rJson?.checklistMarkedReceived === "number"
+                  ? rJson.checklistMarkedReceived
+                  : typeof rJson?.checklist_marked_received === "number"
+                    ? rJson.checklist_marked_received
+                    : undefined,
+              error: typeof rJson?.error === "string" ? rJson.error : undefined,
+            };
+          } catch (e: any) {
+            postReconcile = { ok: false, error: e?.message || "reconcile_failed" };
+          }
+
           setMatchMessage(
             `✅ Success!\n` +
             `• Loan type: ${intake.loan_type}\n` +
             `• Checklist items created: ${summary.seeded || 0}\n` +
-            `• Files newly matched: ${summary.matched || 0}\n` +
+            `• Files newly matched: ${postMatch?.ok ? (postMatch.matched || 0) : 0}\n` +
+            `${postReconcile?.ok && typeof postReconcile.checklistMarkedReceived === "number" ? `• Checklist marked received: ${postReconcile.checklistMarkedReceived}\n` : ""}` +
             `${receivedTotal != null ? `• Checklist received (total): ${receivedTotal}\n` : ""}` +
             `${pendingTotal != null ? `• Checklist pending (total): ${pendingTotal}\n` : ""}` +
             `${optionalTotal != null ? `• Optional items (total): ${optionalTotal}\n` : ""}` +

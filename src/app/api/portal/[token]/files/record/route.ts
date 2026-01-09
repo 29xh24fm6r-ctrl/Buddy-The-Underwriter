@@ -4,6 +4,7 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { recomputeDealReady } from "@/lib/deals/readiness";
 import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrowerUploadAndMaterialize";
+import { recordReceipt } from "@/lib/portal/receipts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -122,6 +123,20 @@ export async function POST(req: NextRequest, ctx: Context) {
       },
       source: "borrower_portal",
       metadata: { checklist_key },
+    });
+
+    // Borrower-safe receipt + portal checklist highlight (hint-based)
+    // This is intentionally separate from canonical checklist reconciliation.
+    await recordReceipt({
+      dealId,
+      uploaderRole: "borrower",
+      filename: original_filename,
+      fileId: result.documentId,
+      meta: {
+        source: "borrower_portal",
+        storage_path: object_path,
+        checklist_key: checklist_key ?? null,
+      },
     });
 
     // ✅ Audit trail: record borrower_uploads row for this upload (idempotent)
