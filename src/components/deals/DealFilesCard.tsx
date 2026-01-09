@@ -19,6 +19,7 @@ type DealFile = {
 export default function DealFilesCard({ dealId }: { dealId: string }) {
   const [files, setFiles] = useState<DealFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [matching, setMatching] = useState(false);
   const [matchResult, setMatchResult] = useState<string | null>(null);
   const [checklistOptions, setChecklistOptions] = useState<
@@ -34,11 +35,11 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
     return mime.startsWith("image/") || mime === "application/pdf";
   };
 
-  async function fetchJsonWithTimeout(url: string, ms: number) {
+  async function fetchJsonWithTimeout(url: string, ms: number, init?: RequestInit) {
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), ms);
     try {
-      const res = await fetch(url, { cache: "no-store", signal: ac.signal });
+      const res = await fetch(url, { cache: "no-store", signal: ac.signal, ...init });
       const json = await res.json().catch(() => ({}));
       return { res, json };
     } finally {
@@ -46,8 +47,10 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
     }
   }
 
-  async function loadFiles() {
-    setLoading(true);
+  async function loadFiles(opts?: { silent?: boolean }) {
+    const silent = Boolean(opts?.silent);
+    if (silent) setRefreshing(true);
+    else setLoading(true);
     try {
       const { res, json } = await fetchJsonWithTimeout(`/api/deals/${dealId}/files/list`, 15_000);
       if (res.ok && json?.ok && json.files) setFiles(json.files);
@@ -82,7 +85,8 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
       console.error("[DealFilesCard] Failed to load files:", error);
       if (checklistOptions.length === 0) setChecklistOptions(CHECKLIST_KEY_OPTIONS);
     } finally {
-      setLoading(false);
+      if (silent) setRefreshing(false);
+      else setLoading(false);
     }
   }
 
@@ -116,7 +120,9 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
 
   useEffect(() => {
     loadFiles();
-    const interval = setInterval(loadFiles, 10000);
+    const interval = setInterval(() => {
+      void loadFiles({ silent: true });
+    }, 10000);
     return () => clearInterval(interval);
   }, [dealId]);
 
@@ -124,20 +130,23 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
     setMatching(true);
     setMatchResult(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/files/auto-match-checklist`, {
-        method: "POST",
-      });
-      const json = await res.json();
+      const { res, json } = await fetchJsonWithTimeout(
+        `/api/deals/${dealId}/files/auto-match-checklist`,
+        30_000,
+        { method: "POST" },
+      );
       if (json?.ok) {
         setMatchResult(
           `✅ Matched ${json.totalUpdated} checklist items from ${json.filesProcessed} files`,
         );
-        await loadFiles();
+        await loadFiles({ silent: true });
       } else {
-        setMatchResult(`⚠️ ${json?.error || "Failed to match"}`);
+        setMatchResult(`⚠️ ${json?.error || (!res.ok ? `HTTP ${res.status}` : "Failed to match")}`);
       }
     } catch (error: any) {
-      setMatchResult(`❌ ${error?.message || "Unknown error"}`);
+      setMatchResult(
+        `❌ ${error?.name === "AbortError" ? "Auto-match timed out" : error?.message || "Unknown error"}`,
+      );
     } finally {
       setMatching(false);
     }
@@ -220,12 +229,12 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={loadFiles}
-              disabled={loading}
+              onClick={() => void loadFiles({ silent: true })}
+              disabled={loading || refreshing}
               className="rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
               title="Refresh file list"
             >
-              ↻
+              {refreshing ? "…" : "↻"}
             </button>
             <button
               type="button"
