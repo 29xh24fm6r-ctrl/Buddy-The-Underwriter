@@ -2,7 +2,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-const AUTO_MATCH_CHECKLIST_VERSION = "2026-01-08-update";
+const AUTO_MATCH_CHECKLIST_VERSION = "2026-01-09-filename-patterns";
 
 function normDocType(x: string) {
   return String(x || "")
@@ -109,6 +109,11 @@ const FILENAME_PATTERNS: Array<{ pattern: RegExp; keys: string[] }> = [
     keys: ["IRS_BUSINESS_2Y"],
   },
   {
+    // Common shorthand for business tax return.
+    pattern: /(\bbtr\b|business\s*tax\s*return)/i,
+    keys: ["IRS_BUSINESS_2Y"],
+  },
+  {
     pattern: /(personal.*tax|1040(?!.*sch.*c))/i,
     keys: ["IRS_PERSONAL_2Y"],
   },
@@ -126,6 +131,12 @@ const FILENAME_PATTERNS: Array<{ pattern: RegExp; keys: string[] }> = [
   },
   {
     pattern: /(ytd|year.*to.*date|interim.*financial)/i,
+    keys: ["FIN_STMT_YTD"],
+  },
+  {
+    // Common financial statement filenames that often omit "YTD".
+    pattern:
+      /(balance\s*sheet|trial\s*balance|income\s*statement|\bp\s*&\s*l\b|profit\s*and\s*loss|statement\s*of\s*financial\s*position)/i,
     keys: ["FIN_STMT_YTD"],
   },
   {
