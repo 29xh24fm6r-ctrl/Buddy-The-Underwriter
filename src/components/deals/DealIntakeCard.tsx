@@ -291,16 +291,22 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
     setAiRecognizing(true);
     setMatchMessage("🧠 Running AI doc recognition (OCR + classify)…");
     try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 60_000);
+
       const res = await fetch(`/api/deals/${dealId}/documents/intel/run`, {
         method: "POST",
         headers: { "content-type": "application/json" },
+        signal: ac.signal,
         // Keep this conservative to avoid serverless timeouts; re-run if needed.
-        body: JSON.stringify({ limit: 10 }),
+        body: JSON.stringify({ limit: 5 }),
       });
+      clearTimeout(t);
       const json = await res.json();
       if (!res.ok || !json?.ok) {
         setMatchMessage(
-          `⚠️ Doc recognition failed:\n${json?.error || "Unknown error"}`,
+          `⚠️ Doc recognition failed:\n${json?.error || `HTTP ${res.status}`}\n\n` +
+            `If this is a Vercel Preview hang/timeout, click 'AI Doc Recognition' again (it resumes where it left off).`,
         );
         return;
       }
@@ -335,7 +341,12 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         await onChecklistSeeded();
       }
     } catch (e: any) {
-      setMatchMessage(`❌ Doc recognition error: ${e?.message || String(e)}`);
+      const isAbort = e?.name === "AbortError";
+      setMatchMessage(
+        isAbort
+          ? "⏳ AI Doc Recognition timed out (60s). This can happen on Vercel Preview. Click 'AI Doc Recognition' again to continue."
+          : `❌ Doc recognition error: ${e?.message || String(e)}`,
+      );
     } finally {
       setAiRecognizing(false);
     }
