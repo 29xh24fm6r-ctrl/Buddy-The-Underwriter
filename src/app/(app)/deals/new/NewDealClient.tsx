@@ -82,31 +82,70 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
 
     setUploading(true);
     setUploadProgress({ current: 0, total: files.length });
+
+    const classifyNetworkError = (e: unknown) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      const name = (e as any)?.name;
+      const isAbort = name === "AbortError";
+      const isNetwork = msg === "Failed to fetch" || msg.toLowerCase().includes("networkerror");
+      return { msg, name, isAbort, isNetwork };
+    };
+
+    const createDeal = async () => {
+      const ac = new AbortController();
+      const rid = requestId();
+      const t = setTimeout(() => ac.abort(), 20000);
+      try {
+        const createRes = await fetch("/api/deals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-request-id": rid },
+          signal: ac.signal,
+          body: JSON.stringify({
+            name: dealName || `Deal - ${new Date().toLocaleDateString()}`,
+          }),
+        });
+
+        if (!createRes.ok) {
+          const errJson = await createRes.json().catch(() => null as any);
+          const errText = errJson?.error || `Failed to create deal (${createRes.status})`;
+          throw new Error(errText);
+        }
+
+        const payload = await createRes.json().catch(() => null as any);
+        const dealId = String(payload?.dealId || "");
+        if (!dealId) throw new Error("failed_to_create_deal:missing_dealId");
+        return { dealId, requestId: rid };
+      } finally {
+        clearTimeout(t);
+      }
+    };
+
+    const createDealWithRetries = async () => {
+      // These failures are almost always transient serverless/network issues.
+      // Retry a couple times before surfacing an error.
+      const maxAttempts = 3;
+      let lastErr: unknown = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          return await createDeal();
+        } catch (e) {
+          lastErr = e;
+          const { isAbort, isNetwork } = classifyNetworkError(e);
+          const msg = e instanceof Error ? e.message : String(e);
+          const retryableStatus = msg.startsWith("timeout:") || msg.includes("504") || msg.includes("502") || msg.includes("503");
+          const shouldRetry = attempt < maxAttempts && (isAbort || isNetwork || retryableStatus);
+          if (!shouldRetry) break;
+          await new Promise((r) => setTimeout(r, 350 * attempt));
+        }
+      }
+      throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+    };
+
     try {
       // 1. Create the deal
-      const ac = new AbortController();
-      const t = setTimeout(() => ac.abort(), 20000);
-      const rid = requestId();
-
-      const createRes = await fetch("/api/deals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-request-id": rid },
-        signal: ac.signal,
-        body: JSON.stringify({ 
-          name: dealName || `Deal - ${new Date().toLocaleDateString()}` 
-        }),
-      });
-
-      clearTimeout(t);
-
-      if (!createRes.ok) {
-        const errJson = await createRes.json().catch(() => null as any);
-        const errText = errJson?.error || `Failed to create deal (${createRes.status})`;
-        throw new Error(errText);
-      }
-
-      const { dealId } = await createRes.json();
-      console.log(`Created deal ${dealId}, uploading ${files.length} files...`);
+      const created = await createDealWithRetries();
+      const dealId = created.dealId;
+      console.log(`Created deal ${dealId} (request ${created.requestId}), uploading ${files.length} files...`);
 
       // 2. Upload files to the deal
       setUploadProgress({ current: 0, total: files.length });
@@ -134,8 +173,13 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
 
       // 🔥 CRITICAL: Mark upload batch as complete to unblock auto-seed
       if (successCount > 0) {
-        await markUploadsCompletedAction(dealId, bankId);
-        console.log(`✅ Marked uploads completed for deal ${dealId}`);
+        try {
+          await markUploadsCompletedAction(dealId, bankId);
+          console.log(`✅ Marked uploads completed for deal ${dealId}`);
+        } catch (e) {
+          // Best-effort only: do not block redirect to cockpit.
+          console.error("markUploadsCompletedAction failed (ignored):", e);
+        }
       }
 
       // 3. Redirect to the deal cockpit (command center)
@@ -143,15 +187,20 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
     } catch (error) {
       console.error("Upload failed:", error);
 
-      const msg = (() => {
-        // Browser AbortError messages differ; make it actionable.
-        if ((error as any)?.name === "AbortError") {
-          return "Create deal timed out (20s). Open DevTools → Network and inspect POST /api/deals, or check Vercel logs for /api/deals.";
-        }
-        return error instanceof Error ? error.message : "Upload failed";
-      })();
-
-      alert(msg);
+      const { isAbort, isNetwork, msg } = classifyNetworkError(error);
+      if (isAbort) {
+        alert(
+          "Create deal timed out (20s). This is usually a Vercel cold-start / serverless stall. Open DevTools → Network and inspect POST /api/deals, or check Vercel logs for /api/deals.",
+        );
+        return;
+      }
+      if (isNetwork) {
+        alert(
+          "Network error calling the backend (Failed to fetch). This happens when the server closes the connection before responding (crash/cold-start) or a browser extension blocks the request. Open DevTools → Network and confirm whether POST /api/deals appears and what status it returns.",
+        );
+        return;
+      }
+      alert(msg || "Upload failed");
     } finally {
       setUploading(false);
     }
