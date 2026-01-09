@@ -243,63 +243,100 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
           const pendingTotal = typeof summary.pending_total === "number" ? summary.pending_total : null;
           const optionalTotal = typeof summary.optional_total === "number" ? summary.optional_total : null;
 
-          // Best-effort: after seeding, try to (1) stamp existing files with checklist keys and (2) reconcile
-          // so the Deal Checklist flips items to received without the user needing another click.
-          let postMatch: { ok: boolean; matched?: number; updated?: number; error?: string } | null = null;
-          let postReconcile: { ok: boolean; checklistMarkedReceived?: number; error?: string } | null = null;
-          try {
-            const mRes = await fetch(`/api/deals/${dealId}/files/auto-match-checklist`, { method: "POST" });
-            const mJson = await mRes.json();
-            postMatch = {
-              ok: !!mJson?.ok,
-              matched: typeof mJson?.matched === "number" ? mJson.matched : undefined,
-              updated: typeof mJson?.updated === "number" ? mJson.updated : undefined,
-              error: typeof mJson?.error === "string" ? mJson.error : undefined,
-            };
-          } catch (e: any) {
-            postMatch = { ok: false, error: e?.message || "auto_match_failed" };
-          }
-
-          try {
-            const rRes = await fetch(`/api/deals/${dealId}/checklist/reconcile`, { method: "POST" });
-            const rJson = await rRes.json();
-            postReconcile = {
-              ok: !!rJson?.ok,
-              checklistMarkedReceived:
-                typeof rJson?.checklistMarkedReceived === "number"
-                  ? rJson.checklistMarkedReceived
-                  : typeof rJson?.checklist_marked_received === "number"
-                    ? rJson.checklist_marked_received
-                    : undefined,
-              error: typeof rJson?.error === "string" ? rJson.error : undefined,
-            };
-          } catch (e: any) {
-            postReconcile = { ok: false, error: e?.message || "reconcile_failed" };
-          }
-
+          // Show the seed result immediately, then run match/reconcile in the background.
+          // This avoids the UI getting stuck on slow serverless routes.
           setMatchMessage(
-            `✅ Success!\n` +
-            `• Loan type: ${intake.loan_type}\n` +
-            `• Checklist items created: ${summary.seeded || 0}\n` +
-            `• Files newly matched: ${postMatch?.ok ? (postMatch.matched || 0) : 0}\n` +
-            `${postReconcile?.ok && typeof postReconcile.checklistMarkedReceived === "number" ? `• Checklist marked received: ${postReconcile.checklistMarkedReceived}\n` : ""}` +
-            `${receivedTotal != null ? `• Checklist received (total): ${receivedTotal}\n` : ""}` +
-            `${pendingTotal != null ? `• Checklist pending (total): ${pendingTotal}\n` : ""}` +
-            `${optionalTotal != null ? `• Optional items (total): ${optionalTotal}\n` : ""}` +
-            `${forceOverride ? "• Admin override used\n" : ""}` +
-            `${partialMode ? "• Partial mode (matched docs only)\n" : ""}` +
-            `\nRefreshing checklist…`
+            `✅ Seeded checklist!\n` +
+              `• Loan type: ${intake.loan_type}\n` +
+              `• Checklist items created: ${summary.seeded || 0}\n` +
+              `${receivedTotal != null ? `• Checklist received (total): ${receivedTotal}\n` : ""}` +
+              `${pendingTotal != null ? `• Checklist pending (total): ${pendingTotal}\n` : ""}` +
+              `${optionalTotal != null ? `• Optional items (total): ${optionalTotal}\n` : ""}` +
+              `${forceOverride ? "• Admin override used\n" : ""}` +
+              `${partialMode ? "• Partial mode (matched docs only)\n" : ""}` +
+              `\nMatching existing uploads + reconciling checklist… (background)`
           );
-          
-          // 🔥 Emit checklist refresh event for auto-updates
-          console.log("[DealIntakeCard] Emitting final checklist refresh event");
+
+          // Refresh checklist right away (seeded items should appear).
           emitChecklistRefresh(dealId);
-          
-          // 🔥 CRITICAL FIX: Trigger checklist refresh
           if (onChecklistSeeded) {
-            console.log("[DealIntakeCard] Triggering checklist refresh callback");
             await onChecklistSeeded();
           }
+
+          const fetchJsonWithTimeout = async (url: string, ms: number) => {
+            const ac = new AbortController();
+            const t = setTimeout(() => ac.abort(), ms);
+            try {
+              const res = await fetch(url, { method: "POST", signal: ac.signal });
+              const json = await res.json();
+              return { res, json };
+            } finally {
+              clearTimeout(t);
+            }
+          };
+
+          // Fire-and-forget post-processing; do not block the UI.
+          void (async () => {
+            let postMatch: { ok: boolean; matched?: number; updated?: number; error?: string } | null = null;
+            let postReconcile: { ok: boolean; checklistMarkedReceived?: number; error?: string } | null = null;
+
+            try {
+              const { json: mJson } = await fetchJsonWithTimeout(
+                `/api/deals/${dealId}/files/auto-match-checklist`,
+                25_000,
+              );
+              postMatch = {
+                ok: !!mJson?.ok,
+                matched: typeof mJson?.matched === "number" ? mJson.matched : undefined,
+                updated: typeof mJson?.updated === "number" ? mJson.updated : undefined,
+                error: typeof mJson?.error === "string" ? mJson.error : undefined,
+              };
+            } catch (e: any) {
+              const isAbort = e?.name === "AbortError";
+              postMatch = {
+                ok: false,
+                error: isAbort ? "auto_match_timeout" : e?.message || "auto_match_failed",
+              };
+            }
+
+            try {
+              const { json: rJson } = await fetchJsonWithTimeout(
+                `/api/deals/${dealId}/checklist/reconcile`,
+                25_000,
+              );
+              postReconcile = {
+                ok: !!rJson?.ok,
+                checklistMarkedReceived:
+                  typeof rJson?.checklistMarkedReceived === "number"
+                    ? rJson.checklistMarkedReceived
+                    : typeof rJson?.checklist_marked_received === "number"
+                      ? rJson.checklist_marked_received
+                      : undefined,
+                error: typeof rJson?.error === "string" ? rJson.error : undefined,
+              };
+            } catch (e: any) {
+              const isAbort = e?.name === "AbortError";
+              postReconcile = {
+                ok: false,
+                error: isAbort ? "reconcile_timeout" : e?.message || "reconcile_failed",
+              };
+            }
+
+            setMatchMessage((prev) =>
+              String(prev || "") +
+                `\n\nPost-seed results:` +
+                `\n• Files newly matched: ${postMatch?.ok ? (postMatch.matched || 0) : 0}` +
+                `${postMatch?.ok ? "" : postMatch?.error ? ` (warn: ${postMatch.error})` : ""}` +
+                `${postReconcile?.ok && typeof postReconcile.checklistMarkedReceived === "number" ? `\n• Checklist marked received: ${postReconcile.checklistMarkedReceived}` : ""}` +
+                `${postReconcile?.ok ? "" : postReconcile?.error ? `\n• Reconcile warning: ${postReconcile.error}` : ""}` +
+                `\n\nRefreshing checklist…`
+            );
+
+            emitChecklistRefresh(dealId);
+            if (onChecklistSeeded) {
+              await onChecklistSeeded();
+            }
+          })();
         } else {
           setMatchMessage(
             `⚠️ Saved intake but auto-seed ${seedJson.status || "failed"}:\n${seedJson.error || seedJson.message || "Unknown error"}\n\nCheck browser console for details.`
