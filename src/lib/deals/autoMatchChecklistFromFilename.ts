@@ -2,7 +2,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-const AUTO_MATCH_CHECKLIST_VERSION = "2026-01-09-filename-patterns";
+const AUTO_MATCH_CHECKLIST_VERSION = "2026-01-09-intel-only-default";
 
 function normDocType(x: string) {
   return String(x || "")
@@ -185,8 +185,14 @@ export async function autoMatchChecklistFromFilename(params: {
   dealId: string;
   filename: string;
   fileId?: string;
+  /**
+   * If true, allow filename-based heuristics as a last resort.
+   * Default is false because borrower filenames are unreliable.
+   */
+  allowFilenameFallback?: boolean;
 }): Promise<{ matched: string[]; updated: number }> {
   const sb = supabaseAdmin();
+  const allowFilenameFallback = params.allowFilenameFallback === true;
 
   // Safe, one-time marker so Vercel logs can confirm the deployed version.
   const g = globalThis as unknown as { __buddyAutoMatchChecklistVersion?: string };
@@ -212,7 +218,11 @@ export async function autoMatchChecklistFromFilename(params: {
       const confidence = typeof intel?.confidence === "number" ? intel!.confidence : null;
 
       // Only trust doc_intel when it has a real doc type and decent confidence.
-      if (docType && normDocType(docType) !== "UNKNOWN" && (confidence == null || confidence >= 60)) {
+      if (
+        docType &&
+        normDocType(docType) !== "UNKNOWN" &&
+        (confidence == null || confidence >= 60)
+      ) {
         const intelKeys = checklistKeysFromDocIntel(docType, intel?.tax_year);
         if (intelKeys.length > 0) {
           // Proceed to update checklist items below using intelKeys.
@@ -268,10 +278,27 @@ export async function autoMatchChecklistFromFilename(params: {
           return { matched: matchedKeys, updated: toUpdate.length };
         }
       }
+
+      // If we have a fileId but doc_intel is missing/low-confidence, do not guess.
+      // Caller should run AI Doc Recognition (OCR/classify) or assign manually.
+      if (!allowFilenameFallback) {
+        return { matched: [], updated: 0 };
+      }
     } catch (e) {
-      // Non-fatal: fall back to filename heuristics
+      if (!allowFilenameFallback) {
+        console.warn("doc_intel lookup failed; skipping filename fallback:", e);
+        return { matched: [], updated: 0 };
+      }
+
+      // Non-fatal: optionally fall back to filename heuristics
       console.warn("doc_intel lookup failed (non-fatal):", e);
     }
+  }
+
+  // If we don't have a fileId (or doc_intel wasn't trusted) and fallback is disabled,
+  // do not attempt to classify based on filename.
+  if (!allowFilenameFallback) {
+    return { matched: [], updated: 0 };
   }
 
   // Find matching checklist keys

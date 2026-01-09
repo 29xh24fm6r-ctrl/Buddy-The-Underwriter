@@ -140,9 +140,17 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
         const filesLinked = Number(json?.filesLinked || 0);
         const totalUpdated = Number(json?.totalUpdated || 0);
 
-        setMatchResult(
-          `✅ Auto-Match: ${totalMatched} matches, ${filesLinked} files linked, ${totalUpdated} checklist items marked received (from ${json.filesProcessed} files)`,
-        );
+        if (totalMatched === 0 && filesLinked === 0 && totalUpdated === 0) {
+          setMatchResult(
+            `ℹ️ Auto-Match found 0 confident matches (from ${json.filesProcessed} files). ` +
+              `Borrower filenames are unreliable — run 'AI Doc Recognition' to classify documents by content, ` +
+              `then click Auto-Match again.`,
+          );
+        } else {
+          setMatchResult(
+            `✅ Auto-Match: ${totalMatched} matches, ${filesLinked} files linked, ${totalUpdated} checklist items marked received (from ${json.filesProcessed} files)`,
+          );
+        }
         await loadFiles({ silent: true });
       } else {
         setMatchResult(`⚠️ ${json?.error || (!res.ok ? `HTTP ${res.status}` : "Failed to match")}`);
