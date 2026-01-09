@@ -112,10 +112,12 @@ export async function POST(
       });
     }
 
-  // Try to match each file
-  let totalMatched = 0;
-  let totalUpdated = 0;
-  const results: Array<{ filename: string; matched: string[]; updated: number }> = [];
+    // Try to match each file
+    let totalMatched = 0;
+    let totalUpdated = 0;
+    let filesWithMatches = 0;
+    let filesLinked = 0;
+    const results: Array<{ filename: string; matched: string[]; updated: number }> = [];
 
     for (const file of files) {
       const result = await withTimeout(
@@ -129,6 +131,7 @@ export async function POST(
       );
 
       if (result.matched.length > 0) {
+        filesWithMatches += 1;
         totalMatched += result.matched.length;
         totalUpdated += result.updated;
         results.push({
@@ -147,6 +150,8 @@ export async function POST(
             10_000,
             "update_deal_documents_checklist_key",
           );
+
+          filesLinked += 1;
         }
       }
     }
@@ -156,6 +161,8 @@ export async function POST(
       requestId,
       filesProcessed: files.length,
       totalMatched,
+      filesWithMatches,
+      filesLinked,
       totalUpdated,
       results,
       reconciled: reconcileRes.matched,

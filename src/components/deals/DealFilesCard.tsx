@@ -136,8 +136,12 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
         { method: "POST" },
       );
       if (json?.ok) {
+        const totalMatched = Number(json?.totalMatched || 0);
+        const filesLinked = Number(json?.filesLinked || 0);
+        const totalUpdated = Number(json?.totalUpdated || 0);
+
         setMatchResult(
-          `✅ Matched ${json.totalUpdated} checklist items from ${json.filesProcessed} files`,
+          `✅ Auto-Match: ${totalMatched} matches, ${filesLinked} files linked, ${totalUpdated} checklist items marked received (from ${json.filesProcessed} files)`,
         );
         await loadFiles({ silent: true });
       } else {
