@@ -26,7 +26,7 @@ export async function POST(req: Request) {
       hasServiceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY),
     });
 
-    const bankId = await withTimeout(getCurrentBankId(), 12_000, "getCurrentBankId");
+    const bankId = await withTimeout(getCurrentBankId(), 8_000, "getCurrentBankId");
     console.log("[api/deals] bank resolved", { requestId, ms: Date.now() - startedAt });
     const body = await req.json().catch(() => ({}) as any);
     const name = String(body?.name || "").trim();
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
     const insertOnce = async (payload: Record<string, any>): Promise<InsertRes> => {
       const res = await withTimeout<any>(
         supabase.from("deals").insert(payload).select("id").single(),
-        15_000,
+        8_000,
         "insertDeal",
       );
 

@@ -11,17 +11,16 @@ function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    try {
-      if (
-        (process.env.HONEYCOMB_API_KEY && process.env.HONEYCOMB_DATASET) ||
-        process.env.OTEL_EXPORTER_OTLP_ENDPOINT
-      ) {
-        // Avoid duplicate initialization in dev/hot-reload.
-        const g = globalThis as unknown as {
-          __buddyOtelSdkStarted?: boolean;
-        };
-
-        if (!g.__buddyOtelSdkStarted) {
+    // IMPORTANT: Never block request handling on telemetry startup.
+    // Next will await register() during serverless init; keep it fast.
+    void (async () => {
+      try {
+        if (
+          (process.env.HONEYCOMB_API_KEY && process.env.HONEYCOMB_DATASET) ||
+          process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+        ) {
+          const g = globalThis as unknown as { __buddyOtelSdkStarted?: boolean };
+          if (g.__buddyOtelSdkStarted) return;
           g.__buddyOtelSdkStarted = true;
 
           const [
@@ -44,7 +43,6 @@ export async function register() {
             "otel_imports",
           );
 
-          // Optional verbose diagnostics (prints exporter errors to logs).
           if (
             process.env.BUDDY_OTEL_DEBUG === "1" ||
             process.env.OTEL_LOG_LEVEL === "debug" ||
@@ -147,9 +145,7 @@ export async function register() {
           });
 
           try {
-            // Some SDK versions return void from start(); treat it as best-effort.
-            // Never block request handling on telemetry startup.
-            await Promise.resolve(sdk.start() as any);
+            await withTimeout(Promise.resolve(sdk.start() as any), 8000, "otel_start");
             console.log("[otel] started", {
               serviceName,
               serviceVersion,
@@ -160,17 +156,24 @@ export async function register() {
             console.error("[otel] failed to start", e);
           }
         }
+      } catch (e) {
+        console.error("[otel] init crashed (ignored)", e);
       }
-    } catch (e) {
-      // Never let instrumentation break app routes.
-      console.error("[otel] init crashed (ignored)", e);
-    }
+    })();
 
-    await import("../sentry.server.config");
+    try {
+      await import("../sentry.server.config");
+    } catch (e) {
+      console.error("[sentry] failed to load server config (ignored)", e);
+    }
   }
 
   if (process.env.NEXT_RUNTIME === "edge") {
-    await import("../sentry.edge.config");
+    try {
+      await import("../sentry.edge.config");
+    } catch (e) {
+      console.error("[sentry] failed to load edge config (ignored)", e);
+    }
   }
 }
 
