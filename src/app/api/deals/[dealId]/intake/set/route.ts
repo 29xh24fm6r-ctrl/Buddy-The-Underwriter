@@ -9,7 +9,7 @@ import {
 } from "@/lib/deals/checklistPresets";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
 import { writeEvent } from "@/lib/ledger/writeEvent";
-import { ensureDealHasBank } from "@/lib/banks/ensureDealHasBank";
+import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -55,111 +55,157 @@ export async function POST(
     const { dealId } = await ctx.params;
     const body = (await req.json().catch(() => null)) as Body | null;
 
-  const loanType = body?.loanType;
-  if (!loanType)
-    return NextResponse.json(
-      { ok: false, error: "Missing loanType" },
-      { status: 400 },
-    );
+    const loanType = body?.loanType;
+    if (!loanType)
+      return NextResponse.json(
+        { ok: false, error: "Missing loanType", requestId },
+        { status: 400 },
+      );
 
-  if (!["CRE", "CRE_OWNER_OCCUPIED", "CRE_INVESTOR", "CRE_OWNER_OCCUPIED_WITH_RENT", "LOC", "TERM", "SBA_7A", "SBA_504"].includes(loanType)) {
-    return NextResponse.json(
-      { ok: false, error: "Invalid loanType" },
-      { status: 400 },
-    );
-  }
+    if (![
+      "CRE",
+      "CRE_OWNER_OCCUPIED",
+      "CRE_INVESTOR",
+      "CRE_OWNER_OCCUPIED_WITH_RENT",
+      "LOC",
+      "TERM",
+      "SBA_7A",
+      "SBA_504",
+    ].includes(loanType)) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid loanType", requestId },
+        { status: 400 },
+      );
+    }
 
-  const sbaProgram =
-    loanType === "SBA_7A" ? "7A" : loanType === "SBA_504" ? "504" : null;
+    const sbaProgram =
+      loanType === "SBA_7A" ? "7A" : loanType === "SBA_504" ? "504" : null;
 
-  const sb = supabaseAdmin();
+    const sb = supabaseAdmin();
 
-  // Ensure deal has bank context (assign default bank if missing)
-  let bankId: string;
-  try {
-    const ensured = await withTimeout(
-      ensureDealHasBank({ supabase: sb, dealId }),
-      10_000,
-      "ensureDealHasBank",
-    );
-    bankId = ensured.bankId;
-  } catch (e: any) {
-    console.error("[/api/deals/[dealId]/intake/set] ensureDealHasBank failed", e);
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Deal not found or missing bank context",
-        details: e?.message ?? String(e),
-        requestId,
-      },
-      { status: 400 },
-    );
-  }
-
-  const { error: upErr } = await withTimeout(
-    sb
-      .from("deal_intake")
-      .upsert(
+    // Resolve active tenant bank and ensure the deal belongs to it.
+    // If the deal has no bank yet (legacy rows), bind it to the current bank.
+    let bankId: string;
+    try {
+      bankId = await withTimeout(getCurrentBankId(), 10_000, "getCurrentBankId");
+    } catch (e: any) {
+      console.error("[/api/deals/[dealId]/intake/set] getCurrentBankId failed", e);
+      return NextResponse.json(
         {
-          deal_id: dealId,
-          bank_id: bankId,
-          loan_type: loanType,
-          sba_program: sbaProgram,
-          borrower_name: body?.borrowerName ?? null,
-          borrower_email: body?.borrowerEmail ?? null,
-          borrower_phone: body?.borrowerPhone ?? null,
+          ok: false,
+          error: "Missing bank context",
+          details: e?.message ?? String(e),
+          requestId,
         },
-        { onConflict: "deal_id" },
-      ),
-    12_000,
-    "upsert_deal_intake",
-  );
+        { status: 400 },
+      );
+    }
 
-  if (upErr) {
-    console.error("[/api/deals/[dealId]/intake/set]", upErr);
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Failed to set intake",
-        details: upErr.message,
-        hint: (upErr as any)?.hint ?? null,
-        code: (upErr as any)?.code ?? null,
-        requestId,
-      },
-      { status: 500 },
+    const { data: deal, error: dealErr } = await withTimeout(
+      sb.from("deals").select("id, bank_id").eq("id", dealId).maybeSingle(),
+      10_000,
+      "dealLookup",
     );
-  }
 
-  // Create phone link if borrower phone provided
-  if (body?.borrowerPhone) {
-    const normalized = normalizeE164(body.borrowerPhone);
-    if (normalized) {
-      try {
-        await withTimeout(
-          upsertBorrowerPhoneLink({
-            phoneE164: normalized,
-            bankId,
-            dealId: dealId,
-            source: "intake_form",
-            metadata: {
-              borrower_name: body?.borrowerName || null,
-              borrower_email: body?.borrowerEmail || null,
-            },
-          }),
-          6_000,
-          "upsertBorrowerPhoneLink",
+    if (dealErr) {
+      return NextResponse.json(
+        { ok: false, error: dealErr.message, requestId },
+        { status: 500 },
+      );
+    }
+
+    if (!deal) {
+      return NextResponse.json(
+        { ok: false, error: "deal_not_found", requestId },
+        { status: 404 },
+      );
+    }
+
+    if (deal.bank_id && String(deal.bank_id) !== String(bankId)) {
+      return NextResponse.json(
+        { ok: false, error: "tenant_mismatch", requestId },
+        { status: 403 },
+      );
+    }
+
+    if (!deal.bank_id) {
+      const { error: bindErr } = await withTimeout(
+        sb.from("deals").update({ bank_id: bankId }).eq("id", dealId),
+        10_000,
+        "bindDealBank",
+      );
+      if (bindErr) {
+        return NextResponse.json(
+          { ok: false, error: "Failed to bind deal bank", details: bindErr.message, requestId },
+          { status: 500 },
         );
-      } catch (phoneLinkErr) {
-        console.error("Phone link creation in intake error:", phoneLinkErr);
-        // Don't fail request
       }
     }
-  }
 
-  const autoSeed = body?.autoSeed ?? true;
-  let matchResult = { matched: 0, updated: 0 };
-  
-  if (autoSeed) {
+    const { error: upErr } = await withTimeout(
+      sb
+        .from("deal_intake")
+        .upsert(
+          {
+            deal_id: dealId,
+            bank_id: bankId,
+            loan_type: loanType,
+            sba_program: sbaProgram,
+            borrower_name: body?.borrowerName ?? null,
+            borrower_email: body?.borrowerEmail ?? null,
+            borrower_phone: body?.borrowerPhone ?? null,
+          },
+          { onConflict: "deal_id" },
+        ),
+      12_000,
+      "upsert_deal_intake",
+    );
+
+    if (upErr) {
+      console.error("[/api/deals/[dealId]/intake/set]", upErr);
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Failed to set intake",
+          details: upErr.message,
+          hint: (upErr as any)?.hint ?? null,
+          code: (upErr as any)?.code ?? null,
+          requestId,
+        },
+        { status: 500 },
+      );
+    }
+
+    // Create phone link if borrower phone provided
+    if (body?.borrowerPhone) {
+      const normalized = normalizeE164(body.borrowerPhone);
+      if (normalized) {
+        try {
+          await withTimeout(
+            upsertBorrowerPhoneLink({
+              phoneE164: normalized,
+              bankId,
+              dealId: dealId,
+              source: "intake_form",
+              metadata: {
+                borrower_name: body?.borrowerName || null,
+                borrower_email: body?.borrowerEmail || null,
+              },
+            }),
+            6_000,
+            "upsertBorrowerPhoneLink",
+          );
+        } catch (phoneLinkErr) {
+          console.error("Phone link creation in intake error:", phoneLinkErr);
+          // Don't fail request
+        }
+      }
+    }
+
+    const autoSeed = body?.autoSeed ?? true;
+    let matchResult = { matched: 0, updated: 0 };
+
+    if (autoSeed) {
     const rows = buildChecklistForLoanType(loanType).map((r) => ({
       deal_id: dealId,
       checklist_key: r.checklist_key,
@@ -243,7 +289,7 @@ export async function POST(
       console.error("Auto-match error:", matchErr);
       // Don't fail the request if matching fails
     }
-  }
+    }
 
     // Emit intake updated event
     await withTimeout(
