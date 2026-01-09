@@ -11,8 +11,25 @@ import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFr
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { ensureDealHasBank } from "@/lib/banks/ensureDealHasBank";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
+
+function getRequestId(req: Request) {
+  return (
+    req.headers.get("x-request-id") ||
+    req.headers.get("x-buddy-request-id") ||
+    crypto.randomUUID()
+  );
+}
+
+function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return Promise.race<T>([
+    Promise.resolve(p),
+    new Promise<T>((_resolve, reject) =>
+      setTimeout(() => reject(new Error(`timeout:${label}`)), ms),
+    ),
+  ]);
+}
 
 type Body = {
   loanType: LoanType;
@@ -26,11 +43,12 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
+  const requestId = getRequestId(req);
   try {
-    const { userId } = await clerkAuth();
+    const { userId } = await withTimeout(clerkAuth(), 8_000, "clerkAuth");
     if (!userId)
       return NextResponse.json(
-        { ok: false, error: "Unauthorized" },
+        { ok: false, error: "Unauthorized", requestId },
         { status: 401 },
       );
 
@@ -59,30 +77,43 @@ export async function POST(
   // Ensure deal has bank context (assign default bank if missing)
   let bankId: string;
   try {
-    const ensured = await ensureDealHasBank({ supabase: sb, dealId });
+    const ensured = await withTimeout(
+      ensureDealHasBank({ supabase: sb, dealId }),
+      10_000,
+      "ensureDealHasBank",
+    );
     bankId = ensured.bankId;
   } catch (e: any) {
     console.error("[/api/deals/[dealId]/intake/set] ensureDealHasBank failed", e);
     return NextResponse.json(
-      { ok: false, error: "Deal not found or missing bank context", details: e?.message ?? String(e) },
+      {
+        ok: false,
+        error: "Deal not found or missing bank context",
+        details: e?.message ?? String(e),
+        requestId,
+      },
       { status: 400 },
     );
   }
 
-  const { error: upErr } = await sb
-    .from("deal_intake")
-    .upsert(
-      {
-        deal_id: dealId,
-        bank_id: bankId,
-        loan_type: loanType,
-        sba_program: sbaProgram,
-        borrower_name: body?.borrowerName ?? null,
-        borrower_email: body?.borrowerEmail ?? null,
-        borrower_phone: body?.borrowerPhone ?? null,
-      },
-      { onConflict: "deal_id" },
-    );
+  const { error: upErr } = await withTimeout(
+    sb
+      .from("deal_intake")
+      .upsert(
+        {
+          deal_id: dealId,
+          bank_id: bankId,
+          loan_type: loanType,
+          sba_program: sbaProgram,
+          borrower_name: body?.borrowerName ?? null,
+          borrower_email: body?.borrowerEmail ?? null,
+          borrower_phone: body?.borrowerPhone ?? null,
+        },
+        { onConflict: "deal_id" },
+      ),
+    12_000,
+    "upsert_deal_intake",
+  );
 
   if (upErr) {
     console.error("[/api/deals/[dealId]/intake/set]", upErr);
@@ -93,6 +124,7 @@ export async function POST(
         details: upErr.message,
         hint: (upErr as any)?.hint ?? null,
         code: (upErr as any)?.code ?? null,
+        requestId,
       },
       { status: 500 },
     );
@@ -103,16 +135,20 @@ export async function POST(
     const normalized = normalizeE164(body.borrowerPhone);
     if (normalized) {
       try {
-        await upsertBorrowerPhoneLink({
-          phoneE164: normalized,
-          bankId,
-          dealId: dealId,
-          source: "intake_form",
-          metadata: {
-            borrower_name: body?.borrowerName || null,
-            borrower_email: body?.borrowerEmail || null,
-          },
-        });
+        await withTimeout(
+          upsertBorrowerPhoneLink({
+            phoneE164: normalized,
+            bankId,
+            dealId: dealId,
+            source: "intake_form",
+            metadata: {
+              borrower_name: body?.borrowerName || null,
+              borrower_email: body?.borrowerEmail || null,
+            },
+          }),
+          6_000,
+          "upsertBorrowerPhoneLink",
+        );
       } catch (phoneLinkErr) {
         console.error("Phone link creation in intake error:", phoneLinkErr);
         // Don't fail request
@@ -132,39 +168,55 @@ export async function POST(
       required: r.required,
     }));
 
-    const { error: seedErr } = await supabaseAdmin()
-      .from("deal_checklist_items")
-      .upsert(rows, { onConflict: "deal_id,checklist_key" });
+    const { error: seedErr } = await withTimeout(
+      supabaseAdmin()
+        .from("deal_checklist_items")
+        .upsert(rows, { onConflict: "deal_id,checklist_key" }),
+      15_000,
+      "seed_checklist_upsert",
+    );
 
     if (seedErr) {
       console.error("[/api/deals/[dealId]/intake/set] seed error", seedErr);
       return NextResponse.json({
         ok: false,
         error: "Failed to seed checklist",
+        requestId,
       });
     }
 
     // Normalize status for newly seeded rows without clobbering existing received items.
     try {
       const seededKeys = rows.map((r) => r.checklist_key);
-      await sb
-        .from("deal_checklist_items")
-        .update({ status: "missing" })
-        .eq("deal_id", dealId)
-        .in("checklist_key", seededKeys)
-        .is("status", null);
+      await withTimeout(
+        sb
+          .from("deal_checklist_items")
+          .update({ status: "missing" })
+          .eq("deal_id", dealId)
+          .in("checklist_key", seededKeys)
+          .is("status", null),
+        10_000,
+        "seed_status_normalization",
+      );
     } catch (e) {
       console.warn("[/api/deals/[dealId]/intake/set] status normalization failed (non-fatal):", e);
     }
 
     // Auto-match any previously uploaded files to the new checklist (doc_intel first; filename fallback)
     try {
-      const { data: files } = await sb
-        .rpc("list_deal_documents", { p_deal_id: dealId });
+      const { data: files } = await withTimeout(
+        sb.rpc("list_deal_documents", { p_deal_id: dealId }) as any,
+        15_000,
+        "list_deal_documents",
+      );
+
+      const startMs = Date.now();
+      const budgetMs = 20_000;
 
       if (files && files.length > 0) {
         let totalUpdated = 0;
         for (const file of files) {
+          if (Date.now() - startMs > budgetMs) break;
           const result = await autoMatchChecklistFromFilename({
             dealId,
             filename: file.original_filename,
@@ -174,10 +226,14 @@ export async function POST(
 
           // Best-effort: stamp the document row with the matched checklist key
           if (!file.checklist_key && result.matched.length > 0) {
-            await sb
-              .from("deal_documents")
-              .update({ checklist_key: result.matched[0] })
-              .eq("id", file.id);
+            await withTimeout(
+              sb
+                .from("deal_documents")
+                .update({ checklist_key: result.matched[0] })
+                .eq("id", file.id),
+              10_000,
+              "stamp_deal_documents_checklist_key",
+            );
           }
         }
         matchResult = { matched: files.length, updated: totalUpdated };
@@ -189,36 +245,47 @@ export async function POST(
   }
 
     // Emit intake updated event
-    await writeEvent({
-      dealId,
-      kind: "intake.updated",
-      actorUserId: userId,
-      input: {
-        loanType,
-        borrowerName: body?.borrowerName || null,
-        autoSeed,
-      },
-      meta: {
-        sba_program: sbaProgram || null,
-        checklist_seeded: autoSeed,
-        auto_match_result: matchResult.updated > 0 ? matchResult : null,
-      },
+    await withTimeout(
+      writeEvent({
+        dealId,
+        kind: "intake.updated",
+        actorUserId: userId,
+        input: {
+          loanType,
+          borrowerName: body?.borrowerName || null,
+          autoSeed,
+        },
+        meta: {
+          sba_program: sbaProgram || null,
+          checklist_seeded: autoSeed,
+          auto_match_result: matchResult.updated > 0 ? matchResult : null,
+        },
+      }),
+      6_000,
+      "writeEvent",
+    ).catch((e) => {
+      console.warn("[/api/deals/[dealId]/intake/set] writeEvent failed (non-fatal):", e);
     });
 
     return NextResponse.json({ 
       ok: true, 
+      requestId,
       matchResult: matchResult.updated > 0 ? matchResult : undefined,
       event_emitted: true,
     });
   } catch (error: any) {
     console.error("[/api/deals/[dealId]/intake/set]", error);
+
+    const msg = error?.message ?? String(error);
+    const status = String(msg).startsWith("timeout:") ? 504 : 500;
     return NextResponse.json(
       {
         ok: false,
         error: "Failed to set intake",
-        details: error?.message ?? String(error),
+        details: msg,
+        requestId,
       },
-      { status: 500 },
+      { status },
     );
   }
 }

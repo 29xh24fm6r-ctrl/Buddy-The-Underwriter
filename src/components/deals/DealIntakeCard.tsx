@@ -210,7 +210,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         // Do not mutate deal_documents rows from this button; it can trigger downstream doc processing.
         params.set("match", "0");
         
-        const seedRes = await fetch(`/api/deals/${dealId}/auto-seed?${params}`, {
+        const seedRes = await fetch(`/api/deals/${dealId}/auto-seed-lite?${params}`, {
           method: "POST",
         });
 
