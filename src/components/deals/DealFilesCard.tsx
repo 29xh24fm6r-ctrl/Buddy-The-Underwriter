@@ -144,32 +144,43 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
   }
 
   async function handleDownload(file: DealFile) {
-    const res = await fetch(
-      `/api/deals/${dealId}/files/signed-url?fileId=${file.file_id}`,
+    const { res, json } = await fetchJsonWithTimeout(
+      `/api/deals/${dealId}/files/signed-url?fileId=${encodeURIComponent(file.file_id)}`,
+      15_000,
     );
-    const json = await res.json();
-    if (!json?.ok || !json.signedUrl) {
-      alert("Failed to create signed URL");
+    if (!res.ok || !json?.ok || !json.signedUrl) {
+      alert(json?.error || "Failed to create signed URL");
       return;
     }
-    window.open(json.signedUrl, "_blank");
+
+    // Use an anchor click to reduce popup-blocking issues.
+    const a = document.createElement("a");
+    a.href = String(json.signedUrl);
+    a.target = "_blank";
+    a.rel = "noreferrer";
+    a.click();
   }
 
   async function handlePreview(file: DealFile) {
     setLoadingPreview(true);
-    const res = await fetch(
-      `/api/deals/${dealId}/files/signed-url?fileId=${file.file_id}`,
-    );
-    const json = await res.json();
-    setLoadingPreview(false);
+    try {
+      const { res, json } = await fetchJsonWithTimeout(
+        `/api/deals/${dealId}/files/signed-url?fileId=${encodeURIComponent(file.file_id)}`,
+        15_000,
+      );
 
-    if (!json?.ok || !json.signedUrl) {
-      alert("Failed to create signed URL");
-      return;
+      if (!res.ok || !json?.ok || !json.signedUrl) {
+        alert(json?.error || "Failed to create signed URL");
+        return;
+      }
+
+      setPreviewUrl(String(json.signedUrl));
+      setPreviewFile(file);
+    } catch (e: any) {
+      alert(e?.name === "AbortError" ? "Preview timed out" : e?.message || "Preview failed");
+    } finally {
+      setLoadingPreview(false);
     }
-
-    setPreviewUrl(json.signedUrl);
-    setPreviewFile(file);
   }
 
   function closePreview() {
