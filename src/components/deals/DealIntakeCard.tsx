@@ -442,6 +442,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         }
 
         const totals = json?.totals || null;
+        const reqId = typeof json?.reqId === "string" ? json.reqId : null;
         const totalDocs = Number(totals?.totalDocs ?? 0) || 0;
         const trustedDocs = Number(totals?.trustedDocs ?? 0) || 0;
         const remainingDocs = Number(totals?.remainingDocs ?? 0) || 0;
@@ -478,6 +479,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         if (status === "complete" || remainingDocs === 0) {
           setMatchMessage(
             `✅ Doc recognition complete.\n` +
+              `${reqId ? `• reqId: ${reqId}\n` : ""}` +
               `${totalDocs > 0 ? `• Classified: ${trustedDocs}/${totalDocs}\n` : ""}` +
               `• Last run processed: ${processed}\n` +
               `• Stamped type/years: ${stamped}\n` +
@@ -498,7 +500,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
 
         setMatchMessage(
           `🧠 Running AI doc recognition (OCR + classify)…\n` +
-            `Run ${run}/${maxRuns}${progressLine}\n` +
+            `Run ${run}/${maxRuns}${progressLine}${reqId ? `\nreqId: ${reqId}` : ""}\n` +
             `Last run: processed ${processed}, stamped ${stamped}, AI analyzed ${analyzed}\n\n` +
             `Continuing…`,
         );

@@ -14,6 +14,15 @@ import { reconcileDealChecklist } from "@/lib/checklist/engine";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function mkReqId() {
+  try {
+    // Node 20+ (Vercel) supports crypto.randomUUID()
+    return crypto.randomUUID();
+  } catch {
+    return `req_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  }
+}
+
 const BodySchema = z
   .object({
     documentId: z.string().uuid().optional(),
@@ -532,6 +541,21 @@ async function runIntelForDeal(args: {
     minPdfTextChars,
     maxPages,
   } = args;
+
+  const reqId = mkReqId();
+  const startedAll = Date.now();
+  console.info("[doc_intel_run] start", {
+    reqId,
+    dealId,
+    documentId,
+    limit,
+    scanLimit,
+    fast: !!fast,
+    preferPdfText: preferPdfText !== false,
+    minPdfTextChars: Number(minPdfTextChars ?? 0) || null,
+    maxPages: typeof maxPages === "number" ? maxPages : null,
+  });
+
   const sb = supabaseAdmin();
 
   const isTrustedExistingIntel = (row: any) => {
@@ -718,6 +742,7 @@ async function runIntelForDeal(args: {
     return NextResponse.json(
       {
         ok: true,
+        reqId,
         dealId,
         status: remaining === 0 ? "complete" : "partial",
         totals: { totalDocs: t, trustedDocs: trusted, remainingDocs: remaining },
@@ -751,6 +776,8 @@ async function runIntelForDeal(args: {
     const docId = String(doc.id);
     const filename = String(doc.original_filename || "");
 
+    const startedOne = Date.now();
+
     const stat = { analyzed: 0, matched: 0, updated: 0, stamped: 0 };
 
     try {
@@ -764,6 +791,12 @@ async function runIntelForDeal(args: {
         .maybeSingle();
 
       if (!existingIntel.error && !!existingIntel.data?.id && isTrustedExistingIntel(existingIntel.data)) {
+        console.info("[doc_intel_run] skip_trusted", {
+          reqId,
+          dealId,
+          docId,
+          ms: Date.now() - startedOne,
+        });
         await bestEffortStampDealDocument({
           sb,
           docId,
@@ -833,6 +866,8 @@ async function runIntelForDeal(args: {
         effectiveFast ? "prebuilt-read" : "prebuilt-layout";
 
       let extractedText = "";
+      let extractSource: "signed_url_azure" | "download_smart" | null = null;
+      let smartSource: "pdf_text" | "azure_di" | null = null;
       try {
         let usedUrl = false;
         if (effectiveFast) {
@@ -870,6 +905,17 @@ async function runIntelForDeal(args: {
                 note: "azure_di_running",
               });
 
+              console.info("[doc_intel_run] ocr_running", {
+                reqId,
+                dealId,
+                docId,
+                fast: true,
+                azureModel,
+                azurePages: azurePages ?? null,
+                resumeFrom: polled.resumeFrom ? "present" : null,
+                ms: Date.now() - startedOne,
+              });
+
               return {
                 stat,
                 result: {
@@ -885,6 +931,7 @@ async function runIntelForDeal(args: {
 
             extractedText = polled.content;
             usedUrl = true;
+            extractSource = "signed_url_azure";
           }
         }
 
@@ -907,8 +954,17 @@ async function runIntelForDeal(args: {
             azurePages,
           });
           extractedText = ext.text;
+          extractSource = "download_smart";
+          smartSource = ext.source;
         }
       } catch (e: any) {
+        console.warn("[doc_intel_run] ocr_error", {
+          reqId,
+          dealId,
+          docId,
+          ms: Date.now() - startedOne,
+          error: e?.message || String(e),
+        });
         return {
           stat,
           result: {
@@ -930,6 +986,17 @@ async function runIntelForDeal(args: {
 
       // If we couldn't extract any text, treat as still running/empty and avoid downstream work.
       if (!String(extractedText || "").trim()) {
+        console.info("[doc_intel_run] empty_text", {
+          reqId,
+          dealId,
+          docId,
+          fast: !!fast,
+          azureModel,
+          azurePages: azurePages ?? null,
+          extractSource,
+          smartSource,
+          ms: Date.now() - startedOne,
+        });
         return {
           stat,
           result: {
@@ -987,6 +1054,25 @@ async function runIntelForDeal(args: {
         await sb.from("deal_documents").update({ checklist_key: m.matched[0] }).eq("id", docId).is("checklist_key", null);
       }
 
+      console.info("[doc_intel_run] done_doc", {
+        reqId,
+        dealId,
+        docId,
+        ocr: "ok",
+        docIntel: docIntelStatus,
+        fast: !!fast,
+        azureModel,
+        azurePages: azurePages ?? null,
+        extractSource,
+        smartSource,
+        textLen: (extractedText || "").length,
+        stamped: stat.stamped,
+        analyzed: stat.analyzed,
+        matched: stat.matched,
+        updated: stat.updated,
+        ms: Date.now() - startedOne,
+      });
+
       return {
         stat,
         result: {
@@ -999,6 +1085,13 @@ async function runIntelForDeal(args: {
         },
       };
     } catch (e: any) {
+      console.error("[doc_intel_run] fatal_doc", {
+        reqId,
+        dealId,
+        docId,
+        ms: Date.now() - startedOne,
+        error: e?.message || String(e),
+      });
       return {
         stat,
         result: {
@@ -1068,9 +1161,25 @@ async function runIntelForDeal(args: {
   const trusted = Number(trustedDocs ?? 0) || 0;
   const remaining = Math.max(0, t - trusted);
 
+  console.info("[doc_intel_run] done", {
+    reqId,
+    dealId,
+    fast: !!fast,
+    processed: list.length,
+    stamped,
+    analyzed,
+    matched,
+    updated,
+    totals: { totalDocs: t, trustedDocs: trusted, remainingDocs: remaining },
+    reconcile_ok: !!reconcile && !reconcile_error,
+    reconcile_error,
+    ms: Date.now() - startedAll,
+  });
+
   return NextResponse.json(
     {
       ok: true,
+      reqId,
       dealId,
       status: remaining === 0 ? "complete" : "partial",
       totals: { totalDocs: t, trustedDocs: trusted, remainingDocs: remaining },
