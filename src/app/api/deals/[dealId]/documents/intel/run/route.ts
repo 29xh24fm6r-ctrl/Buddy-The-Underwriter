@@ -22,6 +22,8 @@ const BodySchema = z
     fast: z.boolean().optional(),
     preferPdfText: z.boolean().optional(),
     minPdfTextChars: z.number().int().min(50).max(20000).optional(),
+    // Performance: allow limiting Azure DI to first pages (e.g. 1-2) for quick classification.
+    maxPages: z.number().int().min(1).max(20).optional(),
   })
   .optional();
 
@@ -33,17 +35,35 @@ async function extractTextWithPdfParse(bytes: Buffer): Promise<string> {
   return text;
 }
 
+function looksUsefulForTaxClassification(text: string): boolean {
+  const s = (text || "").toLowerCase();
+  if (!s) return false;
+  // A small text layer is still enough if it includes these strong signals.
+  return (
+    s.includes("form 1120") ||
+    s.includes("1120s") ||
+    s.includes("1120-s") ||
+    s.includes("form 1040") ||
+    s.includes("form 1065") ||
+    s.includes("schedule k-1") ||
+    s.includes("k-1")
+  );
+}
+
 async function extractTextSmart(args: {
   bytes: Buffer;
   mimeType: string | null;
   preferPdfText: boolean;
   minPdfTextChars: number;
+  azureModel: "prebuilt-read" | "prebuilt-layout";
+  azurePages?: string;
 }): Promise<{ text: string; source: "pdf_text" | "azure_di" }>{
   const mt = String(args.mimeType || "").toLowerCase();
   if (args.preferPdfText && mt === "application/pdf") {
     try {
       const t = await extractTextWithPdfParse(args.bytes);
-      if ((t || "").trim().length >= args.minPdfTextChars) {
+      const trimmedLen = (t || "").trim().length;
+      if (trimmedLen >= args.minPdfTextChars || looksUsefulForTaxClassification(t)) {
         return { text: t, source: "pdf_text" };
       }
     } catch {
@@ -51,11 +71,17 @@ async function extractTextSmart(args: {
     }
   }
 
-  const t = await extractTextWithAzureDI(args.bytes);
+  const t = await extractTextWithAzureDI(args.bytes, {
+    model: args.azureModel,
+    pages: args.azurePages,
+  });
   return { text: t, source: "azure_di" };
 }
 
-async function extractTextWithAzureDI(bytes: Buffer): Promise<string> {
+async function extractTextWithAzureDI(
+  bytes: Buffer,
+  opts?: { model?: "prebuilt-read" | "prebuilt-layout"; pages?: string },
+): Promise<string> {
   const endpoint =
     process.env.AZURE_DI_ENDPOINT ||
     process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT ||
@@ -76,7 +102,11 @@ async function extractTextWithAzureDI(bytes: Buffer): Promise<string> {
   );
 
   const client = new DocumentAnalysisClient(endpoint, new AzureKeyCredential(apiKey));
-  const poller = await client.beginAnalyzeDocument("prebuilt-layout", bytes);
+  const model = opts?.model ?? "prebuilt-layout";
+  const pages = typeof opts?.pages === "string" && opts.pages.trim() ? opts.pages.trim() : undefined;
+
+  // Limiting pages can drastically reduce latency on long PDFs.
+  const poller = await client.beginAnalyzeDocument(model, bytes, pages ? ({ pages } as any) : undefined);
   const analyzeResult = await poller.pollUntilDone();
 
   const content = typeof (analyzeResult as any)?.content === "string" ? (analyzeResult as any).content : "";
@@ -319,6 +349,7 @@ async function runIntelForDeal(args: {
   fast?: boolean;
   preferPdfText?: boolean;
   minPdfTextChars?: number;
+  maxPages?: number;
 }) {
   const {
     dealId,
@@ -328,6 +359,7 @@ async function runIntelForDeal(args: {
     fast,
     preferPdfText,
     minPdfTextChars,
+    maxPages,
   } = args;
   const sb = supabaseAdmin();
 
@@ -501,9 +533,11 @@ async function runIntelForDeal(args: {
     error?: string;
   }> = [];
 
-  for (const doc of list) {
+  async function processOne(doc: any) {
     const docId = String(doc.id);
     const filename = String(doc.original_filename || "");
+
+    const stat = { analyzed: 0, matched: 0, updated: 0, stamped: 0 };
 
     try {
       // If doc_intel already exists, skip heavy work.
@@ -515,11 +549,7 @@ async function runIntelForDeal(args: {
         .eq("file_id", docId)
         .maybeSingle();
 
-      if (
-        !existingIntel.error &&
-        !!existingIntel.data?.id &&
-        isTrustedExistingIntel(existingIntel.data)
-      ) {
+      if (!existingIntel.error && !!existingIntel.data?.id && isTrustedExistingIntel(existingIntel.data)) {
         await bestEffortStampDealDocument({
           sb,
           docId,
@@ -528,79 +558,94 @@ async function runIntelForDeal(args: {
           aiTaxYear: (existingIntel.data as any)?.tax_year,
           aiConfidence: (existingIntel.data as any)?.confidence,
         });
-        stamped += 1;
-        const m = await autoMatchChecklistFromFilename({
-          dealId,
-          filename,
-          fileId: docId,
-        });
-        matched += m.matched.length;
-        updated += m.updated;
-        results.push({
-          document_id: docId,
-          filename,
-          ocr: "skipped",
-          doc_intel: "skipped",
-          matched_keys: m.matched,
-          updated_items: m.updated,
-        });
-        continue;
+        stat.stamped += 1;
+
+        const m = await autoMatchChecklistFromFilename({ dealId, filename, fileId: docId });
+        stat.matched += m.matched.length;
+        stat.updated += m.updated;
+
+        return {
+          stat,
+          result: {
+            document_id: docId,
+            filename,
+            ocr: "skipped" as const,
+            doc_intel: "skipped" as const,
+            matched_keys: m.matched,
+            updated_items: m.updated,
+          },
+        };
       }
 
       // Download bytes from storage
       const storagePath = String(doc.storage_path || "");
       if (!storagePath) {
-        results.push({
-          document_id: docId,
-          filename,
-          ocr: "error",
-          doc_intel: "error",
-          matched_keys: [],
-          updated_items: 0,
-          error: "Missing storage_path",
-        });
-        continue;
+        return {
+          stat,
+          result: {
+            document_id: docId,
+            filename,
+            ocr: "error" as const,
+            doc_intel: "error" as const,
+            matched_keys: [],
+            updated_items: 0,
+            error: "Missing storage_path",
+          },
+        };
       }
 
       const storageBucket = String((doc as any)?.storage_bucket || "deal-files");
       const dl = await sb.storage.from(storageBucket).download(storagePath);
       if (dl.error || !dl.data) {
-        results.push({
-          document_id: docId,
-          filename,
-          ocr: "error",
-          doc_intel: "error",
-          matched_keys: [],
-          updated_items: 0,
-          error: `Storage download failed (${storageBucket}): ${dl.error?.message || "unknown"}`,
-        });
-        continue;
+        return {
+          stat,
+          result: {
+            document_id: docId,
+            filename,
+            ocr: "error" as const,
+            doc_intel: "error" as const,
+            matched_keys: [],
+            updated_items: 0,
+            error: `Storage download failed (${storageBucket}): ${dl.error?.message || "unknown"}`,
+          },
+        };
       }
 
       const bytes = Buffer.from(await dl.data.arrayBuffer());
 
       let extractedText = "";
-      let extractedSource: "pdf_text" | "azure_di" = "azure_di";
       try {
+        const effectiveFast = !!fast;
+        const effectiveMaxPages =
+          typeof maxPages === "number" && Number.isFinite(maxPages)
+            ? Math.max(1, Math.min(20, Math.floor(maxPages)))
+            : effectiveFast
+              ? 10
+              : null;
+        const azurePages = effectiveMaxPages ? `1-${effectiveMaxPages}` : undefined;
+
         const ext = await extractTextSmart({
           bytes,
           mimeType: (doc as any)?.mime_type ?? null,
           preferPdfText: preferPdfText !== false,
           minPdfTextChars: Math.max(50, Math.min(20000, Number(minPdfTextChars ?? 900) || 900)),
+          azureModel: effectiveFast ? "prebuilt-read" : "prebuilt-layout",
+          azurePages,
         });
         extractedText = ext.text;
-        extractedSource = ext.source;
       } catch (e: any) {
-        results.push({
-          document_id: docId,
-          filename,
-          ocr: "error",
-          doc_intel: "error",
-          matched_keys: [],
-          updated_items: 0,
-          error: e?.message || "OCR failed",
-        });
-        continue;
+        return {
+          stat,
+          result: {
+            document_id: docId,
+            filename,
+            ocr: "error" as const,
+            doc_intel: "error" as const,
+            matched_keys: [],
+            updated_items: 0,
+            error: e?.message || "OCR failed",
+          },
+        };
       }
 
       let docIntelStatus: "ok" | "skipped" | "error" = "skipped";
@@ -610,12 +655,8 @@ async function runIntelForDeal(args: {
 
       if (process.env.OPENAI_API_KEY && !fast) {
         try {
-          const ai = await analyzeDocument({
-            dealId,
-            fileId: docId,
-            extractedText,
-          });
-          analyzed += 1;
+          const ai = await analyzeDocument({ dealId, fileId: docId, extractedText });
+          stat.analyzed += 1;
           docIntelStatus = "ok";
           aiDocType = (ai as any)?.doc_type;
           aiTaxYear = (ai as any)?.tax_year;
@@ -626,15 +667,8 @@ async function runIntelForDeal(args: {
         }
       }
 
-      // Ensure a minimal doc_intel_results record exists even when OpenAI is not configured
-      // or the AI call fails. This enables intel-only auto-match without filename guessing.
       if (docIntelStatus !== "ok") {
-        await bestEffortUpsertDocIntelFromOcr({
-          sb,
-          dealId,
-          fileId: docId,
-          extractedText,
-        });
+        await bestEffortUpsertDocIntelFromOcr({ sb, dealId, fileId: docId, extractedText });
       }
 
       await bestEffortStampDealDocument({
@@ -646,52 +680,78 @@ async function runIntelForDeal(args: {
         aiTaxYear,
         aiConfidence,
       });
-      stamped += 1;
+      stat.stamped += 1;
 
-      // Now match checklist using doc-intel preference
       const m = await autoMatchChecklistFromFilename({ dealId, filename, fileId: docId });
-      matched += m.matched.length;
-      updated += m.updated;
+      stat.matched += m.matched.length;
+      stat.updated += m.updated;
 
-      // Stamp deal_documents.checklist_key (first match) if unset
       if (m.matched.length > 0) {
-        await sb
-          .from("deal_documents")
-          .update({ checklist_key: m.matched[0] })
-          .eq("id", docId)
-          .is("checklist_key", null);
+        await sb.from("deal_documents").update({ checklist_key: m.matched[0] }).eq("id", docId).is("checklist_key", null);
       }
 
-      results.push({
-        document_id: docId,
-        filename,
-        ocr: "ok",
-        doc_intel: docIntelStatus,
-        matched_keys: m.matched,
-        updated_items: m.updated,
-      });
+      return {
+        stat,
+        result: {
+          document_id: docId,
+          filename,
+          ocr: "ok" as const,
+          doc_intel: docIntelStatus,
+          matched_keys: m.matched,
+          updated_items: m.updated,
+        },
+      };
     } catch (e: any) {
-      results.push({
-        document_id: docId,
-        filename,
-        ocr: "error",
-        doc_intel: "error",
-        matched_keys: [],
-        updated_items: 0,
-        error: e?.message || String(e),
-      });
+      return {
+        stat,
+        result: {
+          document_id: docId,
+          filename,
+          ocr: "error" as const,
+          doc_intel: "error" as const,
+          matched_keys: [],
+          updated_items: 0,
+          error: e?.message || String(e),
+        },
+      };
     }
+  }
+
+  async function runPool<T>(items: T[], concurrency: number, fn: (item: T) => Promise<any>) {
+    const out: any[] = [];
+    const queue = items.slice();
+    const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
+      while (queue.length) {
+        const item = queue.shift() as T;
+        out.push(await fn(item));
+      }
+    });
+    await Promise.all(workers);
+    return out;
+  }
+
+  const concurrency = fast ? 2 : 1;
+  const processed = await runPool(list, concurrency, processOne);
+
+  for (const p of processed) {
+    analyzed += p?.stat?.analyzed ?? 0;
+    matched += p?.stat?.matched ?? 0;
+    updated += p?.stat?.updated ?? 0;
+    stamped += p?.stat?.stamped ?? 0;
+    results.push(p.result);
   }
 
   // After stamping years/types, run checklist reconcile once so year-aware
   // satisfaction updates immediately.
   let reconcile: any = null;
   let reconcile_error: string | null = null;
-  try {
-    reconcile = await reconcileDealChecklist(dealId);
-  } catch (e) {
-    reconcile_error = (e as any)?.message || String(e);
-    console.error("[documents/intel/run] reconcile_failed (non-fatal)", e);
+  if (stamped > 0 || updated > 0) {
+    try {
+      reconcile = await reconcileDealChecklist(dealId);
+    } catch (e) {
+      reconcile_error = (e as any)?.message || String(e);
+      console.error("[documents/intel/run] reconcile_failed (non-fatal)", e);
+    }
   }
 
   // Totals for UI progress.
@@ -818,6 +878,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
   const fast = body?.fast ?? false;
   const preferPdfText = body?.preferPdfText ?? true;
   const minPdfTextChars = body?.minPdfTextChars ?? 900;
+  const maxPages = body?.maxPages;
 
   return runIntelForDeal({
     req,
@@ -828,5 +889,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     fast,
     preferPdfText,
     minPdfTextChars,
+    maxPages,
   });
 }

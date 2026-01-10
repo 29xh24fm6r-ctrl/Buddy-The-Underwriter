@@ -410,6 +410,9 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
               fast: true,
               preferPdfText: true,
               minPdfTextChars: 700,
+              // Reduce Azure DI time on long PDFs: classify from first pages.
+              // Tax returns often have cover sheets; scan more pages to hit the 1120/1040 page.
+              maxPages: 10,
             }),
           });
           json = await res.json();
