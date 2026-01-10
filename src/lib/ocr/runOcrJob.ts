@@ -1,6 +1,7 @@
 // src/lib/ocr/runOcrJob.ts
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { runClaudeOcrJob } from "./runClaudeOcrJob";
 
 type RunArgs = { dealId: string; jobId: string; reqId?: string; bankId?: string };
 
@@ -30,19 +31,6 @@ function extractTextPreview(raw: any, maxChars = 14000): string {
 }
 
 export async function runOcrJob({ dealId, jobId, reqId, bankId }: RunArgs) {
-  const endpoint =
-    process.env.AZURE_DI_ENDPOINT ||
-    process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT;
-  const apiKey =
-    process.env.AZURE_DI_KEY ||
-    process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY;
-
-  if (!endpoint || !apiKey) {
-    throw new Error(
-      "Missing Azure DI env vars. Set AZURE_DI_ENDPOINT/AZURE_DI_KEY (or AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT/AZURE_DOCUMENT_INTELLIGENCE_KEY).",
-    );
-  }
-
   const sb = supabaseAdmin();
 
   // 🔥 LEDGER: Log OCR start
@@ -103,6 +91,94 @@ export async function runOcrJob({ dealId, jobId, reqId, bankId }: RunArgs) {
     job.error = { message: "Uploaded file not found" };
     await fs.writeFile(jobPath, JSON.stringify(job, null, 2), "utf-8");
     throw e;
+  }
+
+  // 🚀 CLAUDE OCR: Use Claude if enabled
+  if (process.env.USE_CLAUDE_OCR === "true") {
+    const started = Date.now();
+    try {
+      // Infer MIME type from file extension
+      const ext = storedName.toLowerCase().split(".").pop();
+      const mimeType = ext === "pdf" ? "application/pdf" :
+                       ext === "png" ? "image/png" :
+                       ext === "jpg" || ext === "jpeg" ? "image/jpeg" :
+                       ext === "gif" ? "image/gif" :
+                       ext === "webp" ? "image/webp" : "application/pdf";
+
+      const claudeResult = await runClaudeOcrJob({
+        fileBytes,
+        mimeType,
+        fileName: storedName,
+      });
+
+      const result = {
+        engine: "claude_anthropic",
+        model: "claude-sonnet-4-5-20250514",
+        elapsed_ms: Date.now() - started,
+        pages_estimate: claudeResult.pageCount,
+        text_preview: claudeResult.text.slice(0, 14000),
+        raw: { claudeText: claudeResult.text },
+        classification: null,
+        c4: null,
+      };
+
+      job.status = "succeeded";
+      job.updated_at = nowIso();
+      job.result = result;
+      job.error = null;
+      await fs.writeFile(jobPath, JSON.stringify(job, null, 2), "utf-8");
+
+      // 🔥 LEDGER: Log OCR completion
+      if (bankId) {
+        await sb.from("deal_pipeline_ledger").insert({
+          deal_id: dealId,
+          bank_id: bankId,
+          stage: "ocr_complete",
+          status: "ok",
+          payload: {
+            job_id: jobId,
+            pages: result.pages_estimate,
+            elapsed_ms: result.elapsed_ms,
+            engine: "claude",
+          },
+        });
+      }
+
+      return result;
+    } catch (e: any) {
+      job.status = "failed";
+      job.updated_at = nowIso();
+      job.error = safeError(e);
+      await fs.writeFile(jobPath, JSON.stringify(job, null, 2), "utf-8");
+
+      // 🔥 LEDGER: Log OCR failure
+      if (bankId) {
+        await sb.from("deal_pipeline_ledger").insert({
+          deal_id: dealId,
+          bank_id: bankId,
+          stage: "ocr_complete",
+          status: "error",
+          payload: { job_id: jobId, engine: "claude" },
+          error: e?.message ?? String(e),
+        });
+      }
+
+      throw e;
+    }
+  }
+
+  // 🔵 AZURE DI OCR: Fallback to Azure Document Intelligence
+  const endpoint =
+    process.env.AZURE_DI_ENDPOINT ||
+    process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT;
+  const apiKey =
+    process.env.AZURE_DI_KEY ||
+    process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY;
+
+  if (!endpoint || !apiKey) {
+    throw new Error(
+      "Missing Azure DI env vars. Set AZURE_DI_ENDPOINT/AZURE_DI_KEY (or AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT/AZURE_DOCUMENT_INTELLIGENCE_KEY).",
+    );
   }
 
   const started = Date.now();

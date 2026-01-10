@@ -24,6 +24,7 @@
     "capture:marketing": "node scripts/capture-marketing-screenshots.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
     "@azure/ai-form-recognizer": "^5.1.0",
     "@clerk/nextjs": "^6.36.3",
     "@opentelemetry/api": "^1.9.0",
