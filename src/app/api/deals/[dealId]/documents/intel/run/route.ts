@@ -91,6 +91,18 @@ async function extractTextWithAzureDI(
   bytes: Buffer,
   opts?: { model?: "prebuilt-read" | "prebuilt-layout"; pages?: string },
 ): Promise<string> {
+  // 🚀 CLAUDE OCR: Use Claude if enabled
+  if (process.env.USE_CLAUDE_OCR === "true") {
+    const { runClaudeOcrJob } = await import("@/lib/ocr/runClaudeOcrJob");
+    const result = await runClaudeOcrJob({
+      fileBytes: bytes,
+      mimeType: "application/pdf",
+      fileName: "document.pdf",
+    });
+    return result.text;
+  }
+
+  // 🔵 AZURE DI OCR: Fallback to Azure Document Intelligence
   const endpoint =
     process.env.AZURE_DI_ENDPOINT ||
     process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT ||
