@@ -618,7 +618,7 @@ async function runIntelForDeal(args: {
     }
   } else {
     const maxScan = Math.max(25, Math.min(500, Number(scanLimit ?? 200) || 200));
-    const pageSize = Math.min(50, maxScan);
+    const pageSize = Math.min(200, maxScan); // Increased from 50 to scan more docs at once
     let scanned = 0;
     let lastCreatedAt: string | null = null;
     let includeBucket = true;
