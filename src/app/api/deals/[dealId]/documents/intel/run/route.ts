@@ -1168,7 +1168,7 @@ async function runIntelForDeal(args: {
     return out;
   }
 
-  const concurrency = fast ? Math.min(4, Math.max(2, Math.floor(list.length))) : 1;
+  const concurrency = fast ? Math.min(15, Math.max(5, Math.floor(list.length / 3))) : 1;
   const processed = await runPool(list, concurrency, processOne);
 
   for (const p of processed) {
