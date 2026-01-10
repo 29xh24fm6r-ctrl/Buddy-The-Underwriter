@@ -79,13 +79,13 @@ export async function runClaudeOcrJob(args: ClaudeOcrArgs): Promise<ClaudeOcrRes
           role: "user",
           content: [
             {
-              type: "document",
+              type: mediaType === "application/pdf" ? "document" : "image",
               source: {
                 type: "base64",
                 media_type: mediaType,
                 data: base64Data,
               },
-            },
+            } as any, // Type assertion for mixed document/image types
             {
               type: "text",
               text: `Extract ALL text from this document exactly as it appears.
