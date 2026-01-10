@@ -885,6 +885,7 @@ async function runIntelForDeal(args: {
         
         // 🚀 CLAUDE OCR: Use Claude if enabled (faster than signed URL + Azure DI)
         if (process.env.USE_CLAUDE_OCR === "true" && effectiveFast) {
+          console.log("[INTEL_RUN] Using Claude OCR for fast mode", { docId, filename });
           const { data: fileData, error: dlError } = await sb.storage
             .from(storageBucket)
             .download(storagePath);
@@ -892,15 +893,29 @@ async function runIntelForDeal(args: {
           if (!dlError && fileData) {
             const bytes = Buffer.from(await fileData.arrayBuffer());
             const { runClaudeOcrJob } = await import("@/lib/ocr/runClaudeOcrJob");
+            const claudeStart = Date.now();
             const result = await runClaudeOcrJob({
               fileBytes: bytes,
               mimeType: "application/pdf",
               fileName: filename || "document.pdf",
             });
+            console.log("[INTEL_RUN] Claude OCR completed", { 
+              docId, 
+              filename, 
+              elapsed_ms: Date.now() - claudeStart,
+              textLength: result.text.length 
+            });
             extractedText = result.text;
             usedUrl = true;
             extractSource = "signed_url_azure"; // Keep same tracking for now
+          } else {
+            console.log("[INTEL_RUN] Failed to download for Claude OCR", { docId, error: dlError });
           }
+        } else {
+          console.log("[INTEL_RUN] Claude OCR check", { 
+            USE_CLAUDE_OCR: process.env.USE_CLAUDE_OCR,
+            effectiveFast 
+          });
         }
         
         if (!usedUrl && effectiveFast) {
