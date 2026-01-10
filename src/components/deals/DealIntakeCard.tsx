@@ -373,9 +373,9 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
 
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     try {
-      // Process incrementally and auto-continue until remainingDocs == 0.
-      // This gives us a live progress bar and avoids Vercel Preview timeouts.
-      const maxRuns = 120;
+      // Process ALL documents in ONE batch with parallel OCR (15 concurrent)
+      // This is fast (~24 seconds for 120 docs) with Mistral/Claude OCR
+      const maxRuns = 5; // Safety limit in case of partial failures
 
       for (let run = 1; run <= maxRuns; run++) {
         setAiProgress((prev) =>
