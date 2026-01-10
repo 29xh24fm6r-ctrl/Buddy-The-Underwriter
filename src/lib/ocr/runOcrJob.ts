@@ -2,6 +2,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runClaudeOcrJob } from "./runClaudeOcrJob";
+import { runMistralOcrJob } from "./runMistralOcrJob";
 
 type RunArgs = { dealId: string; jobId: string; reqId?: string; bankId?: string };
 
@@ -91,6 +92,80 @@ export async function runOcrJob({ dealId, jobId, reqId, bankId }: RunArgs) {
     job.error = { message: "Uploaded file not found" };
     await fs.writeFile(jobPath, JSON.stringify(job, null, 2), "utf-8");
     throw e;
+  }
+
+  // 🚀 MISTRAL OCR: Use Mistral if enabled (priority over Claude)
+  if (process.env.USE_MISTRAL_OCR === "true") {
+    const started = Date.now();
+    try {
+      // Infer MIME type from file extension
+      const ext = storedName.toLowerCase().split(".").pop();
+      const mimeType = ext === "pdf" ? "application/pdf" :
+                       ext === "png" ? "image/png" :
+                       ext === "jpg" || ext === "jpeg" ? "image/jpeg" :
+                       ext === "gif" ? "image/gif" :
+                       ext === "webp" ? "image/webp" : "application/pdf";
+
+      const mistralResult = await runMistralOcrJob({
+        fileBytes,
+        mimeType,
+        fileName: storedName,
+      });
+
+      const result = {
+        engine: "mistral_pixtral",
+        model: "pixtral-12b-2409",
+        elapsed_ms: Date.now() - started,
+        pages_estimate: mistralResult.pageCount,
+        text_preview: mistralResult.text.slice(0, 14000),
+        raw: { mistralText: mistralResult.text },
+        classification: null,
+        c4: null,
+      };
+
+      job.status = "succeeded";
+      job.updated_at = nowIso();
+      job.result = result;
+      job.error = null;
+      await fs.writeFile(jobPath, JSON.stringify(job, null, 2), "utf-8");
+
+      // 🔥 LEDGER: Log OCR completion
+      if (bankId) {
+        await sb.from("deal_pipeline_ledger").insert({
+          deal_id: dealId,
+          bank_id: bankId,
+          stage: "ocr_complete",
+          status: "ok",
+          payload: {
+            job_id: jobId,
+            pages: result.pages_estimate,
+            elapsed_ms: result.elapsed_ms,
+            engine: "mistral",
+          },
+        });
+      }
+
+      return result;
+    } catch (e: any) {
+      job.status = "failed";
+      job.updated_at = nowIso();
+      job.error = safeError(e);
+      await fs.writeFile(jobPath, JSON.stringify(job, null, 2), "utf-8");
+
+      // 🔥 LEDGER: Log OCR failure
+      if (bankId) {
+        await sb.from("deal_pipeline_ledger").insert({
+          deal_id: dealId,
+          bank_id: bankId,
+          stage: "ocr_complete",
+          status: "error",
+          payload: { job_id: jobId, engine: "mistral" },
+          error: e?.message ?? String(e),
+        });
+      }
+
+      throw e;
+    }
   }
 
   // 🚀 CLAUDE OCR: Use Claude if enabled

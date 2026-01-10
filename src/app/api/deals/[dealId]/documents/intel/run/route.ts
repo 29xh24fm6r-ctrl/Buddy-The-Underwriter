@@ -883,6 +883,36 @@ async function runIntelForDeal(args: {
       try {
         let usedUrl = false;
         
+        // 🚀 MISTRAL OCR: Use Mistral if enabled (priority over Claude)
+        if (process.env.USE_MISTRAL_OCR === "true" && effectiveFast) {
+          console.log("[INTEL_RUN] Using Mistral OCR for fast mode", { docId, filename });
+          const { data: fileData, error: dlError } = await sb.storage
+            .from(storageBucket)
+            .download(storagePath);
+          
+          if (!dlError && fileData) {
+            const bytes = Buffer.from(await fileData.arrayBuffer());
+            const { runMistralOcrJob } = await import("@/lib/ocr/runMistralOcrJob");
+            const mistralStart = Date.now();
+            const result = await runMistralOcrJob({
+              fileBytes: bytes,
+              mimeType: "application/pdf",
+              fileName: filename || "document.pdf",
+            });
+            console.log("[INTEL_RUN] Mistral OCR completed", { 
+              docId, 
+              filename, 
+              elapsed_ms: Date.now() - mistralStart,
+              textLength: result.text.length 
+            });
+            extractedText = result.text;
+            usedUrl = true;
+            extractSource = "signed_url_azure"; // Keep same tracking for now
+          } else {
+            console.log("[INTEL_RUN] Failed to download for Mistral OCR", { docId, error: dlError });
+          }
+        }
+        
         // 🚀 CLAUDE OCR: Use Claude if enabled (faster than signed URL + Azure DI)
         if (process.env.USE_CLAUDE_OCR === "true" && effectiveFast) {
           console.log("[INTEL_RUN] Using Claude OCR for fast mode", { docId, filename });
