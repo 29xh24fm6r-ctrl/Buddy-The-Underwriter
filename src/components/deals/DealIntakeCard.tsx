@@ -53,9 +53,9 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
   const [autoSeeding, setAutoSeeding] = useState(false);
   const [aiRecognizing, setAiRecognizing] = useState(false);
   const [aiProgress, setAiProgress] = useState<null | {
-    totalDocs: number;
-    trustedDocs: number;
-    remainingDocs: number;
+    totalDocs: number | null;
+    trustedDocs: number | null;
+    remainingDocs: number | null;
     runs: number;
   }>(null);
   const [showManualRecognition, setShowManualRecognition] = useState(false);
@@ -368,7 +368,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
   async function runAiDocRecognition() {
     if (!hasValidDealId) return;
     setAiRecognizing(true);
-    setAiProgress({ totalDocs: 0, trustedDocs: 0, remainingDocs: 0, runs: 0 });
+    setAiProgress({ totalDocs: null, trustedDocs: null, remainingDocs: null, runs: 0 });
     setMatchMessage("🧠 Running AI doc recognition (OCR + classify)…\nStarting…");
 
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -378,7 +378,18 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
       const maxRuns = 120;
 
       for (let run = 1; run <= maxRuns; run++) {
-        setAiProgress((prev) => (prev ? { ...prev, runs: run } : { totalDocs: 0, trustedDocs: 0, remainingDocs: 0, runs: run }));
+        setAiProgress((prev) =>
+          prev
+            ? { ...prev, runs: run }
+            : { totalDocs: null, trustedDocs: null, remainingDocs: null, runs: run },
+        );
+
+        // Immediate UI feedback so it never looks stuck.
+        setMatchMessage((prev) =>
+          (prev && prev.startsWith("✅"))
+            ? prev
+            : `🧠 Running AI doc recognition (OCR + classify)…\nRun ${run}/${maxRuns}\nContacting server…`,
+        );
 
         const ac = new AbortController();
         const t = setTimeout(() => ac.abort(), 55_000);
@@ -422,8 +433,14 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         const remainingDocs = Number(totals?.remainingDocs ?? 0) || 0;
         const status = String(json?.status || "");
 
-        if (totalDocs > 0) {
-          setAiProgress({ totalDocs, trustedDocs, remainingDocs, runs: run });
+        setAiProgress({ totalDocs, trustedDocs, remainingDocs, runs: run });
+
+        // Nothing to do: explain clearly.
+        if (totalDocs === 0) {
+          setMatchMessage(
+            "⚠️ No documents found to recognize.\n\nUpload PDFs under Deal Files / Documents first, then run 'AI Doc Recognition' again.",
+          );
+          return;
         }
 
         const processed = Number(json?.processed ?? 0) || 0;
@@ -668,12 +685,14 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         </button>
 
         {/* Live doc recognition status bar */}
-        {aiProgress && aiProgress.totalDocs > 0 && (
+        {aiProgress && (
           <div className="space-y-2">
             <div className="flex justify-between text-xs text-neutral-400">
               <span>Doc Recognition</span>
               <span>
-                {aiProgress.trustedDocs} / {aiProgress.totalDocs}
+                {aiProgress.totalDocs != null && aiProgress.trustedDocs != null
+                  ? `${aiProgress.trustedDocs} / ${aiProgress.totalDocs}`
+                  : "Starting…"}
                 {aiRecognizing ? ` (run ${aiProgress.runs})` : ""}
               </span>
             </div>
@@ -683,16 +702,32 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
                 initial={{ width: 0 }}
                 animate={{
                   width:
-                    aiProgress.totalDocs > 0
+                    aiProgress.totalDocs != null && aiProgress.totalDocs > 0 && aiProgress.trustedDocs != null
                       ? `${Math.min(100, Math.max(0, (aiProgress.trustedDocs / aiProgress.totalDocs) * 100))}%`
-                      : "0%",
+                      : aiRecognizing
+                        ? "35%"
+                        : "0%",
+                  x:
+                    aiProgress.totalDocs != null && aiProgress.totalDocs > 0
+                      ? 0
+                      : aiRecognizing
+                        ? ["-20%", "120%"]
+                        : 0,
                 }}
-                transition={{ duration: 0.25, ease: "easeOut" }}
+                transition={
+                  aiProgress.totalDocs != null && aiProgress.totalDocs > 0
+                    ? { duration: 0.25, ease: "easeOut" }
+                    : aiRecognizing
+                      ? { duration: 1.2, ease: "linear", repeat: Infinity }
+                      : { duration: 0.25, ease: "easeOut" }
+                }
               />
             </div>
             {aiRecognizing ? (
               <p className="text-xs text-neutral-500">
-                Processing… {aiProgress.remainingDocs} remaining
+                {aiProgress.remainingDocs != null
+                  ? `Processing… ${aiProgress.remainingDocs} remaining`
+                  : "Processing…"}
               </p>
             ) : null}
           </div>
