@@ -152,6 +152,124 @@ async function extractTextWithAzureDIFromUrl(
   return content;
 }
 
+async function startOrResumeAzurePollerFromUrl(args: {
+  url: string;
+  model: "prebuilt-read" | "prebuilt-layout";
+  pages?: string;
+  resumeFrom?: string | null;
+}) {
+  const endpoint =
+    process.env.AZURE_DI_ENDPOINT ||
+    process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT ||
+    "";
+  const apiKey =
+    process.env.AZURE_DI_KEY ||
+    process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY ||
+    "";
+
+  if (!endpoint || !apiKey) {
+    throw new Error(
+      "Missing Azure DI env vars. Set AZURE_DI_ENDPOINT/AZURE_DI_KEY (or AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT/AZURE_DOCUMENT_INTELLIGENCE_KEY).",
+    );
+  }
+
+  const { AzureKeyCredential, DocumentAnalysisClient } = await import(
+    "@azure/ai-form-recognizer"
+  );
+
+  const client = new DocumentAnalysisClient(endpoint, new AzureKeyCredential(apiKey));
+  const pages = typeof args.pages === "string" && args.pages.trim() ? args.pages.trim() : undefined;
+
+  const options: any = {
+    updateIntervalInMs: 2000,
+  };
+  if (pages) options.pages = pages;
+  if (args.resumeFrom) options.resumeFrom = args.resumeFrom;
+
+  const poller = await (client as any).beginAnalyzeDocumentFromUrl(
+    args.model,
+    args.url,
+    options,
+  );
+
+  return poller;
+}
+
+async function pollAzurePollerForContent(args: {
+  poller: any;
+  maxPollMs: number;
+}): Promise<{ done: boolean; content: string; resumeFrom: string | null }> {
+  const started = Date.now();
+  const poller = args.poller;
+
+  while (!poller.isDone() && Date.now() - started < args.maxPollMs) {
+    await poller.poll();
+    if (!poller.isDone()) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+
+  const resumeFrom = typeof poller.toString === "function" ? poller.toString() : null;
+
+  if (!poller.isDone()) {
+    return { done: false, content: "", resumeFrom };
+  }
+
+  const analyzeResult = await poller.pollUntilDone();
+  const content =
+    typeof (analyzeResult as any)?.content === "string" ? (analyzeResult as any).content : "";
+  return { done: true, content, resumeFrom };
+}
+
+async function bestEffortUpsertOcrPollerState(args: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  dealId: string;
+  fileId: string;
+  azureModel: string;
+  azurePages?: string;
+  resumeFrom: string | null;
+  status: "running" | "queued" | "done" | "failed";
+  note?: string;
+}) {
+  const { sb, dealId, fileId, azureModel, azurePages, resumeFrom, status, note } = args;
+
+  const up = await sb.from("doc_intel_results").upsert(
+    {
+      deal_id: dealId,
+      file_id: fileId,
+      doc_type: "Unknown",
+      tax_year: null,
+      extracted_json: {
+        source: "azure_di_ocr",
+        azure_model: azureModel,
+        azure_pages: azurePages ?? null,
+        azure_pages_end: parseAzurePagesEnd(azurePages),
+        azure_resumeFrom: resumeFrom ?? null,
+        ocr_status: status,
+        note: note ?? null,
+      },
+      quality_json: {
+        legible: null,
+        complete: null,
+        signed: null,
+        notes: ["ocr_poller_state_only"],
+      },
+      confidence: null,
+      evidence_json: { evidence_spans: [], evidence: [] },
+      created_at: new Date().toISOString(),
+    } as any,
+    { onConflict: "deal_id,file_id" },
+  );
+
+  if (up.error) {
+    console.error("[documents/intel/run] ocr_poller_state_upsert_failed (non-fatal)", {
+      dealId,
+      fileId,
+      error: up.error,
+    });
+  }
+}
+
 function parseAzurePagesEnd(raw: unknown): number | null {
   const s = String(raw ?? "").trim();
   if (!s) return null;
@@ -508,7 +626,7 @@ async function runIntelForDeal(args: {
       const ids = page.map((d) => String(d.id)).filter(Boolean);
       const intelRes = await sb
         .from("doc_intel_results")
-        .select("file_id, doc_type, confidence")
+        .select("file_id, doc_type, confidence, extracted_json")
         .eq("deal_id", dealId)
         .in("file_id", ids);
 
@@ -517,13 +635,25 @@ async function runIntelForDeal(args: {
         intelMap.set(String(r.file_id), r);
       }
 
+      const candidates: any[] = [];
       for (const d of page) {
-        if (docs.length >= limit) break;
         const id = String(d.id);
         const intel = intelMap.get(id) ?? null;
         if (!isTrustedExistingIntel(intel)) {
-          docs.push(d);
+          candidates.push({ doc: d, intel });
         }
+      }
+
+      // Prefer docs with in-progress Azure OCR so repeated runs finish them quickly.
+      candidates.sort((a, b) => {
+        const ar = a?.intel?.extracted_json?.azure_resumeFrom ? 1 : 0;
+        const br = b?.intel?.extracted_json?.azure_resumeFrom ? 1 : 0;
+        return br - ar;
+      });
+
+      for (const c of candidates) {
+        if (docs.length >= limit) break;
+        docs.push(c.doc);
       }
     }
   }
@@ -579,7 +709,7 @@ async function runIntelForDeal(args: {
   const results: Array<{
     document_id: string;
     filename: string;
-    ocr: "skipped" | "ok" | "error";
+    ocr: "skipped" | "ok" | "running" | "error";
     doc_intel: "skipped" | "ok" | "error";
     matched_keys: string[];
     updated_items: number;
@@ -695,10 +825,45 @@ async function runIntelForDeal(args: {
             .createSignedUrl(storagePath, 60 * 10);
 
           if (!signed.error && signed.data?.signedUrl) {
-            extractedText = await extractTextWithAzureDIFromUrl(signed.data.signedUrl, {
+            const resumeFrom: string | null =
+              (existingIntel.data as any)?.extracted_json?.azure_resumeFrom ?? null;
+
+            const poller = await startOrResumeAzurePollerFromUrl({
+              url: signed.data.signedUrl,
               model: azureModel,
               pages: azurePages,
+              resumeFrom,
             });
+
+            // Poll briefly so the request returns quickly even if Azure takes minutes.
+            const polled = await pollAzurePollerForContent({ poller, maxPollMs: 8000 });
+
+            if (!polled.done) {
+              await bestEffortUpsertOcrPollerState({
+                sb,
+                dealId,
+                fileId: docId,
+                azureModel,
+                azurePages,
+                resumeFrom: polled.resumeFrom,
+                status: "running",
+                note: "azure_di_running",
+              });
+
+              return {
+                stat,
+                result: {
+                  document_id: docId,
+                  filename,
+                  ocr: "running" as const,
+                  doc_intel: "skipped" as const,
+                  matched_keys: [],
+                  updated_items: 0,
+                },
+              };
+            }
+
+            extractedText = polled.content;
             usedUrl = true;
           }
         }
@@ -735,6 +900,21 @@ async function runIntelForDeal(args: {
       let aiDocType: unknown = null;
       let aiTaxYear: unknown = null;
       let aiConfidence: unknown = null;
+
+      // If we couldn't extract any text, treat as still running/empty and avoid downstream work.
+      if (!String(extractedText || "").trim()) {
+        return {
+          stat,
+          result: {
+            document_id: docId,
+            filename,
+            ocr: "running" as const,
+            doc_intel: "skipped" as const,
+            matched_keys: [],
+            updated_items: 0,
+          },
+        };
+      }
 
       if (process.env.OPENAI_API_KEY && !fast) {
         try {
