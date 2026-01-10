@@ -373,9 +373,9 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
 
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     try {
-      // Process ALL documents in ONE batch with parallel OCR (15 concurrent)
-      // This is fast (~24 seconds for 120 docs) with Mistral/Claude OCR
-      const maxRuns = 5; // Safety limit in case of partial failures
+      // Process in batches of 15 with live progress updates
+      // Each batch takes ~3-5 seconds (15 parallel Mistral OCR jobs)
+      const maxRuns = 20; // 20 batches × 15 docs = 300 docs max
 
       for (let run = 1; run <= maxRuns; run++) {
         setAiProgress((prev) =>
@@ -392,7 +392,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         );
 
         const ac = new AbortController();
-        const t = setTimeout(() => ac.abort(), 120_000); // 2 min timeout for batch processing
+        const t = setTimeout(() => ac.abort(), 30_000); // 30 sec per batch of 15
 
         let res: Response | null = null;
         let json: any = null;
@@ -401,12 +401,13 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
             method: "POST",
             headers: { "content-type": "application/json" },
             signal: ac.signal,
-            // FAST MODE:
-            // - Uses Mistral/Claude OCR (parallel processing, 15 docs at once)
-            // - Skip OpenAI analysis for speed (deterministic stamping still happens)
+            // FAST MODE with PROGRESSIVE UPDATES:
+            // - Process 15 docs at a time (matches backend parallel concurrency)
+            // - Show live progress: "15 of 120... 30 of 120..."
+            // - Uses Mistral/Claude OCR in parallel (15 concurrent)
             body: JSON.stringify({
-              // Process ALL documents in one API call with parallel OCR (15 concurrent)
-              limit: 500,
+              // Process in batches to show progress and avoid timeouts
+              limit: 15,
               scanLimit: 500,
               fast: true,
               preferPdfText: true,
