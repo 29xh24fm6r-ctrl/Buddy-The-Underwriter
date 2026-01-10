@@ -19,8 +19,41 @@ const BodySchema = z
     documentId: z.string().uuid().optional(),
     limit: z.number().int().min(1).max(25).optional(),
     scanLimit: z.number().int().min(25).max(500).optional(),
+    fast: z.boolean().optional(),
+    preferPdfText: z.boolean().optional(),
+    minPdfTextChars: z.number().int().min(50).max(20000).optional(),
   })
   .optional();
+
+async function extractTextWithPdfParse(bytes: Buffer): Promise<string> {
+  const mod = await import("pdf-parse");
+  const pdfParse = (mod as any).default ?? (mod as any);
+  const out = await pdfParse(bytes);
+  const text = typeof out?.text === "string" ? out.text : "";
+  return text;
+}
+
+async function extractTextSmart(args: {
+  bytes: Buffer;
+  mimeType: string | null;
+  preferPdfText: boolean;
+  minPdfTextChars: number;
+}): Promise<{ text: string; source: "pdf_text" | "azure_di" }>{
+  const mt = String(args.mimeType || "").toLowerCase();
+  if (args.preferPdfText && mt === "application/pdf") {
+    try {
+      const t = await extractTextWithPdfParse(args.bytes);
+      if ((t || "").trim().length >= args.minPdfTextChars) {
+        return { text: t, source: "pdf_text" };
+      }
+    } catch {
+      // Fall through to Azure DI
+    }
+  }
+
+  const t = await extractTextWithAzureDI(args.bytes);
+  return { text: t, source: "azure_di" };
+}
 
 async function extractTextWithAzureDI(bytes: Buffer): Promise<string> {
   const endpoint =
@@ -283,8 +316,19 @@ async function runIntelForDeal(args: {
   documentId: string | null;
   limit: number;
   scanLimit?: number;
+  fast?: boolean;
+  preferPdfText?: boolean;
+  minPdfTextChars?: number;
 }) {
-  const { dealId, documentId, limit, scanLimit } = args;
+  const {
+    dealId,
+    documentId,
+    limit,
+    scanLimit,
+    fast,
+    preferPdfText,
+    minPdfTextChars,
+  } = args;
   const sb = supabaseAdmin();
 
   const isTrustedExistingIntel = (row: any) => {
@@ -536,8 +580,16 @@ async function runIntelForDeal(args: {
       const bytes = Buffer.from(await dl.data.arrayBuffer());
 
       let extractedText = "";
+      let extractedSource: "pdf_text" | "azure_di" = "azure_di";
       try {
-        extractedText = await extractTextWithAzureDI(bytes);
+        const ext = await extractTextSmart({
+          bytes,
+          mimeType: (doc as any)?.mime_type ?? null,
+          preferPdfText: preferPdfText !== false,
+          minPdfTextChars: Math.max(50, Math.min(20000, Number(minPdfTextChars ?? 900) || 900)),
+        });
+        extractedText = ext.text;
+        extractedSource = ext.source;
       } catch (e: any) {
         results.push({
           document_id: docId,
@@ -556,7 +608,7 @@ async function runIntelForDeal(args: {
       let aiTaxYear: unknown = null;
       let aiConfidence: unknown = null;
 
-      if (process.env.OPENAI_API_KEY) {
+      if (process.env.OPENAI_API_KEY && !fast) {
         try {
           const ai = await analyzeDocument({
             dealId,
@@ -763,5 +815,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
   const limit = body?.limit ?? 5;
   const scanLimit = body?.scanLimit ?? 200;
 
-  return runIntelForDeal({ req, dealId, documentId, limit, scanLimit });
+  const fast = body?.fast ?? false;
+  const preferPdfText = body?.preferPdfText ?? true;
+  const minPdfTextChars = body?.minPdfTextChars ?? 900;
+
+  return runIntelForDeal({
+    req,
+    dealId,
+    documentId,
+    limit,
+    scanLimit,
+    fast,
+    preferPdfText,
+    minPdfTextChars,
+  });
 }

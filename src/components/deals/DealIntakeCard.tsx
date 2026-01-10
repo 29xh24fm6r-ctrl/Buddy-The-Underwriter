@@ -401,7 +401,16 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
             method: "POST",
             headers: { "content-type": "application/json" },
             signal: ac.signal,
-            body: JSON.stringify({ limit: 1, scanLimit: 200 }),
+            // FAST MODE:
+            // - Prefer native PDF text extraction (very fast) over Azure OCR
+            // - Skip OpenAI analysis for speed (deterministic stamping still happens)
+            body: JSON.stringify({
+              limit: 2,
+              scanLimit: 300,
+              fast: true,
+              preferPdfText: true,
+              minPdfTextChars: 700,
+            }),
           });
           json = await res.json();
         } catch (e: any) {
