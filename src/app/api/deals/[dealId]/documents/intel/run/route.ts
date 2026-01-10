@@ -882,9 +882,39 @@ async function runIntelForDeal(args: {
       let smartSource: "pdf_text" | "azure_di" | null = null;
       try {
         let usedUrl = false;
+
+        // 🚀 GEMINI OCR: Use Gemini if enabled (priority over Mistral/Claude)
+        if (process.env.USE_GEMINI_OCR === "true" && effectiveFast && !extractedText) {
+          console.log("[INTEL_RUN] Using Gemini OCR for fast mode", { docId, filename });
+          const { data: fileData, error: dlError } = await sb.storage
+            .from(storageBucket)
+            .download(storagePath);
+
+          if (!dlError && fileData) {
+            const bytes = Buffer.from(await fileData.arrayBuffer());
+            const { runGeminiOcrJob } = await import("@/lib/ocr/runGeminiOcrJob");
+            const geminiStart = Date.now();
+            const result = await runGeminiOcrJob({
+              fileBytes: bytes,
+              mimeType: "application/pdf",
+              fileName: filename || "document.pdf",
+            });
+            console.log("[INTEL_RUN] Gemini OCR completed", {
+              docId,
+              filename,
+              elapsed_ms: Date.now() - geminiStart,
+              textLength: result.text.length,
+            });
+            extractedText = result.text;
+            usedUrl = true;
+            extractSource = "signed_url_azure"; // Keep same tracking for now
+          } else {
+            console.log("[INTEL_RUN] Failed to download for Gemini OCR", { docId, error: dlError });
+          }
+        }
         
         // 🚀 MISTRAL OCR: Use Mistral if enabled (priority over Claude)
-        if (process.env.USE_MISTRAL_OCR === "true" && effectiveFast) {
+        if (process.env.USE_MISTRAL_OCR === "true" && effectiveFast && !extractedText) {
           console.log("[INTEL_RUN] Using Mistral OCR for fast mode", { docId, filename });
           const { data: fileData, error: dlError } = await sb.storage
             .from(storageBucket)
@@ -914,7 +944,7 @@ async function runIntelForDeal(args: {
         }
         
         // 🚀 CLAUDE OCR: Use Claude if enabled (faster than signed URL + Azure DI)
-        if (process.env.USE_CLAUDE_OCR === "true" && effectiveFast) {
+        if (process.env.USE_CLAUDE_OCR === "true" && effectiveFast && !extractedText) {
           console.log("[INTEL_RUN] Using Claude OCR for fast mode", { docId, filename });
           const { data: fileData, error: dlError } = await sb.storage
             .from(storageBucket)

@@ -2,6 +2,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runClaudeOcrJob } from "./runClaudeOcrJob";
+import { runGeminiOcrJob } from "./runGeminiOcrJob";
 import { runMistralOcrJob } from "./runMistralOcrJob";
 
 type RunArgs = { dealId: string; jobId: string; reqId?: string; bankId?: string };
@@ -92,6 +93,85 @@ export async function runOcrJob({ dealId, jobId, reqId, bankId }: RunArgs) {
     job.error = { message: "Uploaded file not found" };
     await fs.writeFile(jobPath, JSON.stringify(job, null, 2), "utf-8");
     throw e;
+  }
+
+  // 🚀 GEMINI OCR: Use Gemini if enabled (priority over Mistral/Claude/Azure)
+  if (process.env.USE_GEMINI_OCR === "true") {
+    const started = Date.now();
+    try {
+      // Infer MIME type from file extension
+      const ext = storedName.toLowerCase().split(".").pop();
+      const mimeType =
+        ext === "pdf"
+          ? "application/pdf"
+          : ext === "png"
+            ? "image/png"
+            : ext === "jpg" || ext === "jpeg"
+              ? "image/jpeg"
+              : ext === "gif"
+                ? "image/gif"
+                : ext === "webp"
+                  ? "image/webp"
+                  : "application/pdf";
+
+      const geminiResult = await runGeminiOcrJob({
+        fileBytes,
+        mimeType,
+        fileName: storedName,
+      });
+
+      const result = {
+        engine: "gemini_google",
+        model: process.env.GEMINI_OCR_MODEL || process.env.GEMINI_MODEL || "gemini-2.0-flash-exp",
+        elapsed_ms: Date.now() - started,
+        pages_estimate: geminiResult.pageCount,
+        text_preview: geminiResult.text.slice(0, 14000),
+        raw: { geminiText: geminiResult.text },
+        classification: null,
+        c4: null,
+      };
+
+      job.status = "succeeded";
+      job.updated_at = nowIso();
+      job.result = result;
+      job.error = null;
+      await fs.writeFile(jobPath, JSON.stringify(job, null, 2), "utf-8");
+
+      if (bankId) {
+        await sb.from("deal_pipeline_ledger").insert({
+          deal_id: dealId,
+          bank_id: bankId,
+          stage: "ocr_complete",
+          status: "ok",
+          payload: {
+            job_id: jobId,
+            pages: result.pages_estimate,
+            elapsed_ms: result.elapsed_ms,
+            engine: "gemini",
+          },
+        });
+      }
+
+      return result;
+    } catch (e: any) {
+      job.status = "failed";
+      job.updated_at = nowIso();
+      job.error = safeError(e);
+      await fs.writeFile(jobPath, JSON.stringify(job, null, 2), "utf-8");
+
+      if (bankId) {
+        await sb.from("deal_pipeline_ledger").insert({
+          deal_id: dealId,
+          bank_id: bankId,
+          stage: "ocr_complete",
+          status: "error",
+          payload: { job_id: jobId, engine: "gemini" },
+          error: e?.message ?? String(e),
+        });
+      }
+
+      throw e;
+    }
   }
 
   // 🚀 MISTRAL OCR: Use Mistral if enabled (priority over Claude)
