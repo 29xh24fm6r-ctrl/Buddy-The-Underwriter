@@ -405,7 +405,9 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
             // - Prefer native PDF text extraction (very fast) over Azure OCR
             // - Skip OpenAI analysis for speed (deterministic stamping still happens)
             body: JSON.stringify({
-              limit: 1,
+              // Process a small batch per run so large loan packages don't serialize
+              // behind one long PDF. The backend returns quickly for long-running OCR.
+              limit: 3,
               scanLimit: 300,
               fast: true,
               preferPdfText: true,

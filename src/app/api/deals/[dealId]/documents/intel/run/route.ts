@@ -644,16 +644,47 @@ async function runIntelForDeal(args: {
         }
       }
 
-      // Prefer docs with in-progress Azure OCR so repeated runs finish them quickly.
-      candidates.sort((a, b) => {
-        const ar = a?.intel?.extracted_json?.azure_resumeFrom ? 1 : 0;
-        const br = b?.intel?.extracted_json?.azure_resumeFrom ? 1 : 0;
-        return br - ar;
-      });
+      // Throughput vs completion:
+      // - In non-fast mode, prioritize resuming in-progress Azure OCR to finish a doc ASAP.
+      // - In fast mode, interleave (resume a few + start new ones) so large packages kick off
+      //   multiple Azure jobs instead of serializing behind a single long PDF.
+      if (!fast) {
+        candidates.sort((a, b) => {
+          const ar = a?.intel?.extracted_json?.azure_resumeFrom ? 1 : 0;
+          const br = b?.intel?.extracted_json?.azure_resumeFrom ? 1 : 0;
+          return br - ar;
+        });
 
-      for (const c of candidates) {
-        if (docs.length >= limit) break;
-        docs.push(c.doc);
+        for (const c of candidates) {
+          if (docs.length >= limit) break;
+          docs.push(c.doc);
+        }
+      } else {
+        const running: any[] = [];
+        const fresh: any[] = [];
+        for (const c of candidates) {
+          if (c?.intel?.extracted_json?.azure_resumeFrom) running.push(c);
+          else fresh.push(c);
+        }
+
+        const remainingSlots = Math.max(0, limit - docs.length);
+        // Aim to resume up to ~1/3 of slots (min 1 if any running), then start new.
+        const resumeQuota = Math.min(
+          running.length,
+          Math.max(1, Math.floor(remainingSlots / 3)),
+        );
+
+        const chosen: any[] = [];
+        chosen.push(...running.slice(0, resumeQuota));
+        chosen.push(...fresh.slice(0, Math.max(0, remainingSlots - chosen.length)));
+        if (chosen.length < remainingSlots) {
+          chosen.push(...running.slice(resumeQuota, resumeQuota + (remainingSlots - chosen.length)));
+        }
+
+        for (const c of chosen) {
+          if (docs.length >= limit) break;
+          docs.push(c.doc);
+        }
       }
     }
   }
@@ -778,24 +809,9 @@ async function runIntelForDeal(args: {
       }
 
       const storageBucket = String((doc as any)?.storage_bucket || "deal-files");
-      const dl = await sb.storage.from(storageBucket).download(storagePath);
-      if (dl.error || !dl.data) {
-        return {
-          stat,
-          result: {
-            document_id: docId,
-            filename,
-            ocr: "error" as const,
-            doc_intel: "error" as const,
-            matched_keys: [],
-            updated_items: 0,
-            error: `Storage download failed (${storageBucket}): ${dl.error?.message || "unknown"}`,
-          },
-        };
-      }
 
-      // Fast mode: avoid downloading large files into Vercel when possible.
-      // Use Azure DI from a short-lived signed URL.
+      // Fast mode: avoid downloading large files into Vercel whenever possible.
+      // Prefer Azure DI from a short-lived signed URL, and only download as a fallback.
       const effectiveFast = !!fast;
 
       const windowPages =
@@ -836,7 +852,11 @@ async function runIntelForDeal(args: {
             });
 
             // Poll briefly so the request returns quickly even if Azure takes minutes.
-            const polled = await pollAzurePollerForContent({ poller, maxPollMs: 8000 });
+            // Keep this short to avoid serializing large packages behind a single long OCR.
+            const polled = await pollAzurePollerForContent({
+              poller,
+              maxPollMs: 2500,
+            });
 
             if (!polled.done) {
               await bestEffortUpsertOcrPollerState({
@@ -870,6 +890,13 @@ async function runIntelForDeal(args: {
 
         if (!usedUrl) {
           // Fallback: download bytes and use smart extraction (PDF text when available).
+          const dl = await sb.storage.from(storageBucket).download(storagePath);
+          if (dl.error || !dl.data) {
+            throw new Error(
+              `Storage download failed (${storageBucket}): ${dl.error?.message || "unknown"}`,
+            );
+          }
+
           const bytes = Buffer.from(await dl.data.arrayBuffer());
           const ext = await extractTextSmart({
             bytes,
@@ -1000,7 +1027,7 @@ async function runIntelForDeal(args: {
     return out;
   }
 
-  const concurrency = fast ? 2 : 1;
+  const concurrency = fast ? Math.min(4, Math.max(2, Math.floor(list.length))) : 1;
   const processed = await runPool(list, concurrency, processOne);
 
   for (const p of processed) {
