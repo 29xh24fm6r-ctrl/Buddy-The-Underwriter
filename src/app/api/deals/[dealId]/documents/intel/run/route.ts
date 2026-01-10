@@ -18,6 +18,7 @@ const BodySchema = z
   .object({
     documentId: z.string().uuid().optional(),
     limit: z.number().int().min(1).max(25).optional(),
+    scanLimit: z.number().int().min(25).max(500).optional(),
   })
   .optional();
 
@@ -281,38 +282,121 @@ async function runIntelForDeal(args: {
   dealId: string;
   documentId: string | null;
   limit: number;
+  scanLimit?: number;
 }) {
-  const { dealId, documentId, limit } = args;
+  const { dealId, documentId, limit, scanLimit } = args;
   const sb = supabaseAdmin();
 
-  // Load docs (one or small batch)
-  const docsQ1 = sb
-    .from("deal_documents")
-    .select("id, storage_bucket, storage_path, original_filename, mime_type")
-    .eq("deal_id", dealId)
-    .order("created_at", { ascending: false })
-    .limit(documentId ? 1 : limit);
+  const isTrustedExistingIntel = (row: any) => {
+    if (!row) return false;
+    const dt = String(row.doc_type || "").trim().toLowerCase();
+    if (!dt || dt === "unknown") return false;
+    const conf =
+      typeof row.confidence === "number" ? Number(row.confidence) : null;
+    return conf == null || conf >= 60;
+  };
 
-  const docsRes1 = documentId ? docsQ1.eq("id", documentId) : docsQ1;
-  let { data: docs, error: docsErr } = await docsRes1;
+  const selectColsWithBucket =
+    "id, storage_bucket, storage_path, original_filename, mime_type, created_at";
+  const selectColsNoBucket =
+    "id, storage_path, original_filename, mime_type, created_at";
 
-  // Back-compat: tolerate older schemas where deal_documents.storage_bucket may not exist.
-  if (
-    docsErr &&
-    String(docsErr.message || "")
-      .toLowerCase()
-      .includes("storage_bucket")
-  ) {
-    const docsQ2 = sb
+  // Load docs that still need processing (not just latest N).
+  // This avoids getting stuck repeatedly scanning already-processed newest files.
+  let docs: any[] = [];
+  let docsErr: any = null;
+
+  if (documentId) {
+    // Single-document mode
+    const attempt1 = await sb
       .from("deal_documents")
-      .select("id, storage_path, original_filename, mime_type")
+      .select(selectColsWithBucket)
       .eq("deal_id", dealId)
-      .order("created_at", { ascending: false })
-      .limit(documentId ? 1 : limit);
-    const docsRes2 = documentId ? docsQ2.eq("id", documentId) : docsQ2;
-    const retry = await docsRes2;
-    docs = retry.data as any;
-    docsErr = retry.error;
+      .eq("id", documentId)
+      .limit(1);
+
+    docs = attempt1.data as any;
+    docsErr = attempt1.error;
+
+    if (
+      docsErr &&
+      String(docsErr.message || "")
+        .toLowerCase()
+        .includes("storage_bucket")
+    ) {
+      const retry = await sb
+        .from("deal_documents")
+        .select(selectColsNoBucket)
+        .eq("deal_id", dealId)
+        .eq("id", documentId)
+        .limit(1);
+      docs = retry.data as any;
+      docsErr = retry.error;
+    }
+  } else {
+    const maxScan = Math.max(25, Math.min(500, Number(scanLimit ?? 200) || 200));
+    const pageSize = Math.min(50, maxScan);
+    let scanned = 0;
+    let lastCreatedAt: string | null = null;
+    let includeBucket = true;
+
+    while (docs.length < limit && scanned < maxScan) {
+      let q = sb
+        .from("deal_documents")
+        .select(includeBucket ? selectColsWithBucket : selectColsNoBucket)
+        .eq("deal_id", dealId)
+        .order("created_at", { ascending: false })
+        .limit(pageSize);
+
+      if (lastCreatedAt) {
+        q = q.lt("created_at", lastCreatedAt);
+      }
+
+      const pageRes = await q;
+      if (
+        pageRes.error &&
+        includeBucket &&
+        String(pageRes.error.message || "")
+          .toLowerCase()
+          .includes("storage_bucket")
+      ) {
+        // Back-compat: tolerate older schemas where deal_documents.storage_bucket may not exist.
+        includeBucket = false;
+        continue;
+      }
+
+      if (pageRes.error) {
+        docsErr = pageRes.error;
+        break;
+      }
+
+      const page = (pageRes.data as any[]) ?? [];
+      if (page.length === 0) break;
+      scanned += page.length;
+      lastCreatedAt = String(page[page.length - 1]?.created_at || "") || null;
+
+      // Prefetch intel for this page to avoid N queries.
+      const ids = page.map((d) => String(d.id)).filter(Boolean);
+      const intelRes = await sb
+        .from("doc_intel_results")
+        .select("file_id, doc_type, confidence")
+        .eq("deal_id", dealId)
+        .in("file_id", ids);
+
+      const intelMap = new Map<string, any>();
+      for (const r of (intelRes.data as any[]) ?? []) {
+        intelMap.set(String(r.file_id), r);
+      }
+
+      for (const d of page) {
+        if (docs.length >= limit) break;
+        const id = String(d.id);
+        const intel = intelMap.get(id) ?? null;
+        if (!isTrustedExistingIntel(intel)) {
+          docs.push(d);
+        }
+      }
+    }
   }
 
   if (docsErr) {
@@ -324,8 +408,36 @@ async function runIntelForDeal(args: {
 
   const list = docs ?? [];
   if (list.length === 0) {
+    // Still return totals so the UI can show "0 remaining" vs "nothing eligible".
+    const { count: totalDocs } = await sb
+      .from("deal_documents")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId);
+
+    const { count: trustedDocs } = await sb
+      .from("doc_intel_results")
+      .select("file_id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .neq("doc_type", "Unknown")
+      .or("confidence.is.null,confidence.gte.60");
+
+    const t = Number(totalDocs ?? 0) || 0;
+    const trusted = Number(trustedDocs ?? 0) || 0;
+    const remaining = Math.max(0, t - trusted);
+
     return NextResponse.json(
-      { ok: true, processed: 0, analyzed: 0, matched: 0, updated: 0, results: [] },
+      {
+        ok: true,
+        dealId,
+        status: remaining === 0 ? "complete" : "partial",
+        totals: { totalDocs: t, trustedDocs: trusted, remainingDocs: remaining },
+        processed: 0,
+        analyzed: 0,
+        matched: 0,
+        updated: 0,
+        stamped: 0,
+        results: [],
+      },
       { headers: { "cache-control": "no-store" } },
     );
   }
@@ -351,6 +463,7 @@ async function runIntelForDeal(args: {
 
     try {
       // If doc_intel already exists, skip heavy work.
+      // Selection should already prefer untrusted docs, but keep this for safety.
       const existingIntel = await sb
         .from("doc_intel_results")
         .select("id, doc_type, tax_year, confidence")
@@ -358,20 +471,11 @@ async function runIntelForDeal(args: {
         .eq("file_id", docId)
         .maybeSingle();
 
-      const existingDocType = String((existingIntel.data as any)?.doc_type || "");
-      const existingDocTypeNorm = existingDocType.trim().toLowerCase();
-      const existingConfidence =
-        typeof (existingIntel.data as any)?.confidence === "number"
-          ? Number((existingIntel.data as any)?.confidence)
-          : null;
-
-      const hasTrustedExistingIntel =
+      if (
         !existingIntel.error &&
         !!existingIntel.data?.id &&
-        existingDocTypeNorm !== "unknown" &&
-        (existingConfidence == null || existingConfidence >= 60);
-
-      if (hasTrustedExistingIntel) {
+        isTrustedExistingIntel(existingIntel.data)
+      ) {
         await bestEffortStampDealDocument({
           sb,
           docId,
@@ -381,7 +485,11 @@ async function runIntelForDeal(args: {
           aiConfidence: (existingIntel.data as any)?.confidence,
         });
         stamped += 1;
-        const m = await autoMatchChecklistFromFilename({ dealId, filename, fileId: docId });
+        const m = await autoMatchChecklistFromFilename({
+          dealId,
+          filename,
+          fileId: docId,
+        });
         matched += m.matched.length;
         updated += m.updated;
         results.push({
@@ -534,10 +642,29 @@ async function runIntelForDeal(args: {
     console.error("[documents/intel/run] reconcile_failed (non-fatal)", e);
   }
 
+  // Totals for UI progress.
+  const { count: totalDocs } = await sb
+    .from("deal_documents")
+    .select("id", { count: "exact", head: true })
+    .eq("deal_id", dealId);
+
+  const { count: trustedDocs } = await sb
+    .from("doc_intel_results")
+    .select("file_id", { count: "exact", head: true })
+    .eq("deal_id", dealId)
+    .neq("doc_type", "Unknown")
+    .or("confidence.is.null,confidence.gte.60");
+
+  const t = Number(totalDocs ?? 0) || 0;
+  const trusted = Number(trustedDocs ?? 0) || 0;
+  const remaining = Math.max(0, t - trusted);
+
   return NextResponse.json(
     {
       ok: true,
       dealId,
+      status: remaining === 0 ? "complete" : "partial",
+      totals: { totalDocs: t, trustedDocs: trusted, remainingDocs: remaining },
       processed: list.length,
       analyzed,
       matched,
@@ -634,6 +761,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
 
   const documentId = body?.documentId ?? null;
   const limit = body?.limit ?? 5;
+  const scanLimit = body?.scanLimit ?? 200;
 
-  return runIntelForDeal({ req, dealId, documentId, limit });
+  return runIntelForDeal({ req, dealId, documentId, limit, scanLimit });
 }

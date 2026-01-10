@@ -52,6 +52,12 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
   const [saving, setSaving] = useState(false);
   const [autoSeeding, setAutoSeeding] = useState(false);
   const [aiRecognizing, setAiRecognizing] = useState(false);
+  const [aiProgress, setAiProgress] = useState<null | {
+    totalDocs: number;
+    trustedDocs: number;
+    remainingDocs: number;
+    runs: number;
+  }>(null);
   const [showManualRecognition, setShowManualRecognition] = useState(false);
   const [matchMessage, setMatchMessage] = useState<string | null>(null);
   const [partialMode, setPartialMode] = useState(false);
@@ -362,62 +368,122 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
   async function runAiDocRecognition() {
     if (!hasValidDealId) return;
     setAiRecognizing(true);
-    setMatchMessage("🧠 Running AI doc recognition (OCR + classify)…");
+    setAiProgress({ totalDocs: 0, trustedDocs: 0, remainingDocs: 0, runs: 0 });
+    setMatchMessage("🧠 Running AI doc recognition (OCR + classify)…\nStarting…");
+
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     try {
-      const ac = new AbortController();
-      const t = setTimeout(() => ac.abort(), 60_000);
+      // Process incrementally and auto-continue until remainingDocs == 0.
+      // This gives us a live progress bar and avoids Vercel Preview timeouts.
+      const maxRuns = 120;
 
-      const res = await fetch(`/api/deals/${dealId}/documents/intel/run`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        signal: ac.signal,
-        // Keep this conservative to avoid serverless timeouts; re-run if needed.
-        body: JSON.stringify({ limit: 5 }),
-      });
-      clearTimeout(t);
-      const json = await res.json();
-      if (!res.ok || !json?.ok) {
+      for (let run = 1; run <= maxRuns; run++) {
+        setAiProgress((prev) => (prev ? { ...prev, runs: run } : { totalDocs: 0, trustedDocs: 0, remainingDocs: 0, runs: run }));
+
+        const ac = new AbortController();
+        const t = setTimeout(() => ac.abort(), 55_000);
+
+        let res: Response | null = null;
+        let json: any = null;
+        try {
+          res = await fetch(`/api/deals/${dealId}/documents/intel/run`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            signal: ac.signal,
+            body: JSON.stringify({ limit: 1, scanLimit: 200 }),
+          });
+          json = await res.json();
+        } catch (e: any) {
+          const isAbort = e?.name === "AbortError";
+          if (isAbort) {
+            setMatchMessage(
+              `⏳ AI Doc Recognition is still running…\nRun ${run}/${maxRuns}\n` +
+                `A single document took longer than 55s (common on Preview). Continuing…`,
+            );
+            await sleep(650);
+            continue;
+          }
+          throw e;
+        } finally {
+          clearTimeout(t);
+        }
+
+        if (!res.ok || !json?.ok) {
+          setMatchMessage(
+            `⚠️ Doc recognition failed:\n${json?.error || `HTTP ${res.status}`}\n\n` +
+              `Tip: If preview is slow, click again — it resumes safely.`,
+          );
+          return;
+        }
+
+        const totals = json?.totals || null;
+        const totalDocs = Number(totals?.totalDocs ?? 0) || 0;
+        const trustedDocs = Number(totals?.trustedDocs ?? 0) || 0;
+        const remainingDocs = Number(totals?.remainingDocs ?? 0) || 0;
+        const status = String(json?.status || "");
+
+        if (totalDocs > 0) {
+          setAiProgress({ totalDocs, trustedDocs, remainingDocs, runs: run });
+        }
+
+        const processed = Number(json?.processed ?? 0) || 0;
+        const stamped = Number(json?.stamped ?? 0) || 0;
+        const analyzed = Number(json?.analyzed ?? 0) || 0;
+
+        const reconcile = json?.reconcile || null;
+        const seeded = reconcile && typeof reconcile.seeded === "number" ? reconcile.seeded : null;
+        const docsMatched = reconcile && typeof reconcile.docsMatched === "number" ? reconcile.docsMatched : null;
+        const checklistMarkedReceived =
+          reconcile && typeof reconcile.checklistMarkedReceived === "number"
+            ? reconcile.checklistMarkedReceived
+            : null;
+        const reconcileError = typeof json?.reconcile_error === "string" ? json.reconcile_error : null;
+
+        const progressLine =
+          totalDocs > 0
+            ? `\nProgress: ${trustedDocs}/${totalDocs} classified (${remainingDocs} remaining)`
+            : "";
+
+        if (status === "complete" || remainingDocs === 0) {
+          setMatchMessage(
+            `✅ Doc recognition complete.\n` +
+              `${totalDocs > 0 ? `• Classified: ${trustedDocs}/${totalDocs}\n` : ""}` +
+              `• Last run processed: ${processed}\n` +
+              `• Stamped type/years: ${stamped}\n` +
+              `• AI analyzed: ${analyzed}\n\n` +
+              `${seeded != null ? `• Checklist seeded: ${seeded}\n` : ""}` +
+              `${docsMatched != null ? `• Docs matched: ${docsMatched}\n` : ""}` +
+              `${checklistMarkedReceived != null ? `• Checklist marked received: ${checklistMarkedReceived}\n` : ""}` +
+              `${reconcileError ? `\n⚠️ Reconcile warning: ${reconcileError}\n` : ""}` +
+              `Refreshing checklist…`,
+          );
+
+          emitChecklistRefresh(dealId);
+          if (onChecklistSeeded) {
+            await onChecklistSeeded();
+          }
+          return;
+        }
+
         setMatchMessage(
-          `⚠️ Doc recognition failed:\n${json?.error || `HTTP ${res.status}`}\n\n` +
-            `If this is a Vercel Preview hang/timeout, click 'AI Doc Recognition' again (it resumes where it left off).`,
+          `🧠 Running AI doc recognition (OCR + classify)…\n` +
+            `Run ${run}/${maxRuns}${progressLine}\n` +
+            `Last run: processed ${processed}, stamped ${stamped}, AI analyzed ${analyzed}\n\n` +
+            `Continuing…`,
         );
-        return;
+
+        // Small pause so the UI paints updates.
+        await sleep(350);
       }
-
-      const processed = Number(json?.processed ?? 0) || 0;
-      const stamped = Number(json?.stamped ?? 0) || 0;
-      const analyzed = Number(json?.analyzed ?? 0) || 0;
-
-      const reconcile = json?.reconcile || null;
-      const seeded = reconcile && typeof reconcile.seeded === "number" ? reconcile.seeded : null;
-      const docsMatched = reconcile && typeof reconcile.docsMatched === "number" ? reconcile.docsMatched : null;
-      const checklistMarkedReceived =
-        reconcile && typeof reconcile.checklistMarkedReceived === "number"
-          ? reconcile.checklistMarkedReceived
-          : null;
-      const reconcileError = typeof json?.reconcile_error === "string" ? json.reconcile_error : null;
 
       setMatchMessage(
-        `✅ Doc recognition complete.\n` +
-          `• Processed: ${processed}\n` +
-          `• Stamped type/years: ${stamped}\n` +
-          `• AI analyzed: ${analyzed}\n\n` +
-          `${seeded != null ? `• Checklist seeded: ${seeded}\n` : ""}` +
-          `${docsMatched != null ? `• Docs matched: ${docsMatched}\n` : ""}` +
-          `${checklistMarkedReceived != null ? `• Checklist marked received: ${checklistMarkedReceived}\n` : ""}` +
-          `${reconcileError ? `\n⚠️ Reconcile warning: ${reconcileError}\n` : ""}` +
-          `Refreshing checklist…`,
+        "⏳ Doc recognition is taking longer than expected. It will resume safely — click 'AI Doc Recognition' again to continue.",
       );
-
-      emitChecklistRefresh(dealId);
-      if (onChecklistSeeded) {
-        await onChecklistSeeded();
-      }
     } catch (e: any) {
       const isAbort = e?.name === "AbortError";
       setMatchMessage(
         isAbort
-          ? "⏳ AI Doc Recognition timed out (60s). This can happen on Vercel Preview. Click 'AI Doc Recognition' again to continue."
+          ? "⏳ AI Doc Recognition timed out. Click 'AI Doc Recognition' again — it resumes safely."
           : `❌ Doc recognition error: ${e?.message || String(e)}`,
       );
     } finally {
@@ -600,6 +666,37 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         >
           {aiRecognizing ? "Recognizing docs…" : "AI Doc Recognition"}
         </button>
+
+        {/* Live doc recognition status bar */}
+        {aiProgress && aiProgress.totalDocs > 0 && (
+          <div className="space-y-2">
+            <div className="flex justify-between text-xs text-neutral-400">
+              <span>Doc Recognition</span>
+              <span>
+                {aiProgress.trustedDocs} / {aiProgress.totalDocs}
+                {aiRecognizing ? ` (run ${aiProgress.runs})` : ""}
+              </span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-neutral-800 overflow-hidden">
+              <motion.div
+                className="h-full rounded-full bg-purple-500"
+                initial={{ width: 0 }}
+                animate={{
+                  width:
+                    aiProgress.totalDocs > 0
+                      ? `${Math.min(100, Math.max(0, (aiProgress.trustedDocs / aiProgress.totalDocs) * 100))}%`
+                      : "0%",
+                }}
+                transition={{ duration: 0.25, ease: "easeOut" }}
+              />
+            </div>
+            {aiRecognizing ? (
+              <p className="text-xs text-neutral-500">
+                Processing… {aiProgress.remainingDocs} remaining
+              </p>
+            ) : null}
+          </div>
+        )}
 
         <button
           type="button"
