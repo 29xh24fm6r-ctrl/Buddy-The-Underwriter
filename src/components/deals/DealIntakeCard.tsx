@@ -392,7 +392,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         );
 
         const ac = new AbortController();
-        const t = setTimeout(() => ac.abort(), 55_000);
+        const t = setTimeout(() => ac.abort(), 120_000); // 2 min timeout for batch processing
 
         let res: Response | null = null;
         let json: any = null;
@@ -402,17 +402,16 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
             headers: { "content-type": "application/json" },
             signal: ac.signal,
             // FAST MODE:
-            // - Prefer native PDF text extraction (very fast) over Azure OCR
+            // - Uses Mistral/Claude OCR (parallel processing, 15 docs at once)
             // - Skip OpenAI analysis for speed (deterministic stamping still happens)
             body: JSON.stringify({
-              // Process a small batch per run so large loan packages don't serialize
-              // behind one long PDF. The backend returns quickly for long-running OCR.
-              limit: 3,
-              scanLimit: 300,
+              // Process ALL documents in one API call with parallel OCR (15 concurrent)
+              limit: 500,
+              scanLimit: 500,
               fast: true,
               preferPdfText: true,
               minPdfTextChars: 700,
-              // Reduce Azure DI time on long PDFs: classify from first pages.
+              // Reduce OCR time on long PDFs: classify from first pages.
               // Tax returns often have cover sheets; scan more pages to hit the 1120/1040 page.
               maxPages: 10,
             }),
