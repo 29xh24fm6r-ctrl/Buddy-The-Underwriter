@@ -882,7 +882,28 @@ async function runIntelForDeal(args: {
       let smartSource: "pdf_text" | "azure_di" | null = null;
       try {
         let usedUrl = false;
-        if (effectiveFast) {
+        
+        // 🚀 CLAUDE OCR: Use Claude if enabled (faster than signed URL + Azure DI)
+        if (process.env.USE_CLAUDE_OCR === "true" && effectiveFast) {
+          const { data: fileData, error: dlError } = await sb.storage
+            .from(storageBucket)
+            .download(storagePath);
+          
+          if (!dlError && fileData) {
+            const bytes = Buffer.from(await fileData.arrayBuffer());
+            const { runClaudeOcrJob } = await import("@/lib/ocr/runClaudeOcrJob");
+            const result = await runClaudeOcrJob({
+              fileBytes: bytes,
+              mimeType: "application/pdf",
+              fileName: filename || "document.pdf",
+            });
+            extractedText = result.text;
+            usedUrl = true;
+            extractSource = "signed_url_azure"; // Keep same tracking for now
+          }
+        }
+        
+        if (!usedUrl && effectiveFast) {
           const signed = await sb.storage
             .from(storageBucket)
             .createSignedUrl(storagePath, 60 * 10);
