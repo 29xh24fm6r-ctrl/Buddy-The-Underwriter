@@ -113,6 +113,54 @@ async function extractTextWithAzureDI(
   return content;
 }
 
+async function extractTextWithAzureDIFromUrl(
+  url: string,
+  opts?: { model?: "prebuilt-read" | "prebuilt-layout"; pages?: string },
+): Promise<string> {
+  const endpoint =
+    process.env.AZURE_DI_ENDPOINT ||
+    process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT ||
+    "";
+  const apiKey =
+    process.env.AZURE_DI_KEY ||
+    process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY ||
+    "";
+
+  if (!endpoint || !apiKey) {
+    throw new Error(
+      "Missing Azure DI env vars. Set AZURE_DI_ENDPOINT/AZURE_DI_KEY (or AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT/AZURE_DOCUMENT_INTELLIGENCE_KEY).",
+    );
+  }
+
+  const { AzureKeyCredential, DocumentAnalysisClient } = await import(
+    "@azure/ai-form-recognizer"
+  );
+
+  const client = new DocumentAnalysisClient(endpoint, new AzureKeyCredential(apiKey));
+  const model = opts?.model ?? "prebuilt-layout";
+  const pages = typeof opts?.pages === "string" && opts.pages.trim() ? opts.pages.trim() : undefined;
+
+  const poller = await (client as any).beginAnalyzeDocumentFromUrl(
+    model,
+    url,
+    pages ? ({ pages } as any) : undefined,
+  );
+  const analyzeResult = await poller.pollUntilDone();
+
+  const content =
+    typeof (analyzeResult as any)?.content === "string" ? (analyzeResult as any).content : "";
+  return content;
+}
+
+function parseAzurePagesEnd(raw: unknown): number | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/^(\d+)\s*-\s*(\d+)$/);
+  if (!m) return null;
+  const end = Number(m[2]);
+  return Number.isFinite(end) ? end : null;
+}
+
 type DocTypeBucket = "business_tax_return" | "personal_tax_return";
 
 function normalizeAiDocTypeToBucket(aiDocTypeRaw: unknown): DocTypeBucket | null {
@@ -277,8 +325,10 @@ async function bestEffortUpsertDocIntelFromOcr(args: {
   dealId: string;
   fileId: string;
   extractedText: string;
+  azureModel?: string;
+  azurePages?: string;
 }) {
-  const { sb, dealId, fileId, extractedText } = args;
+  const { sb, dealId, fileId, extractedText, azureModel, azurePages } = args;
 
   const meta = inferDocumentMetadata({
     originalFilename: null,
@@ -304,6 +354,9 @@ async function bestEffortUpsertDocIntelFromOcr(args: {
       extracted_json: {
         source: "azure_di_ocr",
         text_len: (extractedText || "").length,
+        azure_model: azureModel ?? null,
+        azure_pages: azurePages ?? null,
+        azure_pages_end: parseAzurePagesEnd(azurePages),
         det: {
           document_type: meta.document_type,
           doc_year: meta.doc_year,
@@ -544,7 +597,7 @@ async function runIntelForDeal(args: {
       // Selection should already prefer untrusted docs, but keep this for safety.
       const existingIntel = await sb
         .from("doc_intel_results")
-        .select("id, doc_type, tax_year, confidence")
+        .select("id, doc_type, tax_year, confidence, extracted_json")
         .eq("deal_id", dealId)
         .eq("file_id", docId)
         .maybeSingle();
@@ -611,28 +664,58 @@ async function runIntelForDeal(args: {
         };
       }
 
-      const bytes = Buffer.from(await dl.data.arrayBuffer());
+      // Fast mode: avoid downloading large files into Vercel when possible.
+      // Use Azure DI from a short-lived signed URL.
+      const effectiveFast = !!fast;
+
+      const windowPages =
+        typeof maxPages === "number" && Number.isFinite(maxPages)
+          ? Math.max(1, Math.min(20, Math.floor(maxPages)))
+          : effectiveFast
+            ? 10
+            : null;
+
+      // Progressive scanning for cover sheets: if we already OCR'd pages 1-10 and got Unknown,
+      // next run scans 11-20, etc.
+      const prevPagesEnd = parseAzurePagesEnd((existingIntel.data as any)?.extracted_json?.azure_pages) ??
+        Number((existingIntel.data as any)?.extracted_json?.azure_pages_end ?? null);
+      const startPage = windowPages && Number.isFinite(prevPagesEnd as any) ? Math.max(1, Number(prevPagesEnd) + 1) : 1;
+      const endPage = windowPages ? Math.min(50, startPage + windowPages - 1) : null;
+      const azurePages = endPage ? `${startPage}-${endPage}` : undefined;
+
+      const azureModel: "prebuilt-read" | "prebuilt-layout" =
+        effectiveFast ? "prebuilt-read" : "prebuilt-layout";
 
       let extractedText = "";
       try {
-        const effectiveFast = !!fast;
-        const effectiveMaxPages =
-          typeof maxPages === "number" && Number.isFinite(maxPages)
-            ? Math.max(1, Math.min(20, Math.floor(maxPages)))
-            : effectiveFast
-              ? 10
-              : null;
-        const azurePages = effectiveMaxPages ? `1-${effectiveMaxPages}` : undefined;
+        let usedUrl = false;
+        if (effectiveFast) {
+          const signed = await sb.storage
+            .from(storageBucket)
+            .createSignedUrl(storagePath, 60 * 10);
 
-        const ext = await extractTextSmart({
-          bytes,
-          mimeType: (doc as any)?.mime_type ?? null,
-          preferPdfText: preferPdfText !== false,
-          minPdfTextChars: Math.max(50, Math.min(20000, Number(minPdfTextChars ?? 900) || 900)),
-          azureModel: effectiveFast ? "prebuilt-read" : "prebuilt-layout",
-          azurePages,
-        });
-        extractedText = ext.text;
+          if (!signed.error && signed.data?.signedUrl) {
+            extractedText = await extractTextWithAzureDIFromUrl(signed.data.signedUrl, {
+              model: azureModel,
+              pages: azurePages,
+            });
+            usedUrl = true;
+          }
+        }
+
+        if (!usedUrl) {
+          // Fallback: download bytes and use smart extraction (PDF text when available).
+          const bytes = Buffer.from(await dl.data.arrayBuffer());
+          const ext = await extractTextSmart({
+            bytes,
+            mimeType: (doc as any)?.mime_type ?? null,
+            preferPdfText: preferPdfText !== false,
+            minPdfTextChars: Math.max(50, Math.min(20000, Number(minPdfTextChars ?? 900) || 900)),
+            azureModel,
+            azurePages,
+          });
+          extractedText = ext.text;
+        }
       } catch (e: any) {
         return {
           stat,
@@ -668,7 +751,14 @@ async function runIntelForDeal(args: {
       }
 
       if (docIntelStatus !== "ok") {
-        await bestEffortUpsertDocIntelFromOcr({ sb, dealId, fileId: docId, extractedText });
+        await bestEffortUpsertDocIntelFromOcr({
+          sb,
+          dealId,
+          fileId: docId,
+          extractedText,
+          azureModel,
+          azurePages,
+        });
       }
 
       await bestEffortStampDealDocument({
