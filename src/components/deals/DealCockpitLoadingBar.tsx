@@ -105,6 +105,16 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
     };
   }, [dealId, step, ctxStatus, pipelineOk, lastOkAt, lastChangeAt, probe]);
 
+  // Expose latest debug bundle for other client components (best-effort).
+  // Used for click-tracking and reproduction when triggering long-running actions.
+  useEffect(() => {
+    try {
+      (window as any).__buddy_cockpit_debug = debugBundle;
+    } catch {
+      // ignore
+    }
+  }, [debugBundle]);
+
   const handleCopyDebug = async () => {
     try {
       await navigator.clipboard.writeText(JSON.stringify(debugBundle, null, 2));

@@ -26,6 +26,24 @@ function acceptableDocTypesForChecklistKey(checklistKeyRaw: string): CanonicalDo
   return null;
 }
 
+function inferChecklistKeyFromDocumentType(documentTypeRaw: unknown): string | null {
+  const dt = String(documentTypeRaw || "").trim();
+  if (!dt) return null;
+
+  // Map canonical inferred types to stable checklist keys.
+  // This is intentionally conservative; it only covers the core keys that exist across rulesets.
+  if (dt === "business_tax_return") return "IRS_BUSINESS_3Y";
+  if (dt === "personal_tax_return") return "IRS_PERSONAL_3Y";
+  if (dt === "income_statement") return "FIN_STMT_PL_YTD";
+  if (dt === "balance_sheet") return "FIN_STMT_BS_YTD";
+
+  // A combined financial statement could satisfy either; prefer P&L key for stamping.
+  // Checklist satisfaction later can still use document_type when available.
+  if (dt === "financial_statement") return "FIN_STMT_PL_YTD";
+
+  return null;
+}
+
 function computeDefaultRequiredYearsFromChecklistKey(checklistKeyRaw: string): number[] | null {
   const key = String(checklistKeyRaw || "").toUpperCase();
   if (!key) return null;
@@ -36,12 +54,29 @@ function computeDefaultRequiredYearsFromChecklistKey(checklistKeyRaw: string): n
   const n = Number(m[1]);
   if (!Number.isFinite(n) || n <= 0) return null;
 
-  // Tax returns are typically filed for last calendar year.
-  const currentYear = new Date().getUTCFullYear();
-  const lastFiled = currentYear - 1;
+  // Tax returns are typically filed for the prior calendar year, but in Q1/Q2
+  // the most recently-filed return is often two years back (e.g. Jan 2026 → 2024).
+  // Use a simple UTC cutoff around the US filing deadline (Apr 15).
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const utcMonth = now.getUTCMonth(); // 0=Jan
+  const utcDay = now.getUTCDate();
+  const beforeFilingDeadline = utcMonth < 3 || (utcMonth === 3 && utcDay < 16); // before Apr 16
+  const lastFiled = beforeFilingDeadline ? currentYear - 2 : currentYear - 1;
+
   const years: number[] = [];
   for (let i = 0; i < n; i++) years.push(lastFiled - i);
   return years;
+}
+
+function parseRequiredDistinctYearCountFromChecklistKey(checklistKeyRaw: string): number | null {
+  const key = String(checklistKeyRaw || "").toUpperCase();
+  if (!key) return null;
+  const m = key.match(/_(\d)Y\b/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
 }
 
 /** Normalize loan types into stable keys. Extend as needed. */
@@ -198,6 +233,7 @@ export async function reconcileDealChecklist(dealId: string) {
     const docYears = meta.doc_years ?? (Array.isArray(m.yearsFound) && m.yearsFound.length ? m.yearsFound : null);
     const docYear = meta.doc_year ?? (m.docYear ?? null);
     const documentType = meta.document_type !== "unknown" ? meta.document_type : null;
+    const inferredChecklistKey = inferChecklistKeyFromDocumentType(documentType);
     const matchConfidence = Math.max(Number(m.confidence ?? 0) || 0, Number(meta.confidence ?? 0) || 0);
     const matchReason = [m.reason, meta.reason].filter(Boolean).join(" | ");
 
@@ -209,7 +245,8 @@ export async function reconcileDealChecklist(dealId: string) {
     const attempt1 = await sb
       .from("deal_documents")
       .update({
-        checklist_key: hasConfidentKey ? (d.checklist_key || m.matchedKey) : d.checklist_key,
+        // Prefer existing checklist_key, else use confident filename match, else use OCR-derived inferred type.
+        checklist_key: d.checklist_key || (hasConfidentKey ? m.matchedKey : inferredChecklistKey),
         doc_year: d.doc_year || docYear,
         doc_years: (d as any)?.doc_years || docYears,
         document_type: (d as any)?.document_type || documentType,
@@ -325,7 +362,11 @@ export async function reconcileDealChecklist(dealId: string) {
 
     const acceptableTypes = acceptableDocTypesForChecklistKey(itemKey);
     const docsForItem = acceptableTypes
-      ? acceptableTypes.flatMap((t) => docsByType.get(t) ?? [])
+      ? (() => {
+          const byType = acceptableTypes.flatMap((t) => docsByType.get(t) ?? []);
+          // Schema drift / older envs may not have document_type populated; fall back to checklist_key.
+          return byType.length ? byType : (docsByKey.get(itemKey) ?? []);
+        })()
       : (docsByKey.get(itemKey) ?? []);
     if (docsForItem.length === 0) continue;
 
@@ -351,9 +392,18 @@ export async function reconcileDealChecklist(dealId: string) {
     }
     const satisfiedYears = Array.from(satisfiedYearsSet).sort((a, b) => b - a);
 
-    const isSatisfied = requiredYears && requiredYears.length
-      ? requiredYears.every((y) => satisfiedYearsSet.has(y))
-      : docsForItem.length > 0;
+    // For tax return requirements (IRS_*_nY), satisfy by DISTINCT YEAR COUNT.
+    // This matches real-world intake (any 3 years, not necessarily a precomputed set).
+    const requiredDistinctYearCount =
+      itemKey.toUpperCase().startsWith("IRS_BUSINESS") || itemKey.toUpperCase().startsWith("IRS_PERSONAL")
+        ? parseRequiredDistinctYearCountFromChecklistKey(itemKey)
+        : null;
+
+    const isSatisfied = requiredDistinctYearCount
+      ? satisfiedYearsSet.size >= requiredDistinctYearCount
+      : requiredYears && requiredYears.length
+        ? requiredYears.every((y) => satisfiedYearsSet.has(y))
+        : docsForItem.length > 0;
 
     // Always attempt to persist satisfied_years (even when partial), when column exists.
     if (hasSatisfiedYearsColumn) {
