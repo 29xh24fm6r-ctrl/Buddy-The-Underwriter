@@ -279,13 +279,13 @@ export async function runOcrJob({ dealId, jobId, reqId: _reqId, bankId }: RunArg
       const auditMap = buildAuditMapFromMarkers(geminiResult.text);
       const findings = [
         { kind: "engine", note: "gemini_google" },
-        { kind: "model", note: process.env.GEMINI_OCR_MODEL || process.env.GEMINI_MODEL || null },
+        { kind: "model", note: geminiResult.model || null },
         { kind: "page_markers", note: auditMap ? "present" : "missing" },
       ];
 
       const result = {
         engine: "gemini_google",
-        model: process.env.GEMINI_OCR_MODEL || process.env.GEMINI_MODEL || "gemini-2.0-flash-exp",
+        model: geminiResult.model,
         elapsed_ms: Date.now() - started,
         pages_estimate: geminiResult.pageCount,
         text_preview: geminiResult.text.slice(0, 14000),

@@ -12,6 +12,7 @@ type GeminiOcrArgs = {
 type GeminiOcrResult = {
   text: string;
   pageCount: number;
+  model: string;
 };
 
 function countPagesFromText(text: string): number {
@@ -100,24 +101,55 @@ function getGoogleLocation(): string {
   return process.env.GOOGLE_CLOUD_LOCATION || process.env.GOOGLE_CLOUD_REGION || "us-central1";
 }
 
-function getGeminiModelName(): string {
-  return (
-    process.env.GEMINI_OCR_MODEL ||
-    process.env.GEMINI_MODEL ||
-    // Best-effort default (user can override via env)
-    "gemini-1.5-flash-002"
-  );
+function getGeminiModelFromEnv(): string | null {
+  const raw = process.env.GEMINI_OCR_MODEL || process.env.GEMINI_MODEL;
+  const normalized = typeof raw === "string" ? raw.trim() : "";
+  return normalized ? normalized : null;
+}
+
+function getGeminiModelCandidates(): string[] {
+  const envModel = getGeminiModelFromEnv();
+
+  // Order matters: try explicit override first, then sensible defaults.
+  // These model names are Vertex publisher model IDs.
+  const candidates = [
+    envModel,
+    // Prefer newer “2.0 flash” where available.
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-exp",
+    // Widely available 1.5 models.
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-001",
+    "gemini-1.5-flash-002",
+    "gemini-1.5-pro",
+    "gemini-1.5-pro-001",
+  ].filter(Boolean) as string[];
+
+  return Array.from(new Set(candidates));
+}
+
+function isVertexModelNotFoundError(e: any): boolean {
+  const msg = String(e?.message || "");
+  // VertexAI.ClientError tends to include this text.
+  if (msg.includes("got status: 404")) return true;
+  if (msg.includes("404 Not Found")) return true;
+  // Some errors embed JSON with code/status.
+  if (msg.includes('"code":404')) return true;
+  if (msg.includes('"status":"NOT_FOUND"')) return true;
+  return false;
 }
 
 export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrResult> {
   const { fileBytes, mimeType, fileName } = args;
   const started = Date.now();
 
+  const modelCandidates = getGeminiModelCandidates();
+
   console.log("[GeminiOCR] Starting OCR job", {
     fileName,
     mimeType,
     fileSize: fileBytes.length,
-    model: getGeminiModelName(),
+    modelCandidates,
   });
 
   await ensureGoogleAdcConfigured();
@@ -125,7 +157,6 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
     project: getGoogleProjectId(),
     location: getGoogleLocation(),
   });
-  const model = vertexAI.getGenerativeModel({ model: getGeminiModelName() });
 
   const normalizedMimeType = normalizeMimeType(mimeType);
   const base64 = fileBytes.toString("base64");
@@ -137,50 +168,77 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
     "Segment by page and prefix each page with [Page N] on its own line. " +
     "If you cannot reliably segment pages, output everything under [Page 1].";
 
-  try {
-    const resp = await model.generateContent({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: prompt },
-            {
-              inlineData: {
-                mimeType: normalizedMimeType,
-                data: base64,
+  let lastError: any = null;
+  const tried: string[] = [];
+
+  for (const modelName of modelCandidates) {
+    tried.push(modelName);
+
+    try {
+      const model = vertexAI.getGenerativeModel({ model: modelName });
+      const resp = await model.generateContent({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType: normalizedMimeType,
+                  data: base64,
+                },
               },
-            },
-          ],
-        },
-      ],
-    });
+            ],
+          },
+        ],
+      });
 
-    const parts = (resp as any)?.response?.candidates?.[0]?.content?.parts ?? [];
-    const textRaw =
-      parts.map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("") || "";
-    const text = textRaw.trim();
+      const parts = (resp as any)?.response?.candidates?.[0]?.content?.parts ?? [];
+      const textRaw =
+        parts.map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("") || "";
+      const text = textRaw.trim();
 
-    const finalText = text.match(/\[Page\s+\d+\]/i)
-      ? text
-      : `[Page 1]\n${text}`.trim();
+      const finalText = text.match(/\[Page\s+\d+\]/i)
+        ? text
+        : `[Page 1]\n${text}`.trim();
 
-    const pageCount = countPagesFromText(finalText);
+      const pageCount = countPagesFromText(finalText);
 
-    console.log("[GeminiOCR] Completed OCR job", {
-      fileName,
-      elapsed_ms: Date.now() - started,
-      textLength: finalText.length,
-      pageCount,
-      model: getGeminiModelName(),
-    });
+      console.log("[GeminiOCR] Completed OCR job", {
+        fileName,
+        elapsed_ms: Date.now() - started,
+        textLength: finalText.length,
+        pageCount,
+        model: modelName,
+        triedModels: tried,
+      });
 
-    return { text: finalText, pageCount };
-  } catch (e: any) {
-    console.error("[GeminiOCR] OCR failed", {
-      fileName,
-      elapsed_ms: Date.now() - started,
-      error: e?.message || String(e),
-    });
-    throw e;
+      return { text: finalText, pageCount, model: modelName };
+    } catch (e: any) {
+      lastError = e;
+
+      if (isVertexModelNotFoundError(e)) {
+        console.warn("[GeminiOCR] Model unavailable, trying next", {
+          fileName,
+          model: modelName,
+          elapsed_ms: Date.now() - started,
+        });
+        continue;
+      }
+
+      console.error("[GeminiOCR] OCR failed", {
+        fileName,
+        model: modelName,
+        elapsed_ms: Date.now() - started,
+        error: e?.message || String(e),
+      });
+      throw e;
+    }
   }
+
+  const msg =
+    "Gemini OCR failed: none of the candidate models were available to this project. " +
+    `Tried: ${tried.join(", ")}. Last error: ${String(lastError?.message || lastError)}`;
+  console.error("[GeminiOCR] OCR failed", { fileName, elapsed_ms: Date.now() - started, tried });
+  throw new Error(msg, { cause: lastError });
 }
