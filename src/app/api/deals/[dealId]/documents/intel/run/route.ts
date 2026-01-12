@@ -10,22 +10,12 @@ import { analyzeDocument } from "@/lib/docIntel/engine";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
 import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
 import { reconcileDealChecklist } from "@/lib/checklist/engine";
+import { getOcrEnvDiagnostics } from "@/lib/ocr/ocrEnvDiagnostics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function getOcrConfig() {
-  const useGeminiOcrEnabled = process.env.USE_GEMINI_OCR === "true";
-  const hasGoogleProject = !!(process.env.GOOGLE_CLOUD_PROJECT || process.env.GOOGLE_PROJECT_ID);
-  const hasGoogleCredentialsHint = !!(
-    process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-    process.env.GEMINI_SERVICE_ACCOUNT_JSON ||
-    process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
-    process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ||
-    process.env.GEMINI_API_KEY
-  );
-  return { useGeminiOcrEnabled, hasGoogleProject, hasGoogleCredentialsHint };
-}
+const getOcrConfig = getOcrEnvDiagnostics;
 
 function mkReqId() {
   try {

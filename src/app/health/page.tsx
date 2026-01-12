@@ -12,6 +12,9 @@ export default function HealthPage() {
         <a className="rounded-xl bg-white/10 px-4 py-2 hover:bg-white/15" href="/api/health/supabase">
           /api/health/supabase
         </a>
+        <a className="rounded-xl bg-white/10 px-4 py-2 hover:bg-white/15" href="/api/health/gemini">
+          /api/health/gemini
+        </a>
       </div>
     </div>
   );
