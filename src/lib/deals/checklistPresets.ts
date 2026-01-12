@@ -17,19 +17,32 @@ export function buildChecklistForLoanType(loanType: LoanType): ChecklistSeedRow[
   // Deterministic. No LLM. Bulletproof defaults.
   const CORE: ChecklistSeedRow[] = [
     { checklist_key: "PFS_CURRENT", title: "Personal Financial Statement (current)", required: true },
-    { checklist_key: "IRS_PERSONAL_2Y", title: "Personal tax returns", required: true },
-    { checklist_key: "IRS_BUSINESS_2Y", title: "Business tax returns", required: true },
-    { checklist_key: "FIN_STMT_YTD", title: "Year-to-date financial statement", required: true },
+    { checklist_key: "IRS_PERSONAL_3Y", title: "Personal tax returns (3 years)", required: true },
+    { checklist_key: "IRS_BUSINESS_3Y", title: "Business tax returns (3 years)", required: true },
+    { checklist_key: "FIN_STMT_PL_YTD", title: "Income statement / Profit & Loss (YTD)", required: true },
+    { checklist_key: "FIN_STMT_BS_YTD", title: "Balance sheet (current)", required: true },
     { checklist_key: "BANK_STMT_3M", title: "Bank statements (last 3 months)", required: false },
   ];
 
-  const CRE: ChecklistSeedRow[] = [
-    { checklist_key: "RENT_ROLL", title: "Rent roll (current)", required: true },
-    { checklist_key: "LEASES_TOP", title: "Major leases (top tenants)", required: true },
-    { checklist_key: "PROPERTY_T12", title: "Trailing 12-month property operating statement", required: true },
+  // CRE checklist is sensitive to collateral type:
+  // - Owner-occupied properties often do NOT have leases/rent roll/T12.
+  // - Investor or partially rented properties DO.
+  const CRE_COMMON: ChecklistSeedRow[] = [
     { checklist_key: "PROPERTY_INSURANCE", title: "Property insurance declarations page", required: true },
     { checklist_key: "REAL_ESTATE_TAX_BILL", title: "Real estate tax bill", required: false },
     { checklist_key: "APPRAISAL_IF_AVAILABLE", title: "Appraisal (if available)", required: false },
+  ];
+
+  const CRE_RENTAL_REQUIRED: ChecklistSeedRow[] = [
+    { checklist_key: "RENT_ROLL", title: "Rent roll (current)", required: true },
+    { checklist_key: "LEASES_TOP", title: "Major leases (top tenants)", required: true },
+    { checklist_key: "PROPERTY_T12", title: "Trailing 12-month property operating statement", required: true },
+  ];
+
+  const CRE_RENTAL_OPTIONAL: ChecklistSeedRow[] = [
+    { checklist_key: "RENT_ROLL", title: "Rent roll (if applicable)", required: false },
+    { checklist_key: "LEASES_TOP", title: "Major leases (if applicable)", required: false },
+    { checklist_key: "PROPERTY_T12", title: "Trailing 12-month property operating statement (if applicable)", required: false },
   ];
 
   const LOC: ChecklistSeedRow[] = [
@@ -76,11 +89,11 @@ export function buildChecklistForLoanType(loanType: LoanType): ChecklistSeedRow[
   switch (loanType) {
     case "CRE":
     case "CRE_OWNER_OCCUPIED":
-      return [...CORE, ...CRE, ...CRE_OWNER_OCC_SPECIFIC];
+      return [...CORE, ...CRE_COMMON, ...CRE_RENTAL_OPTIONAL, ...CRE_OWNER_OCC_SPECIFIC];
     case "CRE_INVESTOR":
-      return [...CORE, ...CRE, ...CRE_INVESTOR_SPECIFIC];
+      return [...CORE, ...CRE_COMMON, ...CRE_RENTAL_REQUIRED, ...CRE_INVESTOR_SPECIFIC];
     case "CRE_OWNER_OCCUPIED_WITH_RENT":
-      return [...CORE, ...CRE, ...CRE_OWNER_OCC_SPECIFIC, ...CRE_MIXED_USE_SPECIFIC];
+      return [...CORE, ...CRE_COMMON, ...CRE_RENTAL_REQUIRED, ...CRE_OWNER_OCC_SPECIFIC, ...CRE_MIXED_USE_SPECIFIC];
     case "LOC":
       return [...CORE, ...LOC];
     case "TERM":

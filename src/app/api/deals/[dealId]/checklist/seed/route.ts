@@ -34,18 +34,23 @@ const PRESETS: Record<
       required: true,
     },
     {
-      checklist_key: "IRS_BUSINESS_2Y",
-      title: "Business tax returns",
+      checklist_key: "IRS_BUSINESS_3Y",
+      title: "Business tax returns (3 years)",
       required: true,
     },
     {
-      checklist_key: "IRS_PERSONAL_2Y",
-      title: "Personal tax returns",
+      checklist_key: "IRS_PERSONAL_3Y",
+      title: "Personal tax returns (3 years)",
       required: true,
     },
     {
-      checklist_key: "FIN_STMT_YTD",
-      title: "Year-to-date financial statement",
+      checklist_key: "FIN_STMT_PL_YTD",
+      title: "Income statement / Profit & Loss (YTD)",
+      required: true,
+    },
+    {
+      checklist_key: "FIN_STMT_BS_YTD",
+      title: "Balance sheet (current)",
       required: true,
     },
     {

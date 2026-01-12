@@ -48,19 +48,19 @@ function checklistKeysFromDocIntel(docTypeRaw: string, taxYearRaw: any): string[
   }
 
   if (dtLoose.includes("BUSINESS") && dtLoose.includes("TAX")) {
-    return okYear ? ["IRS_BUSINESS_2Y"] : [];
+    return okYear ? ["IRS_BUSINESS_3Y"] : [];
   }
 
   if (dtLoose.includes("PERSONAL") && dtLoose.includes("TAX")) {
-    return okYear ? ["IRS_PERSONAL_2Y"] : [];
+    return okYear ? ["IRS_PERSONAL_3Y"] : [];
   }
 
   if (["IRS_1040", "K1", "IRS_PERSONAL"].includes(dt)) {
-    return okYear ? ["IRS_PERSONAL_2Y"] : [];
+    return okYear ? ["IRS_PERSONAL_3Y"] : [];
   }
 
   if (["IRS_1065", "IRS_1120", "IRS_1120S", "IRS_BUSINESS"].includes(dt)) {
-    return okYear ? ["IRS_BUSINESS_2Y"] : [];
+    return okYear ? ["IRS_BUSINESS_3Y"] : [];
   }
 
   if (
@@ -69,7 +69,10 @@ function checklistKeysFromDocIntel(docTypeRaw: string, taxYearRaw: any): string[
     dt === "BALANCE_SHEET" ||
     dtLoose.includes("FINANCIAL")
   ) {
-    return ["FIN_STMT_YTD"];
+    // Only map when we know WHICH statement.
+    if (dt === "INCOME_STATEMENT") return ["FIN_STMT_PL_YTD"];
+    if (dt === "BALANCE_SHEET") return ["FIN_STMT_BS_YTD"];
+    return [];
   }
 
   if (dt === "BANK_STATEMENT" || dtLoose.includes("BANK") && dtLoose.includes("STATEMENT")) {
@@ -94,28 +97,29 @@ function checklistKeysFromDocIntel(docTypeRaw: string, taxYearRaw: any): string[
  * This bridges banker uploads to checklist auto-completion.
  * 
  * Matching logic:
- * - "business tax" or "1120" or "1065" → IRS_BUSINESS_2Y
- * - "personal tax" or "1040" → IRS_PERSONAL_2Y
+ * - "business tax" or "1120" or "1065" → IRS_BUSINESS_3Y
+ * - "personal tax" or "1040" → IRS_PERSONAL_3Y
  * - "personal financial" or "pfs" → PFS_CURRENT
  * - "rent roll" → RENT_ROLL
  * - "bank statement" → BANK_STMT_3M
- * - "ytd" or "year to date" → FIN_STMT_YTD
+ * - "profit and loss" / "income statement" → FIN_STMT_PL_YTD
+ * - "balance sheet" → FIN_STMT_BS_YTD
  * - etc.
  */
 
 const FILENAME_PATTERNS: Array<{ pattern: RegExp; keys: string[] }> = [
   {
     pattern: /(business.*tax|1120|1065|schedule\s*c.*business)/i,
-    keys: ["IRS_BUSINESS_2Y"],
+    keys: ["IRS_BUSINESS_3Y"],
   },
   {
     // Common shorthand for business tax return.
     pattern: /(\bbtr\b|business\s*tax\s*return)/i,
-    keys: ["IRS_BUSINESS_2Y"],
+    keys: ["IRS_BUSINESS_3Y"],
   },
   {
     pattern: /(personal.*tax|1040(?!.*sch.*c))/i,
-    keys: ["IRS_PERSONAL_2Y"],
+    keys: ["IRS_PERSONAL_3Y"],
   },
   {
     pattern: /(personal.*financial|pfs|statement.*financial.*personal)/i,
@@ -131,13 +135,13 @@ const FILENAME_PATTERNS: Array<{ pattern: RegExp; keys: string[] }> = [
   },
   {
     pattern: /(ytd|year.*to.*date|interim.*financial)/i,
-    keys: ["FIN_STMT_YTD"],
+    keys: ["FIN_STMT_PL_YTD"],
   },
   {
     // Common financial statement filenames that often omit "YTD".
     pattern:
       /(balance\s*sheet|trial\s*balance|income\s*statement|\bp\s*&\s*l\b|profit\s*and\s*loss|statement\s*of\s*financial\s*position)/i,
-    keys: ["FIN_STMT_YTD"],
+    keys: ["FIN_STMT_PL_YTD", "FIN_STMT_BS_YTD"],
   },
   {
     pattern: /(lease|leases|lease.*agreement)/i,

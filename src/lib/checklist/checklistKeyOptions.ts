@@ -7,9 +7,10 @@ export type ChecklistKeyOption = {
 // Used for manual overrides when auto-match/auto-seed is not sufficient.
 export const CHECKLIST_KEY_OPTIONS: ChecklistKeyOption[] = [
   { key: "PFS_CURRENT", title: "Personal Financial Statement (current)" },
-  { key: "IRS_PERSONAL_2Y", title: "Personal tax returns" },
-  { key: "IRS_BUSINESS_2Y", title: "Business tax returns" },
-  { key: "FIN_STMT_YTD", title: "Year-to-date financial statement" },
+  { key: "IRS_PERSONAL_3Y", title: "Personal tax returns (3 years)" },
+  { key: "IRS_BUSINESS_3Y", title: "Business tax returns (3 years)" },
+  { key: "FIN_STMT_PL_YTD", title: "Income statement / Profit & Loss (YTD)" },
+  { key: "FIN_STMT_BS_YTD", title: "Balance sheet (current)" },
   { key: "BANK_STMT_3M", title: "Bank statements (last 3 months)" },
 
   { key: "RENT_ROLL", title: "Rent roll (current)" },

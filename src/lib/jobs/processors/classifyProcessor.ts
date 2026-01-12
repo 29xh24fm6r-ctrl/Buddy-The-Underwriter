@@ -3,6 +3,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { classifyDocument } from "@/lib/intelligence/classifyDocument";
 import { reconcileConditionsFromOcrResult } from "@/lib/conditions/reconcileConditions";
 import { createClient } from "@supabase/supabase-js";
+import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
+import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 
 /**
  * Classification Job Processor
@@ -17,6 +19,80 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
   const supabase = supabaseAdmin();
   const leaseDuration = 3 * 60 * 1000; // 3 minutes
   const leaseUntil = new Date(Date.now() + leaseDuration).toISOString();
+
+  function mapClassifierDocTypeToCanonicalBucket(docTypeRaw: any): string | null {
+    const dt = String(docTypeRaw || "").trim().toUpperCase();
+    if (!dt) return null;
+    if (dt === "INCOME_STATEMENT") return "income_statement";
+    if (dt === "BALANCE_SHEET") return "balance_sheet";
+    if (dt === "FINANCIAL_STATEMENT") return "financial_statement";
+    if (dt === "IRS_1120" || dt === "IRS_1120S" || dt === "IRS_1065" || dt === "IRS_BUSINESS") return "business_tax_return";
+    if (dt === "IRS_1040" || dt === "IRS_PERSONAL") return "personal_tax_return";
+    return null;
+  }
+
+  async function tryStampDealDocumentMetadata(args: {
+    dealId: string;
+    attachmentId: string;
+    extractedText: string;
+    classifierDocType?: string | null;
+  }) {
+    try {
+      const docRes = await (supabase as any)
+        .from("deal_documents")
+        .select("id, original_filename, document_type, doc_year, doc_years")
+        .eq("deal_id", args.dealId)
+        .eq("id", args.attachmentId)
+        .maybeSingle();
+
+      const originalFilename = String(docRes.data?.original_filename ?? "");
+      const inferred = inferDocumentMetadata({
+        originalFilename: originalFilename || null,
+        extractedText: args.extractedText,
+      });
+
+      // Only persist useful signals; never overwrite a known type with "unknown".
+      const inferredType = inferred.document_type !== "unknown" ? inferred.document_type : null;
+      const classifierType = mapClassifierDocTypeToCanonicalBucket(args.classifierDocType);
+      const nextType = inferredType ?? classifierType;
+
+      const attempt1 = await (supabase as any)
+        .from("deal_documents")
+        .update({
+          document_type: (docRes.data as any)?.document_type ?? nextType,
+          doc_year: (docRes.data as any)?.doc_year ?? inferred.doc_year,
+          doc_years: (docRes.data as any)?.doc_years ?? inferred.doc_years,
+          match_confidence: inferred.confidence,
+          match_reason: `ocr_infer:${inferred.reason}`,
+          match_source: "ocr",
+        })
+        .eq("id", args.attachmentId);
+
+      if (attempt1.error) {
+        const msg = String(attempt1.error.message || "");
+        // Schema drift tolerance: environments missing v2 columns.
+        if (
+          msg.toLowerCase().includes("does not exist") &&
+          (msg.includes("doc_years") || msg.includes("document_type"))
+        ) {
+          await (supabase as any)
+            .from("deal_documents")
+            .update({
+              doc_year: (docRes.data as any)?.doc_year ?? inferred.doc_year,
+              match_confidence: inferred.confidence,
+              match_reason: `ocr_infer:${inferred.reason}`,
+              match_source: "ocr",
+            })
+            .eq("id", args.attachmentId);
+        }
+      }
+
+      // Reconcile checklist now that we have year/type.
+      await reconcileChecklistForDeal({ sb: supabase as any, dealId: args.dealId });
+    } catch {
+      // best-effort; never fail job
+    }
+  }
 
   try {
     // Lease the job
@@ -49,7 +125,9 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
     }
 
     // Run classifier (using existing classifyDocument function)
-    const classifyResult = await classifyDocument(ocrResult.extracted_text ?? "");
+    const classifyResult = await classifyDocument({
+      ocrText: String(ocrResult.extracted_text ?? ""),
+    });
 
     // classifyDocument returns ClassificationResult (no .ok field)
     if (!classifyResult.doc_type) {
@@ -66,6 +144,14 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
         confidence: classifyResult.confidence ?? null,
         reasons: classifyResult.reasons ?? [],
       });
+
+    // Stamp year/type metadata onto the canonical document record.
+    await tryStampDealDocumentMetadata({
+      dealId: String(job.deal_id),
+      attachmentId: String(job.attachment_id),
+      extractedText: String(ocrResult.extracted_text ?? ""),
+      classifierDocType: String(classifyResult.doc_type ?? ""),
+    });
 
     // MEGA STEP 10: Reconcile conditions (auto-satisfy matching conditions)
     try {

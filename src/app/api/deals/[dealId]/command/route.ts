@@ -55,7 +55,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
                 at: now,
                 type: "doc",
                 title: "Document matched",
-                detail: "Business tax returns → IRS_BUSINESS_2Y",
+                detail: "Business tax returns (3 years) → IRS_BUSINESS_3Y",
                 level: "success",
               },
             ]

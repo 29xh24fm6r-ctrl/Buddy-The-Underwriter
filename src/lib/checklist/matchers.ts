@@ -31,12 +31,14 @@ export function matchChecklistKeyFromFilename(filenameRaw: string): MatchResult 
 
   const rules: Array<{ key: string; re: RegExp; confidence: number; reason: string }> = [
     // Strong explicit tokens
-    { key: "IRS_PERSONAL_2Y", re: /\b(ptr|1040|personal\s*tax)\b/i, confidence: 0.75, reason: "Personal return token" },
-    { key: "IRS_BUSINESS_2Y", re: /\b(btr|1120s|1120|1065|business\s*tax)\b/i, confidence: 0.7, reason: "Business return token" },
+    { key: "IRS_PERSONAL_3Y", re: /\b(ptr|1040|personal\s*tax)\b/i, confidence: 0.75, reason: "Personal return token" },
+    { key: "IRS_BUSINESS_3Y", re: /\b(btr|1120s|1120|1065|business\s*tax)\b/i, confidence: 0.7, reason: "Business return token" },
     { key: "PFS_CURRENT", re: /\b(pfs|personal\s*financial\s*statement|413)\b/i, confidence: 0.8, reason: "PFS pattern" },
-    { key: "FIN_STMT_YTD", re: /\b(ytd|year[-\s]*to[-\s]*date|trial\s*balance|p\&l|income\s*statement)\b/i, confidence: 0.7, reason: "YTD financials pattern" },
+    { key: "FIN_STMT_PL_YTD", re: /\b(p\s*\&\s*l|p\&l|profit\s*and\s*loss|income\s*statement|statement\s*of\s*operations)\b/i, confidence: 0.72, reason: "Income statement / P&L token" },
+    { key: "FIN_STMT_BS_YTD", re: /\b(balance\s*sheet|statement\s*of\s*financial\s*position)\b/i, confidence: 0.72, reason: "Balance sheet token" },
+    { key: "FIN_STMT_PL_YTD", re: /\b(ytd|year[-\s]*to[-\s]*date|trial\s*balance)\b/i, confidence: 0.62, reason: "Generic YTD financials token" },
     { key: "BANK_STMT_3M", re: /\b(bank\s*statement|stmt)\b.*\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|2024|2023|2022)\b/i, confidence: 0.65, reason: "Bank stmt pattern" },
-    { key: "BTR_2Y", re: /\b(btr)\b/i, confidence: 0.85, reason: "Explicit BTR" },
+    { key: "IRS_BUSINESS_3Y", re: /\b(btr)\b/i, confidence: 0.85, reason: "Explicit BTR" },
     { key: "RENT_ROLL", re: /\b(rent\s*roll|rentroll|tenant\s*schedule)\b/i, confidence: 0.85, reason: "Rent roll pattern" },
     { key: "PROPERTY_T12", re: /\b(t12|t-12|trailing.*12|operating\s*statement)\b/i, confidence: 0.75, reason: "T12 pattern" },
     { key: "LEASES_TOP", re: /\b(lease|tenant\s*lease)\b/i, confidence: 0.6, reason: "Lease pattern" },
@@ -54,9 +56,14 @@ export function matchChecklistKeyFromFilename(filenameRaw: string): MatchResult 
   }
 
   // Boost confidence when a year exists for year-sensitive keys
-  if (best.matchedKey && ["IRS_BUSINESS_2Y", "IRS_PERSONAL_2Y", "BTR_2Y"].includes(best.matchedKey)) {
+  if (best.matchedKey && ["IRS_BUSINESS_3Y", "IRS_PERSONAL_3Y"].includes(best.matchedKey)) {
     if (docYear) best.confidence = Math.min(0.95, best.confidence + 0.15);
     else best.confidence = Math.max(0.6, best.confidence - 0.1); // penalize no-year
+  }
+
+  // Slight boost when YTD tokens also include a year.
+  if (best.matchedKey && ["FIN_STMT_PL_YTD", "FIN_STMT_BS_YTD"].includes(best.matchedKey)) {
+    if (docYear) best.confidence = Math.min(0.9, best.confidence + 0.08);
   }
 
   return best;

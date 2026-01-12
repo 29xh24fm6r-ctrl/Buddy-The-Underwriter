@@ -14,9 +14,16 @@ function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T
 
 const CHECKLIST_DEFINITIONS: Record<string, { title: string; required: boolean }> = {
   PFS_CURRENT: { title: "Personal Financial Statement (current)", required: true },
+  IRS_BUSINESS_3Y: { title: "Business tax returns (3 years)", required: true },
+  IRS_PERSONAL_3Y: { title: "Personal tax returns (3 years)", required: true },
+  // Back-compat for older deals
   IRS_BUSINESS_2Y: { title: "Business tax returns", required: true },
   IRS_PERSONAL_2Y: { title: "Personal tax returns", required: true },
-  FIN_STMT_YTD: { title: "Year-to-date financial statement", required: true },
+  // YTD financials means BOTH: Income Statement/P&L + Balance Sheet
+  FIN_STMT_PL_YTD: { title: "Income statement / Profit & Loss (YTD)", required: true },
+  FIN_STMT_BS_YTD: { title: "Balance sheet (current)", required: true },
+  // Back-compat legacy key (older seeded deals)
+  FIN_STMT_YTD: { title: "Year-to-date financial statements", required: true },
   AR_AP_AGING: { title: "A/R and A/P aging", required: false },
   BANK_STMT_3M: { title: "Bank statements (last 3 months)", required: false },
   SBA_1919: { title: "SBA Form 1919", required: false },

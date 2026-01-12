@@ -38,15 +38,40 @@ export async function processOcrJob(jobId: string, leaseOwner: string) {
       return { ok: false, error: "Failed to lease job" };
     }
 
-    // Fetch attachment details
-    const { data: attachment, error: e2 } = await (supabase as any)
-      .from("borrower_attachments")
-      .select("id, stored_name, application_id")
-      .eq("id", job.attachment_id)
-      .single();
+    // Attachment may be either a canonical deal_documents row OR a legacy borrower_attachments row.
+    // runOcrJob can resolve/download either; we only need a best-effort stored_name for logging.
+    let attachment: { id: string; stored_name: string | null } | null = null;
+    {
+      const docRes = await (supabase as any)
+        .from("deal_documents")
+        .select("id, original_filename, storage_path")
+        .eq("deal_id", job.deal_id)
+        .eq("id", job.attachment_id)
+        .maybeSingle();
 
-    if (e2 || !attachment) {
-      throw new Error("Attachment not found");
+      if (!docRes.error && docRes.data?.id) {
+        attachment = {
+          id: String(docRes.data.id),
+          stored_name: String(docRes.data.original_filename || docRes.data.storage_path || "") || null,
+        };
+      }
+    }
+
+    if (!attachment) {
+      const attRes = await (supabase as any)
+        .from("borrower_attachments")
+        .select("id, stored_name, application_id")
+        .eq("id", job.attachment_id)
+        .single();
+
+      if (attRes.error || !attRes.data?.id) {
+        throw new Error("Attachment not found");
+      }
+
+      attachment = {
+        id: String(attRes.data.id),
+        stored_name: String(attRes.data.stored_name || "") || null,
+      };
     }
 
     // Run OCR (using existing runOcrJob function - it handles file download internally)

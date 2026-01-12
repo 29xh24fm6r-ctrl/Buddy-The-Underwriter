@@ -21,36 +21,31 @@ async function tryEnqueueJobs(
     filename: string;
   },
 ) {
-  // Best-effort: only enqueue if table exists
+  // Best-effort: enqueue OCR against the canonical deal_documents row.
+  // This enables OCR/text-based identification (e.g. Form 1120 for tax year 2023).
   try {
-    // Minimal job record shape (adjust later if your schema differs)
-    await sb.from("document_jobs").insert({
-      entity_type: "deal",
-      entity_id: args.dealId,
-      bank_id: args.bankId,
-      job_type: "ocr",
-      payload: {
-        source: "borrower_portal",
-        upload_id: args.uploadId,
-        bucket: args.storageBucket,
-        path: args.storagePath,
-        filename: args.filename,
-      },
-    });
+    const { data: doc } = await sb
+      .from("deal_documents")
+      .select("id")
+      .eq("deal_id", args.dealId)
+      .eq("storage_path", args.storagePath)
+      .maybeSingle();
 
-    await sb.from("document_jobs").insert({
-      entity_type: "deal",
-      entity_id: args.dealId,
-      bank_id: args.bankId,
-      job_type: "classify",
-      payload: {
-        source: "borrower_portal",
-        upload_id: args.uploadId,
-        bucket: args.storageBucket,
-        path: args.storagePath,
-        filename: args.filename,
-      },
-    });
+    const attachmentId = doc?.id ? String(doc.id) : null;
+    if (!attachmentId) return;
+
+    await (sb as any)
+      .from("document_jobs")
+      .upsert(
+        {
+          deal_id: args.dealId,
+          attachment_id: attachmentId,
+          job_type: "OCR",
+          status: "QUEUED",
+          next_run_at: new Date().toISOString(),
+        },
+        { onConflict: "attachment_id,job_type", ignoreDuplicates: true },
+      );
   } catch {
     // swallow: don't block portal
   }

@@ -4,14 +4,25 @@ import type { ChecklistDefinition, ChecklistRuleSet } from "./types";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
 
-type DocTypeBucket = "business_tax_return" | "personal_tax_return";
+type CanonicalDocTypeBucket =
+  | "business_tax_return"
+  | "personal_tax_return"
+  | "income_statement"
+  | "balance_sheet"
+  | "financial_statement";
 
-function inferDocTypeBucketFromChecklistKey(checklistKeyRaw: string): DocTypeBucket | null {
+function acceptableDocTypesForChecklistKey(checklistKeyRaw: string): CanonicalDocTypeBucket[] | null {
   const key = String(checklistKeyRaw || "").toUpperCase();
   if (!key) return null;
 
-  if (key.startsWith("IRS_BUSINESS")) return "business_tax_return";
-  if (key.startsWith("IRS_PERSONAL")) return "personal_tax_return";
+  if (key.startsWith("IRS_BUSINESS")) return ["business_tax_return"];
+  if (key.startsWith("IRS_PERSONAL")) return ["personal_tax_return"];
+
+  if (key === "FIN_STMT_PL_YTD") return ["income_statement", "financial_statement"];
+  if (key === "FIN_STMT_BS_YTD") return ["balance_sheet", "financial_statement"];
+  // Back-compat legacy key (older deals): treat as requiring either statement.
+  if (key === "FIN_STMT_YTD") return ["income_statement", "balance_sheet", "financial_statement"];
+
   return null;
 }
 
@@ -137,6 +148,39 @@ export async function reconcileDealChecklist(dealId: string) {
 
   let docsMatched = 0;
 
+  // Optional: pull OCR text for docs that still need year/type.
+  // This lets us infer (e.g.) Form 1120 + tax year 2023 even when the filename is ambiguous.
+  const ocrTextByDocId = new Map<string, string>();
+  try {
+    const needsOcrIds = (docs || [])
+      .filter((d: any) => {
+        const needsYear = !d.doc_year;
+        const needsYears = !(d as any)?.doc_years;
+        const needsType = !(d as any)?.document_type;
+        return needsYear || needsYears || needsType;
+      })
+      .map((d: any) => String(d.id))
+      .filter(Boolean);
+
+    if (needsOcrIds.length) {
+      const ocrRes = await (sb as any)
+        .from("document_ocr_results")
+        .select("attachment_id, extracted_text")
+        .eq("deal_id", dealId)
+        .in("attachment_id", needsOcrIds.slice(0, 200));
+
+      if (!ocrRes.error) {
+        for (const r of ocrRes.data || []) {
+          const id = String((r as any)?.attachment_id || "");
+          const t = String((r as any)?.extracted_text || "");
+          if (id && t) ocrTextByDocId.set(id, t);
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   // 4) For each doc missing checklist_key or year metadata, attempt match (filename-only here).
   for (const d of docs || []) {
     const needsKey = !d.checklist_key;
@@ -146,7 +190,11 @@ export async function reconcileDealChecklist(dealId: string) {
     if (!needsKey && !needsYear && !needsYears && !needsType) continue;
 
     const m = matchChecklistKeyFromFilename(d.original_filename || "");
-    const meta = inferDocumentMetadata({ originalFilename: d.original_filename || null });
+    const extractedText = ocrTextByDocId.get(String(d.id)) ?? null;
+    const meta = inferDocumentMetadata({
+      originalFilename: d.original_filename || null,
+      extractedText,
+    });
     const docYears = meta.doc_years ?? (Array.isArray(m.yearsFound) && m.yearsFound.length ? m.yearsFound : null);
     const docYear = meta.doc_year ?? (m.docYear ?? null);
     const documentType = meta.document_type !== "unknown" ? meta.document_type : null;
@@ -167,7 +215,7 @@ export async function reconcileDealChecklist(dealId: string) {
         document_type: (d as any)?.document_type || documentType,
         match_confidence: matchConfidence,
         match_reason: matchReason,
-        match_source: m.source || "filename",
+        match_source: extractedText ? "ocr" : (m.source || "filename"),
       } as any)
       .eq("id", d.id);
 
@@ -275,8 +323,10 @@ export async function reconcileDealChecklist(dealId: string) {
     const itemKey = String((item as any)?.checklist_key || "").trim();
     if (!itemKey) continue;
 
-    const bucket = inferDocTypeBucketFromChecklistKey(itemKey);
-    const docsForItem = bucket ? (docsByType.get(bucket) ?? []) : (docsByKey.get(itemKey) ?? []);
+    const acceptableTypes = acceptableDocTypesForChecklistKey(itemKey);
+    const docsForItem = acceptableTypes
+      ? acceptableTypes.flatMap((t) => docsByType.get(t) ?? [])
+      : (docsByKey.get(itemKey) ?? []);
     if (docsForItem.length === 0) continue;
 
     const requiredYearsFromDb = Array.isArray((item as any)?.required_years)
