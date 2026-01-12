@@ -876,7 +876,11 @@ async function runIntelForDeal(args: {
   // satisfaction updates immediately.
   let reconcile: any = null;
   let reconcile_error: string | null = null;
-  if (stamped > 0 || updated > 0) {
+  // Always reconcile after a batch run.
+  // In some environments the doc-intel pipeline may have written doc_intel_results
+  // without persisting year/type stamps onto deal_documents yet; reconcile is what
+  // backfills those stamps and flips checklist items to received.
+  if (list.length > 0) {
     try {
       reconcile = await reconcileDealChecklist(dealId);
     } catch (e) {
@@ -930,6 +934,7 @@ async function runIntelForDeal(args: {
       matched,
       updated,
       stamped,
+      reconcile_ran: list.length > 0,
       reconcile,
       reconcile_error,
       results,
