@@ -8,7 +8,7 @@ import { createClient } from "@supabase/supabase-js";
  * OCR Job Processor
  * 
  * Leases jobs from document_jobs queue
- * Processes OCR via Azure DI
+ * Processes OCR via Gemini OCR
  * Stores results in document_ocr_results
  * Enqueues CLASSIFY job on success
  */
@@ -56,7 +56,7 @@ export async function processOcrJob(jobId: string, leaseOwner: string) {
     });
     
     // runOcrJob returns result object directly
-    const extractedText = ocrResult.text_preview ?? "";
+    const extractedText = String(ocrResult?.raw?.geminiText ?? ocrResult?.text_preview ?? "");
     const rawData = ocrResult.raw;
 
     // Store OCR result
@@ -65,11 +65,11 @@ export async function processOcrJob(jobId: string, leaseOwner: string) {
       .upsert({
         deal_id: job.deal_id,
         attachment_id: job.attachment_id,
-        provider: "azure_di",
+        provider: "gemini_google",
         status: "SUCCEEDED",
         raw_json: rawData,
         extracted_text: extractedText,
-        tables_json: [],
+        tables_json: null,
       });
 
     // MEGA STEP 10: Reconcile conditions (auto-satisfy matching conditions)

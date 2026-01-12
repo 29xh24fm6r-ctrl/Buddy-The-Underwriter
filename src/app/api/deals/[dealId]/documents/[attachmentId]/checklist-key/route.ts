@@ -14,13 +14,13 @@ const BodySchema = z.object({
 });
 
 /**
- * PATCH /api/deals/[dealId]/documents/[documentId]/checklist-key
+ * PATCH /api/deals/[dealId]/documents/[attachmentId]/checklist-key
  *
  * Manual override to stamp deal_documents.checklist_key and trigger checklist reconcile.
  */
 export async function PATCH(
   req: NextRequest,
-  ctx: { params: Promise<{ dealId: string; documentId: string }> },
+  ctx: { params: Promise<{ dealId: string; attachmentId: string }> },
 ) {
   const { userId } = await clerkAuth();
   if (!userId) {
@@ -30,7 +30,7 @@ export async function PATCH(
     );
   }
 
-  const { dealId, documentId } = await ctx.params;
+  const { dealId, attachmentId } = await ctx.params;
 
   const ensured = await ensureDealBankAccess(dealId);
   if (!ensured.ok) {
@@ -69,7 +69,7 @@ export async function PATCH(
       match_confidence: checklistKey ? 1 : null,
     } as any)
     .eq("deal_id", dealId)
-    .eq("id", documentId)
+    .eq("id", attachmentId)
     .select("id, checklist_key")
     .maybeSingle();
 
@@ -95,7 +95,7 @@ export async function PATCH(
   }
 
   return NextResponse.json(
-    { ok: true, documentId: upd.data.id, checklist_key: upd.data.checklist_key ?? null },
+    { ok: true, attachmentId: upd.data.id, checklist_key: upd.data.checklist_key ?? null },
     { headers: { "cache-control": "no-store" } },
   );
 }

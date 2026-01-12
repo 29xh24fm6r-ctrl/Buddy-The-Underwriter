@@ -1,7 +1,7 @@
 // src/app/api/deals/[dealId]/ocr/run/route.ts
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
-import { runOcrJob } from "../../../../../../lib/ocr/runOcrJob";
+import { runOcrJob } from "@/lib/ocr/runOcrJob";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

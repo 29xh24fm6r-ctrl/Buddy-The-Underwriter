@@ -15,6 +15,7 @@ const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [maps, setMaps] = useState<MapRow[]>([]);
   const [busy, setBusy] = useState(false);
+  const [auditJson, setAuditJson] = useState<any | null>(null);
 
   // upload states
   const [templateKey, setTemplateKey] = useState("PFS");
@@ -138,6 +139,22 @@ const [templates, setTemplates] = useState<Template[]>([]);
     }
   }
 
+  async function runAudit() {
+    if (!selectedTemplate?.id) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/admin/templates/${selectedTemplate.id}/mapping-audit`);
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.ok) {
+        alert(j?.error ?? `Audit failed (http_${r.status})`);
+        return;
+      }
+      setAuditJson(j);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -207,6 +224,14 @@ const [templates, setTemplates] = useState<Template[]>([]);
                 Canonical fields are Buddy&apos;s internal schema. Map them to your PDF&apos;s AcroForm field names.
               </div>
             </div>
+            <button
+              className="border rounded px-3 py-1"
+              onClick={runAudit}
+              disabled={busy || !selectedTemplate}
+              title="Shows which PDF fields are mapped and which canonical fields are missing"
+            >
+              Mapping Audit
+            </button>
           </div>
 
           {!selectedTemplate && <div className="text-sm text-muted-foreground">Select a template.</div>}
@@ -219,6 +244,20 @@ const [templates, setTemplates] = useState<Template[]>([]);
               onDelete={deleteMapRow}
               busy={busy}
             />
+          )}
+
+          {auditJson && (
+            <div className="border rounded p-3 bg-muted/20">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium">Mapping Audit Report</div>
+                <button className="border rounded px-2 py-1 text-xs" onClick={() => setAuditJson(null)}>
+                  Close
+                </button>
+              </div>
+              <pre className="mt-2 text-xs overflow-auto max-h-[320px] whitespace-pre-wrap">
+                {JSON.stringify(auditJson, null, 2)}
+              </pre>
+            </div>
           )}
         </div>
       </div>

@@ -1,5 +1,7 @@
 import "server-only";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { VertexAI } from "@google-cloud/vertexai";
+import * as crypto from "node:crypto";
+import * as fs from "node:fs/promises";
 
 type GeminiOcrArgs = {
   fileBytes: Buffer;
@@ -32,14 +34,70 @@ function normalizeMimeType(mimeType: string): string {
   return normalized;
 }
 
-function getGeminiApiKey(): string {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
+type ServiceAccountJson = {
+  type: string;
+  project_id?: string;
+  private_key?: string;
+  client_email?: string;
+};
+
+async function ensureGoogleAdcConfigured(): Promise<void> {
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) return;
+
+  const rawJson =
+    process.env.GEMINI_SERVICE_ACCOUNT_JSON ||
+    process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ||
+    // Back-compat: some setups paste the service account JSON into GEMINI_API_KEY.
+    process.env.GEMINI_API_KEY;
+
+  if (!rawJson) {
     throw new Error(
-      "Missing Gemini API key. Set GEMINI_API_KEY (preferred) or GOOGLE_API_KEY.",
+      "Missing Google credentials for Gemini OCR. Set GOOGLE_APPLICATION_CREDENTIALS to a service-account JSON file path, or set GEMINI_SERVICE_ACCOUNT_JSON to the JSON contents.",
     );
   }
-  return apiKey;
+
+  let parsed: ServiceAccountJson;
+  try {
+    parsed = JSON.parse(rawJson) as ServiceAccountJson;
+  } catch {
+    throw new Error(
+      "Invalid JSON in GEMINI_SERVICE_ACCOUNT_JSON/GOOGLE_SERVICE_ACCOUNT_JSON (or GEMINI_API_KEY). Provide valid service-account JSON, or set GOOGLE_APPLICATION_CREDENTIALS to a file path.",
+    );
+  }
+
+  const isServiceAccount =
+    parsed?.type === "service_account" &&
+    typeof parsed.private_key === "string" &&
+    typeof parsed.client_email === "string";
+
+  if (!isServiceAccount) {
+    throw new Error(
+      "Google credentials JSON must be a service_account (must include type, client_email, private_key).",
+    );
+  }
+
+  if (!process.env.GOOGLE_CLOUD_PROJECT && typeof parsed.project_id === "string") {
+    process.env.GOOGLE_CLOUD_PROJECT = parsed.project_id;
+  }
+
+  const filePath = `/tmp/buddy-google-sa-${crypto.randomUUID()}.json`;
+  await fs.writeFile(filePath, JSON.stringify(parsed), { encoding: "utf8", mode: 0o600 });
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = filePath;
+}
+
+function getGoogleProjectId(): string {
+  const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GOOGLE_PROJECT_ID;
+  if (!projectId) {
+    throw new Error(
+      "Missing Google Cloud project id. Set GOOGLE_CLOUD_PROJECT (recommended) or GOOGLE_PROJECT_ID.",
+    );
+  }
+  return projectId;
+}
+
+function getGoogleLocation(): string {
+  return process.env.GOOGLE_CLOUD_LOCATION || process.env.GOOGLE_CLOUD_REGION || "us-central1";
 }
 
 function getGeminiModelName(): string {
@@ -47,7 +105,7 @@ function getGeminiModelName(): string {
     process.env.GEMINI_OCR_MODEL ||
     process.env.GEMINI_MODEL ||
     // Best-effort default (user can override via env)
-    "gemini-2.0-flash-exp"
+    "gemini-1.5-flash-002"
   );
 }
 
@@ -62,9 +120,12 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
     model: getGeminiModelName(),
   });
 
-  const apiKey = getGeminiApiKey();
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: getGeminiModelName() });
+  await ensureGoogleAdcConfigured();
+  const vertexAI = new VertexAI({
+    project: getGoogleProjectId(),
+    location: getGoogleLocation(),
+  });
+  const model = vertexAI.getGenerativeModel({ model: getGeminiModelName() });
 
   const normalizedMimeType = normalizeMimeType(mimeType);
   const base64 = fileBytes.toString("base64");
@@ -77,17 +138,26 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
     "If you cannot reliably segment pages, output everything under [Page 1].";
 
   try {
-    const resp = await model.generateContent([
-      { text: prompt },
-      {
-        inlineData: {
-          mimeType: normalizedMimeType,
-          data: base64,
+    const resp = await model.generateContent({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: normalizedMimeType,
+                data: base64,
+              },
+            },
+          ],
         },
-      },
-    ]);
+      ],
+    });
 
-    const textRaw = resp.response.text() || "";
+    const parts = (resp as any)?.response?.candidates?.[0]?.content?.parts ?? [];
+    const textRaw =
+      parts.map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("") || "";
     const text = textRaw.trim();
 
     const finalText = text.match(/\[Page\s+\d+\]/i)

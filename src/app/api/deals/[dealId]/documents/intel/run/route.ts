@@ -31,7 +31,7 @@ const BodySchema = z
     fast: z.boolean().optional(),
     preferPdfText: z.boolean().optional(),
     minPdfTextChars: z.number().int().min(50).max(20000).optional(),
-    // Performance: allow limiting Azure DI to first pages (e.g. 1-2) for quick classification.
+    // Performance: allow limiting processing to first pages (e.g. 1-2) for quick classification.
     maxPages: z.number().int().min(1).max(20).optional(),
   })
   .optional();
@@ -64,9 +64,10 @@ async function extractTextSmart(args: {
   mimeType: string | null;
   preferPdfText: boolean;
   minPdfTextChars: number;
+  // Legacy args retained for call-site compatibility (Azure DI disabled)
   azureModel: "prebuilt-read" | "prebuilt-layout";
   azurePages?: string;
-}): Promise<{ text: string; source: "pdf_text" | "azure_di" }>{
+}): Promise<{ text: string; source: "pdf_text" | "gemini_ocr" }>{
   const mt = String(args.mimeType || "").toLowerCase();
   if (args.preferPdfText && mt === "application/pdf") {
     try {
@@ -76,219 +77,24 @@ async function extractTextSmart(args: {
         return { text: t, source: "pdf_text" };
       }
     } catch {
-      // Fall through to Azure DI
+      // Fall through to Gemini OCR
     }
   }
 
-  const t = await extractTextWithAzureDI(args.bytes, {
-    model: args.azureModel,
-    pages: args.azurePages,
+  if (process.env.USE_GEMINI_OCR !== "true") {
+    throw new Error(
+      "Gemini OCR is required for document text extraction. Set USE_GEMINI_OCR=\"true\".",
+    );
+  }
+
+  const { runGeminiOcrJob } = await import("@/lib/ocr/runGeminiOcrJob");
+  const result = await runGeminiOcrJob({
+    fileBytes: args.bytes,
+    mimeType: mt || "application/pdf",
+    fileName: "document.pdf",
   });
-  return { text: t, source: "azure_di" };
-}
 
-async function extractTextWithAzureDI(
-  bytes: Buffer,
-  opts?: { model?: "prebuilt-read" | "prebuilt-layout"; pages?: string },
-): Promise<string> {
-  // 🚀 CLAUDE OCR: Use Claude if enabled
-  if (process.env.USE_CLAUDE_OCR === "true") {
-    const { runClaudeOcrJob } = await import("@/lib/ocr/runClaudeOcrJob");
-    const result = await runClaudeOcrJob({
-      fileBytes: bytes,
-      mimeType: "application/pdf",
-      fileName: "document.pdf",
-    });
-    return result.text;
-  }
-
-  // 🔵 AZURE DI OCR: Fallback to Azure Document Intelligence
-  const endpoint =
-    process.env.AZURE_DI_ENDPOINT ||
-    process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT ||
-    "";
-  const apiKey =
-    process.env.AZURE_DI_KEY ||
-    process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY ||
-    "";
-
-  if (!endpoint || !apiKey) {
-    throw new Error(
-      "Missing Azure DI env vars. Set AZURE_DI_ENDPOINT/AZURE_DI_KEY (or AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT/AZURE_DOCUMENT_INTELLIGENCE_KEY).",
-    );
-  }
-
-  const { AzureKeyCredential, DocumentAnalysisClient } = await import(
-    "@azure/ai-form-recognizer"
-  );
-
-  const client = new DocumentAnalysisClient(endpoint, new AzureKeyCredential(apiKey));
-  const model = opts?.model ?? "prebuilt-layout";
-  const pages = typeof opts?.pages === "string" && opts.pages.trim() ? opts.pages.trim() : undefined;
-
-  // Limiting pages can drastically reduce latency on long PDFs.
-  const poller = await client.beginAnalyzeDocument(model, bytes, pages ? ({ pages } as any) : undefined);
-  const analyzeResult = await poller.pollUntilDone();
-
-  const content = typeof (analyzeResult as any)?.content === "string" ? (analyzeResult as any).content : "";
-  return content;
-}
-
-async function extractTextWithAzureDIFromUrl(
-  url: string,
-  opts?: { model?: "prebuilt-read" | "prebuilt-layout"; pages?: string },
-): Promise<string> {
-  const endpoint =
-    process.env.AZURE_DI_ENDPOINT ||
-    process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT ||
-    "";
-  const apiKey =
-    process.env.AZURE_DI_KEY ||
-    process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY ||
-    "";
-
-  if (!endpoint || !apiKey) {
-    throw new Error(
-      "Missing Azure DI env vars. Set AZURE_DI_ENDPOINT/AZURE_DI_KEY (or AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT/AZURE_DOCUMENT_INTELLIGENCE_KEY).",
-    );
-  }
-
-  const { AzureKeyCredential, DocumentAnalysisClient } = await import(
-    "@azure/ai-form-recognizer"
-  );
-
-  const client = new DocumentAnalysisClient(endpoint, new AzureKeyCredential(apiKey));
-  const model = opts?.model ?? "prebuilt-layout";
-  const pages = typeof opts?.pages === "string" && opts.pages.trim() ? opts.pages.trim() : undefined;
-
-  const poller = await (client as any).beginAnalyzeDocumentFromUrl(
-    model,
-    url,
-    pages ? ({ pages } as any) : undefined,
-  );
-  const analyzeResult = await poller.pollUntilDone();
-
-  const content =
-    typeof (analyzeResult as any)?.content === "string" ? (analyzeResult as any).content : "";
-  return content;
-}
-
-async function startOrResumeAzurePollerFromUrl(args: {
-  url: string;
-  model: "prebuilt-read" | "prebuilt-layout";
-  pages?: string;
-  resumeFrom?: string | null;
-}) {
-  const endpoint =
-    process.env.AZURE_DI_ENDPOINT ||
-    process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT ||
-    "";
-  const apiKey =
-    process.env.AZURE_DI_KEY ||
-    process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY ||
-    "";
-
-  if (!endpoint || !apiKey) {
-    throw new Error(
-      "Missing Azure DI env vars. Set AZURE_DI_ENDPOINT/AZURE_DI_KEY (or AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT/AZURE_DOCUMENT_INTELLIGENCE_KEY).",
-    );
-  }
-
-  const { AzureKeyCredential, DocumentAnalysisClient } = await import(
-    "@azure/ai-form-recognizer"
-  );
-
-  const client = new DocumentAnalysisClient(endpoint, new AzureKeyCredential(apiKey));
-  const pages = typeof args.pages === "string" && args.pages.trim() ? args.pages.trim() : undefined;
-
-  const options: any = {
-    updateIntervalInMs: 2000,
-  };
-  if (pages) options.pages = pages;
-  if (args.resumeFrom) options.resumeFrom = args.resumeFrom;
-
-  const poller = await (client as any).beginAnalyzeDocumentFromUrl(
-    args.model,
-    args.url,
-    options,
-  );
-
-  return poller;
-}
-
-async function pollAzurePollerForContent(args: {
-  poller: any;
-  maxPollMs: number;
-}): Promise<{ done: boolean; content: string; resumeFrom: string | null }> {
-  const started = Date.now();
-  const poller = args.poller;
-
-  while (!poller.isDone() && Date.now() - started < args.maxPollMs) {
-    await poller.poll();
-    if (!poller.isDone()) {
-      await new Promise((r) => setTimeout(r, 250));
-    }
-  }
-
-  const resumeFrom = typeof poller.toString === "function" ? poller.toString() : null;
-
-  if (!poller.isDone()) {
-    return { done: false, content: "", resumeFrom };
-  }
-
-  const analyzeResult = await poller.pollUntilDone();
-  const content =
-    typeof (analyzeResult as any)?.content === "string" ? (analyzeResult as any).content : "";
-  return { done: true, content, resumeFrom };
-}
-
-async function bestEffortUpsertOcrPollerState(args: {
-  sb: ReturnType<typeof supabaseAdmin>;
-  dealId: string;
-  fileId: string;
-  azureModel: string;
-  azurePages?: string;
-  resumeFrom: string | null;
-  status: "running" | "queued" | "done" | "failed";
-  note?: string;
-}) {
-  const { sb, dealId, fileId, azureModel, azurePages, resumeFrom, status, note } = args;
-
-  const up = await sb.from("doc_intel_results").upsert(
-    {
-      deal_id: dealId,
-      file_id: fileId,
-      doc_type: "Unknown",
-      tax_year: null,
-      extracted_json: {
-        source: "azure_di_ocr",
-        azure_model: azureModel,
-        azure_pages: azurePages ?? null,
-        azure_pages_end: parseAzurePagesEnd(azurePages),
-        azure_resumeFrom: resumeFrom ?? null,
-        ocr_status: status,
-        note: note ?? null,
-      },
-      quality_json: {
-        legible: null,
-        complete: null,
-        signed: null,
-        notes: ["ocr_poller_state_only"],
-      },
-      confidence: null,
-      evidence_json: { evidence_spans: [], evidence: [] },
-      created_at: new Date().toISOString(),
-    } as any,
-    { onConflict: "deal_id,file_id" },
-  );
-
-  if (up.error) {
-    console.error("[documents/intel/run] ocr_poller_state_upsert_failed (non-fatal)", {
-      dealId,
-      fileId,
-      error: up.error,
-    });
-  }
+  return { text: result.text, source: "gemini_ocr" };
 }
 
 function parseAzurePagesEnd(raw: unknown): number | null {
@@ -491,7 +297,8 @@ async function bestEffortUpsertDocIntelFromOcr(args: {
       doc_type: docType,
       tax_year: taxYear,
       extracted_json: {
-        source: "azure_di_ocr",
+        source: "gemini_ocr",
+        ocr_provider: "gemini",
         text_len: (extractedText || "").length,
         azure_model: azureModel ?? null,
         azure_pages: azurePages ?? null,
@@ -529,8 +336,9 @@ async function bestEffortUpsertDocIntelFromOcr(args: {
 /**
  * POST /api/deals/[dealId]/documents/intel/run
  *
- * Best-effort: For one document or a small batch, download from storage, run Azure DI OCR,
- * run doc-intel (OpenAI JSON), persist into doc_intel_results, then auto-match checklist.
+ * Best-effort: For one document or a small batch, download from storage, extract text
+ * (PDF text layer when available, otherwise Gemini OCR), run doc-intel (OpenAI JSON),
+ * persist into doc_intel_results, then auto-match checklist.
  */
 async function runIntelForDeal(args: {
   req: NextRequest;
@@ -855,8 +663,8 @@ async function runIntelForDeal(args: {
 
       const storageBucket = String((doc as any)?.storage_bucket || "deal-files");
 
-      // Fast mode: avoid downloading large files into Vercel whenever possible.
-      // Prefer Azure DI from a short-lived signed URL, and only download as a fallback.
+      // Fast mode: keep latency down, but avoid Azure DI (disabled). We rely on PDF text layer
+      // when available, otherwise Gemini OCR.
       const effectiveFast = !!fast;
 
       const windowPages =
@@ -878,214 +686,29 @@ async function runIntelForDeal(args: {
         effectiveFast ? "prebuilt-read" : "prebuilt-layout";
 
       let extractedText = "";
-      let extractSource: "signed_url_azure" | "download_smart" | null = null;
-      let smartSource: "pdf_text" | "azure_di" | null = null;
-      try {
-        let usedUrl = false;
+      let extractSource: "download_smart" | null = null;
+      let smartSource: "pdf_text" | "gemini_ocr" | null = null;
 
-        // 🚀 GEMINI OCR: Use Gemini if enabled (priority over Mistral/Claude)
-        if (process.env.USE_GEMINI_OCR === "true" && effectiveFast && !extractedText) {
-          console.log("[INTEL_RUN] Using Gemini OCR for fast mode", { docId, filename });
-          const { data: fileData, error: dlError } = await sb.storage
-            .from(storageBucket)
-            .download(storagePath);
-
-          if (!dlError && fileData) {
-            const bytes = Buffer.from(await fileData.arrayBuffer());
-            const { runGeminiOcrJob } = await import("@/lib/ocr/runGeminiOcrJob");
-            const geminiStart = Date.now();
-            const result = await runGeminiOcrJob({
-              fileBytes: bytes,
-              mimeType: "application/pdf",
-              fileName: filename || "document.pdf",
-            });
-            console.log("[INTEL_RUN] Gemini OCR completed", {
-              docId,
-              filename,
-              elapsed_ms: Date.now() - geminiStart,
-              textLength: result.text.length,
-            });
-            extractedText = result.text;
-            usedUrl = true;
-            extractSource = "signed_url_azure"; // Keep same tracking for now
-          } else {
-            console.log("[INTEL_RUN] Failed to download for Gemini OCR", { docId, error: dlError });
-          }
-        }
-        
-        // 🚀 MISTRAL OCR: Use Mistral if enabled (priority over Claude)
-        if (process.env.USE_MISTRAL_OCR === "true" && effectiveFast && !extractedText) {
-          console.log("[INTEL_RUN] Using Mistral OCR for fast mode", { docId, filename });
-          const { data: fileData, error: dlError } = await sb.storage
-            .from(storageBucket)
-            .download(storagePath);
-          
-          if (!dlError && fileData) {
-            const bytes = Buffer.from(await fileData.arrayBuffer());
-            const { runMistralOcrJob } = await import("@/lib/ocr/runMistralOcrJob");
-            const mistralStart = Date.now();
-            const result = await runMistralOcrJob({
-              fileBytes: bytes,
-              mimeType: "application/pdf",
-              fileName: filename || "document.pdf",
-            });
-            console.log("[INTEL_RUN] Mistral OCR completed", { 
-              docId, 
-              filename, 
-              elapsed_ms: Date.now() - mistralStart,
-              textLength: result.text.length 
-            });
-            extractedText = result.text;
-            usedUrl = true;
-            extractSource = "signed_url_azure"; // Keep same tracking for now
-          } else {
-            console.log("[INTEL_RUN] Failed to download for Mistral OCR", { docId, error: dlError });
-          }
-        }
-        
-        // 🚀 CLAUDE OCR: Use Claude if enabled (faster than signed URL + Azure DI)
-        if (process.env.USE_CLAUDE_OCR === "true" && effectiveFast && !extractedText) {
-          console.log("[INTEL_RUN] Using Claude OCR for fast mode", { docId, filename });
-          const { data: fileData, error: dlError } = await sb.storage
-            .from(storageBucket)
-            .download(storagePath);
-          
-          if (!dlError && fileData) {
-            const bytes = Buffer.from(await fileData.arrayBuffer());
-            const { runClaudeOcrJob } = await import("@/lib/ocr/runClaudeOcrJob");
-            const claudeStart = Date.now();
-            const result = await runClaudeOcrJob({
-              fileBytes: bytes,
-              mimeType: "application/pdf",
-              fileName: filename || "document.pdf",
-            });
-            console.log("[INTEL_RUN] Claude OCR completed", { 
-              docId, 
-              filename, 
-              elapsed_ms: Date.now() - claudeStart,
-              textLength: result.text.length 
-            });
-            extractedText = result.text;
-            usedUrl = true;
-            extractSource = "signed_url_azure"; // Keep same tracking for now
-          } else {
-            console.log("[INTEL_RUN] Failed to download for Claude OCR", { docId, error: dlError });
-          }
-        } else {
-          console.log("[INTEL_RUN] Claude OCR check", { 
-            USE_CLAUDE_OCR: process.env.USE_CLAUDE_OCR,
-            effectiveFast 
-          });
-        }
-        
-        if (!usedUrl && effectiveFast) {
-          const signed = await sb.storage
-            .from(storageBucket)
-            .createSignedUrl(storagePath, 60 * 10);
-
-          if (!signed.error && signed.data?.signedUrl) {
-            const resumeFrom: string | null =
-              (existingIntel.data as any)?.extracted_json?.azure_resumeFrom ?? null;
-
-            const poller = await startOrResumeAzurePollerFromUrl({
-              url: signed.data.signedUrl,
-              model: azureModel,
-              pages: azurePages,
-              resumeFrom,
-            });
-
-            // Poll briefly so the request returns quickly even if Azure takes minutes.
-            // Keep this short to avoid serializing large packages behind a single long OCR.
-            const polled = await pollAzurePollerForContent({
-              poller,
-              maxPollMs: 2500,
-            });
-
-            if (!polled.done) {
-              await bestEffortUpsertOcrPollerState({
-                sb,
-                dealId,
-                fileId: docId,
-                azureModel,
-                azurePages,
-                resumeFrom: polled.resumeFrom,
-                status: "running",
-                note: "azure_di_running",
-              });
-
-              console.info("[doc_intel_run] ocr_running", {
-                reqId,
-                dealId,
-                docId,
-                fast: true,
-                azureModel,
-                azurePages: azurePages ?? null,
-                resumeFrom: polled.resumeFrom ? "present" : null,
-                ms: Date.now() - startedOne,
-              });
-
-              return {
-                stat,
-                result: {
-                  document_id: docId,
-                  filename,
-                  ocr: "running" as const,
-                  doc_intel: "skipped" as const,
-                  matched_keys: [],
-                  updated_items: 0,
-                },
-              };
-            }
-
-            extractedText = polled.content;
-            usedUrl = true;
-            extractSource = "signed_url_azure";
-          }
-        }
-
-        if (!usedUrl) {
-          // Fallback: download bytes and use smart extraction (PDF text when available).
-          const dl = await sb.storage.from(storageBucket).download(storagePath);
-          if (dl.error || !dl.data) {
-            throw new Error(
-              `Storage download failed (${storageBucket}): ${dl.error?.message || "unknown"}`,
-            );
-          }
-
-          const bytes = Buffer.from(await dl.data.arrayBuffer());
-          const ext = await extractTextSmart({
-            bytes,
-            mimeType: (doc as any)?.mime_type ?? null,
-            preferPdfText: preferPdfText !== false,
-            minPdfTextChars: Math.max(50, Math.min(20000, Number(minPdfTextChars ?? 900) || 900)),
-            azureModel,
-            azurePages,
-          });
-          extractedText = ext.text;
-          extractSource = "download_smart";
-          smartSource = ext.source;
-        }
-      } catch (e: any) {
-        console.warn("[doc_intel_run] ocr_error", {
-          reqId,
-          dealId,
-          docId,
-          ms: Date.now() - startedOne,
-          error: e?.message || String(e),
-        });
-        return {
-          stat,
-          result: {
-            document_id: docId,
-            filename,
-            ocr: "error" as const,
-            doc_intel: "error" as const,
-            matched_keys: [],
-            updated_items: 0,
-            error: e?.message || "OCR failed",
-          },
-        };
+      // Download bytes and use smart extraction (PDF text when available), falling back to Gemini OCR.
+      const dl = await sb.storage.from(storageBucket).download(storagePath);
+      if (dl.error || !dl.data) {
+        throw new Error(
+          `Storage download failed (${storageBucket}): ${dl.error?.message || "unknown"}`,
+        );
       }
+
+      const bytes = Buffer.from(await dl.data.arrayBuffer());
+      const ext = await extractTextSmart({
+        bytes,
+        mimeType: (doc as any)?.mime_type ?? null,
+        preferPdfText: preferPdfText !== false,
+        minPdfTextChars: Math.max(50, Math.min(20000, Number(minPdfTextChars ?? 900) || 900)),
+        azureModel,
+        azurePages,
+      });
+      extractedText = ext.text;
+      extractSource = "download_smart";
+      smartSource = ext.source;
 
       let docIntelStatus: "ok" | "skipped" | "error" = "skipped";
       let aiDocType: unknown = null;

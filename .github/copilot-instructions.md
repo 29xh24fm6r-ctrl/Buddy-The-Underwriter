@@ -46,7 +46,7 @@ const sb = supabaseAdmin();
 - **Location**: Stitch exports in `stitch_exports/`, generated pages use `<StitchFrame>`
 
 ### Document Intelligence Pipeline
-- **OCR**: Azure Form Recognizer via `@azure/ai-form-recognizer` (environment: `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT`)
+- **OCR**: Gemini OCR via Vertex AI (environment: `GOOGLE_APPLICATION_CREDENTIALS` + `GOOGLE_CLOUD_PROJECT` + `USE_GEMINI_OCR=true`)
 - **Text extraction**: PDF.js for table detection, hybrid approach for financials
 - **Quality scoring**: `scoreTableQuality()` and `scoreTextLayer()` in `@/lib/extract/quality/`
 - **Pack system**: "Packs" are grouped document requirements (e.g., "Business Tax Return Pack" = 3 years + schedules)
@@ -158,9 +158,11 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
 # AI
 OPENAI_API_KEY=sk-...
 
-# Azure OCR (optional but recommended)
-AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://...
-AZURE_DOCUMENT_INTELLIGENCE_KEY=...
+# Gemini OCR
+USE_GEMINI_OCR=true
+GOOGLE_CLOUD_PROJECT=...
+GOOGLE_APPLICATION_CREDENTIALS=/abs/path/to/service-account.json
+GOOGLE_API_KEY=...
 
 # Email (optional)
 RESEND_API_KEY=re_...
