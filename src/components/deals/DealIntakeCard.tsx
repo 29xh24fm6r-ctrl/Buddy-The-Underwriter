@@ -415,6 +415,9 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
               // Reduce OCR time on long PDFs: classify from first pages.
               // Tax returns often have cover sheets; scan more pages to hit the 1120/1040 page.
               maxPages: 10,
+
+              // Best-effort: include cockpit debug snapshot for event tracking.
+              client_debug: (window as any)?.__buddy_cockpit_debug ?? null,
             }),
           });
           json = await res.json();

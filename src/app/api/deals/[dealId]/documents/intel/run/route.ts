@@ -11,6 +11,7 @@ import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFr
 import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
 import { reconcileDealChecklist } from "@/lib/checklist/engine";
 import { getOcrEnvDiagnostics } from "@/lib/ocr/ocrEnvDiagnostics";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,10 @@ const BodySchema = z
     minPdfTextChars: z.number().int().min(50).max(20000).optional(),
     // Performance: allow limiting processing to first pages (e.g. 1-2) for quick classification.
     maxPages: z.number().int().min(1).max(20).optional(),
+
+    // Client-provided debug context (DealCockpitLoadingBar snapshot).
+    // Stored best-effort for reproducibility and support.
+    client_debug: z.unknown().optional(),
   })
   .optional();
 
@@ -1022,6 +1027,29 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
   const preferPdfText = body?.preferPdfText ?? true;
   const minPdfTextChars = body?.minPdfTextChars ?? 900;
   const maxPages = body?.maxPages;
+
+  // Best-effort canonical tracking: user initiated doc recognition.
+  // Never block recognition on tracking failures.
+  void writeEvent({
+    dealId,
+    kind: "documents.intel.run.requested",
+    actorUserId: userId,
+    scope: "ui",
+    action: "click",
+    input: {
+      dealId,
+      documentId,
+      limit,
+      scanLimit,
+      fast: !!fast,
+      preferPdfText: preferPdfText !== false,
+      minPdfTextChars,
+      maxPages: typeof maxPages === "number" ? maxPages : null,
+      client_debug: body?.client_debug ?? null,
+      server_ts: new Date().toISOString(),
+    },
+    requiresHumanReview: false,
+  });
 
   console.info("[documents/intel/run] POST", {
     dealId,
