@@ -79,6 +79,27 @@ function parseRequiredDistinctYearCountFromChecklistKey(checklistKeyRaw: string)
   return n;
 }
 
+function normalizeDocIntelDocTypeToCanonicalBucket(docTypeRaw: unknown): CanonicalDocTypeBucket | null {
+  const s = String(docTypeRaw ?? "").trim();
+  if (!s) return null;
+  // doc_intel_results.doc_type is expected to match these canonical strings.
+  if (s === "business_tax_return") return "business_tax_return";
+  if (s === "personal_tax_return") return "personal_tax_return";
+  if (s === "income_statement") return "income_statement";
+  if (s === "balance_sheet") return "balance_sheet";
+  if (s === "financial_statement") return "financial_statement";
+  return null;
+}
+
+function coerceYearArray(raw: unknown): number[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out = raw
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n))
+    .map((n) => Math.trunc(n));
+  return out.length ? Array.from(new Set(out)).sort((a, b) => b - a) : null;
+}
+
 /** Normalize loan types into stable keys. Extend as needed. */
 export function normalizeLoanType(raw: string | null | undefined): string {
   const v = String(raw || "").trim().toUpperCase();
@@ -186,6 +207,15 @@ export async function reconcileDealChecklist(dealId: string) {
   // Optional: pull OCR text for docs that still need year/type.
   // This lets us infer (e.g.) Form 1120 + tax year 2023 even when the filename is ambiguous.
   const ocrTextByDocId = new Map<string, string>();
+  const docIntelByDocId = new Map<
+    string,
+    {
+      docType: CanonicalDocTypeBucket | null;
+      taxYear: number | null;
+      detYears: number[] | null;
+      confidence01: number | null;
+    }
+  >();
   try {
     const needsOcrIds = (docs || [])
       .filter((d: any) => {
@@ -211,6 +241,38 @@ export async function reconcileDealChecklist(dealId: string) {
           if (id && t) ocrTextByDocId.set(id, t);
         }
       }
+
+      // Also pull doc-intel results; this is the most reliable source for doc_type + tax_year.
+      // Tolerate environments where the table or columns don't exist.
+      const intelRes = await (sb as any)
+        .from("doc_intel_results")
+        .select("file_id, doc_type, tax_year, confidence, extracted_json")
+        .eq("deal_id", dealId)
+        .in("file_id", needsOcrIds.slice(0, 200));
+
+      if (!intelRes.error) {
+        for (const r of intelRes.data || []) {
+          const id = String((r as any)?.file_id || "");
+          if (!id) continue;
+
+          const docType = normalizeDocIntelDocTypeToCanonicalBucket((r as any)?.doc_type);
+          const taxYearRaw = (r as any)?.tax_year;
+          const taxYearNum = Number(taxYearRaw);
+          const taxYear = Number.isFinite(taxYearNum) ? Math.trunc(taxYearNum) : null;
+
+          const extractedJson = (r as any)?.extracted_json;
+          const detYears = coerceYearArray(extractedJson?.det?.doc_years);
+
+          const confRaw = Number((r as any)?.confidence);
+          const confidence01 = Number.isFinite(confRaw)
+            ? confRaw > 1
+              ? Math.max(0, Math.min(1, confRaw / 100))
+              : Math.max(0, Math.min(1, confRaw))
+            : null;
+
+          docIntelByDocId.set(id, { docType, taxYear, detYears, confidence01 });
+        }
+      }
     }
   } catch {
     // ignore
@@ -226,18 +288,39 @@ export async function reconcileDealChecklist(dealId: string) {
 
     const m = matchChecklistKeyFromFilename(d.original_filename || "");
     const extractedText = ocrTextByDocId.get(String(d.id)) ?? null;
+    const intel = docIntelByDocId.get(String(d.id)) ?? null;
     const meta = inferDocumentMetadata({
       originalFilename: d.original_filename || null,
       extractedText,
     });
-    const docYears = meta.doc_years ?? (Array.isArray(m.yearsFound) && m.yearsFound.length ? m.yearsFound : null);
-    const docYear = meta.doc_year ?? (m.docYear ?? null);
-    const documentType = meta.document_type !== "unknown" ? meta.document_type : null;
+
+    const docYears =
+      meta.doc_years ??
+      intel?.detYears ??
+      (Array.isArray(m.yearsFound) && m.yearsFound.length ? m.yearsFound : null);
+
+    const docYear =
+      meta.doc_year ??
+      (Number.isFinite(Number(intel?.taxYear)) ? (intel?.taxYear as number) : null) ??
+      (m.docYear ?? null);
+
+    const documentType =
+      meta.document_type !== "unknown"
+        ? meta.document_type
+        : intel?.docType
+          ? intel.docType
+          : null;
+
     const inferredChecklistKey = inferChecklistKeyFromDocumentType(documentType);
-    const matchConfidence = Math.max(Number(m.confidence ?? 0) || 0, Number(meta.confidence ?? 0) || 0);
+    const matchConfidence = Math.max(
+      Number(m.confidence ?? 0) || 0,
+      Number(meta.confidence ?? 0) || 0,
+      Number(intel?.confidence01 ?? 0) || 0,
+    );
     const matchReason = [m.reason, meta.reason].filter(Boolean).join(" | ");
 
-    const hasYearOrType = Boolean(documentType) || Boolean(docYear) || (Array.isArray(docYears) && docYears.length > 0);
+    const hasYearOrType =
+      Boolean(documentType) || Boolean(docYear) || (Array.isArray(docYears) && docYears.length > 0);
     const hasConfidentKey = Boolean(m.matchedKey) && Number(m.confidence ?? 0) >= 0.6;
     if (!hasConfidentKey && !hasYearOrType) continue;
 
@@ -252,7 +335,7 @@ export async function reconcileDealChecklist(dealId: string) {
         document_type: (d as any)?.document_type || documentType,
         match_confidence: matchConfidence,
         match_reason: matchReason,
-        match_source: extractedText ? "ocr" : (m.source || "filename"),
+        match_source: intel ? "doc_intel" : extractedText ? "ocr" : (m.source || "filename"),
       } as any)
       .eq("id", d.id);
 
