@@ -5,6 +5,80 @@ import { Icon } from '@/components/ui/Icon';
 import useSWR from 'swr';
 import { onChecklistRefresh } from '@/lib/events/uiEvents';
 
+type ChecklistItem = {
+  id: string;
+  checklist_key: string;
+  title: string;
+  description?: string | null;
+  required: boolean;
+  status: string;
+  required_years?: number[] | null;
+  satisfied_years?: number[] | null;
+};
+
+function normStatus(s: unknown) {
+  return String(s || '').toLowerCase().trim();
+}
+
+function statusBadge(statusRaw: unknown) {
+  const status = normStatus(statusRaw);
+  if (status === 'received' || status === 'satisfied') {
+    return {
+      label: status.toUpperCase(),
+      className: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+    };
+  }
+  if (status === 'waived') {
+    return {
+      label: 'WAIVED',
+      className: 'border-neutral-200 bg-neutral-50 text-neutral-800',
+    };
+  }
+  if (status === 'pending') {
+    return {
+      label: 'PENDING',
+      className: 'border-amber-200 bg-amber-50 text-amber-900',
+    };
+  }
+  return {
+    label: 'MISSING',
+    className: 'border-amber-200 bg-amber-50 text-amber-900',
+  };
+}
+
+function yearChips(requiredYears: unknown, satisfiedYears: unknown) {
+  const req = Array.isArray(requiredYears)
+    ? requiredYears.map((y) => Number(y)).filter((y) => Number.isFinite(y))
+    : [];
+  if (!req.length) return null;
+  const sat = new Set<number>(
+    Array.isArray(satisfiedYears)
+      ? satisfiedYears.map((y) => Number(y)).filter((y) => Number.isFinite(y))
+      : [],
+  );
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {req
+        .sort((a, b) => b - a)
+        .map((y) => {
+          const ok = sat.has(y);
+          return (
+            <span
+              key={String(y)}
+              className={
+                ok
+                  ? 'rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-900'
+                  : 'rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-[11px] text-neutral-700'
+              }
+            >
+              {y}
+            </span>
+          );
+        })}
+    </div>
+  );
+}
+
 const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then(async (res) => {
   const json = await res.json();
   console.log('[EnhancedChecklistCard] API Response:', {
@@ -62,8 +136,7 @@ export function EnhancedChecklistCard({
   }, [data, error]);
 
   const isProcessing = data?.state === 'processing';
-  const items = data?.items || [];
-  const normStatus = (s: any) => String(s || '').toLowerCase().trim();
+  const items: ChecklistItem[] = (data?.items || []) as any;
   const received = items.filter((i: any) => {
     const st = normStatus(i.status);
     return st === 'received' || st === 'satisfied';
@@ -142,7 +215,58 @@ export function EnhancedChecklistCard({
             </div>
           ) : (
             <>
-              {/* Items renderings */}
+              {items
+                .slice()
+                .sort((a, b) => {
+                  // Pending first, then required, then stable by key.
+                  const ap = pending.some((p) => p.id === a.id) ? 0 : 1;
+                  const bp = pending.some((p) => p.id === b.id) ? 0 : 1;
+                  if (ap !== bp) return ap - bp;
+                  if (a.required !== b.required) return a.required ? -1 : 1;
+                  return String(a.checklist_key).localeCompare(String(b.checklist_key));
+                })
+                .map((it) => {
+                  const badge = statusBadge(it.status);
+                  return (
+                    <div
+                      key={it.id}
+                      className="rounded-lg border border-neutral-200 bg-white p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${badge.className}`}
+                            >
+                              {badge.label}
+                            </span>
+                            {it.required ? (
+                              <span className="rounded-md border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[11px] text-neutral-700">
+                                Required
+                              </span>
+                            ) : (
+                              <span className="rounded-md border border-neutral-200 bg-white px-2 py-0.5 text-[11px] text-neutral-600">
+                                Optional
+                              </span>
+                            )}
+                            <span className="truncate rounded-md border border-neutral-200 bg-white px-2 py-0.5 text-[11px] text-neutral-600">
+                              {it.checklist_key}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-sm font-medium text-neutral-900">
+                            {it.title}
+                          </div>
+                          {it.description ? (
+                            <div className="mt-1 text-xs text-neutral-600">
+                              {it.description}
+                            </div>
+                          ) : null}
+                          {yearChips(it.required_years, it.satisfied_years)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
             </>
         )}
       </div>
