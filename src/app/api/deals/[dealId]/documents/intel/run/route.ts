@@ -14,6 +14,19 @@ import { reconcileDealChecklist } from "@/lib/checklist/engine";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function getOcrConfig() {
+  const useGeminiOcrEnabled = process.env.USE_GEMINI_OCR === "true";
+  const hasGoogleProject = !!(process.env.GOOGLE_CLOUD_PROJECT || process.env.GOOGLE_PROJECT_ID);
+  const hasGoogleCredentialsHint = !!(
+    process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+    process.env.GEMINI_SERVICE_ACCOUNT_JSON ||
+    process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ||
+    process.env.GEMINI_API_KEY
+  );
+  return { useGeminiOcrEnabled, hasGoogleProject, hasGoogleCredentialsHint };
+}
+
 function mkReqId() {
   try {
     // Node 20+ (Vercel) supports crypto.randomUUID()
@@ -374,6 +387,7 @@ async function runIntelForDeal(args: {
     preferPdfText: preferPdfText !== false,
     minPdfTextChars: Number(minPdfTextChars ?? 0) || null,
     maxPages: typeof maxPages === "number" ? maxPages : null,
+    ocrConfig: getOcrConfig(),
   });
 
   const sb = supabaseAdmin();
@@ -565,6 +579,7 @@ async function runIntelForDeal(args: {
         reqId,
         dealId,
         status: remaining === 0 ? "complete" : "partial",
+        ocr_config: getOcrConfig(),
         totals: { totalDocs: t, trustedDocs: trusted, remainingDocs: remaining },
         processed: 0,
         analyzed: 0,
@@ -913,6 +928,7 @@ async function runIntelForDeal(args: {
       reqId,
       dealId,
       status: remaining === 0 ? "complete" : "partial",
+      ocr_config: getOcrConfig(),
       totals: { totalDocs: t, trustedDocs: trusted, remainingDocs: remaining },
       processed: list.length,
       analyzed,
@@ -1016,6 +1032,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
   const preferPdfText = body?.preferPdfText ?? true;
   const minPdfTextChars = body?.minPdfTextChars ?? 900;
   const maxPages = body?.maxPages;
+
+  console.info("[documents/intel/run] POST", {
+    dealId,
+    documentId,
+    limit,
+    scanLimit,
+    fast: !!fast,
+    preferPdfText: preferPdfText !== false,
+    minPdfTextChars,
+    maxPages: typeof maxPages === "number" ? maxPages : null,
+  });
 
   return runIntelForDeal({
     req,

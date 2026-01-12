@@ -392,7 +392,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         );
 
         const ac = new AbortController();
-        const t = setTimeout(() => ac.abort(), 30_000); // 30 sec per batch of 15
+        const t = setTimeout(() => ac.abort(), 55_000); // keep under typical serverless max durations
 
         let res: Response | null = null;
         let json: any = null;
@@ -423,7 +423,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
           if (isAbort) {
             setMatchMessage(
               `⏳ AI Doc Recognition is still running…\nRun ${run}/${maxRuns}\n` +
-                `A single document took longer than 55s (common on Preview). Continuing…`,
+                `A single batch took longer than 55s. Continuing…`,
             );
             await sleep(650);
             continue;
@@ -442,11 +442,53 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         }
 
         const totals = json?.totals || null;
+        const ocrConfig = json?.ocr_config || null;
         const reqId = typeof json?.reqId === "string" ? json.reqId : null;
         const totalDocs = Number(totals?.totalDocs ?? 0) || 0;
         const trustedDocs = Number(totals?.trustedDocs ?? 0) || 0;
         const remainingDocs = Number(totals?.remainingDocs ?? 0) || 0;
         const status = String(json?.status || "");
+
+        // If backend is consistently erroring (e.g. OCR not configured), stop early and show the real issue.
+        const results: any[] = Array.isArray(json?.results) ? json.results : [];
+        const errorResults = results.filter((r) => r?.ocr === "error" || r?.doc_intel === "error");
+        if (errorResults.length > 0) {
+          const firstError = String(errorResults[0]?.error || "Unknown error");
+
+          const needsGemini = firstError.includes("Gemini OCR is required") || firstError.includes("USE_GEMINI_OCR");
+          const missingGoogle =
+            firstError.toLowerCase().includes("missing google") ||
+            firstError.toLowerCase().includes("google cloud project") ||
+            firstError.toLowerCase().includes("google credentials") ||
+            firstError.toLowerCase().includes("application_credentials");
+
+          const configHintLines: string[] = [];
+          if (ocrConfig && typeof ocrConfig === "object") {
+            const useGemini = (ocrConfig as any)?.useGeminiOcrEnabled;
+            const hasProject = (ocrConfig as any)?.hasGoogleProject;
+            const hasCreds = (ocrConfig as any)?.hasGoogleCredentialsHint;
+            configHintLines.push(
+              `env: USE_GEMINI_OCR=${useGemini ? "true" : "false"}, GOOGLE_CLOUD_PROJECT=${hasProject ? "set" : "missing"}, creds=${hasCreds ? "set" : "missing"}`,
+            );
+          }
+
+          if (needsGemini || missingGoogle) {
+            setMatchMessage(
+              `⚠️ AI Doc Recognition can't run OCR in this environment.\n\n` +
+                `Error: ${firstError}\n\n` +
+                `${configHintLines.length ? configHintLines.join("\n") + "\n\n" : ""}` +
+                `Fix: set Vercel env vars (USE_GEMINI_OCR=\"true\", GOOGLE_CLOUD_PROJECT, and service-account JSON via GEMINI_SERVICE_ACCOUNT_JSON) and redeploy.`,
+            );
+            return;
+          }
+
+          setMatchMessage(
+            `⚠️ Doc recognition hit errors on ${errorResults.length}/${results.length} docs.\n\n` +
+              `First error: ${firstError}\n\n` +
+              `Tip: Open console / logs with reqId ${reqId || "(none)"} to see which files failed.`,
+          );
+          return;
+        }
 
         setAiProgress({ totalDocs, trustedDocs, remainingDocs, runs: run });
 
