@@ -28,6 +28,12 @@ function statusBadge(statusRaw: unknown) {
       className: 'border-emerald-200 bg-emerald-50 text-emerald-900',
     };
   }
+  if (status === 'needs_review') {
+    return {
+      label: 'NEEDS REVIEW',
+      className: 'border-yellow-200 bg-yellow-50 text-yellow-900',
+    };
+  }
   if (status === 'waived') {
     return {
       label: 'WAIVED',
@@ -46,35 +52,52 @@ function statusBadge(statusRaw: unknown) {
   };
 }
 
-function yearChips(requiredYears: unknown, satisfiedYears: unknown) {
+function yearChips(checklistKey: unknown, requiredYears: unknown, satisfiedYears: unknown) {
+  const key = String(checklistKey ?? '').toUpperCase();
+  const isIrs = key.startsWith('IRS_BUSINESS') || key.startsWith('IRS_PERSONAL');
+  const m = key.match(/_(\d)Y\b/);
+  const requiredDistinct = isIrs && m ? Number(m[1]) : null;
+
   const req = Array.isArray(requiredYears)
     ? requiredYears.map((y) => Number(y)).filter((y) => Number.isFinite(y))
     : [];
-  if (!req.length) return null;
   const sat = new Set<number>(
     Array.isArray(satisfiedYears)
       ? satisfiedYears.map((y) => Number(y)).filter((y) => Number.isFinite(y))
       : [],
   );
+
+  // IRS keys satisfy by distinct-year count; show actual years received.
+  // For other keys, prefer required years (when present) to show what's missing.
+  const show = isIrs
+    ? Array.from(sat).sort((a, b) => b - a)
+    : req.length
+      ? req.slice().sort((a, b) => b - a)
+      : Array.from(sat).sort((a, b) => b - a);
+
+  if (!show.length) return null;
   return (
-    <div className="mt-2 flex flex-wrap gap-1">
-      {req
-        .sort((a, b) => b - a)
-        .map((y) => {
-          const ok = sat.has(y);
-          return (
-            <span
-              key={String(y)}
-              className={
-                ok
-                  ? 'rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-900'
-                  : 'rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-[11px] text-neutral-700'
-              }
-            >
-              {y}
-            </span>
-          );
-        })}
+    <div className="mt-2 flex flex-wrap items-center gap-1">
+      {show.map((y) => {
+        const ok = sat.has(y);
+        return (
+          <span
+            key={String(y)}
+            className={
+              ok
+                ? 'rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-900'
+                : 'rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-[11px] text-neutral-700'
+            }
+          >
+            {y}
+          </span>
+        );
+      })}
+      {Number.isFinite(requiredDistinct as any) ? (
+        <span className="ml-1 text-[11px] text-neutral-600">
+          Distinct years: {sat.size}/{requiredDistinct}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -143,7 +166,7 @@ export function EnhancedChecklistCard({
   });
   const pending = items.filter((i: any) => {
     const st = normStatus(i.status);
-    return st === 'pending' || st === 'missing' || !st;
+    return st === 'pending' || st === 'missing' || st === 'needs_review' || !st;
   });
   const optional = items.filter((i: any) => !i.required);
   
@@ -261,7 +284,7 @@ export function EnhancedChecklistCard({
                               {it.description}
                             </div>
                           ) : null}
-                          {yearChips(it.required_years, it.satisfied_years)}
+                          {yearChips(it.checklist_key, it.required_years, it.satisfied_years)}
                         </div>
                       </div>
                     </div>

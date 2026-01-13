@@ -16,8 +16,14 @@ function defaultRequiredYearsFromKey(checklistKeyRaw: string): number[] | null {
   const n = Number(m[1]);
   if (!Number.isFinite(n) || n <= 0) return null;
 
-  const currentYear = new Date().getUTCFullYear();
-  const lastFiled = currentYear - 1;
+  // Filing-season aware: early in the year (pre-April 16), most borrowers haven't filed
+  // the prior year yet, so the latest *filed* year is typically currentYear-2.
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const month = now.getUTCMonth() + 1; // 1..12
+  const day = now.getUTCDate();
+  const afterApr15 = month > 4 || (month === 4 && day >= 16);
+  const lastFiled = afterApr15 ? currentYear - 1 : currentYear - 2;
   const years: number[] = [];
   for (let i = 0; i < n; i++) years.push(lastFiled - i);
   return years;

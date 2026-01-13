@@ -8,7 +8,7 @@ type Item = {
   title: string;
   description: string | null;
   required: boolean;
-  status: "missing" | "pending" | "received" | "satisfied" | "waived";
+  status: "missing" | "pending" | "needs_review" | "received" | "satisfied" | "waived";
   received_at: string | null;
   satisfied_at?: string | null;
   required_years?: number[] | null;
@@ -19,6 +19,9 @@ type Item = {
 function badgeTone(status: Item["status"]) {
   if (status === "received" || status === "satisfied") {
     return "border-emerald-900/40 bg-emerald-950/20 text-emerald-200";
+  }
+  if (status === "needs_review") {
+    return "border-yellow-900/40 bg-yellow-950/20 text-yellow-200";
   }
   if (status === "waived") return "border-neutral-700 bg-neutral-900/40 text-neutral-200";
   return "border-amber-900/40 bg-amber-950/20 text-amber-200";
@@ -244,16 +247,29 @@ export default function DealChecklistCard({ dealId }: { dealId: string }) {
                 </div>
                 <div className="mt-1 text-sm text-neutral-100">{it.title}</div>
 
-                {Array.isArray(it.required_years) && it.required_years.length ? (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {it.required_years
-                      .map((y) => Number(y))
-                      .filter((y) => Number.isFinite(y))
-                      .sort((a, b) => b - a)
-                      .map((y) => {
-                        const satisfied = Array.isArray(it.satisfied_years)
-                          ? it.satisfied_years.includes(y)
-                          : false;
+                {(() => {
+                  const key = String(it.checklist_key ?? "").toUpperCase();
+                  const isIrs = key.startsWith("IRS_BUSINESS") || key.startsWith("IRS_PERSONAL");
+                  const m = key.match(/_(\d)Y\b/);
+                  const requiredDistinct = isIrs && m ? Number(m[1]) : null;
+
+                  const req = Array.isArray(it.required_years)
+                    ? it.required_years
+                        .map((y) => Number(y))
+                        .filter((y) => Number.isFinite(y))
+                    : [];
+                  const sat = Array.isArray(it.satisfied_years)
+                    ? it.satisfied_years
+                        .map((y) => Number(y))
+                        .filter((y) => Number.isFinite(y))
+                    : [];
+                  const show = (isIrs ? sat : req.length ? req : sat).slice().sort((a, b) => b - a);
+                  if (!show.length) return null;
+                  const satSet = new Set<number>(sat);
+                  return (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {show.map((y) => {
+                        const satisfied = satSet.has(y);
                         return (
                           <span
                             key={String(y)}
@@ -267,8 +283,14 @@ export default function DealChecklistCard({ dealId }: { dealId: string }) {
                           </span>
                         );
                       })}
-                  </div>
-                ) : null}
+                      {Number.isFinite(requiredDistinct as any) ? (
+                        <span className="text-[11px] text-neutral-300/80">
+                          Distinct years: {satSet.size}/{requiredDistinct}
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                })()}
 
                 <div className="mt-1 text-xs opacity-80">
                   Key: <span className="font-mono">{it.checklist_key}</span>
@@ -284,13 +306,23 @@ export default function DealChecklistCard({ dealId }: { dealId: string }) {
                 >
                   Mark Missing
                 </button>
-                <button
-                  onClick={() => setStatus(it.checklist_key, "waived")}
-                  disabled={busy}
-                  className="rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-100 hover:bg-neutral-800 disabled:opacity-50"
-                >
-                  Waive
-                </button>
+                {it.status === "waived" ? (
+                  <button
+                    onClick={() => setStatus(it.checklist_key, "missing")}
+                    disabled={busy}
+                    className="rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-100 hover:bg-neutral-800 disabled:opacity-50"
+                  >
+                    Unignore
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setStatus(it.checklist_key, "waived")}
+                    disabled={busy}
+                    className="rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-100 hover:bg-neutral-800 disabled:opacity-50"
+                  >
+                    Ignore (not needed)
+                  </button>
+                )}
                 <button
                   onClick={() => setStatus(it.checklist_key, "received")}
                   disabled={busy}

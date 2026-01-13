@@ -483,6 +483,55 @@ export async function reconcileDealChecklist(dealId: string) {
 
   let checklistMarkedReceived = 0;
 
+  // Pull AI mapping evidence (high-confidence only). This allows checklist satisfaction even
+  // when stamping couldn't happen at upload time, and avoids relying on filenames.
+  const mappingYearsByKey = new Map<string, Set<number>>();
+  const mappingBestByKey = new Map<string, number>();
+  const mappingSuggestByKey = new Map<string, number>();
+  try {
+    const mapRes = await (sb as any)
+      .from("deal_doc_mappings")
+      .select("checklist_key, doc_year, confidence, status")
+      .eq("deal_id", dealId)
+      .limit(1000);
+
+    if (!mapRes.error) {
+      for (const m of mapRes.data || []) {
+        const key = String((m as any)?.checklist_key || "").trim();
+        if (!key) continue;
+
+        const confRaw = Number((m as any)?.confidence);
+        const conf = Number.isFinite(confRaw)
+          ? confRaw > 1
+            ? Math.max(0, Math.min(1, confRaw / 100))
+            : Math.max(0, Math.min(1, confRaw))
+          : 0;
+
+        const status = String((m as any)?.status || "");
+        const suggested = status === "suggested" || (conf >= 0.7 && conf < 0.9);
+        if (suggested) {
+          const prevS = mappingSuggestByKey.get(key) ?? 0;
+          if (conf > prevS) mappingSuggestByKey.set(key, conf);
+        }
+
+        const ok = status === "auto_accepted" || conf >= 0.9;
+        if (!ok) continue;
+
+        const prev = mappingBestByKey.get(key) ?? 0;
+        if (conf > prev) mappingBestByKey.set(key, conf);
+
+        const y = Number((m as any)?.doc_year);
+        if (Number.isFinite(y)) {
+          const set = mappingYearsByKey.get(key) ?? new Set<number>();
+          set.add(Math.trunc(y));
+          mappingYearsByKey.set(key, set);
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   for (const item of checklistItems || []) {
     const itemKey = String((item as any)?.checklist_key || "").trim();
     if (!itemKey) continue;
@@ -517,6 +566,12 @@ export async function reconcileDealChecklist(dealId: string) {
       const y1 = Number((d as any)?.doc_year);
       if (Number.isFinite(y1)) satisfiedYearsSet.add(y1);
     }
+
+    // Add AI mapping evidence years (high-confidence only)
+    const mappedYears = mappingYearsByKey.get(itemKey);
+    if (mappedYears && mappedYears.size) {
+      for (const y of mappedYears) satisfiedYearsSet.add(y);
+    }
     const satisfiedYears = Array.from(satisfiedYearsSet).sort((a, b) => b - a);
 
     // For tax return requirements (IRS_*_nY), satisfy by DISTINCT YEAR COUNT.
@@ -531,6 +586,10 @@ export async function reconcileDealChecklist(dealId: string) {
       : requiredYears && requiredYears.length
         ? requiredYears.every((y) => satisfiedYearsSet.has(y))
         : docsForItem.length > 0;
+
+    // If there are no docs but we have a high-confidence mapping for this key, treat as satisfied.
+    const hasHighConfidenceMapping = (mappingBestByKey.get(itemKey) ?? 0) >= 0.9;
+    const satisfiedByMappingOnly = docsForItem.length === 0 && hasHighConfidenceMapping;
 
     // Always attempt to persist satisfied_years (even when partial), when column exists.
     if (hasSatisfiedYearsColumn) {
@@ -547,7 +606,7 @@ export async function reconcileDealChecklist(dealId: string) {
       }
     }
 
-    if (!isSatisfied) continue;
+    if (!isSatisfied && !satisfiedByMappingOnly) continue;
 
     if ((item as any)?.status !== "received") {
       const attempt = await sb
@@ -564,6 +623,38 @@ export async function reconcileDealChecklist(dealId: string) {
 
       checklistMarkedReceived += 1;
     }
+  }
+
+  // If we have mid-confidence AI mappings, mark items as needs_review (without receiving).
+  // This is schema-tolerant: if the system rejects the status value, ignore.
+  try {
+    const toReview = (checklistItems || [])
+      .filter((it: any) => {
+        const key = String(it?.checklist_key || "").trim();
+        if (!key) return false;
+        const s = String(it?.status || "");
+        if (s === "received" || s === "satisfied" || s === "waived") return false;
+        const conf = mappingSuggestByKey.get(key) ?? 0;
+        return conf >= 0.7;
+      })
+      .map((it: any) => String(it.id))
+      .filter(Boolean);
+
+    if (toReview.length) {
+      const upd = await sb
+        .from("deal_checklist_items")
+        .update({ status: "needs_review" } as any)
+        .in("id", toReview);
+
+      if (upd.error) {
+        const msg = String(upd.error.message || "");
+        if (!msg.toLowerCase().includes("invalid") && !msg.toLowerCase().includes("constraint")) {
+          throw new Error(`checklist_mark_needs_review_failed: ${upd.error.message}`);
+        }
+      }
+    }
+  } catch {
+    // ignore
   }
 
   // DB trigger handles satisfaction computation and checklist status updates.

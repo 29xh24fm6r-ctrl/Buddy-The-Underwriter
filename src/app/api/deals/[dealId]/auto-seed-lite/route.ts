@@ -9,6 +9,27 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ dealId: string }> };
 
+function defaultRequiredYearsFromKey(checklistKeyRaw: string): number[] | null {
+  const key = String(checklistKeyRaw || "").toUpperCase();
+  const m = key.match(/_(\d)Y\b/);
+  if (!m) return null;
+
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return null;
+
+  // Filing-season aware: early in the year (pre-April 16), most borrowers haven't filed
+  // the prior year yet, so the latest *filed* year is typically currentYear-2.
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const month = now.getUTCMonth() + 1; // 1..12
+  const day = now.getUTCDate();
+  const afterApr15 = month > 4 || (month === 4 && day >= 16);
+  const lastFiled = afterApr15 ? currentYear - 1 : currentYear - 2;
+  const years: number[] = [];
+  for (let i = 0; i < n; i++) years.push(lastFiled - i);
+  return years;
+}
+
 function getRequestId(req: NextRequest) {
   return (
     req.headers.get("x-request-id") ||
@@ -185,14 +206,18 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     const baseRows = buildChecklistForLoanType(intake.loan_type as any);
-    const checklistRowsWithBank = baseRows.map((r) => ({
-      deal_id: dealId,
-      bank_id: bankId,
-      checklist_key: r.checklist_key,
-      title: r.title,
-      description: r.description ?? null,
-      required: r.required,
-    }));
+    const checklistRowsWithBank = baseRows.map((r) => {
+      const years = defaultRequiredYearsFromKey(r.checklist_key);
+      return {
+        deal_id: dealId,
+        bank_id: bankId,
+        checklist_key: r.checklist_key,
+        title: r.title,
+        description: r.description ?? null,
+        required: r.required,
+        ...(years ? { required_years: years } : null),
+      } as any;
+    });
 
     const { error: seedErr } = await withTimeout(
       sb

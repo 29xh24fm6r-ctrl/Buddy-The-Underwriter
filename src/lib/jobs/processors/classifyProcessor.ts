@@ -5,6 +5,8 @@ import { reconcileConditionsFromOcrResult } from "@/lib/conditions/reconcileCond
 import { createClient } from "@supabase/supabase-js";
 import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { persistAiMapping } from "@/lib/ai-docs/persistMapping";
+import { buildGeminiScanResultFromExtractedText } from "@/lib/ai-docs/mapToChecklist";
 
 /**
  * Classification Job Processor
@@ -36,6 +38,8 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
     attachmentId: string;
     extractedText: string;
     classifierDocType?: string | null;
+    classifierConfidence01?: number | null;
+    classifierReasons?: any;
   }) {
     try {
       const docRes = await (supabase as any)
@@ -45,9 +49,9 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
         .eq("id", args.attachmentId)
         .maybeSingle();
 
-      const originalFilename = String(docRes.data?.original_filename ?? "");
       const inferred = inferDocumentMetadata({
-        originalFilename: originalFilename || null,
+        // Do not rely on borrower-provided filenames for classification.
+        originalFilename: null,
         extractedText: args.extractedText,
       });
 
@@ -55,6 +59,37 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
       const inferredType = inferred.document_type !== "unknown" ? inferred.document_type : null;
       const classifierType = mapClassifierDocTypeToCanonicalBucket(args.classifierDocType);
       const nextType = inferredType ?? classifierType;
+
+      // Persist mapping evidence for adaptive checklist (best-effort).
+      // Only do this when we're operating on a canonical deal_documents row.
+      if (!docRes.error && docRes.data?.id) {
+        const confidence01 = Math.max(
+          Number(inferred.confidence ?? 0) || 0,
+          Number(args.classifierConfidence01 ?? 0) || 0,
+        );
+        const scan = buildGeminiScanResultFromExtractedText({
+          extractedText: args.extractedText,
+          inferredDocType: nextType,
+          inferredTaxYear: inferred.doc_year ?? null,
+          confidence01,
+          extracted: {
+            source: "classify_job",
+            classifyDocument: {
+              doc_type: args.classifierDocType ?? null,
+              confidence: args.classifierConfidence01 ?? null,
+              reasons: args.classifierReasons ?? null,
+            },
+            inferDocumentMetadata: inferred,
+          },
+        });
+
+        await persistAiMapping({
+          dealId: String(args.dealId),
+          documentId: String(args.attachmentId),
+          scan,
+          model: "gemini_ocr+classify_job",
+        });
+      }
 
       const attempt1 = await (supabase as any)
         .from("deal_documents")
@@ -151,6 +186,9 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
       attachmentId: String(job.attachment_id),
       extractedText: String(ocrResult.extracted_text ?? ""),
       classifierDocType: String(classifyResult.doc_type ?? ""),
+      classifierConfidence01:
+        typeof (classifyResult as any).confidence === "number" ? (classifyResult as any).confidence : null,
+      classifierReasons: (classifyResult as any).reasons ?? null,
     });
 
     // MEGA STEP 10: Reconcile conditions (auto-satisfy matching conditions)

@@ -726,7 +726,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
             : autoSeeding 
             ? "Seeding checklist…" 
             : isReady 
-            ? "Auto-Seed Checklist ✓" 
+            ? "Save + Auto-Seed Checklist" 
             : `Processing ${persistedUploads}/${expectedUploads}…`}
         </button>
 
