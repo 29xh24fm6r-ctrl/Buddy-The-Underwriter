@@ -16,6 +16,12 @@ type ChecklistItem = {
   satisfied_years?: number[] | null;
 };
 
+// Non-negotiables: these must always remain required.
+const PROTECTED_REQUIRED_KEYS = new Set([
+  'IRS_BUSINESS_3Y',
+  'IRS_PERSONAL_3Y',
+]);
+
 function normStatus(s: unknown) {
   return String(s || '').toLowerCase().trim();
 }
@@ -128,6 +134,8 @@ export function EnhancedChecklistCard({
     fetcher,
   );
 
+  const [togglingKey, setTogglingKey] = React.useState<string | null>(null);
+
   const refresh = React.useCallback(async () => {
     await mutate();
   }, [mutate]);
@@ -199,6 +207,34 @@ export function EnhancedChecklistCard({
     );
   }
 
+  async function toggleRequired(it: ChecklistItem) {
+    const checklistKey = String(it.checklist_key || '').trim();
+    if (!checklistKey) return;
+
+    const upper = checklistKey.toUpperCase();
+    if (it.required && PROTECTED_REQUIRED_KEYS.has(upper)) {
+      // Guardrail: don't allow bankers to mark these as optional.
+      return;
+    }
+
+    setTogglingKey(checklistKey);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/checklist/set-required`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ checklistKey, required: !it.required }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        console.error('[EnhancedChecklistCard] set-required failed', { checklistKey, json });
+        return;
+      }
+      await refresh();
+    } finally {
+      setTogglingKey(null);
+    }
+  }
+
   return (
     <div className="rounded-xl border border-neutral-200 bg-white shadow-sm text-neutral-900">
       <div className="border-b border-neutral-200 p-4">
@@ -241,20 +277,31 @@ export function EnhancedChecklistCard({
               {items
                 .slice()
                 .sort((a, b) => {
-                  // Pending first, then required, then stable by key.
-                  const ap = pending.some((p) => p.id === a.id) ? 0 : 1;
-                  const bp = pending.some((p) => p.id === b.id) ? 0 : 1;
-                  if (ap !== bp) return ap - bp;
+                  // Received/satisfied first, then the rest, waived last.
+                  const aStatus = normStatus(a.status);
+                  const bStatus = normStatus(b.status);
+                  const aGroup =
+                    aStatus === 'received' || aStatus === 'satisfied'
+                      ? 0
+                      : aStatus === 'waived'
+                        ? 2
+                        : 1;
+                  const bGroup =
+                    bStatus === 'received' || bStatus === 'satisfied'
+                      ? 0
+                      : bStatus === 'waived'
+                        ? 2
+                        : 1;
+                  if (aGroup !== bGroup) return aGroup - bGroup;
                   if (a.required !== b.required) return a.required ? -1 : 1;
                   return String(a.checklist_key).localeCompare(String(b.checklist_key));
                 })
                 .map((it) => {
                   const badge = statusBadge(it.status);
+                  const keyUpper = String(it.checklist_key || '').toUpperCase();
+                  const isProtected = it.required && PROTECTED_REQUIRED_KEYS.has(keyUpper);
                   return (
-                    <div
-                      key={it.id}
-                      className="rounded-lg border border-neutral-200 bg-white p-3"
-                    >
+                    <div key={it.id} className="rounded-lg border border-neutral-200 bg-white p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
@@ -272,17 +319,26 @@ export function EnhancedChecklistCard({
                                 Optional
                               </span>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => void toggleRequired(it)}
+                              disabled={togglingKey === it.checklist_key || isProtected}
+                              className="rounded-md border border-neutral-200 bg-white px-2 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-60"
+                              title={
+                                isProtected
+                                  ? 'This item is required and cannot be marked optional'
+                                  : 'Toggle Required/Optional'
+                              }
+                            >
+                              {it.required ? 'Make optional' : 'Make required'}
+                            </button>
                             <span className="truncate rounded-md border border-neutral-200 bg-white px-2 py-0.5 text-[11px] text-neutral-600">
                               {it.checklist_key}
                             </span>
                           </div>
-                          <div className="mt-1 text-sm font-medium text-neutral-900">
-                            {it.title}
-                          </div>
+                          <div className="mt-1 text-sm font-medium text-neutral-900">{it.title}</div>
                           {it.description ? (
-                            <div className="mt-1 text-xs text-neutral-600">
-                              {it.description}
-                            </div>
+                            <div className="mt-1 text-xs text-neutral-600">{it.description}</div>
                           ) : null}
                           {yearChips(it.checklist_key, it.required_years, it.satisfied_years)}
                         </div>
