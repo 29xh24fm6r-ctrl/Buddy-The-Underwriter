@@ -1,4 +1,13 @@
-export type ChecklistStatus = "missing" | "requested" | "pending" | "received" | "waived";
+export type ChecklistStatus =
+  | "missing"
+  | "requested"
+  | "pending"
+  | "needs_review"
+  | "received"
+  | "satisfied"
+  | "waived"
+  | "optional"
+  | "in_review";
 
 export type ChecklistDefinition = {
   checklist_key: string;

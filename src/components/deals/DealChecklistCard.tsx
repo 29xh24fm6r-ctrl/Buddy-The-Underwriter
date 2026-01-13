@@ -287,13 +287,23 @@ export default function DealChecklistCard({ dealId }: { dealId: string }) {
                 >
                   Mark Missing
                 </button>
-                <button
-                  onClick={() => setStatus(it.checklist_key, "waived")}
-                  disabled={busy}
-                  className="rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-100 hover:bg-neutral-800 disabled:opacity-50"
-                >
-                  Waive
-                </button>
+                {it.status === "waived" ? (
+                  <button
+                    onClick={() => setStatus(it.checklist_key, "missing")}
+                    disabled={busy}
+                    className="rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-100 hover:bg-neutral-800 disabled:opacity-50"
+                  >
+                    Unignore
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setStatus(it.checklist_key, "waived")}
+                    disabled={busy}
+                    className="rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-100 hover:bg-neutral-800 disabled:opacity-50"
+                  >
+                    Ignore (not needed)
+                  </button>
+                )}
                 <button
                   onClick={() => setStatus(it.checklist_key, "received")}
                   disabled={busy}

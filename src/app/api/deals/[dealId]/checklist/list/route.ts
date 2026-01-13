@@ -108,7 +108,7 @@ export async function GET(
     const counts = {
       total: items.length,
       received: items.filter((i: any) => i.status === "received" || i.status === "satisfied").length,
-      pending: items.filter((i: any) => i.status === "pending" || i.status === "missing" || !i.status).length,
+      pending: items.filter((i: any) => i.status === "pending" || i.status === "missing" || i.status === "needs_review" || !i.status).length,
       optional: items.filter((i: any) => i.required === false).length,
     };
 

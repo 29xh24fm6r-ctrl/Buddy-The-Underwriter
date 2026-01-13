@@ -6,7 +6,7 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ALLOWED_STATUSES = ["missing", "received", "waived", "pending", "optional", "in_review"] as const;
+const ALLOWED_STATUSES = ["missing", "received", "waived", "pending", "optional", "in_review", "needs_review"] as const;
 type Status = typeof ALLOWED_STATUSES[number];
 type Body = { checklistKey: string; status: Status };
 
