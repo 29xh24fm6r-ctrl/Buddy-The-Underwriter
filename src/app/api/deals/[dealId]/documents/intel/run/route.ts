@@ -270,6 +270,9 @@ function toDocIntelDocType(metaType: string): string {
   // matches based on BUSINESS/TAX and PERSONAL/TAX tokens.
   if (metaType === "business_tax_return") return "business_tax_return";
   if (metaType === "personal_tax_return") return "personal_tax_return";
+  if (metaType === "income_statement") return "income_statement";
+  if (metaType === "balance_sheet") return "balance_sheet";
+  if (metaType === "financial_statement") return "financial_statement";
   return "Unknown";
 }
 

@@ -80,14 +80,58 @@ function parseRequiredDistinctYearCountFromChecklistKey(checklistKeyRaw: string)
 }
 
 function normalizeDocIntelDocTypeToCanonicalBucket(docTypeRaw: unknown): CanonicalDocTypeBucket | null {
-  const s = String(docTypeRaw ?? "").trim();
-  if (!s) return null;
-  // doc_intel_results.doc_type is expected to match these canonical strings.
-  if (s === "business_tax_return") return "business_tax_return";
-  if (s === "personal_tax_return") return "personal_tax_return";
-  if (s === "income_statement") return "income_statement";
-  if (s === "balance_sheet") return "balance_sheet";
-  if (s === "financial_statement") return "financial_statement";
+  const raw = String(docTypeRaw ?? "").trim();
+  if (!raw) return null;
+
+  // Canonical values (preferred)
+  if (raw === "business_tax_return") return "business_tax_return";
+  if (raw === "personal_tax_return") return "personal_tax_return";
+  if (raw === "income_statement") return "income_statement";
+  if (raw === "balance_sheet") return "balance_sheet";
+  if (raw === "financial_statement") return "financial_statement";
+
+  // Tolerate older / alternate doc_type strings (e.g. OpenAI/legacy)
+  // Normalize to a token soup.
+  const s = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  const has = (t: string) => s.includes(t);
+
+  const looksIncome =
+    has("income_statement") ||
+    has("profit_and_loss") ||
+    has("profit_loss") ||
+    has("p_l") ||
+    has("pl") ||
+    has("statement_of_operations") ||
+    has("statement_of_income");
+
+  const looksBalance =
+    has("balance_sheet") ||
+    has("statement_of_financial_position") ||
+    has("financial_position");
+
+  if (looksIncome && looksBalance) return "financial_statement";
+  if (looksIncome) return "income_statement";
+  if (looksBalance) return "balance_sheet";
+
+  // Tax returns: accept both descriptive types and form codes.
+  if (has("business") && has("tax")) return "business_tax_return";
+  if (has("personal") && has("tax")) return "personal_tax_return";
+
+  // Form tokens seen in the wild.
+  if (/(^|_)irs_?(1120s|1120|1065)(_|$)/.test(s) || /(^|_)1120s?(_|$)/.test(s) || /(^|_)1065(_|$)/.test(s)) {
+    return "business_tax_return";
+  }
+  if (/(^|_)irs_?1040(_|$)/.test(s) || /(^|_)1040(_|$)/.test(s)) {
+    return "personal_tax_return";
+  }
+
+  // If doc type is too broad, ignore it.
+  if (has("unknown") || has("other") || has("document")) return null;
+
   return null;
 }
 
