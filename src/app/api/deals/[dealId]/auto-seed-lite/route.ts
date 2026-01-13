@@ -219,13 +219,35 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       } as any;
     });
 
-    const { error: seedErr } = await withTimeout(
+    const checklistRowsWithoutYears = checklistRowsWithBank.map((r: any) => {
+      const { required_years: _requiredYears, ...rest } = r || {};
+      return rest;
+    });
+
+    const attempt1 = await withTimeout(
       sb
         .from("deal_checklist_items")
         .upsert(checklistRowsWithBank as any, { onConflict: "deal_id,checklist_key" }),
       20_000,
       "seed_checklist_upsert",
     );
+
+    let seedErr = attempt1.error;
+    if (seedErr) {
+      const msg = String(seedErr.message || "");
+      const lower = msg.toLowerCase();
+      // Schema-tolerant: older DBs may not have year-aware checklist columns yet.
+      if (lower.includes("required_years") && lower.includes("does not exist")) {
+        const attempt2 = await withTimeout(
+          sb
+            .from("deal_checklist_items")
+            .upsert(checklistRowsWithoutYears as any, { onConflict: "deal_id,checklist_key" }),
+          20_000,
+          "seed_checklist_upsert_fallback_without_required_years",
+        );
+        seedErr = attempt2.error;
+      }
+    }
 
     if (seedErr) {
       return NextResponse.json(

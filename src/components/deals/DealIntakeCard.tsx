@@ -344,8 +344,12 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
             }
           })();
         } else {
+          const details =
+            typeof seedJson?.details === "string" && seedJson.details.trim()
+              ? `\n\nDetails: ${seedJson.details}`
+              : "";
           setMatchMessage(
-            `⚠️ Saved intake but auto-seed ${seedJson.status || "failed"}:\n${seedJson.error || seedJson.message || "Unknown error"}\n\nCheck browser console for details.`
+            `⚠️ Saved intake but auto-seed ${seedJson.status || "failed"}:\n${seedJson.error || seedJson.message || "Unknown error"}${details}\n\nCheck browser console for details.`
           );
           console.error("[DealIntakeCard] Auto-seed failed:", seedJson);
         }
