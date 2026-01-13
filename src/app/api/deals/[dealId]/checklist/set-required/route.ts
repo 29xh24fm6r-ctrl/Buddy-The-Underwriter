@@ -7,6 +7,12 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Non-negotiables: these must always remain required.
+const PROTECTED_REQUIRED_KEYS = new Set([
+  "IRS_BUSINESS_3Y",
+  "IRS_PERSONAL_3Y",
+]);
+
 type Body = { checklistKey: string; required: boolean };
 
 type Ctx = { params: Promise<{ dealId: string }> };
@@ -27,6 +33,17 @@ export async function POST(req: Request, ctx: Ctx) {
     if (!checklistKey) {
       return NextResponse.json(
         { ok: false, error: "Missing checklistKey" },
+        { status: 400 },
+      );
+    }
+
+    if (!required && PROTECTED_REQUIRED_KEYS.has(checklistKey.toUpperCase())) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "This item is required and cannot be marked optional",
+          checklistKey,
+        },
         { status: 400 },
       );
     }
