@@ -78,7 +78,12 @@ async function extractTextSmart(args: {
   // Legacy args retained for call-site compatibility (Azure DI disabled)
   azureModel: "prebuilt-read" | "prebuilt-layout";
   azurePages?: string;
-}): Promise<{ text: string; source: "pdf_text" | "gemini_ocr" }>{
+}): Promise<{
+  text: string;
+  source: "pdf_text" | "gemini_ocr";
+  throttled?: boolean;
+  throttledError?: string;
+}>{
   const mt = String(args.mimeType || "").toLowerCase();
   if (args.preferPdfText && mt === "application/pdf") {
     try {
@@ -99,13 +104,33 @@ async function extractTextSmart(args: {
   }
 
   const { runGeminiOcrJob } = await import("@/lib/ocr/runGeminiOcrJob");
-  const result = await runGeminiOcrJob({
-    fileBytes: args.bytes,
-    mimeType: mt || "application/pdf",
-    fileName: "document.pdf",
-  });
+  try {
+    const result = await runGeminiOcrJob({
+      fileBytes: args.bytes,
+      mimeType: mt || "application/pdf",
+      fileName: "document.pdf",
+    });
 
-  return { text: result.text, source: "gemini_ocr" };
+    return { text: result.text, source: "gemini_ocr" };
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    const lower = msg.toLowerCase();
+    const isThrottled =
+      lower.includes("resource_exhausted") ||
+      lower.includes("too many requests") ||
+      lower.includes("got status: 429") ||
+      lower.includes('"code":429');
+
+    if (isThrottled) {
+      // Non-fatal: allow the run to return "running" so the UI can safely retry.
+      console.warn("[doc_intel_run] gemini_ocr_throttled", {
+        error: msg,
+      });
+      return { text: "", source: "gemini_ocr", throttled: true, throttledError: msg };
+    }
+
+    throw e;
+  }
 }
 
 function parseAzurePagesEnd(raw: unknown): number | null {
@@ -694,6 +719,33 @@ async function runIntelForDeal(args: {
         };
       }
 
+      // If we recently hit Gemini quota for this doc, don't hammer Vertex; just ask the user to retry later.
+      try {
+        const throttledAtRaw = (existingIntel.data as any)?.extracted_json?.gemini_ocr_throttled_at;
+        const throttledAtMs = throttledAtRaw ? Date.parse(String(throttledAtRaw)) : NaN;
+        if (Number.isFinite(throttledAtMs) && Date.now() - throttledAtMs < 60_000) {
+          console.info("[doc_intel_run] skip_recent_throttle", {
+            reqId,
+            dealId,
+            docId,
+            throttledAt: throttledAtRaw,
+          });
+          return {
+            stat,
+            result: {
+              document_id: docId,
+              filename,
+              ocr: "running" as const,
+              doc_intel: "skipped" as const,
+              matched_keys: [],
+              updated_items: 0,
+            },
+          };
+        }
+      } catch {
+        // ignore
+      }
+
       // Download bytes from storage
       const storagePath = String(doc.storage_path || "");
       if (!storagePath) {
@@ -765,6 +817,40 @@ async function runIntelForDeal(args: {
       extractedText = ext.text;
       extractSource = "download_smart";
       smartSource = ext.source;
+
+      if (ext.throttled) {
+        // Persist throttle marker so subsequent clicks back off for this doc.
+        try {
+          const prev = (existingIntel.data as any)?.extracted_json;
+          const prevObj = prev && typeof prev === "object" ? prev : {};
+          const merged = {
+            ...prevObj,
+            source: "gemini_ocr",
+            ocr_provider: "gemini",
+            azure_model: azureModel,
+            azure_pages: azurePages ?? null,
+            azure_pages_end: parseAzurePagesEnd(azurePages),
+            gemini_ocr_throttled_at: new Date().toISOString(),
+            gemini_ocr_throttle_error: ext.throttledError ?? null,
+          };
+          await sb
+            .from("doc_intel_results")
+            .upsert(
+              {
+                deal_id: dealId,
+                file_id: docId,
+                doc_type: String((existingIntel.data as any)?.doc_type ?? "Unknown"),
+                tax_year: (existingIntel.data as any)?.tax_year ?? null,
+                confidence: (existingIntel.data as any)?.confidence ?? null,
+                extracted_json: merged,
+                created_at: new Date().toISOString(),
+              } as any,
+              { onConflict: "deal_id,file_id" },
+            );
+        } catch {
+          // ignore
+        }
+      }
 
       let docIntelStatus: "ok" | "skipped" | "error" = "skipped";
       let aiDocType: unknown = null;
