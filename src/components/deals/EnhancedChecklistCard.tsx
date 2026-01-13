@@ -16,6 +16,12 @@ type ChecklistItem = {
   satisfied_years?: number[] | null;
 };
 
+// Non-negotiables: these must always remain required.
+const PROTECTED_REQUIRED_KEYS = new Set([
+  'IRS_BUSINESS_3Y',
+  'IRS_PERSONAL_3Y',
+]);
+
 function normStatus(s: unknown) {
   return String(s || '').toLowerCase().trim();
 }
@@ -119,11 +125,9 @@ const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then(async (r
 export function EnhancedChecklistCard({
   dealId,
   onRefresh,
-  isAdmin = false,
 }: {
   dealId: string;
   onRefresh?: (refreshFn: () => Promise<void>) => void;
-  isAdmin?: boolean;
 }) {
   const { data, error, isLoading, mutate } = useSWR(
     `/api/deals/${dealId}/checklist/list`,
@@ -204,9 +208,14 @@ export function EnhancedChecklistCard({
   }
 
   async function toggleRequired(it: ChecklistItem) {
-    if (!isAdmin) return;
     const checklistKey = String(it.checklist_key || '').trim();
     if (!checklistKey) return;
+
+    const upper = checklistKey.toUpperCase();
+    if (it.required && PROTECTED_REQUIRED_KEYS.has(upper)) {
+      // Guardrail: don't allow bankers to mark these as optional.
+      return;
+    }
 
     setTogglingKey(checklistKey);
     try {
@@ -289,6 +298,8 @@ export function EnhancedChecklistCard({
                 })
                 .map((it) => {
                   const badge = statusBadge(it.status);
+                  const keyUpper = String(it.checklist_key || '').toUpperCase();
+                  const isProtected = it.required && PROTECTED_REQUIRED_KEYS.has(keyUpper);
                   return (
                     <div key={it.id} className="rounded-lg border border-neutral-200 bg-white p-3">
                       <div className="flex items-start justify-between gap-3">
@@ -308,17 +319,19 @@ export function EnhancedChecklistCard({
                                 Optional
                               </span>
                             )}
-                            {isAdmin ? (
-                              <button
-                                type="button"
-                                onClick={() => void toggleRequired(it)}
-                                disabled={togglingKey === it.checklist_key}
-                                className="rounded-md border border-neutral-200 bg-white px-2 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-60"
-                                title="Admin: toggle Required/Optional"
-                              >
-                                {it.required ? 'Make optional' : 'Make required'}
-                              </button>
-                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => void toggleRequired(it)}
+                              disabled={togglingKey === it.checklist_key || isProtected}
+                              className="rounded-md border border-neutral-200 bg-white px-2 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-60"
+                              title={
+                                isProtected
+                                  ? 'This item is required and cannot be marked optional'
+                                  : 'Toggle Required/Optional'
+                              }
+                            >
+                              {it.required ? 'Make optional' : 'Make required'}
+                            </button>
                             <span className="truncate rounded-md border border-neutral-200 bg-white px-2 py-0.5 text-[11px] text-neutral-600">
                               {it.checklist_key}
                             </span>
