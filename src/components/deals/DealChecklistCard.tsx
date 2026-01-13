@@ -8,7 +8,7 @@ type Item = {
   title: string;
   description: string | null;
   required: boolean;
-  status: "missing" | "pending" | "received" | "satisfied" | "waived";
+  status: "missing" | "pending" | "needs_review" | "received" | "satisfied" | "waived";
   received_at: string | null;
   satisfied_at?: string | null;
   required_years?: number[] | null;
@@ -19,6 +19,9 @@ type Item = {
 function badgeTone(status: Item["status"]) {
   if (status === "received" || status === "satisfied") {
     return "border-emerald-900/40 bg-emerald-950/20 text-emerald-200";
+  }
+  if (status === "needs_review") {
+    return "border-yellow-900/40 bg-yellow-950/20 text-yellow-200";
   }
   if (status === "waived") return "border-neutral-700 bg-neutral-900/40 text-neutral-200";
   return "border-amber-900/40 bg-amber-950/20 text-amber-200";

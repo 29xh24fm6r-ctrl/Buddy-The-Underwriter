@@ -12,6 +12,8 @@ import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
 import { reconcileDealChecklist } from "@/lib/checklist/engine";
 import { getOcrEnvDiagnostics } from "@/lib/ocr/ocrEnvDiagnostics";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { persistAiMapping } from "@/lib/ai-docs/persistMapping";
+import { buildGeminiScanResultFromExtractedText } from "@/lib/ai-docs/mapToChecklist";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -182,14 +184,12 @@ function mergeYears(primary: number | null, years: number[] | null): {
 async function bestEffortStampDealDocument(args: {
   sb: ReturnType<typeof supabaseAdmin>;
   docId: string;
-  filename: string;
   extractedText?: string;
   aiDocType?: unknown;
   aiTaxYear?: unknown;
   aiConfidence?: unknown;
 }) {
-  const { sb, docId, filename: _filename, extractedText, aiDocType, aiTaxYear, aiConfidence } =
-    args;
+  const { sb, docId, extractedText, aiDocType, aiTaxYear, aiConfidence } = args;
 
   const meta = inferDocumentMetadata({
     // Do not rely on borrower-provided filenames for classification.
@@ -633,7 +633,6 @@ async function runIntelForDeal(args: {
         await bestEffortStampDealDocument({
           sb,
           docId,
-          filename,
           aiDocType: (existingIntel.data as any)?.doc_type,
           aiTaxYear: (existingIntel.data as any)?.tax_year,
           aiConfidence: (existingIntel.data as any)?.confidence,
@@ -723,6 +722,38 @@ async function runIntelForDeal(args: {
       extractSource = "download_smart";
       smartSource = ext.source;
 
+      // Adaptive checklist mapping (never trust filenames):
+      // use Gemini-extracted text signals to propose canonical checklist_key mappings
+      // and persist evidence + confidence for audit.
+      try {
+        const meta = inferDocumentMetadata({
+          originalFilename: null,
+          extractedText: extractedText ?? null,
+        });
+
+        const scan = buildGeminiScanResultFromExtractedText({
+          extractedText,
+          inferredDocType: meta.document_type,
+          inferredTaxYear: meta.doc_year,
+          confidence01: meta.confidence,
+          extracted: {
+            source: smartSource,
+            det: meta,
+            azure_model: azureModel,
+            azure_pages: azurePages ?? null,
+          },
+        });
+
+        await persistAiMapping({
+          dealId,
+          documentId: docId,
+          scan,
+          model: "gemini",
+        });
+      } catch {
+        // non-fatal
+      }
+
       let docIntelStatus: "ok" | "skipped" | "error" = "skipped";
       let aiDocType: unknown = null;
       let aiTaxYear: unknown = null;
@@ -782,7 +813,6 @@ async function runIntelForDeal(args: {
       await bestEffortStampDealDocument({
         sb,
         docId,
-        filename,
         extractedText,
         aiDocType,
         aiTaxYear,
