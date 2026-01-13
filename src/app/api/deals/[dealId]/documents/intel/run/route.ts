@@ -14,6 +14,7 @@ import { getOcrEnvDiagnostics } from "@/lib/ocr/ocrEnvDiagnostics";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { persistAiMapping } from "@/lib/ai-docs/persistMapping";
 import { buildGeminiScanResultFromExtractedText } from "@/lib/ai-docs/mapToChecklist";
+import { classifyDocument } from "@/lib/intelligence/classifyDocument";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -116,11 +117,48 @@ function parseAzurePagesEnd(raw: unknown): number | null {
   return Number.isFinite(end) ? end : null;
 }
 
-type DocTypeBucket = "business_tax_return" | "personal_tax_return";
+type DocTypeBucket =
+  | "business_tax_return"
+  | "personal_tax_return"
+  | "income_statement"
+  | "balance_sheet"
+  | "financial_statement"
+  | "bank_statement"
+  | "lease"
+  | "invoice";
+
+function mapClassifierDocTypeToCanonicalBucket(docTypeRaw: unknown): DocTypeBucket | null {
+  const dt = String(docTypeRaw || "").trim().toUpperCase();
+  if (!dt) return null;
+  if (dt === "INCOME_STATEMENT") return "income_statement";
+  if (dt === "BALANCE_SHEET") return "balance_sheet";
+  if (dt === "FINANCIAL_STATEMENT") return "financial_statement";
+  if (dt === "BANK_STATEMENT") return "bank_statement";
+  if (dt === "LEASE") return "lease";
+  if (dt === "INVOICE") return "invoice";
+  if (dt === "IRS_1120" || dt === "IRS_1120S" || dt === "IRS_1065" || dt === "IRS_BUSINESS")
+    return "business_tax_return";
+  if (dt === "IRS_1040" || dt === "IRS_PERSONAL") return "personal_tax_return";
+  return null;
+}
 
 function normalizeAiDocTypeToBucket(aiDocTypeRaw: unknown): DocTypeBucket | null {
   const s = String(aiDocTypeRaw ?? "").toLowerCase();
   if (!s) return null;
+
+  // Canonical bucket strings (or classifier-like labels)
+  if (s === "business_tax_return" || s === "irs_1120" || s === "irs_1120s" || s === "irs_1065") {
+    return "business_tax_return";
+  }
+  if (s === "personal_tax_return" || s === "irs_1040") {
+    return "personal_tax_return";
+  }
+  if (s === "income_statement") return "income_statement";
+  if (s === "balance_sheet") return "balance_sheet";
+  if (s === "financial_statement") return "financial_statement";
+  if (s === "bank_statement") return "bank_statement";
+  if (s === "lease") return "lease";
+  if (s === "invoice") return "invoice";
 
   // Business tax return signals
   if (
@@ -701,6 +739,12 @@ async function runIntelForDeal(args: {
       let extractSource: "download_smart" | null = null;
       let smartSource: "pdf_text" | "gemini_ocr" | null = null;
 
+      // Lightweight classifier signals (best-effort) used for mapping + stamping.
+      let classifyDocType: string | null = null;
+      let classifyTaxYear: string | null = null;
+      let classifyConfidence: number | null = null;
+      let classifyReasons: unknown = null;
+
       // Download bytes and use smart extraction (PDF text when available), falling back to Gemini OCR.
       const dl = await sb.storage.from(storageBucket).download(storagePath);
       if (dl.error || !dl.data) {
@@ -721,38 +765,6 @@ async function runIntelForDeal(args: {
       extractedText = ext.text;
       extractSource = "download_smart";
       smartSource = ext.source;
-
-      // Adaptive checklist mapping (never trust filenames):
-      // use Gemini-extracted text signals to propose canonical checklist_key mappings
-      // and persist evidence + confidence for audit.
-      try {
-        const meta = inferDocumentMetadata({
-          originalFilename: null,
-          extractedText: extractedText ?? null,
-        });
-
-        const scan = buildGeminiScanResultFromExtractedText({
-          extractedText,
-          inferredDocType: meta.document_type,
-          inferredTaxYear: meta.doc_year,
-          confidence01: meta.confidence,
-          extracted: {
-            source: smartSource,
-            det: meta,
-            azure_model: azureModel,
-            azure_pages: azurePages ?? null,
-          },
-        });
-
-        await persistAiMapping({
-          dealId,
-          documentId: docId,
-          scan,
-          model: "gemini",
-        });
-      } catch {
-        // non-fatal
-      }
 
       let docIntelStatus: "ok" | "skipped" | "error" = "skipped";
       let aiDocType: unknown = null;
@@ -785,6 +797,72 @@ async function runIntelForDeal(args: {
         };
       }
 
+      // Run lightweight classifier (cheap, pure TS heuristics) to improve doc_type/year stamping
+      // and mapping evidence when inferDocumentMetadata is inconclusive.
+      try {
+        const classifyResult = await classifyDocument({ ocrText: String(extractedText ?? "") });
+        classifyDocType = String((classifyResult as any)?.doc_type ?? "") || null;
+        classifyTaxYear = String((classifyResult as any)?.tax_year ?? "") || null;
+        classifyConfidence =
+          typeof (classifyResult as any)?.confidence === "number" ? (classifyResult as any).confidence : null;
+        classifyReasons = (classifyResult as any)?.reasons ?? null;
+      } catch {
+        // non-fatal
+      }
+
+      // Adaptive checklist mapping (never trust filenames):
+      // use OCR text signals to propose canonical checklist_key mappings
+      // and persist evidence + confidence for audit.
+      try {
+        const meta = inferDocumentMetadata({
+          originalFilename: null,
+          extractedText: extractedText ?? null,
+        });
+
+        const inferredType = meta.document_type !== "unknown" ? meta.document_type : null;
+        const classifierType = mapClassifierDocTypeToCanonicalBucket(classifyDocType);
+        const inferredDocType = (inferredType ?? classifierType) as any;
+        const inferredTaxYear = meta.doc_year ?? parseTaxYearToNumber(classifyTaxYear);
+
+        const classifyConf01 =
+          typeof classifyConfidence === "number"
+            ? classifyConfidence > 1
+              ? classifyConfidence / 100
+              : classifyConfidence
+            : null;
+        const confidence01 = Math.max(
+          Number(meta.confidence ?? 0) || 0,
+          Number.isFinite(classifyConf01 as any) ? Math.max(0, Math.min(1, Number(classifyConf01))) : 0,
+        );
+
+        const scan = buildGeminiScanResultFromExtractedText({
+          extractedText,
+          inferredDocType,
+          inferredTaxYear,
+          confidence01,
+          extracted: {
+            source: smartSource,
+            det: meta,
+            classifyDocument: {
+              doc_type: classifyDocType,
+              confidence: classifyConfidence,
+              reasons: classifyReasons,
+            },
+            azure_model: azureModel,
+            azure_pages: azurePages ?? null,
+          },
+        });
+
+        await persistAiMapping({
+          dealId,
+          documentId: docId,
+          scan,
+          model: "gemini",
+        });
+      } catch {
+        // non-fatal
+      }
+
       if (process.env.OPENAI_API_KEY && !fast) {
         try {
           const ai = await analyzeDocument({ dealId, fileId: docId, extractedText });
@@ -814,9 +892,9 @@ async function runIntelForDeal(args: {
         sb,
         docId,
         extractedText,
-        aiDocType,
-        aiTaxYear,
-        aiConfidence,
+        aiDocType: aiDocType ?? classifyDocType,
+        aiTaxYear: aiTaxYear ?? classifyTaxYear,
+        aiConfidence: aiConfidence ?? classifyConfidence,
       });
       stat.stamped += 1;
 

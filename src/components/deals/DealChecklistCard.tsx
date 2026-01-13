@@ -247,16 +247,29 @@ export default function DealChecklistCard({ dealId }: { dealId: string }) {
                 </div>
                 <div className="mt-1 text-sm text-neutral-100">{it.title}</div>
 
-                {Array.isArray(it.required_years) && it.required_years.length ? (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {it.required_years
-                      .map((y) => Number(y))
-                      .filter((y) => Number.isFinite(y))
-                      .sort((a, b) => b - a)
-                      .map((y) => {
-                        const satisfied = Array.isArray(it.satisfied_years)
-                          ? it.satisfied_years.includes(y)
-                          : false;
+                {(() => {
+                  const key = String(it.checklist_key ?? "").toUpperCase();
+                  const isIrs = key.startsWith("IRS_BUSINESS") || key.startsWith("IRS_PERSONAL");
+                  const m = key.match(/_(\d)Y\b/);
+                  const requiredDistinct = isIrs && m ? Number(m[1]) : null;
+
+                  const req = Array.isArray(it.required_years)
+                    ? it.required_years
+                        .map((y) => Number(y))
+                        .filter((y) => Number.isFinite(y))
+                    : [];
+                  const sat = Array.isArray(it.satisfied_years)
+                    ? it.satisfied_years
+                        .map((y) => Number(y))
+                        .filter((y) => Number.isFinite(y))
+                    : [];
+                  const show = (isIrs ? sat : req.length ? req : sat).slice().sort((a, b) => b - a);
+                  if (!show.length) return null;
+                  const satSet = new Set<number>(sat);
+                  return (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {show.map((y) => {
+                        const satisfied = satSet.has(y);
                         return (
                           <span
                             key={String(y)}
@@ -270,8 +283,14 @@ export default function DealChecklistCard({ dealId }: { dealId: string }) {
                           </span>
                         );
                       })}
-                  </div>
-                ) : null}
+                      {Number.isFinite(requiredDistinct as any) ? (
+                        <span className="text-[11px] text-neutral-300/80">
+                          Distinct years: {satSet.size}/{requiredDistinct}
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                })()}
 
                 <div className="mt-1 text-xs opacity-80">
                   Key: <span className="font-mono">{it.checklist_key}</span>
