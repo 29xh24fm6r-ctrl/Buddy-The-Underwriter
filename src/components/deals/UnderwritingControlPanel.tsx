@@ -87,14 +87,32 @@ export function UnderwritingControlPanel({ dealId }: { dealId: string }) {
             <div>
               Confidence Score: {result.confidence_review?.confidence_score}%
             </div>
+            {result.policy && (
+              <div>
+                Policy Compliance: {result.policy?.complianceScore}% ({result.policy?.exceptions?.length ?? 0} exceptions)
+              </div>
+            )}
             {result.confidence_review?.low_confidence_fields?.length > 0 && (
               <div className="text-amber-800">
                 ⚠️ {result.confidence_review.low_confidence_fields.length} fields need
                 review
               </div>
             )}
+            {result.policy?.exceptions?.length > 0 && (
+              <div className="text-amber-800">
+                ⚠️ {Math.min(3, result.policy.exceptions.length)} policy issues shown below
+              </div>
+            )}
             <div>📧 {result.notifications_queued} notifications queued</div>
           </div>
+
+          {result.policy?.exceptions?.length > 0 && (
+            <ul className="mt-3 space-y-1 text-xs text-emerald-950">
+              {result.policy.exceptions.slice(0, 3).map((ex: any) => (
+                <li key={ex.rule_key}>• {ex.title || ex.rule_key}: {ex.message}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
