@@ -246,6 +246,22 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           "seed_checklist_upsert_fallback_without_required_years",
         );
         seedErr = attempt2.error;
+      } else if (
+        // Schema-tolerant: some DBs may have required_years as an int (not int[]).
+        // Postgres then tries to cast the JSON array to int and throws:
+        //   invalid input syntax for type integer: "[2024,2023,2022]"
+        lower.includes("invalid input syntax for type integer") &&
+        msg.includes("[") &&
+        msg.includes("]")
+      ) {
+        const attempt2 = await withTimeout(
+          sb
+            .from("deal_checklist_items")
+            .upsert(checklistRowsWithoutYears as any, { onConflict: "deal_id,checklist_key" }),
+          20_000,
+          "seed_checklist_upsert_fallback_required_years_type_mismatch",
+        );
+        seedErr = attempt2.error;
       }
     }
 
