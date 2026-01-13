@@ -2,6 +2,9 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { runPolicyAwareUnderwriting } from "@/lib/underwrite/policyEngine";
+import { upsertDealStatusAndLog } from "@/lib/deals/status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +35,18 @@ export async function POST(req: NextRequest, ctx: Context) {
     const { dealId } = await ctx.params;
     const sb = supabaseAdmin();
 
+    const bankId = await getCurrentBankId().catch((e: any) => {
+      const msg = String(e?.message ?? e ?? "");
+      // getCurrentBankId throws "not_authenticated" for signed-out users
+      if (msg === "not_authenticated") return null;
+      // Preserve a safe error surface
+      throw new Error(msg || "bank_not_resolved");
+    });
+
+    if (!bankId) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     // 1. Check if deal exists
     const { data: deal, error: dealError } = await sb
       .from("deals")
@@ -44,6 +59,27 @@ export async function POST(req: NextRequest, ctx: Context) {
         { ok: false, error: "Deal not found" },
         { status: 404 }
       );
+    }
+
+    // Tenant enforcement (and first-touch binding if deal.bank_id is null)
+    if (deal.bank_id && String(deal.bank_id) !== String(bankId)) {
+      // Do not leak existence across tenants
+      return NextResponse.json({ ok: false, error: "Deal not found" }, { status: 404 });
+    }
+
+    if (!deal.bank_id) {
+      const { error: bankAssignErr } = await sb
+        .from("deals")
+        .update({ bank_id: bankId })
+        .eq("id", dealId);
+
+      if (bankAssignErr) {
+        return NextResponse.json(
+          { ok: false, error: "Failed to bind deal to bank" },
+          { status: 500 },
+        );
+      }
+      (deal as any).bank_id = bankId;
     }
 
     // 2. Verify all required checklist items are received
@@ -129,7 +165,23 @@ export async function POST(req: NextRequest, ctx: Context) {
       ? Math.round((highConfidenceFields / totalFields) * 100) 
       : 0;
 
-    // 4. Emit underwriting_started event
+    // 4. Run policy-aware underwriting (deterministic engine + truth snapshot logging)
+    let policy: Awaited<ReturnType<typeof runPolicyAwareUnderwriting>> | null = null;
+    try {
+      policy = await runPolicyAwareUnderwriting({ dealId, bankId });
+    } catch (e: any) {
+      console.error("[/api/deals/[dealId]/underwrite/start] policy engine failed", {
+        dealId,
+        bankId,
+        error: e?.message ?? String(e),
+      });
+      return NextResponse.json(
+        { ok: false, error: "Policy engine failed" },
+        { status: 500 },
+      );
+    }
+
+    // 5. Emit underwriting_started event
     await writeEvent({
       dealId,
       kind: "underwrite.started",
@@ -141,14 +193,27 @@ export async function POST(req: NextRequest, ctx: Context) {
       meta: {
         confidence_score: confidenceScore,
         low_confidence_fields: lowConfidenceFields.length,
+        policy_compliance_score: policy?.complianceScore ?? null,
+        policy_exceptions: policy?.exceptions?.length ?? 0,
         triggered_by: "manual",
       },
     });
 
-    // 5. Queue memo generation (stub - implement later)
-    // await queueMemoGeneration(dealId);
+    // 6. Update deal timeline stage (best-effort)
+    try {
+      await upsertDealStatusAndLog({
+        dealId,
+        stage: "underwriting",
+        actorUserId: userId,
+      });
+    } catch (e: any) {
+      console.warn("[/api/deals/[dealId]/underwrite/start] deal_status update failed (non-fatal)", {
+        dealId,
+        error: e?.message ?? String(e),
+      });
+    }
 
-    // 6. Queue underwriter notification
+    // 7. Queue underwriter notification
     const { data: bankUsers } = await sb
       .from("bank_memberships")
       .select("user_id, users (email)")
@@ -186,6 +251,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         confidence_score: confidenceScore,
         low_confidence_fields: lowConfidenceFields,
       },
+      policy,
       checklist: {
         required: requiredItems.length,
         received: receivedRequired.length,
@@ -194,9 +260,12 @@ export async function POST(req: NextRequest, ctx: Context) {
     });
   } catch (error: any) {
     console.error("[/api/deals/[dealId]/underwrite/start]", error);
-    return NextResponse.json({
-      ok: false,
-      error: "Failed to start underwriting",
-    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Failed to start underwriting",
+      },
+      { status: 500 },
+    );
   }
 }
