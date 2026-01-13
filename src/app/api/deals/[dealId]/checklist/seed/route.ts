@@ -133,7 +133,19 @@ export async function POST(
     let error = attempt1.error;
     if (error) {
       const msg = String(error.message || "");
-      if (msg.toLowerCase().includes("does not exist") && msg.includes("required_years")) {
+      const lower = msg.toLowerCase();
+      if (lower.includes("does not exist") && msg.includes("required_years")) {
+        const attempt2 = await sb
+          .from("deal_checklist_items")
+          .upsert(baseRows as any, { onConflict: "deal_id,checklist_key" });
+        error = attempt2.error;
+      } else if (
+        // Some DBs may have required_years as int (not int[]). In that case Postgres rejects
+        // JSON arrays with: invalid input syntax for type integer: "[2024,2023,2022]".
+        lower.includes("invalid input syntax for type integer") &&
+        msg.includes("[") &&
+        msg.includes("]")
+      ) {
         const attempt2 = await sb
           .from("deal_checklist_items")
           .upsert(baseRows as any, { onConflict: "deal_id,checklist_key" });
