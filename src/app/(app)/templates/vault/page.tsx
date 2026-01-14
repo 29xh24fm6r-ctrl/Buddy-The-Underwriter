@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 
-import StitchFrame from "@/components/stitch/StitchFrame";
+import { redirect } from "next/navigation";
 
 const TITLE = "Document Template Vault - Buddy";
 const FONT_LINKS: string[] = [];
@@ -475,14 +475,6 @@ const BODY_HTML = `<!-- Global Header -->
 </div>`;
 
 export default function Page() {
-  return (
-    <StitchFrame
-      title={TITLE}
-      fontLinks={FONT_LINKS}
-      tailwindCdnSrc={TAILWIND_CDN}
-      tailwindConfigJs={TAILWIND_CONFIG_JS}
-      styles={STYLES}
-      bodyHtml={BODY_HTML}
-    />
-  );
+    redirect("/documents");
+    return null;
 }

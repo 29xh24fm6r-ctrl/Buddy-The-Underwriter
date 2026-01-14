@@ -1,4 +1,5 @@
-import StitchFrame from "@/components/stitch/StitchFrame";
+import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
+import AuditLedgerClient from "./AuditLedgerClient";
 
 const TITLE = "Buddy - Audit &amp; Compliance Ledger";
 const FONT_LINKS: string[] = [];
@@ -560,15 +561,21 @@ const BODY_HTML = `<!-- Global Header -->
 </aside>
 </main>`;
 
-export default function Page() {
-  return (
-    <StitchFrame
-      title={TITLE}
-      fontLinks={FONT_LINKS}
-      tailwindCdnSrc={TAILWIND_CDN}
-      tailwindConfigJs={TAILWIND_CONFIG_JS}
-      styles={STYLES}
-      bodyHtml={BODY_HTML}
-    />
-  );
+export default async function Page() {
+    try {
+        await requireSuperAdmin();
+    } catch {
+        return (
+            <div className="mx-auto max-w-3xl p-6">
+                <div className="rounded-lg border bg-white p-6 shadow-sm">
+                    <h1 className="text-lg font-semibold text-slate-900">Audit Ledger</h1>
+                    <p className="mt-2 text-sm text-slate-600">
+                        You do not have access to this page.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    return <AuditLedgerClient />;
 }

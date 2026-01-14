@@ -19,7 +19,7 @@ export async function GET(
   ctx: { params: Promise<{ bankId: string }> },
 ) {
   try {
-    requireSuperAdmin();
+    await requireSuperAdmin();
     const { bankId } = await ctx.params;
 
     const { data: templates, error: e1 } = (await supabaseAdmin()

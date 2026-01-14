@@ -14,23 +14,35 @@ export default function DealAssigneesCard({ dealId }: { dealId: string }) {
   const [parts, setParts] = useState<Participant[]>([]);
   const [busy, setBusy] = useState(false);
   const [newUw, setNewUw] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   async function refresh() {
-    const r = await fetch(`/api/admin/deals/${dealId}/assign-underwriter`, { cache: "no-store" });
-    const j = await r.json();
-    if (j?.ok) setParts(j.participants ?? []);
+    setError(null);
+    const r = await fetch(`/api/deals/${dealId}/participants`, {
+      cache: "no-store",
+    });
+    const j = await r.json().catch(() => null);
+    if (!j?.ok) {
+      setError(j?.error ?? "Failed to load participants");
+      setParts([]);
+      return;
+    }
+    setParts(j.participants ?? []);
   }
 
   async function assign() {
     setBusy(true);
     try {
-      const r = await fetch(`/api/admin/deals/${dealId}/assign-underwriter`, {
+      const r = await fetch(`/api/deals/${dealId}/participants`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clerk_user_id: newUw }),
+        body: JSON.stringify({ user_id: newUw, role: "underwriter" }),
       });
-      const j = await r.json();
-      if (!j?.ok) alert(j?.error ?? "Failed to assign");
+      const j = await r.json().catch(() => null);
+      if (!j?.ok) {
+        alert(j?.error ?? "Failed to assign");
+        return;
+      }
       await refresh();
       setNewUw("");
     } finally {
@@ -61,6 +73,11 @@ export default function DealAssigneesCard({ dealId }: { dealId: string }) {
       </div>
 
       <div className="space-y-2">
+        {error && (
+          <div className="text-sm text-red-700 py-2 px-3 border border-red-200 rounded bg-red-50">
+            {error}
+          </div>
+        )}
         {active.map((p, i) => (
           <div
             key={`${p.role}:${p.clerk_user_id}:${i}`}
@@ -122,8 +139,7 @@ export default function DealAssigneesCard({ dealId }: { dealId: string }) {
           </button>
         </div>
         <div className="text-xs text-gray-500">
-          Tip: get user IDs from{" "}
-          <code className="bg-gray-100 px-1 rounded">/api/admin/users/list</code>.
+          Note: assignment requires super-admin or deal bank-admin.
         </div>
       </div>
     </div>

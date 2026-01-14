@@ -1,9 +1,16 @@
+import "server-only";
+
 import { NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
-function json(status: number, body: unknown) {
-  return NextResponse.json(body, { status });
+function authzError(err: any) {
+  const msg = String(err?.message ?? err);
+  if (msg === "unauthorized")
+    return { status: 401, body: { ok: false, error: "unauthorized" } };
+  if (msg === "forbidden")
+    return { status: 403, body: { ok: false, error: "forbidden" } };
+  return null;
 }
 
 export async function GET(
@@ -12,22 +19,35 @@ export async function GET(
 ) {
   try {
     await requireSuperAdmin();
-  } catch {
-    return json(403, { ok: false, error: "Forbidden" });
+  } catch (err: any) {
+    const a = authzError(err);
+    if (a) return NextResponse.json(a.body, { status: a.status });
+    return NextResponse.json(
+      { ok: false, error: err?.message ?? String(err) },
+      { status: 500 },
+    );
   }
 
   const { bankId } = await context.params;
-  if (!bankId) return json(400, { ok: false, error: "bankId is required" });
+  if (!bankId)
+    return NextResponse.json(
+      { ok: false, error: "bankId is required" },
+      { status: 400 },
+    );
 
-  const sb = getSupabaseServerClient();
+  const sb = supabaseAdmin();
   const { data, error } = await sb
     .from("bank_email_routing")
     .select("contact_to_email,outbound_from_email,reply_to_mode,configured_reply_to_email,is_enabled,updated_at")
     .eq("bank_id", bankId)
     .maybeSingle();
 
-  if (error) return json(500, { ok: false, error: error.message });
-  return json(200, { ok: true, routing: data ?? null });
+  if (error)
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
+  return NextResponse.json({ ok: true, routing: data ?? null });
 }
 
 type UpsertPayload = {
@@ -44,26 +64,44 @@ export async function POST(
 ) {
   try {
     await requireSuperAdmin();
-  } catch {
-    return json(403, { ok: false, error: "Forbidden" });
+  } catch (err: any) {
+    const a = authzError(err);
+    if (a) return NextResponse.json(a.body, { status: a.status });
+    return NextResponse.json(
+      { ok: false, error: err?.message ?? String(err) },
+      { status: 500 },
+    );
   }
 
   const { bankId } = await context.params;
-  if (!bankId) return json(400, { ok: false, error: "bankId is required" });
+  if (!bankId)
+    return NextResponse.json(
+      { ok: false, error: "bankId is required" },
+      { status: 400 },
+    );
 
   let body: UpsertPayload;
   try {
     body = (await req.json()) as UpsertPayload;
   } catch {
-    return json(400, { ok: false, error: "Invalid JSON" });
+    return NextResponse.json(
+      { ok: false, error: "Invalid JSON" },
+      { status: 400 },
+    );
   }
 
   if (!body.contact_to_email?.trim())
-    return json(400, { ok: false, error: "contact_to_email is required" });
+    return NextResponse.json(
+      { ok: false, error: "contact_to_email is required" },
+      { status: 400 },
+    );
   if (!body.outbound_from_email?.trim())
-    return json(400, { ok: false, error: "outbound_from_email is required" });
+    return NextResponse.json(
+      { ok: false, error: "outbound_from_email is required" },
+      { status: 400 },
+    );
 
-  const sb = getSupabaseServerClient();
+  const sb = supabaseAdmin();
 
   const payload = {
     bank_id: bankId,
@@ -78,6 +116,10 @@ export async function POST(
     .from("bank_email_routing")
     .upsert(payload, { onConflict: "bank_id" });
 
-  if (error) return json(500, { ok: false, error: error.message });
-  return json(200, { ok: true });
+  if (error)
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
+  return NextResponse.json({ ok: true });
 }

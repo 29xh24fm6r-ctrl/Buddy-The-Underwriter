@@ -1,4 +1,4 @@
-import StitchFrame from "@/components/stitch/StitchFrame";
+import { redirect } from "next/navigation";
 
 const TITLE = "Buddy the Underwriter - Exceptions Review";
 const FONT_LINKS: string[] = [];
@@ -466,14 +466,6 @@ const BODY_HTML = `<!-- Background Layer (Portfolio Command Bridge) -->
 </aside>`;
 
 export default function Page() {
-  return (
-    <StitchFrame
-      title={TITLE}
-      fontLinks={FONT_LINKS}
-      tailwindCdnSrc={TAILWIND_CDN}
-      tailwindConfigJs={TAILWIND_CONFIG_JS}
-      styles={STYLES}
-      bodyHtml={BODY_HTML}
-    />
-  );
+  redirect("/governance");
+  return null;
 }

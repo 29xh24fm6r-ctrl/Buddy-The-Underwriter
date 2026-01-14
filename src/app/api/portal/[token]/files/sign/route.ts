@@ -6,6 +6,26 @@ import crypto from "node:crypto";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Bank-grade MIME type allowlist (kept in sync with borrower portal endpoint)
+const ALLOWED_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/tiff",
+  "image/tif",
+  "image/gif",
+  "image/webp",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+  "application/zip",
+  "application/x-zip-compressed",
+]);
+
 type Context = {
   params: Promise<{ token: string }>;
 };
@@ -40,6 +60,23 @@ export async function POST(req: NextRequest, ctx: Context) {
       return NextResponse.json(
         { ok: false, error: "Missing filename or size_bytes" },
         { status: 400 },
+      );
+    }
+
+    // MIME type enforcement (same security posture as banker endpoint)
+    if (mime_type && !ALLOWED_MIME_TYPES.has(mime_type)) {
+      console.warn("[portal/files/sign] rejected unsupported MIME type", {
+        mime_type,
+        filename,
+        token,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Unsupported file type",
+          details: `File type '${mime_type}' is not allowed. Supported: PDF, images, Excel, Word, text, ZIP.`,
+        },
+        { status: 415 },
       );
     }
 

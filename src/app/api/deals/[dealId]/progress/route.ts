@@ -70,9 +70,19 @@ export async function GET(_: Request, ctx: { params: Promise<{ dealId: string }>
     const requiredItems = (checklist ?? []).filter((c: any) => c.required).length;
     const receivedRequired = (checklist ?? []).filter((c: any) => c.required && c.received_at).length;
 
+    // Back-compat with UI components expecting top-level primitive fields.
+    const total_docs = totalDocs;
+    const confirmed_docs = confirmedDocs;
+    const total_checklist = requiredItems;
+    const received_count = receivedRequired;
+
     return NextResponse.json({
       ok: true,
       dealId,
+      confirmed_docs,
+      total_docs,
+      received_count,
+      total_checklist,
       docs: { total: totalDocs, confirmed: confirmedDocs },
       checklist: { required: requiredItems, received_required: receivedRequired },
     });
@@ -83,6 +93,10 @@ export async function GET(_: Request, ctx: { params: Promise<{ dealId: string }>
       ok: false,
       error: isTimeout ? "Request timed out" : "Failed to fetch progress",
       dealId: (await ctx.params).dealId,
+      confirmed_docs: 0,
+      total_docs: 0,
+      received_count: 0,
+      total_checklist: 0,
       docs: { total: 0, confirmed: 0 },
       checklist: { required: 0, received_required: 0 },
     }, { status: isTimeout ? 504 : 500 });

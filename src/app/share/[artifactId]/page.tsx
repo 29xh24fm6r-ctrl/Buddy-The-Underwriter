@@ -1,4 +1,4 @@
-import StitchFrame from "@/components/stitch/StitchFrame";
+import { redirect } from "next/navigation";
 
 const TITLE = "Buddy The Underwriter - Public Share Screen";
 const FONT_LINKS: string[] = [];
@@ -190,15 +190,12 @@ const BODY_HTML = `<!-- Top Navigation Bar -->
 </footer>
 </main>`;
 
-export default function Page() {
-  return (
-    <StitchFrame
-      title={TITLE}
-      fontLinks={FONT_LINKS}
-      tailwindCdnSrc={TAILWIND_CDN}
-      tailwindConfigJs={TAILWIND_CONFIG_JS}
-      styles={STYLES}
-      bodyHtml={BODY_HTML}
-    />
-  );
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ artifactId: string }>;
+}) {
+  const { artifactId } = await params;
+  redirect(`/s/${artifactId}`);
+  return null;
 }

@@ -2,6 +2,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { upsertDealHint, upsertBankPrior } from "@/lib/portal/learning";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +22,17 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   const { dealId } = await ctx.params;
+  const { userId } = await clerkAuth();
+  if (!userId) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  const access = await ensureDealBankAccess(dealId);
+  if (!access.ok) {
+    const status = access.error === "deal_not_found" ? 404 : access.error === "tenant_mismatch" ? 403 : 400;
+    return NextResponse.json({ ok: false, error: access.error }, { status });
+  }
+
   const sb = supabaseAdmin();
 
   const body = (await req.json().catch(() => null)) as Body | null;

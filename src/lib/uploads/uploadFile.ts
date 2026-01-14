@@ -371,7 +371,7 @@ export async function uploadBorrowerFile(
 
   try {
     // Step 1: Get signed URL (token-based auth)
-    const signRes = await fetch(`/api/borrower/portal/${token}/files/sign`, {
+    const signRes = await fetch(`/api/portal/${token}/files/sign`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -386,7 +386,7 @@ export async function uploadBorrowerFile(
     });
 
     const signData = await readJson<SignedUploadResponse>(signRes);
-    if (!signRes.ok || !signData?.ok || !signData.upload || !signData.deal_id) {
+    if (!signRes.ok || !signData?.ok || !signData.upload) {
       console.warn("[upload] borrower sign failed", { requestId, status: signRes.status });
       return {
         ok: false,
@@ -396,7 +396,6 @@ export async function uploadBorrowerFile(
     }
 
     const { file_id, object_path, signed_url } = signData.upload;
-    const dealId = signData.deal_id;
 
     // Step 2: Upload directly to storage
     const uploadResult = await uploadViaSignedUrl(signed_url, file, onProgress);
@@ -407,7 +406,7 @@ export async function uploadBorrowerFile(
     }
 
     // Step 3: Record metadata
-    const recordRes = await fetch(`/api/deals/${dealId}/files/record`, {
+    const recordRes = await fetch(`/api/portal/${token}/files/record`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -1,4 +1,4 @@
-import StitchFrame from "@/components/stitch/StitchFrame";
+import { redirect } from "next/navigation";
 
 const TITLE = "Buddy Portal - Borrower Task Inbox";
 const FONT_LINKS: string[] = [];
@@ -436,14 +436,6 @@ const BODY_HTML = `<!-- Sticky Header -->
 </main>`;
 
 export default function Page() {
-  return (
-    <StitchFrame
-      title={TITLE}
-      fontLinks={FONT_LINKS}
-      tailwindCdnSrc={TAILWIND_CDN}
-      tailwindConfigJs={TAILWIND_CONFIG_JS}
-      styles={STYLES}
-      bodyHtml={BODY_HTML}
-    />
-  );
+    redirect("/borrowers");
+    return null;
 }

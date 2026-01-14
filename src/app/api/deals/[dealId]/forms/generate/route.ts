@@ -1,6 +1,5 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
-import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { fillPdfTemplate } from "@/lib/forms/pdfFill";
 import { requireUnderwriterOnDeal } from "@/lib/deals/participants";
@@ -30,7 +29,6 @@ export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  requireSuperAdmin();
   const { dealId } = await ctx.params;
   const supabase = supabaseAdmin();
 
@@ -66,9 +64,19 @@ export async function POST(
     }
 
     // Fetch template file bytes
-    const templatePath = fillRun.bank_document_templates.storage_path;
+    const templatePath =
+      fillRun.bank_document_templates.file_path ??
+      fillRun.bank_document_templates.storage_path;
+
+    if (!templatePath) {
+      return NextResponse.json(
+        { ok: false, error: "template_missing_file_path" },
+        { status: 500 },
+      );
+    }
+
     const { data: fileData, error: e2 } = await (supabase as any).storage
-      .from("bank-documents")
+      .from("bank-templates")
       .download(templatePath);
 
     if (e2) throw e2;
@@ -101,10 +109,14 @@ export async function POST(
 
     // Upload filled PDF to storage
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const filename = `${dealId}/filled_${fillRun.bank_document_templates.document_type}_${timestamp}.pdf`;
+    const docType =
+      fillRun.bank_document_templates.document_type ??
+      fillRun.bank_document_templates.template_key ??
+      "BANK_DOC";
+    const filename = `${dealId}/filled_${docType}_${timestamp}.pdf`;
 
     const { error: e3 } = await (supabase as any).storage
-      .from("bank-documents")
+      .from("filled-documents")
       .upload(filename, fillResult.pdfBytes, {
         contentType: "application/pdf",
         upsert: false,
@@ -137,7 +149,7 @@ export async function POST(
 
     // Generate signed download URL (1 hour expiry)
     const { data: urlData } = await (supabase as any).storage
-      .from("bank-documents")
+      .from("filled-documents")
       .createSignedUrl(filename, 3600);
 
     return NextResponse.json({

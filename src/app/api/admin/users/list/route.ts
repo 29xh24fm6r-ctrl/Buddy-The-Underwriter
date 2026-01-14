@@ -17,7 +17,7 @@ function authzError(err: any) {
 
 export async function GET() {
   try {
-    requireSuperAdmin();
+    await requireSuperAdmin();
 
     const client = await clerkClient();
     if (!client) {

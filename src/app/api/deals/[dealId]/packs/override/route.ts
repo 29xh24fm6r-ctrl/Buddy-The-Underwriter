@@ -4,6 +4,8 @@
 
 import { NextResponse } from "next/server";
 import { recordLearningEvent } from "@/lib/packs/recordLearningEvent";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,18 +17,29 @@ export async function POST(
   const { dealId } = await ctx.params;
   const body = await req.json().catch(() => ({}));
 
-  const { bankId, matchEventId, reason } = body;
+  const { matchEventId, reason } = body;
 
-  if (!bankId || !matchEventId) {
+  if (!matchEventId) {
     return NextResponse.json(
-      { ok: false, error: "Missing bankId or matchEventId" },
+      { ok: false, error: "Missing matchEventId" },
       { status: 400 },
     );
   }
 
   try {
+    const { userId } = await clerkAuth();
+    if (!userId) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "unauthorized" ? 401 : 404;
+      return NextResponse.json({ ok: false, error: access.error }, { status });
+    }
+
     await recordLearningEvent({
-      bankId,
+      bankId: access.bankId,
       matchEventId,
       eventType: "override",
       metadata: {
@@ -38,8 +51,9 @@ export async function POST(
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
+    const msg = String(e?.message ?? e);
     return NextResponse.json(
-      { ok: false, error: e?.message || "override_recording_failed" },
+      { ok: false, error: msg || "override_recording_failed" },
       { status: 500 },
     );
   }

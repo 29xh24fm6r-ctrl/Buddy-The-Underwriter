@@ -56,7 +56,7 @@ function AssignUnderwriterModal(props: { dealId: string; open: boolean; onClose:
 
   const handleAssign = async () => {
     if (!selectedUserId) {
-      alert("Please select an underwriter");
+      alert("Please enter an underwriter user ID");
       return;
     }
 
@@ -71,7 +71,8 @@ function AssignUnderwriterModal(props: { dealId: string; open: boolean; onClose:
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to assign underwriter");
+      const j = await res.json().catch(() => null);
+      if (!j?.ok) throw new Error(j?.error ?? "Failed to assign underwriter");
 
       alert("Underwriter assigned successfully!");
       props.onClose();
@@ -100,20 +101,16 @@ function AssignUnderwriterModal(props: { dealId: string; open: boolean; onClose:
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Underwriter
+              Underwriter Clerk User ID
             </label>
-            <select
+            <input
               value={selectedUserId}
               onChange={(e) => setSelectedUserId(e.target.value)}
+              placeholder="user_..."
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">Choose underwriter...</option>
-              <option value="user-1">John Doe</option>
-              <option value="user-2">Jane Smith</option>
-              <option value="user-3">Bob Johnson</option>
-            </select>
+            />
             <p className="mt-2 text-xs text-gray-500">
-              Ownership unlocks SLA tracking + queue routing
+              Assignment requires super-admin or deal bank-admin.
             </p>
           </div>
 

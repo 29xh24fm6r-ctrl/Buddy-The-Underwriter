@@ -45,6 +45,26 @@ export async function POST(req: Request) {
       { status: 404 },
     );
 
+  // Ensure the user actually has membership in the target bank.
+  // (Prevents arbitrary tenant switching to banks the user does not belong to.)
+  const { data: mem, error: mErr } = await sb
+    .from("bank_memberships")
+    .select("bank_id")
+    .eq("clerk_user_id", userId)
+    .eq("bank_id", bankId)
+    .maybeSingle();
+
+  if (mErr)
+    return NextResponse.json(
+      { ok: false, error: mErr.message },
+      { status: 500 },
+    );
+  if (!mem)
+    return NextResponse.json(
+      { ok: false, error: "forbidden" },
+      { status: 403 },
+    );
+
   // Upsert profile using Clerk user ID
   const { error: pErr } = await sb.from("profiles").upsert(
     {
@@ -64,5 +84,15 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json({ ok: true }, { status: 200 });
+  const res = NextResponse.json({ ok: true }, { status: 200 });
+  res.cookies.set({
+    name: "bank_id",
+    value: bankId,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,
+  });
+  return res;
 }

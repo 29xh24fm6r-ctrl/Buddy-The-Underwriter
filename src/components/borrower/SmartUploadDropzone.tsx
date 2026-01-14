@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
 
 /**
  * SBA God Mode: Smart Upload Dropzone
@@ -69,22 +70,24 @@ export function SmartUploadDropzone({ dealId, onUploadComplete }: SmartUploadDro
       
       setDetectedDocs(detected);
 
-      // Upload files
-      const formData = new FormData();
-      files.forEach((file) => formData.append('files', file));
-      formData.append('dealId', dealId);
+      // Upload files via canonical signed-url flow
+      for (const file of files) {
+        const result = await directDealDocumentUpload({
+          dealId,
+          file,
+          checklistKey: null,
+          source: "internal",
+        });
 
-      const res = await fetch(`/api/deals/${dealId}/documents/upload`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (res.ok) {
-        onUploadComplete?.();
-        setTimeout(() => {
-          setDetectedDocs([]);
-        }, 3000);
+        if (!result.ok) {
+          throw new Error(result.error || "Upload failed");
+        }
       }
+
+      onUploadComplete?.();
+      setTimeout(() => {
+        setDetectedDocs([]);
+      }, 3000);
     } catch (err) {
       console.error("Upload failed:", err);
     } finally {
@@ -158,12 +161,12 @@ export function SmartUploadDropzone({ dealId, onUploadComplete }: SmartUploadDro
       )}
 
       {/* Suggested Uploads */}
-      <SuggestedUploads dealId={dealId} />
+      <SuggestedUploads />
     </div>
   );
 }
 
-function SuggestedUploads({ dealId }: { dealId: string }) {
+function SuggestedUploads() {
   // TODO: Fetch missing documents from API
   const missingDocs = [
     { type: '2023 Business Tax Return', priority: 'high' },

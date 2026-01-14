@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth } from "@/lib/auth/clerkServer";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,13 @@ export async function POST(
     );
 
   const { dealId } = await ctx.params;
+
+  const access = await ensureDealBankAccess(dealId);
+  if (!access.ok) {
+    const status = access.error === "unauthorized" ? 401 : 404;
+    return NextResponse.json({ ok: false, error: access.error }, { status });
+  }
+
   const body = (await req.json().catch(() => null)) as Body | null;
 
   const id = body?.id || "";

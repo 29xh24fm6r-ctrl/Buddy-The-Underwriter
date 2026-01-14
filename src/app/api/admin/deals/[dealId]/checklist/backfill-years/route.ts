@@ -1,8 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { matchChecklistKeyFromFilename } from "@/lib/checklist/matchers";
+import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 
 export const dynamic = "force-dynamic";
+
+async function allowSuperAdminOrDebugToken(req: NextRequest) {
+  try {
+    await requireSuperAdmin();
+    return null;
+  } catch {
+    // fall through to token
+  }
+
+  const url = new URL(req.url);
+  const token = url.searchParams.get("token") || "";
+  const expected = process.env.ADMIN_DEBUG_TOKEN || "";
+  if (!expected || token !== expected) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+  return null;
+}
 
 function mustToken(req: NextRequest) {
   const url = new URL(req.url);
@@ -13,7 +31,9 @@ function mustToken(req: NextRequest) {
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
   try {
-    mustToken(req);
+    const auth = await allowSuperAdminOrDebugToken(req);
+    if (auth) return auth;
+
     const { dealId } = await ctx.params;
     const sb = supabaseAdmin();
 

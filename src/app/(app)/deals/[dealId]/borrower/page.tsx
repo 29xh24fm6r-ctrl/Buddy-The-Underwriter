@@ -1,21 +1,34 @@
-import StitchFrame from "@/components/stitch/StitchFrame";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { BorrowerPageSimplified } from "@/components/borrower/BorrowerPageSimplified";
 
-const TITLE = "Buddy";
-const FONT_LINKS: string[] = [];
-const TAILWIND_CDN = "https://cdn.tailwindcss.com?plugins=forms,container-queries";
-const TAILWIND_CONFIG_JS = ``;
-const STYLES: string[] = [];
-const BODY_HTML = ``;
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export default function Page() {
-  return (
-    <StitchFrame
-      title={TITLE}
-      fontLinks={FONT_LINKS}
-      tailwindCdnSrc={TAILWIND_CDN}
-      tailwindConfigJs={TAILWIND_CONFIG_JS}
-      styles={STYLES}
-      bodyHtml={BODY_HTML}
-    />
-  );
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ dealId?: string }>;
+}) {
+  const { userId } = await clerkAuth();
+  const { dealId } = await params;
+
+  if (!userId) {
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold text-white">Borrower</h1>
+        <p className="mt-2 text-sm text-white/70">Please sign in to continue.</p>
+      </div>
+    );
+  }
+
+  if (!dealId || dealId === "undefined") {
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold text-white">Borrower</h1>
+        <p className="mt-2 text-sm text-white/70">Loading deal…</p>
+      </div>
+    );
+  }
+
+  return <BorrowerPageSimplified dealId={dealId} />;
 }

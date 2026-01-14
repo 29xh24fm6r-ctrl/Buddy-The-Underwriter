@@ -19,7 +19,7 @@ export async function GET(
   ctx: { params: Promise<{ templateId: string }> },
 ) {
   try {
-    requireSuperAdmin();
+    await requireSuperAdmin();
     const { templateId } = await ctx.params;
 
     const { data, error } = (await supabaseAdmin()
@@ -31,6 +31,8 @@ export async function GET(
     if (error) throw error;
     return NextResponse.json({ ok: true, maps: data ?? [] });
   } catch (err: any) {
+    const a = authzError(err);
+    if (a) return NextResponse.json(a.body, { status: a.status });
     return NextResponse.json(
       { ok: false, error: err?.message ?? String(err) },
       { status: 500 },
@@ -43,7 +45,7 @@ export async function POST(
   ctx: { params: Promise<{ templateId: string }> },
 ) {
   try {
-    requireSuperAdmin();
+    await requireSuperAdmin();
     const { templateId } = await ctx.params;
     const body = await req.json();
 
@@ -77,6 +79,8 @@ export async function POST(
     if (error) throw error;
     return NextResponse.json({ ok: true, map: data });
   } catch (err: any) {
+    const a = authzError(err);
+    if (a) return NextResponse.json(a.body, { status: a.status });
     return NextResponse.json(
       { ok: false, error: err?.message ?? String(err) },
       { status: 500 },
@@ -89,7 +93,7 @@ export async function DELETE(
   ctx: { params: Promise<{ templateId: string }> },
 ) {
   try {
-    requireSuperAdmin();
+    await requireSuperAdmin();
     const { templateId } = await ctx.params;
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");

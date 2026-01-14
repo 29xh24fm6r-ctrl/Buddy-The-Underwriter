@@ -18,18 +18,19 @@ function authzError(err: any) {
 
 export async function POST(req: NextRequest) {
   try {
-    requireSuperAdmin();
+    await requireSuperAdmin();
 
     const body = await req.json().catch(() => ({}));
     const userId = String(body?.user_id ?? "");
-    const role = body?.role;
+    const roleRaw = body?.role;
+    const role = roleRaw === "" || roleRaw === null || roleRaw === undefined ? null : roleRaw;
 
     if (!userId)
       return NextResponse.json(
         { ok: false, error: "user_id is required" },
         { status: 400 },
       );
-    if (!isBuddyRole(role))
+    if (role !== null && !isBuddyRole(role))
       return NextResponse.json(
         { ok: false, error: "invalid role" },
         { status: 400 },
@@ -42,9 +43,15 @@ export async function POST(req: NextRequest) {
         { status: 503 },
       );
     }
-    await client.users.updateUser(userId, {
-      publicMetadata: { role },
-    });
+    const existing = await client.users.getUser(userId);
+    const publicMetadata = { ...(existing.publicMetadata as any) } as Record<string, any>;
+    if (role === null) {
+      delete publicMetadata.role;
+    } else {
+      publicMetadata.role = role;
+    }
+
+    await client.users.updateUser(userId, { publicMetadata });
 
     return NextResponse.json({ ok: true, user_id: userId, role });
   } catch (err: any) {

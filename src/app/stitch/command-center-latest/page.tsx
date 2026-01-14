@@ -1,4 +1,4 @@
-import StitchFrame from "@/components/stitch/StitchFrame";
+import { redirect } from "next/navigation";
 
 const TITLE = "Buddy The Underwriter - Public Share Screen";
 const FONT_LINKS: string[] = [];
@@ -240,14 +240,6 @@ const BODY_HTML = `<header class="sticky top-0 z-30 w-full bg-white/90 backdrop-
 </main>`;
 
 export default function Page() {
-  return (
-    <StitchFrame
-      title={TITLE}
-      fontLinks={FONT_LINKS}
-      tailwindCdnSrc={TAILWIND_CDN}
-      tailwindConfigJs={TAILWIND_CONFIG_JS}
-      styles={STYLES}
-      bodyHtml={BODY_HTML}
-    />
-  );
+  redirect("/command");
+  return null;
 }

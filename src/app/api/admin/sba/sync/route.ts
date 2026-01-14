@@ -1,9 +1,30 @@
 // src/app/api/admin/sba/sync/route.ts
 import { NextResponse } from "next/server";
 import { syncSBASources, syncSBARuleIndex } from "@/lib/sba/sync";
+import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+async function enforceSuperAdmin() {
+  try {
+    await requireSuperAdmin();
+    return null;
+  } catch (err: any) {
+    const msg = String(err?.message ?? err);
+    if (msg === "unauthorized")
+      return NextResponse.json(
+        { ok: false, error: "unauthorized" },
+        { status: 401 },
+      );
+    if (msg === "forbidden")
+      return NextResponse.json(
+        { ok: false, error: "forbidden" },
+        { status: 403 },
+      );
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
+}
 
 /**
  * Admin endpoint to sync SBA knowledge store
@@ -11,8 +32,8 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: Request) {
   try {
-    // TODO: Add admin auth check
-    // const adminUser = await requireBankAdmin(req);
+    const auth = await enforceSuperAdmin();
+    if (auth) return auth;
 
     const sources = await syncSBASources();
     const rules = await syncSBARuleIndex();

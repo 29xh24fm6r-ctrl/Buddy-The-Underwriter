@@ -26,9 +26,15 @@ export default function EmailRoutingAdminPage() {
       setErr("Missing bankId in query string (?bankId=...)");
       return;
     }
+    setErr(null);
     fetch(`/api/admin/banks/${encodeURIComponent(bankId)}/email-routing`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((j) =>
+      .then((j) => {
+        if (!j?.ok) {
+          setErr(j?.error ?? "Failed to load");
+          setRouting(null);
+          return;
+        }
         setRouting(
           j.routing ?? {
             contact_to_email: "",
@@ -36,9 +42,9 @@ export default function EmailRoutingAdminPage() {
             reply_to_mode: "submitter",
             configured_reply_to_email: null,
             is_enabled: true,
-          }
-        )
-      )
+          },
+        );
+      })
       .catch((e) => setErr(e?.message ?? "Failed to load"));
   }, [bankId]);
 

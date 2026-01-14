@@ -16,17 +16,9 @@ export default function BankFormsCard({ dealId }: BankFormsCardProps) {
   async function loadTemplates() {
     setBusy(true);
     try {
-      // Fetch bank for deal (guaranteed to exist by FK)
-      const bankRes = await fetch(`/api/deals/${dealId}/bank`);
-      const bankData = await bankRes.json();
-
-      if (!bankData.ok) {
-        console.error("Failed to load bank:", bankData.error);
-        return;
-      }
-
-      // Fetch templates for bank
-      const templatesRes = await fetch(`/api/admin/templates?bank_id=${bankData.bank_id}`);
+      const templatesRes = await fetch(`/api/deals/${dealId}/forms/templates`, {
+        cache: "no-store",
+      });
       const templatesData = await templatesRes.json();
 
       if (templatesData.ok) {

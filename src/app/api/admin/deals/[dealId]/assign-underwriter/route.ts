@@ -23,7 +23,7 @@ export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  requireSuperAdmin();
+  await requireSuperAdmin();
   const { dealId } = await ctx.params;
   const { userId: actor } = await clerkAuth();
 
@@ -69,7 +69,7 @@ export async function GET(
   _req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  requireSuperAdmin();
+  await requireSuperAdmin();
   const { dealId } = await ctx.params;
   try {
     const participants = await getDealParticipants(dealId);

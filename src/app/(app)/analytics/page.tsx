@@ -1,4 +1,4 @@
-import StitchFrame from "@/components/stitch/StitchFrame";
+import { listDealsForBank } from "@/lib/deals/listDeals";
 
 const TITLE = "Buddy - Pipeline Analytics Command Center";
 const FONT_LINKS: string[] = [];
@@ -589,15 +589,67 @@ const BODY_HTML = `<!-- Global Header -->
 </div>
 </main>`;
 
-export default function Page() {
-  return (
-    <StitchFrame
-      title={TITLE}
-      fontLinks={FONT_LINKS}
-      tailwindCdnSrc={TAILWIND_CDN}
-      tailwindConfigJs={TAILWIND_CONFIG_JS}
-      styles={STYLES}
-      bodyHtml={BODY_HTML}
-    />
-  );
+export default async function Page() {
+    const deals = await listDealsForBank(200);
+
+    const totalCount = deals.length;
+    const totalAmount = deals.reduce((sum, d) => {
+        const raw = d.amountLabel.replace(/[^0-9.-]/g, "");
+        const n = Number(raw);
+        return Number.isFinite(n) ? sum + n : sum;
+    }, 0);
+
+    const byStage = deals.reduce<Record<string, number>>((acc, d) => {
+        const stage = d.stage || "-";
+        acc[stage] = (acc[stage] ?? 0) + 1;
+        return acc;
+    }, {});
+
+    return (
+        <div className="min-h-screen bg-[#0f1218] text-white">
+            <header className="border-b border-white/10 bg-[#111418] px-6 py-4">
+                <div>
+                    <h1 className="text-2xl font-bold">Pipeline Analytics</h1>
+                    <p className="text-sm text-white/60 mt-1">System-wide visibility into deal flow</p>
+                </div>
+            </header>
+
+            <main className="p-6 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="rounded-lg border border-white/10 bg-[#1a1f29] p-4">
+                        <div className="text-xs uppercase text-white/50">Total Deals</div>
+                        <div className="text-3xl font-semibold mt-2">{totalCount}</div>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-[#1a1f29] p-4">
+                        <div className="text-xs uppercase text-white/50">Total Volume</div>
+                        <div className="text-3xl font-semibold mt-2">
+                            {totalAmount.toLocaleString("en-US", {
+                                style: "currency",
+                                currency: "USD",
+                                maximumFractionDigits: 0,
+                            })}
+                        </div>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-[#1a1f29] p-4">
+                        <div className="text-xs uppercase text-white/50">Stages</div>
+                        <div className="text-sm text-white/70 mt-2">
+                            {Object.keys(byStage).length || 0} tracked
+                        </div>
+                    </div>
+                </div>
+
+                <div className="rounded-lg border border-white/10 bg-[#1a1f29] p-4">
+                    <h2 className="text-sm font-semibold mb-3">Deals by Stage</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {Object.entries(byStage).map(([stage, count]) => (
+                            <div key={stage} className="rounded border border-white/10 bg-[#141820] p-3">
+                                <div className="text-xs uppercase text-white/50">{stage}</div>
+                                <div className="text-lg font-semibold mt-1">{count}</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </main>
+        </div>
+    );
 }

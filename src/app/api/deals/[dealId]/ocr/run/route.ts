@@ -2,6 +2,8 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { runOcrJob } from "@/lib/ocr/runOcrJob";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,11 +28,22 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const startedAt = Date.now();
 
   try {
+    const { userId } = await clerkAuth();
+    if (!userId) {
+      return json(401, { ok: false, error: { message: "Unauthorized" } });
+    }
+
     const p = await ctx.params;
     const dealId = p?.dealId;
 
     if (!dealId) {
       return json(400, { ok: false, error: { message: "Missing dealId" } });
+    }
+
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "unauthorized" ? 401 : 404;
+      return json(status, { ok: false, error: { message: access.error } });
     }
 
     let body: any = null;

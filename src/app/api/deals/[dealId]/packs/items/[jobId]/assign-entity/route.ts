@@ -3,6 +3,8 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,11 +27,22 @@ async function getSupabaseClient() {
  */
 export async function POST(req: NextRequest, ctx: Ctx) {
   try {
+    const { userId } = await clerkAuth();
+    if (!userId) {
+      return json(401, { ok: false, error: "Unauthorized" });
+    }
+
     const p = await ctx.params;
     const { dealId, jobId } = p;
 
     if (!dealId || !jobId) {
       return json(400, { ok: false, error: "Missing dealId or jobId" });
+    }
+
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "unauthorized" ? 401 : 404;
+      return json(status, { ok: false, error: access.error });
     }
 
     let body: any;
@@ -54,7 +67,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         .update({
           entity_id,
           suggested_entity_id: null, // Clear suggestion once user assigns
-          updated_at: new Date().toISOString(),
         })
         .eq("job_id", jobId)
         .eq("deal_id", dealId)
@@ -67,28 +79,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       }
 
       return json(200, { ok: true, item: data });
-    } else {
-      // Development: Update job file
-      const fs = await import("node:fs/promises");
-      const path = await import("node:path");
-
-      const jobPath = path.join("/tmp/buddy_ocr_jobs", dealId, `${jobId}.json`);
-
-      try {
-        const content = await fs.readFile(jobPath, "utf-8");
-        const job = JSON.parse(content);
-
-        // Add entity assignment to job metadata
-        job.entity_id = entity_id;
-        job.updated_at = new Date().toISOString();
-
-        await fs.writeFile(jobPath, JSON.stringify(job, null, 2), "utf-8");
-
-        return json(200, { ok: true, job });
-      } catch (e: any) {
-        console.error("[assign-entity] file error:", e);
-        return json(404, { ok: false, error: "Job not found" });
-      }
     }
   } catch (e: any) {
     console.error("[assign-entity] error:", e);

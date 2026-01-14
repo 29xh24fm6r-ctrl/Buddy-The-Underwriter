@@ -4,6 +4,7 @@ import {
   activateDocTextSource,
   discoverSchema,
 } from "@/lib/admin/schemaDiscovery";
+import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: Request) {
   try {
+    await requireSuperAdmin();
     const body = await req.json().catch(() => ({}));
     const explicitTable = body?.tableName ? String(body.tableName) : null;
     const explicitCol = body?.textColumn ? String(body.textColumn) : null;
@@ -54,8 +56,11 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, active: row, autoPicked: top });
   } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    if (msg === "unauthorized") return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    if (msg === "forbidden") return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     return NextResponse.json(
-      { ok: false, error: e?.message ?? "Unknown error" },
+      { ok: false, error: msg || "Unknown error" },
       { status: 500 },
     );
   }

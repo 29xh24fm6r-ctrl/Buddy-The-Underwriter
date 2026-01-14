@@ -1,6 +1,8 @@
 // src/app/api/deals/[dealId]/upload-links/create/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import {
   hashPassword,
   makePasswordSalt,
@@ -24,7 +26,19 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
+  const { userId } = await clerkAuth();
+  if (!userId) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
   const { dealId } = await ctx.params;
+
+  const access = await ensureDealBankAccess(dealId);
+  if (!access.ok) {
+    const status = access.error === "unauthorized" ? 401 : 404;
+    return NextResponse.json({ ok: false, error: access.error }, { status });
+  }
+
   let body: Body | null = null;
   try {
     body = (await req.json()) as Body;
@@ -81,8 +95,18 @@ export async function POST(
     );
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-  const url = `${appUrl.replace(/\/$/, "")}/upload/${encodeURIComponent(token)}`;
+  const inferredOrigin = (() => {
+    try {
+      return new URL(req.url).origin;
+    } catch {
+      return "";
+    }
+  })();
+
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || inferredOrigin || "").replace(/\/$/, "");
+  const url = appUrl
+    ? `${appUrl}/upload/${encodeURIComponent(token)}`
+    : `/upload/${encodeURIComponent(token)}`;
 
   return NextResponse.json({
     ok: true,

@@ -1,4 +1,7 @@
-import StitchFrame from "@/components/stitch/StitchFrame";
+import BorrowerPortalClient from "@/app/portal/[token]/SimplePortalClient";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const TITLE = "Borrower Portal — Document Upload &amp; Review";
 const FONT_LINKS: string[] = [];
@@ -379,15 +382,26 @@ const BODY_HTML = `<!-- Top Navigation -->
 </aside>
 </main>`;
 
-export default function Page() {
-  return (
-    <StitchFrame
-      title={TITLE}
-      fontLinks={FONT_LINKS}
-      tailwindCdnSrc={TAILWIND_CDN}
-      tailwindConfigJs={TAILWIND_CONFIG_JS}
-      styles={STYLES}
-      bodyHtml={BODY_HTML}
-    />
-  );
+export default function PortalDocumentsPage({
+    searchParams,
+}: {
+    searchParams?: { token?: string };
+}) {
+    const token = searchParams?.token;
+
+    if (!token) {
+        return (
+            <div className="mx-auto max-w-3xl p-6">
+                <div className="rounded-2xl border bg-white p-6 shadow-sm">
+                    <div className="text-lg font-semibold">Borrower Portal</div>
+                    <div className="mt-2 text-sm text-slate-600">
+                        This page requires a portal link token. Please open the unique portal URL provided
+                        by your banker.
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return <BorrowerPortalClient token={token} />;
 }
