@@ -533,7 +533,7 @@ export function buildUnderwriteCommandBridgeActivationScript(): string {
           return;
         }
 
-        var target = `/deals/${dealId}/documents/${documentId}`;
+        var target = \`/deals/\${dealId}/documents/\${documentId}\`;
         if (typeof process !== "undefined" && process.env && process.env.NODE_ENV !== "production") {
           console.assert(
             /^\/deals\/[0-9a-f-]{36}\/documents\/[0-9a-f-]{36}$/i.test(target),
