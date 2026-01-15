@@ -30,7 +30,7 @@ export const dynamic = "force-dynamic";
  * }
  */
 export async function POST(req: NextRequest) {
-  requireSuperAdmin();
+  await requireSuperAdmin();
   const supabase = supabaseAdmin();
   const { userId: actor } = await clerkAuth();
 

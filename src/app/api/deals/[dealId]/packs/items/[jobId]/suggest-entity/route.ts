@@ -5,6 +5,8 @@ import {
   suggestEntity,
   extractEntitySignals,
 } from "@/lib/entities/entityMatching";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,11 +25,22 @@ function json(status: number, body: any) {
  */
 export async function POST(req: NextRequest, ctx: Ctx) {
   try {
+    const { userId } = await clerkAuth();
+    if (!userId) {
+      return json(401, { ok: false, error: "Unauthorized" });
+    }
+
     const p = await ctx.params;
     const { dealId, jobId } = p;
 
     if (!dealId || !jobId) {
       return json(400, { ok: false, error: "Missing dealId or jobId" });
+    }
+
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "unauthorized" ? 401 : 404;
+      return json(status, { ok: false, error: access.error });
     }
 
     const fs = await import("node:fs/promises");

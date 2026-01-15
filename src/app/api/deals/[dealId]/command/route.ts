@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { isDemoMode, demoState } from "@/lib/demo/demoMode";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,6 +89,14 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     if (!userId) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
     const { dealId } = await ctx.params;
+
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "deal_not_found" ? 404 : access.error === "tenant_mismatch" ? 403 : 401;
+      const msg = access.error === "deal_not_found" ? "Deal not found" : access.error === "tenant_mismatch" ? "Forbidden" : "Unauthorized";
+      return NextResponse.json({ ok: false, error: msg }, { status });
+    }
+
     const sb = supabaseAdmin();
 
     // Pull latest ledger events for the deal (most recent first)

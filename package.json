@@ -103,5 +103,11 @@
       "sharp",
       "unrs-resolver"
     ]
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "next lint --fix"
+    ],
+    "*.{md,json,yml,yaml}": []
   }
 }

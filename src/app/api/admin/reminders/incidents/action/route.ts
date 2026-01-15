@@ -1,9 +1,30 @@
 // src/app/api/admin/reminders/incidents/action/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+async function enforceSuperAdmin() {
+  try {
+    await requireSuperAdmin();
+    return null;
+  } catch (err: any) {
+    const msg = String(err?.message ?? err);
+    if (msg === "unauthorized")
+      return NextResponse.json(
+        { ok: false, error: "unauthorized" },
+        { status: 401 },
+      );
+    if (msg === "forbidden")
+      return NextResponse.json(
+        { ok: false, error: "forbidden" },
+        { status: 403 },
+      );
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
+}
 
 type Action = "mute" | "force_run";
 
@@ -45,6 +66,9 @@ async function auditAction(
 }
 
 export async function POST(req: Request) {
+  const auth = await enforceSuperAdmin();
+  if (auth) return auth;
+
   const sb = supabaseAdmin();
 
   let body: any = null;

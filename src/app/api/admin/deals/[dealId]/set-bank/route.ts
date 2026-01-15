@@ -19,7 +19,7 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    requireSuperAdmin();
+    await requireSuperAdmin();
     const { dealId } = await ctx.params;
     const body = await req.json().catch(() => ({}));
     const bank_id = String(body?.bank_id ?? "");

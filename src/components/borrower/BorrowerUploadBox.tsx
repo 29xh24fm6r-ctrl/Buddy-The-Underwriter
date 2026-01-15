@@ -12,6 +12,7 @@
 "use client";
 
 import { useState } from "react";
+import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
 
 interface BorrowerUploadBoxProps {
   dealId: string;
@@ -24,6 +25,7 @@ export function BorrowerUploadBox({
 }: BorrowerUploadBoxProps) {
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<"idle" | "uploading" | "received">("idle");
+  const [error, setError] = useState<string | null>(null);
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
@@ -32,21 +34,21 @@ export function BorrowerUploadBox({
 
     setUploading(true);
     setStatus("uploading");
+    setError(null);
 
     try {
-      const formData = new FormData();
-      files.forEach((file) => formData.append("files", file));
-
-      const res = await fetch(`/api/deals/${dealId}/documents/upload`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        alert(err.error || "Upload failed. Please try again.");
-        setStatus("idle");
-        return;
+      for (const file of files) {
+        const result = await directDealDocumentUpload({
+          dealId,
+          file,
+          checklistKey: null,
+          source: "borrower",
+        });
+        if (!result.ok) {
+          setError(result.error || "Upload failed. Please try again.");
+          setStatus("idle");
+          return;
+        }
       }
 
       setStatus("received");
@@ -56,7 +58,45 @@ export function BorrowerUploadBox({
       }, 2000);
     } catch (err) {
       console.error("Upload error:", err);
-      alert("Something went wrong. Please try again.");
+      setError("Something went wrong. Please try again.");
+      setStatus("idle");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    // Reuse the same upload path as drag-drop
+    setUploading(true);
+    setStatus("uploading");
+    setError(null);
+    try {
+      for (const file of files) {
+        const result = await directDealDocumentUpload({
+          dealId,
+          file,
+          checklistKey: null,
+          source: "borrower",
+        });
+        if (!result.ok) {
+          setError(result.error || "Upload failed. Please try again.");
+          setStatus("idle");
+          return;
+        }
+      }
+
+      setStatus("received");
+      setTimeout(() => {
+        setStatus("idle");
+        onUploadComplete?.();
+      }, 2000);
+    } catch (err) {
+      console.error("Upload error:", err);
+      setError("Something went wrong. Please try again.");
       setStatus("idle");
     } finally {
       setUploading(false);
@@ -97,6 +137,13 @@ export function BorrowerUploadBox({
           <div className="text-slate-500 text-sm mt-1">
             Or click to browse
           </div>
+          <label className="mt-3 inline-flex cursor-pointer items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+            Choose files
+            <input type="file" multiple className="hidden" onChange={handleFileSelect} />
+          </label>
+          {error ? (
+            <div className="mt-3 text-sm text-red-400">{error}</div>
+          ) : null}
         </>
       )}
     </div>

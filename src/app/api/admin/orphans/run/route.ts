@@ -1,47 +1,47 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { scanBucketPrefixToCache } from "@/lib/storage/orphanDetector";
+import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  // SECURITY NOTE:
-  // This is an admin route. If you already have requireRole/admin auth, add it here.
-  // For now, keep it behind Clerk-protected admin UI / server calls.
-
-  const body = await req.json().catch(() => ({}));
-  const bucket = String(body.bucket || "deal-uploads");
-  const prefix = String(body.prefix || "deals/");
-
   const sb = supabaseAdmin();
-
-  const run = await sb
-    .from("storage_scan_runs")
-    .insert({
-      bucket,
-      prefix,
-      status: "running",
-      stats: { startedAt: new Date().toISOString() },
-    })
-    .select("id")
-    .single();
-
-  if (run.error || !run.data?.id) {
-    return NextResponse.json(
-      { ok: false, error: run.error?.message || "Failed to create scan run" },
-      { status: 500 },
-    );
-  }
-
-  const runId = run.data.id as string;
+  let runId: string | null = null;
 
   try {
+    await requireSuperAdmin();
+
+    const body = await req.json().catch(() => ({}));
+    const bucket = String(body.bucket || "deal-uploads");
+    const prefix = String(body.prefix || "deals/");
+
+    const run = await sb
+      .from("storage_scan_runs")
+      .insert({
+        bucket,
+        prefix,
+        status: "running",
+        stats: { startedAt: new Date().toISOString() },
+      })
+      .select("id")
+      .single();
+
+    if (run.error || !run.data?.id) {
+      return NextResponse.json(
+        { ok: false, error: run.error?.message || "Failed to create scan run" },
+        { status: 500 },
+      );
+    }
+
+    runId = run.data.id as string;
+
     const { capped, seen } = await scanBucketPrefixToCache({
       sb,
       bucket,
       prefix,
-      runId,
+      runId: runId!,
       maxObjects: Number(body.maxObjects || 25000),
     });
 
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     const storageCache = await sb
       .from("storage_objects_cache")
       .select("bucket, path, size_bytes, mime_type")
-      .eq("scan_run_id", runId)
+      .eq("scan_run_id", runId!)
       .limit(100000);
 
     if (storageCache.error) throw new Error(storageCache.error.message);
@@ -136,24 +136,26 @@ export async function POST(req: Request) {
           dbOnly: dbOnlyRows.length,
         },
       })
-      .eq("id", runId);
+      .eq("id", runId!);
 
     return NextResponse.json({
       ok: true,
-      runId,
+      runId: runId!,
       capped,
       seen,
       storageOnly: storageOnlyRows.length,
       dbOnly: dbOnlyRows.length,
     });
-  } catch (e: any) {
-    await sb
-      .from("storage_scan_runs")
-      .update({ status: "failed", error: String(e?.message || e) })
-      .eq("id", runId);
-    return NextResponse.json(
-      { ok: false, runId, error: String(e?.message || e) },
-      { status: 500 },
-    );
+  } catch (err: any) {
+    if (runId) {
+      await sb
+        .from("storage_scan_runs")
+        .update({ status: "failed", error: String(err?.message ?? err) })
+        .eq("id", runId);
+    }
+    const msg = String(err?.message ?? err);
+    if (msg === "unauthorized") return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    if (msg === "forbidden") return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }

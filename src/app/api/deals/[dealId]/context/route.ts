@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import type { DealContext } from "@/lib/deals/contextTypes";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
     const { dealId } = await ctx.params;
     if (!dealId || dealId === "undefined") {
       return NextResponse.json({ ok: false, error: "invalid_deal_id", dealId: dealId ?? null } satisfies ProbeErr, { status: 400 });
+    }
+
+    const { userId } = await withTimeout(clerkAuth(), 8_000, "clerkAuth");
+    if (!userId) {
+      return NextResponse.json({ ok: false, error: "Unauthorized", dealId } satisfies ProbeErr, { status: 401 });
     }
 
     const bankId = await withTimeout(getCurrentBankId(), 8_000, "getCurrentBankId").catch((e) => {

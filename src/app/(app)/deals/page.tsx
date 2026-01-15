@@ -1,30 +1,111 @@
 import { redirect } from "next/navigation";
 import { clerkAuth } from "@/lib/auth/clerkServer";
+import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { derivePipelineStatus } from "@/lib/deals/derivePipeline";
 import Link from "next/link";
+
+function formatMoney(amount: unknown): string {
+  const n = typeof amount === "number" ? amount : Number(amount);
+  if (!Number.isFinite(n) || n <= 0) return "-";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(n);
+}
+
+type DealRow = {
+  id: string;
+  borrower_name?: string | null;
+  name?: string | null;
+  amount?: number | string | null;
+  stage?: string | null;
+  created_at?: string | null;
+  ready_at?: string | null;
+  submitted_at?: string | null;
+  ready_reason?: string | null;
+};
 
 export default async function DealsPage() {
   const { userId } = await clerkAuth();
   if (!userId) redirect("/sign-in");
 
-  // TODO: Fetch actual deals from database
-  const deals = [
-    {
-      id: "1",
-      borrower: "Highland Capital Group",
-      amount: "$2.5M",
-      status: "In Progress",
-      stage: "Underwriting",
-      daysOpen: 12,
-    },
-    {
-      id: "2", 
-      borrower: "Riverstone Properties LLC",
-      amount: "$1.8M",
-      status: "Pending Docs",
-      stage: "Intake",
-      daysOpen: 5,
-    },
-  ];
+  const bankId = await getCurrentBankId();
+  const sb = supabaseAdmin();
+
+  const selectPrimary = "id, borrower_name, name, amount, stage, created_at, ready_at, submitted_at, ready_reason";
+  const selectFallback = "id, borrower_name, name, created_at";
+
+  let deals: DealRow[] = [];
+  {
+    const res = await sb
+      .from("deals")
+      .select(selectPrimary)
+      .eq("bank_id", bankId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (!res.error) {
+      deals = (res.data ?? []) as DealRow[];
+    } else {
+      const msg = String(res.error.message || "");
+      const schemaMaybeMissing = msg.includes("column") || msg.includes("does not exist");
+
+      if (!schemaMaybeMissing) {
+        console.error("[/deals] deals_select_failed:", res.error);
+      }
+
+      const fallbackRes = await sb
+        .from("deals")
+        .select(selectFallback)
+        .eq("bank_id", bankId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (fallbackRes.error) {
+        console.error("[/deals] deals_select_fallback_failed:", fallbackRes.error);
+        deals = [];
+      } else {
+        deals = (fallbackRes.data ?? []) as DealRow[];
+      }
+    }
+  }
+
+  const uiDeals = deals.map((d) => {
+    const createdAt = d.created_at ? new Date(d.created_at) : null;
+    const createdLabel = createdAt
+      ? createdAt.toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "2-digit",
+        })
+      : "-";
+
+    const borrower = d.borrower_name || d.name || "Untitled deal";
+    const amountLabel = d.amount != null ? formatMoney(d.amount) : "-";
+
+    const stage = d.stage ? String(d.stage) : "-";
+
+    // If the schema supports these columns, show a human pipeline status. Otherwise, keep it blank.
+    let status: string | null = null;
+    if ("submitted_at" in d || "ready_at" in d) {
+      try {
+        status = derivePipelineStatus(d as any);
+      } catch {
+        status = null;
+      }
+    }
+
+    return {
+      id: d.id,
+      borrower,
+      amountLabel,
+      stage,
+      status,
+      createdLabel,
+    };
+  });
 
   return (
     <div className="min-h-screen bg-[#0f1115]">
@@ -71,7 +152,7 @@ export default async function DealsPage() {
                   Status
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-white/70 uppercase tracking-wider">
-                  Days Open
+                  Created
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-semibold text-white/70 uppercase tracking-wider">
                   Actions
@@ -79,28 +160,32 @@ export default async function DealsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
-              {deals.map((deal) => (
+              {uiDeals.map((deal) => (
                 <tr key={deal.id} className="hover:bg-white/5 transition-colors">
                   <td className="px-6 py-4 text-sm font-medium text-white">
                     {deal.borrower}
                   </td>
                   <td className="px-6 py-4 text-sm text-white/80">
-                    {deal.amount}
+                    {deal.amountLabel}
                   </td>
                   <td className="px-6 py-4 text-sm text-white/80">
                     {deal.stage}
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      deal.status === "In Progress" 
-                        ? "bg-primary/20 text-primary border border-primary/30"
-                        : "bg-amber-500/20 text-amber-500 border border-amber-500/30"
-                    }`}>
-                      {deal.status}
-                    </span>
+                    {deal.status ? (
+                      <span
+                        className={
+                          "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/5 text-white/80 border border-white/10"
+                        }
+                      >
+                        {deal.status}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-white/40">-</span>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-sm text-white/80">
-                    {deal.daysOpen} days
+                    {deal.createdLabel}
                   </td>
                   <td className="px-6 py-4 text-right text-sm">
                     <Link
@@ -117,7 +202,7 @@ export default async function DealsPage() {
           </table>
         </div>
 
-        {deals.length === 0 && (
+        {uiDeals.length === 0 && (
           <div className="text-center py-12">
             <span className="material-symbols-outlined text-white/20 text-6xl">folder_open</span>
             <p className="text-white/60 mt-4">No deals yet. Create your first deal to get started.</p>

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { applyBestPackToDeal } from "@/lib/packs/applyPack";
 import { recordLearningEvent } from "@/lib/packs/recordLearningEvent";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +16,17 @@ export async function POST(
   const sb = supabaseAdmin();
 
   try {
+    const { userId } = await clerkAuth();
+    if (!userId) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "unauthorized" ? 401 : 404;
+      return NextResponse.json({ ok: false, error: access.error }, { status });
+    }
+
     // Apply pack (manuallyApplied = true since banker clicked button)
     const result = await applyBestPackToDeal(sb, dealId, {
       manuallyApplied: true,

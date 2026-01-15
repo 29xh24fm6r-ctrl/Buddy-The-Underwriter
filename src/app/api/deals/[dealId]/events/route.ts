@@ -1,6 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
 import type { AuditLedgerRow } from "@/types/db";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +24,18 @@ type Context = {
 export async function GET(req: NextRequest, ctx: Context) {
   try {
     const { dealId } = await ctx.params;
+
+    const { userId } = await clerkAuth();
+    if (!userId) {
+      return NextResponse.json({ ok: false, events: [], error: "Unauthorized" }, { status: 401 });
+    }
+
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "deal_not_found" ? 404 : access.error === "tenant_mismatch" ? 403 : 400;
+      return NextResponse.json({ ok: false, events: [], error: access.error }, { status });
+    }
+
     const { searchParams } = new URL(req.url);
     const limit = parseInt(searchParams.get("limit") || "20", 10);
 

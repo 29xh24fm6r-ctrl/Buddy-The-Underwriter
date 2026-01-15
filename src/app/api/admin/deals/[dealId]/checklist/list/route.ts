@@ -3,6 +3,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,11 +17,24 @@ type Ctx = { params: Promise<{ dealId: string }> };
  */
 export async function GET(req: NextRequest, ctx: Ctx) {
   const url = new URL(req.url);
-  const token = url.searchParams.get("token") || "";
-  const expected = process.env.ADMIN_DEBUG_TOKEN || "";
 
-  if (!expected || token !== expected) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  // Allow either Clerk super-admin OR an explicit debug token (for terminal debugging).
+  let isSuperAdmin = false;
+  try {
+    await requireSuperAdmin();
+    isSuperAdmin = true;
+  } catch {
+    isSuperAdmin = false;
+  }
+  if (!isSuperAdmin) {
+    const token = url.searchParams.get("token") || "";
+    const expected = process.env.ADMIN_DEBUG_TOKEN || "";
+    if (!expected || token !== expected) {
+      return NextResponse.json(
+        { ok: false, error: "unauthorized" },
+        { status: 401 },
+      );
+    }
   }
 
   const { dealId } = await ctx.params;

@@ -7,14 +7,33 @@ echo "🗺️  Navigation Route Verification"
 echo "=================================="
 echo ""
 
+missing=0
+checked=0
+
 check_route() {
   local route=$1
   local purpose=$2
-  
-  if [ -f "src/app${route}/page.tsx" ] || [ -f "src/app${route}/page.ts" ]; then
-    echo "✅ ${route} - ${purpose}"
+
+  checked=$((checked + 1))
+
+  # Next.js route groups like `(app)` don't appear in the URL path, so pages can
+  # live under `src/app/(group)/...` while still resolving to `/${route}`.
+  local clean="${route#/}"
+
+  # Find any matching page.{ts,tsx} for this URL path under src/app.
+  local found
+  local matches
+  matches=$(find src/app -type f \( -name 'page.tsx' -o -name 'page.ts' \) 2>/dev/null | grep -E "/${clean}/page\\.ts(x)?$" || true)
+
+  # If multiple pages match (e.g. /command exists as a global page and a nested
+  # deal sub-route), prefer the shortest path (closest to app root).
+  found=$(printf '%s\n' "$matches" | awk -F/ 'NF { print NF ":" $0 }' | sort -n | head -n 1 | cut -d: -f2-)
+
+  if [ -n "$found" ]; then
+    echo "✅ ${route} - ${purpose} (${found})"
   else
     echo "❌ ${route} - ${purpose} (MISSING)"
+    missing=$((missing + 1))
   fi
 }
 
@@ -50,7 +69,11 @@ echo "ℹ️  /servicing - Servicing page (EXISTS)"
 echo ""
 echo "💡 Recommendations:"
 echo "------------------"
-echo "1. Consider using /deals/[dealId] as the main hub"
-echo "2. Add top-level routes for missing sections"
-echo "3. Or update HeroBar to use existing nested routes"
+if [ "$missing" -eq 0 ]; then
+  echo "✅ All ${checked} checked navigation routes are present."
+else
+  echo "1. Add pages (or alias routes) for missing sections"
+  echo "2. Or update navigation links to point at the existing routes"
+  echo "3. Re-run this script until missing=0"
+fi
 echo ""

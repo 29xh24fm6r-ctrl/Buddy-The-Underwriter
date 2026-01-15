@@ -22,7 +22,7 @@ export type LearningEventInput = {
 };
 
 export async function recordLearningEvent(arg1: any, arg2?: LearningEventInput): Promise<void> {
-  const sb = arg2 ? arg1 : null;
+  const sb = arg2 ? arg1 : supabaseAdmin();
   const input = (arg2 ? arg2 : arg1) as LearningEventInput;
 
   const { error } = await sb

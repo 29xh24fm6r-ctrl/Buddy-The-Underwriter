@@ -54,7 +54,7 @@ export async function GET(
   ctx: { params: Promise<{ templateId: string }> },
 ) {
   try {
-    requireSuperAdmin();
+    await requireSuperAdmin();
     const { templateId } = await ctx.params;
     const sb = supabaseAdmin();
 

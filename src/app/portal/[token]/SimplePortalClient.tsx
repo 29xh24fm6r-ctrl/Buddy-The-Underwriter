@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
+import { uploadBorrowerFile } from "@/lib/uploads/uploadFile";
 
 export default function BorrowerPortalClient({ token }: { token: string }) {
   const [dealId, setDealId] = useState<string | null>(null);
@@ -95,12 +95,7 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
               
               const uploadedFiles = Array.from(e.target.files);
               for (const file of uploadedFiles) {
-                const result = await directDealDocumentUpload({
-                  dealId,
-                  file,
-                  checklistKey: null,
-                  source: "borrower",
-                });
+                const result = await uploadBorrowerFile(token, file, null);
                 
                 if (!result.ok) {
                   console.error(`Failed to upload ${file.name}:`, result.error);

@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateBorrowerNudge, shouldSendNudge, recordNudgeSent } from "@/lib/borrower/nudges";
+import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 
 export const dynamic = "force-dynamic";
+
+function authzError(err: any) {
+  const msg = String(err?.message ?? err);
+  if (msg === "unauthorized") return { status: 401, body: { ok: false, error: "unauthorized" } };
+  if (msg === "forbidden") return { status: 403, body: { ok: false, error: "forbidden" } };
+  return null;
+}
 
 /**
  * POST /api/admin/nudges/batch
@@ -19,8 +27,7 @@ export async function POST(req: NextRequest) {
   const sb = supabaseAdmin();
 
   try {
-    // TODO: Add requireSuperAdmin() when in production
-    // For now, allow testing
+    await requireSuperAdmin();
 
     // Find all deals that need nudging
     const { data: deals } = await sb
@@ -106,6 +113,8 @@ export async function POST(req: NextRequest) {
       skipped,
     });
   } catch (err: any) {
+    const a = authzError(err);
+    if (a) return NextResponse.json(a.body, { status: a.status });
     console.error("[batch-nudge] Error", { error: err.message });
     return NextResponse.json(
       { ok: false, error: err.message },

@@ -1,12 +1,21 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
-import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { fillEngine } from "@/lib/forms/fillEngine";
+import { requireUnderwriterOnDeal } from "@/lib/deals/participants";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function authzError(err: any) {
+  const msg = String(err?.message ?? err);
+  if (msg === "unauthorized")
+    return { status: 401, body: { ok: false, error: "unauthorized" } };
+  if (msg === "forbidden")
+    return { status: 403, body: { ok: false, error: "forbidden" } };
+  return null;
+}
 
 /**
  * POST /api/deals/[dealId]/forms/prepare
@@ -28,10 +37,26 @@ export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  requireSuperAdmin();
-  const { userId } = await clerkAuth();
   const { dealId } = await ctx.params;
-  const supabase = supabaseAdmin();
+
+  try {
+    const userId = await requireUnderwriterOnDeal(dealId);
+
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status =
+        access.error === "deal_not_found"
+          ? 404
+          : access.error === "tenant_mismatch"
+            ? 403
+            : 401;
+      return NextResponse.json(
+        { ok: false, error: access.error },
+        { status },
+      );
+    }
+
+    const supabase = supabaseAdmin();
 
   const body = await req.json().catch(() => ({}));
   const template_id = String(body?.template_id ?? "");
@@ -43,7 +68,28 @@ export async function POST(
     );
   }
 
-  try {
+    // Ensure template exists and belongs to this deal's bank
+    const { data: template, error: tErr } = (await (supabase as any)
+      .from("bank_document_templates")
+      .select("id, bank_id")
+      .eq("id", template_id)
+      .maybeSingle()) as any;
+
+    if (tErr) throw tErr;
+    if (!template) {
+      return NextResponse.json(
+        { ok: false, error: "Template not found" },
+        { status: 404 },
+      );
+    }
+
+    if (String(template.bank_id) !== String(access.bankId)) {
+      return NextResponse.json(
+        { ok: false, error: "forbidden" },
+        { status: 403 },
+      );
+    }
+
     // Fetch template fields
     const { data: fields, error: e1 } = await (supabase as any)
       .from("bank_document_template_fields")
@@ -62,10 +108,12 @@ export async function POST(
       );
     }
 
-    // Fetch deal data (simplified - extend based on your schema)
+    // Fetch deal data (extend as needed)
     const { data: deal, error: e2 } = await (supabase as any)
-      .from("applications")
-      .select("*")
+      .from("deals")
+      .select(
+        "id, borrower_name, business_name, business_ein, loan_amount, loan_purpose",
+      )
       .eq("id", dealId)
       .single();
 
@@ -130,9 +178,11 @@ export async function POST(
       evidence: fillResult.evidence,
       ai_notes: fillResult.ai_notes,
     });
-  } catch (error: any) {
+  } catch (err: any) {
+    const a = authzError(err);
+    if (a) return NextResponse.json(a.body, { status: a.status });
     return NextResponse.json(
-      { ok: false, error: error?.message ?? String(error) },
+      { ok: false, error: err?.message ?? String(err) },
       { status: 500 },
     );
   }

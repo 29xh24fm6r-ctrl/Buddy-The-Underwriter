@@ -5,7 +5,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -16,7 +21,17 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const sb = getSupabaseServerClient();
+    const { userId } = await clerkAuth();
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "deal_not_found" ? 404 : access.error === "tenant_mismatch" ? 403 : 401;
+      const msg = access.error === "deal_not_found" ? "Deal not found" : access.error === "tenant_mismatch" ? "Forbidden" : "Unauthorized";
+      return NextResponse.json({ error: msg }, { status });
+    }
+
+    const sb = supabaseAdmin();
 
     // Query the borrower_pack_rankings view
     const { data: rankings, error } = await sb

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { clerkAuth } from "@/lib/auth/clerkServer";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "edge";
 
@@ -24,6 +25,15 @@ export async function GET(
     const { userId } = await withTimeout(clerkAuth(), 8_000, "clerkAuth");
     if (!userId) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const access = await withTimeout(ensureDealBankAccess(dealId), 8_000, "ensureDealBankAccess");
+    if (!access.ok) {
+      const status =
+        access.error === "deal_not_found" ? 404 :
+        access.error === "tenant_mismatch" ? 403 :
+        400;
+      return NextResponse.json({ ok: false, error: access.error }, { status });
     }
 
     const bankId = await withTimeout(getCurrentBankId(), 8_000, "getCurrentBankId");

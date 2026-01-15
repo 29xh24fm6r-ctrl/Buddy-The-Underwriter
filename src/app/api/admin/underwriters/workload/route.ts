@@ -2,9 +2,30 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+async function enforceSuperAdmin() {
+  try {
+    await requireSuperAdmin();
+    return null;
+  } catch (err: any) {
+    const msg = String(err?.message ?? err);
+    if (msg === "unauthorized")
+      return NextResponse.json(
+        { ok: false, error: "unauthorized" },
+        { status: 401 },
+      );
+    if (msg === "forbidden")
+      return NextResponse.json(
+        { ok: false, error: "forbidden" },
+        { status: 403 },
+      );
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
+}
 
 type WorkloadRow = {
   clerk_user_id: string;
@@ -24,6 +45,9 @@ function toStringArray(v: any): string[] {
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await enforceSuperAdmin();
+    if (auth) return auth;
+
     const sb = supabaseAdmin();
 
     const url = new URL(req.url);

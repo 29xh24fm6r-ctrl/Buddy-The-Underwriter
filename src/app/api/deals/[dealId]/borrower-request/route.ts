@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { logPipelineLedger } from "@/lib/pipeline/logPipelineLedger";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +19,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
   const sb = supabaseAdmin();
   try {
     const { dealId } = await ctx.params;
+
+    const { userId } = await clerkAuth();
+    if (!userId) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "deal_not_found" ? 404 : access.error === "tenant_mismatch" ? 403 : 400;
+      return NextResponse.json({ ok: false, error: access.error }, { status });
+    }
+
     const body = (await req.json()) as Body;
     const requestedKeys = Array.from(new Set((body.requestedKeys || []).filter(Boolean)));
     if (requestedKeys.length === 0) {
@@ -51,7 +65,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     if (invErr) throw invErr;
 
     // Build links (one per requested key) that deep-link into portal and pre-select key.
-    const base = process.env.NEXT_PUBLIC_APP_URL || "";
+    const inferredOrigin = (() => {
+      try {
+        return new URL(req.url).origin;
+      } catch {
+        return "";
+      }
+    })();
+    const base = (process.env.NEXT_PUBLIC_APP_URL || inferredOrigin || "").replace(/\/$/, "");
     const links = requestedKeys.map((k) => ({
       checklist_key: k,
       url: `${base}/portal/${token}?k=${encodeURIComponent(k)}`,

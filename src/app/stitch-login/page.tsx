@@ -1,4 +1,4 @@
-import StitchFrame from "@/components/stitch/StitchFrame";
+import { redirect } from "next/navigation";
 
 const TITLE = "Buddy Login";
 const FONT_LINKS: string[] = [];
@@ -87,14 +87,6 @@ const BODY_HTML = `<!-- Top Navigation (Minimal) -->
 </footer>`;
 
 export default function Page() {
-  return (
-    <StitchFrame
-      title={TITLE}
-      fontLinks={FONT_LINKS}
-      tailwindCdnSrc={TAILWIND_CDN}
-      tailwindConfigJs={TAILWIND_CONFIG_JS}
-      styles={STYLES}
-      bodyHtml={BODY_HTML}
-    />
-  );
+  redirect("/sign-in");
+  return null;
 }

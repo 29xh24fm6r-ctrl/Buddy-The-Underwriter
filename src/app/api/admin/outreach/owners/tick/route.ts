@@ -1,11 +1,32 @@
 // src/app/api/admin/outreach/owners/tick/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { getEmailProvider } from "@/lib/email/getProvider";
+
+async function enforceSuperAdmin() {
+  try {
+    await requireSuperAdmin();
+    return null;
+  } catch (err: any) {
+    const msg = String(err?.message ?? err);
+    if (msg === "unauthorized")
+      return NextResponse.json(
+        { ok: false, error: "unauthorized" },
+        { status: 401 },
+      );
+    if (msg === "forbidden")
+      return NextResponse.json(
+        { ok: false, error: "forbidden" },
+        { status: 403 },
+      );
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
+}
 
 async function sendEmail(to: string, subject: string, body: string) {
   try {
@@ -20,6 +41,9 @@ async function sendEmail(to: string, subject: string, body: string) {
 }
 
 export async function POST(req: Request) {
+  const auth = await enforceSuperAdmin();
+  if (auth) return auth;
+
   const sb = supabaseAdmin();
 
   const url = new URL(req.url);
