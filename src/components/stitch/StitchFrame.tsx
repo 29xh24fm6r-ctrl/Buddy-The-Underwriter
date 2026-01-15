@@ -9,20 +9,26 @@ type StitchFrameProps = {
   onClick?: MouseEventHandler<HTMLDivElement>;
   className?: string;
   title: string;
+  pageSlug?: string;
   fontLinks?: string[];
   tailwindCdnSrc: string;
   tailwindConfigJs?: string;
   styles?: string[];
   bodyHtml: string;
+  activationDataJson?: string;
+  activationScript?: string;
 };
 
 export default function StitchFrame({
   title,
+  pageSlug,
   fontLinks = [],
   tailwindCdnSrc,
   tailwindConfigJs,
   styles = [],
   bodyHtml,
+  activationDataJson,
+  activationScript,
   onClick,
   className,
 }: StitchFrameProps) {
@@ -54,6 +60,11 @@ export default function StitchFrame({
 
     const tw = tailwindCdnSrc ? `<script src="${tailwindCdnSrc}"></script>` : "";
     const twCfg = tailwindConfigJs ? `<script>${tailwindConfigJs}</script>` : "";
+
+    const activationDataBlock = activationDataJson
+      ? `<script id="__stitch_activation_data__" type="application/json">${activationDataJson}</script>`
+      : "";
+    const activationBlock = activationScript ? `<script>${activationScript}</script>` : "";
 
     // Bridge script runs inside iframe; posts its content height to parent.
     // TARGET_ORIGIN is injected from parent to avoid using iframe window.location.origin (often "null").
@@ -126,6 +137,10 @@ export default function StitchFrame({
 })();
 </script>`.trim();
 
+    const bodyContent = pageSlug
+      ? `<div data-stitch-slug="${pageSlug}">\n${bodyHtml}\n</div>`
+      : bodyHtml;
+
     return [
       "<!doctype html>",
       "<html>",
@@ -138,13 +153,16 @@ export default function StitchFrame({
       styleBlock,
       "</head>",
       "<body>",
-      bodyHtml,
+      pageSlug ? `<div data-stitch-page="${pageSlug}"></div>` : "",
+      bodyContent,
+      activationDataBlock,
+      activationBlock,
       bridge,
       navigationScript,
       "</body>",
       "</html>",
     ].filter(Boolean).join("\n");
-  }, [title, fontLinks, tailwindCdnSrc, tailwindConfigJs, styles, bodyHtml, mounted]);
+  }, [title, pageSlug, fontLinks, tailwindCdnSrc, tailwindConfigJs, styles, bodyHtml, activationDataJson, activationScript, mounted]);
 
   useEffect(() => {
     function onMessage(ev: MessageEvent) {

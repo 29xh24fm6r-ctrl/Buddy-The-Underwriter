@@ -59,7 +59,7 @@ export default async function OcrReviewPage() {
                   <td className="px-6 py-4 text-white/70">{deal.stageLabel}</td>
                   <td className="px-6 py-4 text-right space-x-4">
                     <Link
-                      href={`/deals/${deal.id}/underwriter`}
+                      href={`/underwrite/${deal.id}`}
                       className="text-primary hover:text-primary/80 text-sm font-semibold"
                     >
                       Review Deal

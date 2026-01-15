@@ -12,6 +12,7 @@ const config = {
     timeout: 180_000,
     env: {
       E2E: "1",
+      PLAYWRIGHT: "1",
     },
   },
 };
