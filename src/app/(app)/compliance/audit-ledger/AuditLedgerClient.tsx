@@ -241,7 +241,7 @@ export default function AuditLedgerClient() {
                       : "No"}
                 </td>
               </tr>
-            ))
+            ))}
           </tbody>
         </table>
       </div>

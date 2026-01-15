@@ -4,9 +4,11 @@ import { derivePipelineStatus } from "@/lib/deals/derivePipeline";
 
 export type DealSummary = {
   id: string;
+  name: string | null;
   borrower: string;
   amountLabel: string;
   stage: string;
+  stageLabel: string;
   status: string | null;
   createdLabel: string;
 };
@@ -98,9 +100,11 @@ export async function listDealsForBank(limit = 50): Promise<DealSummary[]> {
 
     return {
       id: d.id,
+      name: d.name ?? d.borrower_name ?? null,
       borrower,
       amountLabel,
       stage,
+      stageLabel: stage,
       status,
       createdLabel,
     };
