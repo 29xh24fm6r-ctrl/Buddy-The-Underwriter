@@ -13,6 +13,8 @@ import { SafeBoundary } from "@/components/SafeBoundary";
 import { PipelineIndicator } from "@/components/deals/PipelineStatus";
 import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
 import { DealCockpitNarrator } from "@/components/deals/DealCockpitNarrator";
+import { DealCockpitInsights } from "@/components/deals/DealCockpitInsights";
+import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
 
 /**
  * Client wrapper for Deal Cockpit.
@@ -54,6 +56,10 @@ export default function DealCockpitClient({ dealId, isAdmin = false }: { dealId:
         {/* 🎙️ MAGIC NARRATOR - Calm, confident system voice */}
         <DealCockpitNarrator dealId={dealId} />
 
+        <SafeBoundary>
+          <DealCockpitInsights dealId={dealId} />
+        </SafeBoundary>
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left Column */}
           <div className="space-y-6">
@@ -78,6 +84,10 @@ export default function DealCockpitClient({ dealId, isAdmin = false }: { dealId:
           <div className="space-y-6">
             <SafeBoundary>
               <UnderwritingControlPanel dealId={dealId} />
+            </SafeBoundary>
+
+            <SafeBoundary>
+              <DealOutputsPanel dealId={dealId} />
             </SafeBoundary>
 
             <SafeBoundary>

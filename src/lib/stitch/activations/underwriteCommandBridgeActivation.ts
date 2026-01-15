@@ -295,6 +295,84 @@ export function buildUnderwriteCommandBridgeActivationScript(): string {
     }
   }
 
+  function scheduleAfterReady(fn) {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", fn, { once: true });
+      return;
+    }
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(function () { fn(); });
+      return;
+    }
+    setTimeout(fn, 0);
+  }
+
+  function storeLastActiveDeal(data) {
+    if (!data || !data.deal || !data.deal.id) return;
+    scheduleAfterReady(function () {
+      try {
+        var payload = {
+          dealId: data.deal.id,
+          dealName: data.deal.name || null,
+          updatedAt: new Date().toISOString(),
+        };
+        window.localStorage.setItem("lastActiveDeal", JSON.stringify(payload));
+      } catch (_e) {
+        // Silent: localStorage unavailable.
+      }
+    });
+  }
+
+  function injectResumeCta(root) {
+    if (!root) return;
+    if (root.getAttribute("data-resume-bound") === "true") return;
+    scheduleAfterReady(function () {
+      var lastDealId = null;
+      var lastDealName = null;
+      try {
+        var raw = window.localStorage.getItem("lastActiveDeal");
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          lastDealId = parsed && parsed.dealId ? String(parsed.dealId) : null;
+          lastDealName = parsed && parsed.dealName ? String(parsed.dealName) : null;
+        }
+      } catch (_e) {
+        return;
+      }
+
+      if (!lastDealId) return;
+
+      var buttons = Array.prototype.slice.call(root.querySelectorAll("button"));
+      var newDealButton = buttons.find(function (btn) {
+        return normalize(btn.textContent).indexOf("new deal") !== -1;
+      });
+
+      if (!newDealButton || !newDealButton.parentElement) {
+        return;
+      }
+
+      var actionRow = newDealButton.parentElement;
+      if (actionRow.querySelector("[data-resume-underwrite='true']")) return;
+
+      var resumeButton = newDealButton.cloneNode(true);
+      resumeButton.setAttribute("data-resume-underwrite", "true");
+      resumeButton.removeAttribute("disabled");
+      resumeButton.innerHTML =
+        '<span class="material-symbols-outlined text-[20px]">play_circle</span>' +
+        (lastDealName ? "Resume Underwriting: " + lastDealName : "Resume Underwriting");
+
+      resumeButton.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        window.location.assign("/underwrite/" + lastDealId);
+      });
+
+      actionRow.insertBefore(resumeButton, newDealButton);
+      root.setAttribute("data-resume-bound", "true");
+    });
+  }
+
   function setKpi(label, valueText) {
     if (!valueText && valueText !== 0) return;
     var root = getRoot() || document;
@@ -801,10 +879,13 @@ export function buildUnderwriteCommandBridgeActivationScript(): string {
   var data = getData();
   updateKpis(data || {});
   if (data && data.mode === "deal") {
+    storeLastActiveDeal(data);
     updateNowActingOn(data);
     updateLiveIntelligence(data);
     updateConditions(data);
     updateRecommendation(data);
+  } else {
+    injectResumeCta(getRoot());
   }
   applyRows(data || {});
   bindDocumentClicks(getRoot(), data || {});

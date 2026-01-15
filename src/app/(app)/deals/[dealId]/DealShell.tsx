@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { sampleDeals } from "@/lib/deals/sampleDeals";
 
 function getDealById(id: string) {
@@ -49,6 +50,21 @@ export default function DealShell({
 }) {
   const pathname = usePathname();
   const deal = dealId ? getDealById(dealId) : null;
+
+  useEffect(() => {
+    if (!dealId) return;
+    if (typeof window === "undefined") return;
+    try {
+      const payload = {
+        dealId,
+        dealName: deal?.name ?? null,
+        updatedAt: new Date().toISOString(),
+      };
+      window.localStorage.setItem("lastActiveDeal", JSON.stringify(payload));
+    } catch (e) {
+      console.warn("[DealShell] Failed to store last active deal", e);
+    }
+  }, [dealId, deal?.name]);
 
   const base = `/deals/${dealId}`;
 

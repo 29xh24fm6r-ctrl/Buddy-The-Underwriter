@@ -16,7 +16,7 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 const E2E_BYPASS_PATHS = ["/", "/deals", "/analytics", "/portfolio", "/intake", "/borrower/portal", "/underwrite"];
-const E2E_BYPASS_PREFIXES = ["/underwrite/", "/deals/"];
+const E2E_BYPASS_PREFIXES = ["/underwrite/", "/deals/", "/credit-memo/"];
 
 function withBuildHeader() {
   const res = NextResponse.next();

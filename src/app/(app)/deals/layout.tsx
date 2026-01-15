@@ -51,6 +51,11 @@ function NavItem({
 }
 
 export default function DealsLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const dealMatch = pathname.match(/^\/deals\/([0-9a-f-]{36})/i);
+  const dealId = dealMatch ? dealMatch[1] : null;
+  const underwriteHref = dealId ? `/underwrite/${dealId}` : "/underwrite";
+
   return (
     <div className="min-h-screen bg-[#0b0d10] text-white flex">
       {/* Persistent left rail */}
@@ -58,7 +63,7 @@ export default function DealsLayout({ children }: { children: React.ReactNode })
         <NavItem href="/command" label="Command" icon="dashboard" />
         <NavItem href="/deals" label="Deals" icon="content_paste" />
         <NavItem href="/deals/new" label="Intake" icon="input" />
-        <NavItem href="/underwrite" label="Undrwrt" icon="analytics" />
+        <NavItem href={underwriteHref} label="Undrwrt" icon="analytics" />
         <NavItem href="/documents" label="Evidence" icon="folder_open" />
         <div className="flex-1" />
         <NavItem href="/settings" label="Settings" icon="settings" />

@@ -1,41 +1,33 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 
-async function j<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-  return data as T;
-}
-
 export function UnderwritingControlPanel({ dealId }: { dealId: string }) {
+  const router = useRouter();
   const [busy, setBusy] = React.useState(false);
-  const [result, setResult] = React.useState<any>(null);
   const [err, setErr] = React.useState<string | null>(null);
 
-  async function startUnderwriting() {
-    setBusy(true);
-    setErr(null);
-    setResult(null);
-
-    try {
-      const data = await j<any>(`/api/deals/${dealId}/underwrite/start`, {
-        method: "POST",
-      });
-
-      setResult(data);
-
-      if (data.ok) {
-        // Refresh page after 2 seconds to show updated status
-        setTimeout(() => window.location.reload(), 2000);
+  function startUnderwriting() {
+    if (!dealId) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[UnderwritingControlPanel] Start Underwriting missing dealId");
       }
-    } catch (e: any) {
-      setErr(e?.message || "Failed to start underwriting");
-    } finally {
-      setBusy(false);
+      setErr("Missing deal id");
+      return;
     }
+    const href = `/underwrite/${dealId}`;
+    if (process.env.NODE_ENV !== "production") {
+      console.info("[UnderwritingControlPanel] Start Underwriting click", { dealId, href });
+      console.assert(
+        /^\/underwrite\/[0-9a-f-]{36}$/i.test(href),
+        "Start Underwriting href mismatch",
+        href,
+      );
+    }
+    setBusy(true);
+    router.push(href);
   }
 
   return (
@@ -49,9 +41,10 @@ export function UnderwritingControlPanel({ dealId }: { dealId: string }) {
 
       <button
         type="button"
+        data-testid="start-underwriting"
         disabled={busy}
         onClick={startUnderwriting}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-900 disabled:opacity-60"
+        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-900 disabled:opacity-60 pointer-events-auto"
       >
         {busy ? (
           <>
@@ -77,58 +70,6 @@ export function UnderwritingControlPanel({ dealId }: { dealId: string }) {
         </div>
       )}
 
-      {result?.ok && (
-        <div className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">
-          <div className="font-semibold">✅ Pipeline Started</div>
-          <div className="mt-2 space-y-1 text-xs">
-            <div>
-              Checklist: {result.checklist?.received}/{result.checklist?.required} items
-            </div>
-            <div>
-              Confidence Score: {result.confidence_review?.confidence_score}%
-            </div>
-            {result.policy && (
-              <div>
-                Policy Compliance: {result.policy?.complianceScore}% ({result.policy?.exceptions?.length ?? 0} exceptions)
-              </div>
-            )}
-            {result.confidence_review?.low_confidence_fields?.length > 0 && (
-              <div className="text-amber-800">
-                ⚠️ {result.confidence_review.low_confidence_fields.length} fields need
-                review
-              </div>
-            )}
-            {result.policy?.exceptions?.length > 0 && (
-              <div className="text-amber-800">
-                ⚠️ {Math.min(3, result.policy.exceptions.length)} policy issues shown below
-              </div>
-            )}
-            <div>📧 {result.notifications_queued} notifications queued</div>
-          </div>
-
-          {result.policy?.exceptions?.length > 0 && (
-            <ul className="mt-3 space-y-1 text-xs text-emerald-950">
-              {result.policy.exceptions.slice(0, 3).map((ex: any) => (
-                <li key={ex.rule_key}>• {ex.title || ex.rule_key}: {ex.message}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      {result && !result.ok && result.missing && (
-        <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-          <div className="font-semibold">Missing Required Items</div>
-          <ul className="mt-2 space-y-1 text-xs">
-            {result.missing.map((key: string) => (
-              <li key={key}>• {key}</li>
-            ))}
-          </ul>
-          <div className="mt-2 text-xs">
-            Progress: {result.progress?.received}/{result.progress?.required}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

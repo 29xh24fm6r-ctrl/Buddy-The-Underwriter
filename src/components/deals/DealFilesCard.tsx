@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
 
 type DealFile = {
@@ -285,7 +286,12 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-neutral-100 truncate">
-                      {file.original_name}
+                      <Link
+                        href={`/deals/${dealId}/documents/${file.file_id}`}
+                        className="hover:underline"
+                      >
+                        {file.original_name}
+                      </Link>
                     </div>
                     <div className="text-xs text-neutral-500">
                       {file.checklist_key
