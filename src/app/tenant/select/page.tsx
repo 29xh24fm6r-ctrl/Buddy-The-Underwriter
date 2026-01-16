@@ -1,6 +1,7 @@
 // src/app/tenant/select/page.tsx
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase/server";
+import { getSandboxAccessDetails } from "@/lib/tenant/sandbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,11 +25,13 @@ export default async function TenantSelectPage() {
 
   const mem = await sb
     .from("bank_memberships")
-    .select("bank_id, role, banks:bank_id(id,name)")
+    .select("bank_id, role, banks:bank_id(id,name,code,is_sandbox)")
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
 
   const rows = (mem.data ?? []) as any[];
+  const sandboxAccess = await getSandboxAccessDetails();
+  const visibleRows = rows.filter((r) => (r?.banks?.is_sandbox ? sandboxAccess.allowed : true));
 
   return (
     <div className="container mx-auto p-6 max-w-3xl">
@@ -38,7 +41,7 @@ export default async function TenantSelectPage() {
       </p>
 
       <div className="mt-6 space-y-3">
-        {rows.length === 0 ? (
+        {visibleRows.length === 0 ? (
           <div className="rounded-2xl border p-5">
             <div className="text-sm font-semibold">No memberships found</div>
             <div className="text-sm text-muted-foreground mt-1">
@@ -50,7 +53,7 @@ export default async function TenantSelectPage() {
             </div>
           </div>
         ) : (
-          rows.map((r) => (
+          visibleRows.map((r) => (
             <form
               key={r.bank_id}
               action="/api/tenant/select"

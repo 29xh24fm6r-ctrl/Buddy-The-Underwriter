@@ -2,6 +2,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { quotePricing } from "@/lib/pricing/engine";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { requireRole } from "@/lib/auth/requireRole";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +20,14 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
+    await requireRole(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok)
+      return NextResponse.json(
+        { ok: false, error: access.error },
+        { status: access.error === "unauthorized" ? 401 : 403 },
+      );
     const body = BodySchema.parse(await req.json());
     const out = await quotePricing({ dealId, ...body });
     return NextResponse.json({ ok: true, ...out });

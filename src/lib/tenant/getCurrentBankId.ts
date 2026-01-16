@@ -3,10 +3,11 @@ import "server-only";
 
 import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { ensureSandboxGate, ensureSandboxMembership } from "@/lib/tenant/sandbox";
 
 type BankPick =
   | { ok: true; bankId: string }
-  | { ok: false; reason: "not_authenticated" | "no_memberships" | "multiple_memberships" | "profile_lookup_failed"; detail?: string };
+  | { ok: false; reason: "not_authenticated" | "no_memberships" | "multiple_memberships" | "profile_lookup_failed" | "sandbox_forbidden"; detail?: string };
 
 /**
  * Get current bank ID using Clerk userId
@@ -38,7 +39,9 @@ export async function getCurrentBankId(): Promise<string> {
   }
 
   if (prof.data?.bank_id) {
-    return String(prof.data.bank_id);
+    const bankId = String(prof.data.bank_id);
+    await ensureSandboxGate(bankId, userId);
+    return bankId;
   }
 
   // 2) Check bank_memberships for this Clerk user
@@ -54,6 +57,12 @@ export async function getCurrentBankId(): Promise<string> {
   const bankIds = (mem.data ?? []).map((r: any) => String(r.bank_id));
   
   if (bankIds.length === 0) {
+    const sandbox = await ensureSandboxMembership(userId);
+    if (sandbox.ok && sandbox.bankId) {
+      await ensureSandboxGate(sandbox.bankId, userId);
+      return sandbox.bankId;
+    }
+
     // ✅ DEV SAFETY (guarded): if user is signed in but has no bank membership yet,
     // optionally auto-provision a bank + membership so the app can function.
     // This prevents "missing bank context" 400s during early development.
@@ -126,6 +135,7 @@ export async function getCurrentBankId(): Promise<string> {
       })
       .eq("clerk_user_id", userId);
     
+    await ensureSandboxGate(bankId, userId);
     return bankId;
   }
   
@@ -135,6 +145,8 @@ export async function getCurrentBankId(): Promise<string> {
 
   // 3) Auto-select the only bank and save to profile
   const bankId = bankIds[0];
+
+  await ensureSandboxGate(bankId, userId);
 
   const up = await sb
     .from("profiles")
@@ -162,6 +174,7 @@ export async function tryGetCurrentBankId(): Promise<BankPick> {
     if (msg === "not_authenticated") return { ok: false, reason: "not_authenticated" };
     if (msg === "no_memberships") return { ok: false, reason: "no_memberships" };
     if (msg === "multiple_memberships") return { ok: false, reason: "multiple_memberships" };
+    if (msg === "sandbox_forbidden") return { ok: false, reason: "sandbox_forbidden" };
     if (msg.startsWith("profile_lookup_failed")) return { ok: false, reason: "profile_lookup_failed", detail: msg };
     return { ok: false, reason: "profile_lookup_failed", detail: msg };
   }

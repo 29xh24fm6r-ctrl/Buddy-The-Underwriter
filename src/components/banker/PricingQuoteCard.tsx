@@ -20,7 +20,6 @@ export function PricingQuoteCard(props: { dealId: string }) {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-user-id": "banker", // replace with your auth header pattern
         },
         body: JSON.stringify({ productType, riskGrade, termMonths, indexName, indexRateBps }),
       });
@@ -64,7 +63,11 @@ export function PricingQuoteCard(props: { dealId: string }) {
       </div>
 
       <div className="mt-4">
-        <button className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-gray-50" onClick={run}>
+        <button
+          data-testid="pricing-quote-compute"
+          className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-gray-50"
+          onClick={run}
+        >
           Compute quote
         </button>
       </div>

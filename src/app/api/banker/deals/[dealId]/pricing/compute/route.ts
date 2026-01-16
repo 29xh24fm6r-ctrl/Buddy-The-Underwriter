@@ -1,10 +1,20 @@
 // src/app/api/banker/deals/[dealId]/pricing/compute/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { computePricing, formatBorrowerRate } from "@/lib/pricing/compute";
+import { z } from "zod";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { requireRole } from "@/lib/auth/requireRole";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const BodySchema = z.object({
+  productType: z.string().optional(),
+  riskGrade: z.string().optional(),
+  termMonths: z.number().int().positive().optional(),
+  indexName: z.string().optional(),
+  indexRateBps: z.number().int().nonnegative().optional(),
+});
 
 /**
  * Banker-only endpoint to compute risk-based pricing
@@ -16,11 +26,16 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    // TODO: Add banker auth check
-    // const banker = await requireBankerAuth(req);
-
+    await requireRole(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
-    const body = await req.json();
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok)
+      return NextResponse.json(
+        { ok: false, error: access.error },
+        { status: access.error === "unauthorized" ? 401 : 403 },
+      );
+
+    const body = BodySchema.parse(await req.json().catch(() => ({})));
 
     const input = {
       dealId,
