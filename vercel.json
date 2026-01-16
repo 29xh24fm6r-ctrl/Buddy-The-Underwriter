@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/borrower-reminders",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/jobs/worker/tick?type=SPREADS&token=__SET_WORKER_SECRET__",
+      "schedule": "*/2 * * * *"
     }
   ]
 }

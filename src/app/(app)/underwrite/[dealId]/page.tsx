@@ -2,6 +2,7 @@ import StitchRouteBridge from "@/components/stitch/StitchRouteBridge";
 import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
 import { CopyToClipboardButton } from "@/components/deals/DealOutputActions";
+import DealFinancialSpreadsPanel from "@/components/deals/DealFinancialSpreadsPanel";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { resolveDealLabel, dealLabel } from "@/lib/deals/dealLabel";
@@ -149,6 +150,9 @@ export default async function UnderwriteDealPage({
       </div>
 
       <div className="mx-auto w-full max-w-6xl px-4">
+        <div className="mb-6">
+          <DealFinancialSpreadsPanel dealId={dealId} />
+        </div>
         <DealOutputsPanel dealId={dealId} />
       </div>
       <StitchRouteBridge

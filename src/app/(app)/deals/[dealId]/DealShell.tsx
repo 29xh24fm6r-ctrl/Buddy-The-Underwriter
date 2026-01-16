@@ -6,6 +6,97 @@ import { useEffect, useState } from "react";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
 import { resolveDealLabel } from "@/lib/deals/dealLabel";
 import { Icon } from "@/components/ui/Icon";
+import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonicalMemoPdfButton";
+import { useFinancialSnapshot } from "@/hooks/useFinancialSnapshot";
+
+function fmtNum(n: number, digits = 2) {
+  return Number.isFinite(n) ? n.toFixed(digits) : "—";
+}
+
+function fmtPct(n: number) {
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toFixed(0)}%`;
+}
+
+function fmtCurrencyCompact(n: number) {
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+  return `$${n.toFixed(0)}`;
+}
+
+function SnapMetric({ label, value, title }: { label: string; value: string; title?: string }) {
+  return (
+    <div className="flex items-baseline gap-1" title={title}>
+      <span className="text-[10px] uppercase tracking-wide text-white/50">{label}</span>
+      <span className="text-xs font-semibold text-white">{value}</span>
+    </div>
+  );
+}
+
+function FinancialSnapshotCapsule({ dealId }: { dealId: string }) {
+  const { data, loading, error, notFound } = useFinancialSnapshot(dealId);
+
+  if (notFound) return null;
+  if (loading) {
+    return (
+      <div className="hidden xl:flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+        <div className="text-xs text-white/60">Snapshot…</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="hidden xl:flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+        <span className="text-xs text-white/60">Snapshot unavailable</span>
+      </div>
+    );
+  }
+
+  const s = data?.snapshot;
+  if (!s) return null;
+
+  const missingCount = s.missing_required_keys?.length ?? 0;
+  const ready = missingCount === 0 && (s.completeness_pct ?? 0) >= 99.9;
+  const badge = ready
+    ? "bg-emerald-600/20 text-emerald-300 border-emerald-500/30"
+    : "bg-amber-600/20 text-amber-200 border-amber-500/30";
+
+  const dscr = s.dscr?.value_num;
+  const dscrStressed = s.dscr_stressed_300bps?.value_num;
+  const noi = s.noi_ttm?.value_num;
+  const ltvNet = s.ltv_net?.value_num;
+  const ltvGross = s.ltv_gross?.value_num;
+  const occ = s.occupancy_pct?.value_num;
+  const rent = s.in_place_rent_mo?.value_num;
+
+  return (
+    <div className="hidden xl:flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+      <span className={["inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold", badge].join(" ")}
+        title={`Completeness: ${s.completeness_pct?.toFixed?.(1) ?? s.completeness_pct}% — Missing: ${missingCount}`}
+      >
+        {ready ? "Ready" : `Partial (${missingCount})`}
+      </span>
+
+      <SnapMetric
+        label="DSCR"
+        value={dscr == null ? "Pending" : fmtNum(dscr, 2)}
+        title={dscrStressed == null ? undefined : `Stressed (+300bps): ${fmtNum(dscrStressed, 2)}`}
+      />
+      <SnapMetric label="NOI" value={noi == null ? "Pending" : fmtCurrencyCompact(noi)} title="TTM" />
+      <SnapMetric
+        label="LTV"
+        value={ltvNet == null ? "Pending" : fmtPct(ltvNet)}
+        title={ltvGross == null ? undefined : `Gross LTV: ${fmtPct(ltvGross)}`}
+      />
+      <SnapMetric label="Occ" value={occ == null ? "Pending" : fmtPct(occ)} />
+      <SnapMetric label="Rent/mo" value={rent == null ? "Pending" : fmtCurrencyCompact(rent)} />
+      <SnapMetric label="As of" value={s.as_of_date ?? "—"} />
+    </div>
+  );
+}
 
 function formatAmount(n: number) {
   const abs = Math.abs(n);
@@ -25,6 +116,11 @@ type DealShellDeal = {
   stage: string | null;
   risk_score: number | null;
 };
+
+type CanonicalMemoHeaderStatus = {
+  status: "pending" | "partial" | "ready" | "error";
+  last_generated_at: string | null;
+} | null;
 
 function Tab({
   href,
@@ -53,10 +149,12 @@ function Tab({
 export default function DealShell({
   dealId,
   deal,
+  canonicalMemoStatus,
   children,
 }: {
   dealId: string;
   deal: DealShellDeal | null;
+  canonicalMemoStatus?: CanonicalMemoHeaderStatus;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -102,6 +200,14 @@ export default function DealShell({
   }
 
   const base = `/deals/${dealId}`;
+
+  const canonicalBadge = (() => {
+    const st = canonicalMemoStatus?.status ?? "pending";
+    if (st === "ready") return "bg-emerald-600/20 text-emerald-300 border-emerald-500/30";
+    if (st === "partial") return "bg-amber-600/20 text-amber-200 border-amber-500/30";
+    if (st === "error") return "bg-rose-600/20 text-rose-200 border-rose-500/30";
+    return "bg-white/5 text-white/70 border-white/10";
+  })();
 
   const tabs = [
     { label: "Overview", href: `/underwrite/${dealId}` },
@@ -166,6 +272,37 @@ export default function DealShell({
                 />
               </div>
             </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <FinancialSnapshotCapsule dealId={dealId} />
+            <Link
+              href={`/credit-memo/${dealId}/canonical`}
+              className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-white bg-primary hover:bg-primary/90"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                description
+              </span>
+              Canonical Credit Memo
+            </Link>
+            <div className="hidden lg:flex flex-col items-end gap-0.5">
+              <span
+                className={[
+                  "inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize",
+                  canonicalBadge,
+                ].join(" ")}
+              >
+                {canonicalMemoStatus?.status ?? "pending"}
+              </span>
+              <div className="text-[11px] text-white/50">
+                Last data: {canonicalMemoStatus?.last_generated_at ?? "—"}
+              </div>
+            </div>
+            <ExportCanonicalMemoPdfButton
+              dealId={dealId}
+              className="inline-flex items-center rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10 disabled:opacity-60"
+              label="Export PDF"
+            />
           </div>
 
           <div className="hidden md:flex items-center gap-2 text-xs text-white/70">
