@@ -1,6 +1,11 @@
 export type DealIntelligence = {
   deal: {
     id: string;
+    display_name?: string | null;
+    nickname?: string | null;
+    display_label: string;
+    display_label_source: "display_name" | "nickname" | "borrower_name" | "name" | "fallback";
+    needs_name: boolean;
     borrower_name: string;
     stage: string;
     risk_score: number | null;

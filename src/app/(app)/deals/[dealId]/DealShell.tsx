@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { sampleDeals } from "@/lib/deals/sampleDeals";
+import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
+import { resolveDealLabel } from "@/lib/deals/dealLabel";
 
 function getDealById(id: string) {
   return sampleDeals.find((d) => d.id === id) ?? null;
@@ -50,21 +52,48 @@ export default function DealShell({
 }) {
   const pathname = usePathname();
   const deal = dealId ? getDealById(dealId) : null;
+  const [displayName, setDisplayName] = useState<string | null>(null);
+  const [nickname, setNickname] = useState<string | null>(null);
+  const [borrowerName, setBorrowerName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!dealId) return;
     if (typeof window === "undefined") return;
     try {
+      const label = resolveDealLabel({
+        id: dealId,
+        display_name: displayName,
+        nickname,
+        borrower_name: borrowerName ?? deal?.name ?? null,
+        name: deal?.name ?? null,
+      }).label;
       const payload = {
         dealId,
-        dealName: deal?.name ?? null,
+        dealName: label ?? null,
         updatedAt: new Date().toISOString(),
       };
       window.localStorage.setItem("lastActiveDeal", JSON.stringify(payload));
     } catch (e) {
       console.warn("[DealShell] Failed to store last active deal", e);
     }
-  }, [dealId, deal?.name]);
+  }, [dealId, deal?.name, displayName, nickname, borrowerName]);
+
+  useEffect(() => {
+    if (!dealId) return;
+    let cancelled = false;
+    fetch(`/api/deals/${dealId}/name`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (cancelled || !json?.ok) return;
+        setDisplayName(json.display_name ?? null);
+        setNickname(json.nickname ?? null);
+        setBorrowerName(json.borrower_name ?? null);
+      })
+      .catch(() => null);
+    return () => {
+      cancelled = true;
+    };
+  }, [dealId]);
 
   const base = `/deals/${dealId}`;
 
@@ -96,7 +125,17 @@ export default function DealShell({
 
             <div className="min-w-0">
               <div className="text-sm font-semibold text-white truncate">
-                {deal?.name ?? `Deal: ${dealId || "unknown"}`}
+                <DealNameInlineEditor
+                  dealId={dealId}
+                  displayName={displayName}
+                  nickname={nickname}
+                  borrowerName={borrowerName ?? deal?.name ?? null}
+                  size="sm"
+                  onUpdated={(next) => {
+                    setDisplayName(next.displayName ?? null);
+                    setNickname(next.nickname ?? null);
+                  }}
+                />
               </div>
               <div className="text-xs text-white/60 truncate">
                 {deal ? deal.subtitle : "Loading deal context..."}

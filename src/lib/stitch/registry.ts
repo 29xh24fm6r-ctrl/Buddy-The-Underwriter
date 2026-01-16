@@ -12,7 +12,7 @@ export const STITCH_PAGES: StitchPage[] = [
   { slug: "credit-memo-pdf-template", title: "Credit Memo PDF Template", group: "Credit", route: "/credit-memo" },
   { slug: "deal-intake-console", title: "Deal Intake Console", group: "Deals", route: "/intake" },
   { slug: "deal-output-credit-memo-spreads", title: "Deal Output Credit Memo Spreads", group: "Output", route: "/output" },
-  { slug: "deals-command-bridge", title: "Deals Command Bridge", group: "Underwrite", route: "/underwrite" },
+  { slug: "deals-command-bridge", title: "Pipeline Command Bridge", group: "Underwrite", route: "/underwrite" },
   { slug: "deals-pipeline-command-center", title: "Deals Pipeline Command Center", group: "Deals", route: "/deals" },
   { slug: "document-template-vault", title: "Document Template Vault", group: "Templates", route: "/templates/vault" },
   { slug: "exceptions-change-review", title: "Exceptions Change Review", group: "Ops", route: "/exceptions" },

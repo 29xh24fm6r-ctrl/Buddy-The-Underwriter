@@ -1,10 +1,17 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { derivePipelineStatus } from "@/lib/deals/derivePipeline";
+import { resolveDealLabel } from "@/lib/deals/dealLabel";
 
 export type DealSummary = {
   id: string;
   name: string | null;
+  displayName: string | null;
+  nickname: string | null;
+  borrowerName: string | null;
+  label: string;
+  labelSource: "display_name" | "nickname" | "borrower_name" | "name" | "fallback";
+  needsName: boolean;
   borrower: string;
   amountLabel: string;
   stage: string;
@@ -25,6 +32,8 @@ function formatMoney(amount: unknown): string {
 
 type DealRow = {
   id: string;
+  display_name?: string | null;
+  nickname?: string | null;
   borrower_name?: string | null;
   name?: string | null;
   amount?: number | string | null;
@@ -39,7 +48,8 @@ export async function listDealsForBank(limit = 50): Promise<DealSummary[]> {
   const bankId = await getCurrentBankId();
   const sb = supabaseAdmin();
 
-  const selectPrimary = "id, borrower_name, name, amount, stage, created_at, ready_at, submitted_at, ready_reason";
+  const selectPrimary =
+    "id, display_name, nickname, borrower_name, name, amount, stage, created_at, ready_at, submitted_at, ready_reason";
   const selectFallback = "id, borrower_name, name, created_at";
 
   let deals: DealRow[] = [];
@@ -89,6 +99,14 @@ export async function listDealsForBank(limit = 50): Promise<DealSummary[]> {
     const amountLabel = d.amount != null ? formatMoney(d.amount) : "-";
     const stage = d.stage ? String(d.stage) : "-";
 
+    const labelResult = resolveDealLabel({
+      id: d.id,
+      display_name: d.display_name ?? null,
+      nickname: d.nickname ?? null,
+      borrower_name: d.borrower_name ?? null,
+      name: d.name ?? null,
+    });
+
     let status: string | null = null;
     if ("submitted_at" in d || "ready_at" in d) {
       try {
@@ -101,6 +119,12 @@ export async function listDealsForBank(limit = 50): Promise<DealSummary[]> {
     return {
       id: d.id,
       name: d.name ?? d.borrower_name ?? null,
+      displayName: d.display_name ?? null,
+      nickname: d.nickname ?? null,
+      borrowerName: d.borrower_name ?? null,
+      label: labelResult.label,
+      labelSource: labelResult.source,
+      needsName: labelResult.needsName,
       borrower,
       amountLabel,
       stage,

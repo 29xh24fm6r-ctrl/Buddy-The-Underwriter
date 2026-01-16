@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import type { DealIntelligence } from "@/lib/dealIntelligence/types";
+import { resolveDealLabel } from "@/lib/deals/dealLabel";
 
 const RECENT_DOC_LIMIT = 8;
 const ACTIVITY_LIMIT = 10;
@@ -159,7 +160,9 @@ export async function buildDealIntelligence(
 
   const { data: deal, error: dealErr } = await sb
     .from("deals")
-    .select("id, borrower_name, name, stage, risk_score, created_at, updated_at, amount, bank_id")
+    .select(
+      "id, borrower_name, name, display_name, nickname, stage, risk_score, created_at, updated_at, amount, bank_id"
+    )
     .eq("id", dealId)
     .maybeSingle();
 
@@ -170,6 +173,14 @@ export async function buildDealIntelligence(
   if (bankId && deal.bank_id && String(deal.bank_id) !== String(bankId)) {
     throw new Error("tenant_mismatch");
   }
+
+  const labelResult = resolveDealLabel({
+    id: deal.id,
+    display_name: (deal as any).display_name ?? null,
+    nickname: (deal as any).nickname ?? null,
+    borrower_name: deal.borrower_name ?? null,
+    name: deal.name ?? null,
+  });
 
   const checklistPromise = sb
     .from("deal_checklist_items")
@@ -296,6 +307,11 @@ export async function buildDealIntelligence(
   return {
     deal: {
       id: String(deal.id),
+      display_name: (deal as any).display_name ?? null,
+      nickname: (deal as any).nickname ?? null,
+      display_label: labelResult.label,
+      display_label_source: labelResult.source,
+      needs_name: labelResult.needsName,
       borrower_name: borrowerName,
       stage,
       risk_score: deal.risk_score ?? null,
@@ -346,6 +362,7 @@ export function formatCreditMemoMarkdown(intel: DealIntelligence) {
   const memo = intel.memoDraft;
   const lines = [
     `# Credit Memo Draft (AI v1)` ,
+    `Deal Name: ${intel.deal.display_label}`,
     `Deal ID: ${intel.deal.id}`,
     `Borrower: ${intel.deal.borrower_name}`,
     `Stage: ${intel.deal.stage}`,
@@ -388,7 +405,7 @@ export function formatConditionsEmail(intel: DealIntelligence) {
   const optionalMissing = intel.conditions.missingDocs.filter((d) => !d.required);
 
   const lines = [
-    `Deal ${intel.deal.id} — Conditions & Missing Docs`,
+    `Deal ${intel.deal.display_label} (${intel.deal.id}) — Conditions & Missing Docs`,
     `Borrower: ${intel.deal.borrower_name}`,
     `Stage: ${intel.deal.stage}`,
     "",

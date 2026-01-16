@@ -1,6 +1,8 @@
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import DealCockpitClient from "@/components/deals/DealCockpitClient";
 import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,5 +51,22 @@ export default async function DealCockpitPage({ params }: Props) {
     );
   }
 
-  return <DealCockpitClient dealId={dealId} isAdmin={isAdmin} />;
+  let dealName: { displayName?: string | null; nickname?: string | null; borrowerName?: string | null } | undefined;
+  const access = await ensureDealBankAccess(dealId);
+  if (access.ok) {
+    const sb = supabaseAdmin();
+    const { data: deal } = await sb
+      .from("deals")
+      .select("display_name, nickname, borrower_name")
+      .eq("id", dealId)
+      .eq("bank_id", access.bankId)
+      .maybeSingle();
+    dealName = {
+      displayName: (deal as any)?.display_name ?? null,
+      nickname: (deal as any)?.nickname ?? null,
+      borrowerName: (deal as any)?.borrower_name ?? null,
+    };
+  }
+
+  return <DealCockpitClient dealId={dealId} isAdmin={isAdmin} dealName={dealName} />;
 }

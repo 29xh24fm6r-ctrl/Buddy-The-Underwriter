@@ -1,5 +1,6 @@
 import { buildDealIntelligence, formatCreditMemoMarkdown } from "@/lib/dealIntelligence/buildDealIntelligence";
 import { CopyToClipboardButton } from "@/components/deals/DealOutputActions";
+import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +16,16 @@ export default async function CreditMemoDraftPage({ params }: Props) {
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-8 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="space-y-2">
           <div className="text-xs text-neutral-500">AI Draft — v1</div>
           <h1 className="text-2xl font-bold text-neutral-900">Credit Memo Draft</h1>
+          <DealNameInlineEditor
+            dealId={intelligence.deal.id}
+            displayName={intelligence.deal.display_name ?? null}
+            nickname={intelligence.deal.nickname ?? null}
+            borrowerName={intelligence.deal.borrower_name ?? null}
+            size="sm"
+          />
           <div className="text-sm text-neutral-500">Deal {intelligence.deal.id}</div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
