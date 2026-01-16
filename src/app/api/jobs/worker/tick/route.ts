@@ -3,9 +3,27 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import { processNextOcrJob } from "@/lib/jobs/processors/ocrProcessor";
 import { processNextClassifyJob } from "@/lib/jobs/processors/classifyProcessor";
+import { runSpreadsWorkerTick } from "@/lib/jobs/workers/spreadsWorker";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function hasValidWorkerSecret(req: NextRequest): boolean {
+  const secret = process.env.WORKER_SECRET;
+  if (!secret) return false;
+
+  const auth = req.headers.get("authorization") ?? "";
+  if (auth.startsWith("Bearer ") && auth.slice("Bearer ".length) === secret) return true;
+
+  const hdr = req.headers.get("x-worker-secret") ?? "";
+  if (hdr && hdr === secret) return true;
+
+  const url = new URL(req.url);
+  const token = url.searchParams.get("token") ?? "";
+  if (token && token === secret) return true;
+
+  return false;
+}
 
 /**
  * POST /api/jobs/worker/tick
@@ -14,25 +32,37 @@ export const dynamic = "force-dynamic";
  * Call this from scheduler (cron, polling, etc.)
  *
  * Query params:
- * - type: OCR | CLASSIFY | ALL (default ALL)
+ * - type: OCR | CLASSIFY | SPREADS | ALL (default ALL)
  * - batch_size: number of jobs to process (default 1, max 10)
  *
  * Returns: { ok: true, processed: number, results: [] }
  */
 export async function POST(req: NextRequest) {
-  requireSuperAdmin();
-
   const url = new URL(req.url);
   const type = url.searchParams.get("type") ?? "ALL";
-  const batchSize = Math.min(
-    10,
-    Math.max(1, Number(url.searchParams.get("batch_size") ?? "1")),
-  );
+
+  // Auth: allow either WORKER_SECRET (cron/external scheduler) OR signed-in super admin.
+  if (!hasValidWorkerSecret(req)) {
+    try {
+      await requireSuperAdmin();
+    } catch {
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    }
+  }
+
+  const batchParam = url.searchParams.get("batch_size");
+  const defaultBatch = type === "SPREADS" ? 3 : 1;
+  const batchSize = Math.min(10, Math.max(1, Number(batchParam ?? String(defaultBatch))));
 
   const leaseOwner = `worker-${Date.now()}`;
   const results = [];
 
   try {
+    if (type === "SPREADS") {
+      const r = await runSpreadsWorkerTick({ leaseOwner, maxJobs: batchSize });
+      return NextResponse.json(r);
+    }
+
     for (let i = 0; i < batchSize; i++) {
       if (type === "OCR" || type === "ALL") {
         const ocrResult = await processNextOcrJob(leaseOwner);
@@ -73,7 +103,12 @@ export async function POST(req: NextRequest) {
  * Returns job queue statistics
  */
 export async function GET() {
-  requireSuperAdmin();
+  // Stats are admin-only. (Keep simple: no WORKER_SECRET access here.)
+  try {
+    await requireSuperAdmin();
+  } catch {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
   const { supabaseAdmin } = await import("@/lib/supabase/admin");
   const supabase = supabaseAdmin();
 

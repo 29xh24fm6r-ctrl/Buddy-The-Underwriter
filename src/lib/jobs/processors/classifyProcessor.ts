@@ -7,6 +7,8 @@ import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 import { persistAiMapping } from "@/lib/ai-docs/persistMapping";
 import { buildGeminiScanResultFromExtractedText } from "@/lib/ai-docs/mapToChecklist";
+import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
+import type { SpreadType } from "@/lib/financialSpreads/types";
 
 /**
  * Classification Job Processor
@@ -21,6 +23,26 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
   const supabase = supabaseAdmin();
   const leaseDuration = 3 * 60 * 1000; // 3 minutes
   const leaseUntil = new Date(Date.now() + leaseDuration).toISOString();
+
+  function spreadsToRecomputeFromDocType(docTypeRaw: unknown): SpreadType[] {
+    const dt = String(docTypeRaw || "").trim().toUpperCase();
+    if (!dt) return [];
+
+    if (dt === "FINANCIAL_STATEMENT") return ["T12"];
+
+    if (
+      dt === "IRS_1040" ||
+      dt === "IRS_1065" ||
+      dt === "IRS_1120" ||
+      dt === "IRS_1120S" ||
+      dt === "K1" ||
+      dt === "PFS"
+    ) {
+      return ["GLOBAL_CASH_FLOW"];
+    }
+
+    return [];
+  }
 
   function mapClassifierDocTypeToCanonicalBucket(docTypeRaw: any): string | null {
     const dt = String(docTypeRaw || "").trim().toUpperCase();
@@ -44,7 +66,7 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
     try {
       const docRes = await (supabase as any)
         .from("deal_documents")
-        .select("id, original_filename, document_type, doc_year, doc_years")
+        .select("id, bank_id, original_filename, document_type, doc_year, doc_years")
         .eq("deal_id", args.dealId)
         .eq("id", args.attachmentId)
         .maybeSingle();
@@ -190,6 +212,36 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
         typeof (classifyResult as any).confidence === "number" ? (classifyResult as any).confidence : null,
       classifierReasons: (classifyResult as any).reasons ?? null,
     });
+
+    // Best-effort: enqueue financial spread recompute (never block classify job).
+    try {
+      const spreadTypes = spreadsToRecomputeFromDocType(classifyResult.doc_type);
+      if (spreadTypes.length) {
+        const { data: docRow } = await (supabase as any)
+          .from("deal_documents")
+          .select("bank_id")
+          .eq("id", job.attachment_id)
+          .maybeSingle();
+
+        const bankId = docRow?.bank_id ? String(docRow.bank_id) : null;
+        if (bankId) {
+          await enqueueSpreadRecompute({
+            dealId: String(job.deal_id),
+            bankId,
+            sourceDocumentId: String(job.attachment_id),
+            spreadTypes,
+            meta: {
+              source: "classify_job",
+              doc_type: classifyResult.doc_type,
+              document_id: String(job.attachment_id),
+              enqueued_at: new Date().toISOString(),
+            },
+          });
+        }
+      }
+    } catch {
+      // swallow
+    }
 
     // MEGA STEP 10: Reconcile conditions (auto-satisfy matching conditions)
     try {
