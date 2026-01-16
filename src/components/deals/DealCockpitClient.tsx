@@ -35,9 +35,14 @@ export default function DealCockpitClient({
   const [displayName, setDisplayName] = useState<string | null>(dealName?.displayName ?? null);
   const [nickname, setNickname] = useState<string | null>(dealName?.nickname ?? null);
   const [borrowerName, setBorrowerName] = useState<string | null>(dealName?.borrowerName ?? null);
-  const [nameHydrated, setNameHydrated] = useState(false);
   const [checklistRefresh, setChecklistRefresh] =
     useState<(() => Promise<void>) | null>(null);
+
+  React.useEffect(() => {
+    setDisplayName(dealName?.displayName ?? null);
+    setNickname(dealName?.nickname ?? null);
+    setBorrowerName(dealName?.borrowerName ?? null);
+  }, [dealName?.displayName, dealName?.nickname, dealName?.borrowerName]);
 
   // Checklist registers its refresh function
   const handleChecklistRefresh = useCallback((refreshFn: () => Promise<void>) => {
@@ -56,24 +61,6 @@ export default function DealCockpitClient({
       console.error("[DealCockpitClient] Checklist refresh failed:", e);
     }
   }, [checklistRefresh]);
-
-  React.useEffect(() => {
-    if (nameHydrated) return;
-    let cancelled = false;
-    fetch(`/api/deals/${dealId}/name`, { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
-        if (cancelled || !json?.ok) return;
-        setDisplayName(json.display_name ?? null);
-        setNickname(json.nickname ?? null);
-        setBorrowerName(json.borrower_name ?? null);
-        setNameHydrated(true);
-      })
-      .catch(() => setNameHydrated(true));
-    return () => {
-      cancelled = true;
-    };
-  }, [dealId, nameHydrated]);
 
   return (
     <div className="min-h-screen">

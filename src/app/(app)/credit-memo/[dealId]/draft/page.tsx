@@ -1,6 +1,7 @@
 import { buildDealIntelligence, formatCreditMemoMarkdown } from "@/lib/dealIntelligence/buildDealIntelligence";
 import { CopyToClipboardButton } from "@/components/deals/DealOutputActions";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,50 @@ type Props = {
 };
 
 export default async function CreditMemoDraftPage({ params }: Props) {
-  const intelligence = await buildDealIntelligence(params.dealId);
+  let intelligence: Awaited<ReturnType<typeof buildDealIntelligence>> | null = null;
+  let errorCode: string | null = null;
+
+  try {
+    intelligence = await buildDealIntelligence(params.dealId);
+  } catch (e: any) {
+    errorCode = String(e?.message ?? "unknown_error");
+  }
+
+  if (!intelligence) {
+    const dealId = params.dealId;
+    const unauthorized = errorCode?.includes("unauthorized") || errorCode?.includes("tenant_mismatch");
+    const notFound = errorCode?.includes("deal_not_found");
+
+    return (
+      <div className="mx-auto w-full max-w-5xl px-6 py-10">
+        <div className="rounded-xl border border-neutral-200 bg-white p-6">
+          <h1 className="text-2xl font-bold text-neutral-900">Credit Memo Draft</h1>
+          <p className="mt-2 text-sm text-neutral-600">
+            {unauthorized
+              ? "You don’t have access to this deal."
+              : notFound
+              ? "Deal not found."
+              : "Credit memo draft isn’t ready yet."}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link
+              href={`/deals/${dealId}/cockpit`}
+              className="inline-flex items-center rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:bg-neutral-800"
+            >
+              Go to Deal Cockpit
+            </Link>
+            <Link
+              href="/deals"
+              className="inline-flex items-center rounded-lg border border-neutral-200 px-3 py-2 text-xs font-semibold text-neutral-900 hover:bg-neutral-50"
+            >
+              Back to Deals
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const markdown = formatCreditMemoMarkdown(intelligence);
   const memo = intelligence.memoDraft;
 

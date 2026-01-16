@@ -4,9 +4,49 @@ import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
 import { CopyToClipboardButton } from "@/components/deals/DealOutputActions";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { resolveDealLabel } from "@/lib/deals/dealLabel";
+import { resolveDealLabel, dealLabel } from "@/lib/deals/dealLabel";
+import Link from "next/link";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata(
+  props: { params: Promise<{ dealId: string }> | { dealId: string } }
+): Promise<Metadata> {
+  try {
+    const resolvedParams = await props.params;
+    const dealId = resolvedParams.dealId;
+
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      return { title: "Underwriting • Buddy" };
+    }
+
+    const sb = supabaseAdmin();
+    const { data: deal } = await sb
+      .from("deals")
+      .select("id, borrower_name, name, display_name, nickname")
+      .eq("id", dealId)
+      .eq("bank_id", access.bankId)
+      .maybeSingle();
+
+    if (!deal) {
+      return { title: "Underwriting • Buddy" };
+    }
+
+    const title = dealLabel({
+      id: String((deal as any).id ?? dealId),
+      display_name: (deal as any).display_name ?? null,
+      nickname: (deal as any).nickname ?? null,
+      borrower_name: (deal as any).borrower_name ?? null,
+      name: (deal as any).name ?? null,
+    });
+
+    return { title: `${title} • Buddy` };
+  } catch {
+    return { title: "Underwriting • Buddy" };
+  }
+}
 
 type UnderwriteDealPageProps = {
   params: Promise<{ dealId: string }> | { dealId: string };
@@ -25,8 +65,16 @@ export default async function UnderwriteDealPage({
         <div className="rounded-xl border border-neutral-200 bg-white p-6">
           <h1 className="text-2xl font-bold text-neutral-900">Underwriting</h1>
           <p className="mt-2 text-sm text-neutral-600">
-            Deal not found or you don’t have access.
+            Underwriting not started yet.
           </p>
+          <div className="mt-4">
+            <Link
+              href={`/deals/${dealId}/cockpit`}
+              className="inline-flex items-center rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:bg-neutral-800"
+            >
+              Go to Deal Cockpit
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -46,8 +94,16 @@ export default async function UnderwriteDealPage({
         <div className="rounded-xl border border-neutral-200 bg-white p-6">
           <h1 className="text-2xl font-bold text-neutral-900">Underwriting</h1>
           <p className="mt-2 text-sm text-neutral-600">
-            Deal not found or you don’t have access.
+            Underwriting not started yet.
           </p>
+          <div className="mt-4">
+            <Link
+              href={`/deals/${dealId}/cockpit`}
+              className="inline-flex items-center rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:bg-neutral-800"
+            >
+              Go to Deal Cockpit
+            </Link>
+          </div>
         </div>
       </div>
     );

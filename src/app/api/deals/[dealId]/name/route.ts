@@ -14,47 +14,6 @@ function normalizeName(value: unknown): string | null {
   return trimmed.length ? trimmed : null;
 }
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
-  try {
-    await requireRole(["super_admin", "bank_admin", "underwriter"]);
-    const { dealId } = await ctx.params;
-
-    const access = await ensureDealBankAccess(dealId);
-    if (!access.ok) {
-      return NextResponse.json(
-        { ok: false, error: access.error },
-        { status: access.error === "deal_not_found" ? 404 : 403 }
-      );
-    }
-
-    const sb = supabaseAdmin();
-    const { data, error } = await sb
-      .from("deals")
-      .select("id, display_name, nickname, borrower_name")
-      .eq("id", dealId)
-      .eq("bank_id", access.bankId)
-      .maybeSingle();
-
-    if (error || !data) {
-      return NextResponse.json(
-        { ok: false, error: error?.message ?? "deal_not_found" },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({
-      ok: true,
-      dealId: data.id,
-      display_name: data.display_name ?? null,
-      nickname: data.nickname ?? null,
-      borrower_name: data.borrower_name ?? null,
-    });
-  } catch (error) {
-    console.error("[/api/deals/[dealId]/name] GET", error);
-    return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
-  }
-}
-
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
   try {
     await requireRole(["super_admin", "bank_admin", "underwriter"]);
