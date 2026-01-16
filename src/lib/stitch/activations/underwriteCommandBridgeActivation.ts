@@ -101,9 +101,10 @@ export async function getUnderwriteCommandBridgeActivationData(
   dealId?: string | null,
   limit = DEFAULT_LIMIT
 ): Promise<UnderwriteCommandActivationData> {
-  if (dealId) {
+  const resolvedDealId = dealId ? String(dealId).trim() : "";
+  if (resolvedDealId) {
     try {
-      const access = await ensureDealBankAccess(dealId);
+      const access = await ensureDealBankAccess(resolvedDealId);
       if (!access.ok) {
         return { mode: "deal", error: access.error };
       }
@@ -113,7 +114,7 @@ export async function getUnderwriteCommandBridgeActivationData(
       const { data: deal, error: dealError } = await sb
         .from("deals")
         .select("id, borrower_name, name, amount, stage")
-        .eq("id", dealId)
+        .eq("id", resolvedDealId)
         .maybeSingle();
 
       if (dealError || !deal) {
@@ -123,7 +124,7 @@ export async function getUnderwriteCommandBridgeActivationData(
       const { data: intake } = await sb
         .from("deal_intake")
         .select("borrower_name, borrower_email")
-        .eq("deal_id", dealId)
+        .eq("deal_id", resolvedDealId)
         .maybeSingle();
 
       const borrowerName = String(intake?.borrower_name ?? deal.borrower_name ?? deal.name ?? "-") || "-";
@@ -135,7 +136,7 @@ export async function getUnderwriteCommandBridgeActivationData(
       const { data: checklist } = await sb
         .from("deal_checklist_items")
         .select("checklist_key, required, received_at")
-        .eq("deal_id", dealId);
+        .eq("deal_id", resolvedDealId);
 
       const checklistRequired = (checklist ?? []).filter((item: any) => item.required);
       const checklistReceived = checklistRequired.filter((item: any) => item.received_at);
@@ -146,7 +147,7 @@ export async function getUnderwriteCommandBridgeActivationData(
       const { data: documents } = await sb
         .from("deal_documents")
         .select("id, original_filename, checklist_key, created_at, source, size_bytes")
-        .eq("deal_id", dealId)
+        .eq("deal_id", resolvedDealId)
         .eq("bank_id", access.bankId)
         .order("created_at", { ascending: false })
         .limit(limit);
@@ -154,7 +155,7 @@ export async function getUnderwriteCommandBridgeActivationData(
       const { data: ledger } = await sb
         .from("audit_ledger")
         .select("id, action, kind, scope, input_json, output_json, created_at, requires_human_review")
-        .eq("deal_id", dealId)
+        .eq("deal_id", resolvedDealId)
         .order("created_at", { ascending: false })
         .limit(8);
 
@@ -877,6 +878,22 @@ export function buildUnderwriteCommandBridgeActivationScript(): string {
   }
 
   var data = getData();
+  var isDevHost = false;
+  try {
+    if (typeof window !== "undefined" && window.location && window.location.hostname) {
+      var host = window.location.hostname;
+      isDevHost = host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host === "::1";
+    }
+  } catch (_e) {
+    isDevHost = false;
+  }
+  if (isDevHost && typeof console !== "undefined" && console.info) {
+    console.info("[underwrite]", {
+      route: "underwrite",
+      dealId: data && data.deal ? data.deal.id : null,
+      mode: data ? data.mode : null,
+    });
+  }
   updateKpis(data || {});
   if (data && data.mode === "deal") {
     storeLastActiveDeal(data);

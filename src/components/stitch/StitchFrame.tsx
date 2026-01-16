@@ -258,7 +258,7 @@ export default function StitchFrame({
         ref={iframeRef}
         title={title}
         srcDoc={srcDoc}
-        style={{ width: "100%", height: 900, border: 0, display: "block" }}
+        style={{ width: "100%", height: "80vh", minHeight: "80vh", border: 0, display: "block" }}
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
       />
     </div>
