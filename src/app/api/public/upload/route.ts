@@ -4,6 +4,10 @@ import { constantTimeEqual, hashPassword, sha256 } from "@/lib/security/tokens";
 import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { recomputeDealReady } from "@/lib/deals/readiness";
 import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrowerUploadAndMaterialize";
+import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
+import { findExistingDocBySha } from "@/lib/storage/dedupe";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import crypto from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -128,6 +132,7 @@ export async function POST(req: Request) {
 
   const dealId = String(link.deal_id);
   const bucket = "deal-uploads";
+  const docStore = String(process.env.DOC_STORE || "").toLowerCase();
 
   // Fetch deal to get bank_id (required for ingestion)
   const { data: deal } = await supabaseAdmin()
@@ -158,20 +163,77 @@ export async function POST(req: Request) {
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const random = sha256(`${safeName}:${ts}:${Math.random()}`).slice(0, 12);
 
-    const storagePath = `deals/${dealId}/borrower/${ts}_${random}_${safeName}`;
+    const sha = sha256(bytes.toString("hex"));
+    let storagePath = `deals/${dealId}/borrower/${ts}_${random}_${safeName}`;
+    let storageBucket = bucket;
 
-    const up = await supabaseAdmin()
-      .storage.from(bucket)
-      .upload(storagePath, bytes, {
-        contentType: f.type || "application/octet-stream",
-        upsert: false,
+    if (docStore === "gcs") {
+      const existing = await findExistingDocBySha({
+        sb: supabaseAdmin(),
+        dealId,
+        sha256: sha,
       });
 
-    if (up.error)
-      return NextResponse.json(
-        { ok: false, error: `Upload failed: ${safeName}` },
-        { status: 500 },
-      );
+      if (existing?.storage_path && existing.storage_bucket) {
+        storagePath = existing.storage_path;
+        storageBucket = existing.storage_bucket;
+
+        await logLedgerEvent({
+          dealId,
+          bankId: deal.bank_id,
+          eventKey: "documents.upload_deduped",
+          uiState: "done",
+          uiMessage: "Upload deduped by sha256",
+          meta: {
+            existing_document_id: existing.id,
+            sha256: sha,
+            source: "public_link",
+          },
+        });
+      } else {
+        const gcsBucket = getGcsBucketName();
+        const fileId = crypto.randomUUID();
+        storagePath = buildGcsObjectKey({
+          bankId: deal.bank_id,
+          dealId,
+          fileId,
+          filename: f.name || "upload",
+        });
+        storageBucket = gcsBucket;
+
+        const signedUploadUrl = await signGcsUploadUrl({
+          key: storagePath,
+          contentType: f.type || "application/octet-stream",
+          expiresSeconds: Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900"),
+        });
+
+        const uploadRes = await fetch(signedUploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": f.type || "application/octet-stream" },
+          body: bytes,
+        });
+
+        if (!uploadRes.ok) {
+          return NextResponse.json(
+            { ok: false, error: `Upload failed: ${safeName}` },
+            { status: 500 },
+          );
+        }
+      }
+    } else {
+      const up = await supabaseAdmin()
+        .storage.from(bucket)
+        .upload(storagePath, bytes, {
+          contentType: f.type || "application/octet-stream",
+          upsert: false,
+        });
+
+      if (up.error)
+        return NextResponse.json(
+          { ok: false, error: `Upload failed: ${safeName}` },
+          { status: 500 },
+        );
+    }
 
     chaosPoint(req, "after_storage_upload");
 
@@ -184,12 +246,14 @@ export async function POST(req: Request) {
         mimeType: f.type || "application/octet-stream",
         sizeBytes: bytes.length,
         storagePath,
+        storageBucket,
+        sha256: sha,
       },
       source: "public_link",
       metadata: {
         checklist_key: checklistKey || null,
         uploaded_via_link_id: link.id,
-        sha256: sha256(bytes.toString("hex")),
+        sha256: sha,
       },
     });
 
@@ -199,7 +263,7 @@ export async function POST(req: Request) {
       dealId,
       bankId: deal.bank_id,
       requestId: null,
-      storageBucket: bucket,
+      storageBucket,
       storagePath,
       originalFilename: f.name || "upload",
       mimeType: f.type || "application/octet-stream",
@@ -224,7 +288,7 @@ export async function POST(req: Request) {
         uploader_type: "borrower",
         uploader_display_name: uploaderName || null,
         uploader_email: uploaderEmail || link.uploader_email_hint || null,
-        storage_bucket: bucket,
+        storage_bucket: storageBucket,
         storage_path: storagePath,
         original_filename: f.name || "upload",
         mime_type: f.type || null,
@@ -247,6 +311,21 @@ export async function POST(req: Request) {
     }
 
     successCount++;
+
+    await logLedgerEvent({
+      dealId,
+      bankId: deal.bank_id,
+      eventKey: "documents.upload_completed",
+      uiState: "done",
+      uiMessage: `Upload completed (${docStore === "gcs" ? "gcs" : "supabase"})`,
+      meta: {
+        storage_bucket: storageBucket,
+        storage_path: storagePath,
+        size_bytes: bytes.length,
+        sha256: sha,
+        source: "public_link",
+      },
+    });
   }
 
   // 🧠 CONVERGENCE: Recompute deal readiness after all files processed

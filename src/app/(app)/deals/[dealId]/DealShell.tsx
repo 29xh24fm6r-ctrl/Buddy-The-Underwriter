@@ -9,6 +9,7 @@ import { Icon } from "@/components/ui/Icon";
 import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonicalMemoPdfButton";
 import { useFinancialSnapshot } from "@/hooks/useFinancialSnapshot";
 import { useFinancialSnapshotDecision } from "@/hooks/useFinancialSnapshotDecision";
+import { useLenderMatches } from "@/hooks/useLenderMatches";
 
 function fmtNum(n: number, digits = 2) {
   return Number.isFinite(n) ? n.toFixed(digits) : "—";
@@ -121,6 +122,30 @@ function FinancialSnapshotCapsule({ dealId }: { dealId: string }) {
       <SnapMetric label="Occ" value={occ == null ? "Pending" : fmtPct(occ)} />
       <SnapMetric label="Rent/mo" value={rent == null ? "Pending" : fmtCurrencyCompact(rent)} />
       <SnapMetric label="As of" value={s.as_of_date ?? "—"} />
+    </div>
+  );
+}
+
+function MatchedLendersCapsule({ dealId }: { dealId: string }) {
+  const { data, loading } = useLenderMatches(dealId);
+  if (loading) {
+    return (
+      <div className="hidden xl:flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+        <span className="text-xs text-white/60">Lenders…</span>
+      </div>
+    );
+  }
+
+  const matched = data?.matches?.matched ?? [];
+  if (!matched.length) return null;
+
+  const top = matched[0];
+  return (
+    <div className="hidden xl:flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+      <span className="text-xs text-white/60">Lenders</span>
+      <span className="text-xs font-semibold text-white">{matched.length}</span>
+      <span className="text-xs text-white/60">Top:</span>
+      <span className="text-xs font-semibold text-white">{top?.lender ?? "—"}</span>
     </div>
   );
 }
@@ -303,6 +328,7 @@ export default function DealShell({
 
           <div className="flex items-center gap-2">
             <FinancialSnapshotCapsule dealId={dealId} />
+            <MatchedLendersCapsule dealId={dealId} />
             <Link
               href={`/credit-memo/${dealId}/canonical`}
               className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-white bg-primary hover:bg-primary/90"

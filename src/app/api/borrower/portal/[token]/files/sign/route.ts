@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { signUploadUrl } from "@/lib/uploads/sign";
+import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
+import { findExistingDocBySha } from "@/lib/storage/dedupe";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import crypto from "node:crypto";
 
 export const runtime = "nodejs";
@@ -54,6 +57,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       mime_type,
       size_bytes,
       checklist_key = null,
+      sha256,
     } = body ?? {};
 
     if (!filename || !size_bytes) {
@@ -116,12 +120,103 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    // Generate unique file ID and safe path
+    const docStore = String(process.env.DOC_STORE || "").toLowerCase();
+
+    if (docStore === "gcs") {
+      const { data: deal } = await sb
+        .from("deals")
+        .select("bank_id")
+        .eq("id", dealId)
+        .maybeSingle();
+
+      if (!deal?.bank_id) {
+        return NextResponse.json(
+          { ok: false, error: "Deal not found" },
+          { status: 404 },
+        );
+      }
+
+      const existing = sha256
+        ? await findExistingDocBySha({ sb, dealId, sha256 })
+        : null;
+
+      await logLedgerEvent({
+        dealId,
+        bankId: deal.bank_id,
+        eventKey: "documents.sign_upload",
+        uiState: "done",
+        uiMessage: `Sign upload (${existing ? "dedupe" : "new"})`,
+        meta: {
+          filename,
+          sha256: sha256 ?? null,
+          deduped: Boolean(existing),
+          source: "borrower_portal",
+        },
+      });
+
+      if (existing?.id) {
+        await logLedgerEvent({
+          dealId,
+          bankId: deal.bank_id,
+          eventKey: "documents.upload_deduped",
+          uiState: "done",
+          uiMessage: "Upload deduped by sha256",
+          meta: {
+            existing_document_id: existing.id,
+            sha256: sha256 ?? null,
+            source: "borrower_portal",
+          },
+        });
+
+        return NextResponse.json({
+          ok: true,
+          deduped: true,
+          existingDocumentId: existing.id,
+        });
+      }
+
+      const fileId = crypto.randomUUID();
+      const objectPath = buildGcsObjectKey({
+        bankId: deal.bank_id,
+        dealId,
+        fileId,
+        filename,
+      });
+
+      const expiresSeconds = Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900");
+      const signedUploadUrl = await signGcsUploadUrl({
+        key: objectPath,
+        contentType: mime_type || "application/octet-stream",
+        expiresSeconds,
+      });
+
+      const bucket = getGcsBucketName();
+      const expiresAt = new Date(Date.now() + expiresSeconds * 1000).toISOString();
+
+      return NextResponse.json({
+        ok: true,
+        deal_id: dealId,
+        deduped: false,
+        bucket,
+        key: objectPath,
+        signedUploadUrl,
+        expiresAt,
+        upload: {
+          file_id: fileId,
+          object_path: objectPath,
+          signed_url: signedUploadUrl,
+          token: null,
+          checklist_key,
+          mime_type,
+          bucket,
+        },
+      });
+    }
+
     const fileId = crypto.randomUUID();
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const objectPath = `deals/${dealId}/${fileId}__${safeName}`;
 
-    // Use centralized signing utility
     const bucket = process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
     const signResult = await signUploadUrl({ bucket, objectPath });
 
@@ -158,7 +253,7 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     return NextResponse.json({
       ok: true,
-      deal_id: dealId, // Return deal_id so client can call /files/record
+      deal_id: dealId,
       upload: {
         file_id: fileId,
         object_path: objectPath,
