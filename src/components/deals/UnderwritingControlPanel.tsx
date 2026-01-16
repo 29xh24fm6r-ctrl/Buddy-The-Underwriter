@@ -35,7 +35,7 @@ export function UnderwritingControlPanel({ dealId }: { dealId: string }) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Icon name="rocket_launch" className="h-5 w-5 text-neutral-900" />
-          <h3 className="text-sm font-semibold">Underwriting Pipeline</h3>
+          <h3 className="text-sm font-semibold">Underwriting</h3>
         </div>
       </div>
 
@@ -54,13 +54,13 @@ export function UnderwritingControlPanel({ dealId }: { dealId: string }) {
         ) : (
           <>
             <Icon name="play_arrow" className="h-5 w-5 text-white" />
-            Start Underwriting
+            Open Underwriting →
           </>
         )}
       </button>
 
       <p className="mt-2 text-xs text-neutral-500 text-center">
-        Validates checklist, runs confidence review, triggers risk scoring
+        Open the deal workspace to review documents and conditions
       </p>
 
       {err && (

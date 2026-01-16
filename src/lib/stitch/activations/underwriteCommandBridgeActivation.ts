@@ -1,12 +1,15 @@
 import { listDealsForBank } from "@/lib/deals/listDeals";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { resolveDealLabel } from "@/lib/deals/dealLabel";
 
 export type UnderwriteCommandActivationRow = {
   id: string;
   name: string;
   subtitle: string;
   stage: string;
+  borrower?: string;
+  locationLabel?: string | null;
   dscrLabel: string;
   ltvLabel: string;
   noiLabel: string;
@@ -17,6 +20,8 @@ export type UnderwriteCommandActivationRow = {
   nextAction: string;
   updatedLabel: string;
   ownerInitials: string;
+  actionLabel?: string;
+  needsName?: boolean;
 };
 
 export type UnderwriteCommandActivationData = {
@@ -25,6 +30,9 @@ export type UnderwriteCommandActivationData = {
   deal?: {
     id: string;
     name: string;
+    displayName?: string | null;
+    nickname?: string | null;
+    needsName?: boolean;
     borrower: string;
     amountLabel: string;
     stage: string;
@@ -113,7 +121,7 @@ export async function getUnderwriteCommandBridgeActivationData(
 
       const { data: deal, error: dealError } = await sb
         .from("deals")
-        .select("id, borrower_name, name, amount, stage")
+        .select("id, borrower_name, name, display_name, nickname, amount, stage")
         .eq("id", resolvedDealId)
         .maybeSingle();
 
@@ -129,7 +137,14 @@ export async function getUnderwriteCommandBridgeActivationData(
 
       const borrowerName = String(intake?.borrower_name ?? deal.borrower_name ?? deal.name ?? "-") || "-";
       const borrowerEmail = intake?.borrower_email ? String(intake.borrower_email) : null;
-      const name = String(deal.name ?? deal.borrower_name ?? "Untitled Deal") || "Untitled Deal";
+      const labelResult = resolveDealLabel({
+        id: String(deal.id),
+        display_name: (deal as any).display_name ?? null,
+        nickname: (deal as any).nickname ?? null,
+        borrower_name: deal.borrower_name ?? null,
+        name: deal.name ?? null,
+      });
+      const name = labelResult.label;
       const amountLabel = formatMoney(deal.amount);
       const stage = String(deal.stage ?? "-") || "-";
 
@@ -186,6 +201,9 @@ export async function getUnderwriteCommandBridgeActivationData(
         deal: {
           id: String(deal.id),
           name,
+          displayName: (deal as any).display_name ?? null,
+          nickname: (deal as any).nickname ?? null,
+          needsName: labelResult.needsName,
           borrower: borrowerName,
           amountLabel,
           stage,
@@ -219,8 +237,10 @@ export async function getUnderwriteCommandBridgeActivationData(
     const deals = await listDealsForBank(limit);
     const rows = deals.map((deal) => ({
       id: deal.id,
-      name: deal.name || "Untitled Deal",
+      name: deal.label || deal.name || "Untitled Deal",
       subtitle: buildSubtitle(deal.borrower || "-", deal.amountLabel || "-"),
+      borrower: deal.borrower || "-",
+      locationLabel: "-",
       stage: deal.stageLabel || deal.stage || "-",
       dscrLabel: "-",
       ltvLabel: "-",
@@ -230,8 +250,10 @@ export async function getUnderwriteCommandBridgeActivationData(
       missingLabel: "-",
       riskLabel: "-",
       nextAction: deal.status || "Review",
+      actionLabel: "Open Underwriting →",
       updatedLabel: deal.createdLabel || "-",
       ownerInitials: initialsFromName(deal.borrower || deal.name || ""),
+      needsName: deal.needsName ?? false,
     }));
 
     return { mode: "pipeline", rows: rows.slice(0, limit) };
@@ -361,7 +383,7 @@ export function buildUnderwriteCommandBridgeActivationScript(): string {
       resumeButton.removeAttribute("disabled");
       resumeButton.innerHTML =
         '<span class="material-symbols-outlined text-[20px]">play_circle</span>' +
-        (lastDealName ? "Resume Underwriting: " + lastDealName : "Resume Underwriting");
+        (lastDealName ? "Open Underwriting → " + lastDealName : "Open Underwriting →");
 
       resumeButton.addEventListener("click", function (event) {
         event.preventDefault();
@@ -401,6 +423,76 @@ export function buildUnderwriteCommandBridgeActivationScript(): string {
     setKpi("New Uploads", data.kpis.newUploads);
   }
 
+  function applyContextPill(root, mode) {
+    if (!root) return;
+    var header = root.querySelector("h2");
+    if (!header || !header.parentElement) return;
+
+    var pill = header.parentElement.querySelector("[data-bridge-context-pill='true']");
+    if (!pill) {
+      pill = document.createElement("span");
+      pill.setAttribute("data-bridge-context-pill", "true");
+      pill.className =
+        "inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/80";
+      header.parentElement.insertBefore(pill, header);
+    }
+
+    pill.textContent = mode === "deal" ? "UNDERWRITING" : "PIPELINE";
+  }
+
+  function updateHeaderContext(root, mode) {
+    if (!root) return;
+    var header = root.querySelector("h2");
+    if (!header) return;
+    var subtitle = header.parentElement ? header.parentElement.querySelector("p") : null;
+
+    if (mode === "deal") {
+      header.textContent = "Underwriting";
+      if (subtitle) subtitle.textContent = "Deal workspace • Review docs • Make decisions";
+    } else {
+      header.textContent = "Pipeline Command Bridge";
+      if (subtitle) subtitle.textContent = "Browse pipeline • Pick a deal • Launch Underwriting";
+    }
+
+    applyContextPill(root, mode);
+  }
+
+  function applyPipelineTableLayout(root) {
+    if (!root) return;
+    var table = root.querySelector("table");
+    if (!table) return;
+    if (!table.classList.contains("pipeline-condensed")) {
+      table.classList.add("pipeline-condensed");
+    }
+
+    if (!document.getElementById("__pipeline_condensed_styles__")) {
+      var style = document.createElement("style");
+      style.id = "__pipeline_condensed_styles__";
+      style.textContent = "table.pipeline-condensed th:nth-child(n+6), table.pipeline-condensed td:nth-child(n+6) { display: none; }";
+      document.head.appendChild(style);
+    }
+
+    var headers = table.querySelectorAll("thead th");
+    if (headers.length >= 5) {
+      headers[0].textContent = "Deal Name";
+      headers[1].textContent = "Borrower";
+      headers[2].textContent = "City/State";
+      headers[3].textContent = "Stage";
+      headers[4].textContent = "Action";
+    }
+  }
+
+  function renameResumeButtons(root) {
+    if (!root) return;
+    var buttons = Array.prototype.slice.call(root.querySelectorAll("button"));
+    buttons.forEach(function (btn) {
+      var text = normalize(btn.textContent);
+      if (text.indexOf("resume underwriting") !== -1) {
+        btn.textContent = "Open Underwriting →";
+      }
+    });
+  }
+
   function updateRow(row, deal) {
     var cells = row.querySelectorAll("td");
     if (cells.length < 12) return;
@@ -417,24 +509,81 @@ export function buildUnderwriteCommandBridgeActivationScript(): string {
       subtitleText.setAttribute("data-activated", "true");
     }
 
+    if (deal.needsName) {
+      var badge = nameCell.querySelector("[data-needs-name='true']");
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.setAttribute("data-needs-name", "true");
+        badge.className = "ml-2 inline-flex items-center rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300";
+        badge.textContent = "Needs name";
+        nameCell.appendChild(badge);
+      }
+
+      var nameButton = nameCell.querySelector("[data-name-action='true']");
+      if (!nameButton) {
+        nameButton = document.createElement("button");
+        nameButton.setAttribute("data-name-action", "true");
+        nameButton.className = "ml-2 inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10";
+        nameButton.textContent = "Name this deal";
+        nameButton.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+
+          var nextName = window.prompt("Enter a deal name", deal.name || "");
+          if (!nextName) return;
+
+          fetch("/api/deals/" + deal.id + "/name", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ display_name: nextName }),
+          })
+            .then(function (res) { return res.ok ? res.json() : null; })
+            .then(function (payload) {
+              if (!payload || !payload.ok) return;
+              nameText.textContent = payload.display_name || nextName;
+              nameText.setAttribute("data-activated", "true");
+              if (badge && badge.parentElement) badge.parentElement.removeChild(badge);
+              if (nameButton && nameButton.parentElement) nameButton.parentElement.removeChild(nameButton);
+            })
+            .catch(function () {});
+        });
+        nameCell.appendChild(nameButton);
+      }
+    }
+
     var stageCell = cells[1];
     var stageBadge = stageCell.querySelector("span");
-    if (stageBadge) {
+    var isPipelineRow = !!(deal.borrower || deal.locationLabel || deal.actionLabel);
+
+    if (isPipelineRow) {
+      setCellText(stageCell, deal.borrower || "-");
+      setCellText(cells[2], deal.locationLabel || "-");
+      setCellText(cells[3], deal.stage || "-");
+      setCellText(cells[4], deal.actionLabel || "Open Underwriting →");
+      setCellText(cells[5], "-");
+      setCellText(cells[6], "-");
+      setCellText(cells[7], "-");
+      setCellText(cells[8], "-");
+      setCellText(cells[9], deal.updatedLabel || "-");
+      setCellText(cells[10], "-");
+    } else if (stageBadge) {
       stageBadge.textContent = deal.stage || "-";
       stageBadge.setAttribute("data-activated", "true");
     } else {
       setCellText(stageCell, deal.stage || "-");
     }
 
-    setCellText(cells[2], deal.dscrLabel || "-");
-    setCellText(cells[3], deal.ltvLabel || "-");
-    setCellText(cells[4], deal.noiLabel || "-");
-    setCellText(cells[5], deal.occupancyLabel || "-");
-    setCellText(cells[6], deal.scoreLabel || "-");
-    setCellText(cells[7], deal.missingLabel || "-");
-    setCellText(cells[8], deal.riskLabel || "-");
-    setCellText(cells[9], deal.nextAction || "-");
-    setCellText(cells[10], deal.updatedLabel || "-");
+    if (!isPipelineRow) {
+      setCellText(cells[2], deal.dscrLabel || "-");
+      setCellText(cells[3], deal.ltvLabel || "-");
+      setCellText(cells[4], deal.noiLabel || "-");
+      setCellText(cells[5], deal.occupancyLabel || "-");
+      setCellText(cells[6], deal.scoreLabel || "-");
+      setCellText(cells[7], deal.missingLabel || "-");
+      setCellText(cells[8], deal.riskLabel || "-");
+      setCellText(cells[9], deal.nextAction || "-");
+      setCellText(cells[10], deal.updatedLabel || "-");
+    }
 
     var ownerCell = cells[11];
     var ownerBadge = ownerCell.querySelector("div");
@@ -648,7 +797,7 @@ export function buildUnderwriteCommandBridgeActivationScript(): string {
 
     var button = card.querySelector("button");
     if (button) {
-      button.textContent = "View Deal";
+      button.textContent = "Open Underwriting →";
       button.setAttribute("data-readonly", "true");
       button.disabled = false;
       button.addEventListener("click", function () {
@@ -894,6 +1043,12 @@ export function buildUnderwriteCommandBridgeActivationScript(): string {
       mode: data ? data.mode : null,
     });
   }
+  updateHeaderContext(getRoot(), data && data.mode ? data.mode : "pipeline");
+  if (data && data.mode === "pipeline") {
+    applyPipelineTableLayout(getRoot());
+    renameResumeButtons(getRoot());
+  }
+
   updateKpis(data || {});
   if (data && data.mode === "deal") {
     storeLastActiveDeal(data);

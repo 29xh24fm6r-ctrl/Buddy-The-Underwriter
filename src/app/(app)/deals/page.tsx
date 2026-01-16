@@ -3,6 +3,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { derivePipelineStatus } from "@/lib/deals/derivePipeline";
+import { resolveDealLabel } from "@/lib/deals/dealLabel";
 import Link from "next/link";
 
 function formatMoney(amount: unknown): string {
@@ -17,6 +18,8 @@ function formatMoney(amount: unknown): string {
 
 type DealRow = {
   id: string;
+  display_name?: string | null;
+  nickname?: string | null;
   borrower_name?: string | null;
   name?: string | null;
   amount?: number | string | null;
@@ -34,7 +37,8 @@ export default async function DealsPage() {
   const bankId = await getCurrentBankId();
   const sb = supabaseAdmin();
 
-  const selectPrimary = "id, borrower_name, name, amount, stage, created_at, ready_at, submitted_at, ready_reason";
+  const selectPrimary =
+    "id, display_name, nickname, borrower_name, name, amount, stage, created_at, ready_at, submitted_at, ready_reason";
   const selectFallback = "id, borrower_name, name, created_at";
 
   let deals: DealRow[] = [];
@@ -84,6 +88,13 @@ export default async function DealsPage() {
 
     const borrower = d.borrower_name || d.name || "Untitled deal";
     const amountLabel = d.amount != null ? formatMoney(d.amount) : "-";
+    const labelResult = resolveDealLabel({
+      id: d.id,
+      display_name: d.display_name ?? null,
+      nickname: d.nickname ?? null,
+      borrower_name: d.borrower_name ?? null,
+      name: d.name ?? null,
+    });
 
     const stage = d.stage ? String(d.stage) : "-";
 
@@ -99,6 +110,8 @@ export default async function DealsPage() {
 
     return {
       id: d.id,
+      label: labelResult.label,
+      needsName: labelResult.needsName,
       borrower,
       amountLabel,
       stage,
@@ -140,6 +153,9 @@ export default async function DealsPage() {
             <thead className="bg-[#1f242d] border-b border-white/10">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-white/70 uppercase tracking-wider">
+                  Deal Name
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-white/70 uppercase tracking-wider">
                   Borrower
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-white/70 uppercase tracking-wider">
@@ -163,6 +179,18 @@ export default async function DealsPage() {
               {uiDeals.map((deal) => (
                 <tr key={deal.id} className="hover:bg-white/5 transition-colors">
                   <td className="px-6 py-4 text-sm font-medium text-white">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate max-w-[240px]" title={deal.label}>
+                        {deal.label}
+                      </span>
+                      {deal.needsName ? (
+                        <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                          Needs name
+                        </span>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-white/80">
                     {deal.borrower}
                   </td>
                   <td className="px-6 py-4 text-sm text-white/80">
