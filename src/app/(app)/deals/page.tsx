@@ -3,7 +3,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { derivePipelineStatus } from "@/lib/deals/derivePipeline";
-import { resolveDealLabel } from "@/lib/deals/dealLabel";
+import { resolveDealLabel, dealLabel } from "@/lib/deals/dealLabel";
 import Link from "next/link";
 
 function formatMoney(amount: unknown): string {
@@ -110,7 +110,13 @@ export default async function DealsPage() {
 
     return {
       id: d.id,
-      label: labelResult.label,
+      label: dealLabel({
+        id: d.id,
+        display_name: d.display_name ?? null,
+        nickname: d.nickname ?? null,
+        borrower_name: d.borrower_name ?? null,
+        name: d.name ?? null,
+      }),
       needsName: labelResult.needsName,
       borrower,
       amountLabel,
@@ -217,10 +223,10 @@ export default async function DealsPage() {
                   </td>
                   <td className="px-6 py-4 text-right text-sm">
                     <Link
-                      href={`/deals/${deal.id}/cockpit`}
+                      href={`/underwrite/${deal.id}`}
                       className="text-primary hover:text-primary/80 font-medium inline-flex items-center gap-1"
                     >
-                      View
+                      Open Underwriting
                       <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
                     </Link>
                   </td>

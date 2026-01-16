@@ -12,6 +12,10 @@ export type DealLabelResult = {
   needsName: boolean;
 };
 
+export function dealLabel(fields: DealNameFields): string {
+  return resolveDealLabel(fields).label;
+}
+
 export function resolveDealLabel(fields: DealNameFields): DealLabelResult {
   const display = fields.display_name?.trim();
   if (display) {

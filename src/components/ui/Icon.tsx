@@ -21,6 +21,7 @@ import {
   Calendar,
   Rocket,
   Play,
+  Pencil,
 } from "lucide-react";
 
 export type IconName =
@@ -36,6 +37,7 @@ export type IconName =
   | "refresh"
   | "file"
   | "description"
+  | "edit"
   | "sync"
   | "error"
   | "fact_check"
@@ -59,6 +61,7 @@ const MAP: Record<IconName, React.ComponentType<{ className?: string }>> = {
   refresh: RefreshCw,
   file: FileText,
   description: File,
+  edit: Pencil,
   sync: RotateCw,
   error: AlertCircle,
   fact_check: CheckSquare,

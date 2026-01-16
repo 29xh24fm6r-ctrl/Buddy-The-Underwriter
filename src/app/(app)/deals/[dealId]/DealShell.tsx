@@ -3,13 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { sampleDeals } from "@/lib/deals/sampleDeals";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
 import { resolveDealLabel } from "@/lib/deals/dealLabel";
-
-function getDealById(id: string) {
-  return sampleDeals.find((d) => d.id === id) ?? null;
-}
+import { Icon } from "@/components/ui/Icon";
 
 function formatAmount(n: number) {
   const abs = Math.abs(n);
@@ -18,6 +14,17 @@ function formatAmount(n: number) {
   if (abs >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
   return `$${n.toFixed(0)}`;
 }
+
+type DealShellDeal = {
+  id: string;
+  display_name: string | null;
+  nickname: string | null;
+  borrower_name: string | null;
+  name: string | null;
+  amount: number | null;
+  stage: string | null;
+  risk_score: number | null;
+};
 
 function Tab({
   href,
@@ -45,16 +52,23 @@ function Tab({
 
 export default function DealShell({
   dealId,
+  deal,
   children,
 }: {
   dealId: string;
+  deal: DealShellDeal | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const deal = dealId ? getDealById(dealId) : null;
-  const [displayName, setDisplayName] = useState<string | null>(null);
-  const [nickname, setNickname] = useState<string | null>(null);
-  const [borrowerName, setBorrowerName] = useState<string | null>(null);
+  const [nameOverride, setNameOverride] = useState<{
+    displayName: string | null;
+    nickname: string | null;
+  } | null>(null);
+  const [copyToast, setCopyToast] = useState<string | null>(null);
+
+  const displayName = nameOverride?.displayName ?? deal?.display_name ?? null;
+  const nickname = nameOverride?.nickname ?? deal?.nickname ?? null;
+  const borrowerName = deal?.borrower_name ?? deal?.name ?? null;
 
   useEffect(() => {
     if (!dealId) return;
@@ -78,22 +92,14 @@ export default function DealShell({
     }
   }, [dealId, deal?.name, displayName, nickname, borrowerName]);
 
-  useEffect(() => {
+  function handleCopyDealId() {
     if (!dealId) return;
-    let cancelled = false;
-    fetch(`/api/deals/${dealId}/name`, { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
-        if (cancelled || !json?.ok) return;
-        setDisplayName(json.display_name ?? null);
-        setNickname(json.nickname ?? null);
-        setBorrowerName(json.borrower_name ?? null);
-      })
-      .catch(() => null);
-    return () => {
-      cancelled = true;
-    };
-  }, [dealId]);
+    navigator.clipboard
+      .writeText(dealId)
+      .then(() => setCopyToast("Copied"))
+      .catch(() => setCopyToast("Copy failed"))
+      .finally(() => window.setTimeout(() => setCopyToast(null), 1200));
+  }
 
   const base = `/deals/${dealId}`;
 
@@ -124,21 +130,40 @@ export default function DealShell({
             </Link>
 
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-white truncate">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex w-fit items-center rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/80">
+                  Deal workspace
+                </span>
+                {borrowerName ? (
+                  <span className="text-xs text-white/60 truncate">{borrowerName}</span>
+                ) : (
+                  <span className="text-xs text-white/40 truncate">Borrower not set</span>
+                )}
+                <button
+                  type="button"
+                  onClick={handleCopyDealId}
+                  className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/70 hover:bg-white/10"
+                >
+                  <Icon name="description" className="h-3.5 w-3.5" />
+                  {copyToast ?? "Copy ID"}
+                </button>
+              </div>
+
+              <div className="mt-1 min-w-0">
                 <DealNameInlineEditor
                   dealId={dealId}
                   displayName={displayName}
                   nickname={nickname}
                   borrowerName={borrowerName ?? deal?.name ?? null}
-                  size="sm"
+                  size="lg"
+                  tone="dark"
                   onUpdated={(next) => {
-                    setDisplayName(next.displayName ?? null);
-                    setNickname(next.nickname ?? null);
+                    setNameOverride({
+                      displayName: next.displayName ?? null,
+                      nickname: next.nickname ?? null,
+                    });
                   }}
                 />
-              </div>
-              <div className="text-xs text-white/60 truncate">
-                {deal ? deal.subtitle : "Loading deal context..."}
               </div>
             </div>
           </div>
@@ -147,7 +172,7 @@ export default function DealShell({
             <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
               <div className="text-[10px] uppercase tracking-wide text-white/50">Loan</div>
               <div className="text-sm font-semibold text-white">
-                {deal ? formatAmount(deal.amount) : "—"}
+                {deal?.amount != null ? formatAmount(deal.amount) : "—"}
               </div>
             </div>
             <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
@@ -156,7 +181,9 @@ export default function DealShell({
             </div>
             <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
               <div className="text-[10px] uppercase tracking-wide text-white/50">Risk</div>
-              <div className="text-sm font-semibold text-white">{deal?.riskRating ?? "—"}</div>
+              <div className="text-sm font-semibold text-white">
+                {deal?.risk_score != null ? String(deal.risk_score) : "—"}
+              </div>
             </div>
           </div>
         </div>
