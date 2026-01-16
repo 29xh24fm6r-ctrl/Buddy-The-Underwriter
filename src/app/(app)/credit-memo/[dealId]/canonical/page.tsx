@@ -6,6 +6,7 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
 import CanonicalMemoTemplate from "@/components/creditMemo/CanonicalMemoTemplate";
 import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonicalMemoPdfButton";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +17,16 @@ export default async function CanonicalCreditMemoPage(props: {
   await requireRole(["super_admin", "bank_admin", "underwriter"]);
   const { dealId } = await props.params;
   const bankId = await getCurrentBankId();
+
+  const sb = supabaseAdmin();
+  const { data: decision } = await sb
+    .from("financial_snapshot_decisions")
+    .select("narrative_json, sba_json, created_at")
+    .eq("deal_id", dealId)
+    .eq("bank_id", bankId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   const res = await buildCanonicalCreditMemo({ dealId, bankId });
   if (!res.ok) {
@@ -45,6 +56,45 @@ export default async function CanonicalCreditMemoPage(props: {
             <ExportCanonicalMemoPdfButton dealId={dealId} />
           </div>
         </div>
+
+        {decision?.narrative_json ? (
+          <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Underwriting Narrative</div>
+            <div className="mt-2 text-sm text-gray-800 whitespace-pre-line">
+              {decision.narrative_json.executiveSummary ?? "Narrative unavailable."}
+            </div>
+            {decision.narrative_json.cashFlowAnalysis ? (
+              <div className="mt-3 text-sm text-gray-700 whitespace-pre-line">
+                {decision.narrative_json.cashFlowAnalysis}
+              </div>
+            ) : null}
+            {Array.isArray(decision.narrative_json.risks) && decision.narrative_json.risks.length ? (
+              <div className="mt-3">
+                <div className="text-xs text-gray-500">Risks</div>
+                <ul className="mt-1 list-disc pl-5 text-sm text-gray-700">
+                  {decision.narrative_json.risks.map((r: string, idx: number) => (
+                    <li key={`risk-${idx}`}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {Array.isArray(decision.narrative_json.mitigants) && decision.narrative_json.mitigants.length ? (
+              <div className="mt-3">
+                <div className="text-xs text-gray-500">Mitigants</div>
+                <ul className="mt-1 list-disc pl-5 text-sm text-gray-700">
+                  {decision.narrative_json.mitigants.map((m: string, idx: number) => (
+                    <li key={`mitigant-${idx}`}>{m}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {decision.narrative_json.recommendation ? (
+              <div className="mt-3 text-sm font-semibold text-gray-800">
+                Recommendation: {decision.narrative_json.recommendation}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <CanonicalMemoTemplate memo={res.memo} />
       </div>
