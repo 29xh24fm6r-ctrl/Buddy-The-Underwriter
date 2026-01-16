@@ -4,8 +4,9 @@ import type { Metadata } from "next";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { dealLabel } from "@/lib/deals/dealLabel";
+import { getCanonicalMemoStatusForDeals } from "@/lib/creditMemo/canonical/getCanonicalMemoStatusForDeals";
 
-const getDealShellDeal = cache(async (dealId: string) => {
+const getDealShellContext = cache(async (dealId: string) => {
   const access = await ensureDealBankAccess(dealId);
   if (!access.ok) return null;
 
@@ -19,15 +20,23 @@ const getDealShellDeal = cache(async (dealId: string) => {
 
   if (!data) return null;
 
+  const statusByDeal = await getCanonicalMemoStatusForDeals({
+    bankId: access.bankId,
+    dealIds: [dealId],
+  });
+
   return {
-    id: String(data.id),
-    display_name: (data as any).display_name ?? null,
-    nickname: (data as any).nickname ?? null,
-    borrower_name: (data as any).borrower_name ?? null,
-    name: (data as any).name ?? null,
-    amount: typeof (data as any).amount === "number" ? (data as any).amount : (data as any).amount ? Number((data as any).amount) : null,
-    stage: (data as any).stage ?? null,
-    risk_score: (data as any).risk_score ?? null,
+    deal: {
+      id: String(data.id),
+      display_name: (data as any).display_name ?? null,
+      nickname: (data as any).nickname ?? null,
+      borrower_name: (data as any).borrower_name ?? null,
+      name: (data as any).name ?? null,
+      amount: typeof (data as any).amount === "number" ? (data as any).amount : (data as any).amount ? Number((data as any).amount) : null,
+      stage: (data as any).stage ?? null,
+      risk_score: (data as any).risk_score ?? null,
+    },
+    canonicalMemoStatus: statusByDeal[dealId] ?? null,
   };
 });
 
@@ -36,13 +45,13 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   try {
     const { dealId } = await props.params;
-    const deal = await getDealShellDeal(dealId);
-    if (!deal) {
+    const ctx = await getDealShellContext(dealId);
+    if (!ctx?.deal) {
       return { title: "Deal • Buddy" };
     }
 
     return {
-      title: `${dealLabel(deal)} • Buddy`,
+      title: `${dealLabel(ctx.deal)} • Buddy`,
     };
   } catch {
     return { title: "Deal • Buddy" };
@@ -58,10 +67,14 @@ export default async function DealIdLayout({
 }) {
   const { dealId } = await params;
 
-  const deal = await getDealShellDeal(dealId);
+  const ctx = await getDealShellContext(dealId);
 
   return (
-    <DealShell dealId={dealId} deal={deal}>
+    <DealShell
+      dealId={dealId}
+      deal={ctx?.deal ?? null}
+      canonicalMemoStatus={ctx?.canonicalMemoStatus ?? null}
+    >
       {children}
     </DealShell>
   );

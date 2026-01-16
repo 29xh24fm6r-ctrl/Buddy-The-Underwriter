@@ -1,4 +1,4 @@
-import type { FinancialFact, RenderedSpread, SpreadType } from "@/lib/financialSpreads/types";
+import type { FinancialFact, RenderedSpread, RentRollRow, SpreadType } from "@/lib/financialSpreads/types";
 
 export type SpreadTemplate = {
   spreadType: SpreadType;
@@ -9,5 +9,6 @@ export type SpreadTemplate = {
     dealId: string;
     bankId: string;
     facts: FinancialFact[];
+    rentRollRows?: RentRollRow[];
   }) => RenderedSpread;
 };

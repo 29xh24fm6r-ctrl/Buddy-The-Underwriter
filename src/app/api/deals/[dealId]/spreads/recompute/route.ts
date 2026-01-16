@@ -69,7 +69,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
                 deal_id: dealId,
                 bank_id: access.bankId,
                 spread_type: t,
-                spread_version: 1,
+                spread_version: t === "T12" ? 3 : t === "RENT_ROLL" ? 3 : 1,
                 status: "generating",
                 inputs_hash: null,
                 rendered_json: {

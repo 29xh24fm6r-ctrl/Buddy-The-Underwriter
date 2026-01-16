@@ -1,6 +1,9 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { extractSourcesUsesFactsFromText } from "@/lib/intel/extractors/sourcesUses";
+import { extractCollateralFactsFromText } from "@/lib/intel/extractors/collateral";
+import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
 
 /**
  * Placeholder extractor.
@@ -32,6 +35,55 @@ export async function extractFactsFromDocument(args: {
   const extractedText = String(ocrRes.data?.extracted_text ?? "");
   const docType = classRes.data?.doc_type ? String(classRes.data.doc_type) : null;
 
+  const normDocType = (docType ?? "").trim().toUpperCase();
+  const shouldExtractSourcesUses = ["TERM_SHEET", "LOI", "CLOSING_STATEMENT"].includes(normDocType);
+  const shouldExtractCollateral = ["APPRAISAL", "COLLATERAL_SCHEDULE"].includes(normDocType);
+
+  let factsWritten = 0;
+
+  // Best-effort: extract just the minimum "ready" metrics from OCR text.
+  if (extractedText && (shouldExtractSourcesUses || shouldExtractCollateral)) {
+    const sourcesUsesFacts = shouldExtractSourcesUses
+      ? extractSourcesUsesFactsFromText({ extractedText, documentId: args.documentId, docType })
+      : [];
+
+    const collateralFacts = shouldExtractCollateral
+      ? extractCollateralFactsFromText({ extractedText, documentId: args.documentId, docType })
+      : [];
+
+    const writes = [
+      ...sourcesUsesFacts.map((f) =>
+        upsertDealFinancialFact({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: args.documentId,
+          factType: "SOURCES_USES",
+          factKey: f.factKey,
+          factValueNum: f.value,
+          confidence: f.confidence,
+          provenance: f.provenance,
+        }),
+      ),
+      ...collateralFacts.map((f) =>
+        upsertDealFinancialFact({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: args.documentId,
+          factType: "COLLATERAL",
+          factKey: f.factKey,
+          factValueNum: f.value,
+          confidence: f.confidence,
+          provenance: f.provenance,
+        }),
+      ),
+    ];
+
+    const results = await Promise.all(writes);
+    for (const r of results) {
+      if (r.ok) factsWritten += 1;
+    }
+  }
+
   // Record a minimal provenance marker so we can trace that this pipeline ran.
   const fact = {
     deal_id: args.dealId,
@@ -62,5 +114,5 @@ export async function extractFactsFromDocument(args: {
     throw new Error(`deal_financial_facts_upsert_failed:${error.message}`);
   }
 
-  return { ok: true as const, factsWritten: 1 };
+  return { ok: true as const, factsWritten: factsWritten + 1 };
 }

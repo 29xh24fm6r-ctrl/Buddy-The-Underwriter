@@ -11,6 +11,7 @@
     "build": "NODE_OPTIONS='--max-old-space-size=7168' next build --webpack",
     "start": "next start",
     "lint": "eslint",
+    "test:unit": "node --test --import tsx $(find src/lib -type f -path '*/__tests__/*.test.ts' | sort)",
     "postinstall": "node src/scripts/copy-pdf-worker.mjs",
     "smoke:upload-record": "node scripts/smoke-upload-record.mjs",
     "guard:admin": "node scripts/admin-routes-guard.mjs",

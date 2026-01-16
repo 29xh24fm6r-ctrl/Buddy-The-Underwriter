@@ -2,10 +2,11 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
-import type { RenderedSpread, SpreadType } from "@/lib/financialSpreads/types";
+import type { RenderedSpread, RentRollRow, SpreadType } from "@/lib/financialSpreads/types";
 
 function emptyErrorSpread(type: SpreadType, message: string): RenderedSpread {
   return {
+    schema_version: 1,
     title: type,
     spread_type: type,
     status: "error",
@@ -16,7 +17,7 @@ function emptyErrorSpread(type: SpreadType, message: string): RenderedSpread {
       {
         key: "error",
         label: "Template missing",
-        values: [message, null],
+        values: [message],
         notes: "Upload the PDF template so we can match layout/calcs exactly.",
       },
     ],
@@ -72,10 +73,25 @@ export async function renderSpread(args: {
     throw new Error(`deal_financial_facts_select_failed:${factsRes.error.message}`);
   }
 
+  let rentRollRows: RentRollRow[] | undefined = undefined;
+  if (args.spreadType === "RENT_ROLL") {
+    const rrRes = await (sb as any)
+      .from("deal_rent_roll_rows")
+      .select("*")
+      .eq("deal_id", args.dealId)
+      .eq("bank_id", args.bankId);
+
+    if (rrRes.error) {
+      throw new Error(`deal_rent_roll_rows_select_failed:${rrRes.error.message}`);
+    }
+    rentRollRows = (rrRes.data ?? []) as any;
+  }
+
   const renderedBase = template.render({
     dealId: args.dealId,
     bankId: args.bankId,
     facts: (factsRes.data ?? []) as any,
+    rentRollRows,
   });
 
   const rendered: RenderedSpread = {
