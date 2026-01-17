@@ -9,7 +9,7 @@ const nextConfig = {
   
   // Source maps: required for readable stack traces.
   // Sentry will hide them from the public bundle via `hideSourceMaps`.
-  productionBrowserSourceMaps: true,
+  productionBrowserSourceMaps: process.env.CODESPACES ? false : true,
   
   // Skip TypeScript checks during build (errors handled in CI)
   typescript: {
@@ -30,6 +30,8 @@ const nextConfig = {
     ];
   },
   experimental: {
+    cpus: process.env.CODESPACES ? 1 : undefined,
+    workerThreads: process.env.CODESPACES ? false : undefined,
     serverActions: {
       allowedOrigins: [
         "localhost:3000",
@@ -41,6 +43,7 @@ const nextConfig = {
   // Only reduce parallelism in Codespaces (keep production optimization enabled)
   webpack: (config, { isServer }) => {
     if (process.env.CODESPACES) {
+      config.cache = false;
       config.parallelism = 1;
     }
     return config;
@@ -50,7 +53,7 @@ const nextConfig = {
 // Only enable the Sentry Next.js plugin when we can actually upload source maps.
 // This reduces build/runtime surface area on Vercel previews and avoids
 // rare cases where the plugin integration can impact serverless behavior.
-const shouldEnableSentryPlugin = Boolean(process.env.SENTRY_AUTH_TOKEN);
+const shouldEnableSentryPlugin = Boolean(process.env.SENTRY_AUTH_TOKEN) && !process.env.CODESPACES;
 
 export default shouldEnableSentryPlugin
   ? withSentryConfig(
