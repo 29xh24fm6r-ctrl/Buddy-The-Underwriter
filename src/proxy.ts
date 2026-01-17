@@ -84,7 +84,6 @@ export default clerkMiddleware(async (auth, req) => {
       headers: { "content-type": "text/html; charset=utf-8" },
     });
   }
-
   // ✅ ABSOLUTE BYPASS FOR API
   if (p === "/api" || p.startsWith("/api/") || p === "/trpc" || p.startsWith("/trpc/")) {
     // NOTE: For API routes we must return a bare `next()` response.
@@ -93,8 +92,9 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.next();
   }
 
+  const a = await auth();
+
   if (isPublicRoute(req)) {
-    const a = auth();
     await logDemoPageviewIfApplicable({
       email: extractEmailFromClaims(a?.sessionClaims ?? null),
       bankId: req.cookies.get("bank_id")?.value ?? null,
@@ -108,9 +108,12 @@ export default clerkMiddleware(async (auth, req) => {
     return withBuildHeader();
   }
 
-  await auth.protect();
+  if (!a?.userId) {
+    const signInUrl = new URL("/sign-in", req.url);
+    signInUrl.searchParams.set("redirect_url", req.nextUrl.pathname + req.nextUrl.search);
+    return NextResponse.redirect(signInUrl);
+  }
 
-  const a = auth();
   await logDemoPageviewIfApplicable({
     email: extractEmailFromClaims(a?.sessionClaims ?? null),
     bankId: req.cookies.get("bank_id")?.value ?? null,
