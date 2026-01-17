@@ -181,7 +181,7 @@ export default async function DealsPage({
   };
 
   return (
-    <div className="min-h-screen bg-[#0b0f1a]">
+    <div className="min-h-screen bg-[#0b0f1a]" data-testid="deals-page">
       {/* Header */}
       <header className="border-b border-white/10 bg-[#0f172a] px-6 py-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

@@ -91,7 +91,10 @@ export default function BankerDashboardPage() {
   const actions = useMemo(() => (kpis?.nextBestActions || []).slice(0, 8), [kpis]);
 
   return (
-    <div className="min-h-screen bg-black text-white overflow-hidden">
+    <div
+      className="min-h-screen bg-black text-white overflow-hidden"
+      data-testid="banker-dashboard"
+    >
       {/* Alive background */}
       <div className="pointer-events-none fixed inset-0">
         <div className="absolute -top-40 -left-40 h-[520px] w-[520px] rounded-full bg-sky-500/15 blur-[90px]" />

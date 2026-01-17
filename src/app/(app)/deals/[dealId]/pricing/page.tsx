@@ -136,19 +136,21 @@ export default async function Page(
   const allInRatePct = baseRatePct + spreadBps / 100;
 
   return (
-    <DealPricingClient
-      deal={deal}
-      pricing={pricing}
-      latestRates={latestRates}
-      inputs={inputs}
-      quotes={quotes}
-      computed={{
-        baseRatePct,
-        spreadBps,
-        allInRatePct,
-        rateAsOf: rateEntry?.asOf ?? null,
-        rateSource: rateEntry?.source ?? null,
-      }}
-    />
+    <div data-testid="deal-pricing">
+      <DealPricingClient
+        deal={deal}
+        pricing={pricing}
+        latestRates={latestRates}
+        inputs={inputs}
+        quotes={quotes}
+        computed={{
+          baseRatePct,
+          spreadBps,
+          allInRatePct,
+          rateAsOf: rateEntry?.asOf ?? null,
+          rateSource: rateEntry?.source ?? null,
+        }}
+      />
+    </div>
   );
 }

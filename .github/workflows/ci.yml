@@ -9,6 +9,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      SMOKE_AUTH_BOOTSTRAP_URL: ${{ secrets.SMOKE_AUTH_BOOTSTRAP_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -34,6 +36,38 @@ jobs:
           CLERK_SECRET_KEY: sk_test_placeholder
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
           OPENAI_API_KEY: sk-placeholder
+      - name: Install Playwright browsers
+        run: pnpm -s e2e:install
+      - name: E2E Smoke (public)
+        run: pnpm -s e2e:smoke:public
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: placeholder
+          CLERK_SECRET_KEY: sk_test_placeholder
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
+          OPENAI_API_KEY: sk-placeholder
+          SMOKE_AUTH_BOOTSTRAP_URL: ${{ secrets.SMOKE_AUTH_BOOTSTRAP_URL }}
+      - name: E2E Smoke (authed)
+        if: env.SMOKE_AUTH_BOOTSTRAP_URL != ''
+        run: pnpm -s e2e:smoke:authed
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: placeholder
+          CLERK_SECRET_KEY: sk_test_placeholder
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
+          OPENAI_API_KEY: sk-placeholder
+          SMOKE_AUTH_BOOTSTRAP_URL: ${{ secrets.SMOKE_AUTH_BOOTSTRAP_URL }}
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
       - name: Upload build diagnostics (.ci)
         if: failure()
         uses: actions/upload-artifact@v4

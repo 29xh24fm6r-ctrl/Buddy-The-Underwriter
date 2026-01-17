@@ -23,7 +23,12 @@
     "gen:tenant-sql": "node scripts/generate-tenant-sql.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check:icons": "node scripts/check-no-material-icon-tokens.mjs",
-    "capture:marketing": "node scripts/capture-marketing-screenshots.mjs"
+    "capture:marketing": "node scripts/capture-marketing-screenshots.mjs",
+    "e2e:install": "playwright install --with-deps",
+    "e2e:smoke": "playwright test --config=playwright.config.ts",
+    "e2e:ui": "playwright test --ui --config=playwright.config.ts",
+    "e2e:smoke:public": "playwright test --project=smoke-public",
+    "e2e:smoke:authed": "playwright test --project=smoke-authed"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
@@ -87,6 +92,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.0.10",
     "eslint-plugin-react-hooks": "^7.0.1",
+    "@playwright/test": "^1.57.0",
     "playwright": "^1.57.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
