@@ -31,7 +31,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm -s dev --port 3000",
+    command: "pnpm -s dev --port 3000 --webpack",
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
