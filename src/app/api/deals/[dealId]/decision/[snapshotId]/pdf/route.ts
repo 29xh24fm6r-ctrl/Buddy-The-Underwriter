@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
+import { PDFDocument as PdfLibDocument } from "pdf-lib";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { renderDecisionPdf } from "@/lib/pdf/decisionPdf";
 import { getActiveLetterhead, downloadLetterheadBuffer } from "@/lib/bank/letterhead";
 import { fetchDealBankId } from "@/lib/deals/fetchDealContext";
+import { getLatestLockedQuoteId } from "@/lib/pricing/getLatestLockedQuote";
+import { buildPricingMemoAppendixPdfBytes } from "@/app/api/deals/[dealId]/pricing/quote/[quoteId]/memo-pdf/route";
 
 export async function GET(
   _req: Request,
@@ -48,7 +51,71 @@ export async function GET(
   try {
     const pdfBuffer = await renderDecisionPdf(snapshot, letterheadBuffer);
 
-    return new NextResponse(pdfBuffer as any, {
+    let appendixBytes: Uint8Array | null = null;
+    let appendixQuoteId: string | null = null;
+
+    try {
+      appendixQuoteId = await getLatestLockedQuoteId(sb, dealId);
+      if (!appendixQuoteId) {
+        console.info("committee packet: no locked quote, appendix not attached", {
+          dealId,
+          snapshotId,
+        });
+      } else {
+        appendixBytes = await buildPricingMemoAppendixPdfBytes({
+          sb,
+          bankId,
+          dealId,
+          quoteId: appendixQuoteId,
+        });
+        console.info("committee packet: pricing appendix attached", {
+          dealId,
+          snapshotId,
+          quoteId: appendixQuoteId,
+        });
+      }
+    } catch (error) {
+      console.warn("committee packet: pricing appendix skipped", {
+        dealId,
+        snapshotId,
+        quoteId: appendixQuoteId,
+        error,
+      });
+      appendixBytes = null;
+    }
+
+    let finalPdfBuffer = pdfBuffer;
+    if (appendixBytes) {
+      try {
+        const baseDoc = await PdfLibDocument.load(pdfBuffer);
+        const appendixDoc = await PdfLibDocument.load(appendixBytes);
+        const merged = await PdfLibDocument.create();
+
+        const basePages = await merged.copyPages(
+          baseDoc,
+          baseDoc.getPageIndices(),
+        );
+        basePages.forEach((page) => merged.addPage(page));
+
+        const appendixPages = await merged.copyPages(
+          appendixDoc,
+          appendixDoc.getPageIndices(),
+        );
+        appendixPages.forEach((page) => merged.addPage(page));
+
+        const mergedBytes = await merged.save();
+        finalPdfBuffer = Buffer.from(mergedBytes);
+      } catch (error) {
+        console.warn("committee packet: pricing appendix merge failed", {
+          dealId,
+          snapshotId,
+          quoteId: appendixQuoteId,
+          error,
+        });
+      }
+    }
+
+    return new NextResponse(finalPdfBuffer as any, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="decision-${snapshotId.slice(0, 8)}.pdf"`,

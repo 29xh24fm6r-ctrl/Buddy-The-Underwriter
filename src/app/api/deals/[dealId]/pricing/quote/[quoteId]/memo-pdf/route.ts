@@ -2,6 +2,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { getLatestIndexRates } from "@/lib/rates/indexRates";
@@ -15,6 +16,22 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+type MemoPdfBuildOptions = {
+  sb: SupabaseClient;
+  bankId: string;
+  dealId: string;
+  quoteId: string;
+};
+
+class MemoPdfError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
 
 function renderMemoPdf(args: {
   dealName: string;
@@ -46,13 +63,10 @@ function renderMemoPdf(args: {
   });
 }
 
-export async function GET(
-  _req: Request,
-  ctx: { params: Promise<{ dealId: string; quoteId: string }> },
-) {
-  const { dealId, quoteId } = await ctx.params;
-  const bankId = await getCurrentBankId();
-  const sb = supabaseAdmin();
+export async function buildPricingMemoAppendixPdfBytes(
+  opts: MemoPdfBuildOptions,
+): Promise<Uint8Array> {
+  const { sb, bankId, dealId, quoteId } = opts;
 
   const { data: deal, error: dealErr } = await sb
     .from("deals")
@@ -61,7 +75,7 @@ export async function GET(
     .single();
 
   if (dealErr || !deal || deal.bank_id !== bankId) {
-    return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
+    throw new MemoPdfError(404, "not found");
   }
 
   const { data: quote, error: qErr } = await sb
@@ -72,7 +86,7 @@ export async function GET(
     .single();
 
   if (qErr || !quote) {
-    return NextResponse.json({ ok: false, error: "quote not found" }, { status: 404 });
+    throw new MemoPdfError(404, "quote not found");
   }
 
   const { data: memoRow } = await sb
@@ -165,7 +179,7 @@ export async function GET(
   }
 
   if (!md) {
-    return NextResponse.json({ ok: false, error: "memo_not_available" }, { status: 409 });
+    throw new MemoPdfError(409, "memo_not_available");
   }
 
   const pdf = await renderMemoPdf({
@@ -176,12 +190,39 @@ export async function GET(
     lockedAt: quote.locked_at ?? null,
   });
 
-  return new NextResponse(new Uint8Array(pdf), {
-    status: 200,
-    headers: {
-      "content-type": "application/pdf",
-      "content-disposition": `attachment; filename="Pricing_Memo_Appendix_${dealId}_${quoteId}.pdf"`,
-      "cache-control": "no-store",
-    },
-  });
+  return new Uint8Array(pdf);
+}
+
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ dealId: string; quoteId: string }> },
+) {
+  const { dealId, quoteId } = await ctx.params;
+  const bankId = await getCurrentBankId();
+  const sb = supabaseAdmin();
+
+  try {
+    const pdfBytes = await buildPricingMemoAppendixPdfBytes({
+      sb,
+      bankId,
+      dealId,
+      quoteId,
+    });
+
+    return new NextResponse(Buffer.from(pdfBytes), {
+      status: 200,
+      headers: {
+        "content-type": "application/pdf",
+        "content-disposition": `attachment; filename="Pricing_Memo_Appendix_${dealId}_${quoteId}.pdf"`,
+        "cache-control": "no-store",
+      },
+    });
+  } catch (error) {
+    if (error instanceof MemoPdfError) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: error.status });
+    }
+
+    console.error("pricing memo appendix pdf error", error);
+    return NextResponse.json({ ok: false, error: "memo_pdf_failed" }, { status: 500 });
+  }
 }

@@ -17,7 +17,7 @@ export default async function DealCockpitPage({ params }: Props) {
 
   if (!userId) {
     return (
-      <div className="container mx-auto p-6">
+      <div className="container mx-auto p-6" data-testid="deal-cockpit">
         <h1 className="text-2xl font-bold">Deal Cockpit</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Please sign in to view this deal.
@@ -39,7 +39,7 @@ export default async function DealCockpitPage({ params }: Props) {
   // Instead render a live status bar + safe loading shell.
   if (!dealId || dealId === "undefined") {
     return (
-      <div className="min-h-[60vh]">
+      <div className="min-h-[60vh]" data-testid="deal-cockpit">
         <DealCockpitLoadingBar dealId={dealId ?? null} />
         <div className="container mx-auto p-6">
           <h1 className="text-2xl font-bold text-neutral-100">Loading deal…</h1>
@@ -68,5 +68,9 @@ export default async function DealCockpitPage({ params }: Props) {
     };
   }
 
-  return <DealCockpitClient dealId={dealId} isAdmin={isAdmin} dealName={dealName} />;
+  return (
+    <div data-testid="deal-cockpit">
+      <DealCockpitClient dealId={dealId} isAdmin={isAdmin} dealName={dealName} />
+    </div>
+  );
 }

@@ -14,6 +14,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { getLatestLockedQuoteId } from "@/lib/pricing/getLatestLockedQuote";
+import { buildPricingMemoAppendixPdfBytes } from "@/app/api/deals/[dealId]/pricing/quote/[quoteId]/memo-pdf/route";
 import JSZip from "jszip";
 import crypto from "crypto";
 
@@ -72,6 +74,41 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     .eq("id", dealId)
     .single();
 
+  let appendixPdf: Uint8Array | null = null;
+  let appendixQuoteId: string | null = null;
+  let appendixStatus: "attached" | "skipped" | "failed" = "skipped";
+  let appendixReason: string | null = null;
+
+  try {
+    appendixQuoteId = await getLatestLockedQuoteId(sb, dealId);
+    if (!appendixQuoteId) {
+      appendixReason = "no_locked_quote";
+      console.info("committee packet: no locked quote, appendix not attached", {
+        dealId,
+      });
+    } else {
+      appendixPdf = await buildPricingMemoAppendixPdfBytes({
+        sb,
+        bankId,
+        dealId,
+        quoteId: appendixQuoteId,
+      });
+      appendixStatus = "attached";
+      console.info("committee packet: pricing appendix attached", {
+        dealId,
+        quoteId: appendixQuoteId,
+      });
+    }
+  } catch (error) {
+    appendixStatus = "failed";
+    appendixReason = "appendix_generation_failed";
+    console.warn("committee packet: pricing appendix skipped", {
+      dealId,
+      quoteId: appendixQuoteId,
+      error,
+    });
+  }
+
   // Create ZIP
   const zip = new JSZip();
 
@@ -94,6 +131,10 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     zip.file("dissent.json", JSON.stringify(dissent, null, 2));
   }
 
+  if (appendixPdf && appendixQuoteId) {
+    zip.file(`appendix_pricing_memo_${appendixQuoteId}.pdf`, appendixPdf);
+  }
+
   // Calculate integrity hash
   const snapshotPayload = JSON.stringify(snapshot, Object.keys(snapshot).sort());
   const hash = crypto.createHash("sha256").update(snapshotPayload).digest("hex");
@@ -110,6 +151,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   
   if (minutes) manifestFiles.push("committee_minutes.txt");
   if (dissent && dissent.length > 0) manifestFiles.push("dissent.json");
+  if (appendixPdf && appendixQuoteId) {
+    manifestFiles.push(`appendix_pricing_memo_${appendixQuoteId}.pdf`);
+  }
 
   const manifest = {
     export_version: "1.0",
@@ -120,6 +164,11 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     deal_context: deal,
     integrity_hash: hash,
     files: manifestFiles,
+    pricing_memo_appendix: {
+      status: appendixStatus,
+      quote_id: appendixQuoteId,
+      reason: appendixReason,
+    },
     verification_url: `${process.env.NEXT_PUBLIC_APP_URL || 'https://buddy.app'}/api/verify/${hash}`,
     note: "This bundle contains a complete, immutable record of an underwriting decision, attestations, and committee votes. The integrity hash can be used to verify the decision snapshot has not been altered. Visit the verification_url to independently verify this decision."
   };

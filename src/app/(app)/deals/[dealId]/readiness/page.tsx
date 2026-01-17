@@ -10,7 +10,10 @@ export default async function DealReadinessPage({ params }: Props) {
   const readiness = intelligence.readiness;
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-8 space-y-6">
+    <div
+      className="mx-auto w-full max-w-5xl px-6 py-8 space-y-6"
+      data-testid="deal-readiness"
+    >
       <div className="space-y-2">
         <h1 className="text-2xl font-bold text-neutral-900">Deal Readiness / SBA Certification</h1>
         <DealNameInlineEditor
