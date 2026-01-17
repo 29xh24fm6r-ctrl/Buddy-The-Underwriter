@@ -13,9 +13,10 @@ export type IndexRate = {
 };
 
 type CacheEntry = { expiresAt: number; value: Record<IndexCode, IndexRate> };
-let cache: CacheEntry | null = null;
-const TTL_MS = 15 * 60 * 1000;
 
+let cache: CacheEntry | null = null;
+
+const TTL_MS = 15 * 60 * 1000;
 async function fetchJson(url: string) {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`fetch failed ${res.status} for ${url}`);
@@ -49,7 +50,6 @@ async function getSOFR(): Promise<IndexRate> {
     raw: { last },
   };
 }
-
 async function getUST5Y(): Promise<IndexRate> {
   const url =
     "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/daily_treasury_yield_curve_rates" +

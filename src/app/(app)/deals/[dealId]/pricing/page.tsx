@@ -54,7 +54,6 @@ type QuoteRow = {
     index_label: string;
   } | null;
 };
-
 async function getBaseUrl() {
   const envBase = process.env.PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
   if (envBase) return envBase.replace(/\/+$/, "");
@@ -100,6 +99,7 @@ export default async function Page(
   const pricing = await runDealRiskPricing(deal);
   const baseUrl = await getBaseUrl();
 
+<<<<<<< HEAD
   const [inputsRes, ratesRes, quotesRes] = await Promise.all([
     fetch(`${baseUrl}/api/deals/${dealId}/pricing/inputs`, { cache: "no-store" }),
     fetch(`${baseUrl}/api/rates/latest`, { cache: "no-store" }),
@@ -124,7 +124,6 @@ export default async function Page(
     const payload = await quotesRes.json();
     quotes = payload?.quotes ?? [];
   }
-
   const indexCode = inputs?.index_code ?? "SOFR";
   const rateEntry = latestRates?.[indexCode] ?? latestRates?.SOFR ?? null;
   const baseRatePct =

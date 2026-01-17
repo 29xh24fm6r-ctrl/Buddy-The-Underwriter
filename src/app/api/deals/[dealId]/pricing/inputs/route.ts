@@ -17,7 +17,6 @@ async function assertDealBank(
   if (error || !deal || deal.bank_id !== bankId) return false;
   return true;
 }
-
 export async function GET(
   _req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
