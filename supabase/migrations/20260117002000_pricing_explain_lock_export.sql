@@ -50,3 +50,17 @@ create table if not exists public.deal_pricing_memo_blocks (
   content_md text not null,
   content_json jsonb not null default '{}'::jsonb
 );
+
+-- ------------------------------------------------------------
+-- RLS: deny all (server routes only)
+-- ------------------------------------------------------------
+alter table public.deal_pricing_explainability enable row level security;
+alter table public.deal_pricing_memo_blocks enable row level security;
+
+drop policy if exists deal_pricing_explainability_none on public.deal_pricing_explainability;
+create policy deal_pricing_explainability_none on public.deal_pricing_explainability
+for all using (false) with check (false);
+
+drop policy if exists deal_pricing_memo_blocks_none on public.deal_pricing_memo_blocks;
+create policy deal_pricing_memo_blocks_none on public.deal_pricing_memo_blocks
+for all using (false) with check (false);
