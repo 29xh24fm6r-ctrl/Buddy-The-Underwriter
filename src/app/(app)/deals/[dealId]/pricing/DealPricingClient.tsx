@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { SafeMarkdown } from "@/components/ui/SafeMarkdown";
 
 type IndexCode = "UST_5Y" | "SOFR" | "PRIME";
 
@@ -126,11 +127,21 @@ export default function DealPricingClient({
   const [lastSnapshot, setLastSnapshot] = useState<SnapshotRow>(
     quoteHistory?.[0]?.rate_index_snapshots ?? null,
   );
+  const [activeQuoteId, setActiveQuoteId] = useState<string | null>(
+    quotes?.[0]?.id ?? null,
+  );
+  const [tab, setTab] = useState<"quote" | "explain" | "memo">("quote");
   const [expandedQuoteId, setExpandedQuoteId] = useState<string | null>(null);
   const [explainByQuoteId, setExplainByQuoteId] = useState<
     Record<string, Explainability>
   >({});
   const [memoByQuoteId, setMemoByQuoteId] = useState<Record<string, string>>({});
+  const [memoLoadingByQuoteId, setMemoLoadingByQuoteId] = useState<
+    Record<string, boolean>
+  >({});
+  const [memoErrorByQuoteId, setMemoErrorByQuoteId] = useState<
+    Record<string, string>
+  >({});
   const [busyByQuoteId, setBusyByQuoteId] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState<{
     kind: "success" | "error" | "info";
@@ -224,6 +235,7 @@ export default function DealPricingClient({
       const nextQuote = json.quote as QuoteRow;
       setQuoteHistory((prev) => [nextQuote, ...prev]);
       setLastSnapshot(json.snapshot ?? null);
+      setActiveQuoteId(nextQuote.id);
       setStatus({ kind: "success", message: "Quote generated." });
     } catch (err: any) {
       setStatus({ kind: "error", message: err?.message ?? "Quote failed" });
@@ -241,7 +253,64 @@ export default function DealPricingClient({
     const next = json?.quotes ?? [];
     setQuoteHistory(next);
     setLastSnapshot(next?.[0]?.rate_index_snapshots ?? null);
+    setActiveQuoteId((prev) => {
+      if (prev && next.some((q: QuoteRow) => q.id === prev)) return prev;
+      return next?.[0]?.id ?? null;
+    });
   }
+
+  async function loadExplainability(quoteId: string) {
+    if (!quoteId || explainByQuoteId[quoteId]) return;
+    setBusyByQuoteId((prev) => ({ ...prev, [quoteId]: true }));
+    try {
+      const res = await fetch(
+        `/api/deals/${deal.id}/pricing/quote/${quoteId}/explain`,
+        { cache: "no-store" },
+      );
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to load explainability");
+      }
+      setExplainByQuoteId((prev) => ({ ...prev, [quoteId]: json.explain }));
+    } finally {
+      setBusyByQuoteId((prev) => ({ ...prev, [quoteId]: false }));
+    }
+  }
+
+  async function loadMemo(quoteId: string, force = false) {
+    if (!quoteId) return;
+    if (!force && memoByQuoteId[quoteId]) return;
+    setMemoLoadingByQuoteId((prev) => ({ ...prev, [quoteId]: true }));
+    setMemoErrorByQuoteId((prev) => ({ ...prev, [quoteId]: "" }));
+    try {
+      const res = await fetch(
+        `/api/deals/${deal.id}/pricing/quote/${quoteId}/memo-block`,
+        { cache: "no-store" },
+      );
+      const json = await res.json();
+      if (!res.ok || !json?.ok || !json?.md) {
+        throw new Error(json?.error ?? "Memo not available yet.");
+      }
+      setMemoByQuoteId((prev) => ({ ...prev, [quoteId]: json.md }));
+    } catch (err: any) {
+      setMemoErrorByQuoteId((prev) => ({
+        ...prev,
+        [quoteId]: err?.message ?? "Memo not available yet.",
+      }));
+    } finally {
+      setMemoLoadingByQuoteId((prev) => ({ ...prev, [quoteId]: false }));
+    }
+  }
+
+  useEffect(() => {
+    if (!activeQuoteId) return;
+    if (tab === "memo") {
+      void loadMemo(activeQuoteId);
+    }
+    if (tab === "explain") {
+      void loadExplainability(activeQuoteId);
+    }
+  }, [activeQuoteId, tab]);
 
   async function handleExplain(quoteId: string) {
     if (expandedQuoteId === quoteId) {
@@ -309,6 +378,7 @@ export default function DealPricingClient({
       }
       await navigator.clipboard.writeText(json.md);
       setMemoByQuoteId((prev) => ({ ...prev, [quoteId]: json.md }));
+      setMemoErrorByQuoteId((prev) => ({ ...prev, [quoteId]: "" }));
       setStatus({ kind: "success", message: "Pricing memo copied." });
     } catch (err: any) {
       setStatus({ kind: "error", message: err?.message ?? "Copy failed" });
@@ -341,6 +411,7 @@ export default function DealPricingClient({
       if (json?.md) {
         await navigator.clipboard.writeText(json.md);
         setMemoByQuoteId((prev) => ({ ...prev, [quoteId]: json.md }));
+        setMemoErrorByQuoteId((prev) => ({ ...prev, [quoteId]: "" }));
         setStatus({ kind: "success", message: "Copied for paste." });
         return;
       }
@@ -355,6 +426,7 @@ export default function DealPricingClient({
       }
       await navigator.clipboard.writeText(fbJson.md);
       setMemoByQuoteId((prev) => ({ ...prev, [quoteId]: fbJson.md }));
+      setMemoErrorByQuoteId((prev) => ({ ...prev, [quoteId]: "" }));
       setStatus({ kind: "success", message: "Copied for paste." });
     } catch (err: any) {
       setStatus({ kind: "error", message: err?.message ?? "Insert failed" });
@@ -372,6 +444,16 @@ export default function DealPricingClient({
       setStatus({ kind: "error", message: "Copy failed." });
     }
   }
+
+  const activeQuote =
+    (activeQuoteId && quoteHistory.find((q) => q.id === activeQuoteId)) ||
+    quoteHistory[0] ||
+    null;
+  const activeMemo = activeQuote?.id ? memoByQuoteId[activeQuote.id] : "";
+  const memoLoading = activeQuote?.id
+    ? memoLoadingByQuoteId[activeQuote.id]
+    : false;
+  const memoError = activeQuote?.id ? memoErrorByQuoteId[activeQuote.id] : "";
 
   return (
     <main className="min-h-screen bg-white">
@@ -644,9 +726,22 @@ export default function DealPricingClient({
                   const explain = explainByQuoteId[quote.id];
                   const memoCached = !!memoByQuoteId[quote.id];
                   const busy = !!busyByQuoteId[quote.id];
+                  const isActive = activeQuoteId === quote.id;
 
                   return (
-                    <div key={quote.id} className="rounded border p-3">
+                    <div
+                      key={quote.id}
+                      className={`rounded border p-3 ${isActive ? "border-slate-900 bg-slate-50" : "border-slate-200"}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setActiveQuoteId(quote.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setActiveQuoteId(quote.id);
+                        }
+                      }}
+                    >
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <div className="text-sm font-semibold flex flex-wrap items-center gap-2">
@@ -658,6 +753,11 @@ export default function DealPricingClient({
                                 LOCKED
                               </span>
                             ) : null}
+                            {isActive ? (
+                              <span className="inline-flex items-center rounded bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                                ACTIVE
+                              </span>
+                            ) : null}
                           </div>
                           <div className="text-xs text-slate-500">
                             Base {formatPct(quote.base_rate_pct)}% · Spread {quote.spread_bps} bps · All-in {formatPct(quote.all_in_rate_pct)}%
@@ -666,7 +766,10 @@ export default function DealPricingClient({
                         <div className="flex flex-wrap items-center gap-2">
                           <button
                             className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
-                            onClick={() => handleExplain(quote.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleExplain(quote.id);
+                            }}
                             disabled={busy}
                           >
                             {isExpanded ? "Hide explain" : "Explain"}
@@ -674,7 +777,10 @@ export default function DealPricingClient({
                           {!isLocked ? (
                             <button
                               className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
-                              onClick={() => handleLock(quote.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleLock(quote.id);
+                              }}
                               disabled={busy}
                             >
                               Lock quote
@@ -682,21 +788,30 @@ export default function DealPricingClient({
                           ) : null}
                           <button
                             className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
-                            onClick={() => handleCopyMemo(quote.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCopyMemo(quote.id);
+                            }}
                             disabled={busy}
                           >
                             {memoCached ? "Copy pricing memo (cached)" : "Copy pricing memo"}
                           </button>
                           <button
                             className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
-                            onClick={() => insertPricingIntoCreditMemo(quote.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              insertPricingIntoCreditMemo(quote.id);
+                            }}
                             disabled={busy}
                           >
                             Insert into credit memo
                           </button>
                           <button
                             className="rounded border px-3 py-1 text-xs hover:bg-slate-50"
-                            onClick={() => handleCopy(quote)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCopy(quote);
+                            }}
                           >
                             Copy quote summary
                           </button>
@@ -781,6 +896,196 @@ export default function DealPricingClient({
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </Card>
+        </section>
+
+        <section className="grid grid-cols-1 gap-4">
+          <Card title="Quote Detail">
+            {quoteHistory.length === 0 || !activeQuote ? (
+              <p className="text-sm text-slate-600">
+                Create a quote to view memo preview.
+              </p>
+            ) : (
+              <div>
+                <div className="flex flex-wrap items-center gap-2 border-b">
+                  <button
+                    className={
+                      tab === "quote"
+                        ? "rounded-t border border-b-0 bg-white px-3 py-2 text-sm font-medium"
+                        : "rounded-t px-3 py-2 text-sm text-slate-500 hover:text-slate-800"
+                    }
+                    onClick={() => setTab("quote")}
+                  >
+                    Quote
+                  </button>
+                  <button
+                    className={
+                      tab === "explain"
+                        ? "rounded-t border border-b-0 bg-white px-3 py-2 text-sm font-medium"
+                        : "rounded-t px-3 py-2 text-sm text-slate-500 hover:text-slate-800"
+                    }
+                    onClick={() => setTab("explain")}
+                  >
+                    Explainability
+                  </button>
+                  <button
+                    className={
+                      tab === "memo"
+                        ? "rounded-t border border-b-0 bg-white px-3 py-2 text-sm font-medium"
+                        : "rounded-t px-3 py-2 text-sm text-slate-500 hover:text-slate-800"
+                    }
+                    onClick={() => setTab("memo")}
+                  >
+                    Memo Preview
+                  </button>
+                </div>
+
+                <div className="rounded-b border border-t-0 p-4">
+                  {tab === "quote" ? (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-slate-700">
+                      <div>
+                        <div className="text-xs uppercase tracking-wide text-slate-500">Rate</div>
+                        <div className="mt-1 font-semibold">
+                          {formatPct(activeQuote.all_in_rate_pct)}% all-in
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          Base {formatPct(activeQuote.base_rate_pct)}% · Spread {activeQuote.spread_bps} bps
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs uppercase tracking-wide text-slate-500">Terms</div>
+                        <div className="mt-1 font-semibold">
+                          {money(activeQuote.loan_amount)}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {activeQuote.term_months}m term · {activeQuote.amort_months}m amort · {activeQuote.interest_only_months}m IO
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs uppercase tracking-wide text-slate-500">Payments</div>
+                        <div className="mt-1 font-semibold">
+                          {activeQuote.monthly_payment_pi != null
+                            ? money(activeQuote.monthly_payment_pi)
+                            : "—"}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {activeQuote.monthly_payment_io != null
+                            ? `IO ${money(activeQuote.monthly_payment_io)}`
+                            : "IO —"}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {tab === "explain" ? (
+                    <div className="text-sm text-slate-700">
+                      {!explainByQuoteId[activeQuote.id] ? (
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-slate-500">
+                            Explainability not loaded yet.
+                          </div>
+                          <button
+                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            onClick={() => loadExplainability(activeQuote.id)}
+                            disabled={!!busyByQuoteId[activeQuote.id]}
+                          >
+                            {busyByQuoteId[activeQuote.id] ? "Loading..." : "Load explainability"}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="font-semibold">Summary</div>
+                            <div className="text-xs text-slate-500">
+                              Confidence {Math.round(explainByQuoteId[activeQuote.id].confidence * 100)}%
+                            </div>
+                          </div>
+                          <div>{explainByQuoteId[activeQuote.id].summary}</div>
+                          <div>
+                            <div className="font-semibold">Drivers</div>
+                            <div className="mt-2 space-y-1">
+                              {explainByQuoteId[activeQuote.id].drivers.map((d, i) => (
+                                <div key={i} className="flex items-start justify-between gap-2">
+                                  <div>
+                                    {d.label}
+                                    {d.reason ? ` — ${d.reason}` : ""}
+                                  </div>
+                                  <div className="font-mono text-slate-600">{fmtBps(d.bps)}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          {explainByQuoteId[activeQuote.id].missingInputs.length ? (
+                            <div>
+                              <div className="font-semibold">Missing inputs</div>
+                              <ul className="mt-1 list-disc pl-4 text-slate-600">
+                                {explainByQuoteId[activeQuote.id].missingInputs.map((m, i) => (
+                                  <li key={i}>
+                                    {m.label}
+                                    {m.impactBps != null ? ` (impact ~${m.impactBps} bps)` : ""}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : (
+                            <div className="text-slate-500">No missing inputs flagged.</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {tab === "memo" ? (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-semibold">Memo Preview</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            onClick={() => handleCopyMemo(activeQuote.id)}
+                            disabled={!!busyByQuoteId[activeQuote.id]}
+                          >
+                            Copy memo
+                          </button>
+                          <button
+                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            onClick={() => insertPricingIntoCreditMemo(activeQuote.id)}
+                            disabled={!!busyByQuoteId[activeQuote.id]}
+                          >
+                            Insert into credit memo
+                          </button>
+                        </div>
+                      </div>
+                      {activeQuote.status !== "locked" ? (
+                        <div className="text-xs text-slate-500">
+                          Locking this quote will freeze the memo for committee.
+                        </div>
+                      ) : null}
+
+                      {memoLoading ? (
+                        <div className="text-sm text-slate-500">Loading memo...</div>
+                      ) : memoError ? (
+                        <div className="flex items-center justify-between gap-3 text-sm text-slate-600">
+                          <span>{memoError}</span>
+                          <button
+                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50"
+                            onClick={() => loadMemo(activeQuote.id, true)}
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      ) : activeMemo ? (
+                        <SafeMarkdown markdown={activeMemo} />
+                      ) : (
+                        <div className="text-sm text-slate-500">
+                          Memo not available yet.
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             )}
           </Card>
