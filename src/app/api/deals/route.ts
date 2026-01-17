@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { isSandboxBank } from "@/lib/tenant/sandbox";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -45,6 +46,7 @@ export async function POST(req: Request) {
     }
 
     const supabase = getSupabaseServerClient();
+    const isDemoBank = await isSandboxBank(bankId).catch(() => false);
   const dealId = randomUUID();
 
     const baseInsertData: Record<string, any> = {
@@ -53,6 +55,23 @@ export async function POST(req: Request) {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+
+    if (isDemoBank) {
+      const existing = await supabase
+        .from("deals")
+        .select("id")
+        .eq("bank_id", bankId)
+        .eq("name", name)
+        .is("archived_at", null)
+        .maybeSingle();
+
+      if (!existing?.error && existing?.data?.id) {
+        return NextResponse.json(
+          { ok: true, dealId: existing.data.id, reused: true, request_id: requestId },
+          { status: 200 },
+        );
+      }
+    }
 
     // Optional fields that may not exist in older schemas
     const optimisticInsertData: Record<string, any> = {
@@ -66,6 +85,7 @@ export async function POST(req: Request) {
       stage: "intake",
       entity_type: "Unknown",
       risk_score: 0,
+      is_demo: isDemoBank,
     };
 
     type InsertRes = { data: { id: string } | null; error: { message: string } | null };
@@ -106,10 +126,26 @@ export async function POST(req: Request) {
                 borrower_name: name,
               }
             : null),
+          is_demo: isDemoBank,
         };
-        const res = await insertOnce(fallbackPayload);
+        let res = await insertOnce(fallbackPayload);
         deal = res.data;
         error = res.error;
+
+        if (error && String(error?.message || "").includes("is_demo")) {
+          const minimalPayload: Record<string, any> = {
+            ...baseInsertData,
+            ...(name
+              ? {
+                  name,
+                  borrower_name: name,
+                }
+              : null),
+          };
+          res = await insertOnce(minimalPayload);
+          deal = res.data;
+          error = res.error;
+        }
       }
     }
 

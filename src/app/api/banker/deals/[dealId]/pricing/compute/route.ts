@@ -1,10 +1,22 @@
 // src/app/api/banker/deals/[dealId]/pricing/compute/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { computePricing, formatBorrowerRate } from "@/lib/pricing/compute";
+import { z } from "zod";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { requireRole } from "@/lib/auth/requireRole";
+import { clerkCurrentUser } from "@/lib/auth/clerkServer";
+import { logDemoUsageEvent } from "@/lib/tenant/demoTelemetry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const BodySchema = z.object({
+  productType: z.string().optional(),
+  riskGrade: z.string().optional(),
+  termMonths: z.number().int().positive().optional(),
+  indexName: z.string().optional(),
+  indexRateBps: z.number().int().nonnegative().optional(),
+});
 
 /**
  * Banker-only endpoint to compute risk-based pricing
@@ -16,11 +28,16 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    // TODO: Add banker auth check
-    // const banker = await requireBankerAuth(req);
-
+    await requireRole(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
-    const body = await req.json();
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok)
+      return NextResponse.json(
+        { ok: false, error: access.error },
+        { status: access.error === "unauthorized" ? 401 : 403 },
+      );
+
+    const body = BodySchema.parse(await req.json().catch(() => ({})));
 
     const input = {
       dealId,
@@ -32,6 +49,19 @@ export async function POST(
     };
 
     const result = await computePricing(input);
+
+    const user = await clerkCurrentUser();
+    const email =
+      user?.emailAddresses?.find((e) => e.id === user.primaryEmailAddressId)
+        ?.emailAddress ?? user?.emailAddresses?.[0]?.emailAddress ?? null;
+
+    await logDemoUsageEvent({
+      email,
+      bankId: access.ok ? access.bankId : null,
+      path: new URL(req.url).pathname,
+      eventType: "action",
+      label: "pricing_compute",
+    });
 
     return NextResponse.json({
       ok: true,

@@ -1,5 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { logDemoPageviewIfApplicable } from "@/lib/tenant/demoTelemetry";
 
 /**
  * HARD RULE:
@@ -38,6 +39,27 @@ function withBuildHeader() {
   return res;
 }
 
+function extractEmailFromClaims(claims: any): string | null {
+  if (!claims) return null;
+  const candidates = [
+    claims.email,
+    claims.primary_email,
+    claims.primaryEmail,
+    claims.email_address,
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string" && value.includes("@")) return value;
+  }
+  return null;
+}
+
+function getClientIp(req: Request): string | null {
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0]?.trim() || null;
+  const realIp = req.headers.get("x-real-ip");
+  return realIp ? String(realIp) : null;
+}
+
 export default clerkMiddleware(async (auth, req) => {
   const p = req.nextUrl.pathname;
 
@@ -62,7 +84,6 @@ export default clerkMiddleware(async (auth, req) => {
       headers: { "content-type": "text/html; charset=utf-8" },
     });
   }
-
   // ✅ ABSOLUTE BYPASS FOR API
   if (p === "/api" || p.startsWith("/api/") || p === "/trpc" || p.startsWith("/trpc/")) {
     // NOTE: For API routes we must return a bare `next()` response.
@@ -71,9 +92,38 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.next();
   }
 
-  if (isPublicRoute(req)) return withBuildHeader();
+  const a = await auth();
 
-  await auth.protect();
+  if (isPublicRoute(req)) {
+    await logDemoPageviewIfApplicable({
+      email: extractEmailFromClaims(a?.sessionClaims ?? null),
+      bankId: req.cookies.get("bank_id")?.value ?? null,
+      path: p,
+      method: req.method,
+      ip: getClientIp(req),
+      userAgent: req.headers.get("user-agent"),
+      eventType: "pageview",
+      meta: { method: req.method },
+    });
+    return withBuildHeader();
+  }
+
+  if (!a?.userId) {
+    const signInUrl = new URL("/sign-in", req.url);
+    signInUrl.searchParams.set("redirect_url", req.nextUrl.pathname + req.nextUrl.search);
+    return NextResponse.redirect(signInUrl);
+  }
+
+  await logDemoPageviewIfApplicable({
+    email: extractEmailFromClaims(a?.sessionClaims ?? null),
+    bankId: req.cookies.get("bank_id")?.value ?? null,
+    path: p,
+    method: req.method,
+    ip: getClientIp(req),
+    userAgent: req.headers.get("user-agent"),
+    eventType: "pageview",
+    meta: { method: req.method },
+  });
 
   return withBuildHeader();
 });

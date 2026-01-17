@@ -1,6 +1,7 @@
 // src/app/tenant/select/page.tsx
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase/server";
+import { getSandboxAccessDetails } from "@/lib/tenant/sandbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,11 +25,14 @@ export default async function TenantSelectPage() {
 
   const mem = await sb
     .from("bank_memberships")
-    .select("bank_id, role, banks:bank_id(id,name)")
+    .select("bank_id, role, banks:bank_id(id,name,code,is_sandbox)")
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
 
   const rows = (mem.data ?? []) as any[];
+  const sandboxAccess = await getSandboxAccessDetails();
+  const visibleRows = rows.filter((r) => (r?.banks?.is_sandbox ? sandboxAccess.allowed : true));
+  const showInviteOnly = !sandboxAccess.allowed && visibleRows.length === 0;
 
   return (
     <div className="container mx-auto p-6 max-w-3xl">
@@ -38,19 +42,36 @@ export default async function TenantSelectPage() {
       </p>
 
       <div className="mt-6 space-y-3">
-        {rows.length === 0 ? (
-          <div className="rounded-2xl border p-5">
-            <div className="text-sm font-semibold">No memberships found</div>
-            <div className="text-sm text-muted-foreground mt-1">
-              Create a bank or request access.
+        {visibleRows.length === 0 ? (
+          showInviteOnly ? (
+            <div className="rounded-2xl border p-5">
+              <div className="text-sm font-semibold">Invite-only demo access</div>
+              <div className="text-sm text-muted-foreground mt-1">
+                Buddy is currently invite-only for demo access. Please contact Sebrina to request access.
+              </div>
+              {sandboxAccess.email ? (
+                <div className="mt-2 text-xs text-muted-foreground">
+                  Signed in as: <span className="font-mono">{sandboxAccess.email}</span>
+                </div>
+              ) : null}
+              <div className="mt-3 flex gap-2">
+                <Link className="rounded-xl border px-4 py-2 text-sm font-semibold" href="/contact">Contact Sebrina</Link>
+              </div>
             </div>
-            <div className="mt-3 flex gap-2">
-              <Link className="rounded-xl border px-4 py-2 text-sm font-semibold" href="/tenant/create">Create bank</Link>
-              <Link className="rounded-xl border px-4 py-2 text-sm font-semibold" href="/ops">Ops</Link>
+          ) : (
+            <div className="rounded-2xl border p-5">
+              <div className="text-sm font-semibold">No memberships found</div>
+              <div className="text-sm text-muted-foreground mt-1">
+                Create a bank or request access.
+              </div>
+              <div className="mt-3 flex gap-2">
+                <Link className="rounded-xl border px-4 py-2 text-sm font-semibold" href="/tenant/create">Create bank</Link>
+                <Link className="rounded-xl border px-4 py-2 text-sm font-semibold" href="/ops">Ops</Link>
+              </div>
             </div>
-          </div>
+          )
         ) : (
-          rows.map((r) => (
+          visibleRows.map((r) => (
             <form
               key={r.bank_id}
               action="/api/tenant/select"
