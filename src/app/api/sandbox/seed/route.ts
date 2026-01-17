@@ -1,15 +1,21 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { clerkAuth, clerkCurrentUser } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sampleDeals } from "@/lib/deals/sampleDeals";
 import { ensureSandboxMembership, isSandboxAccessAllowed } from "@/lib/tenant/sandbox";
+import { logDemoUsageEvent } from "@/lib/tenant/demoTelemetry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function insertDeal(sb: ReturnType<typeof supabaseAdmin>, bankId: string, name: string) {
+async function insertDeal(
+  sb: ReturnType<typeof supabaseAdmin>,
+  bankId: string,
+  name: string,
+  isDemo: boolean,
+) {
   const now = new Date().toISOString();
   const basePayload: Record<string, any> = {
     bank_id: bankId,
@@ -18,6 +24,7 @@ async function insertDeal(sb: ReturnType<typeof supabaseAdmin>, bankId: string, 
     stage: "intake",
     entity_type: "Unknown",
     risk_score: 0,
+    is_demo: isDemo,
     created_at: now,
     updated_at: now,
   };
@@ -72,7 +79,11 @@ export async function POST() {
 
   const sb = supabaseAdmin();
   const bankId = sandbox.bankId;
-  const dealNames = sampleDeals.map((d) => d.name).filter(Boolean).slice(0, 6);
+  const dealNames = sampleDeals
+    .map((d, idx) => d.name || `Doc Intake Test #${idx + 1}`)
+    .filter(Boolean)
+    .slice(0, 6)
+    .map((name, idx) => `Demo – ${name} #${idx + 1}`);
 
   const results: Array<{ id: string; name: string; status: "created" | "existing" }> = [];
 
@@ -89,9 +100,23 @@ export async function POST() {
       continue;
     }
 
-    const id = await insertDeal(sb, bankId, name);
+    const id = await insertDeal(sb, bankId, name, true);
     if (id) results.push({ id, name, status: "created" });
   }
+
+  const user = await clerkCurrentUser();
+  const email =
+    user?.emailAddresses?.find((e) => e.id === user.primaryEmailAddressId)
+      ?.emailAddress ?? user?.emailAddresses?.[0]?.emailAddress ?? null;
+
+  await logDemoUsageEvent({
+    email,
+    bankId,
+    path: "/api/sandbox/seed",
+    eventType: "action",
+    label: "seed_demo_deals",
+    meta: { count: results.length },
+  });
 
   return NextResponse.json({ ok: true, bank_id: bankId, deals: results });
 }

@@ -2,9 +2,10 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { clerkAuth, clerkCurrentUser } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { logDemoUsageEvent } from "@/lib/tenant/demoTelemetry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,22 @@ const BodySchema = z.object({
 function isQaRequest(req: Request) {
   if (process.env.QA_MODE === "1" || process.env.NEXT_PUBLIC_QA_MODE === "1") return true;
   return req.headers.get("x-qa-mode") === "1";
+}
+
+function stripQuery(path?: string | null) {
+  const value = String(path || "");
+  const idx = value.indexOf("?");
+  return idx === -1 ? value : value.slice(0, idx);
+}
+
+async function getPrimaryEmail(): Promise<string | null> {
+  const user = await clerkCurrentUser();
+  const primary = user?.emailAddresses?.find(
+    (e) => e.id === user.primaryEmailAddressId,
+  );
+  return (
+    primary?.emailAddress ?? user?.emailAddresses?.[0]?.emailAddress ?? null
+  );
 }
 
 export async function POST(req: Request) {
@@ -64,6 +81,24 @@ export async function POST(req: Request) {
         { status: 500 },
       );
     }
+
+    const email = await getPrimaryEmail();
+    const route = stripQuery(parsed.payload?.path ?? "");
+    const testId = parsed.payload?.element?.testId ?? null;
+    const qaId = parsed.payload?.element?.qaId ?? null;
+    const label = testId || qaId || parsed.payload?.element?.id || null;
+
+    await logDemoUsageEvent({
+      email,
+      bankId,
+      path: route,
+      eventType: "click",
+      label,
+      meta: {
+        sessionId: parsed.sessionId,
+        tag: parsed.payload?.element?.tag ?? null,
+      },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {

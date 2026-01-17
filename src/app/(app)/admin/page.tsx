@@ -101,6 +101,22 @@ export default async function AdminHome() {
           <div className="font-medium">Metrics</div>
           <div className="text-sm text-muted-foreground">Admin telemetry (AI/errors/rate limits).</div>
         </Link>
+
+        <Link
+          href="/admin/demo-access"
+          className="rounded-lg border p-4 hover:bg-muted/50 transition"
+        >
+          <div className="font-medium">Demo Access</div>
+          <div className="text-sm text-muted-foreground">Invite-only access + usage telemetry.</div>
+        </Link>
+
+        <Link
+          href="/admin/demo-hygiene"
+          className="rounded-lg border p-4 hover:bg-muted/50 transition"
+        >
+          <div className="font-medium">Demo Hygiene</div>
+          <div className="text-sm text-muted-foreground">Archive, purge, and reset demo deals.</div>
+        </Link>
       </div>
     </div>
   );

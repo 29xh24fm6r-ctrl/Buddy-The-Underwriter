@@ -4,6 +4,8 @@ import { computePricing, formatBorrowerRate } from "@/lib/pricing/compute";
 import { z } from "zod";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
+import { clerkCurrentUser } from "@/lib/auth/clerkServer";
+import { logDemoUsageEvent } from "@/lib/tenant/demoTelemetry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,6 +49,19 @@ export async function POST(
     };
 
     const result = await computePricing(input);
+
+    const user = await clerkCurrentUser();
+    const email =
+      user?.emailAddresses?.find((e) => e.id === user.primaryEmailAddressId)
+        ?.emailAddress ?? user?.emailAddresses?.[0]?.emailAddress ?? null;
+
+    await logDemoUsageEvent({
+      email,
+      bankId: access.ok ? access.bankId : null,
+      path: new URL(req.url).pathname,
+      eventType: "action",
+      label: "pricing_compute",
+    });
 
     return NextResponse.json({
       ok: true,

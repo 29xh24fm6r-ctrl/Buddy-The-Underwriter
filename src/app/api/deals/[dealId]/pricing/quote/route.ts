@@ -4,6 +4,8 @@ import { z } from "zod";
 import { quotePricing } from "@/lib/pricing/engine";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
+import { clerkCurrentUser } from "@/lib/auth/clerkServer";
+import { logDemoUsageEvent } from "@/lib/tenant/demoTelemetry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +32,20 @@ export async function POST(
       );
     const body = BodySchema.parse(await req.json());
     const out = await quotePricing({ dealId, ...body });
+
+    const user = await clerkCurrentUser();
+    const email =
+      user?.emailAddresses?.find((e) => e.id === user.primaryEmailAddressId)
+        ?.emailAddress ?? user?.emailAddresses?.[0]?.emailAddress ?? null;
+
+    await logDemoUsageEvent({
+      email,
+      bankId: access.ok ? access.bankId : null,
+      path: new URL(req.url).pathname,
+      eventType: "action",
+      label: "pricing_quote",
+    });
+
     return NextResponse.json({ ok: true, ...out });
   } catch (e: any) {
     return NextResponse.json(
