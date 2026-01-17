@@ -52,6 +52,8 @@ export interface IngestDocumentInput {
     mimeType: string;
     sizeBytes: number;
     storagePath: string;
+    storageBucket?: string | null;
+    sha256?: string | null;
   };
   source: unknown;
   uploaderUserId?: string | null;
@@ -82,7 +84,9 @@ export async function ingestDocument(input: IngestDocumentInput) {
     original_filename: input.file.original_filename,
     mime_type: input.file.mimeType,
     size_bytes: input.file.sizeBytes,
+    storage_bucket: input.file.storageBucket ?? null,
     storage_path: input.file.storagePath,
+    sha256: input.file.sha256 ?? null,
     source: normalizeDealDocumentSource(input.source),
     uploader_user_id: input.uploaderUserId ?? null,
     document_key: documentKey,
@@ -99,7 +103,9 @@ export async function ingestDocument(input: IngestDocumentInput) {
     "original_filename",
     "mime_type",
     "size_bytes",
+    "storage_bucket",
     "storage_path",
+    "sha256",
     "source",
     "uploader_user_id",
     "document_key",

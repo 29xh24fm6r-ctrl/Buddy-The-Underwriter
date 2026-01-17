@@ -2,6 +2,10 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseStorageClient } from "@/lib/supabase/client";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import crypto from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,10 +48,74 @@ export async function POST(req: NextRequest) {
     }
 
     const storage = getSupabaseStorageClient();
+    const docStore = String(process.env.DOC_STORE || "").toLowerCase();
 
     if (!storage) {
       // Fallback: Save to local file system (development)
       return await handleLocalUpload(file, dealId, applicationId, filename);
+    }
+
+    // Convert File to ArrayBuffer
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    if (docStore === "gcs") {
+      const { data: deal } = await supabaseAdmin()
+        .from("deals")
+        .select("bank_id")
+        .eq("id", dealId)
+        .maybeSingle();
+
+      if (!deal?.bank_id) {
+        return json(404, { ok: false, error: "Deal not found" });
+      }
+
+      const fileId = crypto.randomUUID();
+      const objectPath = buildGcsObjectKey({
+        bankId: deal.bank_id,
+        dealId,
+        fileId,
+        filename,
+      });
+
+      const signedUploadUrl = await signGcsUploadUrl({
+        key: objectPath,
+        contentType: file.type || "application/octet-stream",
+        expiresSeconds: Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900"),
+      });
+
+      const uploadRes = await fetch(signedUploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: buffer,
+      });
+
+      if (!uploadRes.ok) {
+        return json(500, { ok: false, error: "Upload failed" });
+      }
+
+      const bucket = getGcsBucketName();
+
+      await logLedgerEvent({
+        dealId,
+        bankId: deal.bank_id,
+        eventKey: "documents.upload_completed",
+        uiState: "done",
+        uiMessage: "Upload completed (gcs)",
+        meta: {
+          storage_bucket: bucket,
+          storage_path: objectPath,
+          size_bytes: file.size,
+        },
+      });
+
+      return json(200, {
+        ok: true,
+        file_key: objectPath,
+        mime_type: file.type,
+        size: file.size,
+        bucket,
+      });
     }
 
     // Production: Upload to Supabase Storage
@@ -58,10 +126,6 @@ export async function POST(req: NextRequest) {
       : `${dealId}/uploads`;
 
     const fileKey = `${basePath}/${timestamp}_${safeName}`;
-
-    // Convert File to ArrayBuffer
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
 
     // Upload to Supabase Storage
     const { data, error } = await storage

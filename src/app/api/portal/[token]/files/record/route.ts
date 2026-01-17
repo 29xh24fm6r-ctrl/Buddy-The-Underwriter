@@ -4,6 +4,7 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { recomputeDealReady } from "@/lib/deals/readiness";
 import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrowerUploadAndMaterialize";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { recordReceipt } from "@/lib/portal/receipts";
 
 export const runtime = "nodejs";
@@ -30,21 +31,29 @@ export async function POST(req: NextRequest, ctx: Context) {
     const {
       file_id,
       object_path,
+      storage_path,
+      storage_bucket,
       original_filename,
       mime_type,
       size_bytes,
       checklist_key = null,
+      sha256,
     } = body;
+
+    const resolvedPath = storage_path || object_path;
+    const resolvedBucket =
+      storage_bucket || process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
 
     console.log("[UPLOAD RECORD ROUTE HIT - PORTAL]", {
       token,
-      object_path,
+      object_path: resolvedPath,
       original_filename,
       file_id,
       checklist_key,
+      storage_bucket: resolvedBucket,
     });
 
-    if (!file_id || !object_path || !original_filename) {
+    if (!file_id || !resolvedPath || !original_filename) {
       return NextResponse.json(
         { ok: false, error: "Missing required fields" },
         { status: 400 },
@@ -94,21 +103,23 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     // Verify file exists in storage (optional but recommended)
-    const { data: fileExists, error: checkErr } = await sb.storage
-      .from("deal-files")
-      .list(object_path.split("/").slice(0, -1).join("/"), {
-        search: object_path.split("/").pop(),
-      });
+    if (resolvedBucket !== process.env.GCS_BUCKET) {
+      const { data: fileExists, error: checkErr } = await sb.storage
+        .from(resolvedBucket)
+        .list(resolvedPath.split("/").slice(0, -1).join("/"), {
+          search: resolvedPath.split("/").pop(),
+        });
 
-    if (checkErr || !fileExists || fileExists.length === 0) {
-      console.error("[portal/files/record] file not found in storage", {
-        object_path,
-        checkErr,
-      });
-      return NextResponse.json(
-        { ok: false, error: "File not found in storage" },
-        { status: 404 },
-      );
+      if (checkErr || !fileExists || fileExists.length === 0) {
+        console.error("[portal/files/record] file not found in storage", {
+          object_path: resolvedPath,
+          checkErr,
+        });
+        return NextResponse.json(
+          { ok: false, error: "File not found in storage" },
+          { status: 404 },
+        );
+      }
     }
 
     // Canonical ingestion: insert doc + stamp checklist + reconcile + log ledger
@@ -119,7 +130,9 @@ export async function POST(req: NextRequest, ctx: Context) {
         original_filename,
         mimeType: mime_type ?? "application/octet-stream",
         sizeBytes: size_bytes ?? 0,
-        storagePath: object_path,
+        storagePath: resolvedPath,
+        storageBucket: resolvedBucket,
+        sha256: sha256 ?? null,
       },
       source: "borrower_portal",
       metadata: { checklist_key },
@@ -144,8 +157,8 @@ export async function POST(req: NextRequest, ctx: Context) {
       dealId,
       bankId: deal.bank_id,
       requestId: null,
-      storageBucket: "deal-files",
-      storagePath: object_path,
+      storageBucket: resolvedBucket,
+      storagePath: resolvedPath,
       originalFilename: original_filename,
       mimeType: mime_type ?? "application/octet-stream",
       sizeBytes: size_bytes ?? 0,
@@ -168,6 +181,21 @@ export async function POST(req: NextRequest, ctx: Context) {
         size_bytes,
         checklist_key,
         source: "borrower",
+      },
+    });
+
+    await logLedgerEvent({
+      dealId,
+      bankId: deal.bank_id,
+      eventKey: "documents.upload_completed",
+      uiState: "done",
+      uiMessage: `Upload completed (${resolvedBucket === process.env.GCS_BUCKET ? "gcs" : "supabase"})`,
+      meta: {
+        storage_bucket: resolvedBucket,
+        storage_path: resolvedPath,
+        size_bytes: size_bytes ?? null,
+        sha256: sha256 ?? null,
+        source: "borrower_portal",
       },
     });
 

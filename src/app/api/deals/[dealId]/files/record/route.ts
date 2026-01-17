@@ -56,22 +56,30 @@ export async function POST(req: NextRequest, ctx: Context) {
     const {
       file_id,
       object_path,
+      storage_path,
+      storage_bucket,
       original_filename,
       mime_type,
       size_bytes,
       checklist_key = null,
+      sha256,
     } = body;
+
+    const resolvedPath = storage_path || object_path;
+    const resolvedBucket =
+      storage_bucket || process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
 
     console.log("[UPLOAD RECORD ROUTE HIT]", {
       dealId,
-      object_path,
+      object_path: resolvedPath,
       original_filename,
       file_id,
       checklist_key,
+      storage_bucket: resolvedBucket,
       requestId,
     });
 
-    if (!file_id || !object_path || !original_filename) {
+    if (!file_id || !resolvedPath || !original_filename) {
       return NextResponse.json(
         { ok: false, error: "Missing required fields", request_id: requestId },
         { status: 400 },
@@ -107,17 +115,19 @@ export async function POST(req: NextRequest, ctx: Context) {
     let fileExists: any[] | null = null;
     let checkErr: any = null;
     try {
-      const res = await withTimeout(
-        sb.storage
-          .from("deal-files")
-          .list(object_path.split("/").slice(0, -1).join("/"), {
-            search: object_path.split("/").pop(),
-          }),
-        5_000,
-        "storageList",
-      );
-      fileExists = (res as any)?.data ?? null;
-      checkErr = (res as any)?.error ?? null;
+      if (resolvedBucket !== process.env.GCS_BUCKET) {
+        const res = await withTimeout(
+          sb.storage
+            .from(resolvedBucket)
+            .list(resolvedPath.split("/").slice(0, -1).join("/"), {
+              search: resolvedPath.split("/").pop(),
+            }),
+          5_000,
+          "storageList",
+        );
+        fileExists = (res as any)?.data ?? null;
+        checkErr = (res as any)?.error ?? null;
+      }
     } catch (e: any) {
       checkErr = e;
     }
@@ -126,17 +136,19 @@ export async function POST(req: NextRequest, ctx: Context) {
     // materialize the canonical DB record even if list/search behaves oddly.
     if (checkErr) {
       console.warn("[files/record] storage check error (non-fatal)", {
-        object_path,
+        object_path: resolvedPath,
         checkErr,
       });
-    } else if (!fileExists || fileExists.length === 0) {
-      console.warn("[files/record] storage check did not find file (non-fatal)", {
-        object_path,
-      });
+    } else if (resolvedBucket !== process.env.GCS_BUCKET) {
+      if (!fileExists || fileExists.length === 0) {
+        console.warn("[files/record] storage check did not find file (non-fatal)", {
+          object_path: resolvedPath,
+        });
+      }
     }
 
     // ✅ 1) Materialize banker upload into canonical deal_documents (idempotent)
-    const documentKey = `path:${object_path}`.replace(/[^a-z0-9_:/-]/gi, "_");
+    const documentKey = `path:${resolvedPath}`.replace(/[^a-z0-9_:/-]/gi, "_");
 
     const doc = {
       deal_id: dealId,
@@ -144,13 +156,16 @@ export async function POST(req: NextRequest, ctx: Context) {
       original_filename,
       mime_type: mime_type ?? "application/octet-stream",
       size_bytes: size_bytes ?? 0,
-      storage_path: object_path,
+      storage_bucket: resolvedBucket,
+      storage_path: resolvedPath,
+      sha256: sha256 ?? null,
       checklist_key: checklist_key ?? null,
       source: "internal",
       uploader_user_id: userId,
       document_key: documentKey,
       metadata: {
         ...(checklist_key ? { checklist_key } : {}),
+        ...(sha256 ? { sha256 } : {}),
         committed_via: "banker_record_route",
       },
     };
@@ -161,7 +176,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       .from("deal_documents")
       .select("id, checklist_key")
       .eq("deal_id", dealId)
-      .eq("storage_path", object_path)
+      .eq("storage_path", resolvedPath)
       .maybeSingle();
 
     let documentId: string | null = existing.data?.id ? String(existing.data.id) : null;
@@ -188,7 +203,7 @@ export async function POST(req: NextRequest, ctx: Context) {
           .from("deal_documents")
           .select("id")
           .eq("deal_id", dealId)
-          .eq("storage_path", object_path)
+          .eq("storage_path", resolvedPath)
           .maybeSingle();
 
         documentId = reRead.data?.id ? String(reRead.data.id) : null;
@@ -221,10 +236,28 @@ export async function POST(req: NextRequest, ctx: Context) {
       uiMessage: `Banker upload committed: ${original_filename}`,
       meta: {
         document_id: documentId,
-        storage_path: object_path,
+        storage_bucket: resolvedBucket,
+        storage_path: resolvedPath,
         original_filename,
         mime_type: mime_type ?? null,
         size_bytes: size_bytes ?? null,
+        sha256: sha256 ?? null,
+      },
+    });
+
+    await logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "documents.upload_completed",
+      uiState: "done",
+      uiMessage: `Upload completed (${resolvedBucket === process.env.GCS_BUCKET ? "gcs" : "supabase"})`,
+      meta: {
+        document_id: documentId,
+        provider: resolvedBucket === process.env.GCS_BUCKET ? "gcs" : "supabase",
+        storage_bucket: resolvedBucket,
+        storage_path: resolvedPath,
+        size_bytes: size_bytes ?? null,
+        sha256: sha256 ?? null,
       },
     });
 

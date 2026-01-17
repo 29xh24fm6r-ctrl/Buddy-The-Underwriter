@@ -36,6 +36,7 @@ yarn-error.log*
 
 # local secrets (never commit)
 .secrets/
+buddy-docs-signer.json
 
 # env files (can opt-in for committing if needed)
 .env*

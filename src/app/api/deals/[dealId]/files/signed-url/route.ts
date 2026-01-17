@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { signGcsReadUrl } from "@/lib/storage/gcs";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function getRequestId(req: NextRequest) {
@@ -116,6 +118,28 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
     const useBucket = String(doc.storage_bucket || "deal-uploads");
     const usePath = String(doc.storage_path);
 
+    const gcsBucket = process.env.GCS_BUCKET || "";
+    if (gcsBucket && useBucket === gcsBucket) {
+      const signedUrl = await signGcsReadUrl({
+        key: usePath,
+        expiresSeconds: 60 * 10,
+      });
+
+      await logLedgerEvent({
+        dealId,
+        bankId: authz.bankId,
+        eventKey: "documents.download_signed",
+        uiState: "done",
+        uiMessage: "Signed download generated (gcs)",
+        meta: {
+          storage_bucket: useBucket,
+          storage_path: usePath,
+        },
+      });
+
+      return NextResponse.json({ ok: true, signedUrl, requestId });
+    }
+
     const sb = supabaseAdmin();
     const { data, error } = await withTimeout("createSignedUrl", 12_000, async () =>
       sb.storage.from(useBucket).createSignedUrl(usePath, 60 * 10),
@@ -127,6 +151,18 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
         { status: 500 },
       );
     }
+
+    await logLedgerEvent({
+      dealId,
+      bankId: authz.bankId,
+      eventKey: "documents.download_signed",
+      uiState: "done",
+      uiMessage: "Signed download generated (supabase)",
+      meta: {
+        storage_bucket: useBucket,
+        storage_path: usePath,
+      },
+    });
 
     return NextResponse.json({ ok: true, signedUrl: data.signedUrl, requestId });
   } catch (e: unknown) {
@@ -174,6 +210,28 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     const useBucket = String(doc.storage_bucket || bucket);
     const usePath = String(doc.storage_path);
 
+    const gcsBucket = process.env.GCS_BUCKET || "";
+    if (gcsBucket && useBucket === gcsBucket) {
+      const signedUrl = await signGcsReadUrl({
+        key: usePath,
+        expiresSeconds: 60 * 10,
+      });
+
+      await logLedgerEvent({
+        dealId,
+        bankId: authz.bankId,
+        eventKey: "documents.download_signed",
+        uiState: "done",
+        uiMessage: "Signed download generated (gcs)",
+        meta: {
+          storage_bucket: useBucket,
+          storage_path: usePath,
+        },
+      });
+
+      return NextResponse.json({ ok: true, signedUrl, requestId });
+    }
+
     const sb = supabaseAdmin();
     const { data, error } = await withTimeout("createSignedUrl", 12_000, async () =>
       sb.storage.from(useBucket).createSignedUrl(usePath, 60 * 10),
@@ -185,6 +243,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
         { status: 500 },
       );
     }
+
+    await logLedgerEvent({
+      dealId,
+      bankId: authz.bankId,
+      eventKey: "documents.download_signed",
+      uiState: "done",
+      uiMessage: "Signed download generated (supabase)",
+      meta: {
+        storage_bucket: useBucket,
+        storage_path: usePath,
+      },
+    });
 
     return NextResponse.json({ ok: true, signedUrl: data.signedUrl, requestId });
   } catch (e: unknown) {

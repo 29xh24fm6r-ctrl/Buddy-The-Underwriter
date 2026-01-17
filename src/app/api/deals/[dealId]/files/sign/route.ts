@@ -3,8 +3,11 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { signUploadUrl } from "@/lib/uploads/sign";
+import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
+import { findExistingDocBySha } from "@/lib/storage/dedupe";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function randomUUID() {
@@ -104,6 +107,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       mime_type,
       size_bytes,
       checklist_key = null,
+      sha256,
     } = body ?? {};
 
     if (!filename || !size_bytes) {
@@ -162,15 +166,88 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    // Generate unique file ID and safe path
-  const fileId = randomUUID();
+    const docStore = String(process.env.DOC_STORE || "").toLowerCase();
+
+    if (docStore === "gcs") {
+      const existing = sha256
+        ? await findExistingDocBySha({ sb, dealId, sha256 })
+        : null;
+
+      await logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "documents.sign_upload",
+        uiState: "done",
+        uiMessage: `Sign upload (${existing ? "dedupe" : "new"})`,
+        meta: {
+          filename,
+          sha256: sha256 ?? null,
+          deduped: Boolean(existing),
+        },
+      });
+
+      if (existing?.id) {
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "documents.upload_deduped",
+          uiState: "done",
+          uiMessage: "Upload deduped by sha256",
+          meta: {
+            existing_document_id: existing.id,
+            sha256: sha256 ?? null,
+          },
+        });
+
+        return NextResponse.json({
+          ok: true,
+          deduped: true,
+          existingDocumentId: existing.id,
+        });
+      }
+
+      const fileId = randomUUID();
+      const objectPath = buildGcsObjectKey({
+        bankId,
+        dealId,
+        fileId,
+        filename,
+      });
+      const expiresSeconds = Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900");
+      const signedUploadUrl = await signGcsUploadUrl({
+        key: objectPath,
+        contentType: mime_type || "application/octet-stream",
+        expiresSeconds,
+      });
+
+      const bucket = getGcsBucketName();
+      const expiresAt = new Date(Date.now() + expiresSeconds * 1000).toISOString();
+
+      return NextResponse.json({
+        ok: true,
+        deduped: false,
+        bucket,
+        key: objectPath,
+        signedUploadUrl,
+        expiresAt,
+        upload: {
+          file_id: fileId,
+          object_path: objectPath,
+          signed_url: signedUploadUrl,
+          token: null,
+          checklist_key,
+          bucket,
+        },
+      });
+    }
+
+    // Supabase Storage (legacy)
+    const fileId = randomUUID();
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const objectPath = `deals/${dealId}/${fileId}__${safeName}`;
 
-    // Canonical bucket (matches DB default)
     const bucket = process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
 
-    // Diagnostic logging (will show in Vercel function logs)
     console.log("[files/sign] pre-flight check", {
       dealId,
       fileId,
@@ -181,7 +258,6 @@ export async function POST(req: NextRequest, ctx: Context) {
       env_bucket: process.env.SUPABASE_UPLOAD_BUCKET || null,
     });
 
-    // Use centralized signing utility
     const signResult = await withTimeout(
       signUploadUrl({ bucket, objectPath }),
       12_000,
@@ -227,7 +303,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         signed_url: signed.signedUrl,
         token: signed.token,
         checklist_key,
-        bucket, // Diagnostic: client can verify bucket alignment
+        bucket,
       },
     });
   } catch (error: any) {

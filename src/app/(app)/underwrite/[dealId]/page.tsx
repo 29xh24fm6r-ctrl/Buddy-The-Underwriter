@@ -3,6 +3,7 @@ import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
 import { CopyToClipboardButton } from "@/components/deals/DealOutputActions";
 import DealFinancialSpreadsPanel from "@/components/deals/DealFinancialSpreadsPanel";
+import MatchedLendersPanel from "@/components/deals/MatchedLendersPanel";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { resolveDealLabel, dealLabel } from "@/lib/deals/dealLabel";
@@ -153,7 +154,10 @@ export default async function UnderwriteDealPage({
         <div className="mb-6">
           <DealFinancialSpreadsPanel dealId={dealId} />
         </div>
-        <DealOutputsPanel dealId={dealId} />
+        <div className="grid gap-4 md:grid-cols-2">
+          <DealOutputsPanel dealId={dealId} />
+          <MatchedLendersPanel dealId={dealId} />
+        </div>
       </div>
       <StitchRouteBridge
         slug="deals-command-bridge"
