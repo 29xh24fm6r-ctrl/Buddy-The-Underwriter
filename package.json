@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "NODE_OPTIONS='--max-old-space-size=7168' next build --webpack",
+    "build:ci": "bash scripts/build-ci.sh",
     "start": "next start",
     "lint": "eslint",
     "test:unit": "node --test --import tsx $(find src/lib -type f -path '*/__tests__/*.test.ts' | sort)",
