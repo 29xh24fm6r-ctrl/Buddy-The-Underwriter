@@ -1,0 +1,8 @@
+# Security / Auth / Tenant / Middleware / Admin routes require Sebrina review
+/src/proxy.ts @29xh24fm6r-ctrl
+/src/middleware.ts @29xh24fm6r-ctrl
+/src/lib/auth/ @29xh24fm6r-ctrl
+/src/lib/tenant/ @29xh24fm6r-ctrl
+/src/app/(admin)/ @29xh24fm6r-ctrl
+/src/app/api/admin/ @29xh24fm6r-ctrl
+/supabase/migrations/ @29xh24fm6r-ctrl

@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import React from "react";
+import Link from "next/link";
 import DealIntakeCard from "@/components/deals/DealIntakeCard";
 import BorrowerRequestComposerCard from "@/components/deals/BorrowerRequestComposerCard";
 import DealFilesCard from "@/components/deals/DealFilesCard";
@@ -85,7 +86,15 @@ export default function DealCockpitClient({
               }}
             />
           </div>
-          <PipelineIndicator dealId={dealId} />
+          <div className="flex items-center gap-3">
+            <Link
+              href={`/deals/${dealId}/pricing`}
+              className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-white/80 hover:border-white/20"
+            >
+              Risk Pricing
+            </Link>
+            <PipelineIndicator dealId={dealId} />
+          </div>
         </div>
 
         {/* 🎙️ MAGIC NARRATOR - Calm, confident system voice */}
