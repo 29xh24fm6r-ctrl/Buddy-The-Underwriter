@@ -1051,6 +1051,18 @@ export default function DealPricingClient({
                           </button>
                           <button
                             className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            onClick={() =>
+                              window.open(
+                                `/api/deals/${deal.id}/pricing/quote/${activeQuote.id}/memo-pdf`,
+                                "_blank",
+                              )
+                            }
+                            disabled={!activeQuote?.id}
+                          >
+                            Download PDF Appendix
+                          </button>
+                          <button
+                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
                             onClick={() => insertPricingIntoCreditMemo(activeQuote.id)}
                             disabled={!!busyByQuoteId[activeQuote.id]}
                           >
