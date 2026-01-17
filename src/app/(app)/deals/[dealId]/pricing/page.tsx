@@ -8,15 +8,13 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 type PricingInputs = {
   index_code: "SOFR" | "UST_5Y" | "PRIME";
-  index_source: string;
   index_tenor: string | null;
-  index_rate_pct: number | null;
+  base_rate_override_pct: number | null;
+  spread_override_bps: number | null;
   loan_amount: number | null;
   term_months: number;
   amort_months: number;
   interest_only_months: number;
-  spread_override_bps: number | null;
-  base_rate_override_pct: number | null;
   notes: string | null;
 };
 
@@ -27,10 +25,35 @@ type LatestRates = Record<
     label: string;
     ratePct: number;
     asOf: string;
-    source: "treasury" | "nyfed" | "fed_h15";
+    source: "treasury" | "nyfed" | "fed_h15" | "fred";
   }
 >;
 
+type QuoteRow = {
+  id: string;
+  created_at: string;
+  index_code: string;
+  base_rate_pct: number;
+  spread_bps: number;
+  all_in_rate_pct: number;
+  loan_amount: number;
+  term_months: number;
+  amort_months: number;
+  interest_only_months: number;
+  monthly_payment_pi: number | null;
+  monthly_payment_io: number | null;
+  pricing_policy_id: string | null;
+  pricing_policy_version: string | null;
+  pricing_model_hash: string | null;
+  pricing_explain: any;
+  rate_index_snapshots?: {
+    id: string;
+    as_of_date: string;
+    source: string;
+    index_rate_pct: number;
+    index_label: string;
+  } | null;
+};
 async function getBaseUrl() {
   const envBase = process.env.PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
   if (envBase) return envBase.replace(/\/+$/, "");
@@ -76,13 +99,15 @@ export default async function Page(
   const pricing = await runDealRiskPricing(deal);
   const baseUrl = await getBaseUrl();
 
-  const [inputsRes, ratesRes] = await Promise.all([
+  const [inputsRes, ratesRes, quotesRes] = await Promise.all([
     fetch(`${baseUrl}/api/deals/${dealId}/pricing/inputs`, { cache: "no-store" }),
     fetch(`${baseUrl}/api/rates/latest`, { cache: "no-store" }),
+    fetch(`${baseUrl}/api/deals/${dealId}/pricing/quotes`, { cache: "no-store" }),
   ]);
 
   let inputs: PricingInputs | null = null;
   let latestRates: LatestRates | null = null;
+  let quotes: QuoteRow[] = [];
 
   if (inputsRes.ok) {
     const payload = await inputsRes.json();
@@ -94,6 +119,10 @@ export default async function Page(
     latestRates = payload?.rates ?? null;
   }
 
+  if (quotesRes.ok) {
+    const payload = await quotesRes.json();
+    quotes = payload?.quotes ?? [];
+  }
   const indexCode = inputs?.index_code ?? "SOFR";
   const rateEntry = latestRates?.[indexCode] ?? latestRates?.SOFR ?? null;
   const baseRatePct =
@@ -107,11 +136,13 @@ export default async function Page(
       pricing={pricing}
       latestRates={latestRates}
       inputs={inputs}
+      quotes={quotes}
       computed={{
         baseRatePct,
         spreadBps,
         allInRatePct,
         rateAsOf: rateEntry?.asOf ?? null,
+        rateSource: rateEntry?.source ?? null,
       }}
     />
   );

@@ -10,21 +10,20 @@ type IndexRate = {
   label: string;
   ratePct: number;
   asOf: string;
-  source: "treasury" | "nyfed" | "fed_h15";
-  details?: Record<string, unknown>;
+  source: "treasury" | "nyfed" | "fed_h15" | "fred";
+  sourceUrl?: string;
+  raw?: unknown;
 };
 
 type PricingInputs = {
   index_code: IndexCode;
-  index_source: string;
   index_tenor: string | null;
-  index_rate_pct: number | null;
+  base_rate_override_pct: number | null;
+  spread_override_bps: number | null;
   loan_amount: number | null;
   term_months: number;
   amort_months: number;
   interest_only_months: number;
-  spread_override_bps: number | null;
-  base_rate_override_pct: number | null;
   notes: string | null;
 };
 
@@ -49,11 +48,45 @@ type Pricing = {
   explain: Array<{ label: string; detail: string; deltaBps?: number }>;
 };
 
+type QuoteRow = {
+  id: string;
+  created_at: string;
+  index_code: string;
+  base_rate_pct: number;
+  spread_bps: number;
+  all_in_rate_pct: number;
+  loan_amount: number;
+  term_months: number;
+  amort_months: number;
+  interest_only_months: number;
+  monthly_payment_pi: number | null;
+  monthly_payment_io: number | null;
+  pricing_policy_id: string | null;
+  pricing_policy_version: string | null;
+  pricing_model_hash: string | null;
+  pricing_explain: any;
+  rate_index_snapshots?: {
+    id: string;
+    as_of_date: string;
+    source: string;
+    index_rate_pct: number;
+    index_label: string;
+  } | null;
+};
+
+type SnapshotRow = {
+  id: string;
+  as_of_date: string;
+  source: string;
+  index_rate_pct: number;
+  index_label: string;
+} | null;
 type ComputedPricing = {
   baseRatePct: number;
   spreadBps: number;
   allInRatePct: number;
   rateAsOf: string | null;
+  rateSource: string | null;
 };
 
 export default function DealPricingClient({
@@ -61,12 +94,14 @@ export default function DealPricingClient({
   pricing,
   latestRates,
   inputs,
+  quotes,
   computed,
 }: {
   deal: Deal;
   pricing: Pricing;
   latestRates: Record<IndexCode, IndexRate> | null;
   inputs: PricingInputs | null;
+  quotes: QuoteRow[];
   computed: ComputedPricing;
 }) {
   const [form, setForm] = useState<PricingInputs>(() =>
@@ -75,12 +110,18 @@ export default function DealPricingClient({
   const [rates, setRates] = useState<Record<IndexCode, IndexRate> | null>(
     latestRates,
   );
+  const [quoteHistory, setQuoteHistory] = useState<QuoteRow[]>(quotes);
+  const [lastSnapshot, setLastSnapshot] = useState<SnapshotRow>(
+    quoteHistory?.[0]?.rate_index_snapshots ?? null,
+  );
   const [status, setStatus] = useState<{
     kind: "success" | "error" | "info";
     message: string;
   } | null>(null);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [quoting, setQuoting] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const effectiveRate = useMemo(() => {
     if (!rates) return null;
@@ -97,6 +138,7 @@ export default function DealPricingClient({
     form.spread_override_bps ?? computed.spreadBps ?? pricing.quote.spreadBps ?? 0;
   const allInRatePct = baseRatePct + spreadBps / 100;
   const rateAsOf = effectiveRate?.asOf ?? computed.rateAsOf;
+  const rateSource = effectiveRate?.source ?? computed.rateSource;
   const principal = form.loan_amount ?? deal.requested_loan_amount ?? 0;
   const monthlyRate = allInRatePct / 100 / 12;
   const amortMonths = Math.max(1, form.amort_months || 0);
@@ -109,9 +151,7 @@ export default function DealPricingClient({
     try {
       const payload = {
         ...form,
-        index_source: effectiveRate?.source ?? form.index_source,
         index_tenor: form.index_code === "UST_5Y" ? "5Y" : null,
-        index_rate_pct: effectiveRate?.ratePct ?? form.index_rate_pct ?? null,
       };
 
       const res = await fetch(`/api/deals/${deal.id}/pricing/inputs`, {
@@ -148,6 +188,39 @@ export default function DealPricingClient({
       setStatus({ kind: "error", message: err?.message ?? "Refresh failed" });
     } finally {
       setRefreshing(false);
+    }
+  }
+  async function handleQuote() {
+    setQuoting(true);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/deals/${deal.id}/pricing/quote`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to generate quote");
+      }
+      const nextQuote = json.quote as QuoteRow;
+      setQuoteHistory((prev) => [nextQuote, ...prev]);
+      setLastSnapshot(json.snapshot ?? null);
+      setStatus({ kind: "success", message: "Quote generated." });
+    } catch (err: any) {
+      setStatus({ kind: "error", message: err?.message ?? "Quote failed" });
+    } finally {
+      setQuoting(false);
+    }
+  }
+
+  async function handleCopy(quote: QuoteRow) {
+    const summary = `${deal.borrower_name ?? deal.id} • ${quote.index_code} ${formatPct(quote.base_rate_pct)}% + ${quote.spread_bps} bps = ${formatPct(quote.all_in_rate_pct)}% • ${money(quote.loan_amount)} • ${quote.term_months}m/${quote.amort_months}m`;
+    try {
+      await navigator.clipboard.writeText(summary);
+      setStatus({ kind: "success", message: "Quote summary copied." });
+    } catch {
+      setStatus({ kind: "error", message: "Copy failed." });
     }
   }
 
@@ -253,40 +326,65 @@ export default function DealPricingClient({
                   }
                 />
               </Field>
-
-              <Field label="Base Rate Override (%)">
-                <input
-                  className="w-full rounded border px-3 py-2 text-sm"
-                  type="number"
-                  step="0.01"
-                  value={form.base_rate_override_pct ?? ""}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      base_rate_override_pct: parseNullableNumber(e.target.value),
-                    }))
-                  }
-                  placeholder="Optional"
-                />
-              </Field>
-
-              <Field label="Spread Override (bps)">
-                <input
-                  className="w-full rounded border px-3 py-2 text-sm"
-                  type="number"
-                  step="1"
-                  value={form.spread_override_bps ?? ""}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      spread_override_bps: parseNullableNumber(e.target.value),
-                    }))
-                  }
-                  placeholder="Optional"
-                />
-              </Field>
             </div>
 
+            <button
+              className="mt-4 text-sm text-slate-600 underline"
+              onClick={() => setShowAdvanced((prev) => !prev)}
+            >
+              {showAdvanced ? "Hide advanced" : "Show advanced"}
+            </button>
+
+            {showAdvanced ? (
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Field label="Base Rate Override (%)">
+                  <input
+                    className="w-full rounded border px-3 py-2 text-sm"
+                    type="number"
+                    step="0.01"
+                    value={form.base_rate_override_pct ?? ""}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        base_rate_override_pct: parseNullableNumber(e.target.value),
+                      }))
+                    }
+                    placeholder="Optional"
+                  />
+                </Field>
+
+                <Field label="Spread Override (bps)">
+                  <input
+                    className="w-full rounded border px-3 py-2 text-sm"
+                    type="number"
+                    step="1"
+                    value={form.spread_override_bps ?? ""}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        spread_override_bps: parseNullableNumber(e.target.value),
+                      }))
+                    }
+                    placeholder="Optional"
+                  />
+                </Field>
+
+                <Field label="Notes">
+                  <input
+                    className="w-full rounded border px-3 py-2 text-sm"
+                    type="text"
+                    value={form.notes ?? ""}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        notes: e.target.value || null,
+                      }))
+                    }
+                    placeholder="Optional"
+                  />
+                </Field>
+              </div>
+            ) : null}
             <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
               <Stat
                 label="Base Rate"
@@ -297,20 +395,30 @@ export default function DealPricingClient({
               <Stat label="All-In Rate" value={`${formatPct(allInRatePct)}%`} emphasize />
             </div>
 
+            <div className="mt-2 text-xs text-slate-500">
+              Live source: {rateSource ?? "—"}
+            </div>
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
                 onClick={handleSave}
                 disabled={saving}
               >
-                {saving ? "Saving..." : "Save terms"}
+                {saving ? "Saving..." : "Save inputs"}
               </button>
               <button
                 className="rounded border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
                 onClick={handleRefreshRates}
                 disabled={refreshing}
               >
-                {refreshing ? "Refreshing..." : "Refresh rates"}
+                {refreshing ? "Refreshing..." : "Refresh live rates"}
+              </button>
+              <button
+                className="rounded border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+                onClick={handleQuote}
+                disabled={quoting}
+              >
+                {quoting ? "Quoting..." : "Generate bank-grade quote"}
               </button>
               {status ? (
                 <span
@@ -324,6 +432,21 @@ export default function DealPricingClient({
                 </span>
               ) : null}
             </div>
+
+            {lastSnapshot ? (
+              <div className="mt-4 rounded border bg-slate-50 p-3 text-xs text-slate-700">
+                <div className="font-semibold">Latest bank-grade snapshot</div>
+                <div className="mt-1">
+                  Snapshot ID: <span className="font-mono">{lastSnapshot.id}</span>
+                </div>
+                <div>
+                  As of: {lastSnapshot.as_of_date} · Source: {lastSnapshot.source}
+                </div>
+                <div>
+                  {lastSnapshot.index_label} @ {formatPct(lastSnapshot.index_rate_pct)}%
+                </div>
+              </div>
+            ) : null}
           </Card>
         </section>
 
@@ -357,6 +480,57 @@ export default function DealPricingClient({
                 IO payment: {money(ioPayment)} for {form.interest_only_months} mo
               </div>
             ) : null}
+          </Card>
+        </section>
+
+        <section className="grid grid-cols-1 gap-4">
+          <Card title="Quote History">
+            {quoteHistory.length === 0 ? (
+              <p className="text-sm text-slate-600">No quotes yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {quoteHistory.map((quote) => (
+                  <div key={quote.id} className="rounded border p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold">
+                          {formatDateTime(quote.created_at)} · {quote.index_code}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          Base {formatPct(quote.base_rate_pct)}% · Spread {quote.spread_bps} bps · All-in {formatPct(quote.all_in_rate_pct)}%
+                        </div>
+                      </div>
+                      <button
+                        className="rounded border px-3 py-1 text-xs hover:bg-slate-50"
+                        onClick={() => handleCopy(quote)}
+                      >
+                        Copy quote summary
+                      </button>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-600">
+                      Amount {money(quote.loan_amount)} · Term {quote.term_months}m · Amort {quote.amort_months}m · IO {quote.interest_only_months}m
+                    </div>
+                    <div className="mt-2 text-xs text-slate-600">
+                      P&I {quote.monthly_payment_pi != null ? money(quote.monthly_payment_pi) : "—"}
+                      {quote.monthly_payment_io != null ? ` · IO ${money(quote.monthly_payment_io)}` : ""}
+                    </div>
+                    {quote.rate_index_snapshots ? (
+                      <div className="mt-2 rounded bg-slate-50 p-2 text-xs text-slate-600">
+                        Snapshot {quote.rate_index_snapshots.id} · {quote.rate_index_snapshots.index_label} @ {formatPct(quote.rate_index_snapshots.index_rate_pct)}%
+                        <div>
+                          As of {quote.rate_index_snapshots.as_of_date} · Source {quote.rate_index_snapshots.source}
+                        </div>
+                      </div>
+                    ) : null}
+                    {(quote.pricing_policy_id || quote.pricing_policy_version || quote.pricing_model_hash) ? (
+                      <div className="mt-2 text-xs text-slate-500">
+                        Policy {quote.pricing_policy_id ?? "—"} · Version {quote.pricing_policy_version ?? "—"} · Hash {quote.pricing_model_hash ?? "—"}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
         </section>
 
@@ -444,7 +618,7 @@ function fmtBps(bps: number) {
 }
 
 function formatPct(rate: number) {
-  if (!Number.isFinite(rate)) return "0.00";
+  if (!Number.isFinite(rate)) return "0.000";
   return rate.toFixed(3);
 }
 
@@ -468,15 +642,13 @@ function calculatePayment(principal: number, monthlyRate: number, n: number) {
 function normalizeInputs(deal: Deal, inputs: PricingInputs | null): PricingInputs {
   const base: PricingInputs = {
     index_code: "SOFR",
-    index_source: "nyfed",
     index_tenor: null,
-    index_rate_pct: null,
+    base_rate_override_pct: null,
+    spread_override_bps: null,
     loan_amount: deal.requested_loan_amount ?? null,
     term_months: 120,
     amort_months: 300,
     interest_only_months: 0,
-    spread_override_bps: null,
-    base_rate_override_pct: null,
     notes: null,
   };
 
@@ -489,4 +661,13 @@ function normalizeInputs(deal: Deal, inputs: PricingInputs | null): PricingInput
     amort_months: inputs.amort_months ?? base.amort_months,
     interest_only_months: inputs.interest_only_months ?? base.interest_only_months,
   };
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
 }
