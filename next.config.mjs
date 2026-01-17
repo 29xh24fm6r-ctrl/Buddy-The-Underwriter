@@ -9,7 +9,7 @@ const nextConfig = {
   
   // Source maps: required for readable stack traces.
   // Sentry will hide them from the public bundle via `hideSourceMaps`.
-  productionBrowserSourceMaps: process.env.CODESPACES ? false : true,
+  productionBrowserSourceMaps: process.env.ENABLE_SENTRY === "1" ? true : false,
   
   // Skip TypeScript checks during build (errors handled in CI)
   typescript: {
@@ -53,7 +53,10 @@ const nextConfig = {
 // Only enable the Sentry Next.js plugin when we can actually upload source maps.
 // This reduces build/runtime surface area on Vercel previews and avoids
 // rare cases where the plugin integration can impact serverless behavior.
-const shouldEnableSentryPlugin = Boolean(process.env.SENTRY_AUTH_TOKEN) && !process.env.CODESPACES;
+const shouldEnableSentryPlugin =
+  process.env.ENABLE_SENTRY === "1" &&
+  Boolean(process.env.SENTRY_AUTH_TOKEN) &&
+  !process.env.CODESPACES;
 
 export default shouldEnableSentryPlugin
   ? withSentryConfig(
