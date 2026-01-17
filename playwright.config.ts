@@ -38,6 +38,7 @@ export default defineConfig({
     env: {
       ...process.env,
 
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "",
       NEXT_TELEMETRY_DISABLED: "1",
       OTEL_SDK_DISABLED: "true",
       OTEL_TRACES_EXPORTER: "none",

@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { SMOKE_ROUTES } from "./smoke.routes";
 import { ROUTE_TESTIDS } from "./smoke.assertions";
+import { isValidClerkPublishableKey } from "@/lib/auth/isValidClerkKey";
 
 function isLikelyAuthRedirect(url: string) {
   return (
@@ -29,6 +30,9 @@ test.describe("Smoke crawl", () => {
 
     const dealId =
       process.env.SMOKE_DEAL_ID ?? "00000000-0000-0000-0000-000000000000";
+    const hasValidClerkKey = isValidClerkPublishableKey(
+      process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+    );
 
     for (const r of SMOKE_ROUTES) {
       const target = r.path.startsWith("http") ? r.path : `${baseURL}${r.path}`;
@@ -43,6 +47,14 @@ test.describe("Smoke crawl", () => {
         const resp = await page.request.get(target, { timeout: 15_000 });
         // allow 200/302/401/403 for auth-protected endpoints
         expect([200, 302, 401, 403]).toContain(resp.status());
+        continue;
+      }
+
+      if (
+        test.info().project.name === "smoke-public" &&
+        r.kind === "auth" &&
+        !hasValidClerkKey
+      ) {
         continue;
       }
 
