@@ -61,6 +61,11 @@ type QuoteRow = {
   interest_only_months: number;
   monthly_payment_pi: number | null;
   monthly_payment_io: number | null;
+  status?: string | null;
+  locked_at?: string | null;
+  locked_by?: string | null;
+  lock_reason?: string | null;
+  underwriting_snapshot_id?: string | null;
   pricing_policy_id: string | null;
   pricing_policy_version: string | null;
   pricing_model_hash: string | null;
@@ -72,6 +77,13 @@ type QuoteRow = {
     index_rate_pct: number;
     index_label: string;
   } | null;
+};
+
+type Explainability = {
+  summary: string;
+  drivers: Array<{ label: string; bps: number; reason?: string }>;
+  missingInputs: Array<{ key: string; label: string; impactBps?: number }>;
+  confidence: number;
 };
 
 type SnapshotRow = {
@@ -114,6 +126,12 @@ export default function DealPricingClient({
   const [lastSnapshot, setLastSnapshot] = useState<SnapshotRow>(
     quoteHistory?.[0]?.rate_index_snapshots ?? null,
   );
+  const [expandedQuoteId, setExpandedQuoteId] = useState<string | null>(null);
+  const [explainByQuoteId, setExplainByQuoteId] = useState<
+    Record<string, Explainability>
+  >({});
+  const [memoByQuoteId, setMemoByQuoteId] = useState<Record<string, string>>({});
+  const [busyByQuoteId, setBusyByQuoteId] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState<{
     kind: "success" | "error" | "info";
     message: string;
@@ -211,6 +229,137 @@ export default function DealPricingClient({
       setStatus({ kind: "error", message: err?.message ?? "Quote failed" });
     } finally {
       setQuoting(false);
+    }
+  }
+
+  async function refreshQuotes() {
+    const res = await fetch(`/api/deals/${deal.id}/pricing/quotes`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return;
+    const json = await res.json();
+    const next = json?.quotes ?? [];
+    setQuoteHistory(next);
+    setLastSnapshot(next?.[0]?.rate_index_snapshots ?? null);
+  }
+
+  async function handleExplain(quoteId: string) {
+    if (expandedQuoteId === quoteId) {
+      setExpandedQuoteId(null);
+      return;
+    }
+    setExpandedQuoteId(quoteId);
+    if (explainByQuoteId[quoteId]) return;
+
+    setBusyByQuoteId((prev) => ({ ...prev, [quoteId]: true }));
+    try {
+      const res = await fetch(
+        `/api/deals/${deal.id}/pricing/quote/${quoteId}/explain`,
+        { cache: "no-store" },
+      );
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to load explainability");
+      }
+      setExplainByQuoteId((prev) => ({ ...prev, [quoteId]: json.explain }));
+    } catch (err: any) {
+      setStatus({ kind: "error", message: err?.message ?? "Explain failed" });
+    } finally {
+      setBusyByQuoteId((prev) => ({ ...prev, [quoteId]: false }));
+    }
+  }
+
+  async function handleLock(quoteId: string) {
+    if (!confirm("Locking freezes this quote for committee. Continue?")) return;
+    setBusyByQuoteId((prev) => ({ ...prev, [quoteId]: true }));
+    setStatus(null);
+    try {
+      const res = await fetch(
+        `/api/deals/${deal.id}/pricing/quote/${quoteId}/lock`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to lock quote");
+      }
+      await refreshQuotes();
+      setStatus({ kind: "success", message: "Quote locked for committee." });
+    } catch (err: any) {
+      setStatus({ kind: "error", message: err?.message ?? "Lock failed" });
+    } finally {
+      setBusyByQuoteId((prev) => ({ ...prev, [quoteId]: false }));
+    }
+  }
+
+  async function handleCopyMemo(quoteId: string) {
+    setBusyByQuoteId((prev) => ({ ...prev, [quoteId]: true }));
+    setStatus(null);
+    try {
+      const res = await fetch(
+        `/api/deals/${deal.id}/pricing/quote/${quoteId}/memo-block`,
+        { cache: "no-store" },
+      );
+      const json = await res.json();
+      if (!res.ok || !json?.ok || !json?.md) {
+        throw new Error(json?.error ?? "Failed to fetch memo block");
+      }
+      await navigator.clipboard.writeText(json.md);
+      setMemoByQuoteId((prev) => ({ ...prev, [quoteId]: json.md }));
+      setStatus({ kind: "success", message: "Pricing memo copied." });
+    } catch (err: any) {
+      setStatus({ kind: "error", message: err?.message ?? "Copy failed" });
+    } finally {
+      setBusyByQuoteId((prev) => ({ ...prev, [quoteId]: false }));
+    }
+  }
+
+  async function insertPricingIntoCreditMemo(quoteId: string) {
+    setBusyByQuoteId((prev) => ({ ...prev, [quoteId]: true }));
+    setStatus(null);
+    try {
+      const res = await fetch(
+        `/api/deals/${deal.id}/credit-memo/pricing/insert`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ quote_id: quoteId }),
+        },
+      );
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Insert failed");
+      }
+      if (json?.inserted) {
+        setStatus({ kind: "success", message: "Inserted into credit memo." });
+        return;
+      }
+
+      if (json?.md) {
+        await navigator.clipboard.writeText(json.md);
+        setMemoByQuoteId((prev) => ({ ...prev, [quoteId]: json.md }));
+        setStatus({ kind: "success", message: "Copied for paste." });
+        return;
+      }
+
+      const fallback = await fetch(
+        `/api/deals/${deal.id}/pricing/quote/${quoteId}/memo-block`,
+        { cache: "no-store" },
+      );
+      const fbJson = await fallback.json();
+      if (!fallback.ok || !fbJson?.ok || !fbJson?.md) {
+        throw new Error(fbJson?.error ?? "Failed to build memo block");
+      }
+      await navigator.clipboard.writeText(fbJson.md);
+      setMemoByQuoteId((prev) => ({ ...prev, [quoteId]: fbJson.md }));
+      setStatus({ kind: "success", message: "Copied for paste." });
+    } catch (err: any) {
+      setStatus({ kind: "error", message: err?.message ?? "Insert failed" });
+    } finally {
+      setBusyByQuoteId((prev) => ({ ...prev, [quoteId]: false }));
     }
   }
 
@@ -489,46 +638,149 @@ export default function DealPricingClient({
               <p className="text-sm text-slate-600">No quotes yet.</p>
             ) : (
               <div className="space-y-3">
-                {quoteHistory.map((quote) => (
-                  <div key={quote.id} className="rounded border p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <div className="text-sm font-semibold">
-                          {formatDateTime(quote.created_at)} · {quote.index_code}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          Base {formatPct(quote.base_rate_pct)}% · Spread {quote.spread_bps} bps · All-in {formatPct(quote.all_in_rate_pct)}%
-                        </div>
-                      </div>
-                      <button
-                        className="rounded border px-3 py-1 text-xs hover:bg-slate-50"
-                        onClick={() => handleCopy(quote)}
-                      >
-                        Copy quote summary
-                      </button>
-                    </div>
-                    <div className="mt-2 text-xs text-slate-600">
-                      Amount {money(quote.loan_amount)} · Term {quote.term_months}m · Amort {quote.amort_months}m · IO {quote.interest_only_months}m
-                    </div>
-                    <div className="mt-2 text-xs text-slate-600">
-                      P&I {quote.monthly_payment_pi != null ? money(quote.monthly_payment_pi) : "—"}
-                      {quote.monthly_payment_io != null ? ` · IO ${money(quote.monthly_payment_io)}` : ""}
-                    </div>
-                    {quote.rate_index_snapshots ? (
-                      <div className="mt-2 rounded bg-slate-50 p-2 text-xs text-slate-600">
-                        Snapshot {quote.rate_index_snapshots.id} · {quote.rate_index_snapshots.index_label} @ {formatPct(quote.rate_index_snapshots.index_rate_pct)}%
+                {quoteHistory.map((quote) => {
+                  const isLocked = quote.status === "locked";
+                  const isExpanded = expandedQuoteId === quote.id;
+                  const explain = explainByQuoteId[quote.id];
+                  const memoCached = !!memoByQuoteId[quote.id];
+                  const busy = !!busyByQuoteId[quote.id];
+
+                  return (
+                    <div key={quote.id} className="rounded border p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
-                          As of {quote.rate_index_snapshots.as_of_date} · Source {quote.rate_index_snapshots.source}
+                          <div className="text-sm font-semibold flex flex-wrap items-center gap-2">
+                            <span>
+                              {formatDateTime(quote.created_at)} · {quote.index_code}
+                            </span>
+                            {isLocked ? (
+                              <span className="inline-flex items-center rounded bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white">
+                                LOCKED
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            Base {formatPct(quote.base_rate_pct)}% · Spread {quote.spread_bps} bps · All-in {formatPct(quote.all_in_rate_pct)}%
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            onClick={() => handleExplain(quote.id)}
+                            disabled={busy}
+                          >
+                            {isExpanded ? "Hide explain" : "Explain"}
+                          </button>
+                          {!isLocked ? (
+                            <button
+                              className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                              onClick={() => handleLock(quote.id)}
+                              disabled={busy}
+                            >
+                              Lock quote
+                            </button>
+                          ) : null}
+                          <button
+                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            onClick={() => handleCopyMemo(quote.id)}
+                            disabled={busy}
+                          >
+                            {memoCached ? "Copy pricing memo (cached)" : "Copy pricing memo"}
+                          </button>
+                          <button
+                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            onClick={() => insertPricingIntoCreditMemo(quote.id)}
+                            disabled={busy}
+                          >
+                            Insert into credit memo
+                          </button>
+                          <button
+                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50"
+                            onClick={() => handleCopy(quote)}
+                          >
+                            Copy quote summary
+                          </button>
                         </div>
                       </div>
-                    ) : null}
-                    {(quote.pricing_policy_id || quote.pricing_policy_version || quote.pricing_model_hash) ? (
-                      <div className="mt-2 text-xs text-slate-500">
-                        Policy {quote.pricing_policy_id ?? "—"} · Version {quote.pricing_policy_version ?? "—"} · Hash {quote.pricing_model_hash ?? "—"}
+
+                      <div className="mt-2 text-xs text-slate-600">
+                        Amount {money(quote.loan_amount)} · Term {quote.term_months}m · Amort {quote.amort_months}m · IO {quote.interest_only_months}m
                       </div>
-                    ) : null}
-                  </div>
-                ))}
+                      <div className="mt-2 text-xs text-slate-600">
+                        P&I {quote.monthly_payment_pi != null ? money(quote.monthly_payment_pi) : "—"}
+                        {quote.monthly_payment_io != null ? ` · IO ${money(quote.monthly_payment_io)}` : ""}
+                      </div>
+
+                      {isLocked ? (
+                        <div className="mt-2 text-xs text-slate-500">
+                          Locked{quote.locked_at ? ` on ${formatDateTime(quote.locked_at)}` : ""}
+                          {quote.lock_reason ? ` · ${quote.lock_reason}` : ""}
+                        </div>
+                      ) : null}
+
+                      {quote.rate_index_snapshots ? (
+                        <div className="mt-2 rounded bg-slate-50 p-2 text-xs text-slate-600">
+                          Snapshot {quote.rate_index_snapshots.id} · {quote.rate_index_snapshots.index_label} @ {formatPct(quote.rate_index_snapshots.index_rate_pct)}%
+                          <div>
+                            As of {quote.rate_index_snapshots.as_of_date} · Source {quote.rate_index_snapshots.source}
+                          </div>
+                        </div>
+                      ) : null}
+                      {(quote.pricing_policy_id || quote.pricing_policy_version || quote.pricing_model_hash) ? (
+                        <div className="mt-2 text-xs text-slate-500">
+                          Policy {quote.pricing_policy_id ?? "—"} · Version {quote.pricing_policy_version ?? "—"} · Hash {quote.pricing_model_hash ?? "—"}
+                        </div>
+                      ) : null}
+
+                      {isExpanded ? (
+                        <div className="mt-3 rounded border bg-slate-50 p-3 text-xs text-slate-700">
+                          <div className="flex items-center justify-between">
+                            <div className="font-semibold">Explainability</div>
+                            <div className="text-slate-500">
+                              Confidence {explain ? `${Math.round(explain.confidence * 100)}%` : "—"}
+                            </div>
+                          </div>
+                          {explain ? (
+                            <>
+                              <div className="mt-2">{explain.summary}</div>
+                              <div className="mt-3">
+                                <div className="font-semibold text-slate-700">Drivers</div>
+                                <div className="mt-1 space-y-1">
+                                  {explain.drivers?.map((d, i) => (
+                                    <div key={i} className="flex items-start justify-between gap-2">
+                                      <div className="text-slate-700">
+                                        {d.label}
+                                        {d.reason ? ` — ${d.reason}` : ""}
+                                      </div>
+                                      <div className="font-mono text-slate-600">{fmtBps(d.bps)}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                              {explain.missingInputs?.length ? (
+                                <div className="mt-3">
+                                  <div className="font-semibold text-slate-700">Missing inputs</div>
+                                  <ul className="mt-1 list-disc pl-4 text-slate-600">
+                                    {explain.missingInputs.map((m, i) => (
+                                      <li key={i}>
+                                        {m.label}
+                                        {m.impactBps != null ? ` (impact ~${m.impactBps} bps)` : ""}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : (
+                                <div className="mt-3 text-slate-500">No missing inputs flagged.</div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="mt-2 text-slate-500">Explainability not available yet.</div>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </Card>
