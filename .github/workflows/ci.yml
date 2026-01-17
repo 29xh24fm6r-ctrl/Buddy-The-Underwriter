@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -24,7 +25,7 @@ jobs:
       - name: Lint
         run: pnpm -s lint
       - name: Build
-        run: pnpm -s build
+        run: pnpm -s build:ci
         env:
           NEXT_TELEMETRY_DISABLED: "1"
           NODE_OPTIONS: "--max-old-space-size=8192"
@@ -33,3 +34,10 @@ jobs:
           CLERK_SECRET_KEY: sk_test_placeholder
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
           OPENAI_API_KEY: sk-placeholder
+      - name: Upload build diagnostics (.ci)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnostics
+          path: .ci/
+          if-no-files-found: warn
