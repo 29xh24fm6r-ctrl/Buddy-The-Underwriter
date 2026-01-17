@@ -1,7 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import type React from "react";
+import React, { useMemo, useState } from "react";
+
+type IndexCode = "UST_5Y" | "SOFR" | "PRIME";
+
+type IndexRate = {
+  code: IndexCode;
+  label: string;
+  ratePct: number;
+  asOf: string;
+  source: "treasury" | "nyfed" | "fed_h15";
+  details?: Record<string, unknown>;
+};
+
+type PricingInputs = {
+  index_code: IndexCode;
+  index_source: string;
+  index_tenor: string | null;
+  index_rate_pct: number | null;
+  loan_amount: number | null;
+  term_months: number;
+  amort_months: number;
+  interest_only_months: number;
+  spread_override_bps: number | null;
+  base_rate_override_pct: number | null;
+  notes: string | null;
+};
 
 type Deal = {
   id: string;
@@ -24,13 +49,107 @@ type Pricing = {
   explain: Array<{ label: string; detail: string; deltaBps?: number }>;
 };
 
+type ComputedPricing = {
+  baseRatePct: number;
+  spreadBps: number;
+  allInRatePct: number;
+  rateAsOf: string | null;
+};
+
 export default function DealPricingClient({
   deal,
   pricing,
+  latestRates,
+  inputs,
+  computed,
 }: {
   deal: Deal;
   pricing: Pricing;
+  latestRates: Record<IndexCode, IndexRate> | null;
+  inputs: PricingInputs | null;
+  computed: ComputedPricing;
 }) {
+  const [form, setForm] = useState<PricingInputs>(() =>
+    normalizeInputs(deal, inputs),
+  );
+  const [rates, setRates] = useState<Record<IndexCode, IndexRate> | null>(
+    latestRates,
+  );
+  const [status, setStatus] = useState<{
+    kind: "success" | "error" | "info";
+    message: string;
+  } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const effectiveRate = useMemo(() => {
+    if (!rates) return null;
+    return rates[form.index_code] ?? rates.SOFR ?? null;
+  }, [form.index_code, rates]);
+
+  const baseRatePct =
+    form.base_rate_override_pct ??
+    effectiveRate?.ratePct ??
+    computed.baseRatePct ??
+    pricing.quote.baseRate ??
+    0;
+  const spreadBps =
+    form.spread_override_bps ?? computed.spreadBps ?? pricing.quote.spreadBps ?? 0;
+  const allInRatePct = baseRatePct + spreadBps / 100;
+  const rateAsOf = effectiveRate?.asOf ?? computed.rateAsOf;
+  const principal = form.loan_amount ?? deal.requested_loan_amount ?? 0;
+  const monthlyRate = allInRatePct / 100 / 12;
+  const amortMonths = Math.max(1, form.amort_months || 0);
+  const paymentEstimate = calculatePayment(principal, monthlyRate, amortMonths);
+  const ioPayment = form.interest_only_months > 0 ? principal * monthlyRate : null;
+
+  async function handleSave() {
+    setSaving(true);
+    setStatus(null);
+    try {
+      const payload = {
+        ...form,
+        index_source: effectiveRate?.source ?? form.index_source,
+        index_tenor: form.index_code === "UST_5Y" ? "5Y" : null,
+        index_rate_pct: effectiveRate?.ratePct ?? form.index_rate_pct ?? null,
+      };
+
+      const res = await fetch(`/api/deals/${deal.id}/pricing/inputs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to save pricing inputs");
+      }
+
+      setForm(normalizeInputs(deal, json.inputs ?? form));
+      setStatus({ kind: "success", message: "Saved pricing inputs." });
+    } catch (err: any) {
+      setStatus({ kind: "error", message: err?.message ?? "Save failed" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRefreshRates() {
+    setRefreshing(true);
+    setStatus(null);
+    try {
+      const res = await fetch("/api/rates/latest", { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to refresh rates");
+      }
+      setRates(json.rates ?? null);
+      setStatus({ kind: "success", message: "Rates refreshed." });
+    } catch (err: any) {
+      setStatus({ kind: "error", message: err?.message ?? "Refresh failed" });
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-white">
@@ -54,11 +173,165 @@ export default function DealPricingClient({
           </div>
         </div>
 
+        <section className="grid grid-cols-1 gap-4">
+          <Card title="Deal Builder">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Field label="Index">
+                <select
+                  className="w-full rounded border px-3 py-2 text-sm"
+                  value={form.index_code}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      index_code: e.target.value as IndexCode,
+                    }))
+                  }
+                >
+                  <option value="SOFR">SOFR</option>
+                  <option value="UST_5Y">5Y Treasury</option>
+                  <option value="PRIME">Prime</option>
+                </select>
+              </Field>
+
+              <Field label="Loan Amount">
+                <input
+                  className="w-full rounded border px-3 py-2 text-sm"
+                  type="number"
+                  step="1000"
+                  value={form.loan_amount ?? ""}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      loan_amount: parseNullableNumber(e.target.value),
+                    }))
+                  }
+                  placeholder="e.g. 750000"
+                />
+              </Field>
+
+              <Field label="Term (months)">
+                <input
+                  className="w-full rounded border px-3 py-2 text-sm"
+                  type="number"
+                  step="1"
+                  value={form.term_months}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      term_months: parseNumber(e.target.value, 120),
+                    }))
+                  }
+                />
+              </Field>
+
+              <Field label="Amortization (months)">
+                <input
+                  className="w-full rounded border px-3 py-2 text-sm"
+                  type="number"
+                  step="1"
+                  value={form.amort_months}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      amort_months: parseNumber(e.target.value, 300),
+                    }))
+                  }
+                />
+              </Field>
+
+              <Field label="Interest-Only (months)">
+                <input
+                  className="w-full rounded border px-3 py-2 text-sm"
+                  type="number"
+                  step="1"
+                  value={form.interest_only_months}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      interest_only_months: parseNumber(e.target.value, 0),
+                    }))
+                  }
+                />
+              </Field>
+
+              <Field label="Base Rate Override (%)">
+                <input
+                  className="w-full rounded border px-3 py-2 text-sm"
+                  type="number"
+                  step="0.01"
+                  value={form.base_rate_override_pct ?? ""}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      base_rate_override_pct: parseNullableNumber(e.target.value),
+                    }))
+                  }
+                  placeholder="Optional"
+                />
+              </Field>
+
+              <Field label="Spread Override (bps)">
+                <input
+                  className="w-full rounded border px-3 py-2 text-sm"
+                  type="number"
+                  step="1"
+                  value={form.spread_override_bps ?? ""}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      spread_override_bps: parseNullableNumber(e.target.value),
+                    }))
+                  }
+                  placeholder="Optional"
+                />
+              </Field>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Stat
+                label="Base Rate"
+                value={`${formatPct(baseRatePct)}%`}
+                hint={rateAsOf ? `as of ${rateAsOf}` : ""}
+              />
+              <Stat label="Spread" value={fmtBps(spreadBps)} />
+              <Stat label="All-In Rate" value={`${formatPct(allInRatePct)}%`} emphasize />
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+                onClick={handleSave}
+                disabled={saving}
+              >
+                {saving ? "Saving..." : "Save terms"}
+              </button>
+              <button
+                className="rounded border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+                onClick={handleRefreshRates}
+                disabled={refreshing}
+              >
+                {refreshing ? "Refreshing..." : "Refresh rates"}
+              </button>
+              {status ? (
+                <span
+                  className={
+                    status.kind === "error"
+                      ? "text-sm text-red-600"
+                      : "text-sm text-slate-600"
+                  }
+                >
+                  {status.message}
+                </span>
+              ) : null}
+            </div>
+          </Card>
+        </section>
+
         <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card title="Quoted Rate">
-            <div className="text-3xl font-bold">{pricing.quote.apr.toFixed(3)}%</div>
+            <div className="text-3xl font-bold">{formatPct(allInRatePct)}%</div>
             <div className="text-sm text-slate-600 mt-1">
-              Spread: {pricing.quote.spreadBps} bps · Base: {pricing.quote.baseRate.toFixed(3)}%
+              Spread: {fmtBps(spreadBps)} · Base: {formatPct(baseRatePct)}%
             </div>
           </Card>
 
@@ -72,20 +345,25 @@ export default function DealPricingClient({
             </div>
           </Card>
 
-          <Card title="Max Loan (Model)">
+          <Card title="Payment Estimate">
             <div className="text-3xl font-bold">
-              {pricing.quote.maxLoanAmount != null ? money(pricing.quote.maxLoanAmount) : "—"}
+              {paymentEstimate > 0 ? money(paymentEstimate) : "—"}
             </div>
             <div className="text-sm text-slate-600 mt-1">
-              (Derived from NOI/DSCR/constraints)
+              P&I on {money(principal)} · {form.amort_months} mo amort
             </div>
+            {ioPayment != null ? (
+              <div className="text-sm text-slate-600 mt-1">
+                IO payment: {money(ioPayment)} for {form.interest_only_months} mo
+              </div>
+            ) : null}
           </Card>
         </section>
 
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card title="Inputs Used">
             <pre className="text-xs bg-slate-50 p-3 rounded overflow-auto">
-              {JSON.stringify(pricing.inputs, null, 2)}
+              {JSON.stringify({ form, computed: { baseRatePct, spreadBps, allInRatePct } }, null, 2)}
             </pre>
           </Card>
 
@@ -125,6 +403,37 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block space-y-1 text-sm text-slate-700">
+      <span className="font-medium text-slate-800">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  hint,
+  emphasize,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  emphasize?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border bg-slate-50 px-3 py-2">
+      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={emphasize ? "text-lg font-semibold" : "text-base font-semibold"}>
+        {value}
+      </div>
+      {hint ? <div className="text-xs text-slate-500 mt-1">{hint}</div> : null}
+    </div>
+  );
+}
+
 function money(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
@@ -132,4 +441,52 @@ function money(n: number) {
 function fmtBps(bps: number) {
   const sign = bps > 0 ? "+" : "";
   return `${sign}${bps} bps`;
+}
+
+function formatPct(rate: number) {
+  if (!Number.isFinite(rate)) return "0.00";
+  return rate.toFixed(3);
+}
+
+function parseNullableNumber(value: string) {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseNumber(value: string, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function calculatePayment(principal: number, monthlyRate: number, n: number) {
+  if (!principal || !n) return 0;
+  if (!monthlyRate) return principal / n;
+  return (principal * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -n));
+}
+
+function normalizeInputs(deal: Deal, inputs: PricingInputs | null): PricingInputs {
+  const base: PricingInputs = {
+    index_code: "SOFR",
+    index_source: "nyfed",
+    index_tenor: null,
+    index_rate_pct: null,
+    loan_amount: deal.requested_loan_amount ?? null,
+    term_months: 120,
+    amort_months: 300,
+    interest_only_months: 0,
+    spread_override_bps: null,
+    base_rate_override_pct: null,
+    notes: null,
+  };
+
+  if (!inputs) return base;
+
+  return {
+    ...base,
+    ...inputs,
+    term_months: inputs.term_months ?? base.term_months,
+    amort_months: inputs.amort_months ?? base.amort_months,
+    interest_only_months: inputs.interest_only_months ?? base.interest_only_months,
+  };
 }

@@ -1,9 +1,46 @@
 export const dynamic = "force-dynamic";
 
 import DealPricingClient from "./DealPricingClient";
+import { headers } from "next/headers";
 import { runDealRiskPricing } from "@/lib/pricing/runDealRiskPricing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+
+type PricingInputs = {
+  index_code: "SOFR" | "UST_5Y" | "PRIME";
+  index_source: string;
+  index_tenor: string | null;
+  index_rate_pct: number | null;
+  loan_amount: number | null;
+  term_months: number;
+  amort_months: number;
+  interest_only_months: number;
+  spread_override_bps: number | null;
+  base_rate_override_pct: number | null;
+  notes: string | null;
+};
+
+type LatestRates = Record<
+  "SOFR" | "UST_5Y" | "PRIME",
+  {
+    code: "SOFR" | "UST_5Y" | "PRIME";
+    label: string;
+    ratePct: number;
+    asOf: string;
+    source: "treasury" | "nyfed" | "fed_h15";
+  }
+>;
+
+async function getBaseUrl() {
+  const envBase = process.env.PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (envBase) return envBase.replace(/\/+$/, "");
+
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  if (!host) return "http://localhost:3000";
+  return `${proto}://${host}`;
+}
 
 export default async function Page(
   props: { params: Promise<{ dealId: string }> }
@@ -37,6 +74,45 @@ export default async function Page(
   }
 
   const pricing = await runDealRiskPricing(deal);
+  const baseUrl = await getBaseUrl();
 
-  return <DealPricingClient deal={deal} pricing={pricing} />;
+  const [inputsRes, ratesRes] = await Promise.all([
+    fetch(`${baseUrl}/api/deals/${dealId}/pricing/inputs`, { cache: "no-store" }),
+    fetch(`${baseUrl}/api/rates/latest`, { cache: "no-store" }),
+  ]);
+
+  let inputs: PricingInputs | null = null;
+  let latestRates: LatestRates | null = null;
+
+  if (inputsRes.ok) {
+    const payload = await inputsRes.json();
+    inputs = payload?.inputs ?? null;
+  }
+
+  if (ratesRes.ok) {
+    const payload = await ratesRes.json();
+    latestRates = payload?.rates ?? null;
+  }
+
+  const indexCode = inputs?.index_code ?? "SOFR";
+  const rateEntry = latestRates?.[indexCode] ?? latestRates?.SOFR ?? null;
+  const baseRatePct =
+    inputs?.base_rate_override_pct ?? rateEntry?.ratePct ?? pricing.quote.baseRate ?? 0;
+  const spreadBps = inputs?.spread_override_bps ?? pricing.quote.spreadBps ?? 0;
+  const allInRatePct = baseRatePct + spreadBps / 100;
+
+  return (
+    <DealPricingClient
+      deal={deal}
+      pricing={pricing}
+      latestRates={latestRates}
+      inputs={inputs}
+      computed={{
+        baseRatePct,
+        spreadBps,
+        allInRatePct,
+        rateAsOf: rateEntry?.asOf ?? null,
+      }}
+    />
+  );
 }
