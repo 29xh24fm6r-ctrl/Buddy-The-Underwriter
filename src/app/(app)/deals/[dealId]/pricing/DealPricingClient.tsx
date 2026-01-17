@@ -223,8 +223,6 @@ export default function DealPricingClient({
       setStatus({ kind: "error", message: "Copy failed." });
     }
   }
-=======
->>>>>>> origin/main
 
   return (
     <main className="min-h-screen bg-white">
@@ -328,7 +326,6 @@ export default function DealPricingClient({
                   }
                 />
               </Field>
-<<<<<<< HEAD
             </div>
 
             <button
@@ -388,43 +385,6 @@ export default function DealPricingClient({
                 </Field>
               </div>
             ) : null}
-
-=======
-
-              <Field label="Base Rate Override (%)">
-                <input
-                  className="w-full rounded border px-3 py-2 text-sm"
-                  type="number"
-                  step="0.01"
-                  value={form.base_rate_override_pct ?? ""}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      base_rate_override_pct: parseNullableNumber(e.target.value),
-                    }))
-                  }
-                  placeholder="Optional"
-                />
-              </Field>
-
-              <Field label="Spread Override (bps)">
-                <input
-                  className="w-full rounded border px-3 py-2 text-sm"
-                  type="number"
-                  step="1"
-                  value={form.spread_override_bps ?? ""}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      spread_override_bps: parseNullableNumber(e.target.value),
-                    }))
-                  }
-                  placeholder="Optional"
-                />
-              </Field>
-            </div>
-
->>>>>>> origin/main
             <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
               <Stat
                 label="Base Rate"
@@ -435,31 +395,22 @@ export default function DealPricingClient({
               <Stat label="All-In Rate" value={`${formatPct(allInRatePct)}%`} emphasize />
             </div>
 
-<<<<<<< HEAD
             <div className="mt-2 text-xs text-slate-500">
               Live source: {rateSource ?? "—"}
             </div>
-
-=======
->>>>>>> origin/main
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
                 onClick={handleSave}
                 disabled={saving}
               >
-<<<<<<< HEAD
                 {saving ? "Saving..." : "Save inputs"}
-=======
-                {saving ? "Saving..." : "Save terms"}
->>>>>>> origin/main
               </button>
               <button
                 className="rounded border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
                 onClick={handleRefreshRates}
                 disabled={refreshing}
               >
-<<<<<<< HEAD
                 {refreshing ? "Refreshing..." : "Refresh live rates"}
               </button>
               <button
@@ -468,9 +419,6 @@ export default function DealPricingClient({
                 disabled={quoting}
               >
                 {quoting ? "Quoting..." : "Generate bank-grade quote"}
-=======
-                {refreshing ? "Refreshing..." : "Refresh rates"}
->>>>>>> origin/main
               </button>
               {status ? (
                 <span
@@ -484,7 +432,6 @@ export default function DealPricingClient({
                 </span>
               ) : null}
             </div>
-<<<<<<< HEAD
 
             {lastSnapshot ? (
               <div className="mt-4 rounded border bg-slate-50 p-3 text-xs text-slate-700">
@@ -500,8 +447,6 @@ export default function DealPricingClient({
                 </div>
               </div>
             ) : null}
-=======
->>>>>>> origin/main
           </Card>
         </section>
 
@@ -535,7 +480,6 @@ export default function DealPricingClient({
                 IO payment: {money(ioPayment)} for {form.interest_only_months} mo
               </div>
             ) : null}
-<<<<<<< HEAD
           </Card>
         </section>
 
@@ -587,8 +531,6 @@ export default function DealPricingClient({
                 ))}
               </div>
             )}
-=======
->>>>>>> origin/main
           </Card>
         </section>
 
@@ -676,11 +618,7 @@ function fmtBps(bps: number) {
 }
 
 function formatPct(rate: number) {
-<<<<<<< HEAD
   if (!Number.isFinite(rate)) return "0.000";
-=======
-  if (!Number.isFinite(rate)) return "0.00";
->>>>>>> origin/main
   return rate.toFixed(3);
 }
 
@@ -704,24 +642,13 @@ function calculatePayment(principal: number, monthlyRate: number, n: number) {
 function normalizeInputs(deal: Deal, inputs: PricingInputs | null): PricingInputs {
   const base: PricingInputs = {
     index_code: "SOFR",
-<<<<<<< HEAD
     index_tenor: null,
     base_rate_override_pct: null,
     spread_override_bps: null,
-=======
-    index_source: "nyfed",
-    index_tenor: null,
-    index_rate_pct: null,
->>>>>>> origin/main
     loan_amount: deal.requested_loan_amount ?? null,
     term_months: 120,
     amort_months: 300,
     interest_only_months: 0,
-<<<<<<< HEAD
-=======
-    spread_override_bps: null,
-    base_rate_override_pct: null,
->>>>>>> origin/main
     notes: null,
   };
 
@@ -735,7 +662,6 @@ function normalizeInputs(deal: Deal, inputs: PricingInputs | null): PricingInput
     interest_only_months: inputs.interest_only_months ?? base.interest_only_months,
   };
 }
-<<<<<<< HEAD
 
 function formatDateTime(value: string) {
   const date = new Date(value);
@@ -745,5 +671,3 @@ function formatDateTime(value: string) {
     timeStyle: "short",
   }).format(date);
 }
-=======
->>>>>>> origin/main
