@@ -124,6 +124,7 @@ export async function POST(
       pricing_policy_version: null,
       pricing_model_hash: null,
       pricing_explain,
+      status: "draft",
     })
     .select("*")
     .single();

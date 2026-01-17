@@ -42,6 +42,11 @@ type QuoteRow = {
   interest_only_months: number;
   monthly_payment_pi: number | null;
   monthly_payment_io: number | null;
+  status?: string | null;
+  locked_at?: string | null;
+  locked_by?: string | null;
+  lock_reason?: string | null;
+  underwriting_snapshot_id?: string | null;
   pricing_policy_id: string | null;
   pricing_policy_version: string | null;
   pricing_model_hash: string | null;
