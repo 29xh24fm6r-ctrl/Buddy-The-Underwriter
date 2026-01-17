@@ -99,7 +99,6 @@ export default async function Page(
   const pricing = await runDealRiskPricing(deal);
   const baseUrl = await getBaseUrl();
 
-<<<<<<< HEAD
   const [inputsRes, ratesRes, quotesRes] = await Promise.all([
     fetch(`${baseUrl}/api/deals/${dealId}/pricing/inputs`, { cache: "no-store" }),
     fetch(`${baseUrl}/api/rates/latest`, { cache: "no-store" }),
