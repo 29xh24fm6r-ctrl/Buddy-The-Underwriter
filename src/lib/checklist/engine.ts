@@ -3,7 +3,7 @@ import { matchChecklistKeyFromFilename } from "./matchers";
 import type { ChecklistDefinition, ChecklistRuleSet } from "./types";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
-import { emitBuddySignal } from "@/buddy/emitBuddySignal";
+import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 
 type CanonicalDocTypeBucket =
   | "business_tax_return"
@@ -781,7 +781,7 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
         .map((r: any) => r.checklist_key)
         .filter(Boolean);
 
-      emitBuddySignal({
+      emitBuddySignalServer({
         type: "checklist.updated",
         source: "engine.reconcileChecklistForDeal",
         dealId,

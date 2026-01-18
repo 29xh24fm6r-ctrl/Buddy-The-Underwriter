@@ -66,6 +66,19 @@ export type BuddySessionState = {
 
 const KEY = "buddy.session.v1";
 
+let currentState: BuddySessionState | null = null;
+
+export const buddySessionStore = {
+  getState(): BuddySessionState {
+    if (currentState) return currentState;
+    currentState = getDefaultState();
+    return currentState;
+  },
+  setState(next: BuddySessionState) {
+    currentState = next;
+  },
+};
+
 function now() {
   return Date.now();
 }
@@ -117,7 +130,9 @@ export function loadBuddySession(): BuddySessionState {
     const raw = window.sessionStorage.getItem(KEY);
     if (!raw) return getDefaultState();
     const parsed = JSON.parse(raw) as BuddySessionState;
-    return { ...getDefaultState(), ...parsed };
+    const hydrated = { ...getDefaultState(), ...parsed };
+    buddySessionStore.setState(hydrated);
+    return hydrated;
   } catch {
     return getDefaultState();
   }
@@ -127,6 +142,7 @@ export function saveBuddySession(state: BuddySessionState) {
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.setItem(KEY, JSON.stringify(state));
+    buddySessionStore.setState(state);
   } catch {
     // ignore
   }

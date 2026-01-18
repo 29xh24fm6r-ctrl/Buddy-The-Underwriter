@@ -16,7 +16,7 @@ function envObserverEnabled() {
 }
 
 export function BuddyPanel() {
-  if (!envObserverEnabled()) return null;
+  const enabled = envObserverEnabled();
 
   const {
     state,
@@ -34,7 +34,7 @@ export function BuddyPanel() {
   const [showRaw, setShowRaw] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
-  const isObserver = envObserverEnabled() && state.role === "builder";
+  const isObserver = enabled && state.role === "builder";
   const open = isObserver ? true : state.isOpen;
   const items = useMemo(() => (state.signals ?? []).slice().reverse(), [state.signals]);
   const dealId = useMemo(() => (pathname ? getDealIdFromPath(pathname) : null), [pathname]);
@@ -56,7 +56,7 @@ export function BuddyPanel() {
     const md = await fetchExplainDeal(dealId);
     setExplainMarkdown(dealId, md);
     if (md) pushToast("Explain ready");
-  }, [dealId, pushToast, setExplainMarkdown, fetchExplainDeal]);
+  }, [dealId, pushToast, setExplainMarkdown]);
 
   const handleCopyExplain = useCallback(async () => {
     if (!dealId || !explainMd) return;
@@ -75,6 +75,8 @@ export function BuddyPanel() {
     URL.revokeObjectURL(url);
     pushToast("Explain downloaded");
   }, [dealId, explainMd, pushToast]);
+
+  if (!enabled) return null;
 
   return (
     <div

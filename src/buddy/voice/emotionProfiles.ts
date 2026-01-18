@@ -1,4 +1,4 @@
-import type { BuddyRole } from "@/buddy/brain/types";
+import type { BuddyRole } from "@/buddy/types";
 
 export interface EmotionProfile {
   pace: "slow" | "normal" | "fast";
