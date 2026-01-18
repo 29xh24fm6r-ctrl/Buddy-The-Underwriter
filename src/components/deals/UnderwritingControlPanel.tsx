@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
+import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 
 export function UnderwritingControlPanel({ dealId }: { dealId: string }) {
   const router = useRouter();
@@ -26,6 +27,14 @@ export function UnderwritingControlPanel({ dealId }: { dealId: string }) {
         href,
       );
     }
+
+    emitBuddySignal({
+      type: "user.action",
+      source: "components/deals/UnderwritingControlPanel.tsx",
+      dealId,
+      payload: { action: "start_underwriting" },
+    });
+
     setBusy(true);
     router.push(href);
   }

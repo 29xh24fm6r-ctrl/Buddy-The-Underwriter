@@ -5,6 +5,8 @@ import { ConditionalHeroBar } from "@/components/nav/ConditionalHeroBar";
 import FrameGuard from "@/components/dev/FrameGuard";
 import { PHProvider } from "@/components/analytics/PostHogProvider";
 import { QaModeProvider } from "@/components/qa/QaModeProvider";
+import { BuddyProvider } from "@/buddy/core/BuddyProvider";
+import { BuddyPanel } from "@/buddy/ui/BuddyPanel";
 import "./globals.css";
 
 const inter = Inter({
@@ -80,13 +82,16 @@ export default function RootLayout({
           />
         </head>
         <body className={`${inter.variable} font-inter bg-bg-dark text-white antialiased`}>
-          <PHProvider>
-            <QaModeProvider>
-              <FrameGuard />
-              <ConditionalHeroBar />
-              <main>{children}</main>
-            </QaModeProvider>
-          </PHProvider>
+          <BuddyProvider>
+            <PHProvider>
+              <QaModeProvider>
+                <FrameGuard />
+                <ConditionalHeroBar />
+                <main>{children}</main>
+              </QaModeProvider>
+            </PHProvider>
+            <BuddyPanel />
+          </BuddyProvider>
         </body>
       </html>
     </ClerkGate>

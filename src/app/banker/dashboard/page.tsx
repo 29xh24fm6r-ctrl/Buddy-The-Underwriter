@@ -4,6 +4,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 import {
   BarChart,
   Bar,
@@ -71,6 +72,11 @@ export default function BankerDashboardPage() {
   }
 
   useEffect(() => {
+    emitBuddySignal({
+      type: "page.ready",
+      source: "app/banker/dashboard/page.tsx",
+      payload: { route: "/banker/dashboard" },
+    });
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

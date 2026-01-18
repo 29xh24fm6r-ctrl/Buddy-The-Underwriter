@@ -3,6 +3,7 @@ import { matchChecklistKeyFromFilename } from "./matchers";
 import type { ChecklistDefinition, ChecklistRuleSet } from "./types";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
+import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 
 type CanonicalDocTypeBucket =
   | "business_tax_return"
@@ -760,6 +761,40 @@ export async function matchAndStampDealDocument(opts: {
  * Called after document stamping to update satisfaction + status.
  */
 export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string }) {
-  const { dealId } = opts;
-  return reconcileDealChecklist(dealId);
+  const { dealId, sb: sbOverride } = opts;
+  const result = await reconcileDealChecklist(dealId);
+
+  try {
+    const sb = sbOverride ?? supabaseAdmin();
+    const { data: rows } = await sb
+      .from("deal_checklist_items")
+      .select("status, checklist_key")
+      .eq("deal_id", dealId);
+
+    if (rows) {
+      const received = rows.filter((r: any) => r.status === "received" || r.status === "satisfied").length;
+      const missing = rows.filter(
+        (r: any) => r.status === "missing" || r.status === "pending" || r.status === "needs_review"
+      ).length;
+      const satisfiedKeys = rows
+        .filter((r: any) => r.status === "received" || r.status === "satisfied")
+        .map((r: any) => r.checklist_key)
+        .filter(Boolean);
+
+      emitBuddySignal({
+        type: "checklist.updated",
+        source: "engine.reconcileChecklistForDeal",
+        dealId,
+        payload: {
+          received,
+          missing,
+          satisfied: satisfiedKeys,
+        },
+      });
+    }
+  } catch {
+    // ignore signal failures
+  }
+
+  return result;
 }
