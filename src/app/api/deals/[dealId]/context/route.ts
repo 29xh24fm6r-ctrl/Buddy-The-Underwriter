@@ -179,6 +179,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
     emitBuddySignalServer({
       type: "deal.loaded",
       source: "api/deals/[dealId]/context",
+      ts: Date.now(),
       dealId,
       payload: { stage: deal.stage ?? null, risk_score: deal.risk_score ?? null },
     });

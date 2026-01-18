@@ -784,6 +784,7 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
       emitBuddySignalServer({
         type: "checklist.updated",
         source: "engine.reconcileChecklistForDeal",
+        ts: Date.now(),
         dealId,
         payload: {
           received,
