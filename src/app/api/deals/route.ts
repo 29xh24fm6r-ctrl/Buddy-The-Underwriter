@@ -47,7 +47,7 @@ export async function POST(req: Request) {
 
     const supabase = getSupabaseServerClient();
     const isDemoBank = await isSandboxBank(bankId).catch(() => false);
-  const dealId = randomUUID();
+    const dealId = randomUUID();
 
     const baseInsertData: Record<string, any> = {
       id: dealId,
@@ -73,6 +73,7 @@ export async function POST(req: Request) {
       }
     }
 
+    // Invariant: real production deals must not depend on demo-only schema flags.
     // Optional fields that may not exist in older schemas
     const optimisticInsertData: Record<string, any> = {
       ...baseInsertData,
@@ -85,7 +86,6 @@ export async function POST(req: Request) {
       stage: "intake",
       entity_type: "Unknown",
       risk_score: 0,
-      is_demo: isDemoBank,
     };
 
     type InsertRes = { data: { id: string } | null; error: { message: string } | null };
@@ -126,26 +126,10 @@ export async function POST(req: Request) {
                 borrower_name: name,
               }
             : null),
-          is_demo: isDemoBank,
         };
-        let res = await insertOnce(fallbackPayload);
+        const res = await insertOnce(fallbackPayload);
         deal = res.data;
         error = res.error;
-
-        if (error && String(error?.message || "").includes("is_demo")) {
-          const minimalPayload: Record<string, any> = {
-            ...baseInsertData,
-            ...(name
-              ? {
-                  name,
-                  borrower_name: name,
-                }
-              : null),
-          };
-          res = await insertOnce(minimalPayload);
-          deal = res.data;
-          error = res.error;
-        }
       }
     }
 
