@@ -17,6 +17,11 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
+    "types": [
+      "node",
+      "next",
+      "next/image-types/global"
+    ],
     "baseUrl": ".",
     "paths": {
       "@/*": [
@@ -30,7 +35,6 @@
     ]
   },
   "include": [
-    "next-env.d.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
     "components/**/*.ts",
