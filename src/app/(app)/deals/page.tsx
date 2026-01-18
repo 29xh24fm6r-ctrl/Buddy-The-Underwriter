@@ -267,9 +267,14 @@ export default async function DealsPage({
                       <span className={stageStripe(deal.stage)} />
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <span className="truncate max-w-[240px]" title={deal.label}>
+                          <Link
+                            href={`/deals/${deal.id}/cockpit`}
+                            className="truncate max-w-[240px] hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                            title={deal.label}
+                            data-testid={`deal-link-${deal.id}`}
+                          >
                             {deal.label}
-                          </span>
+                          </Link>
                           {deal.needsName ? (
                             <span className="status-pill warn">Needs name</span>
                           ) : null}

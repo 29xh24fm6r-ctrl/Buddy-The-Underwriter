@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 import { exportFindingsAsMarkdown } from "@/buddy/exportFindings";
@@ -37,6 +37,13 @@ export function BuddyPanel() {
   const pathname = usePathname();
   const [showRaw, setShowRaw] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const [panelPos, setPanelPos] = useState(() => ({ x: 16, y: 92 }));
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+  } | null>(null);
 
   const isObserver = enabled && state.role === "builder";
   const open = isObserver ? true : state.isOpen;
@@ -51,6 +58,33 @@ export function BuddyPanel() {
     if (state.role === "banker") return "Buddy (Credit Officer)";
     return "Buddy (Guide)";
   }, [state.role]);
+
+  const handleDragStart = useCallback(
+    (evt: React.PointerEvent<HTMLDivElement>) => {
+      dragRef.current = {
+        startX: evt.clientX,
+        startY: evt.clientY,
+        origX: panelPos.x,
+        origY: panelPos.y,
+      };
+      evt.currentTarget.setPointerCapture(evt.pointerId);
+    },
+    [panelPos.x, panelPos.y]
+  );
+
+  const handleDragMove = useCallback((evt: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    const dx = evt.clientX - dragRef.current.startX;
+    const dy = evt.clientY - dragRef.current.startY;
+    setPanelPos({
+      x: Math.max(0, dragRef.current.origX + dx),
+      y: Math.max(0, dragRef.current.origY + dy),
+    });
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    dragRef.current = null;
+  }, []);
 
   useEffect(() => {
     const id = window.setInterval(() => setNowTick(Date.now()), 60_000);
@@ -115,7 +149,10 @@ export function BuddyPanel() {
   if (panelCollapsed) {
     const pct = typeof state.readiness?.readinessPct === "number" ? state.readiness.readinessPct : null;
     return (
-      <div data-testid="buddy-panel" style={{ position: "fixed", right: 18, top: 92, zIndex: 60 }}>
+      <div
+        data-testid="buddy-panel"
+        style={{ position: "fixed", right: panelPos.x, top: panelPos.y, zIndex: 60, pointerEvents: "none" }}
+      >
         <button
           onClick={() => setPanelCollapsed(false)}
           aria-label="Open Buddy"
@@ -133,6 +170,7 @@ export function BuddyPanel() {
             color: "rgba(255,255,255,0.92)",
             cursor: "pointer",
             maxWidth: "calc(100vw - 24px)",
+            pointerEvents: "auto",
           }}
         >
           <BuddyAvatar size={28} />
@@ -152,14 +190,20 @@ export function BuddyPanel() {
     <div
       data-testid="buddy-panel"
       className={[
-        "fixed right-4 bottom-4 z-50",
+        "fixed z-50",
         "max-w-[90vw]",
         "rounded-2xl border border-white/10 bg-slate-950/80",
         "shadow-2xl backdrop-blur-xl text-white",
       ].join(" ")}
-      style={{ width: panelWidth }}
+      style={{ width: panelWidth, right: panelPos.x, top: panelPos.y }}
     >
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-white/10 bg-white/5">
+      <div
+        className="flex items-center gap-3 px-4 py-3 border-b border-white/10 bg-white/5 cursor-move select-none"
+        onPointerDown={handleDragStart}
+        onPointerMove={handleDragMove}
+        onPointerUp={handleDragEnd}
+        data-testid="buddy-drag-handle"
+      >
         <BuddyAvatar size={32} />
         <div className="min-w-0">
           <div className="text-sm font-semibold">{header}</div>
@@ -178,8 +222,9 @@ export function BuddyPanel() {
           </button>
           <button
             className="text-xs px-2 py-1 rounded-full border border-white/15 bg-white/5 hover:bg-white/10"
-            onClick={() => setPanelCollapsed(true)}
+            onClick={() => setPanelCollapsed(!panelCollapsed)}
             title="Collapse"
+            data-testid="buddy-minimize"
           >
             ▾
           </button>

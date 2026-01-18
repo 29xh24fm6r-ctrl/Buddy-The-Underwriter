@@ -44,7 +44,7 @@ export default function GlassToggles() {
         className={`rounded-full border px-3 py-1 ${glass ? "border-cyan-400/50 bg-cyan-500/10 text-cyan-200" : "border-white/10"}`}
         onClick={() => setGlass((v) => !v)}
       >
-        ✨ Glass
+        ✨ Glass (visual)
       </button>
       <button
         className={`rounded-full border px-3 py-1 ${color ? "border-indigo-400/50 bg-indigo-500/10 text-indigo-200" : "border-white/10"}`}
