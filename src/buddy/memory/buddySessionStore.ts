@@ -17,6 +17,8 @@ export type BuddySessionState = {
 
   // UI state
   isOpen: boolean;
+  panelCollapsed?: boolean;
+  panelWidth?: number;
 
   // Observer feed
   signals: BuddySignal[];
@@ -89,6 +91,8 @@ function getDefaultState(): BuddySessionState {
     role: (process.env.NEXT_PUBLIC_BUDDY_ROLE as BuddyRole) || "builder",
     dealId: null,
     isOpen,
+    panelCollapsed: false,
+    panelWidth: 360,
     signals: [],
     insights: [],
     narration: null,

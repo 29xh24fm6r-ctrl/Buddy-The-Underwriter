@@ -19,6 +19,10 @@
 /.next/
 /out/
 
+# Next / tooling generated types (can be malformed in some envs; never commit)
+**/routes.d.ts
+**/.next/types/**
+
 # production
 /build
 

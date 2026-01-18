@@ -9,6 +9,8 @@ import type { FindingSeverity } from "@/buddy/findings";
 import { fetchExplainDeal } from "@/buddy/explain/fetchExplainDeal";
 import { getDealIdFromPath } from "@/buddy/getDealIdFromPath";
 import { useBuddy } from "@/buddy/core/useBuddy";
+import BuddyAvatar from "@/buddy/ui/BuddyAvatar";
+import BuddyStatusDot from "@/buddy/ui/BuddyStatusDot";
 import type { BuddySignal } from "@/buddy/types";
 
 function envObserverEnabled() {
@@ -29,6 +31,8 @@ export function BuddyPanel() {
     setExplainMarkdown,
     pushToast,
     setOutcomeSnapshot,
+    setPanelCollapsed,
+    setPanelWidth,
   } = useBuddy();
   const pathname = usePathname();
   const [showRaw, setShowRaw] = useState(false);
@@ -36,6 +40,8 @@ export function BuddyPanel() {
 
   const isObserver = enabled && state.role === "builder";
   const open = isObserver ? true : state.isOpen;
+  const panelCollapsed = state.panelCollapsed ?? false;
+  const panelWidth = state.panelWidth ?? 360;
   const items = useMemo(() => (state.signals ?? []).slice().reverse(), [state.signals]);
   const dealId = useMemo(() => (pathname ? getDealIdFromPath(pathname) : null), [pathname]);
   const explainMd = dealId ? state.explainMarkdownByDeal?.[dealId] ?? null : null;
@@ -76,37 +82,166 @@ export function BuddyPanel() {
     pushToast("Explain downloaded");
   }, [dealId, explainMd, pushToast]);
 
+  const handleCopyFindings = useCallback(async () => {
+    if (!state.findings.length) {
+      pushToast("No findings yet");
+      return;
+    }
+    const md = exportFindingsAsMarkdown(state.findings);
+    await navigator.clipboard.writeText(md);
+    pushToast("Findings copied");
+  }, [state.findings, pushToast]);
+
   if (!enabled) return null;
+
+  if (!open) {
+    return (
+      <button
+        data-testid="buddy-panel"
+        className={[
+          "fixed right-4 bottom-4 z-50",
+          "rounded-2xl border border-white/10 bg-slate-950/80",
+          "shadow-2xl backdrop-blur-xl",
+          "p-2",
+        ].join(" ")}
+        onClick={() => setOpen(true)}
+        aria-label="Open Buddy"
+      >
+        <BuddyAvatar size={36} />
+      </button>
+    );
+  }
+
+  if (panelCollapsed) {
+    const pct = typeof state.readiness?.readinessPct === "number" ? state.readiness.readinessPct : null;
+    return (
+      <div data-testid="buddy-panel" style={{ position: "fixed", right: 18, top: 92, zIndex: 60 }}>
+        <button
+          onClick={() => setPanelCollapsed(false)}
+          aria-label="Open Buddy"
+          title="Open Buddy"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 12px",
+            borderRadius: 999,
+            border: "1px solid rgba(255,255,255,0.14)",
+            background: "linear-gradient(180deg, rgba(18,22,35,0.88), rgba(10,12,18,0.88))",
+            boxShadow: "0 18px 44px rgba(0,0,0,0.46)",
+            backdropFilter: "blur(10px)",
+            color: "rgba(255,255,255,0.92)",
+            cursor: "pointer",
+            maxWidth: "calc(100vw - 24px)",
+          }}
+        >
+          <BuddyAvatar size={28} />
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: "14px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontWeight: 900, fontSize: 12 }}>Buddy</span>
+              <BuddyStatusDot />
+            </div>
+            <div style={{ fontSize: 11, opacity: 0.72 }}>{pct != null ? `Readiness ${pct}%` : "Click to open"}</div>
+          </div>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
       data-testid="buddy-panel"
       className={[
         "fixed right-4 bottom-4 z-50",
-        "w-[420px] max-w-[90vw]",
-        "rounded-2xl shadow-lg border border-black/10 bg-white",
+        "max-w-[90vw]",
+        "rounded-2xl border border-white/10 bg-slate-950/80",
+        "shadow-2xl backdrop-blur-xl text-white",
       ].join(" ")}
+      style={{ width: panelWidth }}
     >
-      <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
-        <div className="flex items-center gap-3">
-          <BuddyAvatar />
-          <div>
-            <div className="text-sm font-semibold">{header}</div>
-            <div className="text-xs text-black/60">Persistent • Watching context • Never resets</div>
-          </div>
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-white/10 bg-white/5">
+        <BuddyAvatar size={32} />
+        <div className="min-w-0">
+          <div className="text-sm font-semibold">{header}</div>
+          <div className="text-xs text-white/60 truncate">Persistent • Watching context • Never resets</div>
         </div>
-
-        {!isObserver && (
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-[11px] font-semibold px-2 py-1 rounded-full border border-white/15 bg-white/10">
+            {state.runId ? "Run active" : "Run idle"}
+          </span>
           <button
-            className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
-            onClick={() => setOpen(!open)}
+            className="text-xs px-2 py-1 rounded-full border border-white/15 bg-white/5 hover:bg-white/10"
+            onClick={() => setPanelWidth(panelWidth <= 340 ? 420 : 340)}
+            title="Toggle width"
           >
-            {open ? "Minimize" : "Open"}
+            {panelWidth <= 340 ? "Wider" : "Narrow"}
           </button>
-        )}
+          <button
+            className="text-xs px-2 py-1 rounded-full border border-white/15 bg-white/5 hover:bg-white/10"
+            onClick={() => setPanelCollapsed(true)}
+            title="Collapse"
+          >
+            ▾
+          </button>
+        </div>
       </div>
 
-      {open && (
+      <div className="px-4 py-3 border-b border-white/10">
+        <div className="flex flex-wrap gap-2 items-center">
+          {state.role === "builder" && (
+            <>
+              <button
+                className="text-xs px-3 py-2 rounded-xl border border-white/15 bg-white/10 hover:bg-white/15"
+                onClick={() => {
+                  if (state.runId) {
+                    stopRun();
+                    pushToast("Exploration stopped");
+                  } else {
+                    startRun();
+                    pushToast("Exploration started");
+                  }
+                }}
+              >
+                {state.runId ? "Stop run" : "Start run"}
+              </button>
+              <button
+                className="text-xs px-3 py-2 rounded-xl border border-red-200/30 bg-red-400/20 hover:bg-red-400/30"
+                onClick={() => mark("bug", state.runId ?? null, addFinding)}
+              >
+                Bug
+              </button>
+              <button
+                className="text-xs px-3 py-2 rounded-xl border border-amber-200/30 bg-amber-400/20 hover:bg-amber-400/30"
+                onClick={() => mark("confusing", state.runId ?? null, addFinding)}
+              >
+                Confusing
+              </button>
+              <button
+                className="text-xs px-3 py-2 rounded-xl border border-emerald-200/30 bg-emerald-400/20 hover:bg-emerald-400/30"
+                onClick={() => mark("magical", state.runId ?? null, addFinding)}
+              >
+                Magical
+              </button>
+              <button
+                className="text-xs px-3 py-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10"
+                onClick={handleCopyFindings}
+              >
+                Copy findings
+              </button>
+            </>
+          )}
+          {!isObserver && (
+            <button
+              className="text-xs px-3 py-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10"
+              onClick={() => setOpen(!open)}
+            >
+              {open ? "Minimize" : "Open"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white text-black">
         <div className="p-4 space-y-3">
           {state.toasts && state.toasts.length > 0 && (
             <div className="space-y-1">
@@ -425,7 +560,7 @@ export function BuddyPanel() {
             Builder mode is always-open. For borrower/banker, Buddy can be minimized by default.
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -570,42 +705,6 @@ function mark(
     path: typeof window !== "undefined" ? window.location.pathname : undefined,
     sourceSignalTs: Date.now(),
   });
-}
-
-function BuddyAvatar() {
-  return (
-    <div
-      aria-label="Buddy avatar"
-      className="h-9 w-9 rounded-xl border border-black/10 bg-white/70 shadow-[0_2px_10px_rgba(0,0,0,0.06)] grid place-items-center"
-    >
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-        <path
-          d="M8 6.5C8 4.6 9.6 3 11.5 3h1C14.4 3 16 4.6 16 6.5V7H8v-.5Z"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M7 7h10a3 3 0 0 1 3 3v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5v-6a3 3 0 0 1 3-3Z"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M9.2 12.2h.1M14.7 12.2h.1"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-        <path
-          d="M9.5 15.5c.9.8 2 1.2 3.1 1.2s2.2-.4 3.1-1.2"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-      </svg>
-    </div>
-  );
 }
 
 function handleNBAAction(
