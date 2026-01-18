@@ -17,6 +17,8 @@ function envObserverEnabled() {
   return process.env.NEXT_PUBLIC_BUDDY_OBSERVER_MODE === "1";
 }
 
+const STORAGE_KEY = "buddy:observer:minimized";
+
 export function BuddyPanel() {
   const enabled = envObserverEnabled();
 
@@ -38,6 +40,14 @@ export function BuddyPanel() {
   const [showRaw, setShowRaw] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [panelPos, setPanelPos] = useState(() => ({ x: 16, y: 92 }));
+  const [isMinimized, setIsMinimized] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const dragRef = useRef<{
     startX: number;
     startY: number;
@@ -47,7 +57,6 @@ export function BuddyPanel() {
 
   const isObserver = enabled && state.role === "builder";
   const open = isObserver ? true : state.isOpen;
-  const panelCollapsed = state.panelCollapsed ?? false;
   const panelWidth = state.panelWidth ?? 360;
   const items = useMemo(() => (state.signals ?? []).slice().reverse(), [state.signals]);
   const dealId = useMemo(() => (pathname ? getDealIdFromPath(pathname) : null), [pathname]);
@@ -89,6 +98,28 @@ export function BuddyPanel() {
   useEffect(() => {
     const id = window.setInterval(() => setNowTick(Date.now()), 60_000);
     return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, isMinimized ? "1" : "0");
+    } catch {
+      // ignore
+    }
+    setPanelCollapsed(isMinimized);
+  }, [isMinimized, setPanelCollapsed]);
+
+  const toggleMinimize = useCallback(() => {
+    try {
+      emitBuddySignal({
+        type: "user.action",
+        source: "BuddyPanel.toggleMinimize",
+        payload: { action: "toggle_minimize" },
+      });
+    } catch {
+      // ignore
+    }
+    setIsMinimized((v) => !v);
   }, []);
 
   const handleRunExplain = useCallback(async () => {
@@ -146,46 +177,6 @@ export function BuddyPanel() {
     );
   }
 
-  if (panelCollapsed) {
-    const pct = typeof state.readiness?.readinessPct === "number" ? state.readiness.readinessPct : null;
-    return (
-      <div
-        data-testid="buddy-panel"
-        style={{ position: "fixed", right: panelPos.x, top: panelPos.y, zIndex: 60, pointerEvents: "none" }}
-      >
-        <button
-          onClick={() => setPanelCollapsed(false)}
-          aria-label="Open Buddy"
-          title="Open Buddy"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "10px 12px",
-            borderRadius: 999,
-            border: "1px solid rgba(255,255,255,0.14)",
-            background: "linear-gradient(180deg, rgba(18,22,35,0.88), rgba(10,12,18,0.88))",
-            boxShadow: "0 18px 44px rgba(0,0,0,0.46)",
-            backdropFilter: "blur(10px)",
-            color: "rgba(255,255,255,0.92)",
-            cursor: "pointer",
-            maxWidth: "calc(100vw - 24px)",
-            pointerEvents: "auto",
-          }}
-        >
-          <BuddyAvatar size={28} />
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: "14px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontWeight: 900, fontSize: 12 }}>Buddy</span>
-              <BuddyStatusDot />
-            </div>
-            <div style={{ fontSize: 11, opacity: 0.72 }}>{pct != null ? `Readiness ${pct}%` : "Click to open"}</div>
-          </div>
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div
       data-testid="buddy-panel"
@@ -195,10 +186,15 @@ export function BuddyPanel() {
         "rounded-2xl border border-white/10 bg-slate-950/80",
         "shadow-2xl backdrop-blur-xl text-white",
       ].join(" ")}
-      style={{ width: panelWidth, right: panelPos.x, top: panelPos.y }}
+      style={{ width: isMinimized ? "auto" : panelWidth, right: panelPos.x, top: panelPos.y }}
     >
       <div
-        className="flex items-center gap-3 px-4 py-3 border-b border-white/10 bg-white/5 cursor-move select-none"
+        className={[
+          "flex items-center gap-3 px-4 py-3 select-none",
+          "bg-white/5",
+          isMinimized ? "rounded-2xl" : "border-b border-white/10",
+          "cursor-move",
+        ].join(" ")}
         onPointerDown={handleDragStart}
         onPointerMove={handleDragMove}
         onPointerUp={handleDragEnd}
@@ -206,229 +202,244 @@ export function BuddyPanel() {
       >
         <BuddyAvatar size={32} />
         <div className="min-w-0">
-          <div className="text-sm font-semibold">{header}</div>
-          <div className="text-xs text-white/60 truncate">Persistent • Watching context • Never resets</div>
+          <div className="text-sm font-semibold flex items-center gap-2">
+            <span>{header}</span>
+            <BuddyStatusDot />
+          </div>
+          {!isMinimized && (
+            <div className="text-xs text-white/60 truncate">Persistent • Watching context • Never resets</div>
+          )}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-[11px] font-semibold px-2 py-1 rounded-full border border-white/15 bg-white/10">
-            {state.runId ? "Run active" : "Run idle"}
-          </span>
-          <button
-            className="text-xs px-2 py-1 rounded-full border border-white/15 bg-white/5 hover:bg-white/10"
-            onClick={() => setPanelWidth(panelWidth <= 340 ? 420 : 340)}
-            title="Toggle width"
-          >
-            {panelWidth <= 340 ? "Wider" : "Narrow"}
-          </button>
-          <button
-            className="text-xs px-2 py-1 rounded-full border border-white/15 bg-white/5 hover:bg-white/10"
-            onClick={() => setPanelCollapsed(!panelCollapsed)}
-            title="Collapse"
-            data-testid="buddy-minimize"
-          >
-            ▾
-          </button>
-        </div>
-      </div>
-
-      <div className="px-4 py-3 border-b border-white/10">
-        <div className="flex flex-wrap gap-2 items-center">
-          {state.role === "builder" && (
+          {!isMinimized && (
             <>
+              <span className="text-[11px] font-semibold px-2 py-1 rounded-full border border-white/15 bg-white/10">
+                {state.runId ? "Run active" : "Run idle"}
+              </span>
               <button
-                className="text-xs px-3 py-2 rounded-xl border border-white/15 bg-white/10 hover:bg-white/15"
-                onClick={() => {
-                  if (state.runId) {
-                    stopRun();
-                    pushToast("Exploration stopped");
-                  } else {
-                    startRun();
-                    pushToast("Exploration started");
-                  }
-                }}
+                className="text-xs px-2 py-1 rounded-full border border-white/15 bg-white/5 hover:bg-white/10"
+                onClick={() => setPanelWidth(panelWidth <= 340 ? 420 : 340)}
+                title="Toggle width"
               >
-                {state.runId ? "Stop run" : "Start run"}
-              </button>
-              <button
-                className="text-xs px-3 py-2 rounded-xl border border-red-200/30 bg-red-400/20 hover:bg-red-400/30"
-                onClick={() => mark("bug", state.runId ?? null, addFinding)}
-              >
-                Bug
-              </button>
-              <button
-                className="text-xs px-3 py-2 rounded-xl border border-amber-200/30 bg-amber-400/20 hover:bg-amber-400/30"
-                onClick={() => mark("confusing", state.runId ?? null, addFinding)}
-              >
-                Confusing
-              </button>
-              <button
-                className="text-xs px-3 py-2 rounded-xl border border-emerald-200/30 bg-emerald-400/20 hover:bg-emerald-400/30"
-                onClick={() => mark("magical", state.runId ?? null, addFinding)}
-              >
-                Magical
-              </button>
-              <button
-                className="text-xs px-3 py-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10"
-                onClick={handleCopyFindings}
-              >
-                Copy findings
+                {panelWidth <= 340 ? "Wider" : "Narrow"}
               </button>
             </>
           )}
-          {!isObserver && (
-            <button
-              className="text-xs px-3 py-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10"
-              onClick={() => setOpen(!open)}
-            >
-              {open ? "Minimize" : "Open"}
-            </button>
-          )}
+          <button
+            className="text-xs px-2 py-1 rounded-full border border-white/15 bg-white/5 hover:bg-white/10"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              toggleMinimize();
+            }}
+            title={isMinimized ? "Expand" : "Minimize"}
+            data-testid="buddy-minimize"
+            aria-label={isMinimized ? "Expand Buddy panel" : "Minimize Buddy panel"}
+          >
+            {isMinimized ? "Expand" : "Minimize"}
+          </button>
         </div>
       </div>
-
-      <div className="bg-white text-black">
-        <div className="p-4 space-y-3">
-          {state.toasts && state.toasts.length > 0 && (
-            <div className="space-y-1">
-              {state.toasts
-                .slice()
-                .reverse()
-                .map((t) => (
-                  <div
-                    key={t.id}
-                    className="rounded-lg border border-black/10 bg-white px-3 py-2 text-xs text-black/70 shadow-sm"
-                  >
-                    {t.text}
-                  </div>
-                ))}
-            </div>
-          )}
-          {state.role === "builder" && (
-            <div className="rounded-xl border border-black/10 p-3">
-              <div className="text-xs font-semibold mb-2">Exploration Run</div>
-              <div className="flex flex-wrap gap-2 items-center">
-                {state.runId ? (
-                  <>
-                    <button
-                      className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
-                      onClick={() => stopRun()}
-                    >
-                      Stop Run
-                    </button>
-                    <button
-                      className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
-                      onClick={() => {
-                        copyRunSummary(state.runId ?? "run", state.signals);
-                        pushToast("Run summary copied");
-                      }}
-                    >
-                      Copy Run Summary
-                    </button>
-                    <span className="text-[11px] text-black/60">{state.runId}</span>
-                  </>
-                ) : (
+      {!isMinimized ? (
+        <>
+          <div className="px-4 py-3 border-b border-white/10">
+            <div className="flex flex-wrap gap-2 items-center">
+              {state.role === "builder" && (
+                <>
                   <button
-                    className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
-                    onClick={() => startRun()}
+                    className="text-xs px-3 py-2 rounded-xl border border-white/15 bg-white/10 hover:bg-white/15"
+                    onClick={() => {
+                      if (state.runId) {
+                        stopRun();
+                        pushToast("Exploration stopped");
+                      } else {
+                        startRun();
+                        pushToast("Exploration started");
+                      }
+                    }}
                   >
-                    Start Exploration Run
+                    {state.runId ? "Stop run" : "Start run"}
                   </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {state.role === "builder" && (
-            <div className="rounded-xl border border-black/10 p-3">
-              <div className="text-xs font-semibold mb-2">Quick Marks</div>
-              <div className="flex flex-wrap gap-2 items-center">
+                  <button
+                    className="text-xs px-3 py-2 rounded-xl border border-red-200/30 bg-red-400/20 hover:bg-red-400/30"
+                    onClick={() => mark("bug", state.runId ?? null, addFinding)}
+                  >
+                    Bug
+                  </button>
+                  <button
+                    className="text-xs px-3 py-2 rounded-xl border border-amber-200/30 bg-amber-400/20 hover:bg-amber-400/30"
+                    onClick={() => mark("confusing", state.runId ?? null, addFinding)}
+                  >
+                    Confusing
+                  </button>
+                  <button
+                    className="text-xs px-3 py-2 rounded-xl border border-emerald-200/30 bg-emerald-400/20 hover:bg-emerald-400/30"
+                    onClick={() => mark("magical", state.runId ?? null, addFinding)}
+                  >
+                    Magical
+                  </button>
+                  <button
+                    className="text-xs px-3 py-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10"
+                    onClick={handleCopyFindings}
+                  >
+                    Copy findings
+                  </button>
+                </>
+              )}
+              {!isObserver && (
                 <button
-                  className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
-                  onClick={() => mark("bug", state.runId ?? null, addFinding)}
-                  title="Tag the current moment as a bug"
+                  className="text-xs px-3 py-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10"
+                  onClick={() => setOpen(!open)}
                 >
-                  Mark as Bug
-                </button>
-                <button
-                  className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
-                  onClick={() => mark("confusing", state.runId ?? null, addFinding)}
-                  title="Tag the current moment as confusing"
-                >
-                  Mark as Confusing
-                </button>
-                <button
-                  className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
-                  onClick={() => mark("magical", state.runId ?? null, addFinding)}
-                  title="Tag the current moment as magical"
-                >
-                  Mark as Magical
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="rounded-xl border border-black/10 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-semibold">Findings</div>
-              {state.findings.length > 0 && (
-                <button
-                  className="text-[11px] px-2 py-1 rounded-full border border-black/10 hover:bg-black/5"
-                  onClick={() => {
-                    const md = exportFindingsAsMarkdown(state.findings);
-                    void navigator.clipboard.writeText(md);
-                    pushToast("Findings copied");
-                  }}
-                >
-                  Copy Findings
+                  {open ? "Minimize" : "Open"}
                 </button>
               )}
             </div>
-            {state.findings.length === 0 ? (
-              <div className="text-xs text-black/60">
-                No findings yet. Use the mark buttons while exploring.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {state.findings.map((f) => (
-                  <div
-                    key={f.id}
-                    className="rounded-lg border border-black/10 p-2"
-                    style={{
-                      background:
-                        f.kind === "bug"
-                          ? "rgba(255,0,0,0.04)"
-                          : f.kind === "confusing"
-                            ? "rgba(255,165,0,0.05)"
-                            : "rgba(0,128,0,0.05)",
-                    }}
-                  >
-                    <div className="text-xs font-semibold">
-                      {f.kind.toUpperCase()}
-                      {f.severity !== "n/a" ? ` · ${f.severity}` : ""}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2 items-center">
-                      {f.kind === "bug" && (
-                        <select
-                          className="text-xs rounded-lg border border-black/10 px-2 py-1"
-                          value={f.severity ?? "major"}
-                          onChange={(e) => updateFinding(f.id, { severity: e.target.value as any })}
+          </div>
+
+          <div className="bg-white text-black">
+            <div className="p-4 space-y-3">
+              {state.toasts && state.toasts.length > 0 && (
+                <div className="space-y-1">
+                  {state.toasts
+                    .slice()
+                    .reverse()
+                    .map((t) => (
+                      <div
+                        key={t.id}
+                        className="rounded-lg border border-black/10 bg-white px-3 py-2 text-xs text-black/70 shadow-sm"
+                      >
+                        {t.text}
+                      </div>
+                    ))}
+                </div>
+              )}
+              {state.role === "builder" && (
+                <div className="rounded-xl border border-black/10 p-3">
+                  <div className="text-xs font-semibold mb-2">Exploration Run</div>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    {state.runId ? (
+                      <>
+                        <button
+                          className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
+                          onClick={() => stopRun()}
                         >
-                          <option value="blocker">blocker</option>
-                          <option value="major">major</option>
-                          <option value="minor">minor</option>
-                        </select>
-                      )}
+                          Stop Run
+                        </button>
+                        <button
+                          className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
+                          onClick={() => {
+                            copyRunSummary(state.runId ?? "run", state.signals);
+                            pushToast("Run summary copied");
+                          }}
+                        >
+                          Copy Run Summary
+                        </button>
+                        <span className="text-[11px] text-black/60">{state.runId}</span>
+                      </>
+                    ) : (
                       <button
                         className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
-                        onClick={() => {
-                          const md = exportFixSpecForFinding(f);
-                          void navigator.clipboard.writeText(md);
-                          pushToast("Fix spec copied");
+                        onClick={() => startRun()}
+                      >
+                        Start Exploration Run
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {state.role === "builder" && (
+                <div className="rounded-xl border border-black/10 p-3">
+                  <div className="text-xs font-semibold mb-2">Quick Marks</div>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <button
+                      className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
+                      onClick={() => mark("bug", state.runId ?? null, addFinding)}
+                      title="Tag the current moment as a bug"
+                    >
+                      Mark as Bug
+                    </button>
+                    <button
+                      className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
+                      onClick={() => mark("confusing", state.runId ?? null, addFinding)}
+                      title="Tag the current moment as confusing"
+                    >
+                      Mark as Confusing
+                    </button>
+                    <button
+                      className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
+                      onClick={() => mark("magical", state.runId ?? null, addFinding)}
+                      title="Tag the current moment as magical"
+                    >
+                      Mark as Magical
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-black/10 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs font-semibold">Findings</div>
+                  {state.findings.length > 0 && (
+                    <button
+                      className="text-[11px] px-2 py-1 rounded-full border border-black/10 hover:bg-black/5"
+                      onClick={() => {
+                        const md = exportFindingsAsMarkdown(state.findings);
+                        void navigator.clipboard.writeText(md);
+                        pushToast("Findings copied");
+                      }}
+                    >
+                      Copy Findings
+                    </button>
+                  )}
+                </div>
+                {state.findings.length === 0 ? (
+                  <div className="text-xs text-black/60">
+                    No findings yet. Use the mark buttons while exploring.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {state.findings.map((f) => (
+                      <div
+                        key={f.id}
+                        className="rounded-lg border border-black/10 p-2"
+                        style={{
+                          background:
+                            f.kind === "bug"
+                              ? "rgba(255,0,0,0.04)"
+                              : f.kind === "confusing"
+                                ? "rgba(255,165,0,0.05)"
+                                : "rgba(0,128,0,0.05)",
                         }}
                       >
-                        Copy Fix Spec
-                      </button>
-                    </div>
+                        <div className="text-xs font-semibold">
+                          {f.kind.toUpperCase()}
+                          {f.severity !== "n/a" ? ` · ${f.severity}` : ""}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2 items-center">
+                          {f.kind === "bug" && (
+                            <select
+                              className="text-xs rounded-lg border border-black/10 px-2 py-1"
+                              value={f.severity ?? "major"}
+                              onChange={(e) => updateFinding(f.id, { severity: e.target.value as any })}
+                            >
+                              <option value="blocker">blocker</option>
+                              <option value="major">major</option>
+                              <option value="minor">minor</option>
+                            </select>
+                          )}
+                          <button
+                            className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
+                            onClick={() => {
+                              const md = exportFixSpecForFinding(f);
+                              void navigator.clipboard.writeText(md);
+                              pushToast("Fix spec copied");
+                            }}
+                          >
+                            Copy Fix Spec
+                          </button>
+                        </div>
                     <div className="mt-2">
                       <textarea
                         className="w-full min-h-[54px] rounded-lg border border-black/10 px-2 py-1 text-xs"
@@ -606,6 +617,8 @@ export function BuddyPanel() {
           </div>
         </div>
       </div>
+    </>
+  ) : null}
     </div>
   );
 }
