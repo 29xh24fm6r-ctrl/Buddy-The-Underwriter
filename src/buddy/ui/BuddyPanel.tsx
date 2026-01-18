@@ -74,6 +74,15 @@ export function BuddyPanel() {
 
   const handleDragStart = useCallback(
     (evt: React.PointerEvent<HTMLDivElement>) => {
+      if (evt.button !== 0) return;
+      const target = evt.target as HTMLElement | null;
+      if (target) {
+        const interactive = target.closest(
+          'button, a, input, textarea, select, [role="button"], [data-no-drag="true"]'
+        );
+        if (interactive) return;
+      }
+
       dragRef.current = {
         startX: evt.clientX,
         startY: evt.clientY,
@@ -81,6 +90,7 @@ export function BuddyPanel() {
         origY: panelPos.y,
       };
       evt.currentTarget.setPointerCapture(evt.pointerId);
+      evt.preventDefault();
     },
     [panelPos.x, panelPos.y]
   );
@@ -246,6 +256,7 @@ export function BuddyPanel() {
             }}
             title={isMinimized ? "Expand" : "Minimize"}
             data-testid="buddy-minimize"
+            data-no-drag="true"
             aria-label={isMinimized ? "Expand Buddy panel" : "Minimize Buddy panel"}
           >
             {isMinimized ? "Expand" : "Minimize"}
