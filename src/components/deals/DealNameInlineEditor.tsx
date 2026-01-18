@@ -58,7 +58,7 @@ export default function DealNameInlineEditor({
       : "text-xl";
 
   const titleColor = tone === "dark" ? "text-white" : "text-neutral-900";
-  const subtleText = tone === "dark" ? "text-white/60" : "text-neutral-500";
+  const subtleText = tone === "dark" ? "text-white/70" : "text-neutral-500";
   const pillBorder = tone === "dark" ? "border-white/10" : "border-neutral-200";
   const pillBg = tone === "dark" ? "bg-white/5 hover:bg-white/10" : "hover:bg-neutral-50";
   const pillText = tone === "dark" ? "text-white/70" : "text-neutral-700";
@@ -127,6 +127,7 @@ export default function DealNameInlineEditor({
   }
 
   const missingHumanName = !(displayName?.trim() || nickname?.trim());
+  const showMissingHint = missingHumanName && tone !== "dark";
 
   return (
     <div className="flex flex-col gap-2">
@@ -145,7 +146,7 @@ export default function DealNameInlineEditor({
               Needs name
             </span>
           )}
-          {missingHumanName ? (
+          {showMissingHint ? (
             <span className={`text-xs font-medium ${subtleText}`}>Click to name this deal</span>
           ) : null}
           {labelResult.source !== "fallback" ? (

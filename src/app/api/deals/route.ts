@@ -59,7 +59,7 @@ export async function POST(req: Request) {
     if (isDemoBank) {
       const existing = await supabase
         .from("deals")
-        .select("id")
+        .select("id, borrower_name, created_at")
         .eq("bank_id", bankId)
         .eq("name", name)
         .is("archived_at", null)
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
 
       if (!existing?.error && existing?.data?.id) {
         return NextResponse.json(
-          { ok: true, dealId: existing.data.id, reused: true, request_id: requestId },
+          { ok: true, deal: existing.data, dealId: existing.data.id, reused: true, request_id: requestId },
           { status: 200 },
         );
       }
@@ -88,11 +88,14 @@ export async function POST(req: Request) {
       risk_score: 0,
     };
 
-    type InsertRes = { data: { id: string } | null; error: { message: string } | null };
+    type InsertRes = {
+      data: { id: string; borrower_name?: string | null; created_at?: string | null } | null;
+      error: { message: string } | null;
+    };
 
     const insertOnce = async (payload: Record<string, any>): Promise<InsertRes> => {
       const res = await withTimeout<any>(
-        supabase.from("deals").insert(payload).select("id").single(),
+        supabase.from("deals").insert(payload).select("id, borrower_name, created_at").single(),
         8_000,
         "insertDeal",
       );
@@ -103,7 +106,7 @@ export async function POST(req: Request) {
       };
     };
 
-    let deal: { id: string } | null = null;
+    let deal: { id: string; borrower_name?: string | null; created_at?: string | null } | null = null;
     let error: { message: string } | null = null;
 
     {
@@ -147,7 +150,7 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json(
-      { ok: true, dealId: deal.id, request_id: requestId },
+      { ok: true, deal, dealId: deal.id, request_id: requestId },
       { status: 201 },
     );
   } catch (err: any) {

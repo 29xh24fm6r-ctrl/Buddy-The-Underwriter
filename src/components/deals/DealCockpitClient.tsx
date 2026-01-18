@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import React from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import DealIntakeCard from "@/components/deals/DealIntakeCard";
 import BorrowerRequestComposerCard from "@/components/deals/BorrowerRequestComposerCard";
 import DealFilesCard from "@/components/deals/DealFilesCard";
@@ -18,6 +19,7 @@ import { DealCockpitNarrator } from "@/components/deals/DealCockpitNarrator";
 import { DealCockpitInsights } from "@/components/deals/DealCockpitInsights";
 import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
+import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 
 /**
  * Client wrapper for Deal Cockpit.
@@ -35,15 +37,32 @@ export default function DealCockpitClient({
 }) {
   const [displayName, setDisplayName] = useState<string | null>(dealName?.displayName ?? null);
   const [nickname, setNickname] = useState<string | null>(dealName?.nickname ?? null);
-  const [borrowerName, setBorrowerName] = useState<string | null>(dealName?.borrowerName ?? null);
+  const searchParams = useSearchParams();
+  const optimisticName = (searchParams?.get("n") ?? "").trim();
+  const [borrowerName, setBorrowerName] = useState<string | null>(
+    dealName?.borrowerName ?? (optimisticName || null),
+  );
   const [checklistRefresh, setChecklistRefresh] =
     useState<(() => Promise<void>) | null>(null);
 
   React.useEffect(() => {
     setDisplayName(dealName?.displayName ?? null);
     setNickname(dealName?.nickname ?? null);
-    setBorrowerName(dealName?.borrowerName ?? null);
-  }, [dealName?.displayName, dealName?.nickname, dealName?.borrowerName]);
+    setBorrowerName(dealName?.borrowerName ?? (optimisticName || null));
+  }, [dealName?.displayName, dealName?.nickname, dealName?.borrowerName, optimisticName]);
+
+  // Invariant: deal display name should persist across create -> cockpit without flashing "NEEDS NAME".
+  const effectiveBorrowerName = borrowerName || optimisticName || null;
+
+  React.useEffect(() => {
+    const action = effectiveBorrowerName ? "deal.name.present" : "deal.name.missing";
+    emitBuddySignal({
+      type: "user.action",
+      source: "components/deals/DealCockpitClient.tsx",
+      dealId,
+      payload: { action },
+    });
+  }, [dealId, effectiveBorrowerName]);
 
   // Checklist registers its refresh function
   const handleChecklistRefresh = useCallback((refreshFn: () => Promise<void>) => {
@@ -64,7 +83,7 @@ export default function DealCockpitClient({
   }, [checklistRefresh]);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen text-white">
       <DealCockpitLoadingBar dealId={dealId} />
 
       <div className="container mx-auto p-6 space-y-6">
@@ -78,8 +97,9 @@ export default function DealCockpitClient({
               dealId={dealId}
               displayName={displayName}
               nickname={nickname}
-              borrowerName={borrowerName}
+              borrowerName={effectiveBorrowerName}
               size="md"
+              tone="dark"
               onUpdated={(next) => {
                 setDisplayName(next.displayName ?? null);
                 setNickname(next.nickname ?? null);
