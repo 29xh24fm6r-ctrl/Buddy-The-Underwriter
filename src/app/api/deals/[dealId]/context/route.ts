@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import type { DealContext } from "@/lib/deals/contextTypes";
 import { clerkAuth } from "@/lib/auth/clerkServer";
+import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -174,6 +175,14 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
       ensured_bank,
       server_ts: new Date().toISOString(),
     };
+
+    emitBuddySignalServer({
+      type: "deal.loaded",
+      source: "api/deals/[dealId]/context",
+      ts: Date.now(),
+      dealId,
+      payload: { stage: deal.stage ?? null, risk_score: deal.risk_score ?? null },
+    });
 
     return NextResponse.json({ ...probe, ...context });
   } catch (e: any) {
