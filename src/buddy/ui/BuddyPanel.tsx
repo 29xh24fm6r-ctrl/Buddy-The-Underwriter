@@ -40,7 +40,14 @@ export function BuddyPanel() {
   const [showRaw, setShowRaw] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [panelPos, setPanelPos] = useState(() => ({ x: 16, y: 92 }));
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const dragRef = useRef<{
     startX: number;
     startY: number;
@@ -91,15 +98,6 @@ export function BuddyPanel() {
   useEffect(() => {
     const id = window.setInterval(() => setNowTick(Date.now()), 60_000);
     return () => window.clearInterval(id);
-  }, []);
-
-  useEffect(() => {
-    try {
-      const v = localStorage.getItem(STORAGE_KEY);
-      if (v === "1") setIsMinimized(true);
-    } catch {
-      // ignore
-    }
   }, []);
 
   useEffect(() => {
