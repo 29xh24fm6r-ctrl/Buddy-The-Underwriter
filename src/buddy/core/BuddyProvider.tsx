@@ -11,6 +11,7 @@ import { decideReply } from "@/buddy/brain/policyEngine";
 import { decideNextBestAction } from "@/buddy/nba/decideNextBestAction";
 import { calcReadiness } from "@/buddy/readiness/calcReadiness";
 import { calcOutcome } from "@/buddy/outcomes/calcOutcome";
+import { BuddyPanel } from "@/buddy/ui/BuddyPanel";
 import {
   addFinding,
   appendInsight,
@@ -343,7 +344,12 @@ export function BuddyProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener(eventName, onSignal as EventListener);
   }, [eventName, emit]);
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={value}>
+      {children}
+      <BuddyPanel />
+    </Ctx.Provider>
+  );
 }
 
 function interpretSignal(signal: BuddySignal) {

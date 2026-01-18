@@ -6,7 +6,6 @@ import FrameGuard from "@/components/dev/FrameGuard";
 import { PHProvider } from "@/components/analytics/PostHogProvider";
 import { QaModeProvider } from "@/components/qa/QaModeProvider";
 import { BuddyProvider } from "@/buddy/core/BuddyProvider";
-import { BuddyPanel } from "@/buddy/ui/BuddyPanel";
 import "./globals.css";
 
 const inter = Inter({
@@ -90,7 +89,6 @@ export default function RootLayout({
                 <main>{children}</main>
               </QaModeProvider>
             </PHProvider>
-            <BuddyPanel />
           </BuddyProvider>
         </body>
       </html>
