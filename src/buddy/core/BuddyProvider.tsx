@@ -378,6 +378,8 @@ function interpretSignal(signal: BuddySignal) {
     }
     case "deal.loaded":
       return { message: "Deal context loaded. Watching changes.", tone: "neutral" };
+    case "deal.ignited":
+      return { message: "Deal intake started. I’m tracking incoming documents.", tone: "focused" };
     case "page.ready":
       return { message: "Page ready. Observer mode active.", tone: "neutral" };
     case "error":

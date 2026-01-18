@@ -4,6 +4,7 @@
 export type BuddySignalType =
   | "page.ready"
   | "deal.loaded"
+  | "deal.ignited"
   | "checklist.updated"
   | "pipeline.event"
   | "user.action"

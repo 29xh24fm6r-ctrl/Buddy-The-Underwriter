@@ -30,13 +30,18 @@ export default function DealCockpitClient({
   dealId,
   isAdmin = false,
   dealName,
+  lifecycleStage,
+  ignitedEvent,
 }: {
   dealId: string;
   isAdmin?: boolean;
   dealName?: { displayName?: string | null; nickname?: string | null; borrowerName?: string | null };
+  lifecycleStage?: string | null;
+  ignitedEvent?: { source: string | null; createdAt: string | null } | null;
 }) {
   const [displayName, setDisplayName] = useState<string | null>(dealName?.displayName ?? null);
   const [nickname, setNickname] = useState<string | null>(dealName?.nickname ?? null);
+  const [stage, setStage] = useState<string | null>(lifecycleStage ?? null);
   const searchParams = useSearchParams();
   const optimisticName = (searchParams?.get("n") ?? "").trim();
   const [borrowerName, setBorrowerName] = useState<string | null>(
@@ -45,11 +50,20 @@ export default function DealCockpitClient({
   const [checklistRefresh, setChecklistRefresh] =
     useState<(() => Promise<void>) | null>(null);
 
+  const ignitedLabel = React.useMemo(() => {
+    const source = ignitedEvent?.source ?? null;
+    if (!source) return null;
+    if (source === "banker_invite" || source === "ignite") return "Intake started (Borrower invited)";
+    if (source === "banker_upload") return "Intake started (Banker upload)";
+    return "Intake started";
+  }, [ignitedEvent?.source]);
+
   React.useEffect(() => {
     setDisplayName(dealName?.displayName ?? null);
     setNickname(dealName?.nickname ?? null);
     setBorrowerName(dealName?.borrowerName ?? (optimisticName || null));
-  }, [dealName?.displayName, dealName?.nickname, dealName?.borrowerName, optimisticName]);
+    setStage(lifecycleStage ?? null);
+  }, [dealName?.displayName, dealName?.nickname, dealName?.borrowerName, optimisticName, lifecycleStage]);
 
   // Invariant: deal display name should persist across create -> cockpit without flashing "NEEDS NAME".
   const effectiveBorrowerName = borrowerName || optimisticName || null;
@@ -93,6 +107,9 @@ export default function DealCockpitClient({
               Underwriting
             </div>
             <h1 className="text-3xl font-bold">Deal Cockpit</h1>
+            {lifecycleStage && lifecycleStage !== "created" && ignitedLabel ? (
+              <div className="text-xs text-white/60">{ignitedLabel}</div>
+            ) : null}
             <DealNameInlineEditor
               dealId={dealId}
               displayName={displayName}
@@ -132,6 +149,8 @@ export default function DealCockpitClient({
                 dealId={dealId}
                 onChecklistSeeded={handleChecklistSeeded}
                 isAdmin={isAdmin}
+                lifecycleStage={stage}
+                onLifecycleStageChange={setStage}
               />
             </SafeBoundary>
 
@@ -166,7 +185,7 @@ export default function DealCockpitClient({
             </SafeBoundary>
 
             <SafeBoundary>
-              <BorrowerUploadLinksCard dealId={dealId} />
+              <BorrowerUploadLinksCard dealId={dealId} lifecycleStage={stage} />
             </SafeBoundary>
 
             <SafeBoundary>

@@ -33,12 +33,16 @@ type DealIntakeCardProps = {
   dealId: string;
   onChecklistSeeded?: () => void | Promise<void>;
   isAdmin?: boolean;
+  lifecycleStage?: string | null;
+  onLifecycleStageChange?: (stage: string | null) => void;
 };
 
 const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({ 
   dealId,
   onChecklistSeeded,
   isAdmin = false,
+  lifecycleStage,
+  onLifecycleStageChange,
 }, ref) => {
   const [intake, setIntake] = useState<Intake>({
     loan_type: "CRE_OWNER_OCCUPIED",
@@ -61,6 +65,13 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
   const [showManualRecognition, setShowManualRecognition] = useState(false);
   const [matchMessage, setMatchMessage] = useState<string | null>(null);
   const [partialMode, setPartialMode] = useState(false);
+  const [stage, setStage] = useState<string | null>(lifecycleStage ?? null);
+  const [igniteBusy, setIgniteBusy] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteName, setInviteName] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [igniteMessage, setIgniteMessage] = useState<string | null>(null);
   
   // Readiness state (canonical)
   const [expectedUploads, setExpectedUploads] = useState(0);
@@ -83,6 +94,10 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
     }
     load();
   }, [dealId, hasValidDealId]);
+
+  useEffect(() => {
+    setStage(lifecycleStage ?? null);
+  }, [lifecycleStage]);
 
   // Poll readiness endpoint
   async function pollReadiness() {
@@ -155,6 +170,146 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         >
           Save + Auto-Seed Checklist
         </button>
+      </div>
+    );
+  }
+
+  const isIgnited = !!stage && stage !== "created";
+
+  async function igniteDealNow() {
+    setIgniteBusy(true);
+    setIgniteMessage(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/ignite`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        setIgniteMessage(json?.error || "Failed to start intake");
+        return;
+      }
+      setStage("intake");
+      onLifecycleStageChange?.("intake");
+      await onChecklistSeeded?.();
+      setIgniteMessage("Deal intake started. You can upload documents now.");
+    } catch (e: any) {
+      setIgniteMessage(e?.message || "Failed to start intake");
+    } finally {
+      setIgniteBusy(false);
+    }
+  }
+
+  async function inviteBorrower() {
+    setInviteBusy(true);
+    setIgniteMessage(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/portal/invite`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: inviteName.trim() || null,
+          email: inviteEmail.trim() || null,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.portalUrl) {
+        setIgniteMessage(json?.error || "Failed to create invite");
+        return;
+      }
+      setStage("intake");
+      onLifecycleStageChange?.("intake");
+      await onChecklistSeeded?.();
+      setIgniteMessage("Borrower invite created and deal intake started.");
+      if (json?.portalUrl && typeof navigator !== "undefined" && navigator?.clipboard) {
+        try {
+          await navigator.clipboard.writeText(String(json.portalUrl));
+          setIgniteMessage("Borrower invite created. Link copied to clipboard.");
+        } catch {
+          setIgniteMessage(`Borrower invite created. Link: ${json.portalUrl}`);
+        }
+      } else if (json?.portalUrl) {
+        setIgniteMessage(`Borrower invite created. Link: ${json.portalUrl}`);
+      }
+      setShowInvite(false);
+      setInviteName("");
+      setInviteEmail("");
+    } catch (e: any) {
+      setIgniteMessage(e?.message || "Failed to create invite");
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+
+  if (!isIgnited) {
+    return (
+      <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-4 shadow-sm">
+        <div className="text-base font-semibold text-neutral-50">Start Deal Intake</div>
+        <div className="mt-2 text-sm text-neutral-400">
+          Start intake by inviting the borrower or uploading documents yourself.
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            onClick={() => setShowInvite((v) => !v)}
+            className="rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm font-semibold text-neutral-100 hover:bg-neutral-800"
+            disabled={inviteBusy || igniteBusy}
+          >
+            Invite borrower
+          </button>
+          <button
+            type="button"
+            onClick={igniteDealNow}
+            className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60"
+            disabled={igniteBusy}
+          >
+            {igniteBusy ? "Starting…" : "I will upload docs"}
+          </button>
+        </div>
+
+        {showInvite ? (
+          <div className="mt-4 grid gap-3 rounded-xl border border-neutral-800 bg-neutral-950/60 p-3">
+            <div>
+              <label className="text-xs text-neutral-400">Borrower name (optional)</label>
+              <input
+                value={inviteName}
+                onChange={(e) => setInviteName(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
+                placeholder="Jane Smith"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-neutral-400">Borrower email (optional)</label>
+              <input
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
+                placeholder="borrower@company.com"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={inviteBorrower}
+                className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60"
+                disabled={inviteBusy}
+              >
+                {inviteBusy ? "Creating…" : "Create invite"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowInvite(false)}
+                className="rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm font-semibold text-neutral-200 hover:bg-neutral-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {igniteMessage ? (
+          <div className="mt-3 rounded-xl border border-neutral-800 bg-neutral-900/40 p-3 text-sm text-neutral-200">
+            {igniteMessage}
+          </div>
+        ) : null}
       </div>
     );
   }

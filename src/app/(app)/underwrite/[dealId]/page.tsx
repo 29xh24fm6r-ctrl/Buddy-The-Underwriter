@@ -7,6 +7,7 @@ import MatchedLendersPanel from "@/components/deals/MatchedLendersPanel";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { resolveDealLabel, dealLabel } from "@/lib/deals/dealLabel";
+import { canAccessUnderwrite } from "@/lib/deals/lifecycleGuards";
 import Link from "next/link";
 import type { Metadata } from "next";
 
@@ -85,12 +86,33 @@ export default async function UnderwriteDealPage({
   const sb = supabaseAdmin();
   const { data: deal } = await sb
     .from("deals")
-    .select("id, borrower_name, name, display_name, nickname, stage")
+    .select("id, borrower_name, name, display_name, nickname, stage, lifecycle_stage")
     .eq("id", dealId)
     .eq("bank_id", access.bankId)
     .maybeSingle();
 
   if (!deal) {
+    return (
+      <div className="mx-auto w-full max-w-5xl px-6 py-10">
+        <div className="rounded-xl border border-neutral-200 bg-white p-6">
+          <h1 className="text-2xl font-bold text-neutral-900">Underwriting</h1>
+          <p className="mt-2 text-sm text-neutral-600">
+            Underwriting not started yet.
+          </p>
+          <div className="mt-4">
+            <Link
+              href={`/deals/${dealId}/cockpit`}
+              className="inline-flex items-center rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:bg-neutral-800"
+            >
+              Go to Deal Cockpit
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!canAccessUnderwrite(deal.lifecycle_stage ?? null)) {
     return (
       <div className="mx-auto w-full max-w-5xl px-6 py-10">
         <div className="rounded-xl border border-neutral-200 bg-white p-6">

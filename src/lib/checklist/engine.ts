@@ -2,6 +2,7 @@ import { RULESETS } from "./rules";
 import { matchChecklistKeyFromFilename } from "./matchers";
 import type { ChecklistDefinition, ChecklistRuleSet } from "./types";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
 import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 
@@ -792,6 +793,25 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
           satisfied: satisfiedKeys,
         },
       });
+
+      const isReady = rows.length > 0 && missing === 0;
+      if (isReady) {
+        const { data: deal } = await sb
+          .from("deals")
+          .select("bank_id, lifecycle_stage")
+          .eq("id", dealId)
+          .maybeSingle();
+
+        if (deal?.lifecycle_stage === "collecting") {
+          await advanceDealLifecycle({
+            dealId,
+            toStage: "underwriting",
+            reason: "checklist_ready",
+            source: "checklist_reconcile",
+            actor: { userId: null, type: "system", label: "checklist_engine" },
+          });
+        }
+      }
     }
   } catch {
     // ignore signal failures

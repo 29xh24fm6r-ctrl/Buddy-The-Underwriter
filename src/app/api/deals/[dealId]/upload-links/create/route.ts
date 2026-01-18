@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { isBorrowerUploadAllowed } from "@/lib/deals/lifecycleGuards";
 import {
   hashPassword,
   makePasswordSalt,
@@ -37,6 +38,20 @@ export async function POST(
   if (!access.ok) {
     const status = access.error === "unauthorized" ? 401 : 404;
     return NextResponse.json({ ok: false, error: access.error }, { status });
+  }
+
+  const { data: deal } = await supabaseAdmin()
+    .from("deals")
+    .select("lifecycle_stage")
+    .eq("id", dealId)
+    .eq("bank_id", access.bankId)
+    .maybeSingle();
+
+  if (!isBorrowerUploadAllowed(deal?.lifecycle_stage ?? null)) {
+    return NextResponse.json(
+      { ok: false, error: "Deal intake not started" },
+      { status: 403 },
+    );
   }
 
   let body: Body | null = null;

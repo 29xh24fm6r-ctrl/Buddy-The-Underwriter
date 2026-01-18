@@ -52,12 +52,14 @@ export default async function DealCockpitPage({ params }: Props) {
   }
 
   let dealName: { displayName?: string | null; nickname?: string | null; borrowerName?: string | null } | undefined;
+  let lifecycleStage: string | null = null;
+  let ignitedEvent: { source: string | null; createdAt: string | null } | null = null;
   const access = await ensureDealBankAccess(dealId);
   if (access.ok) {
     const sb = supabaseAdmin();
     const { data: deal } = await sb
       .from("deals")
-      .select("display_name, nickname, borrower_name")
+      .select("display_name, nickname, borrower_name, lifecycle_stage")
       .eq("id", dealId)
       .eq("bank_id", access.bankId)
       .maybeSingle();
@@ -66,11 +68,39 @@ export default async function DealCockpitPage({ params }: Props) {
       nickname: (deal as any)?.nickname ?? null,
       borrowerName: (deal as any)?.borrower_name ?? null,
     };
+    lifecycleStage = (deal as any)?.lifecycle_stage ?? null;
+
+    const { data: latestIgnite } = await sb
+      .from("audit_ledger")
+      .select("created_at,input_json")
+      .eq("deal_id", dealId)
+      .eq("kind", "deal.ignited")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const source =
+      (latestIgnite as any)?.input_json?.source ??
+      (latestIgnite as any)?.input_json?.input?.source ??
+      null;
+
+    if (latestIgnite) {
+      ignitedEvent = {
+        source,
+        createdAt: (latestIgnite as any)?.created_at ?? null,
+      };
+    }
   }
 
   return (
     <div data-testid="deal-cockpit">
-      <DealCockpitClient dealId={dealId} isAdmin={isAdmin} dealName={dealName} />
+      <DealCockpitClient
+        dealId={dealId}
+        isAdmin={isAdmin}
+        dealName={dealName}
+        lifecycleStage={lifecycleStage}
+        ignitedEvent={ignitedEvent}
+      />
     </div>
   );
 }
