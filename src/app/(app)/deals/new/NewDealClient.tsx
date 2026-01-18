@@ -115,9 +115,10 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
         }
 
         const payload = await createRes.json().catch(() => null as any);
-        const dealId = String(payload?.dealId || "");
+        const dealId = String(payload?.deal?.id || payload?.dealId || "");
+        const createdName = String(payload?.deal?.borrower_name || "");
         if (!dealId) throw new Error("failed_to_create_deal:missing_dealId");
-        return { dealId, requestId: rid };
+        return { dealId, requestId: rid, createdName };
       } finally {
         clearTimeout(t);
       }
@@ -149,6 +150,7 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
       setDebugInfo({ requestId: null, stage: "create_deal" });
       const created = await createDealWithRetries();
       const dealId = created.dealId;
+      const createdName = created.createdName;
       console.log(`Created deal ${dealId} (request ${created.requestId}), uploading ${files.length} files...`);
 
       // 2. Upload files to the deal
@@ -198,7 +200,9 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
       }
 
       // 3. Redirect to the deal cockpit (command center)
-      router.push(`/deals/${dealId}/cockpit`);
+      router.push(
+        `/deals/${dealId}/cockpit${createdName ? `?n=${encodeURIComponent(createdName)}` : ""}`,
+      );
     } catch (error) {
       console.error("Upload failed:", error);
 

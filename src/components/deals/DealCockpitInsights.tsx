@@ -63,13 +63,6 @@ function riskBand(score: number | null | undefined) {
   return { label: "Low", tone: "emerald" as const };
 }
 
-function toneClasses(tone: "neutral" | "emerald" | "amber" | "red") {
-  if (tone === "emerald") return "bg-emerald-50 text-emerald-900 border-emerald-200";
-  if (tone === "amber") return "bg-amber-50 text-amber-900 border-amber-200";
-  if (tone === "red") return "bg-red-50 text-red-900 border-red-200";
-  return "bg-neutral-50 text-neutral-700 border-neutral-200";
-}
-
 function eventIcon(eventKey: string) {
   const key = String(eventKey || "").toLowerCase();
   if (key.includes("upload")) return "cloud_upload";
@@ -143,7 +136,7 @@ export function DealCockpitInsights({ dealId }: { dealId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-neutral-200 bg-white shadow-sm p-4">
+      <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur shadow-[0_18px_50px_rgba(0,0,0,0.35)] p-4">
         <div className="flex items-center gap-2 mb-4">
           <Icon name="fact_check" className="h-5 w-5 text-neutral-900" />
           <h3 className="text-sm font-semibold">Deal Health</h3>
@@ -153,15 +146,15 @@ export function DealCockpitInsights({ dealId }: { dealId: string }) {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="rounded-lg border border-neutral-200 p-3">
-            <div className="text-xs text-neutral-500">Checklist completion</div>
+          <div className="rounded-lg border border-white/10 bg-gradient-to-b from-sky-500/10 to-white/5 p-3">
+            <div className="text-xs text-white/70">Checklist completion</div>
             <div className="mt-2 flex items-baseline gap-2">
-              <div className="text-2xl font-semibold text-neutral-900">{checklistPct}%</div>
-              <div className="text-xs text-neutral-500">
+              <div className="text-2xl font-semibold text-white">{checklistPct}%</div>
+              <div className="text-xs text-white/60">
                 {received} / {required}
               </div>
             </div>
-            <div className="mt-2 h-2 w-full rounded-full bg-neutral-100">
+            <div className="mt-2 h-2 w-full rounded-full bg-white/10">
               <div
                 className="h-2 rounded-full bg-neutral-900 transition-all"
                 style={{ width: `${checklistPct}%` }}
@@ -169,15 +162,15 @@ export function DealCockpitInsights({ dealId }: { dealId: string }) {
             </div>
           </div>
 
-          <div className={`rounded-lg border p-3 ${toneClasses(risk.tone)}`}>
-            <div className="text-xs">Risk indicator</div>
+          <div className="rounded-lg border border-white/10 bg-gradient-to-b from-emerald-500/10 to-white/5 p-3">
+            <div className="text-xs text-white/70">Risk indicator</div>
             <div className="mt-2 flex items-center gap-2">
-              <span className="text-xl font-semibold">{risk.label}</span>
+              <span className="text-xl font-semibold text-white">{risk.label}</span>
               {typeof riskScore === "number" ? (
-                <span className="text-xs">Score {Math.round(riskScore)}</span>
+                <span className="text-xs text-white/70">Score {Math.round(riskScore)}</span>
               ) : null}
             </div>
-            <div className="mt-2 h-2 w-full rounded-full bg-white/70">
+            <div className="mt-2 h-2 w-full rounded-full bg-white/10">
               <div
                 className="h-2 rounded-full"
                 style={{
@@ -195,16 +188,16 @@ export function DealCockpitInsights({ dealId }: { dealId: string }) {
             </div>
           </div>
 
-          <div className="rounded-lg border border-neutral-200 p-3">
-            <div className="text-xs text-neutral-500">Recent activity</div>
-            <div className="mt-2 text-sm font-semibold text-neutral-900">
+          <div className="rounded-lg border border-white/10 bg-gradient-to-b from-amber-400/10 to-white/5 p-3">
+            <div className="text-xs text-white/70">Recent activity</div>
+            <div className="mt-2 text-sm font-semibold text-white">
               {recentCount24} events (24h)
             </div>
-            <div className="text-xs text-neutral-500">
+            <div className="text-xs text-white/60">
               {recentCount48} events (48h) • last {formatRelative(lastEvent?.created_at, nowMs)}
             </div>
             {lastEvent?.ui_message ? (
-              <div className="mt-2 text-xs text-neutral-600 line-clamp-2">
+              <div className="mt-2 text-xs text-white/70 line-clamp-2">
                 “{lastEvent.ui_message}”
               </div>
             ) : null}
@@ -213,27 +206,27 @@ export function DealCockpitInsights({ dealId }: { dealId: string }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 rounded-xl border border-neutral-200 bg-white shadow-sm p-4">
+        <div className="lg:col-span-2 rounded-2xl border border-white/10 bg-white/5 backdrop-blur shadow-[0_18px_50px_rgba(0,0,0,0.35)] p-4">
           <div className="flex items-center gap-2 mb-4">
-            <Icon name="history" className="h-5 w-5 text-neutral-900" />
-            <h3 className="text-sm font-semibold">Activity timeline</h3>
+            <Icon name="history" className="h-5 w-5 text-white" />
+            <h3 className="text-sm font-semibold text-white">Activity timeline</h3>
           </div>
 
           {timeline.length === 0 ? (
-            <div className="text-sm text-neutral-500">No ledger activity yet.</div>
+            <div className="text-sm text-white/70">No ledger activity yet.</div>
           ) : (
             <ul className="space-y-3">
               {timeline.slice(-8).map((event) => (
                 <li key={`${event.event_key}-${event.created_at}`} className="flex items-start gap-3">
-                  <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200 bg-neutral-50">
-                    <Icon name={eventIcon(event.event_key)} className="h-4 w-4 text-neutral-700" />
+                  <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5">
+                    <Icon name={eventIcon(event.event_key)} className="h-4 w-4 text-white/80" />
                   </div>
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 text-sm font-medium text-neutral-900">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
                       <span>{event.ui_message || event.event_key}</span>
                       <span className={`h-2 w-2 rounded-full ${stateDot(event.ui_state)}`} />
                     </div>
-                    <div className="text-xs text-neutral-500">
+                    <div className="text-xs text-white/60">
                       {formatRelative(event.created_at, nowMs)} • {new Date(event.created_at).toLocaleString()}
                     </div>
                   </div>
@@ -243,26 +236,26 @@ export function DealCockpitInsights({ dealId }: { dealId: string }) {
           )}
         </div>
 
-        <div className="rounded-xl border border-neutral-200 bg-white shadow-sm p-4">
+        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur shadow-[0_18px_50px_rgba(0,0,0,0.35)] p-4">
           <div className="flex items-center gap-2 mb-4">
-            <Icon name="fact_check" className="h-5 w-5 text-neutral-900" />
-            <h3 className="text-sm font-semibold">Documents progress</h3>
+            <Icon name="fact_check" className="h-5 w-5 text-white" />
+            <h3 className="text-sm font-semibold text-white">Documents progress</h3>
           </div>
 
-          <div className="text-xs text-neutral-500">Required vs received</div>
+          <div className="text-xs text-white/70">Required vs received</div>
           <div className="mt-3 flex items-baseline gap-2">
-            <div className="text-2xl font-semibold text-neutral-900">{received}</div>
-            <div className="text-xs text-neutral-500">/ {required} required</div>
+            <div className="text-2xl font-semibold text-white">{received}</div>
+            <div className="text-xs text-white/60">/ {required} required</div>
           </div>
 
-          <div className="mt-3 h-3 w-full rounded-full bg-neutral-100">
+          <div className="mt-3 h-3 w-full rounded-full bg-white/10">
             <div
               className="h-3 rounded-full bg-emerald-600 transition-all"
               style={{ width: `${required > 0 ? Math.round((received / required) * 100) : 0}%` }}
             />
           </div>
 
-          <div className="mt-2 text-xs text-neutral-500">
+          <div className="mt-2 text-xs text-white/60">
             {required > 0
               ? `${checklistPct}% of required checklist items received`
               : "Checklist not seeded yet"}

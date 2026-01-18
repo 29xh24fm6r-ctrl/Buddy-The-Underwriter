@@ -40,11 +40,11 @@ export function UnderwritingControlPanel({ dealId }: { dealId: string }) {
   }
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white shadow-sm p-4">
+    <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur shadow-[0_18px_50px_rgba(0,0,0,0.35)] p-4">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Icon name="rocket_launch" className="h-5 w-5 text-neutral-900" />
-          <h3 className="text-sm font-semibold">Underwriting</h3>
+          <Icon name="rocket_launch" className="h-5 w-5 text-white" />
+          <h3 className="text-sm font-semibold text-white">Underwriting</h3>
         </div>
       </div>
 
@@ -68,12 +68,12 @@ export function UnderwritingControlPanel({ dealId }: { dealId: string }) {
         )}
       </button>
 
-      <p className="mt-2 text-xs text-neutral-500 text-center">
+      <p className="mt-2 text-xs text-white/60 text-center">
         Open the deal workspace to review documents and conditions
       </p>
 
       {err && (
-        <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-900">
+        <div className="mt-4 rounded-lg bg-red-500/15 p-3 text-sm text-red-100">
           <div className="font-semibold">Error</div>
           <div className="mt-1 text-xs">{err}</div>
         </div>
