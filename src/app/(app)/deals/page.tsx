@@ -31,7 +31,6 @@ type DealRow = {
   ready_at?: string | null;
   submitted_at?: string | null;
   ready_reason?: string | null;
-  is_demo?: boolean | null;
   archived_at?: string | null;
 };
 
@@ -39,7 +38,6 @@ function normalizeFilter(value?: string | null) {
   const v = (value ?? "").toLowerCase();
   if (v === "all") return "all";
   if (v === "archived") return "archived";
-  if (v === "demo") return "demo";
   return "active";
 }
 
@@ -75,7 +73,7 @@ export default async function DealsPage({
   const sb = supabaseAdmin();
 
   const selectPrimary =
-    "id, display_name, nickname, borrower_name, name, amount, stage, created_at, ready_at, submitted_at, ready_reason, is_demo, archived_at";
+    "id, display_name, nickname, borrower_name, name, amount, stage, created_at, ready_at, submitted_at, ready_reason, archived_at";
   const selectFallback = "id, borrower_name, name, created_at";
 
   let deals: DealRow[] = [];
@@ -89,8 +87,6 @@ export default async function DealsPage({
       query = query.is("archived_at", null);
     } else if (filter === "archived") {
       query = query.not("archived_at", "is", null);
-    } else if (filter === "demo") {
-      query = query.eq("is_demo", true);
     }
 
     const res = await query.order("created_at", { ascending: false }).limit(80);
@@ -168,14 +164,12 @@ export default async function DealsPage({
       stage,
       status,
       createdLabel,
-      isDemo: Boolean(d.is_demo),
       archivedAt: d.archived_at ?? null,
     };
   });
 
   const stats = {
     active: uiDeals.filter((d) => !d.archivedAt).length,
-    demo: uiDeals.filter((d) => d.isDemo).length,
     ready: uiDeals.filter((d) => (d.status || "").toLowerCase().includes("ready")).length,
     underwrite: uiDeals.filter((d) => (d.stage || "").toLowerCase().includes("underwrite")).length,
   };
@@ -199,7 +193,6 @@ export default async function DealsPage({
               <span className="rounded-full border border-white/10 px-3 py-1">Active {stats.active}</span>
               <span className="rounded-full border border-white/10 px-3 py-1">Ready {stats.ready}</span>
               <span className="rounded-full border border-white/10 px-3 py-1">Underwrite {stats.underwrite}</span>
-              <span className="rounded-full border border-white/10 px-3 py-1">Demo {stats.demo}</span>
             </div>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -226,7 +219,6 @@ export default async function DealsPage({
             { label: "Active", value: "active" },
             { label: "All", value: "all" },
             { label: "Archived", value: "archived" },
-            { label: "Demo only", value: "demo" },
           ].map((chip) => (
             <Link
               key={chip.value}
@@ -278,9 +270,6 @@ export default async function DealsPage({
                           <span className="truncate max-w-[240px]" title={deal.label}>
                             {deal.label}
                           </span>
-                          {deal.isDemo ? (
-                            <span className="status-pill info">DEMO</span>
-                          ) : null}
                           {deal.needsName ? (
                             <span className="status-pill warn">Needs name</span>
                           ) : null}
