@@ -4,7 +4,7 @@ export type DealIntelligence = {
     display_name?: string | null;
     nickname?: string | null;
     display_label: string;
-    display_label_source: "display_name" | "nickname" | "borrower_name" | "name" | "fallback";
+    display_label_source: "display_name" | "nickname" | "borrower_name" | "name" | "legal_name" | "fallback";
     needs_name: boolean;
     borrower_name: string;
     stage: string;

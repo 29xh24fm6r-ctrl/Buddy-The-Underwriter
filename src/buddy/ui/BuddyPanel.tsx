@@ -55,6 +55,10 @@ export function BuddyPanel() {
     origY: number;
   } | null>(null);
 
+  const clamp = useCallback((value: number, min: number, max: number) => {
+    return Math.max(min, Math.min(max, value));
+  }, []);
+
   const isObserver = enabled && state.role === "builder";
   const open = isObserver ? true : state.isOpen;
   const panelWidth = state.panelWidth ?? 360;
@@ -81,15 +85,23 @@ export function BuddyPanel() {
     [panelPos.x, panelPos.y]
   );
 
-  const handleDragMove = useCallback((evt: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragRef.current) return;
-    const dx = evt.clientX - dragRef.current.startX;
-    const dy = evt.clientY - dragRef.current.startY;
-    setPanelPos({
-      x: Math.max(0, dragRef.current.origX + dx),
-      y: Math.max(0, dragRef.current.origY + dy),
-    });
-  }, []);
+  const handleDragMove = useCallback(
+    (evt: React.PointerEvent<HTMLDivElement>) => {
+      if (!dragRef.current) return;
+      const dx = evt.clientX - dragRef.current.startX;
+      const dy = evt.clientY - dragRef.current.startY;
+      const margin = 8;
+      const safeWidth = typeof window !== "undefined" ? window.innerWidth : 1200;
+      const safeHeight = typeof window !== "undefined" ? window.innerHeight : 800;
+      const estimatedWidth = isMinimized ? 260 : panelWidth;
+      const estimatedHeight = isMinimized ? 72 : 120;
+      setPanelPos({
+        x: clamp(dragRef.current.origX + dx, margin, Math.max(margin, safeWidth - estimatedWidth)),
+        y: clamp(dragRef.current.origY + dy, margin, Math.max(margin, safeHeight - estimatedHeight)),
+      });
+    },
+    [clamp, isMinimized, panelWidth]
+  );
 
   const handleDragEnd = useCallback(() => {
     dragRef.current = null;
@@ -181,12 +193,12 @@ export function BuddyPanel() {
     <div
       data-testid="buddy-panel"
       className={[
-        "fixed z-50",
+        "fixed z-50 inline-block",
         "max-w-[90vw]",
         "rounded-2xl border border-white/10 bg-slate-950/80",
         "shadow-2xl backdrop-blur-xl text-white",
       ].join(" ")}
-      style={{ width: isMinimized ? "auto" : panelWidth, right: panelPos.x, top: panelPos.y }}
+      style={{ width: isMinimized ? "auto" : panelWidth, left: panelPos.x, top: panelPos.y }}
     >
       <div
         className={[

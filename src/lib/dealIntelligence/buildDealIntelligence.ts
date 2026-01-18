@@ -180,6 +180,7 @@ export async function buildDealIntelligence(
     nickname: (deal as any).nickname ?? null,
     borrower_name: deal.borrower_name ?? null,
     name: deal.name ?? null,
+    legal_name: (deal as any).legal_name ?? null,
   });
 
   const checklistPromise = sb

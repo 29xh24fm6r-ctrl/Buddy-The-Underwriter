@@ -117,6 +117,7 @@ export default async function UnderwriteDealPage({
     nickname: (deal as any).nickname ?? null,
     borrower_name: deal.borrower_name ?? null,
     name: deal.name ?? null,
+    legal_name: (deal as any).legal_name ?? null,
   });
 
   return (
@@ -134,6 +135,7 @@ export default async function UnderwriteDealPage({
                 displayName={(deal as any).display_name ?? null}
                 nickname={(deal as any).nickname ?? null}
                 borrowerName={deal.borrower_name ?? null}
+                legalName={(deal as any).legal_name ?? null}
                 size="lg"
               />
               <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500">
