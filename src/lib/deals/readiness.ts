@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
 import { fireWebhook } from "@/lib/webhooks/fireWebhook";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -108,7 +109,7 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
   // Fetch current state (for transition detection)
   const { data: currentDeal } = await sb
     .from("deals")
-    .select("ready_at, bank_id")
+    .select("ready_at, bank_id, lifecycle_stage")
     .eq("id", dealId)
     .single();
 
@@ -146,6 +147,16 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
           ready_at: new Date().toISOString(),
           ...result.details,
         },
+      });
+    }
+
+    if (currentDeal?.lifecycle_stage === "underwriting") {
+      await advanceDealLifecycle({
+        dealId,
+        toStage: "ready",
+        reason: "deal_ready",
+        source: "readiness",
+        actor: { userId: null, type: "system", label: "readiness" },
       });
     }
   } else {

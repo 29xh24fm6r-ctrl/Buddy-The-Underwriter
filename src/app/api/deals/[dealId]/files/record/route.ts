@@ -6,6 +6,7 @@ import { recomputeDealReady } from "@/lib/deals/readiness";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { igniteDeal } from "@/lib/deals/igniteDeal";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     const { data: deal, error: dealErr } = await sb
       .from("deals")
-      .select("id, bank_id")
+      .select("id, bank_id, lifecycle_stage")
       .eq("id", dealId)
       .maybeSingle();
 
@@ -108,6 +109,15 @@ export async function POST(req: NextRequest, ctx: Context) {
         { ok: false, error: "Deal not found", request_id: requestId },
         { status: 404 },
       );
+    }
+
+    if (!deal.lifecycle_stage || deal.lifecycle_stage === "created") {
+      await igniteDeal({
+        dealId,
+        bankId,
+        source: "banker_upload",
+        triggeredByUserId: userId,
+      });
     }
 
     // Verify file exists in storage (optional but recommended)

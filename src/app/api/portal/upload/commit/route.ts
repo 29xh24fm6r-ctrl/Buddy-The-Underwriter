@@ -6,6 +6,7 @@ import { rateLimit } from "@/lib/portal/ratelimit";
 import { recordReceipt } from "@/lib/portal/receipts";
 import { recomputeDealReady } from "@/lib/deals/readiness";
 import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrowerUploadAndMaterialize";
+import { isBorrowerUploadAllowed } from "@/lib/deals/lifecycleGuards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,6 +85,19 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: e?.message || "Invalid/expired link" },
       { status: 401 },
+    );
+  }
+
+  const { data: deal } = await sb
+    .from("deals")
+    .select("lifecycle_stage")
+    .eq("id", invite.deal_id)
+    .maybeSingle();
+
+  if (!isBorrowerUploadAllowed(deal?.lifecycle_stage ?? null)) {
+    return NextResponse.json(
+      { error: "Deal intake not started" },
+      { status: 403 },
     );
   }
 

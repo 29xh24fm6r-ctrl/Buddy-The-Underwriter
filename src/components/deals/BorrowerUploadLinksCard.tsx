@@ -31,7 +31,13 @@ function statusOf(l: LinkRow): { label: string; tone: "good" | "warn" | "bad" | 
   return { label: "Active", tone: "good" };
 }
 
-export default function BorrowerUploadLinksCard({ dealId }: { dealId: string }) {
+export default function BorrowerUploadLinksCard({
+  dealId,
+  lifecycleStage,
+}: {
+  dealId: string;
+  lifecycleStage?: string | null;
+}) {
   const [links, setLinks] = useState<LinkRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -44,6 +50,7 @@ export default function BorrowerUploadLinksCard({ dealId }: { dealId: string }) 
   const [singleUse, setSingleUse] = useState(true);
   const [password, setPassword] = useState("");
   const [label, setLabel] = useState("Borrower docs");
+  const intakeStarted = !!lifecycleStage && lifecycleStage !== "created";
 
   async function refresh() {
     setMsg(null);
@@ -144,6 +151,7 @@ export default function BorrowerUploadLinksCard({ dealId }: { dealId: string }) 
             onChange={(e) => setLabel(e.target.value)}
             className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
             placeholder="Borrower docs"
+            disabled={!intakeStarted}
           />
         </div>
         <div>
@@ -155,12 +163,13 @@ export default function BorrowerUploadLinksCard({ dealId }: { dealId: string }) 
             min={1}
             max={720}
             className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
+            disabled={!intakeStarted}
           />
         </div>
         <div className="flex items-end gap-2">
           <button
             onClick={createLink}
-            disabled={busy}
+            disabled={busy || !intakeStarted}
             className="w-full rounded-xl bg-white px-3 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-50"
           >
             {busy ? "Working…" : "Create + Copy"}
@@ -175,6 +184,7 @@ export default function BorrowerUploadLinksCard({ dealId }: { dealId: string }) 
             type="text"
             className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
             placeholder="(leave blank for none)"
+            disabled={!intakeStarted}
           />
         </div>
         <div className="md:col-span-2 flex items-end gap-3">
@@ -184,6 +194,7 @@ export default function BorrowerUploadLinksCard({ dealId }: { dealId: string }) 
               checked={singleUse}
               onChange={(e) => setSingleUse(e.target.checked)}
               className="h-4 w-4"
+              disabled={!intakeStarted}
             />
             Single-use
           </label>
@@ -192,6 +203,12 @@ export default function BorrowerUploadLinksCard({ dealId }: { dealId: string }) 
           </div>
         </div>
       </div>
+
+      {!intakeStarted ? (
+        <div className="mt-3 rounded-xl border border-neutral-800 bg-neutral-900/40 p-3 text-sm text-neutral-200">
+          Start deal intake to enable borrower upload links.
+        </div>
+      ) : null}
 
       {msg ? (
         <div className="mt-3 rounded-xl border border-neutral-800 bg-neutral-900/40 p-3 text-sm text-neutral-200">

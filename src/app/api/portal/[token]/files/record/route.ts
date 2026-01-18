@@ -6,6 +6,7 @@ import { recomputeDealReady } from "@/lib/deals/readiness";
 import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrowerUploadAndMaterialize";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { recordReceipt } from "@/lib/portal/receipts";
+import { isBorrowerUploadAllowed } from "@/lib/deals/lifecycleGuards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     // Fetch deal to get bank_id (required for insert)
     const { data: deal, error: dealErr } = await sb
       .from("deals")
-      .select("bank_id")
+      .select("bank_id, lifecycle_stage")
       .eq("id", dealId)
       .maybeSingle();
 
@@ -99,6 +100,13 @@ export async function POST(req: NextRequest, ctx: Context) {
       return NextResponse.json(
         { ok: false, error: "Deal not found" },
         { status: 404 },
+      );
+    }
+
+    if (!isBorrowerUploadAllowed(deal.lifecycle_stage)) {
+      return NextResponse.json(
+        { ok: false, error: "Deal intake not started" },
+        { status: 403 },
       );
     }
 
