@@ -43,6 +43,8 @@ type BuddyCtx = {
   setExplainMarkdown: (dealId: string, md: string) => void;
   pushToast: (text: string) => void;
   setOutcomeSnapshot: (snapshot: OutcomeSnapshot | null) => void;
+  setPanelCollapsed: (collapsed: boolean) => void;
+  setPanelWidth: (width: number) => void;
 };
 
 const Ctx = createContext<BuddyCtx | null>(null);
@@ -113,6 +115,15 @@ export function BuddyProvider({ children }: { children: React.ReactNode }) {
 
   const setOpen = useCallback((open: boolean) => {
     setState((s) => ({ ...s, isOpen: open }));
+  }, []);
+
+  const setPanelCollapsed = useCallback((collapsed: boolean) => {
+    setState((s) => ({ ...s, panelCollapsed: collapsed }));
+  }, []);
+
+  const setPanelWidth = useCallback((width: number) => {
+    const clamped = Math.max(280, Math.min(440, Math.round(width)));
+    setState((s) => ({ ...s, panelWidth: clamped }));
   }, []);
 
   const emit = useCallback((sig: BuddySignal) => {
@@ -286,6 +297,8 @@ export function BuddyProvider({ children }: { children: React.ReactNode }) {
       setExplainMarkdown,
       pushToast,
       setOutcomeSnapshot,
+      setPanelCollapsed,
+      setPanelWidth,
     }),
     [
       state,
@@ -300,6 +313,8 @@ export function BuddyProvider({ children }: { children: React.ReactNode }) {
       setExplainMarkdown,
       pushToast,
       setOutcomeSnapshot,
+      setPanelCollapsed,
+      setPanelWidth,
     ]
   );
 
