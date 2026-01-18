@@ -164,6 +164,7 @@ type DealShellDeal = {
   nickname: string | null;
   borrower_name: string | null;
   name: string | null;
+  legal_name?: string | null;
   amount: number | null;
   stage: string | null;
   risk_score: number | null;
@@ -219,6 +220,7 @@ export default function DealShell({
   const displayName = nameOverride?.displayName ?? deal?.display_name ?? null;
   const nickname = nameOverride?.nickname ?? deal?.nickname ?? null;
   const borrowerName = deal?.borrower_name ?? deal?.name ?? null;
+  const legalName = deal?.legal_name ?? null;
 
   useEffect(() => {
     if (!dealId) return;
@@ -230,6 +232,7 @@ export default function DealShell({
         nickname,
         borrower_name: borrowerName ?? deal?.name ?? null,
         name: deal?.name ?? null,
+        legal_name: legalName,
       }).label;
       const payload = {
         dealId,
@@ -240,7 +243,7 @@ export default function DealShell({
     } catch (e) {
       console.warn("[DealShell] Failed to store last active deal", e);
     }
-  }, [dealId, deal?.name, displayName, nickname, borrowerName]);
+  }, [dealId, deal?.name, displayName, nickname, borrowerName, legalName]);
 
   function handleCopyDealId() {
     if (!dealId) return;
@@ -313,6 +316,7 @@ export default function DealShell({
                   displayName={displayName}
                   nickname={nickname}
                   borrowerName={borrowerName ?? deal?.name ?? null}
+                  legalName={legalName}
                   size="lg"
                   tone="dark"
                   onUpdated={(next) => {

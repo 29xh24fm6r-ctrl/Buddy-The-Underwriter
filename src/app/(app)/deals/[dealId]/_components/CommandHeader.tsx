@@ -4,7 +4,12 @@ import Link from "next/link";
 
 export function CommandHeader({ dealId, ctx }: { dealId: string; ctx: any }) {
   const bankName = ctx?.bank?.name ?? ctx?.bank?.legal_name ?? "—";
-  const dealName = ctx?.name ?? ctx?.deal_name ?? ctx?.title ?? `Deal ${dealId.slice(0, 8)}`;
+  const dealName =
+    ctx?.borrower?.name ??
+    ctx?.name ??
+    ctx?.deal_name ??
+    ctx?.title ??
+    `Deal ${dealId.slice(0, 8)}`;
   const updatedAt = ctx?._meta?.updated_at ? new Date(ctx._meta.updated_at).toLocaleString() : null;
 
   return (

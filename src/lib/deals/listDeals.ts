@@ -10,7 +10,7 @@ export type DealSummary = {
   nickname: string | null;
   borrowerName: string | null;
   label: string;
-  labelSource: "display_name" | "nickname" | "borrower_name" | "name" | "fallback";
+  labelSource: "display_name" | "nickname" | "borrower_name" | "name" | "legal_name" | "fallback";
   needsName: boolean;
   borrower: string;
   amountLabel: string;
@@ -105,6 +105,7 @@ export async function listDealsForBank(limit = 50): Promise<DealSummary[]> {
       nickname: d.nickname ?? null,
       borrower_name: d.borrower_name ?? null,
       name: d.name ?? null,
+      legal_name: (d as any).legal_name ?? null,
     });
 
     let status: string | null = null;
