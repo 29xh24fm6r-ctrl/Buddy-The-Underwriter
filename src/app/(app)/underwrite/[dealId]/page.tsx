@@ -12,6 +12,9 @@ import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitBuilderLifecycleSignal } from "@/lib/buddy/builderSignals";
+import { ensureUnderwritingActivated } from "@/lib/deals/underwriting/ensureUnderwritingActivated";
+import { UnderwritingControlPanel } from "@/components/deals/UnderwritingControlPanel";
+import { UnderwriteEntryRedirect } from "@/components/deals/UnderwriteEntryRedirect";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
@@ -221,7 +224,7 @@ export default async function UnderwriteDealPage({
         <div className="rounded-xl border border-neutral-200 bg-white p-6">
           <h1 className="text-2xl font-bold text-neutral-900">Underwriting</h1>
           <p className="mt-2 text-sm text-neutral-600">
-            Underwriting not started yet.
+            Unable to access underwriting for this deal.
           </p>
           <div className="mt-4">
             <Link
@@ -264,21 +267,54 @@ export default async function UnderwriteDealPage({
     );
   }
 
-  if (!canAccessUnderwrite(deal.lifecycle_stage ?? null)) {
+  const activation = await ensureUnderwritingActivated({
+    dealId,
+    bankId: bankId ?? dealBankId ?? access.bankId,
+    trigger: "underwrite.page",
+  });
+
+  const underwriteReady =
+    (activation.ok && activation.status === "activated") ||
+    canAccessUnderwrite(deal.lifecycle_stage ?? null);
+
+  const { data: intake } = await sb
+    .from("deal_intake")
+    .select("id")
+    .eq("deal_id", dealId)
+    .maybeSingle();
+
+  if (!underwriteReady) {
     return (
-      <div className="mx-auto w-full max-w-5xl px-6 py-10">
-        <div className="rounded-xl border border-neutral-200 bg-white p-6">
-          <h1 className="text-2xl font-bold text-neutral-900">Underwriting</h1>
-          <p className="mt-2 text-sm text-neutral-600">
-            Underwriting not started yet.
-          </p>
-          <div className="mt-4">
-            <Link
-              href={`/deals/${dealId}/cockpit`}
-              className="inline-flex items-center rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:bg-neutral-800"
-            >
-              Go to Deal Cockpit
-            </Link>
+      <div className="space-y-6 pb-10">
+        {builderMode ? (
+          <UnderwriteEntryRedirect dealId={dealId} enabled />
+        ) : null}
+        <div className="mx-auto w-full max-w-6xl px-4 pt-6">
+          <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-2">
+              <h1 className="text-2xl font-bold text-neutral-900">Underwriting initialization</h1>
+              <p className="text-sm text-neutral-600">
+                Underwriting needs activation or required documents before analysis can begin.
+              </p>
+              <div className="text-xs text-neutral-500">
+                Status: {activation.ok ? activation.status : "failed"}
+              </div>
+            </div>
+            <div className="mt-4">
+              <UnderwritingControlPanel
+                dealId={dealId}
+                lifecycleStage={deal.lifecycle_stage ?? null}
+                intakeInitialized={Boolean(intake?.id)}
+              />
+            </div>
+            <div className="mt-4">
+              <Link
+                href={`/deals/${dealId}/cockpit`}
+                className="inline-flex items-center rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:bg-neutral-800"
+              >
+                Go to Deal Cockpit
+              </Link>
+            </div>
           </div>
         </div>
       </div>
