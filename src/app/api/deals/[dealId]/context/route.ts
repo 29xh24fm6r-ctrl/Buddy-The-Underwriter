@@ -6,6 +6,7 @@ import type { DealContext } from "@/lib/deals/contextTypes";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -122,12 +123,41 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
 
     if (bankId && deal.bank_id) {
       try {
-        await initializeIntake(dealId, deal.bank_id, { reason: "context_load" });
+        const init = await initializeIntake(dealId, deal.bank_id, {
+          reason: "context_load",
+          trigger: "context",
+        });
+        if (!init.ok) {
+          await logLedgerEvent({
+            dealId,
+            bankId: deal.bank_id,
+            eventKey: "intake.init_failed",
+            uiState: "done",
+            uiMessage: "Intake init failed",
+            meta: {
+              trigger: "context",
+              error: init.error ?? "unknown",
+            },
+          });
+        }
       } catch (e: any) {
         console.warn("[context] initializeIntake failed", {
           dealId,
           error: e?.message ?? String(e),
         });
+        try {
+          await logLedgerEvent({
+            dealId,
+            bankId: deal.bank_id,
+            eventKey: "intake.init_failed",
+            uiState: "done",
+            uiMessage: "Intake init failed",
+            meta: {
+              trigger: "context",
+              error: e?.message ?? String(e),
+            },
+          });
+        } catch {}
       }
     }
 
