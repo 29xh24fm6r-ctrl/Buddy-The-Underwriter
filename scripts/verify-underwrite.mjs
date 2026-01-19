@@ -59,16 +59,43 @@ if (!previewUrl) {
   process.exit(1);
 }
 
+const token = process.env.BUDDY_BUILDER_VERIFY_TOKEN || "";
+if (!token) {
+  console.error("[verify:underwrite] Missing BUDDY_BUILDER_VERIFY_TOKEN env.");
+  process.exit(1);
+}
+
 const baseUrl = previewUrl.startsWith("http")
   ? previewUrl
   : `https://${previewUrl}`;
 
+const metaUrl = `${baseUrl}/api/_meta/build`;
 const verifyUrl = `${baseUrl}/api/_builder/verify/underwrite?dealId=${dealId}`;
 
 console.log(`[verify:underwrite] Using preview ${baseUrl}`);
-console.log(`[verify:underwrite] Verify URL ${verifyUrl}`);
 
-const res = await fetch(verifyUrl);
+const metaRes = await fetch(metaUrl, { headers: { "Cache-Control": "no-store" } });
+const metaText = await metaRes.text();
+let metaPayload = null;
+try {
+  metaPayload = JSON.parse(metaText);
+} catch {
+  metaPayload = { raw: metaText };
+}
+
+console.log("[verify:underwrite] Build meta", {
+  status: metaRes.status,
+  sha: metaPayload?.git?.sha ?? null,
+  ref: metaPayload?.git?.ref ?? null,
+  deploymentId: metaPayload?.vercel?.deploymentId ?? null,
+});
+
+const res = await fetch(verifyUrl, {
+  headers: {
+    "x-buddy-builder-token": token,
+    "Cache-Control": "no-store",
+  },
+});
 const text = await res.text();
 let payload = null;
 try {
@@ -111,4 +138,5 @@ console.log("[verify:underwrite] Success:", {
   checklistCount: payload?.intake?.checklistCount,
   intakeEvent: payload?.ledger?.intakeEvent,
   underwritingEvent: payload?.ledger?.underwritingEvent,
+  recommendedNextAction: payload?.recommendedNextAction ?? null,
 });
