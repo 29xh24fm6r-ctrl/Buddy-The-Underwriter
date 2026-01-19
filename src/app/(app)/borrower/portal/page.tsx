@@ -1,4 +1,4 @@
-import StitchRouteBridge from "@/components/stitch/StitchRouteBridge";
+import StitchSurface from "@/stitch/StitchSurface";
 
 export default async function Page({
   searchParams,
@@ -9,9 +9,11 @@ export default async function Page({
   const token = Array.isArray(tokenParam) ? tokenParam[0] : tokenParam || null;
 
   return (
-    <StitchRouteBridge
-      slug="borrower-document-upload-review"
-      activationContext={{ token }}
+    <StitchSurface
+      surfaceKey="borrower_portal"
+      activationToken={token}
+      title="Borrower Portal"
+      mode="iframe"
     />
   );
 }

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import StitchRouteBridge from "@/components/stitch/StitchRouteBridge";
+import StitchSurface from "@/stitch/StitchSurface";
 
 export const dynamic = "force-dynamic";
 
@@ -15,5 +15,5 @@ export default async function UnderwritePage({
     redirect(`/underwrite/${dealId}`);
   }
 
-  return <StitchRouteBridge slug="deals-command-bridge" />;
+  return <StitchSurface surfaceKey="underwrite" title="Underwrite" mode="iframe" />;
 }

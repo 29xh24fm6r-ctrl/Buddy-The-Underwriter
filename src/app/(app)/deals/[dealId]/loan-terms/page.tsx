@@ -183,7 +183,11 @@ export default function LoanTermsFormPage() {
           Loading policy defaults...
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="bg-white border rounded-lg p-6 space-y-6">
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white border rounded-lg p-6 space-y-6"
+          id="loan-request"
+        >
           {/* Pricing section */}
           <div>
             <h3 className="text-lg font-semibold mb-4">Pricing</h3>

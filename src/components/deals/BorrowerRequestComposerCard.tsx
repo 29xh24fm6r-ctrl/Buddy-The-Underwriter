@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 
 type ChecklistItem = {
   id: string;
@@ -16,6 +17,7 @@ export default function BorrowerRequestComposerCard({ dealId }: { dealId: string
   const [sending, setSending] = useState(false);
 
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const appliedPrefill = useRef(false);
 
   const [channelEmail, setChannelEmail] = useState(true);
   const [channelSms, setChannelSms] = useState(false);
@@ -30,6 +32,8 @@ export default function BorrowerRequestComposerCard({ dealId }: { dealId: string
 
   const [enableReminders, setEnableReminders] = useState(false);
   const [cadenceDays, setCadenceDays] = useState(3);
+  const searchParams = useSearchParams();
+  const docsParam = (searchParams?.get("docs") ?? "").trim();
 
   useEffect(() => {
     async function load() {
@@ -51,6 +55,21 @@ export default function BorrowerRequestComposerCard({ dealId }: { dealId: string
     }
     load();
   }, [dealId]);
+
+  useEffect(() => {
+    if (!docsParam || appliedPrefill.current || items.length === 0) return;
+    const keys = docsParam
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    if (keys.length === 0) return;
+    const existing = new Set(items.map((item) => item.checklist_key));
+    const filtered = keys.filter((k) => existing.has(k));
+    if (filtered.length > 0) {
+      setSelectedKeys(filtered);
+      appliedPrefill.current = true;
+    }
+  }, [docsParam, items]);
 
   const missingItems = items.filter((it) => !it.received_at);
 
