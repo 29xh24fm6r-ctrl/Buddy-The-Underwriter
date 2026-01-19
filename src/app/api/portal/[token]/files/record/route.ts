@@ -6,6 +6,7 @@ import { recomputeDealReady } from "@/lib/deals/readiness";
 import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrowerUploadAndMaterialize";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { recordReceipt } from "@/lib/portal/receipts";
+import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 import { isBorrowerUploadAllowed } from "@/lib/deals/lifecycleGuards";
 
 export const runtime = "nodejs";
@@ -143,7 +144,43 @@ export async function POST(req: NextRequest, ctx: Context) {
         sha256: sha256 ?? null,
       },
       source: "borrower_portal",
-      metadata: { checklist_key },
+      metadata: { task_checklist_key: checklist_key, skip_filename_match: true },
+    });
+
+    await writeEvent({
+      dealId,
+      kind: "deal.document.uploaded",
+      actorUserId: null,
+      input: {
+        document_id: result.documentId,
+        checklist_key: result.checklistKey ?? null,
+        source: "borrower_portal",
+      },
+    });
+
+    if (result.checklistKey) {
+      await writeEvent({
+        dealId,
+        kind: "deal.document.classified",
+        actorUserId: null,
+        input: {
+          document_id: result.documentId,
+          checklist_key: result.checklistKey,
+          source: "borrower_task",
+        },
+      });
+    }
+
+    emitBuddySignalServer({
+      type: "deal.document.uploaded",
+      source: "api/portal/[token]/files/record",
+      ts: Date.now(),
+      dealId,
+      payload: {
+        document_id: result.documentId,
+        checklist_key: result.checklistKey ?? null,
+        source: "borrower_portal",
+      },
     });
 
     // Borrower-safe receipt + portal checklist highlight (hint-based)
@@ -158,6 +195,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         storage_path: object_path,
         checklist_key: checklist_key ?? null,
       },
+      skipFilenameMatch: true,
     });
 
     // ✅ Audit trail: record borrower_uploads row for this upload (idempotent)

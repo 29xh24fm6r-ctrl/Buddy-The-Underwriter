@@ -71,14 +71,14 @@ export async function ingestDocument(input: IngestDocumentInput) {
    * 2. explicit documentKey
    * 3. stable path-based fallback
    */
-  const checklistKey = input.metadata?.checklist_key;
+  const checklistKey = input.metadata?.checklist_key ?? input.metadata?.task_checklist_key ?? null;
   const fallbackDocumentKey =
     input.documentKey ??
     `path:${input.file.storagePath}`.replace(/[^a-z0-9_:/-]/gi, "_");
 
   const documentKey = checklistKey ?? fallbackDocumentKey;
 
-  const payload = {
+  const payload: any = {
     deal_id: input.dealId,
     bank_id: input.bankId,
     original_filename: input.file.original_filename,
@@ -92,6 +92,13 @@ export async function ingestDocument(input: IngestDocumentInput) {
     document_key: documentKey,
     metadata: input.metadata ?? {},
   };
+
+  if (checklistKey) {
+    payload.checklist_key = checklistKey;
+    payload.match_source = "borrower_task";
+    payload.match_reason = "task_selected";
+    payload.match_confidence = 1.0;
+  }
 
   /**
    * Hard schema guard — if this throws, someone edited code
@@ -110,6 +117,10 @@ export async function ingestDocument(input: IngestDocumentInput) {
     "uploader_user_id",
     "document_key",
     "metadata",
+    "checklist_key",
+    "match_source",
+    "match_reason",
+    "match_confidence",
   ]);
 
   for (const key of Object.keys(payload)) {
@@ -144,13 +155,16 @@ export async function ingestDocument(input: IngestDocumentInput) {
   });
 
   // Checklist match + stamp
-  const stamped = await matchAndStampDealDocument({
-    sb,
-    dealId: input.dealId,
-    documentId: doc.id,
-    originalFilename: input.file.original_filename,
-    mimeType: input.file.mimeType,
-  });
+  const stamped = checklistKey
+    ? { matched: true, checklist_key: checklistKey, doc_year: null, confidence: 1, reason: "task_selected" }
+    : await matchAndStampDealDocument({
+        sb,
+        dealId: input.dealId,
+        documentId: doc.id,
+        originalFilename: input.file.original_filename,
+        mimeType: input.file.mimeType,
+        metadata: input.metadata ?? null,
+      });
 
   // Reconcile checklist (year-aware)
   await reconcileChecklistForDeal({ sb, dealId: input.dealId });
@@ -171,11 +185,11 @@ export async function ingestDocument(input: IngestDocumentInput) {
 
   return {
     documentId: doc.id,
-    checklistKey: stamped.matched ? stamped.checklist_key ?? null : null,
+    checklistKey: stamped.matched ? stamped.checklist_key ?? checklistKey ?? null : null,
     docYear: stamped.matched ? stamped.doc_year ?? null : null,
     matchConfidence: stamped.matched ? stamped.confidence ?? null : null,
     matchReason: stamped.matched
-      ? "filename_match"
+      ? stamped.reason ?? "matched"
       : stamped.reason ?? "no_match",
   };
 }

@@ -166,7 +166,7 @@ export default function DealCockpitClient({
           {/* Right Column */}
           <div className="space-y-6">
             <SafeBoundary>
-              <UnderwritingControlPanel dealId={dealId} />
+              <UnderwritingControlPanel dealId={dealId} lifecycleStage={stage} />
             </SafeBoundary>
 
             <SafeBoundary>

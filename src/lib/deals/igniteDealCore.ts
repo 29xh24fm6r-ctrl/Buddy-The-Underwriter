@@ -63,6 +63,10 @@ export async function igniteDeal(params: {
   const buildChecklistForLoanType =
     deps?.buildChecklistForLoanType ?? defaultDeps?.buildChecklistForLoanType;
 
+  if (!sb || !ledgerWrite || !pipelineLog || !emitSignal || !ensurePortal || !buildChecklistForLoanType) {
+    throw new Error("igniteDeal missing dependencies");
+  }
+
   const { data: deal, error: dealErr } = await sb
     .from("deals")
     .select("id, bank_id, lifecycle_stage")
@@ -132,7 +136,11 @@ export async function igniteDeal(params: {
       .upsert(checklistRows as any, { onConflict: "deal_id,checklist_key" });
 
     if (seedErr) {
-      const fallbackRows = checklistRows.map(({ bank_id: _bankId, ...rest }) => rest);
+      const fallbackRows = checklistRows.map((row) => {
+        const next = { ...row } as any;
+        delete next.bank_id;
+        return next;
+      });
       const { error: fallbackErr } = await sb
         .from("deal_checklist_items")
         .upsert(fallbackRows as any, { onConflict: "deal_id,checklist_key" });

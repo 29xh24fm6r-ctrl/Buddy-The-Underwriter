@@ -5,6 +5,9 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { runPolicyAwareUnderwriting } from "@/lib/underwrite/policyEngine";
 import { upsertDealStatusAndLog } from "@/lib/deals/status";
+import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,7 +53,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     // 1. Check if deal exists
     const { data: deal, error: dealError } = await sb
       .from("deals")
-      .select("id, name, borrower_name, bank_id")
+      .select("id, name, borrower_name, bank_id, lifecycle_stage")
       .eq("id", dealId)
       .single();
 
@@ -82,6 +85,13 @@ export async function POST(req: NextRequest, ctx: Context) {
       (deal as any).bank_id = bankId;
     }
 
+    if (deal.lifecycle_stage !== "collecting" && deal.lifecycle_stage !== "ready") {
+      return NextResponse.json(
+        { ok: false, error: "Deal not ready for underwriting" },
+        { status: 400 }
+      );
+    }
+
     // 2. Verify all required checklist items are received
     const { data: checklist } = await sb
       .from("deal_checklist_items")
@@ -90,6 +100,10 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     const requiredItems = checklist?.filter((i) => i.required) || [];
     const receivedRequired = requiredItems.filter((i) => i.received_at);
+    const { count: docCount } = await sb
+      .from("deal_documents")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId);
 
     if (requiredItems.length === 0) {
       return NextResponse.json(
@@ -165,7 +179,23 @@ export async function POST(req: NextRequest, ctx: Context) {
       ? Math.round((highConfidenceFields / totalFields) * 100) 
       : 0;
 
-    // 4. Run policy-aware underwriting (deterministic engine + truth snapshot logging)
+    // 4. Advance lifecycle to underwriting (explicit)
+    const lifecycle = await advanceDealLifecycle({
+      dealId,
+      toStage: "underwriting",
+      reason: "underwriting_started",
+      source: "underwrite_start",
+      actor: { userId, type: "user" },
+    });
+
+    if (!lifecycle.ok) {
+      return NextResponse.json(
+        { ok: false, error: "Failed to start underwriting" },
+        { status: 400 },
+      );
+    }
+
+    // 5. Run policy-aware underwriting (deterministic engine + truth snapshot logging)
     let policy: Awaited<ReturnType<typeof runPolicyAwareUnderwriting>> | null = null;
     try {
       policy = await runPolicyAwareUnderwriting({ dealId, bankId });
@@ -181,14 +211,16 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    // 5. Emit underwriting_started event
+    // 6. Emit underwriting_started event
     await writeEvent({
       dealId,
-      kind: "underwrite.started",
+      kind: "deal.underwriting.started",
       actorUserId: userId,
       input: {
         checklist_complete: true,
         required_items: requiredItems.length,
+        checklist_snapshot: requiredItems.map((i) => i.checklist_key),
+        document_count: docCount ?? null,
       },
       meta: {
         confidence_score: confidenceScore,
@@ -199,7 +231,31 @@ export async function POST(req: NextRequest, ctx: Context) {
       },
     });
 
-    // 6. Update deal timeline stage (best-effort)
+    await logLedgerEvent({
+      dealId,
+      bankId: deal.bank_id,
+      eventKey: "deal.underwriting.started",
+      uiState: "done",
+      uiMessage: "Underwriting started",
+      meta: {
+        required_items: requiredItems.length,
+        received_items: receivedRequired.length,
+        confidence_score: confidenceScore,
+      },
+    });
+
+    emitBuddySignalServer({
+      type: "deal.underwriting.started",
+      source: "api/deals/[dealId]/underwrite/start",
+      ts: Date.now(),
+      dealId,
+      payload: {
+        required_items: requiredItems.length,
+        received_items: receivedRequired.length,
+      },
+    });
+
+    // 7. Update deal timeline stage (best-effort)
     try {
       await upsertDealStatusAndLog({
         dealId,

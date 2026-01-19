@@ -8,7 +8,7 @@ import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { igniteDeal } from "@/lib/deals/igniteDeal";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {

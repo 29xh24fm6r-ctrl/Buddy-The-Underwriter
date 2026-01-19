@@ -142,6 +142,19 @@ export default async function UnderwriteDealPage({
     legal_name: (deal as any).legal_name ?? null,
   });
 
+  const { data: checklistRows } = await sb
+    .from("deal_checklist_items")
+    .select("id, title, required, status")
+    .eq("deal_id", dealId);
+
+  const requiredItems = (checklistRows ?? []).filter((r: any) => r.required);
+  const receivedRequired = requiredItems.filter(
+    (r: any) => r.status === "received" || r.status === "satisfied",
+  );
+  const missingRequired = requiredItems.filter(
+    (r: any) => r.status !== "received" && r.status !== "satisfied",
+  );
+
   return (
     <div className="space-y-6 pb-10">
       <div className="mx-auto w-full max-w-6xl px-4 pt-6">
@@ -175,6 +188,33 @@ export default async function UnderwriteDealPage({
       </div>
 
       <div className="mx-auto w-full max-w-6xl px-4">
+        <div className="grid gap-4 md:grid-cols-2 mb-6">
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <div className="text-sm font-semibold text-neutral-900">Checklist snapshot</div>
+            <div className="mt-2 text-xs text-neutral-600">
+              Required received: {receivedRequired.length}/{requiredItems.length}
+            </div>
+            {missingRequired.length > 0 ? (
+              <div className="mt-3 text-xs text-neutral-600">
+                Missing:
+                <ul className="mt-2 space-y-1">
+                  {missingRequired.slice(0, 5).map((item: any) => (
+                    <li key={item.id}>• {item.title}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="mt-3 text-xs text-emerald-700">All required documents received.</div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <div className="text-sm font-semibold text-neutral-900">Ask Buddy about this deal</div>
+            <div className="mt-2 text-xs text-neutral-600">
+              Ask questions like “What’s missing?” or “Summarize borrower strength.”
+            </div>
+          </div>
+        </div>
         <div className="mb-6">
           <DealFinancialSpreadsPanel dealId={dealId} />
         </div>

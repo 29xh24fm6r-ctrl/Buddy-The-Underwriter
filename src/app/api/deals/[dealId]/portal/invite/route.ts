@@ -5,6 +5,9 @@ import { newPortalToken, sha256Base64url } from "@/lib/portal/token";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { igniteDeal } from "@/lib/deals/igniteDeal";
+import { writeEvent } from "@/lib/ledger/writeEvent";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { sendSmsWithConsent } from "@/lib/sms/send";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,6 +78,51 @@ export async function POST(
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin;
   const portalUrl = `${baseUrl}/portal/${token}`;
+
+  await writeEvent({
+    dealId,
+    kind: "deal.borrower.invited",
+    actorUserId: auth.userId,
+    input: {
+      invite_id: invite.id,
+      channel: "portal",
+    },
+  });
+
+  await logLedgerEvent({
+    dealId,
+    bankId,
+    eventKey: "deal.borrower.invited",
+    uiState: "done",
+    uiMessage: "Borrower invited",
+    meta: {
+      invite_id: invite.id,
+    },
+  });
+
+  const { data: intake } = await sb
+    .from("deal_intake")
+    .select("borrower_phone")
+    .eq("deal_id", dealId)
+    .maybeSingle();
+
+  const phone = String((intake as any)?.borrower_phone ?? "").trim();
+  if (phone) {
+    try {
+      await sendSmsWithConsent({
+        dealId,
+        to: phone,
+        body: `You’ve been invited to upload documents for your loan. Secure link: ${portalUrl}`,
+        label: "borrower_invite",
+        metadata: { invite_id: invite.id },
+      });
+    } catch (e: any) {
+      console.warn("[portal/invite] SMS send failed", {
+        dealId,
+        error: e?.message ?? String(e),
+      });
+    }
+  }
 
   await igniteDeal({
     dealId,
