@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 import { execSync } from "node:child_process";
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const run = (cmd) =>
   execSync(cmd, {
     encoding: "utf8",
@@ -17,13 +15,41 @@ const tryRun = (cmd) => {
   }
 };
 
-const dealId = process.env.DEAL_ID || process.argv[2];
+const parseArgs = (argv) => {
+  const args = { _: [] };
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i];
+    if (token.startsWith("--")) {
+      const key = token.slice(2);
+      const next = argv[i + 1];
+      if (next && !next.startsWith("--")) {
+        args[key] = next;
+        i += 1;
+      } else {
+        args[key] = true;
+      }
+    } else {
+      args._.push(token);
+    }
+  }
+  return args;
+};
+
+const args = parseArgs(process.argv.slice(2));
+
+if (args.help) {
+  console.log(`\nUsage:\n  node scripts/verify-underwrite.mjs --base <url> --deal <dealId>\n\nOptions:\n  --base     Preview base URL (or set PREVIEW_URL/VERCEL_URL)\n  --deal     Deal id (or set DEAL_ID)\n  --help     Show this help\n\nUI verification intentionally removed — server invariant is canonical.\n`);
+  process.exit(0);
+}
+
+const dealId = process.env.DEAL_ID || args.deal || args._[0];
 if (!dealId) {
-  console.error("[verify:underwrite] Provide DEAL_ID env or first CLI arg.");
+  console.error("[verify:underwrite] Provide DEAL_ID env or --deal.");
   process.exit(1);
 }
 
 const previewUrl =
+  args.base ||
   process.env.PREVIEW_URL ||
   process.env.VERCEL_URL ||
   tryRun("node scripts/vercel-latest-url.mjs");
@@ -37,83 +63,52 @@ const baseUrl = previewUrl.startsWith("http")
   ? previewUrl
   : `https://${previewUrl}`;
 
-const authCookie =
-  process.env.BUDDY_AUTH_COOKIE ||
-  process.env.AUTH_COOKIE ||
-  process.env.COOKIE ||
-  "";
-
-const requestHeaders = authCookie ? { cookie: authCookie } : {};
-
-const fetchJson = async (url) => {
-  const res = await fetch(url, { headers: requestHeaders });
-  const text = await res.text();
-  let json = null;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    json = { raw: text };
-  }
-  return { ok: res.ok, status: res.status, json };
-};
+const verifyUrl = `${baseUrl}/api/_builder/verify/underwrite?dealId=${dealId}`;
 
 console.log(`[verify:underwrite] Using preview ${baseUrl}`);
+console.log(`[verify:underwrite] Verify URL ${verifyUrl}`);
 
-const underwriteRes = await fetch(`${baseUrl}/underwrite/${dealId}`, {
-  headers: requestHeaders,
-  redirect: "manual",
-});
+const res = await fetch(verifyUrl);
+const text = await res.text();
+let payload = null;
+try {
+  payload = JSON.parse(text);
+} catch {
+  payload = { raw: text };
+}
 
-const underwriteHtml = await underwriteRes.text();
-
-console.log("[verify:underwrite] Underwrite status", underwriteRes.status);
-
-if (underwriteHtml.includes("Underwriting not started yet")) {
-  console.error("[verify:underwrite] Dead-end fallback detected in HTML.");
+if (!res.ok) {
+  console.error("[verify:underwrite] Request failed", { status: res.status });
+  console.error(JSON.stringify(payload ?? {}, null, 2));
   process.exit(1);
 }
 
-const contextRes = await fetchJson(`${baseUrl}/api/deals/${dealId}/context`);
-console.log("[verify:underwrite] Context", {
-  ok: contextRes.ok,
-  status: contextRes.status,
-  keys: contextRes.json && typeof contextRes.json === "object" ? Object.keys(contextRes.json) : [],
-});
-
-const pipelineRes = await fetchJson(`${baseUrl}/api/deals/${dealId}/pipeline/latest`);
-if (pipelineRes.ok) {
-  const latestKey = pipelineRes.json?.latest?.event_key || pipelineRes.json?.event_key || null;
-  const okKeys = new Set([
-    "deal.underwriting.started",
-    "underwriting.activated",
-    "underwriting.already_activated",
-  ]);
-  console.log("[verify:underwrite] Pipeline latest", { latestKey });
-  if (latestKey && !okKeys.has(String(latestKey))) {
-    console.warn("[verify:underwrite] Latest pipeline key not an underwriting activation.");
-  }
-}
-
-let checklistCount = 0;
-let lastChecklist = null;
-for (let i = 0; i < 6; i += 1) {
-  const checklistRes = await fetchJson(`${baseUrl}/api/deals/${dealId}/checklist`);
-  lastChecklist = checklistRes;
-  const items = checklistRes.json?.items || [];
-  checklistCount = Array.isArray(items) ? items.length : 0;
-  console.log("[verify:underwrite] Checklist", {
-    ok: checklistRes.ok,
-    status: checklistRes.status,
-    count: checklistCount,
-  });
-  if (checklistCount > 0) break;
-  await sleep(1000);
-}
-
-if (checklistCount === 0) {
-  console.error("[verify:underwrite] Checklist still empty after retry window.");
-  console.error(JSON.stringify(lastChecklist?.json ?? {}, null, 2));
+if (!payload?.ok) {
+  console.error("[verify:underwrite] Assertion failed: ok !== true");
+  console.error(JSON.stringify(payload ?? {}, null, 2));
   process.exit(1);
 }
 
-console.log("[verify:underwrite] Success: checklist seeded.");
+if (!payload?.intake?.initialized) {
+  console.error("[verify:underwrite] Assertion failed: intake.initialized !== true");
+  console.error(JSON.stringify(payload ?? {}, null, 2));
+  process.exit(1);
+}
+
+if (!(payload?.intake?.checklistCount > 0)) {
+  console.error("[verify:underwrite] Assertion failed: checklistCount <= 0");
+  console.error(JSON.stringify(payload ?? {}, null, 2));
+  process.exit(1);
+}
+
+if (!payload?.underwriting?.activated) {
+  console.error("[verify:underwrite] Assertion failed: underwriting.activated !== true");
+  console.error(JSON.stringify(payload ?? {}, null, 2));
+  process.exit(1);
+}
+
+console.log("[verify:underwrite] Success:", {
+  checklistCount: payload?.intake?.checklistCount,
+  intakeEvent: payload?.ledger?.intakeEvent,
+  underwritingEvent: payload?.ledger?.underwritingEvent,
+});
