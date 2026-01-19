@@ -8,10 +8,13 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { resolveDealLabel, dealLabel } from "@/lib/deals/dealLabel";
 import { canAccessUnderwrite } from "@/lib/deals/lifecycleGuards";
+import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
+import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import Link from "next/link";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function generateMetadata(
   props: { params: Promise<{ dealId: string }> | { dealId: string } }
@@ -60,6 +63,16 @@ export default async function UnderwriteDealPage({
 }: UnderwriteDealPageProps) {
   const resolvedParams = await params;
   const dealId = resolvedParams.dealId;
+
+  const bankId = await getCurrentBankId();
+
+  try {
+    await initializeIntake(dealId, bankId, {
+      trigger: "underwrite.page",
+    });
+  } catch (err) {
+    console.error("[underwrite] intake auto-init failed", err);
+  }
 
   const access = await ensureDealBankAccess(dealId);
   if (!access.ok) {

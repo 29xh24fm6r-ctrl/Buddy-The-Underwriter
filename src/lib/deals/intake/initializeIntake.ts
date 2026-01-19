@@ -16,6 +16,7 @@ type InitializeIntakeTrigger =
   | "borrower_invite"
   | "borrower_upload"
   | "underwrite_start"
+  | "underwrite.page"
   | "auto";
 
 export async function initializeIntake(
@@ -44,7 +45,7 @@ export async function initializeIntake(
       .eq("deal_id", dealId)
       .maybeSingle();
 
-    let loanType = String(intake?.loan_type || DEFAULT_LOAN_TYPE);
+    const loanType = String(intake?.loan_type || DEFAULT_LOAN_TYPE);
     let intakeInitialized = Boolean(intake?.id);
 
     const { data: existingLedger } = await sb
@@ -118,7 +119,7 @@ export async function initializeIntake(
         state: "initialized",
         trigger,
         checklistCount: existingChecklist ?? 0,
-        note: "Auto-initialized intake",
+        note: "Auto-initialized intake to unblock underwriting",
       });
     }
 
@@ -189,7 +190,7 @@ export async function initializeIntake(
       await logLedgerEvent({
         dealId,
         bankId,
-        eventKey: "pipeline.intake.initialized",
+        eventKey: "pipeline.intake.already_initialized",
         uiState: "done",
         uiMessage: "Intake already initialized",
         meta: { source: "system", trigger, result: "already_initialized" },
@@ -201,11 +202,25 @@ export async function initializeIntake(
         state: "already_initialized",
         trigger,
         checklistCount: existingChecklist ?? 0,
+        note: "Intake already initialized",
       });
     }
 
-    return { ok: true, intakeInitialized, checklistSeeded, loanType } as const;
+    const status = alreadyInitialized ? "already_initialized" : "initialized";
+    return { ok: true, status, intakeInitialized, checklistSeeded, loanType } as const;
   } catch (error: any) {
+    try {
+      await logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "pipeline.intake.init_failed",
+        uiState: "done",
+        uiMessage: "Intake auto-init failed",
+        meta: { source: "system", trigger, result: "failed" },
+      });
+    } catch (logError) {
+      console.error("[intake] failed to log init_failed", logError);
+    }
     void emitBuilderLifecycleSignal({
       dealId,
       phase: "intake",
