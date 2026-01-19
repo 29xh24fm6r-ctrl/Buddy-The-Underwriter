@@ -21,12 +21,13 @@ type InitializeIntakeTrigger =
 
 export async function initializeIntake(
   dealId: string,
-  bankId: string,
+  bankId?: string | null,
   opts?: { reason?: string; trigger?: InitializeIntakeTrigger }
 ) {
   const sb = supabaseAdmin();
   const reason = opts?.reason ?? "auto-init";
   const trigger = opts?.trigger ?? "auto";
+  let resolvedBankId: string | null = bankId ?? null;
 
   try {
     const { data: deal } = await sb
@@ -35,8 +36,14 @@ export async function initializeIntake(
       .eq("id", dealId)
       .maybeSingle();
 
-    if (!deal || (deal.bank_id && String(deal.bank_id) !== String(bankId))) {
+    if (!deal) {
       return { ok: false, error: "deal_not_found" } as const;
+    }
+
+    resolvedBankId = resolvedBankId ?? (deal.bank_id ? String(deal.bank_id) : null);
+
+    if (resolvedBankId && deal.bank_id && String(deal.bank_id) !== String(resolvedBankId)) {
+      return { ok: false, error: "tenant_mismatch" } as const;
     }
 
     const { data: intake } = await sb
@@ -66,9 +73,12 @@ export async function initializeIntake(
     if (!intake) {
       const insertPayload: Record<string, any> = {
         deal_id: dealId,
-        bank_id: bankId,
         loan_type: loanType,
       };
+
+      if (resolvedBankId) {
+        insertPayload.bank_id = resolvedBankId;
+      }
 
       const insert = await sb.from("deal_intake").insert(insertPayload as any);
       if (insert.error) {
@@ -106,11 +116,19 @@ export async function initializeIntake(
 
       await logLedgerEvent({
         dealId,
-        bankId,
+        bankId: resolvedBankId ?? (deal.bank_id ? String(deal.bank_id) : ""),
         eventKey: "pipeline.intake.initialized",
         uiState: "done",
         uiMessage: "Intake initialized",
-        meta: { source: "system", trigger, result: "created", reason, loan_type: loanType },
+        meta: {
+          source: "system",
+          trigger,
+          result: "created",
+          reason,
+          loan_type: loanType,
+          deal_id: dealId,
+          bank_id: resolvedBankId ?? (deal.bank_id ? String(deal.bank_id) : null),
+        },
       });
 
       void emitBuilderLifecycleSignal({
@@ -125,14 +143,21 @@ export async function initializeIntake(
 
     let checklistSeeded = false;
     if (!existingChecklist || existingChecklist === 0) {
-      const checklistRows = buildChecklistForLoanType(loanType as any).map((row) => ({
-        deal_id: dealId,
-        bank_id: bankId,
-        checklist_key: row.checklist_key,
-        title: row.title,
-        description: row.description ?? null,
-        required: row.required,
-      }));
+        const checklistRows = buildChecklistForLoanType(loanType as any).map((row) => {
+          const next: Record<string, any> = {
+            deal_id: dealId,
+            checklist_key: row.checklist_key,
+            title: row.title,
+            description: row.description ?? null,
+            required: row.required,
+          };
+
+          if (resolvedBankId) {
+            next.bank_id = resolvedBankId;
+          }
+
+          return next;
+        });
 
       if (checklistRows.length > 0) {
         const seed = await sb
@@ -160,7 +185,7 @@ export async function initializeIntake(
 
         await logLedgerEvent({
           dealId,
-          bankId,
+          bankId: resolvedBankId ?? (deal.bank_id ? String(deal.bank_id) : ""),
           eventKey: "pipeline.checklist.seeded",
           uiState: "done",
           uiMessage: `Checklist seeded (${checklistRows.length} items)`,
@@ -171,6 +196,8 @@ export async function initializeIntake(
             reason,
             loan_type: loanType,
             item_count: checklistRows.length,
+            deal_id: dealId,
+            bank_id: resolvedBankId ?? (deal.bank_id ? String(deal.bank_id) : null),
           },
         });
       }
@@ -189,11 +216,17 @@ export async function initializeIntake(
     if (alreadyInitialized) {
       await logLedgerEvent({
         dealId,
-        bankId,
+        bankId: resolvedBankId ?? (deal.bank_id ? String(deal.bank_id) : ""),
         eventKey: "pipeline.intake.already_initialized",
         uiState: "done",
         uiMessage: "Intake already initialized",
-        meta: { source: "system", trigger, result: "already_initialized" },
+        meta: {
+          source: "system",
+          trigger,
+          result: "already_initialized",
+          deal_id: dealId,
+          bank_id: resolvedBankId ?? (deal.bank_id ? String(deal.bank_id) : null),
+        },
       });
 
       void emitBuilderLifecycleSignal({
@@ -212,11 +245,17 @@ export async function initializeIntake(
     try {
       await logLedgerEvent({
         dealId,
-        bankId,
+        bankId: resolvedBankId ?? "",
         eventKey: "pipeline.intake.init_failed",
         uiState: "done",
         uiMessage: "Intake auto-init failed",
-        meta: { source: "system", trigger, result: "failed" },
+        meta: {
+          source: "system",
+          trigger,
+          result: "failed",
+          deal_id: dealId,
+            bank_id: resolvedBankId ?? null,
+        },
       });
     } catch (logError) {
       console.error("[intake] failed to log init_failed", logError);
