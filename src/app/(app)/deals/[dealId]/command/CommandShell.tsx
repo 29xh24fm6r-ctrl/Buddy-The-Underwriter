@@ -70,9 +70,11 @@ export function CommandShell({
         </div>
 
         {/* Native Action Rail (Writes, Decisions) */}
-        <div className="w-96 overflow-auto bg-gray-50">
-          <ActionRail dealId={dealId} context={context} verify={verify} />
-        </div>
+        {verify.ok ? (
+          <div className="w-96 overflow-auto bg-gray-50">
+            <ActionRail dealId={dealId} context={context} verify={verify} />
+          </div>
+        ) : null}
       </div>
     </div>
   );

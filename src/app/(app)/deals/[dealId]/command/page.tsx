@@ -3,6 +3,7 @@ import { CommandShell } from "./CommandShell";
 import { DealSmsTimeline } from "./DealSmsTimeline";
 import { Suspense } from "react";
 import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -24,51 +25,118 @@ export default async function DealCommandPage({
   }
 
   const verify = await verifyUnderwrite({ dealId, actor: "banker" });
+  const isBuilder = process.env.NEXT_PUBLIC_BUDDY_ROLE === "builder";
 
-  return (
-    <>
-      {!verify.ok ? (
-        <div className="mx-auto max-w-6xl px-6 pt-6">
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+  const blockedCopy = {
+    complete_intake: "Complete intake details to continue",
+    checklist_incomplete: "Required documents are missing",
+    pricing_required: "Pricing must be completed",
+    deal_not_found: "Deal setup is incomplete",
+  } as const;
+
+  const blockedAction = {
+    complete_intake: {
+      label: "Complete Intake →",
+      href: `/deals/${dealId}`,
+    },
+    checklist_incomplete: {
+      label: "Request Documents →",
+      href: `/deals/${dealId}/documents`,
+    },
+    pricing_required: {
+      label: "Run Pricing →",
+      href: `/deals/${dealId}/pricing`,
+    },
+    deal_not_found: {
+      label: "Back to Deal Overview →",
+      href: `/deals/${dealId}/cockpit`,
+    },
+  } as const;
+
+  if (!verify.ok) {
+    const nextStepCopy =
+      blockedCopy[verify.recommendedNextAction] ??
+      "Complete intake details to continue";
+    const primaryAction =
+      blockedAction[verify.recommendedNextAction] ?? blockedAction.complete_intake;
+    const showSecondary = verify.recommendedNextAction !== "deal_not_found";
+
+    return (
+      <main className="min-h-screen bg-white">
+        <div className="mx-auto max-w-4xl px-6 py-14">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-900">
             <div className="text-sm font-semibold">⚠️ Underwriting not available</div>
-            <div className="mt-1 text-xs">
+            <div className="mt-1 text-xl font-semibold text-amber-950">
               This deal is not ready for underwriting.
             </div>
-            <div className="mt-2 text-xs">Next action: {verify.recommendedNextAction}</div>
-            {verify.diagnostics?.missing?.length ? (
-              <div className="mt-1 text-xs">
-                Missing: {verify.diagnostics.missing.join(", ")}
-              </div>
-            ) : null}
-            <div className="mt-3 flex flex-wrap gap-2">
-              {verify.recommendedNextAction === "complete_intake" ? (
-                <a
-                  href={`/deals/${dealId}`}
-                  className="rounded-lg bg-amber-900 px-3 py-1.5 text-xs font-semibold text-white"
+            <div className="mt-2 text-sm text-amber-900">
+              Next step: {nextStepCopy}.
+            </div>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Link
+                href={primaryAction.href}
+                className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+              >
+                {primaryAction.label}
+              </Link>
+              {showSecondary ? (
+                <Link
+                  href={`/deals/${dealId}/cockpit`}
+                  className="inline-flex items-center rounded-lg border border-amber-200 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
                 >
-                  Complete Intake
-                </a>
-              ) : null}
-              {verify.recommendedNextAction === "checklist_incomplete" ? (
-                <a
-                  href={`/deals/${dealId}/documents`}
-                  className="rounded-lg bg-amber-900 px-3 py-1.5 text-xs font-semibold text-white"
-                >
-                  Request Documents
-                </a>
-              ) : null}
-              {verify.recommendedNextAction === "pricing_required" ? (
-                <a
-                  href={`/deals/${dealId}/pricing`}
-                  className="rounded-lg bg-amber-900 px-3 py-1.5 text-xs font-semibold text-white"
-                >
-                  Run Pricing
-                </a>
+                  Back to Deal Overview
+                </Link>
               ) : null}
             </div>
           </div>
+
+          {isBuilder ? (
+            <details className="mt-6 rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-xs text-neutral-700">
+              <summary className="cursor-pointer font-semibold text-neutral-800">
+                Diagnostics
+              </summary>
+              <pre className="mt-3 whitespace-pre-wrap">
+                {JSON.stringify(
+                  {
+                    recommendedNextAction: verify.recommendedNextAction,
+                    missing: verify.diagnostics?.missing ?? [],
+                    lifecycleStage: verify.diagnostics?.lifecycleStage ?? null,
+                  },
+                  null,
+                  2,
+                )}
+              </pre>
+            </details>
+          ) : null}
         </div>
-      ) : null}
+      </main>
+    );
+  }
+
+  return (
+    <>
+      <div className="mx-auto max-w-6xl px-6 pt-8">
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-900">
+          <div className="text-sm font-semibold">Underwriting Ready</div>
+          <div className="mt-1 text-xl font-semibold text-emerald-950">
+            This deal is ready for underwriting.
+          </div>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <Link
+              href={`/underwrite/${dealId}`}
+              className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+            >
+              Open Underwriting →
+            </Link>
+            <Link
+              href={`/deals/${dealId}/cockpit`}
+              className="inline-flex items-center rounded-lg border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100"
+            >
+              Back to Deal Overview
+            </Link>
+          </div>
+        </div>
+      </div>
 
       <CommandShell dealId={dealId} verify={verify} />
 
