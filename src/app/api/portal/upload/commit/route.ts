@@ -10,6 +10,7 @@ import { isBorrowerUploadAllowed } from "@/lib/deals/lifecycleGuards";
 import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
+import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,6 +92,8 @@ export async function POST(req: Request) {
       { status: 401 },
     );
   }
+
+  await initializeIntake(invite.deal_id, invite.bank_id, { reason: "borrower_upload" });
 
   const { data: deal } = await sb
     .from("deals")

@@ -6,8 +6,15 @@ export type UnderwritingGate = {
 export function buildUnderwritingGate(args: {
   lifecycleStage?: string | null;
   missingRequiredTitles: string[];
+  intakeInitialized?: boolean;
 }) {
-  const { lifecycleStage, missingRequiredTitles } = args;
+  const { lifecycleStage, missingRequiredTitles, intakeInitialized } = args;
+  if (!intakeInitialized) {
+    return {
+      allowed: false,
+      blockers: ["Intake initializing…"],
+    } as UnderwritingGate;
+  }
   if (lifecycleStage !== "collecting" && lifecycleStage !== "ready") {
     return {
       allowed: false,

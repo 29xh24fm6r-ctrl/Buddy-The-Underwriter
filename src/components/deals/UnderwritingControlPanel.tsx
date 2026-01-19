@@ -9,9 +9,11 @@ import { buildUnderwritingGate } from "@/lib/deals/underwritingGate";
 export function UnderwritingControlPanel({
   dealId,
   lifecycleStage,
+  intakeInitialized,
 }: {
   dealId: string;
   lifecycleStage?: string | null;
+  intakeInitialized?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -90,6 +92,7 @@ export function UnderwritingControlPanel({
   const gate = buildUnderwritingGate({
     lifecycleStage,
     missingRequiredTitles: missingRequired,
+    intakeInitialized,
   });
 
   return (
@@ -122,7 +125,9 @@ export function UnderwritingControlPanel({
       </button>
 
       <p className="mt-2 text-xs text-white/60 text-center">
-        {gate.allowed ? "Ready to start underwriting." : "Underwriting is blocked until required documents are received."}
+        {gate.allowed
+          ? "Ready to start underwriting."
+          : gate.blockers[0] || "Underwriting is blocked until required documents are received."}
       </p>
 
       {!gate.allowed && gate.blockers.length > 0 ? (

@@ -8,6 +8,7 @@ import { upsertDealStatusAndLog } from "@/lib/deals/status";
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
+import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -85,6 +86,8 @@ export async function POST(req: NextRequest, ctx: Context) {
       (deal as any).bank_id = bankId;
     }
 
+    await initializeIntake(dealId, bankId, { reason: "underwrite_start" });
+
     if (deal.lifecycle_stage !== "collecting" && deal.lifecycle_stage !== "ready") {
       return NextResponse.json(
         { ok: false, error: "Deal not ready for underwriting" },
@@ -130,6 +133,28 @@ export async function POST(req: NextRequest, ctx: Context) {
         { status: 400 }
       );
     }
+
+    await writeEvent({
+      dealId,
+      kind: "underwriting.unblocked",
+      actorUserId: userId,
+      input: {
+        required: requiredItems.length,
+        received: receivedRequired.length,
+      },
+    });
+
+    await logLedgerEvent({
+      dealId,
+      bankId: deal.bank_id,
+      eventKey: "underwriting.unblocked",
+      uiState: "done",
+      uiMessage: "Underwriting unblocked",
+      meta: {
+        required: requiredItems.length,
+        received: receivedRequired.length,
+      },
+    });
 
     // 3. Check extraction confidence (get all uploaded docs with extractions)
     const { data: uploads } = await sb

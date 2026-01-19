@@ -8,6 +8,7 @@ import { igniteDeal } from "@/lib/deals/igniteDeal";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { sendSmsWithConsent } from "@/lib/sms/send";
+import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,8 @@ export async function POST(
 
   const sb = supabaseAdmin();
   const bankId = await getCurrentBankId();
+
+  await initializeIntake(dealId, bankId, { reason: "borrower_invite" });
 
   const { data: deal, error: dealErr } = await sb
     .from("deals")

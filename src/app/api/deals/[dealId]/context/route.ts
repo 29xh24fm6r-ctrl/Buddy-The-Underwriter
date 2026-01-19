@@ -5,8 +5,9 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import type { DealContext } from "@/lib/deals/contextTypes";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
+import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
@@ -116,6 +117,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
         deal.bank_id = bankId;
       } else {
         ensured_bank = { ok: true, bankId: deal.bank_id, updated: false };
+      }
+    }
+
+    if (bankId && deal.bank_id) {
+      try {
+        await initializeIntake(dealId, deal.bank_id, { reason: "context_load" });
+      } catch (e: any) {
+        console.warn("[context] initializeIntake failed", {
+          dealId,
+          error: e?.message ?? String(e),
+        });
       }
     }
 
