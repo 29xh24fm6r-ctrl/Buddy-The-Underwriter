@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { reconcileDealChecklist } from "@/lib/checklist/engine";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
