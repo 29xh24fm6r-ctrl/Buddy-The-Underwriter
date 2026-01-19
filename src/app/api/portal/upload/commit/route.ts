@@ -7,6 +7,9 @@ import { recordReceipt } from "@/lib/portal/receipts";
 import { recomputeDealReady } from "@/lib/deals/readiness";
 import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrowerUploadAndMaterialize";
 import { isBorrowerUploadAllowed } from "@/lib/deals/lifecycleGuards";
+import { ingestDocument } from "@/lib/documents/ingestDocument";
+import { writeEvent } from "@/lib/ledger/writeEvent";
+import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +61,7 @@ export async function POST(req: Request) {
 
   const token = body?.token;
   const requestId = body?.requestId || null;
+  const taskKey = typeof body?.taskKey === "string" ? body.taskKey : null;
   const path = body?.path;
   const filename = body?.filename;
   const mimeType = body?.mimeType || null;
@@ -111,7 +115,61 @@ export async function POST(req: Request) {
     mimeType: mimeType ?? "application/octet-stream",
     sizeBytes: sizeBytes ?? 0,
     source: "borrower_portal",
-    materialize: true,
+    materialize: false,
+  });
+
+  const ingest = await ingestDocument({
+    dealId: invite.deal_id,
+    bankId: invite.bank_id,
+    file: {
+      original_filename: filename,
+      mimeType: mimeType ?? "application/octet-stream",
+      sizeBytes: sizeBytes ?? 0,
+      storagePath: path,
+      storageBucket: "borrower_uploads",
+    },
+    source: "borrower_portal",
+    metadata: {
+      task_checklist_key: taskKey,
+      skip_filename_match: true,
+      request_id: requestId,
+    },
+  });
+
+  await writeEvent({
+    dealId: invite.deal_id,
+    kind: "deal.document.uploaded",
+    actorUserId: null,
+    input: {
+      document_id: ingest.documentId,
+      checklist_key: ingest.checklistKey ?? null,
+      source: "borrower_portal",
+    },
+  });
+
+  if (ingest.checklistKey) {
+    await writeEvent({
+      dealId: invite.deal_id,
+      kind: "deal.document.classified",
+      actorUserId: null,
+      input: {
+        document_id: ingest.documentId,
+        checklist_key: ingest.checklistKey,
+        source: "borrower_task",
+      },
+    });
+  }
+
+  emitBuddySignalServer({
+    type: "deal.document.uploaded",
+    source: "api/portal/upload/commit",
+    ts: Date.now(),
+    dealId: invite.deal_id,
+    payload: {
+      document_id: ingest.documentId,
+      checklist_key: ingest.checklistKey ?? null,
+      source: "borrower_portal",
+    },
   });
 
   if (requestId) {
@@ -145,11 +203,18 @@ export async function POST(req: Request) {
       uploaderRole: "borrower",
       filename,
       fileId: upload.uploadId,
-      meta: { source: "portal_upload_commit" },
+      meta: { source: "portal_upload_commit", task_key: taskKey },
+      skipFilenameMatch: true,
     });
   } catch {
     // swallow: don't block upload success
   }
 
-  return NextResponse.json({ ok: true, uploadId: upload.uploadId, reconciled: upload.reconciled });
+  return NextResponse.json({
+    ok: true,
+    uploadId: upload.uploadId,
+    reconciled: upload.reconciled,
+    checklistKey: ingest.checklistKey ?? null,
+    matchReason: ingest.matchReason ?? null,
+  });
 }

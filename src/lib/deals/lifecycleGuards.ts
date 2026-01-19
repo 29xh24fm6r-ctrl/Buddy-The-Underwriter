@@ -6,7 +6,7 @@ export type DealLifecycleStage =
   | "ready";
 
 export function isBorrowerUploadAllowed(stage?: string | null) {
-  return !!stage && stage !== "created";
+  return stage === "intake" || stage === "collecting";
 }
 
 export function canAccessUnderwrite(stage?: string | null) {

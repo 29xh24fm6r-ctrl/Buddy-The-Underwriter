@@ -8,6 +8,7 @@ export async function recordReceipt(params: {
   filename: string;
   fileId?: string | null;
   meta?: any;
+  skipFilenameMatch?: boolean;
 }) {
   const sb = supabaseAdmin();
 
@@ -26,11 +27,13 @@ export async function recordReceipt(params: {
   if (error) throw error;
 
   // Auto-highlight checklist items from receipt
-  const result = await applyReceiptToChecklist({
-    dealId: params.dealId,
-    receiptId: data.id,
-    filename: params.filename,
-  });
+  const result = params.skipFilenameMatch
+    ? { updated: 0 }
+    : await applyReceiptToChecklist({
+        dealId: params.dealId,
+        receiptId: data.id,
+        filename: params.filename,
+      });
 
   // Borrower-safe timeline celebration
   // Only safe info: "We received X"

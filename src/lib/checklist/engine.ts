@@ -2,9 +2,10 @@ import { RULESETS } from "./rules";
 import { matchChecklistKeyFromFilename } from "./matchers";
 import type { ChecklistDefinition, ChecklistRuleSet } from "./types";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
+import { sendSmsWithConsent } from "@/lib/sms/send";
 
 type CanonicalDocTypeBucket =
   | "business_tax_return"
@@ -685,10 +686,12 @@ export async function matchAndStampDealDocument(opts: {
   metadata?: any;
 }) {
   const { sb, documentId, originalFilename } = opts;
+  const skipFilename = Boolean(opts?.metadata?.skip_filename_match);
+  const filenameForMatch = skipFilename ? "" : (originalFilename || "");
 
   // Run filename matcher + metadata inference (best-effort)
-  const m = matchChecklistKeyFromFilename(originalFilename || "");
-  const meta = inferDocumentMetadata({ originalFilename: originalFilename || null });
+  const m = matchChecklistKeyFromFilename(filenameForMatch);
+  const meta = inferDocumentMetadata({ originalFilename: skipFilename ? null : (originalFilename || null) });
 
   const docYears = meta.doc_years ?? (Array.isArray(m.yearsFound) && m.yearsFound.length ? m.yearsFound : null);
   const docYear = meta.doc_year ?? (m.docYear ?? null);
@@ -700,7 +703,7 @@ export async function matchAndStampDealDocument(opts: {
   const hasYearOrType = Boolean(documentType) || Boolean(docYear) || (Array.isArray(docYears) && docYears.length > 0);
   if (!hasConfidentKey && !hasYearOrType) {
     // Not confident enough to do anything
-    return { matched: false, reason: "low_confidence" };
+    return { matched: false, reason: skipFilename ? "content_pending" : "low_confidence" };
   }
 
   // Stamp the document with checklist_key + year metadata. Tolerate schema drift.
@@ -713,7 +716,7 @@ export async function matchAndStampDealDocument(opts: {
       document_type: documentType,
       match_confidence: matchConfidence,
       match_reason: matchReason,
-      match_source: m.source || "filename",
+      match_source: skipFilename ? "content_pending" : m.source || "filename",
     } as any)
     .eq("id", documentId);
 
@@ -769,13 +772,17 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
     const sb = sbOverride ?? supabaseAdmin();
     const { data: rows } = await sb
       .from("deal_checklist_items")
-      .select("status, checklist_key")
+      .select("status, checklist_key, required")
       .eq("deal_id", dealId);
 
     if (rows) {
       const received = rows.filter((r: any) => r.status === "received" || r.status === "satisfied").length;
       const missing = rows.filter(
         (r: any) => r.status === "missing" || r.status === "pending" || r.status === "needs_review"
+      ).length;
+      const requiredRows = rows.filter((r: any) => r.required);
+      const requiredSatisfied = requiredRows.filter(
+        (r: any) => r.status === "received" || r.status === "satisfied"
       ).length;
       const satisfiedKeys = rows
         .filter((r: any) => r.status === "received" || r.status === "satisfied")
@@ -794,24 +801,78 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
         },
       });
 
-      const isReady = rows.length > 0 && missing === 0;
-      if (isReady) {
-        const { data: deal } = await sb
-          .from("deals")
-          .select("bank_id, lifecycle_stage")
-          .eq("id", dealId)
+      await writeEvent({
+        dealId,
+        kind: "deal.checklist.updated",
+        actorUserId: null,
+        input: {
+          received,
+          missing,
+          total: rows.length,
+        },
+      });
+
+      emitBuddySignalServer({
+        type: "deal.checklist.updated",
+        source: "engine.reconcileChecklistForDeal",
+        ts: Date.now(),
+        dealId,
+        payload: {
+          received,
+          missing,
+          total: rows.length,
+        },
+      });
+
+      if (requiredRows.length > 0 && requiredSatisfied >= requiredRows.length) {
+        const { data: existingCompletion } = await sb
+          .from("deal_events")
+          .select("id")
+          .eq("deal_id", dealId)
+          .eq("kind", "deal.borrower.completed")
+          .limit(1)
           .maybeSingle();
 
-        if (deal?.lifecycle_stage === "collecting") {
-          await advanceDealLifecycle({
+        if (!existingCompletion) {
+          await writeEvent({
             dealId,
-            toStage: "underwriting",
-            reason: "checklist_ready",
-            source: "checklist_reconcile",
-            actor: { userId: null, type: "system", label: "checklist_engine" },
+            kind: "deal.borrower.completed",
+            actorUserId: null,
+            input: {
+              required: requiredRows.length,
+              received: requiredSatisfied,
+            },
           });
+
+          const { data: intake } = await sb
+            .from("deal_intake")
+            .select("borrower_phone")
+            .eq("deal_id", dealId)
+            .maybeSingle();
+
+          const phone = String((intake as any)?.borrower_phone ?? "").trim();
+          if (phone) {
+            try {
+              await sendSmsWithConsent({
+                dealId,
+                to: phone,
+                body: "Thanks! We’ve received all requested documents for your loan.",
+                label: "borrower_completed",
+                metadata: {
+                  required: requiredRows.length,
+                  received: requiredSatisfied,
+                },
+              });
+            } catch (e: any) {
+              console.warn("[checklist] completion SMS failed", {
+                dealId,
+                error: e?.message ?? String(e),
+              });
+            }
+          }
         }
       }
+
     }
   } catch {
     // ignore signal failures

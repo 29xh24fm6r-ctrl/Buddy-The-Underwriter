@@ -9,6 +9,7 @@ import { persistAiMapping } from "@/lib/ai-docs/persistMapping";
 import { buildGeminiScanResultFromExtractedText } from "@/lib/ai-docs/mapToChecklist";
 import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
 import type { SpreadType } from "@/lib/financialSpreads/types";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 
 /**
  * Classification Job Processor
@@ -201,6 +202,18 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
         confidence: classifyResult.confidence ?? null,
         reasons: classifyResult.reasons ?? [],
       });
+
+    await writeEvent({
+      dealId: job.deal_id,
+      kind: "deal.document.classified",
+      actorUserId: null,
+      input: {
+        document_id: job.attachment_id,
+        doc_type: classifyResult.doc_type,
+        confidence: classifyResult.confidence ?? null,
+        source: "ocr_classify",
+      },
+    });
 
     // Stamp year/type metadata onto the canonical document record.
     await tryStampDealDocumentMetadata({

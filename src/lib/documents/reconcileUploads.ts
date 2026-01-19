@@ -1,7 +1,6 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { inferChecklistKey } from "@/lib/documents/inferChecklistKey";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 
 function stableDocumentKeyFromUpload(upload: {
@@ -78,8 +77,6 @@ export async function reconcileUploadsForDeal(dealId: string, bankId: string) {
   for (const upload of uploads as any[]) {
     if (!upload.storage_path) continue;
 
-    const checklistKey = inferChecklistKey(String(upload.original_filename || ""));
-
     const payload: Record<string, any> = {
       deal_id: dealId,
       bank_id: bankId,
@@ -89,20 +86,13 @@ export async function reconcileUploadsForDeal(dealId: string, bankId: string) {
       mime_type: upload.mime_type || null,
       size_bytes: upload.size_bytes ?? null,
       source: "borrower",
-      document_key: checklistKey || stableDocumentKeyFromUpload(upload),
+      document_key: stableDocumentKeyFromUpload(upload),
       metadata: {
         reconciled_from: "borrower_uploads",
         borrower_upload_id: upload.id,
+        skip_filename_match: true,
       },
     };
-
-    // If we have a confident checklist key, stamp it now so DB triggers can mark received.
-    if (checklistKey) {
-      payload.checklist_key = checklistKey;
-      payload.match_source = "filename";
-      payload.match_reason = "inferChecklistKey";
-      payload.match_confidence = 0.7;
-    }
 
     const up = await upsertDealDocumentWithFallback(sb, payload);
 

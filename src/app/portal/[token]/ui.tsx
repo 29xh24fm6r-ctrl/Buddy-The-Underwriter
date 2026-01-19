@@ -5,6 +5,16 @@ import { useEffect, useMemo, useState } from "react";
 type PortalPayload = {
   invite: { id: string; dealId: string; name: string | null; email: string | null; expiresAt: string };
   deal: any;
+  tasks: Array<{
+    id: string;
+    title: string;
+    description: string | null;
+    required: boolean;
+    status: "missing" | "received" | "review" | "partial";
+    group: string;
+    checklistKey: string;
+    progress?: { satisfied: number; required: number } | null;
+  }>;
   requests: any[];
   messages: any[];
 };
@@ -17,7 +27,26 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
   const [msg, setMsg] = useState("");
   const [sending, setSending] = useState(false);
 
-  const openRequests = useMemo(() => (data?.requests || []).filter(r => r.status !== "accepted"), [data]);
+  const [uploadStatuses, setUploadStatuses] = useState<Record<string, {
+    status: "received" | "analyzing" | "matched" | "clarify";
+    detail: string;
+  }>>({});
+
+  const tasks = useMemo(() => data?.tasks || [], [data?.tasks]);
+  const groupedTasks = useMemo(() => {
+    const groups: Record<string, typeof tasks> = {};
+    tasks.forEach((t) => {
+      if (!groups[t.group]) groups[t.group] = [];
+      groups[t.group].push(t);
+    });
+    return Object.entries(groups).map(([group, items]) => ({
+      group,
+      items: items.sort((a, b) => {
+        if (a.required !== b.required) return a.required ? -1 : 1;
+        return a.title.localeCompare(b.title);
+      }),
+    }));
+  }, [tasks]);
 
   useEffect(() => {
     let alive = true;
@@ -56,7 +85,13 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
     return json as { signedUrl: string; path: string; bucket: string; token: string };
   }
 
-  async function doUpload(requestId: string | null, file: File) {
+  async function doUpload(requestId: string | null, file: File, taskKey?: string | null) {
+    const statusId = `${taskKey || "extra"}:${file.name}:${Date.now()}`;
+    setUploadStatuses((prev) => ({
+      ...prev,
+      [statusId]: { status: "received", detail: "Received" },
+    }));
+
     const prep = await prepareUpload(requestId, file);
 
     // PUT to Supabase Storage signed URL
@@ -68,12 +103,18 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
     if (!put.ok) throw new Error(`Upload failed (HTTP ${put.status})`);
 
     // commit metadata
+    setUploadStatuses((prev) => ({
+      ...prev,
+      [statusId]: { status: "analyzing", detail: "Analyzing…" },
+    }));
+
     const commit = await fetch("/api/portal/upload/commit", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         token,
         requestId,
+        taskKey,
         path: prep.path,
         filename: file.name,
         mimeType: file.type,
@@ -82,6 +123,27 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
     });
     const cj = await commit.json();
     if (!commit.ok) throw new Error(cj?.error || "Failed to finalize upload");
+
+    const matchedTitle = tasks.find((t) => t.checklistKey === cj?.checklistKey)?.title || null;
+    if (cj?.checklistKey || matchedTitle) {
+      setUploadStatuses((prev) => ({
+        ...prev,
+        [statusId]: {
+          status: "matched",
+          detail: matchedTitle
+            ? `Matched to ${matchedTitle}`
+            : "Matched to a requested document",
+        },
+      }));
+    } else {
+      setUploadStatuses((prev) => ({
+        ...prev,
+        [statusId]: {
+          status: "clarify",
+          detail: "We received this, but need clarification",
+        },
+      }));
+    }
 
     // refresh session
     const res = await fetch("/api/portal/session", {
@@ -128,9 +190,11 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
     <div className="min-h-screen bg-slate-50">
       <div className="max-w-5xl mx-auto p-6 space-y-6">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-xl font-semibold text-slate-900">Borrower Portal</div>
+          <div className="text-xl font-semibold text-slate-900">
+            {data.deal?.name || "Your loan"}
+          </div>
           <div className="text-sm text-slate-600 mt-1">
-            Upload requested documents and message your lending team.
+            We’re collecting documents to move your loan forward.
           </div>
           <div className="mt-3 text-xs text-slate-500">
             Link expires: {new Date(data.invite.expiresAt).toLocaleString()}
@@ -139,52 +203,66 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="text-base font-semibold text-slate-900">Requested Documents</div>
+            <div className="text-base font-semibold text-slate-900">Tasks</div>
             <div className="text-sm text-slate-600 mt-1">
-              Upload files next to each request. Buddy will sort them automatically.
+              Upload documents below. We’ll match them to the right task automatically.
             </div>
 
-            <div className="mt-4 space-y-3">
-              {openRequests.length === 0 ? (
+            <div className="mt-4 space-y-4">
+              {groupedTasks.length === 0 ? (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                  Nothing requested right now.
+                  No tasks yet. Your lending team will add them soon.
                 </div>
               ) : (
-                openRequests.map((r) => (
-                  <div key={r.id} className="rounded-xl border border-slate-200 p-3">
-                    <div className="text-sm font-semibold text-slate-900">{r.title}</div>
-                    {r.description && <div className="text-xs text-slate-600 mt-1">{r.description}</div>}
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <div className="text-xs text-slate-500">Status: {r.status}</div>
-                      <label className="text-xs font-semibold text-slate-700 cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-2 hover:bg-slate-50">
-                        Upload
-                        <input
-                          type="file"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            try {
-                              await doUpload(r.id, file);
-                            } catch (err: any) {
-                              alert(err?.message || "Upload failed");
-                            } finally {
-                              e.target.value = "";
-                            }
-                          }}
-                        />
-                      </label>
+                groupedTasks.map(({ group, items }) => (
+                  <div key={group} className="space-y-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {group}
                     </div>
+                    {items.map((t) => (
+                      <div key={t.id} className="rounded-xl border border-slate-200 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900">{t.title}</div>
+                            {t.description ? (
+                              <div className="text-xs text-slate-600 mt-1">{t.description}</div>
+                            ) : null}
+                            <div className="mt-2 text-xs text-slate-500">
+                              Status: {t.status === "received" ? "Received" : t.status === "review" ? "Needs review" : t.status === "partial" ? "Partially received" : "Missing"}
+                              {t.progress ? ` • ${t.progress.satisfied}/${t.progress.required} years` : ""}
+                            </div>
+                          </div>
+                          <label className="text-xs font-semibold text-slate-700 cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-2 hover:bg-slate-50">
+                            Upload
+                            <input
+                              type="file"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                try {
+                                  await doUpload(null, file, t.checklistKey);
+                                } catch (err: any) {
+                                  alert(err?.message || "Upload failed");
+                                } finally {
+                                  e.target.value = "";
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ))
               )}
             </div>
 
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-              Tip: You can also upload "extra docs" if you&apos;re not sure where they go.
+              Tip: You can also upload extra documents if you&apos;re not sure where they go.
               <div className="mt-2">
                 <label className="cursor-pointer inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2 hover:bg-slate-50">
-                  Upload extra docs
+                  Upload additional info
                   <input
                     type="file"
                     className="hidden"
@@ -192,7 +270,7 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
                       const file = e.target.files?.[0];
                       if (!file) return;
                       try {
-                        await doUpload(null, file);
+                        await doUpload(null, file, null);
                       } catch (err: any) {
                         alert(err?.message || "Upload failed");
                       } finally {
@@ -203,6 +281,19 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
                 </label>
               </div>
             </div>
+
+            {Object.keys(uploadStatuses).length > 0 ? (
+              <div className="mt-4 space-y-2">
+                {Object.entries(uploadStatuses).map(([key, status]) => (
+                  <div key={key} className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                    <div className="font-semibold">
+                      {status.status === "received" ? "✅ Received" : status.status === "analyzing" ? "🧠 Analyzing…" : status.status === "matched" ? "✅ Matched" : "⚠️ Needs clarification"}
+                    </div>
+                    <div className="mt-1">{status.detail}</div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

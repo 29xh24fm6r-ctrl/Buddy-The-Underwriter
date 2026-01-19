@@ -12,6 +12,7 @@ import { decideNextBestAction } from "@/buddy/nba/decideNextBestAction";
 import { calcReadiness } from "@/buddy/readiness/calcReadiness";
 import { calcOutcome } from "@/buddy/outcomes/calcOutcome";
 import { BuddyPanel } from "@/buddy/ui/BuddyPanel";
+import { narrateLedgerEvent } from "@/buddy/ledgerNarration";
 import {
   addFinding,
   appendInsight,
@@ -380,6 +381,10 @@ function interpretSignal(signal: BuddySignal) {
       return { message: "Deal context loaded. Watching changes.", tone: "neutral" };
     case "deal.ignited":
       return { message: "Deal intake started. I’m tracking incoming documents.", tone: "focused" };
+    case "deal.document.uploaded":
+    case "deal.checklist.updated":
+    case "deal.underwriting.started":
+      return narrateLedgerEvent(signal.type, signal.payload ?? undefined);
     case "page.ready":
       return { message: "Page ready. Observer mode active.", tone: "neutral" };
     case "error":

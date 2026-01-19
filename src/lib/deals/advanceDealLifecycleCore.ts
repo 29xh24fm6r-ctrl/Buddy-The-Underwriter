@@ -55,6 +55,10 @@ export async function advanceDealLifecycle(params: {
   const ledgerWrite = deps?.writeEvent ?? defaultDeps?.writeEvent;
   const pipelineLog = deps?.logLedgerEvent ?? defaultDeps?.logLedgerEvent;
 
+  if (!sb || !ledgerWrite || !pipelineLog) {
+    throw new Error("advanceDealLifecycle missing dependencies");
+  }
+
   if (toStage === "intake") {
     return { ok: false, error: "use_ignite" } as const;
   }

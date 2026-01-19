@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireValidInvite } from "@/lib/portal/auth";
 import { rateLimit } from "@/lib/portal/ratelimit";
+import { buildBorrowerTasksFromChecklist } from "@/lib/portal/tasks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,6 +74,11 @@ export async function POST(req: Request) {
     .eq("id", invite.deal_id)
     .single();
 
+  const { data: checklistItems } = await sb
+    .from("deal_checklist_items")
+    .select("id, checklist_key, title, description, required, status, required_years, satisfied_years")
+    .eq("deal_id", invite.deal_id);
+
   const { data: requests } = await sb
     .from("borrower_document_requests")
     .select("id,title,description,category,status,due_at,created_at,updated_at")
@@ -94,6 +100,7 @@ export async function POST(req: Request) {
       expiresAt: invite.expires_at,
     },
     deal,
+    tasks: buildBorrowerTasksFromChecklist(checklistItems ?? []),
     requests: requests || [],
     messages: messages || [],
   });
