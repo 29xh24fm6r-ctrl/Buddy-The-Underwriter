@@ -38,11 +38,11 @@ const parseArgs = (argv) => {
 const args = parseArgs(process.argv.slice(2));
 
 if (args.help) {
-  console.log(`\nUsage:\n  node scripts/verify-underwrite.mjs --base <url> --deal <dealId>\n\nOptions:\n  --base     Preview base URL (or set PREVIEW_URL/VERCEL_URL)\n  --deal     Deal id (or set DEAL_ID)\n  --help     Show this help\n\nUI verification intentionally removed — server invariant is canonical.\n`);
+  console.log(`\nUsage:\n  node scripts/verify-underwrite.mjs --base <url> --dealId <dealId>\n\nOptions:\n  --base     Preview base URL (or set PREVIEW_URL/VERCEL_URL)\n  --dealId   Deal id (or set DEAL_ID)\n  --deal     Alias for --dealId\n  --help     Show this help\n\nUI verification intentionally removed — server invariant is canonical.\n`);
   process.exit(0);
 }
 
-const dealId = process.env.DEAL_ID || args.deal || args._[0];
+const dealId = process.env.DEAL_ID || args.dealId || args.deal || args._[0];
 if (!dealId) {
   console.error("[verify:underwrite] Provide DEAL_ID env or --deal.");
   process.exit(1);
@@ -70,7 +70,7 @@ const baseUrl = previewUrl.startsWith("http")
   : `https://${previewUrl}`;
 
 const metaUrl = `${baseUrl}/api/_meta/build`;
-const verifyUrl = `${baseUrl}/api/_builder/verify/underwrite?dealId=${dealId}`;
+const verifyUrl = `${baseUrl}/api/builder/verify/underwrite?dealId=${dealId}`;
 
 console.log(`[verify:underwrite] Using preview ${baseUrl}`);
 

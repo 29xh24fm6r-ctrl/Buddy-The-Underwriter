@@ -8,7 +8,7 @@ const routePath = (relativePath: string) =>
 
 test("builder verify and meta routes are registered", () => {
   const buildRoute = routePath("src/app/api/_meta/build/route.ts");
-  const verifyRoute = routePath("src/app/api/_builder/verify/underwrite/route.ts");
+  const verifyRoute = routePath("src/app/api/builder/verify/underwrite/route.ts");
 
   assert.ok(fs.existsSync(buildRoute));
   assert.ok(fs.existsSync(verifyRoute));

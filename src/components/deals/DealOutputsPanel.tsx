@@ -1,7 +1,16 @@
 import Link from "next/link";
 import { Icon } from "@/components/ui/Icon";
+import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 
-export function DealOutputsPanel({ dealId }: { dealId: string }) {
+export function DealOutputsPanel({
+  dealId,
+  verify,
+}: {
+  dealId: string;
+  verify: VerifyUnderwriteResult;
+}) {
+  const disabled = !verify.ok;
+  const tooltip = "Complete intake before this action is available";
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur shadow-[0_18px_50px_rgba(0,0,0,0.35)] p-4">
       <div className="flex items-center gap-2 mb-3">
@@ -9,13 +18,25 @@ export function DealOutputsPanel({ dealId }: { dealId: string }) {
         <h3 className="text-sm font-semibold text-white">Deal Outputs</h3>
       </div>
       <div className="space-y-2">
-        <Link
-          href={`/credit-memo/${dealId}/draft`}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white hover:bg-neutral-800"
-        >
-          <Icon name="file" className="h-4 w-4" />
-          Credit Memo Draft
-        </Link>
+        {disabled ? (
+          <button
+            type="button"
+            disabled
+            title={tooltip}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900/40 px-4 py-3 text-sm font-semibold text-white/60 cursor-not-allowed"
+          >
+            <Icon name="file" className="h-4 w-4" />
+            Credit Memo Draft
+          </button>
+        ) : (
+          <Link
+            href={`/credit-memo/${dealId}/draft`}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white hover:bg-neutral-800"
+          >
+            <Icon name="file" className="h-4 w-4" />
+            Credit Memo Draft
+          </Link>
+        )}
         <Link
           href={`/deals/${dealId}/conditions`}
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/10"

@@ -5,8 +5,15 @@ import type { DealContext } from "@/lib/deals/contextTypes";
 import { DealHeader } from "./DealHeader";
 import { StitchPanel } from "./StitchPanel";
 import { ActionRail } from "./ActionRail";
+import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 
-export function CommandShell({ dealId }: { dealId: string }) {
+export function CommandShell({
+  dealId,
+  verify,
+}: {
+  dealId: string;
+  verify: VerifyUnderwriteResult;
+}) {
   const [context, setContext] = useState<DealContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,7 +71,7 @@ export function CommandShell({ dealId }: { dealId: string }) {
 
         {/* Native Action Rail (Writes, Decisions) */}
         <div className="w-96 overflow-auto bg-gray-50">
-          <ActionRail dealId={dealId} context={context} />
+          <ActionRail dealId={dealId} context={context} verify={verify} />
         </div>
       </div>
     </div>

@@ -3,6 +3,8 @@ import DealCockpitClient from "@/components/deals/DealCockpitClient";
 import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
+import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,6 +57,14 @@ export default async function DealCockpitPage({ params }: Props) {
   let lifecycleStage: string | null = null;
   let intakeInitialized = false;
   let ignitedEvent: { source: string | null; createdAt: string | null } | null = null;
+  let verify: VerifyUnderwriteResult = {
+    ok: false,
+    dealId,
+    auth: true,
+    recommendedNextAction: "deal_not_found",
+    diagnostics: {},
+    ledgerEventsWritten: [],
+  };
   const access = await ensureDealBankAccess(dealId);
   if (access.ok) {
     const sb = supabaseAdmin();
@@ -98,6 +108,8 @@ export default async function DealCockpitPage({ params }: Props) {
         createdAt: (latestIgnite as any)?.created_at ?? null,
       };
     }
+
+    verify = await verifyUnderwrite({ dealId, actor: "banker" });
   }
 
   return (
@@ -109,6 +121,7 @@ export default async function DealCockpitPage({ params }: Props) {
         lifecycleStage={lifecycleStage}
         ignitedEvent={ignitedEvent}
         intakeInitialized={intakeInitialized}
+        verify={verify}
       />
     </div>
   );
