@@ -4,7 +4,9 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { logPipelineLedger } from "@/lib/pipeline/logPipelineLedger";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Body = {
@@ -38,6 +40,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     }
 
     const bankId = await getCurrentBankId();
+
+    await initializeIntake(dealId, bankId, { reason: "borrower_request" });
 
     // Create a single borrower invite token + reuse for all uploads (deal-scoped)
     const expiresHours = Math.max(1, Math.min(168, body.expiresHours ?? 72));

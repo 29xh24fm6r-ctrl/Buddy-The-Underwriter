@@ -8,6 +8,7 @@ import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { recordReceipt } from "@/lib/portal/receipts";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 import { isBorrowerUploadAllowed } from "@/lib/deals/lifecycleGuards";
+import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,7 +105,16 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    if (!isBorrowerUploadAllowed(deal.lifecycle_stage)) {
+    await initializeIntake(dealId, deal.bank_id, { reason: "borrower_upload" });
+
+    const { data: refreshed } = await sb
+      .from("deals")
+      .select("lifecycle_stage")
+      .eq("id", dealId)
+      .maybeSingle();
+
+    const stage = (refreshed as any)?.lifecycle_stage ?? deal.lifecycle_stage;
+    if (!isBorrowerUploadAllowed(stage)) {
       return NextResponse.json(
         { ok: false, error: "Deal intake not started" },
         { status: 403 },

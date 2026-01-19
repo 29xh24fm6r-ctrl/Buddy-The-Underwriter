@@ -7,6 +7,7 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { igniteDeal } from "@/lib/deals/igniteDeal";
+import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -110,6 +111,8 @@ export async function POST(req: NextRequest, ctx: Context) {
         { status: 404 },
       );
     }
+
+    await initializeIntake(dealId, bankId, { reason: "banker_upload" });
 
     if (!deal.lifecycle_stage || deal.lifecycle_stage === "created") {
       await igniteDeal({

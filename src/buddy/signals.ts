@@ -8,6 +8,7 @@ export type BuddySignalType =
   | "deal.document.uploaded"
   | "deal.checklist.updated"
   | "deal.underwriting.started"
+  | "deal.lifecycle"
   | "checklist.updated"
   | "pipeline.event"
   | "user.action"

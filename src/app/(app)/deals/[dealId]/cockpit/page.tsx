@@ -53,6 +53,7 @@ export default async function DealCockpitPage({ params }: Props) {
 
   let dealName: { displayName?: string | null; nickname?: string | null; borrowerName?: string | null } | undefined;
   let lifecycleStage: string | null = null;
+  let intakeInitialized = false;
   let ignitedEvent: { source: string | null; createdAt: string | null } | null = null;
   const access = await ensureDealBankAccess(dealId);
   if (access.ok) {
@@ -69,6 +70,13 @@ export default async function DealCockpitPage({ params }: Props) {
       borrowerName: (deal as any)?.borrower_name ?? null,
     };
     lifecycleStage = (deal as any)?.lifecycle_stage ?? null;
+
+    const { data: intake } = await sb
+      .from("deal_intake")
+      .select("id")
+      .eq("deal_id", dealId)
+      .maybeSingle();
+    intakeInitialized = Boolean(intake?.id);
 
     const { data: latestIgnite } = await sb
       .from("audit_ledger")
@@ -100,6 +108,7 @@ export default async function DealCockpitPage({ params }: Props) {
         dealName={dealName}
         lifecycleStage={lifecycleStage}
         ignitedEvent={ignitedEvent}
+        intakeInitialized={intakeInitialized}
       />
     </div>
   );

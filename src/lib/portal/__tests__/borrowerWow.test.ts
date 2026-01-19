@@ -39,6 +39,7 @@ test("underwriting CTA disabled until ready", () => {
   const blocked = buildUnderwritingGate({
     lifecycleStage: "collecting",
     missingRequiredTitles: ["Rent Roll"],
+    intakeInitialized: true,
   });
   assert.equal(blocked.allowed, false);
   assert.ok(blocked.blockers.length > 0);
@@ -46,6 +47,7 @@ test("underwriting CTA disabled until ready", () => {
   const allowed = buildUnderwritingGate({
     lifecycleStage: "collecting",
     missingRequiredTitles: [],
+    intakeInitialized: true,
   });
   assert.equal(allowed.allowed, true);
 });

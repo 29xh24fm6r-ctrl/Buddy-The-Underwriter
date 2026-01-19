@@ -32,12 +32,14 @@ export default function DealCockpitClient({
   dealName,
   lifecycleStage,
   ignitedEvent,
+  intakeInitialized,
 }: {
   dealId: string;
   isAdmin?: boolean;
   dealName?: { displayName?: string | null; nickname?: string | null; borrowerName?: string | null };
   lifecycleStage?: string | null;
   ignitedEvent?: { source: string | null; createdAt: string | null } | null;
+  intakeInitialized?: boolean;
 }) {
   const [displayName, setDisplayName] = useState<string | null>(dealName?.displayName ?? null);
   const [nickname, setNickname] = useState<string | null>(dealName?.nickname ?? null);
@@ -166,7 +168,11 @@ export default function DealCockpitClient({
           {/* Right Column */}
           <div className="space-y-6">
             <SafeBoundary>
-              <UnderwritingControlPanel dealId={dealId} lifecycleStage={stage} />
+              <UnderwritingControlPanel
+                dealId={dealId}
+                lifecycleStage={stage}
+                intakeInitialized={intakeInitialized}
+              />
             </SafeBoundary>
 
             <SafeBoundary>
