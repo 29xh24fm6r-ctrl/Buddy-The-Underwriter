@@ -64,7 +64,14 @@ const underwriteRes = await fetch(`${baseUrl}/underwrite/${dealId}`, {
   redirect: "manual",
 });
 
+const underwriteHtml = await underwriteRes.text();
+
 console.log("[verify:underwrite] Underwrite status", underwriteRes.status);
+
+if (underwriteHtml.includes("Underwriting not started yet")) {
+  console.error("[verify:underwrite] Dead-end fallback detected in HTML.");
+  process.exit(1);
+}
 
 const contextRes = await fetchJson(`${baseUrl}/api/deals/${dealId}/context`);
 console.log("[verify:underwrite] Context", {
@@ -72,6 +79,20 @@ console.log("[verify:underwrite] Context", {
   status: contextRes.status,
   keys: contextRes.json && typeof contextRes.json === "object" ? Object.keys(contextRes.json) : [],
 });
+
+const pipelineRes = await fetchJson(`${baseUrl}/api/deals/${dealId}/pipeline/latest`);
+if (pipelineRes.ok) {
+  const latestKey = pipelineRes.json?.latest?.event_key || pipelineRes.json?.event_key || null;
+  const okKeys = new Set([
+    "deal.underwriting.started",
+    "underwriting.activated",
+    "underwriting.already_activated",
+  ]);
+  console.log("[verify:underwrite] Pipeline latest", { latestKey });
+  if (latestKey && !okKeys.has(String(latestKey))) {
+    console.warn("[verify:underwrite] Latest pipeline key not an underwriting activation.");
+  }
+}
 
 let checklistCount = 0;
 let lastChecklist = null;
