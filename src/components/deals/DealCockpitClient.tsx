@@ -115,18 +115,20 @@ export default function DealCockpitClient({
             {lifecycleStage && lifecycleStage !== "created" && ignitedLabel ? (
               <div className="text-xs text-white/60">{ignitedLabel}</div>
             ) : null}
-            <DealNameInlineEditor
-              dealId={dealId}
-              displayName={displayName}
-              nickname={nickname}
-              borrowerName={effectiveBorrowerName}
-              size="md"
-              tone="dark"
-              onUpdated={(next) => {
-                setDisplayName(next.displayName ?? null);
-                setNickname(next.nickname ?? null);
-              }}
-            />
+            <div id="deal-name" className="scroll-mt-24">
+              <DealNameInlineEditor
+                dealId={dealId}
+                displayName={displayName}
+                nickname={nickname}
+                borrowerName={effectiveBorrowerName}
+                size="md"
+                tone="dark"
+                onUpdated={(next) => {
+                  setDisplayName(next.displayName ?? null);
+                  setNickname(next.nickname ?? null);
+                }}
+              />
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <Link
@@ -150,17 +152,21 @@ export default function DealCockpitClient({
           {/* Left Column */}
           <div className="space-y-6">
             <SafeBoundary>
-              <DealIntakeCard
-                dealId={dealId}
-                onChecklistSeeded={handleChecklistSeeded}
-                isAdmin={isAdmin}
-                lifecycleStage={stage}
-                onLifecycleStageChange={setStage}
-              />
+              <div id="intake" className="scroll-mt-24">
+                <DealIntakeCard
+                  dealId={dealId}
+                  onChecklistSeeded={handleChecklistSeeded}
+                  isAdmin={isAdmin}
+                  lifecycleStage={stage}
+                  onLifecycleStageChange={setStage}
+                />
+              </div>
             </SafeBoundary>
 
             <SafeBoundary>
-              <BorrowerRequestComposerCard dealId={dealId} />
+              <div id="borrower-request" className="scroll-mt-24">
+                <BorrowerRequestComposerCard dealId={dealId} />
+              </div>
             </SafeBoundary>
 
             <SafeBoundary>

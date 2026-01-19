@@ -1,4 +1,4 @@
-import StitchRouteBridge from "@/components/stitch/StitchRouteBridge";
+import StitchSurface from "@/stitch/StitchSurface";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildPortfolioSummary } from "@/lib/portfolio/portfolioAnalytics";
@@ -149,7 +149,7 @@ export default async function Page() {
         </div>
       </div>
 
-      <StitchRouteBridge slug="portfolio-command-bridge" />
+      <StitchSurface surfaceKey="portfolio" title="Portfolio" mode="iframe" />
     </div>
   );
 }

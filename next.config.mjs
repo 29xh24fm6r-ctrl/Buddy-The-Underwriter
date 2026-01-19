@@ -29,6 +29,18 @@ const nextConfig = {
       },
     ];
   },
+  outputFileTracingIncludes: {
+    "/api/builder/stitch/audit": [
+      "src/stitch/stitchSurfaceRegistry.ts",
+      "src/stitch/StitchSurface.tsx",
+      "src/app/(app)/deals/*/command/StitchPanel.tsx",
+      "src/app/(app)/underwrite/page.tsx",
+      "src/app/(app)/deals/*/committee/CommitteeView.tsx",
+      "src/app/(app)/borrower/portal/page.tsx",
+      "src/app/(app)/portfolio/page.tsx",
+      "src/app/(app)/intake/page.tsx",
+    ],
+  },
   experimental: {
     cpus: process.env.CODESPACES ? 1 : undefined,
     workerThreads: process.env.CODESPACES ? false : undefined,

@@ -5,8 +5,7 @@ import UploadBox from "@/components/deals/UploadBox";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import DealAssigneesCard from "@/components/deals/DealAssigneesCard";
 import BankFormsCard from "@/components/deals/BankFormsCard";
-import NextBestActionCard from "@/components/deals/NextBestActionCard";
-import NextActionsCard from "@/components/deals/NextActionsCard";
+import NextStepCard from "@/components/deals/NextStepCard";
 import DealHeaderCard from "@/components/deals/DealHeaderCard";
 import DealSetupCard from "@/components/deals/DealSetupCard";
 import PackNavigatorCard from "@/components/deals/PackNavigatorCard";
@@ -90,7 +89,7 @@ export default function DealWorkspaceClient({
 
           {/* RIGHT RAIL */}
           <div className="col-span-12 space-y-4 lg:col-span-3">
-            <NextActionsCard dealId={dealId} />
+            <NextStepCard dealId={dealId} />
 
             {/* Borrower Pack Intelligence */}
             <div id="pack-intelligence" className="scroll-mt-24">
@@ -107,8 +106,6 @@ export default function DealWorkspaceClient({
             <div id="upload-inbox" className="scroll-mt-24">
               <UploadInboxCard dealId={dealId} />
             </div>
-
-            <NextBestActionCard dealId={dealId} />
 
             {/* Banker-ready: copy/paste missing docs + portal link */}
             <MissingDocsCard dealId={dealId} />
