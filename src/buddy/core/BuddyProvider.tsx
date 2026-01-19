@@ -355,6 +355,23 @@ export function BuddyProvider({ children }: { children: React.ReactNode }) {
 
 function interpretSignal(signal: BuddySignal) {
   switch (signal.type) {
+    case "lifecycle": {
+      if (!envObserverEnabled()) return null;
+      const state = String(signal.payload?.state ?? "");
+      if (state === "failed") {
+        return {
+          message: "Intake auto-init failed; check ledger event `intake.init_failed`.",
+          tone: "warn",
+        };
+      }
+      if (state === "initialized" || state === "already_initialized") {
+        return {
+          message: "Auto-initialized intake on first cockpit load; checklist seeded so underwriting can start once docs are received.",
+          tone: "neutral",
+        };
+      }
+      return null;
+    }
     case "checklist.updated": {
       const missing = Number(signal.payload?.missing ?? NaN);
       const received = Number(signal.payload?.received ?? NaN);

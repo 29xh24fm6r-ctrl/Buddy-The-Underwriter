@@ -123,6 +123,8 @@ export async function POST(req: NextRequest, ctx: Context) {
       });
     }
 
+    await initializeIntake(dealId, bankId, { reason: "files_record", trigger: "files.record" });
+
     // Verify file exists in storage (optional but recommended)
     // This MUST be best-effort and bounded; do not block the upload UX.
     let fileExists: any[] | null = null;

@@ -41,7 +41,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
 
     const bankId = await getCurrentBankId();
 
-    await initializeIntake(dealId, bankId, { reason: "borrower_request" });
+    await initializeIntake(dealId, bankId, {
+      reason: "borrower_request",
+      trigger: "borrower-request",
+    });
 
     // Create a single borrower invite token + reuse for all uploads (deal-scoped)
     const expiresHours = Math.max(1, Math.min(168, body.expiresHours ?? 72));
