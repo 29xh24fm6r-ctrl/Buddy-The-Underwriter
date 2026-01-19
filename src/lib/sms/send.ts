@@ -1,7 +1,7 @@
 import "server-only";
+// NOTE: Twilio depends on Node core modules (net/tls/crypto). This module must never execute in Edge runtime.
 import { assertSmsAllowed } from "@/lib/sms/consent";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import Twilio from "twilio";
 
 /**
  * Send SMS with opt-out enforcement and automatic ledger logging
@@ -23,6 +23,8 @@ export async function sendSmsWithConsent(args: {
   metadata?: Record<string, any>;
 }): Promise<{ sid: string; status: string }> {
   const { dealId, to, body, label = "SMS", metadata = {} } = args;
+
+  const { default: Twilio } = await import("twilio");
 
   // 1. Enforce opt-out
   await assertSmsAllowed(to);
