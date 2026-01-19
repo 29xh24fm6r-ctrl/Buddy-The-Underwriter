@@ -22,6 +22,8 @@
     "guard:writers": "bash scripts/guard_no_direct_deal_documents_inserts.sh",
     "gen:tenant-sql": "node scripts/generate-tenant-sql.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "vercel:preview:url": "node scripts/vercel-latest-url.mjs",
+    "verify:underwrite": "node scripts/verify-underwrite.mjs",
     "check:icons": "node scripts/check-no-material-icon-tokens.mjs",
     "capture:marketing": "node scripts/capture-marketing-screenshots.mjs",
     "e2e:install": "playwright install --with-deps",

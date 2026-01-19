@@ -10,8 +10,11 @@ import { resolveDealLabel, dealLabel } from "@/lib/deals/dealLabel";
 import { canAccessUnderwrite } from "@/lib/deals/lifecycleGuards";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { emitBuilderLifecycleSignal } from "@/lib/buddy/builderSignals";
 import Link from "next/link";
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -63,14 +66,151 @@ export default async function UnderwriteDealPage({
 }: UnderwriteDealPageProps) {
   const resolvedParams = await params;
   const dealId = resolvedParams.dealId;
+  const builderMode = process.env.BUDDY_BUILDER_MODE === "1";
+  const setEntryHeader = async (value: "hit" | "bank" | "init" | "error") => {
+    if (!builderMode) return;
+    try {
+      const responseHeaders = await headers();
+      responseHeaders.set("x-buddy-underwrite-entry", value);
+    } catch (e) {
+      console.warn("[underwrite] unable to set entry header", e);
+    }
+  };
 
-  const bankId = await getCurrentBankId();
+  const sb = supabaseAdmin();
+  const { data: dealBankRow } = await sb
+    .from("deals")
+    .select("bank_id")
+    .eq("id", dealId)
+    .maybeSingle();
+
+  const dealBankId = dealBankRow?.bank_id ? String(dealBankRow.bank_id) : null;
+
+  const logUnderwriteLedger = async (
+    eventKey: string,
+    uiMessage: string,
+    meta?: Record<string, unknown>,
+    bankIdOverride?: string | null,
+  ) => {
+    const bankIdForLog = bankIdOverride ?? dealBankId;
+    if (!builderMode || !bankIdForLog) return;
+    await logLedgerEvent({
+      dealId,
+      bankId: bankIdForLog,
+      eventKey,
+      uiState: "done",
+      uiMessage,
+      meta: {
+        deal_id: dealId,
+        bank_id: bankIdForLog,
+        trigger: "underwrite.page",
+        ...meta,
+      },
+    });
+  };
 
   try {
-    await initializeIntake(dealId, bankId, {
+    await logUnderwriteLedger("underwrite.entry.hit", "Underwrite entry hit", {
+      source: "system",
+    });
+  } catch (e) {
+    console.warn("[underwrite] failed to log entry hit", e);
+  }
+
+  await setEntryHeader("hit");
+
+  if (builderMode) {
+    console.info("[underwrite] entry hit", { dealId, bankId: dealBankId ?? "unknown" });
+    void emitBuilderLifecycleSignal({
+      dealId,
+      phase: "underwrite.entry",
+      state: "hit",
+      trigger: "underwrite.page",
+      note: "Underwrite entry hit",
+    });
+  }
+
+  let bankId: string | null = null;
+  try {
+    bankId = await getCurrentBankId();
+    await logUnderwriteLedger(
+      "underwrite.entry.bank_resolved",
+      "Underwrite entry bank resolved",
+      {
+        source: "system",
+        resolved_bank_id: bankId,
+      },
+      bankId,
+    );
+    await setEntryHeader("bank");
+    if (builderMode) {
+      console.info("[underwrite] bank resolved", { dealId, bankId });
+      void emitBuilderLifecycleSignal({
+        dealId,
+        phase: "underwrite.entry",
+        state: "bank_resolved",
+        trigger: "underwrite.page",
+        note: `Resolved bankId ${bankId}`,
+      });
+    }
+  } catch (err) {
+    await logUnderwriteLedger("underwrite.entry.error", "Underwrite entry bank resolve failed", {
+      source: "system",
+      error: (err as any)?.message ?? String(err),
+    });
+    await setEntryHeader("error");
+    if (builderMode) {
+      console.warn("[underwrite] bank resolve failed", err);
+      void emitBuilderLifecycleSignal({
+        dealId,
+        phase: "underwrite.entry",
+        state: "error",
+        trigger: "underwrite.page",
+        note: (err as any)?.message ?? String(err),
+      });
+    }
+  }
+
+  try {
+    const intakeResult = await initializeIntake(dealId, bankId ?? dealBankId, {
       trigger: "underwrite.page",
     });
+    await logUnderwriteLedger(
+      "underwrite.entry.intake_result",
+      "Underwrite entry intake result",
+      {
+        source: "system",
+        result: intakeResult.ok ? intakeResult.status : "failed",
+        error: intakeResult.ok ? null : intakeResult.error,
+      },
+      bankId ?? dealBankId,
+    );
+    await setEntryHeader("init");
+    if (builderMode) {
+      console.info("[underwrite] intake init result", {
+        dealId,
+        status: intakeResult.ok ? intakeResult.status : "failed",
+        error: intakeResult.ok ? null : intakeResult.error,
+      });
+      void emitBuilderLifecycleSignal({
+        dealId,
+        phase: "underwrite.entry",
+        state: intakeResult.ok ? intakeResult.status : "failed",
+        trigger: "underwrite.page",
+        note: intakeResult.ok ? "Underwrite intake init complete" : intakeResult.error,
+      });
+    }
   } catch (err) {
+    await logUnderwriteLedger(
+      "underwrite.entry.error",
+      "Underwrite entry intake failed",
+      {
+        source: "system",
+        error: (err as any)?.message ?? String(err),
+      },
+      bankId ?? dealBankId,
+    );
+    await setEntryHeader("error");
     console.error("[underwrite] intake auto-init failed", err);
   }
 
@@ -96,7 +236,6 @@ export default async function UnderwriteDealPage({
     );
   }
 
-  const sb = supabaseAdmin();
   const { data: deal } = await sb
     .from("deals")
     .select("id, borrower_name, name, display_name, nickname, stage, lifecycle_stage")
