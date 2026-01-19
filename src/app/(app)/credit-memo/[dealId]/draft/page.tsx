@@ -2,6 +2,7 @@ import { buildDealIntelligence, formatCreditMemoMarkdown } from "@/lib/dealIntel
 import { CopyToClipboardButton } from "@/components/deals/DealOutputActions";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
 import Link from "next/link";
+import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,42 @@ type Props = {
 };
 
 export default async function CreditMemoDraftPage({ params }: Props) {
+  const verify = await verifyUnderwrite({ dealId: params.dealId, actor: "banker" });
+  if (!verify.ok) {
+    return (
+      <div className="mx-auto w-full max-w-5xl px-6 py-10">
+        <div className="rounded-xl border border-neutral-200 bg-white p-6">
+          <h1 className="text-2xl font-bold text-neutral-900">Credit Memo Draft</h1>
+          <p className="mt-2 text-sm text-neutral-600">
+            Underwriting is not available until intake is complete.
+          </p>
+          <div className="mt-2 text-xs text-neutral-500">
+            Next action: {verify.recommendedNextAction}
+          </div>
+          {verify.diagnostics?.missing?.length ? (
+            <div className="mt-1 text-xs text-neutral-500">
+              Missing: {verify.diagnostics.missing.join(", ")}
+            </div>
+          ) : null}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link
+              href={`/deals/${params.dealId}`}
+              className="inline-flex items-center rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:bg-neutral-800"
+            >
+              Complete Intake
+            </Link>
+            <Link
+              href="/deals"
+              className="inline-flex items-center rounded-lg border border-neutral-200 px-3 py-2 text-xs font-semibold text-neutral-900 hover:bg-neutral-50"
+            >
+              Back to Deals
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   let intelligence: Awaited<ReturnType<typeof buildDealIntelligence>> | null = null;
   let errorCode: string | null = null;
 

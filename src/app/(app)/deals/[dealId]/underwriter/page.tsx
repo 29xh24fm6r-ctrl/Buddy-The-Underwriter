@@ -3,6 +3,8 @@ import DealCockpitClient from "@/components/deals/DealCockpitClient";
 import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
+import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,6 +57,14 @@ export default async function UnderwriterOverviewPage({ params }: Props) {
   }
 
   let dealName: { displayName?: string | null; nickname?: string | null; borrowerName?: string | null } | undefined;
+  let verify: VerifyUnderwriteResult = {
+    ok: false,
+    dealId,
+    auth: true,
+    recommendedNextAction: "deal_not_found",
+    diagnostics: {},
+    ledgerEventsWritten: [],
+  };
   const access = await ensureDealBankAccess(dealId);
   if (access.ok) {
     const sb = supabaseAdmin();
@@ -68,7 +78,15 @@ export default async function UnderwriterOverviewPage({ params }: Props) {
       nickname: (deal as any)?.nickname ?? null,
       borrowerName: (deal as any)?.borrower_name ?? null,
     };
+    verify = await verifyUnderwrite({ dealId, actor: "banker" });
   }
 
-  return <DealCockpitClient dealId={dealId} isAdmin={isAdmin} dealName={dealName} />;
+  return (
+    <DealCockpitClient
+      dealId={dealId}
+      isAdmin={isAdmin}
+      dealName={dealName}
+      verify={verify}
+    />
+  );
 }

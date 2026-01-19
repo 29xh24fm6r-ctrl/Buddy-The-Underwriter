@@ -6,15 +6,21 @@ import { EventsFeed } from "./EventsFeed";
 import { ChecklistPanel } from "./ChecklistPanel";
 import { CinematicTimeline } from "@/components/command/CinematicTimeline";
 import { BuddyExplainsCard } from "@/components/deals/BuddyExplainsCard";
+import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 
 export function ActionRail({
   dealId,
   context,
+  verify,
 }: {
   dealId: string;
   context: DealContext;
+  verify: VerifyUnderwriteResult;
 }) {
   const [processing, setProcessing] = useState<DealAction | null>(null);
+  const underwriteAllowed = verify.ok;
+  const blockedReason =
+    underwriteAllowed ? null : "Complete intake before this action is available";
 
   const handleAction = async (action: DealAction) => {
     setProcessing(action);
@@ -88,11 +94,13 @@ export function ActionRail({
               variant="success"
               disabled={
                 processing !== null ||
+                !underwriteAllowed ||
                 context.completeness.missingDocs > 0 ||
                 context.completeness.openConditions > 0
               }
               loading={processing === "approve"}
               onClick={() => handleAction("approve")}
+              title={blockedReason ?? undefined}
             />
 
             <ActionButton
@@ -109,9 +117,10 @@ export function ActionRail({
         <ActionButton
           action="escalate"
           label="Escalate to Committee"
-          disabled={processing !== null}
+          disabled={processing !== null || !underwriteAllowed}
           loading={processing === "escalate"}
           onClick={() => handleAction("escalate")}
+          title={blockedReason ?? undefined}
         />
 
         {context.permissions.canShare && (
@@ -146,6 +155,7 @@ function ActionButton({
   variant = "default",
   disabled,
   loading,
+  title,
   onClick,
 }: {
   action: DealAction;
@@ -153,6 +163,7 @@ function ActionButton({
   variant?: "default" | "success" | "danger";
   disabled: boolean;
   loading: boolean;
+  title?: string;
   onClick: () => void;
 }) {
   const variantStyles = {
@@ -165,6 +176,7 @@ function ActionButton({
     <button
       onClick={onClick}
       disabled={disabled || loading}
+      title={title}
       className={`w-full rounded-lg px-4 py-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${variantStyles}`}
     >
       {loading ? "Processing..." : label}

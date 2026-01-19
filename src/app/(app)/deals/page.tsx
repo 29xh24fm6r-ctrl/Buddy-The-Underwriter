@@ -5,6 +5,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { derivePipelineStatus } from "@/lib/deals/derivePipeline";
 import { resolveDealLabel, dealLabel } from "@/lib/deals/dealLabel";
 import { isSandboxBank } from "@/lib/tenant/sandbox";
+import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
+import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 import Link from "next/link";
 import GlassToggles from "@/components/ui/GlassToggles";
 import { GlassCard, StatusPill, SecondaryCTA } from "@/components/ui/glass";
@@ -170,6 +172,15 @@ export default async function DealsPage({
     };
   });
 
+  const verifyResults = await Promise.all(
+    uiDeals.map((deal) => verifyUnderwrite({ dealId: deal.id, actor: "banker" })),
+  );
+
+  const uiDealsWithVerify = uiDeals.map((deal, idx) => ({
+    ...deal,
+    verify: verifyResults[idx] as VerifyUnderwriteResult,
+  }));
+
   const stats = {
     active: uiDeals.filter((d) => !d.archivedAt).length,
     ready: uiDeals.filter((d) => (d.status || "").toLowerCase().includes("ready")).length,
@@ -262,7 +273,7 @@ export default async function DealsPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {uiDeals.map((deal) => (
+              {uiDealsWithVerify.map((deal) => (
                 <tr key={deal.id} className="glass-row">
                   <td className="px-6 py-4 text-sm font-medium text-white">
                     <div className="flex items-center gap-3">
@@ -306,12 +317,24 @@ export default async function DealsPage({
                   </td>
                   <td className="px-6 py-4 text-right text-sm">
                     <div className="flex items-center justify-end gap-2">
-                      <Link href={`/underwrite/${deal.id}`}>
-                        <span className="gradient-cta inline-flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-semibold text-white">
-                          Open Underwriting
-                          <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                      {deal.verify.ok ? (
+                        <Link href={deal.verify.redirectTo}>
+                          <span className="gradient-cta inline-flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-semibold text-white">
+                            Open Underwriting
+                            <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                          </span>
+                        </Link>
+                      ) : (
+                        <span className="status-pill warn">
+                          {deal.verify.recommendedNextAction === "complete_intake"
+                            ? "Intake Required"
+                            : deal.verify.recommendedNextAction === "checklist_incomplete"
+                              ? "Waiting on Documents"
+                              : deal.verify.recommendedNextAction === "pricing_required"
+                                ? "Pricing Required"
+                                : "Unavailable"}
                         </span>
-                      </Link>
+                      )}
                       <Link href={`/deals/${deal.id}`}>
                         <SecondaryCTA>Open</SecondaryCTA>
                       </Link>

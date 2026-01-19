@@ -10,6 +10,9 @@ const pickEnv = (key: string) => process.env[key] ?? null;
 export async function GET() {
   const payload = {
     ok: true,
+    commitSha: pickEnv("VERCEL_GIT_COMMIT_SHA"),
+    vercelEnv: pickEnv("VERCEL_ENV"),
+    nodeEnv: pickEnv("NODE_ENV"),
     git: {
       sha: pickEnv("VERCEL_GIT_COMMIT_SHA"),
       ref: pickEnv("VERCEL_GIT_COMMIT_REF") ?? pickEnv("VERCEL_GIT_COMMIT_BRANCH"),
@@ -25,6 +28,7 @@ export async function GET() {
         NEXT_PUBLIC_BUDDY_DEFAULT_OPEN: pickEnv("NEXT_PUBLIC_BUDDY_DEFAULT_OPEN"),
       },
     },
+    buildTime: pickEnv("VERCEL_DEPLOYMENT_CREATED_AT"),
     timestamp: new Date().toISOString(),
   } as const;
 

@@ -20,6 +20,7 @@ import { DealCockpitInsights } from "@/components/deals/DealCockpitInsights";
 import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
+import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 
 /**
  * Client wrapper for Deal Cockpit.
@@ -33,6 +34,7 @@ export default function DealCockpitClient({
   lifecycleStage,
   ignitedEvent,
   intakeInitialized,
+  verify,
 }: {
   dealId: string;
   isAdmin?: boolean;
@@ -40,6 +42,7 @@ export default function DealCockpitClient({
   lifecycleStage?: string | null;
   ignitedEvent?: { source: string | null; createdAt: string | null } | null;
   intakeInitialized?: boolean;
+  verify: VerifyUnderwriteResult;
 }) {
   const [displayName, setDisplayName] = useState<string | null>(dealName?.displayName ?? null);
   const [nickname, setNickname] = useState<string | null>(dealName?.nickname ?? null);
@@ -176,7 +179,7 @@ export default function DealCockpitClient({
             </SafeBoundary>
 
             <SafeBoundary>
-              <DealOutputsPanel dealId={dealId} />
+              <DealOutputsPanel dealId={dealId} verify={verify} />
             </SafeBoundary>
 
             <SafeBoundary>

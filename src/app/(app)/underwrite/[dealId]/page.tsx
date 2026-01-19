@@ -1,11 +1,11 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { dealLabel } from "@/lib/deals/dealLabel";
-import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitBuilderLifecycleSignal } from "@/lib/buddy/builderSignals";
 import { ensureUnderwritingActivated } from "@/lib/deals/underwriting/ensureUnderwritingActivated";
+import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
 import { CopyToClipboardButton } from "@/components/deals/DealOutputActions";
 import Link from "next/link";
 import type { Metadata } from "next";
@@ -167,49 +167,6 @@ export default async function UnderwriteDealPage({
     }
   }
 
-  try {
-    const intakeResult = await initializeIntake(dealId, bankId ?? dealBankId, {
-      trigger: "underwrite.page",
-    });
-    await logUnderwriteLedger(
-      "underwrite.entry.intake_result",
-      "Underwrite entry intake result",
-      {
-        source: "system",
-        result: intakeResult.ok ? intakeResult.status : "failed",
-        error: intakeResult.ok ? null : intakeResult.error,
-      },
-      bankId ?? dealBankId,
-    );
-    await setEntryHeader("init");
-    if (builderMode) {
-      console.info("[underwrite] intake init result", {
-        dealId,
-        status: intakeResult.ok ? intakeResult.status : "failed",
-        error: intakeResult.ok ? null : intakeResult.error,
-      });
-      void emitBuilderLifecycleSignal({
-        dealId,
-        phase: "underwrite.entry",
-        state: intakeResult.ok ? intakeResult.status : "failed",
-        trigger: "underwrite.page",
-        note: intakeResult.ok ? "Underwrite intake init complete" : intakeResult.error,
-      });
-    }
-  } catch (err) {
-    await logUnderwriteLedger(
-      "underwrite.entry.error",
-      "Underwrite entry intake failed",
-      {
-        source: "system",
-        error: (err as any)?.message ?? String(err),
-      },
-      bankId ?? dealBankId,
-    );
-    await setEntryHeader("error");
-    console.error("[underwrite] intake auto-init failed", err);
-  }
-
   const access = await ensureDealBankAccess(dealId);
   if (!access.ok) {
     const errorCopy =
@@ -260,6 +217,63 @@ export default async function UnderwriteDealPage({
             >
               Go to Deal Cockpit
             </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const verify = await verifyUnderwrite({ dealId, actor: "system" });
+
+  if (!verify.ok) {
+    const nextActionMap: Record<
+      string,
+      { label: string; href?: string }
+    > = {
+      complete_intake: { label: "Complete Intake", href: `/deals/${dealId}` },
+      checklist_incomplete: {
+        label: "Request Documents",
+        href: `/deals/${dealId}/documents`,
+      },
+      pricing_required: { label: "Run Pricing", href: `/deals/${dealId}/pricing` },
+      deal_not_found: { label: "Admin Only" },
+    };
+
+    const nextAction = nextActionMap[verify.recommendedNextAction];
+
+    return (
+      <div className="mx-auto w-full max-w-5xl px-6 py-10">
+        <div className="rounded-xl border border-neutral-200 bg-white p-6">
+          <h1 className="text-2xl font-bold text-neutral-900">Underwriting not available</h1>
+          <p className="mt-2 text-sm text-neutral-600">
+            This deal is not ready for underwriting.
+          </p>
+          <div className="mt-4 text-xs text-neutral-500">
+            Next action: {verify.recommendedNextAction}
+          </div>
+          {verify.diagnostics?.missing?.length ? (
+            <div className="mt-4 text-xs text-neutral-500">
+              Missing: {verify.diagnostics.missing.join(", ")}
+            </div>
+          ) : null}
+          {verify.diagnostics?.lifecycleStage ? (
+            <div className="mt-2 text-xs text-neutral-500">
+              Lifecycle stage: {verify.diagnostics.lifecycleStage}
+            </div>
+          ) : null}
+          <div className="mt-4 flex flex-wrap gap-2">
+            {nextAction?.href ? (
+              <Link
+                href={nextAction.href}
+                className="inline-flex items-center rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:bg-neutral-800"
+              >
+                {nextAction.label}
+              </Link>
+            ) : null}
+            <CopyToClipboardButton
+              label="Copy debug"
+              text={JSON.stringify(verify, null, 2)}
+            />
           </div>
         </div>
       </div>
