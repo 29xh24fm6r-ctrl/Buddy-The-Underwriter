@@ -20,6 +20,6 @@ export default async function DealPage({
     );
   }
 
-  // Redirect to command center
-  redirect(`/deals/${dealId}/command`);
+  // Redirect to the canonical cockpit workspace
+  redirect(`/deals/${dealId}/cockpit`);
 }

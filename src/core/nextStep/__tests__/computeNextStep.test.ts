@@ -6,11 +6,13 @@ import { computeNextStep } from "@/core/nextStep/computeNextStep";
 type Row = Record<string, any>;
 
 type FakeTables = {
+  deals: Row[];
   deal_checklist_items: Row[];
 };
 
 function createFakeSupabase(seed: FakeTables) {
   const tables: FakeTables = {
+    deals: [...seed.deals],
     deal_checklist_items: [...seed.deal_checklist_items],
   };
 
@@ -29,6 +31,10 @@ function createFakeSupabase(seed: FakeTables) {
           filters.push({ key, value });
           return builder;
         },
+        maybeSingle: async () => {
+          const rows = applyFilters(tables[tableName], filters);
+          return { data: rows[0] ?? null, error: null };
+        },
         then: (resolve: any) => {
           const rows = applyFilters(tables[tableName], filters);
           return Promise.resolve(resolve({ data: rows, error: null }));
@@ -43,7 +49,10 @@ test("computeNextStep returns open_underwriting when verify ok", async () => {
   const result = await computeNextStep({
     dealId: "deal-1",
     deps: {
-      sb: createFakeSupabase({ deal_checklist_items: [] }) as any,
+      sb: createFakeSupabase({
+        deals: [{ id: "deal-1", display_name: "Named", nickname: null, borrower_id: "b-1" }],
+        deal_checklist_items: [],
+      }) as any,
       verifyUnderwrite: async () => ({
         ok: true,
         dealId: "deal-1",
@@ -63,7 +72,10 @@ test("computeNextStep returns run_pricing when pricing is required", async () =>
   const result = await computeNextStep({
     dealId: "deal-2",
     deps: {
-      sb: createFakeSupabase({ deal_checklist_items: [] }) as any,
+      sb: createFakeSupabase({
+        deals: [{ id: "deal-2", display_name: "Named", nickname: null, borrower_id: "b-2" }],
+        deal_checklist_items: [],
+      }) as any,
       verifyUnderwrite: async () => ({
         ok: false,
         dealId: "deal-2",
@@ -86,6 +98,7 @@ test("computeNextStep returns request_docs with missing checklist codes", async 
     dealId: "deal-3",
     deps: {
       sb: createFakeSupabase({
+        deals: [{ id: "deal-3", display_name: "Named", nickname: null, borrower_id: "b-3" }],
         deal_checklist_items: [
           { deal_id: "deal-3", required: true, checklist_key: "PFS", received_at: null },
           { deal_id: "deal-3", required: true, checklist_key: "TAX", received_at: "2024-01-01" },
@@ -109,11 +122,14 @@ test("computeNextStep returns request_docs with missing checklist codes", async 
   }
 });
 
-test("computeNextStep returns complete_intake with intake deep link", async () => {
+test("computeNextStep returns complete_intake for missing deal name", async () => {
   const result = await computeNextStep({
     dealId: "deal-4",
     deps: {
-      sb: createFakeSupabase({ deal_checklist_items: [] }) as any,
+      sb: createFakeSupabase({
+        deals: [{ id: "deal-4", display_name: null, nickname: null, borrower_id: "b-4" }],
+        deal_checklist_items: [],
+      }) as any,
       verifyUnderwrite: async () => ({
         ok: false,
         dealId: "deal-4",
@@ -122,17 +138,12 @@ test("computeNextStep returns complete_intake with intake deep link", async () =
         diagnostics: { missing: ["deal_name"] },
         ledgerEventsWritten: [],
       }),
-      intakeDeepLinkForMissing: () => ({
-        href: "/deals/deal-4/cockpit#deal-name",
-        hash: "deal-name",
-        tab: "overview",
-      }),
     },
   });
 
   assert.deepEqual(result, {
     key: "complete_intake",
     missing: ["deal_name"],
-    deepLink: "/deals/deal-4/cockpit#deal-name",
+    deepLink: "/deals/deal-4/cockpit?anchor=deal-name",
   });
 });

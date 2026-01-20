@@ -9,66 +9,66 @@ import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function normalizeName(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
-}
-
-export async function PATCH(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
   try {
     await requireRole(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
-
     const body = await req.json().catch(() => ({}));
-    const displayName = normalizeName(body?.display_name);
-    const nickname = normalizeName(body?.nickname);
+    const borrowerId = body?.borrowerId as string | undefined;
+
+    if (!borrowerId) {
+      return NextResponse.json({ ok: false, error: "missing_borrower_id" }, { status: 400 });
+    }
 
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok) {
       return NextResponse.json(
         { ok: false, error: access.error },
-        { status: access.error === "deal_not_found" ? 404 : 403 }
+        { status: access.error === "deal_not_found" ? 404 : 403 },
       );
     }
 
     const sb = supabaseAdmin();
+    const { data: borrower } = await sb
+      .from("borrowers")
+      .select("id, legal_name")
+      .eq("id", borrowerId)
+      .eq("bank_id", access.bankId)
+      .maybeSingle();
+
     const { data, error } = await sb
       .from("deals")
-      .update({ display_name: displayName, nickname })
+      .update({
+        borrower_id: borrowerId,
+        borrower_name: borrower?.legal_name ?? null,
+      })
       .eq("id", dealId)
       .eq("bank_id", access.bankId)
-      .select("id, display_name, nickname")
+      .select("id, borrower_id")
       .maybeSingle();
 
     if (error || !data) {
       return NextResponse.json(
-        { ok: false, error: error?.message ?? "update_failed" },
-        { status: 500 }
+        { ok: false, error: error?.message ?? "attach_failed" },
+        { status: 500 },
       );
     }
 
     await logLedgerEvent({
       dealId,
       bankId: access.bankId,
-      eventKey: "deal.named",
+      eventKey: "deal.borrower.attached",
       uiState: "done",
-      uiMessage: "Deal named",
+      uiMessage: "Borrower attached",
       meta: {
         deal_id: dealId,
-        display_name: data.display_name ?? null,
-        nickname: data.nickname ?? null,
+        borrower_id: borrowerId,
       },
     });
 
-    return NextResponse.json({
-      ok: true,
-      dealId: data.id,
-      display_name: data.display_name ?? null,
-      nickname: data.nickname ?? null,
-    });
-  } catch (error) {
-    console.error("[/api/deals/[dealId]/name]", error);
+    return NextResponse.json({ ok: true, dealId, borrowerId });
+  } catch (error: any) {
+    console.error("[/api/deals/[dealId]/borrower/attach]", error);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
 }

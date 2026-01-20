@@ -39,11 +39,17 @@ export default function NextStepCard({ dealId }: { dealId: string }) {
     };
   }, [dealId]);
 
-  const labelMap: Record<NextAction["key"], string> = {
-    complete_intake: "Complete Intake",
-    request_docs: "Request Docs",
-    run_pricing: "Run Pricing",
-    open_underwriting: "Open Underwriting",
+  const resolveLabel = (next: NextAction): string => {
+    if (next.key === "open_underwriting") return "Start underwriting";
+    if (next.key === "run_pricing") return "Run pricing";
+    if (next.key === "request_docs") return "Upload documents";
+    if (next.key === "complete_intake") {
+      const missing = next.missing ?? [];
+      if (missing.includes("deal_name")) return "Name this deal";
+      if (missing.includes("borrower")) return "Attach borrower";
+      return "Complete intake";
+    }
+    return "Next step";
   };
 
   return (
@@ -74,13 +80,13 @@ export default function NextStepCard({ dealId }: { dealId: string }) {
               href={action.deepLink}
               className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
             >
-              {labelMap[action.key]} →
+              {resolveLabel(action)} →
             </Link>
 
             {action.key !== "open_underwriting" ? (
               <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                 <Link
-                  href={`/deals/${dealId}/documents`}
+                  href={`/deals/${dealId}/cockpit?anchor=documents`}
                   className="rounded-full border border-slate-200 px-2.5 py-1 hover:bg-slate-50"
                 >
                   View checklist

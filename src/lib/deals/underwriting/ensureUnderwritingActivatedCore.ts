@@ -121,6 +121,15 @@ export async function ensureUnderwritingActivatedCore(
       } as const;
     }
 
+    await logLedger(
+      "deal.documents.ready",
+      "Required documents received",
+      resolvedBankId,
+      {
+        required_count: requiredItems.length,
+      },
+    );
+
     const lifecycleResult = await lifecycle({
       dealId,
       toStage: "underwriting",
@@ -151,6 +160,11 @@ export async function ensureUnderwritingActivatedCore(
     await logLedger(
       "underwriting.activated",
       "Underwriting activated",
+      resolvedBankId,
+    );
+    await logLedger(
+      "deal.underwrite.unlocked",
+      "Underwriting unlocked",
       resolvedBankId,
     );
 

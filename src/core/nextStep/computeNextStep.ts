@@ -14,9 +14,9 @@ export type ComputeNextStepDeps = {
 
 const buildRequestDocsLink = (dealId: string, missingDocCodes: string[]) => {
   const docsParam = missingDocCodes.length
-    ? `?docs=${encodeURIComponent(missingDocCodes.join(","))}`
-    : "";
-  return `/deals/${dealId}/cockpit${docsParam}#borrower-request`;
+    ? `?docs=${encodeURIComponent(missingDocCodes.join(","))}&anchor=documents`
+    : "?anchor=documents";
+  return `/deals/${dealId}/cockpit${docsParam}`;
 };
 
 export async function computeNextStep(args: {
@@ -27,6 +27,54 @@ export async function computeNextStep(args: {
   const sb = deps?.sb ?? supabaseAdmin();
   const verify = deps?.verifyUnderwrite ?? verifyUnderwrite;
   const deepLinkForMissing = deps?.intakeDeepLinkForMissing ?? intakeDeepLinkForMissing;
+
+  const { data: deal } = await sb
+    .from("deals")
+    .select("id, display_name, nickname, borrower_id")
+    .eq("id", dealId)
+    .maybeSingle();
+
+  const hasDisplayName = Boolean(
+    (deal as any)?.display_name && String((deal as any).display_name).trim(),
+  );
+  const hasNickname = Boolean(
+    (deal as any)?.nickname && String((deal as any).nickname).trim(),
+  );
+
+  if (!hasDisplayName && !hasNickname) {
+    return {
+      key: "complete_intake",
+      missing: ["deal_name"],
+      deepLink: `/deals/${dealId}/cockpit?anchor=deal-name`,
+    };
+  }
+
+  if (!(deal as any)?.borrower_id) {
+    return {
+      key: "complete_intake",
+      missing: ["borrower"],
+      deepLink: `/deals/${dealId}/cockpit?anchor=borrower-attach`,
+    };
+  }
+
+  const { data: checklist } = await sb
+    .from("deal_checklist_items")
+    .select("checklist_key, required, received_at")
+    .eq("deal_id", dealId)
+    .eq("required", true);
+
+  const missingDocCodes = (checklist ?? [])
+    .filter((item: any) => !item.received_at)
+    .map((item: any) => String(item.checklist_key ?? ""))
+    .filter(Boolean);
+
+  if (!checklist?.length || missingDocCodes.length > 0) {
+    return {
+      key: "request_docs",
+      missingDocCodes,
+      deepLink: buildRequestDocsLink(dealId, missingDocCodes),
+    };
+  }
 
   const verifyResult = await verify({ dealId, actor: "banker" });
 
@@ -39,25 +87,6 @@ export async function computeNextStep(args: {
 
   if (verifyResult.recommendedNextAction === "pricing_required") {
     return { key: "run_pricing", deepLink: `/deals/${dealId}/pricing` };
-  }
-
-  if (verifyResult.recommendedNextAction === "checklist_incomplete") {
-    const { data } = await sb
-      .from("deal_checklist_items")
-      .select("checklist_key, required, received_at")
-      .eq("deal_id", dealId)
-      .eq("required", true);
-
-    const missingDocCodes = (data ?? [])
-      .filter((item: any) => !item.received_at)
-      .map((item: any) => String(item.checklist_key ?? ""))
-      .filter(Boolean);
-
-    return {
-      key: "request_docs",
-      missingDocCodes,
-      deepLink: buildRequestDocsLink(dealId, missingDocCodes),
-    };
   }
 
   const missing = verifyResult.diagnostics?.missing ?? [];

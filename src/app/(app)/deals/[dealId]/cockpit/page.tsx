@@ -54,6 +54,14 @@ export default async function DealCockpitPage({ params }: Props) {
   }
 
   let dealName: { displayName?: string | null; nickname?: string | null; borrowerName?: string | null } | undefined;
+  let readiness: {
+    named: boolean;
+    borrowerAttached: boolean;
+    documentsReady: boolean;
+    financialSnapshotReady: boolean;
+    requiredDocsCount: number;
+    missingDocsCount: number;
+  } | null = null;
   let lifecycleStage: string | null = null;
   let intakeInitialized = false;
   let ignitedEvent: { source: string | null; createdAt: string | null } | null = null;
@@ -70,7 +78,7 @@ export default async function DealCockpitPage({ params }: Props) {
     const sb = supabaseAdmin();
     const { data: deal } = await sb
       .from("deals")
-      .select("display_name, nickname, borrower_name, lifecycle_stage")
+      .select("display_name, nickname, borrower_name, borrower_id, lifecycle_stage")
       .eq("id", dealId)
       .eq("bank_id", access.bankId)
       .maybeSingle();
@@ -80,6 +88,40 @@ export default async function DealCockpitPage({ params }: Props) {
       borrowerName: (deal as any)?.borrower_name ?? null,
     };
     lifecycleStage = (deal as any)?.lifecycle_stage ?? null;
+
+    const hasDisplayName = Boolean(
+      (deal as any)?.display_name && String((deal as any).display_name).trim(),
+    );
+    const hasNickname = Boolean(
+      (deal as any)?.nickname && String((deal as any).nickname).trim(),
+    );
+    const borrowerAttached = Boolean((deal as any)?.borrower_id);
+
+    const { data: checklist } = await sb
+      .from("deal_checklist_items")
+      .select("checklist_key, required, received_at")
+      .eq("deal_id", dealId)
+      .eq("required", true);
+
+    const missingDocsCount = (checklist ?? []).filter((item: any) => !item.received_at).length;
+    const requiredDocsCount = (checklist ?? []).length;
+    const documentsReady = requiredDocsCount > 0 && missingDocsCount === 0;
+
+    const { count: snapshotCount } = await sb
+      .from("financial_snapshot_decisions")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId);
+
+    const financialSnapshotReady = Boolean(snapshotCount && snapshotCount > 0);
+
+    readiness = {
+      named: hasDisplayName || hasNickname,
+      borrowerAttached,
+      documentsReady,
+      financialSnapshotReady,
+      requiredDocsCount,
+      missingDocsCount,
+    };
 
     const { data: intake } = await sb
       .from("deal_intake")
@@ -118,6 +160,7 @@ export default async function DealCockpitPage({ params }: Props) {
         dealId={dealId}
         isAdmin={isAdmin}
         dealName={dealName}
+        readiness={readiness}
         lifecycleStage={lifecycleStage}
         ignitedEvent={ignitedEvent}
         intakeInitialized={intakeInitialized}
