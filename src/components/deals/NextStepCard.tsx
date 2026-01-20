@@ -77,26 +77,28 @@ export default function NextStepCard({ dealId }: { dealId: string }) {
               {labelMap[action.key]} →
             </Link>
 
-            <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-              <Link
-                href={`/deals/${dealId}/documents`}
-                className="rounded-full border border-slate-200 px-2.5 py-1 hover:bg-slate-50"
-              >
-                View checklist
-              </Link>
-              <Link
-                href={`/deals/${dealId}/pricing`}
-                className="rounded-full border border-slate-200 px-2.5 py-1 hover:bg-slate-50"
-              >
-                View pricing
-              </Link>
-              <Link
-                href={`/credit-memo/${dealId}/draft`}
-                className="rounded-full border border-slate-200 px-2.5 py-1 hover:bg-slate-50"
-              >
-                View memo
-              </Link>
-            </div>
+            {action.key !== "open_underwriting" ? (
+              <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                <Link
+                  href={`/deals/${dealId}/documents`}
+                  className="rounded-full border border-slate-200 px-2.5 py-1 hover:bg-slate-50"
+                >
+                  View checklist
+                </Link>
+                <Link
+                  href={`/deals/${dealId}/pricing`}
+                  className="rounded-full border border-slate-200 px-2.5 py-1 hover:bg-slate-50"
+                >
+                  View pricing
+                </Link>
+                <Link
+                  href={`/credit-memo/${dealId}/draft`}
+                  className="rounded-full border border-slate-200 px-2.5 py-1 hover:bg-slate-50"
+                >
+                  View memo
+                </Link>
+              </div>
+            ) : null}
           </div>
         )}
       </div>

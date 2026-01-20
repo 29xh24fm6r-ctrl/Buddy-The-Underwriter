@@ -171,3 +171,30 @@ test("valid deal returns ok", async () => {
 
   assert.equal(result.ok, true);
 });
+
+test("missing pricing quote blocks pricing_required", async () => {
+  const result = await runVerify({
+    deals: [
+      {
+        id: "deal-1",
+        bank_id: "bank-1",
+        name: "Acme",
+        borrower_id: "borrower-1",
+        lifecycle_stage: "collecting",
+      },
+    ],
+    deal_checklist_items: [
+      {
+        deal_id: "deal-1",
+        checklist_key: "PFS",
+        required: true,
+        received_at: "2024-01-01",
+      },
+    ],
+    financial_snapshot_decisions: [{ id: "snap-1", deal_id: "deal-1" }],
+    deal_pricing_quotes: [],
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.recommendedNextAction, "pricing_required");
+});

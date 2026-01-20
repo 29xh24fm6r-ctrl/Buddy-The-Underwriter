@@ -3,6 +3,9 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { FormFieldWithDefault } from "@/components/deals/FormFieldWithDefault";
+import { emitBuddySignal } from "@/buddy/emitBuddySignal";
+import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
+import { cn } from "@/lib/utils";
 
 interface PolicyDefault {
   field_name: string;
@@ -29,6 +32,8 @@ interface LoanTerms {
 export default function LoanTermsFormPage() {
   const params = useParams();
   const dealId = params?.dealId as string;
+
+  const highlightLoanRequest = useAnchorAutofocus("loan-request");
 
   const [dealType, setDealType] = useState("sba_7a");
   const [industry, setIndustry] = useState("");
@@ -96,13 +101,55 @@ export default function LoanTermsFormPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    
+
     try {
       setSaving(true);
-      
-      // Here you would save to your database
-      // For now, just log the data
-      console.log("Saving loan terms:", formData);
+
+      if (!dealId) throw new Error("Missing dealId");
+
+      const toNumber = (value: string) => {
+        const cleaned = value.replace(/[^0-9.\-]/g, "");
+        if (!cleaned) return null;
+        const num = Number(cleaned);
+        return Number.isFinite(num) ? num : null;
+      };
+
+      const payload = {
+        loan_amount: toNumber(formData.max_loan_amount),
+        term_months: toNumber(formData.term_months) ?? undefined,
+        notes: JSON.stringify({
+          interest_rate: formData.interest_rate || null,
+          guarantee_fee: formData.guarantee_fee || null,
+          down_payment_pct: formData.down_payment_pct || null,
+          max_ltv: formData.max_ltv || null,
+          min_dscr: formData.min_dscr || null,
+          min_fico: formData.min_fico || null,
+        }),
+      };
+
+      const res = await fetch(`/api/deals/${dealId}/pricing/inputs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+
+      try {
+        await fetch(`/api/deals/${dealId}/context`, { cache: "no-store" });
+      } catch {
+        // ignore best-effort refresh
+      }
+
+      emitBuddySignal({
+        type: "deal.loaded",
+        source: "app/(app)/deals/[dealId]/loan-terms/page.tsx",
+        dealId,
+        payload: { trigger: "loan_terms_saved" },
+      });
       
       // Track deviations from policy defaults
       const deviations = [];
@@ -185,7 +232,10 @@ export default function LoanTermsFormPage() {
       ) : (
         <form
           onSubmit={handleSubmit}
-          className="bg-white border rounded-lg p-6 space-y-6"
+          className={cn(
+            "bg-white border rounded-lg p-6 space-y-6 transition",
+            highlightLoanRequest && "ring-2 ring-sky-400/60 bg-sky-500/5",
+          )}
           id="loan-request"
         >
           {/* Pricing section */}

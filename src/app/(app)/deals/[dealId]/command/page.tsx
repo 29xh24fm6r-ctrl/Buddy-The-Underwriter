@@ -3,6 +3,7 @@ import { CommandShell } from "./CommandShell";
 import { DealSmsTimeline } from "./DealSmsTimeline";
 import { Suspense } from "react";
 import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
+import { computeNextStep } from "@/core/nextStep/computeNextStep";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -25,41 +26,31 @@ export default async function DealCommandPage({
   }
 
   const verify = await verifyUnderwrite({ dealId, actor: "banker" });
+  const nextAction = await computeNextStep({
+    dealId,
+    deps: {
+      verifyUnderwrite: async () => verify,
+    },
+  });
   const isBuilder = process.env.NEXT_PUBLIC_BUDDY_ROLE === "builder";
+
+  const nextStep =
+    !verify.ok && verify.recommendedNextAction === "deal_not_found"
+      ? { key: "deal_not_found", deepLink: "/deals" }
+      : nextAction;
 
   const blockedCopy = {
     complete_intake: "Complete intake details to continue",
-    checklist_incomplete: "Required documents are missing",
-    pricing_required: "Pricing must be completed",
+    request_docs: "Required documents are missing",
+    run_pricing: "Pricing must be completed",
+    open_underwriting: "This deal is ready for underwriting",
     deal_not_found: "Deal setup is incomplete",
-  } as const;
-
-  const blockedAction = {
-    complete_intake: {
-      label: "Complete Intake →",
-      href: `/deals/${dealId}`,
-    },
-    checklist_incomplete: {
-      label: "Request Documents →",
-      href: `/deals/${dealId}/documents`,
-    },
-    pricing_required: {
-      label: "Run Pricing →",
-      href: `/deals/${dealId}/pricing`,
-    },
-    deal_not_found: {
-      label: "Back to Deal Overview →",
-      href: `/deals/${dealId}/cockpit`,
-    },
   } as const;
 
   if (!verify.ok) {
     const nextStepCopy =
-      blockedCopy[verify.recommendedNextAction] ??
+      blockedCopy[nextStep.key as keyof typeof blockedCopy] ??
       "Complete intake details to continue";
-    const primaryAction =
-      blockedAction[verify.recommendedNextAction] ?? blockedAction.complete_intake;
-    const showSecondary = verify.recommendedNextAction !== "deal_not_found";
 
     return (
       <main className="min-h-screen bg-white">
@@ -74,19 +65,11 @@ export default async function DealCommandPage({
             </div>
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <Link
-                href={primaryAction.href}
+                href={nextStep.deepLink}
                 className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
               >
-                {primaryAction.label}
+                Next Step →
               </Link>
-              {showSecondary ? (
-                <Link
-                  href={`/deals/${dealId}/cockpit`}
-                  className="inline-flex items-center rounded-lg border border-amber-200 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
-                >
-                  Back to Deal Overview
-                </Link>
-              ) : null}
             </div>
           </div>
 
@@ -123,16 +106,10 @@ export default async function DealCommandPage({
           </div>
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <Link
-              href={`/underwrite/${dealId}`}
+              href={nextStep.deepLink}
               className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
             >
-              Open Underwriting →
-            </Link>
-            <Link
-              href={`/deals/${dealId}/cockpit`}
-              className="inline-flex items-center rounded-lg border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100"
-            >
-              Back to Deal Overview
+              Next Step →
             </Link>
           </div>
         </div>

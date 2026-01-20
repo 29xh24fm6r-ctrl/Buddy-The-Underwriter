@@ -3,6 +3,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 
 import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
+import { mustBuilderToken } from "@/lib/builder/mustBuilderToken";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,17 +15,7 @@ const buildResponse = (status: number, payload: Record<string, unknown>) => {
 };
 
 export async function GET(req: Request) {
-  const token = req.headers.get("x-buddy-builder-token") ?? "";
-  const expectedToken = process.env.BUDDY_BUILDER_VERIFY_TOKEN ?? "";
-
-  if (!expectedToken || token !== expectedToken) {
-    return buildResponse(401, {
-      ok: false,
-      auth: false,
-      error: "unauthorized",
-      message: "Missing or invalid builder verify token.",
-    });
-  }
+  mustBuilderToken(req);
 
   const { searchParams } = new URL(req.url);
   const dealId = searchParams.get("dealId")?.trim() ?? "";

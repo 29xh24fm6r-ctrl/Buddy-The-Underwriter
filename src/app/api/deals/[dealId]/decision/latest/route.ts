@@ -3,13 +3,19 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 type Ctx = { params: Promise<{ dealId: string }> };
 
 export async function GET(req: NextRequest, ctx: Ctx) {
   const { dealId } = await ctx.params;
-  await getCurrentBankId(); // Tenant check
+  const access = await ensureDealBankAccess(dealId);
+  if (!access.ok) {
+    return NextResponse.json(
+      { ok: false, error: access.error },
+      { status: access.error === "deal_not_found" ? 404 : 403 },
+    );
+  }
   const sb = supabaseAdmin();
 
   const { data: snapshot, error } = await sb
@@ -17,6 +23,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     .select("*")
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
     .limit(1)
     .maybeSingle();
 

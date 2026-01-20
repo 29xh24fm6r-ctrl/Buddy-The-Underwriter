@@ -11,7 +11,7 @@ export type VerifyUnderwriteRecommendedNextAction =
 export type VerifyUnderwriteSuccess = {
   ok: true;
   dealId: string;
-  redirectTo: `/underwrite/${string}`;
+  redirectTo: `/deals/${string}/underwrite`;
   ledgerEventsWritten: string[];
 };
 
@@ -183,7 +183,7 @@ export async function verifyUnderwriteCore(
   return {
     ok: true,
     dealId,
-    redirectTo: `/underwrite/${dealId}`,
+    redirectTo: `/deals/${dealId}/underwrite`,
     ledgerEventsWritten,
   };
 }

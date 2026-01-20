@@ -4,6 +4,8 @@ import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
 import { motion } from "framer-motion";
 import { emitChecklistRefresh } from "@/lib/events/uiEvents";
 import DealChecklistCard from "@/components/deals/DealChecklistCard";
+import { emitBuddySignal } from "@/buddy/emitBuddySignal";
+import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
 import { cn } from "@/lib/utils";
 
 type LoanType = "CRE" | "CRE_OWNER_OCCUPIED" | "CRE_INVESTOR" | "CRE_OWNER_OCCUPIED_WITH_RENT" | "LOC" | "TERM" | "SBA_7A" | "SBA_504";
@@ -79,8 +81,25 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
   const [remainingUploads, setRemainingUploads] = useState(0);
   const [isReady, setIsReady] = useState(true);
 
+  const highlightBorrower = useAnchorAutofocus("borrower-identity");
+
   // Never call APIs with a missing/invalid dealId (prevents uuid "undefined" errors).
   const hasValidDealId = dealId && dealId !== "undefined";
+
+  const refreshDealContext = async (trigger: string) => {
+    if (!hasValidDealId) return;
+    try {
+      await fetch(`/api/deals/${dealId}/context`, { cache: "no-store" });
+    } catch {
+      // ignore best-effort refresh
+    }
+    emitBuddySignal({
+      type: "deal.loaded",
+      source: "components/deals/DealIntakeCard.tsx",
+      dealId,
+      payload: { trigger },
+    });
+  };
 
   useEffect(() => {
     if (!hasValidDealId) return;
@@ -350,6 +369,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
       }
 
       setMatchMessage(`✅ Intake saved (loan type: ${intake.loan_type})`);
+      await refreshDealContext("intake_saved");
 
       // Step 2: Call auto-seed endpoint with query params
       if (autoSeed) {
@@ -423,6 +443,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
           if (onChecklistSeeded) {
             await onChecklistSeeded();
           }
+          await refreshDealContext("intake_seeded");
 
           const fetchJsonWithTimeout = async (url: string, ms: number) => {
             const ac = new AbortController();
@@ -497,6 +518,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
             if (onChecklistSeeded) {
               await onChecklistSeeded();
             }
+            await refreshDealContext("intake_seeded_post");
           })();
         } else {
           const details =
@@ -515,6 +537,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         if (onChecklistSeeded) {
           await onChecklistSeeded();
         }
+        await refreshDealContext("intake_saved_no_seed");
       }
     } catch (error: any) {
       console.error("[DealIntakeCard] Error during save:", error);
@@ -775,7 +798,13 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
           </select>
         </div>
 
-        <div id="borrower-identity" className="scroll-mt-24 space-y-3">
+        <div
+          id="borrower-identity"
+          className={cn(
+            "scroll-mt-24 space-y-3 rounded-xl transition",
+            highlightBorrower && "ring-2 ring-sky-400/60 bg-sky-500/5",
+          )}
+        >
           <div>
             <label className="text-xs text-neutral-400">Borrower Name</label>
             <input

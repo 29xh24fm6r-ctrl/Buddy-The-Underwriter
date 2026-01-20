@@ -42,8 +42,9 @@ export const STITCH_ROUTE_DEFS: StitchRouteDef[] = [
   },
   { 
     key: "underwrite", 
-    includes: "underwrite", 
-    route: "/underwrite" 
+    includes: "/underwrite/", 
+    route: "/deals/:dealId/underwrite",
+    param: "dealId",
   },
   { 
     key: "admin", 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/requireRole";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { buildEvidenceGraph } from "@/lib/evidence/graph";
 
 export const runtime = "nodejs";
@@ -18,6 +19,13 @@ export async function GET(
   await requireRole(["super_admin", "bank_admin", "underwriter"]);
 
   const { dealId } = await ctx.params;
+  const access = await ensureDealBankAccess(dealId);
+  if (!access.ok) {
+    return NextResponse.json(
+      { ok: false, error: access.error },
+      { status: access.error === "deal_not_found" ? 404 : 403 },
+    );
+  }
   const sb = supabaseAdmin();
 
   const url = new URL(req.url);

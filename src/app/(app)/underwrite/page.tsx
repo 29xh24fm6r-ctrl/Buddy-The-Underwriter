@@ -12,7 +12,7 @@ export default async function UnderwritePage({
   const dealId = Array.isArray(dealIdRaw) ? dealIdRaw[0] : dealIdRaw;
 
   if (dealId) {
-    redirect(`/underwrite/${dealId}`);
+    redirect(`/deals/${dealId}/underwrite`);
   }
 
   return <StitchSurface surfaceKey="underwrite" title="Underwrite" mode="iframe" />;

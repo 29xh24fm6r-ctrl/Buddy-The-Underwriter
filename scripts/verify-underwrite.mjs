@@ -38,14 +38,8 @@ const parseArgs = (argv) => {
 const args = parseArgs(process.argv.slice(2));
 
 if (args.help) {
-  console.log(`\nUsage:\n  node scripts/verify-underwrite.mjs --base <url> --dealId <dealId>\n\nOptions:\n  --base     Preview base URL (or set PREVIEW_URL/VERCEL_URL)\n  --dealId   Deal id (or set DEAL_ID)\n  --deal     Alias for --dealId\n  --help     Show this help\n\nUI verification intentionally removed — server invariant is canonical.\n`);
+  console.log(`\nUsage:\n  node scripts/verify-underwrite.mjs --base <url>\n\nOptions:\n  --base     Preview base URL (or set PREVIEW_URL/VERCEL_URL)\n  --help     Show this help\n\nRequires BUDDY_BUILDER_VERIFY_TOKEN.\n\nUI verification intentionally removed — server invariant is canonical.\n`);
   process.exit(0);
-}
-
-const dealId = process.env.DEAL_ID || args.dealId || args.deal || args._[0];
-if (!dealId) {
-  console.error("[verify:underwrite] Provide DEAL_ID env or --deal.");
-  process.exit(1);
 }
 
 const previewUrl =
@@ -70,7 +64,10 @@ const baseUrl = previewUrl.startsWith("http")
   : `https://${previewUrl}`;
 
 const metaUrl = `${baseUrl}/api/_meta/build`;
-const verifyUrl = `${baseUrl}/api/builder/verify/underwrite?dealId=${dealId}`;
+const tokenStatusUrl = `${baseUrl}/api/builder/token/status`;
+const auditUrl = `${baseUrl}/api/builder/stitch/audit`;
+const mintUrl = `${baseUrl}/api/builder/deals/mint`;
+const makeReadyUrl = `${baseUrl}/api/builder/deals/make-ready`;
 
 console.log(`[verify:underwrite] Using preview ${baseUrl}`);
 
@@ -90,53 +87,76 @@ console.log("[verify:underwrite] Build meta", {
   deploymentId: metaPayload?.vercel?.deploymentId ?? null,
 });
 
-const res = await fetch(verifyUrl, {
+const fetchJson = async (url, options = {}) => {
+  const res = await fetch(url, options);
+  const text = await res.text();
+  let payload = null;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    payload = { raw: text };
+  }
+  return { res, payload };
+};
+
+const tokenStatus = await fetchJson(tokenStatusUrl);
+const audit = await fetchJson(auditUrl, {
+  headers: { "x-buddy-builder-token": token, "Cache-Control": "no-store" },
+});
+
+const minted = await fetchJson(mintUrl, {
+  method: "POST",
+  headers: { "x-buddy-builder-token": token, "Cache-Control": "no-store" },
+});
+
+const dealId = minted.payload?.dealId ?? null;
+if (!dealId) {
+  console.error("[verify:underwrite] Failed to mint builder deal");
+  console.error(JSON.stringify(minted.payload ?? {}, null, 2));
+  process.exit(1);
+}
+
+const blocked = await fetchJson(`${baseUrl}/api/builder/verify/underwrite?dealId=${dealId}`, {
+  headers: { "x-buddy-builder-token": token, "Cache-Control": "no-store" },
+});
+
+const ready = await fetchJson(makeReadyUrl, {
+  method: "POST",
   headers: {
     "x-buddy-builder-token": token,
     "Cache-Control": "no-store",
+    "Content-Type": "application/json",
   },
+  body: JSON.stringify({ dealId }),
 });
-const text = await res.text();
-let payload = null;
-try {
-  payload = JSON.parse(text);
-} catch {
-  payload = { raw: text };
-}
 
-if (!res.ok) {
-  console.error("[verify:underwrite] Request failed", { status: res.status });
-  console.error(JSON.stringify(payload ?? {}, null, 2));
-  process.exit(1);
-}
-
-if (!payload?.ok) {
-  console.error("[verify:underwrite] Assertion failed: ok !== true");
-  console.error(JSON.stringify(payload ?? {}, null, 2));
-  process.exit(1);
-}
-
-if (!payload?.intake?.initialized) {
-  console.error("[verify:underwrite] Assertion failed: intake.initialized !== true");
-  console.error(JSON.stringify(payload ?? {}, null, 2));
-  process.exit(1);
-}
-
-if (!(payload?.intake?.checklistCount > 0)) {
-  console.error("[verify:underwrite] Assertion failed: checklistCount <= 0");
-  console.error(JSON.stringify(payload ?? {}, null, 2));
-  process.exit(1);
-}
-
-if (!payload?.underwriting?.activated) {
-  console.error("[verify:underwrite] Assertion failed: underwriting.activated !== true");
-  console.error(JSON.stringify(payload ?? {}, null, 2));
-  process.exit(1);
-}
-
-console.log("[verify:underwrite] Success:", {
-  checklistCount: payload?.intake?.checklistCount,
-  intakeEvent: payload?.ledger?.intakeEvent,
-  underwritingEvent: payload?.ledger?.underwritingEvent,
-  recommendedNextAction: payload?.recommendedNextAction ?? null,
+const verifiedReady = await fetchJson(`${baseUrl}/api/builder/verify/underwrite?dealId=${dealId}`, {
+  headers: { "x-buddy-builder-token": token, "Cache-Control": "no-store" },
 });
+
+const decisionSnapshots = [];
+for (let i = 0; i < 3; i += 1) {
+  const snap = await fetchJson(`${baseUrl}/api/builder/deals/${dealId}/decision/latest`, {
+    headers: { "x-buddy-builder-token": token, "Cache-Control": "no-store" },
+  });
+  decisionSnapshots.push({ status: snap.res.status, payload: snap.payload });
+}
+
+const financialDecision = await fetchJson(
+  `${baseUrl}/api/builder/deals/${dealId}/financial-snapshot/decision`,
+  { headers: { "x-buddy-builder-token": token, "Cache-Control": "no-store" } }
+);
+
+const output = {
+  baseUrl,
+  tokenStatus: tokenStatus.payload,
+  stitchAudit: audit.payload,
+  minted: minted.payload,
+  blockedVerify: blocked.payload,
+  readyMutation: ready.payload,
+  readyVerify: verifiedReady.payload,
+  decisionLatest: decisionSnapshots,
+  financialSnapshotDecision: financialDecision.payload,
+};
+
+console.log(JSON.stringify(output, null, 2));

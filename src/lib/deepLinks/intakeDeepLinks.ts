@@ -23,6 +23,8 @@ export function intakeDeepLinkForMissing(missingKey: string | null, dealId: stri
     case "intake_lifecycle":
       return build(dealId, "intake", "intake");
     case "loan_amount":
+    case "loan_terms":
+    case "term_months":
       return { href: `/deals/${dealId}/loan-terms#loan-request`, hash: "loan-request", tab: "terms" };
     case "credit_snapshot":
       return { href: `/deals/${dealId}/pricing`, tab: "pricing" };

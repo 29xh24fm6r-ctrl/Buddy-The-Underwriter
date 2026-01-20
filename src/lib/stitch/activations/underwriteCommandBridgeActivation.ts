@@ -389,7 +389,7 @@ export function buildUnderwriteCommandBridgeActivationScript(): string {
       resumeButton.addEventListener("click", function (event) {
         event.preventDefault();
         event.stopPropagation();
-        window.location.assign("/underwrite/" + lastDealId);
+        window.location.assign("/deals/" + lastDealId + "/underwrite");
       });
 
       actionRow.insertBefore(resumeButton, newDealButton);
@@ -636,7 +636,7 @@ export function buildUnderwriteCommandBridgeActivationScript(): string {
     row.addEventListener("click", function (event) {
       event.preventDefault();
       event.stopPropagation();
-      window.location.assign("/underwrite/" + dealId);
+      window.location.assign("/deals/" + dealId + "/underwrite");
     });
   }
 
@@ -802,7 +802,7 @@ export function buildUnderwriteCommandBridgeActivationScript(): string {
       button.setAttribute("data-readonly", "true");
       button.disabled = false;
       button.addEventListener("click", function () {
-        window.location.assign("/underwrite/" + data.deal.id);
+        window.location.assign("/deals/" + data.deal.id + "/underwrite");
       });
     }
   }
