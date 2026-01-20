@@ -32,12 +32,13 @@ export const STITCH_SURFACES: StitchSurfaceConfig[] = [
   },
   {
     key: "underwrite",
-    route: "/underwrite",
+    route: "/deals/[dealId]/underwrite",
     required: true,
     owner: "banker",
     mode: "iframe",
-    slug: "deals-command-bridge",
-    pagePath: "src/app/(app)/underwrite/page.tsx",
+    slug: "underwrite",
+    activation: "dealId",
+    pagePath: "src/app/(app)/deals/[dealId]/underwrite/page.tsx",
   },
   {
     key: "credit_committee",

@@ -80,7 +80,7 @@ export function UnderwritingControlPanel({
         payload: { action: "start_underwriting" },
       });
 
-      const href = `/underwrite/${dealId}`;
+      const href = `/deals/${dealId}/underwrite`;
       router.push(href);
     } catch (e: any) {
       setErr(e?.message || "Underwriting could not start");

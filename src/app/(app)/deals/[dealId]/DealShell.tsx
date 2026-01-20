@@ -265,7 +265,7 @@ export default function DealShell({
   })();
 
   const tabs = [
-    { label: "Overview", href: `/underwrite/${dealId}` },
+    { label: "Overview", href: `/deals/${dealId}/underwrite` },
     { label: "Documents", href: `${base}/borrower-inbox` },
     { label: "Pricing", href: `${base}/pricing-memo` },
     { label: "Memo", href: `${base}/memo-template` },

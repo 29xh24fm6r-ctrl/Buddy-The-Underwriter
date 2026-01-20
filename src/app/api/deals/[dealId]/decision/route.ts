@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { writeDealEvent } from "@/lib/events/dealEvents";
 import { stableHash } from "@/lib/decision/hash";
 
@@ -12,7 +12,13 @@ type Ctx = { params: Promise<{ dealId: string }> };
 
 export async function POST(req: NextRequest, ctx: Ctx) {
   const { dealId } = await ctx.params;
-  const bankId = await getCurrentBankId();
+  const access = await ensureDealBankAccess(dealId);
+  if (!access.ok) {
+    return NextResponse.json(
+      { ok: false, error: access.error },
+      { status: access.error === "deal_not_found" ? 404 : 403 },
+    );
+  }
   const sb = supabaseAdmin();
 
   // Get current auth (for created_by_user_id)
@@ -71,7 +77,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   // Log to deal_events
   await writeDealEvent({
     dealId,
-    bankId,
+    bankId: access.bankId,
     kind: "decision_snapshot_created",
     actorUserId: userId,
     actorRole: "underwriter",

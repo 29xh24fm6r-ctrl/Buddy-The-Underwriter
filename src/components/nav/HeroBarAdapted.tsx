@@ -50,7 +50,7 @@ export function HeroBarAdapted() {
   const dealId = params?.dealId as string | undefined;
 
   // For deal-specific pages, show deal-level actions
-  const isDealPage = (pathname.includes('/deals/') || pathname.startsWith('/underwrite/')) && dealId;
+  const isDealPage = pathname.includes("/deals/") && dealId;
 
   return (
     <div className="sticky top-0 z-50 w-full border-b border-white/10 bg-black/70 backdrop-blur">
@@ -66,7 +66,7 @@ export function HeroBarAdapted() {
               <Link href={`/deals/${dealId}`} className={cls(pathname === `/deals/${dealId}`)}>
                 Overview
               </Link>
-              <Link href={`/underwrite/${dealId}`} className={cls(pathname.includes('/underwrite'))}>
+              <Link href={`/deals/${dealId}/underwrite`} className={cls(pathname.includes("/underwrite"))}>
                 Underwrite
               </Link>
               <Link href={`/deals/${dealId}/sba`} className={cls(pathname.includes('/sba'))}>
@@ -128,7 +128,7 @@ export function HeroBarAdapted() {
               <Link href={`/deals/${dealId}`} className={cls(pathname === `/deals/${dealId}`)}>
                 Overview
               </Link>
-              <Link href={`/underwrite/${dealId}`} className={cls(pathname.includes('/underwrite'))}>
+              <Link href={`/deals/${dealId}/underwrite`} className={cls(pathname.includes("/underwrite"))}>
                 Underwrite
               </Link>
               <Link href={`/deals/${dealId}/sba`} className={cls(pathname.includes('/sba'))}>

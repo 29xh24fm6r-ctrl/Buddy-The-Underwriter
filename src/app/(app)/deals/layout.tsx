@@ -54,7 +54,7 @@ export default function DealsLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
   const dealMatch = pathname.match(/^\/deals\/([0-9a-f-]{36})/i);
   const dealId = dealMatch ? dealMatch[1] : null;
-  const underwriteHref = dealId ? `/underwrite/${dealId}` : "/underwrite";
+  const underwriteHref = dealId ? `/deals/${dealId}/underwrite` : "/underwrite";
 
   return (
     <div className="min-h-screen bg-[#0b0d10] text-white flex">

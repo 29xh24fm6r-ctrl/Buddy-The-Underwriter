@@ -1,7 +1,7 @@
 # Underwrite Preview Runbook
 
 ## Purpose
-Quickly locate the correct Vercel preview URL for the current branch and validate that `/underwrite/[dealId]` auto-initializes intake + checklist.
+Quickly locate the correct Vercel preview URL for the current branch and validate that `/deals/[dealId]/underwrite` auto-initializes intake + checklist.
 
 ## Get the latest preview URL
 

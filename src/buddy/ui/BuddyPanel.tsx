@@ -825,7 +825,7 @@ function handleNBAAction(
   if (action.id === "start_underwriting") {
     if (!action.payload?.dealId) return;
     pushToast("Opening underwriting");
-    window.location.href = `/underwrite/${action.payload.dealId}`;
+    window.location.href = `/deals/${action.payload.dealId}/underwrite`;
   }
 }
 

@@ -76,7 +76,9 @@ export default clerkMiddleware(async (auth, req) => {
     E2E_BYPASS_PATHS.includes(p) || E2E_BYPASS_PREFIXES.some((prefix) => p.startsWith(prefix));
 
   if (e2eBypass && bypassMatch) {
-    const controlMarker = p.startsWith("/underwrite/")
+    const isUnderwriteRoute =
+      p.startsWith("/underwrite/") || /\/deals\/[^/]+\/underwrite/.test(p);
+    const controlMarker = isUnderwriteRoute
       ? " | controls: documents, checklist-request, recommendation-primary"
       : "";
     return new Response(`<!doctype html><html><body>E2E OK: ${p}${controlMarker}</body></html>`, {

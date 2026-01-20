@@ -96,7 +96,7 @@ export default async function DealDocumentViewerPage({ params }: Props) {
           </div>
         </div>
         <Link
-          href={`/underwrite/${dealId}`}
+          href={`/deals/${dealId}/underwrite`}
           className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/80 hover:text-white hover:border-white/30"
         >
           Back to Underwrite

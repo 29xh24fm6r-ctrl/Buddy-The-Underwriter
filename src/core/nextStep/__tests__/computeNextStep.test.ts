@@ -47,7 +47,7 @@ test("computeNextStep returns open_underwriting when verify ok", async () => {
       verifyUnderwrite: async () => ({
         ok: true,
         dealId: "deal-1",
-        redirectTo: "/underwrite/deal-1",
+        redirectTo: "/deals/deal-1/underwrite",
         ledgerEventsWritten: [],
       }),
     },
@@ -55,7 +55,7 @@ test("computeNextStep returns open_underwriting when verify ok", async () => {
 
   assert.deepEqual(result, {
     key: "open_underwriting",
-    deepLink: "/underwrite/deal-1",
+    deepLink: "/deals/deal-1/underwrite",
   });
 });
 

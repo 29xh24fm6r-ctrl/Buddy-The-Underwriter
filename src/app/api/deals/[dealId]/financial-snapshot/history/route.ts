@@ -30,6 +30,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       .eq("deal_id", dealId)
       .eq("bank_id", access.bankId)
       .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
       .limit(100);
 
     if (error) {

@@ -20,6 +20,8 @@ import { DealCockpitInsights } from "@/components/deals/DealCockpitInsights";
 import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
+import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
+import { cn } from "@/lib/utils";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 
 /**
@@ -62,6 +64,9 @@ export default function DealCockpitClient({
     if (source === "banker_upload") return "Intake started (Banker upload)";
     return "Intake started";
   }, [ignitedEvent?.source]);
+
+  const highlightDealName = useAnchorAutofocus("deal-name");
+  const highlightIntake = useAnchorAutofocus("intake");
 
   React.useEffect(() => {
     setDisplayName(dealName?.displayName ?? null);
@@ -115,7 +120,13 @@ export default function DealCockpitClient({
             {lifecycleStage && lifecycleStage !== "created" && ignitedLabel ? (
               <div className="text-xs text-white/60">{ignitedLabel}</div>
             ) : null}
-            <div id="deal-name" className="scroll-mt-24">
+            <div
+              id="deal-name"
+              className={cn(
+                "scroll-mt-24 rounded-xl transition",
+                highlightDealName && "ring-2 ring-sky-400/60 bg-sky-500/5",
+              )}
+            >
               <DealNameInlineEditor
                 dealId={dealId}
                 displayName={displayName}
@@ -152,7 +163,13 @@ export default function DealCockpitClient({
           {/* Left Column */}
           <div className="space-y-6">
             <SafeBoundary>
-              <div id="intake" className="scroll-mt-24">
+              <div
+                id="intake"
+                className={cn(
+                  "scroll-mt-24 rounded-xl transition",
+                  highlightIntake && "ring-2 ring-sky-400/60 bg-sky-500/5",
+                )}
+              >
                 <DealIntakeCard
                   dealId={dealId}
                   onChecklistSeeded={handleChecklistSeeded}

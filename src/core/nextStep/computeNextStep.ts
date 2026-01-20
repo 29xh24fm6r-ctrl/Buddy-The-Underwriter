@@ -33,7 +33,7 @@ export async function computeNextStep(args: {
   if (verifyResult.ok) {
     return {
       key: "open_underwriting",
-      deepLink: verifyResult.redirectTo,
+      deepLink: `/deals/${dealId}/underwrite`,
     };
   }
 
