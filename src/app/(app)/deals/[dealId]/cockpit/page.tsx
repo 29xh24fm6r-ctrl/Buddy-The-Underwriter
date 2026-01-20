@@ -6,6 +6,23 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 
+type UnderwriteVerifyLedgerEvent = {
+  status: "pass" | "fail";
+  source: "builder" | "runtime";
+  details: {
+    url: string;
+    httpStatus?: number;
+    auth?: boolean;
+    html?: boolean;
+    metaFallback?: boolean;
+    error?: string;
+    redacted?: boolean;
+  };
+  recommendedNextAction?: string | null;
+  diagnostics?: Record<string, unknown> | null;
+  createdAt?: string | null;
+};
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -73,6 +90,7 @@ export default async function DealCockpitPage({ params }: Props) {
     diagnostics: {},
     ledgerEventsWritten: [],
   };
+  let verifyLedger: UnderwriteVerifyLedgerEvent | null = null;
   const access = await ensureDealBankAccess(dealId);
   if (access.ok) {
     const sb = supabaseAdmin();
@@ -151,6 +169,30 @@ export default async function DealCockpitPage({ params }: Props) {
       };
     }
 
+    const { data: latestVerify } = await sb
+      .from("deal_pipeline_ledger")
+      .select("created_at, meta")
+      .eq("deal_id", dealId)
+      .eq("bank_id", access.bankId)
+      .eq("event_key", "deal.underwrite.verify")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestVerify?.meta) {
+      const meta = latestVerify.meta as any;
+      if (meta?.status && meta?.source && meta?.details?.url) {
+        verifyLedger = {
+          status: meta.status,
+          source: meta.source,
+          details: meta.details,
+          recommendedNextAction: meta.recommendedNextAction ?? null,
+          diagnostics: meta.diagnostics ?? null,
+          createdAt: latestVerify.created_at ?? null,
+        };
+      }
+    }
+
     verify = await verifyUnderwrite({ dealId, actor: "banker" });
   }
 
@@ -165,6 +207,7 @@ export default async function DealCockpitPage({ params }: Props) {
         ignitedEvent={ignitedEvent}
         intakeInitialized={intakeInitialized}
         verify={verify}
+        verifyLedger={verifyLedger}
       />
     </div>
   );

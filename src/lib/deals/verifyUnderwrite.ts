@@ -12,12 +12,24 @@ export async function verifyUnderwrite(args: {
   dealId: string;
   actor?: "banker" | "system";
   logAttempt?: boolean;
+  verifySource?: "builder" | "runtime";
+  verifyDetails?: {
+    url?: string;
+    httpStatus?: number;
+    auth?: boolean;
+    html?: boolean;
+    metaFallback?: boolean;
+    error?: string;
+    redacted?: boolean;
+  } | null;
 }): Promise<VerifyUnderwriteResult> {
   const sb = supabaseAdmin();
   return verifyUnderwriteCore({
     dealId: args.dealId,
     actor: args.actor,
     logAttempt: args.logAttempt,
+    verifySource: args.verifySource,
+    verifyDetails: args.verifyDetails,
     deps: {
       sb,
       logLedgerEvent,

@@ -29,6 +29,14 @@ export async function GET(req: Request) {
       dealId,
       actor: "banker",
       logAttempt: true,
+      verifySource: "builder",
+      verifyDetails: {
+        url: req.url,
+        auth: true,
+        html: false,
+        metaFallback: false,
+        redacted: true,
+      },
     });
 
     if (result.ok) {
@@ -44,7 +52,9 @@ export async function GET(req: Request) {
       ledgerEventsWritten: result.ledgerEventsWritten,
     });
   } catch (error: any) {
-    console.error("[builder.verify.underwrite] failed", error);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[builder.verify.underwrite] failed", error);
+    }
     return buildResponse(500, {
       ok: false,
       auth: true,

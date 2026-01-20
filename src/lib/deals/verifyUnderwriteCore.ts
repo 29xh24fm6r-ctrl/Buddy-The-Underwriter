@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { getLatestLockedQuoteId } from "@/lib/pricing/getLatestLockedQuote";
+import {
+  logUnderwriteVerifyLedger,
+  type UnderwriteVerifyDetails,
+  type UnderwriteVerifySource,
+} from "@/lib/deals/underwriteVerifyLedger";
 
 export type VerifyUnderwriteRecommendedNextAction =
   | "complete_intake"
@@ -39,6 +44,8 @@ export type VerifyUnderwriteParams = {
   dealId: string;
   actor?: "banker" | "system";
   logAttempt?: boolean;
+  verifySource?: UnderwriteVerifySource;
+  verifyDetails?: Partial<UnderwriteVerifyDetails> | null;
   deps: VerifyUnderwriteDeps;
 };
 
@@ -55,7 +62,14 @@ async function hasCreditSnapshot(sb: SupabaseClient, dealId: string) {
 export async function verifyUnderwriteCore(
   params: VerifyUnderwriteParams,
 ): Promise<VerifyUnderwriteResult> {
-  const { dealId, actor = "banker", logAttempt = false, deps } = params;
+  const {
+    dealId,
+    actor = "banker",
+    logAttempt = true,
+    verifySource = "runtime",
+    verifyDetails,
+    deps,
+  } = params;
   const { sb, logLedgerEvent: ledger, getLatestLockedQuoteId: latestQuote } = deps;
 
   const ledgerEventsWritten: string[] = [];
@@ -63,27 +77,29 @@ export async function verifyUnderwriteCore(
   const logAttemptEvent = async (
     bankId: string | null,
     allowed: boolean,
-    reason: VerifyUnderwriteRecommendedNextAction,
-    missing?: string[],
+    reason: VerifyUnderwriteRecommendedNextAction | null,
+    diagnostics?: Record<string, unknown> | null,
   ) => {
     if (!logAttempt || !bankId) return;
-    await ledger({
+    await logUnderwriteVerifyLedger({
       dealId,
       bankId,
-      eventKey: "deal.underwrite.attempted",
-      uiState: "done",
-      uiMessage: "Underwrite verify attempted",
-      meta: {
-        deal_id: dealId,
-        bank_id: bankId,
-        allowed,
-        reason,
-        missing: missing ?? [],
-        actor,
-        timestamp: new Date().toISOString(),
+      status: allowed ? "pass" : "fail",
+      source: verifySource,
+      details: {
+        url: verifyDetails?.url ?? "internal://verify-underwrite",
+        auth: verifyDetails?.auth ?? true,
+        html: verifyDetails?.html ?? false,
+        metaFallback: verifyDetails?.metaFallback ?? false,
+        httpStatus: verifyDetails?.httpStatus,
+        error: verifyDetails?.error,
+        redacted: verifyDetails?.redacted ?? true,
       },
+      recommendedNextAction: reason,
+      diagnostics: diagnostics ?? null,
+      logLedgerEvent: ledger,
     });
-    ledgerEventsWritten.push("deal.underwrite.attempted");
+    ledgerEventsWritten.push("deal.underwrite.verify");
   };
 
   const { data: deal, error } = await sb
@@ -133,7 +149,10 @@ export async function verifyUnderwriteCore(
   }
 
   if (missing.length > 0) {
-    await logAttemptEvent(bankId, false, "complete_intake", missing);
+    await logAttemptEvent(bankId, false, "complete_intake", {
+      missing,
+      lifecycleStage,
+    });
     return {
       ok: false,
       auth: true,
@@ -160,7 +179,11 @@ export async function verifyUnderwriteCore(
     const missingChecklistKeys = missingRequired.map((item) =>
       String(item.checklist_key ?? "missing"),
     );
-    await logAttemptEvent(bankId, false, "checklist_incomplete", missingChecklistKeys);
+    await logAttemptEvent(bankId, false, "checklist_incomplete", {
+      missing:
+        requiredItems.length === 0 ? ["required_checklist"] : missingChecklistKeys,
+      lifecycleStage,
+    });
     return {
       ok: false,
       auth: true,
@@ -176,7 +199,10 @@ export async function verifyUnderwriteCore(
 
   const lockedQuoteId = await latestQuote(sb, dealId);
   if (!lockedQuoteId) {
-    await logAttemptEvent(bankId, false, "pricing_required", ["pricing_quote"]);
+    await logAttemptEvent(bankId, false, "pricing_required", {
+      missing: ["pricing_quote"],
+      lifecycleStage,
+    });
     return {
       ok: false,
       auth: true,
@@ -187,6 +213,7 @@ export async function verifyUnderwriteCore(
     };
   }
 
+  await logAttemptEvent(bankId, true, null, { lifecycleStage });
   return {
     ok: true,
     dealId,

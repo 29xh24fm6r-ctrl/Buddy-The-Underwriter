@@ -55,13 +55,37 @@ export default async function DealUnderwritePage({
   params: Promise<{ dealId: string }>;
 }) {
   const { dealId } = await params;
-
+  const access = await ensureDealBankAccess(dealId);
   const verify = await verifyUnderwrite({ dealId, actor: "system" });
   if (!verify.ok) {
-    return <UnderwriteBlockedPanel dealId={dealId} verify={verify} />;
+    let verifyLedger: any = null;
+    if (access.ok) {
+      const sb = supabaseAdmin();
+      const { data: latestVerify } = await sb
+        .from("deal_pipeline_ledger")
+        .select("created_at, meta")
+        .eq("deal_id", dealId)
+        .eq("bank_id", access.bankId)
+        .eq("event_key", "deal.underwrite.verify")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (latestVerify?.meta) {
+        verifyLedger = {
+          ...(latestVerify.meta as any),
+          createdAt: latestVerify.created_at ?? null,
+        };
+      }
+    }
+    return (
+      <UnderwriteBlockedPanel
+        dealId={dealId}
+        verify={verify}
+        verifyLedger={verifyLedger}
+      />
+    );
   }
 
-  const access = await ensureDealBankAccess(dealId);
   if (!access.ok) {
     const errorCopy =
       access.error === "unauthorized"

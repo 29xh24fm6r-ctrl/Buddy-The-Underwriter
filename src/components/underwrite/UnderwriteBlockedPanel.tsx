@@ -21,9 +21,26 @@ const reasonForAction: Record<string, string> = {
 export async function UnderwriteBlockedPanel({
   dealId,
   verify,
+  verifyLedger,
 }: {
   dealId: string;
   verify: VerifyUnderwriteBlocked;
+  verifyLedger?: {
+    status?: "pass" | "fail";
+    source?: "builder" | "runtime";
+    details?: {
+      url?: string;
+      httpStatus?: number;
+      auth?: boolean;
+      html?: boolean;
+      metaFallback?: boolean;
+      error?: string;
+      redacted?: boolean;
+    };
+    recommendedNextAction?: string | null;
+    diagnostics?: Record<string, unknown> | null;
+    createdAt?: string | null;
+  } | null;
 }) {
   const nextAction = await computeNextStep({
     dealId,
@@ -49,6 +66,16 @@ export async function UnderwriteBlockedPanel({
       ? "Attach a borrower to continue."
       : reasonForAction.complete_intake;
 
+  const verifyHint = verifyLedger?.details?.html
+    ? "Underwrite endpoint returned HTML — likely auth-gated."
+    : verifyLedger?.details?.metaFallback
+      ? "Primary JSON unavailable, meta fallback used."
+      : verifyLedger?.details?.auth === false
+        ? "Session not authorized to start underwriting."
+        : verifyLedger?.details?.error === "banker_test_mode"
+          ? "Banker test mode blocks underwriting."
+          : null;
+
   const builderMode =
     process.env.BUDDY_BUILDER_MODE === "1" ||
     process.env.NEXT_PUBLIC_BUDDY_ROLE === "builder";
@@ -70,6 +97,11 @@ export async function UnderwriteBlockedPanel({
         {verify.diagnostics?.lifecycleStage ? (
           <div className="mt-2 text-xs text-neutral-500">
             Lifecycle stage: {verify.diagnostics.lifecycleStage}
+          </div>
+        ) : null}
+        {verifyHint ? (
+          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {verifyHint}
           </div>
         ) : null}
         <div className="mt-4">
