@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import StitchSurface from "@/stitch/StitchSurface";
 
 export const dynamic = "force-dynamic";
 
@@ -15,5 +14,5 @@ export default async function UnderwritePage({
     redirect(`/deals/${dealId}/underwrite`);
   }
 
-  return <StitchSurface surfaceKey="underwrite" title="Underwrite" mode="iframe" />;
+  redirect("/deals");
 }
