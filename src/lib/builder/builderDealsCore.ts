@@ -50,6 +50,7 @@ export async function makeBuilderDealReadyCore(deps: BuilderDealCoreDeps & { dea
 
   const updatePayload: Record<string, any> = {
     name: "Builder Ready Deal",
+    display_name: "Builder Ready Deal",
     borrower_name: "Builder Ready Deal",
     borrower_id: borrowerId,
     lifecycle_stage: "collecting",
