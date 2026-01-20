@@ -88,7 +88,7 @@ export async function verifyUnderwriteCore(
 
   const { data: deal, error } = await sb
     .from("deals")
-    .select("id, bank_id, name, borrower_id, lifecycle_stage")
+    .select("id, bank_id, display_name, nickname, borrower_id, lifecycle_stage")
     .eq("id", dealId)
     .maybeSingle();
 
@@ -107,7 +107,14 @@ export async function verifyUnderwriteCore(
   const bankId = deal.bank_id ? String(deal.bank_id) : null;
   const missing: string[] = [];
 
-  if (!deal.name || deal.name === "NEEDS NAME") {
+  const hasDisplayName = Boolean(
+    (deal as any)?.display_name && String((deal as any).display_name).trim(),
+  );
+  const hasNickname = Boolean(
+    (deal as any)?.nickname && String((deal as any).nickname).trim(),
+  );
+
+  if (!hasDisplayName && !hasNickname) {
     missing.push("deal_name");
   }
 

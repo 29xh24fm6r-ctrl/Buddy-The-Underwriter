@@ -37,6 +37,17 @@ export async function UnderwriteBlockedPanel({
 
   const deepLink = isDealMissing ? "/deals" : nextAction.deepLink;
   const actionKey = isDealMissing ? "deal_not_found" : nextAction.key;
+  const missing = verify.diagnostics?.missing ?? [];
+  const completeIntakeLabel = missing.includes("deal_name")
+    ? "Name this deal"
+    : missing.includes("borrower")
+      ? "Attach borrower"
+      : labelForAction.complete_intake;
+  const completeIntakeReason = missing.includes("deal_name")
+    ? "Name the deal to unlock underwriting."
+    : missing.includes("borrower")
+      ? "Attach a borrower to continue."
+      : reasonForAction.complete_intake;
 
   const builderMode =
     process.env.BUDDY_BUILDER_MODE === "1" ||
@@ -47,7 +58,9 @@ export async function UnderwriteBlockedPanel({
       <div className="rounded-xl border border-neutral-200 bg-white p-6">
         <h1 className="text-2xl font-bold text-neutral-900">Underwriting not available</h1>
         <p className="mt-2 text-sm text-neutral-600">
-          {reasonForAction[actionKey] ?? "This deal is not ready for underwriting."}
+          {actionKey === "complete_intake"
+            ? completeIntakeReason
+            : reasonForAction[actionKey] ?? "This deal is not ready for underwriting."}
         </p>
         {verify.diagnostics?.missing?.length ? (
           <div className="mt-4 text-xs text-neutral-500">
@@ -64,7 +77,9 @@ export async function UnderwriteBlockedPanel({
             href={deepLink}
             className="inline-flex items-center rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:bg-neutral-800"
           >
-            {labelForAction[actionKey] ?? "Next Step"}
+            {actionKey === "complete_intake"
+              ? completeIntakeLabel
+              : labelForAction[actionKey] ?? "Next Step"}
           </Link>
         </div>
         {builderMode ? (

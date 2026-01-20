@@ -19,6 +19,7 @@ import { DealCockpitNarrator } from "@/components/deals/DealCockpitNarrator";
 import { DealCockpitInsights } from "@/components/deals/DealCockpitInsights";
 import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
+import BorrowerAttachmentCard from "./BorrowerAttachmentCard";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ export default function DealCockpitClient({
   dealId,
   isAdmin = false,
   dealName,
+  readiness,
   lifecycleStage,
   ignitedEvent,
   intakeInitialized,
@@ -41,6 +43,14 @@ export default function DealCockpitClient({
   dealId: string;
   isAdmin?: boolean;
   dealName?: { displayName?: string | null; nickname?: string | null; borrowerName?: string | null };
+  readiness?: {
+    named: boolean;
+    borrowerAttached: boolean;
+    documentsReady: boolean;
+    financialSnapshotReady: boolean;
+    requiredDocsCount: number;
+    missingDocsCount: number;
+  } | null;
   lifecycleStage?: string | null;
   ignitedEvent?: { source: string | null; createdAt: string | null } | null;
   intakeInitialized?: boolean;
@@ -67,6 +77,8 @@ export default function DealCockpitClient({
 
   const highlightDealName = useAnchorAutofocus("deal-name");
   const highlightIntake = useAnchorAutofocus("intake");
+  const highlightBorrower = useAnchorAutofocus("borrower-attach");
+  const highlightDocuments = useAnchorAutofocus("documents");
 
   React.useEffect(() => {
     setDisplayName(dealName?.displayName ?? null);
@@ -105,6 +117,40 @@ export default function DealCockpitClient({
       console.error("[DealCockpitClient] Checklist refresh failed:", e);
     }
   }, [checklistRefresh]);
+
+  const readinessItems = [
+    {
+      key: "name",
+      label: "Deal named",
+      ok: readiness?.named ?? false,
+      href: `/deals/${dealId}/cockpit?anchor=deal-name`,
+      detail: null,
+    },
+    {
+      key: "borrower",
+      label: "Borrower attached",
+      ok: readiness?.borrowerAttached ?? false,
+      href: `/deals/${dealId}/cockpit?anchor=borrower-attach`,
+      detail: null,
+    },
+    {
+      key: "documents",
+      label: "Required documents received",
+      ok: readiness?.documentsReady ?? false,
+      href: `/deals/${dealId}/cockpit?anchor=documents`,
+      detail:
+        readiness && readiness.requiredDocsCount > 0
+          ? `${readiness.requiredDocsCount - readiness.missingDocsCount}/${readiness.requiredDocsCount}`
+          : null,
+    },
+    {
+      key: "financials",
+      label: "Financial snapshot ready",
+      ok: readiness?.financialSnapshotReady ?? false,
+      href: `/deals/${dealId}/pricing`,
+      detail: null,
+    },
+  ];
 
   return (
     <div className="min-h-screen text-white">
@@ -159,6 +205,29 @@ export default function DealCockpitClient({
           <DealCockpitInsights dealId={dealId} />
         </SafeBoundary>
 
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-white/70">
+            Readiness checklist
+          </div>
+          <div className="mt-3 flex flex-wrap gap-3">
+            {readinessItems.map((item) => (
+              <Link
+                key={item.key}
+                href={item.href}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                  item.ok
+                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
+                    : "border-amber-400/40 bg-amber-400/10 text-amber-100"
+                }`}
+              >
+                <span>{item.ok ? "✅" : "❌"}</span>
+                <span>{item.label}</span>
+                {item.detail ? <span className="text-[10px] opacity-80">{item.detail}</span> : null}
+              </Link>
+            ))}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left Column */}
           <div className="space-y-6">
@@ -177,6 +246,18 @@ export default function DealCockpitClient({
                   lifecycleStage={stage}
                   onLifecycleStageChange={setStage}
                 />
+              </div>
+            </SafeBoundary>
+
+            <SafeBoundary>
+              <div
+                id="borrower-attach"
+                className={cn(
+                  "scroll-mt-24 rounded-xl transition",
+                  highlightBorrower && "ring-2 ring-sky-400/60 bg-sky-500/5",
+                )}
+              >
+                <BorrowerAttachmentCard dealId={dealId} />
               </div>
             </SafeBoundary>
 
@@ -210,10 +291,18 @@ export default function DealCockpitClient({
             </SafeBoundary>
 
             <SafeBoundary>
-              <EnhancedChecklistCard
-                dealId={dealId}
-                onRefresh={handleChecklistRefresh}
-              />
+              <div
+                id="documents"
+                className={cn(
+                  "scroll-mt-24 rounded-xl transition",
+                  highlightDocuments && "ring-2 ring-sky-400/60 bg-sky-500/5",
+                )}
+              >
+                <EnhancedChecklistCard
+                  dealId={dealId}
+                  onRefresh={handleChecklistRefresh}
+                />
+              </div>
             </SafeBoundary>
 
             <SafeBoundary>

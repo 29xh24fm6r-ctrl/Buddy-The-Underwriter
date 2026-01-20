@@ -89,7 +89,8 @@ test("missing deal name blocks complete_intake", async () => {
       {
         id: "deal-1",
         bank_id: "bank-1",
-        name: "NEEDS NAME",
+        display_name: null,
+        nickname: null,
         borrower_id: "borrower-1",
         lifecycle_stage: "collecting",
       },
@@ -110,7 +111,8 @@ test("missing borrower blocks complete_intake", async () => {
       {
         id: "deal-1",
         bank_id: "bank-1",
-        name: "Acme",
+        display_name: "Acme",
+        nickname: null,
         borrower_id: null,
         lifecycle_stage: "collecting",
       },
@@ -131,7 +133,8 @@ test("partial lifecycle blocks complete_intake", async () => {
       {
         id: "deal-1",
         bank_id: "bank-1",
-        name: "Acme",
+        display_name: "Acme",
+        nickname: null,
         borrower_id: "borrower-1",
         lifecycle_stage: "intake",
       },
@@ -152,7 +155,8 @@ test("valid deal returns ok", async () => {
       {
         id: "deal-1",
         bank_id: "bank-1",
-        name: "Acme",
+        display_name: "Acme",
+        nickname: null,
         borrower_id: "borrower-1",
         lifecycle_stage: "collecting",
       },
@@ -178,7 +182,8 @@ test("missing pricing quote blocks pricing_required", async () => {
       {
         id: "deal-1",
         bank_id: "bank-1",
-        name: "Acme",
+        display_name: "Acme",
+        nickname: null,
         borrower_id: "borrower-1",
         lifecycle_stage: "collecting",
       },

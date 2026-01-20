@@ -335,7 +335,7 @@ export default async function DealsPage({
                                 : "Unavailable"}
                         </span>
                       )}
-                      <Link href={`/deals/${deal.id}`}>
+                      <Link href={`/deals/${deal.id}/cockpit`}>
                         <SecondaryCTA>Open</SecondaryCTA>
                       </Link>
                     </div>
