@@ -34,7 +34,7 @@ export type VerifyUnderwriteBlocked = {
     bankId?: string | null;
     dbError?: string | null;
     missing?: string[];
-    lifecycleColumn?: "lifecycle_stage" | "lifecycle_state" | null;
+    lifecycleSource?: "lifecycle_stage" | null;
     lifecycleError?: string | null;
     lifecycleStage?: string | null;
   };
@@ -80,11 +80,10 @@ async function fetchDeal(
         name?: string | null;
         borrower_id?: string | null;
         lifecycle_stage?: string | null;
-        lifecycle_state?: string | null;
       }
     | null;
   error: { message?: string } | null;
-  lifecycleColumn: "lifecycle_stage" | "lifecycle_state" | null;
+  lifecycleSource: "lifecycle_stage" | null;
   lifecycleStage: string | null;
   lifecycleError: string | null;
 }> {
@@ -99,7 +98,7 @@ async function fetchDeal(
     return {
       deal: base.data ?? null,
       error: base.error ?? null,
-      lifecycleColumn: null,
+      lifecycleSource: null,
       lifecycleStage: null,
       lifecycleError: null,
     };
@@ -115,41 +114,16 @@ async function fetchDeal(
     return {
       deal: base.data,
       error: null,
-      lifecycleColumn: "lifecycle_stage",
+      lifecycleSource: "lifecycle_stage",
       lifecycleStage: primary.data?.lifecycle_stage ?? null,
       lifecycleError: null,
-    };
-  }
-
-  if (primary.error?.message?.includes("lifecycle_stage")) {
-    const fallback = await sb
-      .from("deals")
-      .select("lifecycle_state")
-      .eq("id", dealId)
-      .maybeSingle();
-    if (!fallback.error) {
-      return {
-        deal: base.data,
-        error: null,
-        lifecycleColumn: "lifecycle_state",
-        lifecycleStage: fallback.data?.lifecycle_state ?? null,
-        lifecycleError: null,
-      };
-    }
-
-    return {
-      deal: base.data,
-      error: null,
-      lifecycleColumn: "lifecycle_state",
-      lifecycleStage: null,
-      lifecycleError: fallback.error?.message ?? null,
     };
   }
 
   return {
     deal: base.data,
     error: null,
-    lifecycleColumn: "lifecycle_stage",
+    lifecycleSource: "lifecycle_stage",
     lifecycleStage: null,
     lifecycleError: primary.error?.message ?? null,
   };
@@ -198,7 +172,7 @@ export async function verifyUnderwriteCore(
     ledgerEventsWritten.push("deal.underwrite.verify");
   };
 
-  const { deal, error, lifecycleColumn, lifecycleStage, lifecycleError } =
+  const { deal, error, lifecycleSource, lifecycleStage, lifecycleError } =
     await fetchDeal(sb, dealId);
 
   const lookupDiagnostics = {
@@ -209,7 +183,7 @@ export async function verifyUnderwriteCore(
     },
     bankId: deal?.bank_id ? String(deal.bank_id) : null,
     lifecycleStage: lifecycleStage ? String(lifecycleStage) : null,
-    lifecycleColumn,
+    lifecycleSource,
     dbError: error?.message ?? null,
     lifecycleError,
   };
@@ -243,8 +217,12 @@ export async function verifyUnderwriteCore(
   }
 
   const currentLifecycleStage = lookupDiagnostics.lifecycleStage;
-  if (!currentLifecycleStage || !INTAKE_COMPLETE_STAGES.has(currentLifecycleStage)) {
-    missing.push("intake_lifecycle");
+  const canCheckLifecycle =
+    lookupDiagnostics.lifecycleSource === "lifecycle_stage" && !lookupDiagnostics.lifecycleError;
+  if (canCheckLifecycle) {
+    if (!currentLifecycleStage || !INTAKE_COMPLETE_STAGES.has(currentLifecycleStage)) {
+      missing.push("intake_lifecycle");
+    }
   }
 
   const creditSnapshotReady = await hasCreditSnapshot(sb, dealId);
