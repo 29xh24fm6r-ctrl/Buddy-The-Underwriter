@@ -105,6 +105,20 @@ test("missing deal name blocks complete_intake", async () => {
   assert.ok(result.diagnostics.missing?.includes("deal_name"));
 });
 
+test("missing deal returns deal_not_found with diagnostics", async () => {
+  const result = await runVerify({
+    deals: [],
+    deal_checklist_items: [],
+    financial_snapshot_decisions: [],
+    deal_pricing_quotes: [],
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.recommendedNextAction, "deal_not_found");
+  assert.equal(result.diagnostics.foundIn?.supabaseDeals, false);
+  assert.deepEqual(result.diagnostics.lookedIn, ["supabase.deals"]);
+});
+
 test("missing borrower blocks complete_intake", async () => {
   const result = await runVerify({
     deals: [

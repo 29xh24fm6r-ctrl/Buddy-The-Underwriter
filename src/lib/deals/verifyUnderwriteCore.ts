@@ -26,6 +26,13 @@ export type VerifyUnderwriteBlocked = {
   auth: true;
   recommendedNextAction: VerifyUnderwriteRecommendedNextAction;
   diagnostics: {
+    dealId?: string;
+    lookedIn?: string[];
+    foundIn?: {
+      supabaseDeals?: boolean;
+    };
+    bankId?: string | null;
+    dbError?: string | null;
     missing?: string[];
     lifecycleStage?: string | null;
   };
@@ -108,19 +115,30 @@ export async function verifyUnderwriteCore(
     .eq("id", dealId)
     .maybeSingle();
 
+  const lookupDiagnostics = {
+    dealId,
+    lookedIn: ["supabase.deals"],
+    foundIn: {
+      supabaseDeals: Boolean(deal && !error),
+    },
+    bankId: deal?.bank_id ? String(deal.bank_id) : null,
+    lifecycleStage: deal?.lifecycle_stage ? String(deal.lifecycle_stage) : null,
+    dbError: error?.message ?? null,
+  };
+
   if (error || !deal) {
-    await logAttemptEvent(null, false, "deal_not_found");
+    await logAttemptEvent(null, false, "deal_not_found", lookupDiagnostics);
     return {
       ok: false,
       auth: true,
       dealId,
       recommendedNextAction: "deal_not_found",
-      diagnostics: {},
+      diagnostics: lookupDiagnostics,
       ledgerEventsWritten,
     };
   }
 
-  const bankId = deal.bank_id ? String(deal.bank_id) : null;
+  const bankId = lookupDiagnostics.bankId;
   const missing: string[] = [];
 
   const hasDisplayName = Boolean(
@@ -138,7 +156,7 @@ export async function verifyUnderwriteCore(
     missing.push("borrower");
   }
 
-  const lifecycleStage = deal.lifecycle_stage ? String(deal.lifecycle_stage) : null;
+  const lifecycleStage = lookupDiagnostics.lifecycleStage;
   if (!lifecycleStage || !INTAKE_COMPLETE_STAGES.has(lifecycleStage)) {
     missing.push("intake_lifecycle");
   }
@@ -150,15 +168,15 @@ export async function verifyUnderwriteCore(
 
   if (missing.length > 0) {
     await logAttemptEvent(bankId, false, "complete_intake", {
+      ...lookupDiagnostics,
       missing,
-      lifecycleStage,
     });
     return {
       ok: false,
       auth: true,
       dealId,
       recommendedNextAction: "complete_intake",
-      diagnostics: { missing, lifecycleStage },
+      diagnostics: { ...lookupDiagnostics, missing },
       ledgerEventsWritten,
     };
   }
@@ -180,9 +198,9 @@ export async function verifyUnderwriteCore(
       String(item.checklist_key ?? "missing"),
     );
     await logAttemptEvent(bankId, false, "checklist_incomplete", {
+      ...lookupDiagnostics,
       missing:
         requiredItems.length === 0 ? ["required_checklist"] : missingChecklistKeys,
-      lifecycleStage,
     });
     return {
       ok: false,
@@ -190,8 +208,9 @@ export async function verifyUnderwriteCore(
       dealId,
       recommendedNextAction: "checklist_incomplete",
       diagnostics: {
-        missing: requiredItems.length === 0 ? ["required_checklist"] : missingChecklistKeys,
-        lifecycleStage,
+        ...lookupDiagnostics,
+        missing:
+          requiredItems.length === 0 ? ["required_checklist"] : missingChecklistKeys,
       },
       ledgerEventsWritten,
     };
@@ -200,20 +219,20 @@ export async function verifyUnderwriteCore(
   const lockedQuoteId = await latestQuote(sb, dealId);
   if (!lockedQuoteId) {
     await logAttemptEvent(bankId, false, "pricing_required", {
+      ...lookupDiagnostics,
       missing: ["pricing_quote"],
-      lifecycleStage,
     });
     return {
       ok: false,
       auth: true,
       dealId,
       recommendedNextAction: "pricing_required",
-      diagnostics: { missing: ["pricing_quote"], lifecycleStage },
+      diagnostics: { ...lookupDiagnostics, missing: ["pricing_quote"] },
       ledgerEventsWritten,
     };
   }
 
-  await logAttemptEvent(bankId, true, null, { lifecycleStage });
+  await logAttemptEvent(bankId, true, null, lookupDiagnostics);
   return {
     ok: true,
     dealId,
