@@ -131,7 +131,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     }
 
     const msg = String(res.error?.message ?? "");
-    if (msg.includes("lifecycle_stage") || msg.includes("stage")) {
+    if (msg.includes("lifecycle_stage") && !msg.includes("stage")) {
+      const stageOnly = await sb
+        .from("deals")
+        .update({ stage: "collecting", updated_at: now })
+        .eq("id", dealId);
+
+      if (!stageOnly.error) {
+        return "set_collecting_stage_only";
+      }
+
+      return "column_missing";
+    }
+
+    if (msg.includes("stage")) {
       return "column_missing";
     }
 
