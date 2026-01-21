@@ -34,7 +34,13 @@ export type VerifyUnderwriteBlocked = {
     bankId?: string | null;
     dbError?: string | null;
     missing?: string[];
-    lifecycleSource?: "lifecycle_stage" | null;
+    lifecycleSource?:
+      | "lifecycle_stage"
+      | "deal_state"
+      | "pipeline_state"
+      | "status"
+      | "stage"
+      | null;
     lifecycleError?: string | null;
     lifecycleStage?: string | null;
   };
@@ -80,19 +86,24 @@ async function fetchDeal(
         name?: string | null;
         borrower_id?: string | null;
         lifecycle_stage?: string | null;
+        deal_state?: string | null;
+        pipeline_state?: string | null;
+        status?: string | null;
+        stage?: string | null;
       }
     | null;
   error: { message?: string } | null;
-  lifecycleSource: "lifecycle_stage" | null;
+  lifecycleSource:
+    | "lifecycle_stage"
+    | "deal_state"
+    | "pipeline_state"
+    | "status"
+    | "stage"
+    | null;
   lifecycleStage: string | null;
   lifecycleError: string | null;
 }> {
-  const baseSelect = "id, bank_id, display_name, name, borrower_id";
-  const base = await sb
-    .from("deals")
-    .select(baseSelect)
-    .eq("id", dealId)
-    .maybeSingle();
+  const base = await sb.from("deals").select("*").eq("id", dealId).maybeSingle();
 
   if (base.error || !base.data) {
     return {
@@ -104,28 +115,32 @@ async function fetchDeal(
     };
   }
 
-  const primary = await sb
-    .from("deals")
-    .select("lifecycle_stage")
-    .eq("id", dealId)
-    .maybeSingle();
-
-  if (!primary.error) {
-    return {
-      deal: base.data,
-      error: null,
-      lifecycleSource: "lifecycle_stage",
-      lifecycleStage: primary.data?.lifecycle_stage ?? null,
-      lifecycleError: null,
-    };
-  }
+  const row = base.data as Record<string, any>;
+  const lifecycleFromRow =
+    row.lifecycle_stage ??
+    row.deal_state ??
+    row.pipeline_state ??
+    row.status ??
+    row.stage ??
+    null;
+  const lifecycleSource = row.lifecycle_stage
+    ? "lifecycle_stage"
+    : row.deal_state
+      ? "deal_state"
+      : row.pipeline_state
+        ? "pipeline_state"
+        : row.status
+          ? "status"
+          : row.stage
+            ? "stage"
+            : null;
 
   return {
     deal: base.data,
     error: null,
-    lifecycleSource: "lifecycle_stage",
-    lifecycleStage: null,
-    lifecycleError: primary.error?.message ?? null,
+    lifecycleSource,
+    lifecycleStage: lifecycleFromRow ? String(lifecycleFromRow) : null,
+    lifecycleError: null,
   };
 }
 
@@ -217,8 +232,9 @@ export async function verifyUnderwriteCore(
   }
 
   const currentLifecycleStage = lookupDiagnostics.lifecycleStage;
-  const canCheckLifecycle =
-    lookupDiagnostics.lifecycleSource === "lifecycle_stage" && !lookupDiagnostics.lifecycleError;
+  const canCheckLifecycle = Boolean(
+    lookupDiagnostics.lifecycleSource && !lookupDiagnostics.lifecycleError,
+  );
   if (canCheckLifecycle) {
     if (!currentLifecycleStage || !INTAKE_COMPLETE_STAGES.has(currentLifecycleStage)) {
       missing.push("intake_lifecycle");
