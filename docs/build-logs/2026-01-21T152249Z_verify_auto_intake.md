@@ -387,6 +387,25 @@ BASE="$BASE" DEAL_ID="$DEAL_ID" node scripts/tests/probe-builder-upload.mjs
   "body_prefix": "<!DOCTYPE html><html lang=\"en\" class=\"dark\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=dev"
 }
 ```
+
+## 13) New preview URL (post-push) + build state
+
+```text
+BASE=https://buddy-the-underwriter-i01dtrlxt-mpalas-projects-a4dbbece.vercel.app
+```
+
+```bash
+curl -i -sS "$BASE/api/_builder/deals/latest" -H "x-buddy-builder-token: $BUDDY_BUILDER_VERIFY_TOKEN" | head -n 12
+```
+
+```
+HTTP/2 200
+content-type: text/html; charset=utf-8
+x-matched-path: /[[...slug]]
+... (Deployment is building)
+```
+
+> NOTE: New preview still building; API routes return HTML until deploy completes. Re-run probe + terminal validation after build finishes.
 ✔ buildT12Columns produces 12 months + aggregates (1.901761ms)
 ✔ matchLenders filters by DSCR and LTV (1.579209ms)
 ✔ borrower upload satisfies multiple checklist items (1.490973ms)
