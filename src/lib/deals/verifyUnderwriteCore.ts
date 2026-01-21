@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { getLatestLockedQuoteId } from "@/lib/pricing/getLatestLockedQuote";
+import {
+  logUnderwriteVerifyLedger,
+  type UnderwriteVerifyDetails,
+  type UnderwriteVerifySource,
+} from "@/lib/deals/underwriteVerifyLedger";
 
 export type VerifyUnderwriteRecommendedNextAction =
   | "complete_intake"
@@ -21,7 +26,22 @@ export type VerifyUnderwriteBlocked = {
   auth: true;
   recommendedNextAction: VerifyUnderwriteRecommendedNextAction;
   diagnostics: {
+    dealId?: string;
+    lookedIn?: string[];
+    foundIn?: {
+      supabaseDeals?: boolean;
+    };
+    bankId?: string | null;
+    dbError?: string | null;
     missing?: string[];
+    lifecycleSource?:
+      | "lifecycle_stage"
+      | "deal_state"
+      | "pipeline_state"
+      | "status"
+      | "stage"
+      | null;
+    lifecycleError?: string | null;
     lifecycleStage?: string | null;
   };
   ledgerEventsWritten: string[];
@@ -39,10 +59,17 @@ export type VerifyUnderwriteParams = {
   dealId: string;
   actor?: "banker" | "system";
   logAttempt?: boolean;
+  verifySource?: UnderwriteVerifySource;
+  verifyDetails?: Partial<UnderwriteVerifyDetails> | null;
   deps: VerifyUnderwriteDeps;
 };
 
 const INTAKE_COMPLETE_STAGES = new Set(["collecting", "underwriting", "ready"]);
+const KNOWN_LIFECYCLE_STAGES = new Set([
+  "created",
+  "intake",
+  ...INTAKE_COMPLETE_STAGES,
+]);
 
 async function hasCreditSnapshot(sb: SupabaseClient, dealId: string) {
   const { count } = await sb
@@ -52,10 +79,77 @@ async function hasCreditSnapshot(sb: SupabaseClient, dealId: string) {
   return Boolean(count && count > 0);
 }
 
+async function fetchDeal(
+  sb: SupabaseClient,
+  dealId: string,
+): Promise<{
+  deal:
+    | {
+        id: string;
+        bank_id: string | null;
+        display_name?: string | null;
+        name?: string | null;
+        borrower_id?: string | null;
+        lifecycle_stage?: string | null;
+        deal_state?: string | null;
+        pipeline_state?: string | null;
+        status?: string | null;
+        stage?: string | null;
+      }
+    | null;
+  error: { message?: string } | null;
+  lifecycleSource:
+    | "lifecycle_stage"
+    | "deal_state"
+    | "pipeline_state"
+    | "status"
+    | "stage"
+    | null;
+  lifecycleStage: string | null;
+  lifecycleError: string | null;
+}> {
+  const base = await sb.from("deals").select("*").eq("id", dealId).maybeSingle();
+
+  if (base.error || !base.data) {
+    return {
+      deal: base.data ?? null,
+      error: base.error ?? null,
+      lifecycleSource: null,
+      lifecycleStage: null,
+      lifecycleError: null,
+    };
+  }
+
+  const row = base.data as Record<string, any>;
+  const candidate = row.lifecycle_stage ?? row.stage ?? null;
+  const stageValue = candidate ? String(candidate) : null;
+  const lifecycleFromRow = stageValue && KNOWN_LIFECYCLE_STAGES.has(stageValue) ? stageValue : null;
+  const lifecycleSource = row.lifecycle_stage
+    ? "lifecycle_stage"
+    : row.stage
+      ? "stage"
+      : null;
+
+  return {
+    deal: base.data,
+    error: null,
+    lifecycleSource,
+    lifecycleStage: lifecycleFromRow ? String(lifecycleFromRow) : null,
+    lifecycleError: null,
+  };
+}
+
 export async function verifyUnderwriteCore(
   params: VerifyUnderwriteParams,
 ): Promise<VerifyUnderwriteResult> {
-  const { dealId, actor = "banker", logAttempt = false, deps } = params;
+  const {
+    dealId,
+    actor = "banker",
+    logAttempt = true,
+    verifySource = "runtime",
+    verifyDetails,
+    deps,
+  } = params;
   const { sb, logLedgerEvent: ledger, getLatestLockedQuoteId: latestQuote } = deps;
 
   const ledgerEventsWritten: string[] = [];
@@ -63,58 +157,68 @@ export async function verifyUnderwriteCore(
   const logAttemptEvent = async (
     bankId: string | null,
     allowed: boolean,
-    reason: VerifyUnderwriteRecommendedNextAction,
-    missing?: string[],
+    reason: VerifyUnderwriteRecommendedNextAction | null,
+    diagnostics?: Record<string, unknown> | null,
   ) => {
     if (!logAttempt || !bankId) return;
-    await ledger({
+    await logUnderwriteVerifyLedger({
       dealId,
       bankId,
-      eventKey: "deal.underwrite.attempted",
-      uiState: "done",
-      uiMessage: "Underwrite verify attempted",
-      meta: {
-        deal_id: dealId,
-        bank_id: bankId,
-        allowed,
-        reason,
-        missing: missing ?? [],
-        actor,
-        timestamp: new Date().toISOString(),
+      status: allowed ? "pass" : "fail",
+      source: verifySource,
+      details: {
+        url: verifyDetails?.url ?? "internal://verify-underwrite",
+        auth: verifyDetails?.auth ?? true,
+        html: verifyDetails?.html ?? false,
+        metaFallback: verifyDetails?.metaFallback ?? false,
+        httpStatus: verifyDetails?.httpStatus,
+        error: verifyDetails?.error,
+        redacted: verifyDetails?.redacted ?? true,
       },
+      recommendedNextAction: reason,
+      diagnostics: diagnostics ?? null,
+      logLedgerEvent: ledger,
     });
-    ledgerEventsWritten.push("deal.underwrite.attempted");
+    ledgerEventsWritten.push("deal.underwrite.verify");
   };
 
-  const { data: deal, error } = await sb
-    .from("deals")
-    .select("id, bank_id, display_name, nickname, borrower_id, lifecycle_stage")
-    .eq("id", dealId)
-    .maybeSingle();
+  const { deal, error, lifecycleSource, lifecycleStage, lifecycleError } =
+    await fetchDeal(sb, dealId);
+
+  const lookupDiagnostics = {
+    dealId,
+    lookedIn: ["supabase.deals"],
+    foundIn: {
+      supabaseDeals: Boolean(deal && !error),
+    },
+    bankId: deal?.bank_id ? String(deal.bank_id) : null,
+    lifecycleStage: lifecycleStage ? String(lifecycleStage) : null,
+    lifecycleSource,
+    dbError: error?.message ?? null,
+    lifecycleError,
+  };
 
   if (error || !deal) {
-    await logAttemptEvent(null, false, "deal_not_found");
+    await logAttemptEvent(null, false, "deal_not_found", lookupDiagnostics);
     return {
       ok: false,
       auth: true,
       dealId,
       recommendedNextAction: "deal_not_found",
-      diagnostics: {},
+      diagnostics: lookupDiagnostics,
       ledgerEventsWritten,
     };
   }
 
-  const bankId = deal.bank_id ? String(deal.bank_id) : null;
+  const bankId = lookupDiagnostics.bankId;
   const missing: string[] = [];
 
   const hasDisplayName = Boolean(
     (deal as any)?.display_name && String((deal as any).display_name).trim(),
   );
-  const hasNickname = Boolean(
-    (deal as any)?.nickname && String((deal as any).nickname).trim(),
-  );
+  const hasName = Boolean((deal as any)?.name && String((deal as any).name).trim());
 
-  if (!hasDisplayName && !hasNickname) {
+  if (!hasDisplayName && !hasName) {
     missing.push("deal_name");
   }
 
@@ -122,9 +226,14 @@ export async function verifyUnderwriteCore(
     missing.push("borrower");
   }
 
-  const lifecycleStage = deal.lifecycle_stage ? String(deal.lifecycle_stage) : null;
-  if (!lifecycleStage || !INTAKE_COMPLETE_STAGES.has(lifecycleStage)) {
-    missing.push("intake_lifecycle");
+  const currentLifecycleStage = lookupDiagnostics.lifecycleStage;
+  const canCheckLifecycle = Boolean(
+    lookupDiagnostics.lifecycleSource && !lookupDiagnostics.lifecycleError,
+  );
+  if (canCheckLifecycle) {
+    if (!currentLifecycleStage || !INTAKE_COMPLETE_STAGES.has(currentLifecycleStage)) {
+      missing.push("intake_lifecycle");
+    }
   }
 
   const creditSnapshotReady = await hasCreditSnapshot(sb, dealId);
@@ -133,13 +242,16 @@ export async function verifyUnderwriteCore(
   }
 
   if (missing.length > 0) {
-    await logAttemptEvent(bankId, false, "complete_intake", missing);
+    await logAttemptEvent(bankId, false, "complete_intake", {
+      ...lookupDiagnostics,
+      missing,
+    });
     return {
       ok: false,
       auth: true,
       dealId,
       recommendedNextAction: "complete_intake",
-      diagnostics: { missing, lifecycleStage },
+      diagnostics: { ...lookupDiagnostics, missing },
       ledgerEventsWritten,
     };
   }
@@ -160,15 +272,20 @@ export async function verifyUnderwriteCore(
     const missingChecklistKeys = missingRequired.map((item) =>
       String(item.checklist_key ?? "missing"),
     );
-    await logAttemptEvent(bankId, false, "checklist_incomplete", missingChecklistKeys);
+    await logAttemptEvent(bankId, false, "checklist_incomplete", {
+      ...lookupDiagnostics,
+      missing:
+        requiredItems.length === 0 ? ["required_checklist"] : missingChecklistKeys,
+    });
     return {
       ok: false,
       auth: true,
       dealId,
       recommendedNextAction: "checklist_incomplete",
       diagnostics: {
-        missing: requiredItems.length === 0 ? ["required_checklist"] : missingChecklistKeys,
-        lifecycleStage,
+        ...lookupDiagnostics,
+        missing:
+          requiredItems.length === 0 ? ["required_checklist"] : missingChecklistKeys,
       },
       ledgerEventsWritten,
     };
@@ -176,17 +293,21 @@ export async function verifyUnderwriteCore(
 
   const lockedQuoteId = await latestQuote(sb, dealId);
   if (!lockedQuoteId) {
-    await logAttemptEvent(bankId, false, "pricing_required", ["pricing_quote"]);
+    await logAttemptEvent(bankId, false, "pricing_required", {
+      ...lookupDiagnostics,
+      missing: ["pricing_quote"],
+    });
     return {
       ok: false,
       auth: true,
       dealId,
       recommendedNextAction: "pricing_required",
-      diagnostics: { missing: ["pricing_quote"], lifecycleStage },
+      diagnostics: { ...lookupDiagnostics, missing: ["pricing_quote"] },
       ledgerEventsWritten,
     };
   }
 
+  await logAttemptEvent(bankId, true, null, lookupDiagnostics);
   return {
     ok: true,
     dealId,

@@ -24,7 +24,7 @@ export async function GET() {
         ocr,
         hint: ok
           ? "✅ Gemini OCR appears configured (env-only check)."
-          : "❌ Gemini OCR is not fully configured. Set USE_GEMINI_OCR=true, GOOGLE_CLOUD_PROJECT, and a service account JSON env var (e.g. GEMINI_SERVICE_ACCOUNT_JSON), then redeploy.",
+          : "❌ Gemini OCR is not fully configured. Set USE_GEMINI_OCR=true, GOOGLE_CLOUD_PROJECT, and ADC/WIF env vars (GCP_WIF_PROVIDER, GCP_SERVICE_ACCOUNT_EMAIL, VERCEL_OIDC_TOKEN) or GOOGLE_APPLICATION_CREDENTIALS, then redeploy.",
         timestamp: new Date().toISOString(),
       },
       { status: 200 },

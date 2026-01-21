@@ -182,6 +182,35 @@ export async function igniteDeal(params: {
 
   await ensurePortal(dealId);
 
+  try {
+    const [{ verifyUnderwriteCore }, { getLatestLockedQuoteId }] = await Promise.all([
+      import("@/lib/deals/verifyUnderwriteCore"),
+      import("@/lib/pricing/getLatestLockedQuote"),
+    ]);
+    await verifyUnderwriteCore({
+      dealId,
+      actor: "system",
+      logAttempt: true,
+      verifySource: "runtime",
+      verifyDetails: {
+        url: "internal://igniteDeal",
+        auth: true,
+        html: false,
+        metaFallback: false,
+        redacted: true,
+      },
+      deps: {
+        sb,
+        logLedgerEvent: pipelineLog,
+        getLatestLockedQuoteId,
+      },
+    });
+  } catch (e) {
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[igniteDeal] verify-underwrite logging failed", e);
+    }
+  }
+
   emitSignal({
     type: "deal.ignited",
     source: "lib/deals/igniteDeal",

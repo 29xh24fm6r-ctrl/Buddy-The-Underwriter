@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 
 import { igniteDeal } from "@/lib/deals/igniteDealCore";
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycleCore";
-import { isBorrowerUploadAllowed, canAccessUnderwrite } from "@/lib/deals/lifecycleGuards";
+import {
+  isBorrowerUploadAllowed,
+  canAccessUnderwrite,
+  buildUnderwriteStartGate,
+} from "@/lib/deals/lifecycleGuards";
 
 type Row = Record<string, any>;
 
@@ -155,4 +159,35 @@ test("underwrite route blocked before underwriting", () => {
   assert.equal(canAccessUnderwrite("intake"), false);
   assert.equal(canAccessUnderwrite("underwriting"), true);
   assert.equal(canAccessUnderwrite("ready"), true);
+});
+
+test("underwrite start gate blocks on verify or lifecycle", () => {
+  const blocked = buildUnderwriteStartGate({
+    lifecycleStage: "collecting",
+    verifyOk: false,
+    authOk: true,
+    testMode: false,
+  });
+  assert.equal(blocked.allowed, false);
+  assert.equal(blocked.reason, "lifecycle_blocked");
+
+  const lifecycleBlocked = buildUnderwriteStartGate({
+    lifecycleStage: "intake",
+    verifyOk: true,
+    authOk: true,
+    testMode: false,
+  });
+  assert.equal(lifecycleBlocked.allowed, false);
+  assert.equal(lifecycleBlocked.reason, "lifecycle_blocked");
+});
+
+test("underwrite start gate allows when ready", () => {
+  const allowed = buildUnderwriteStartGate({
+    lifecycleStage: "ready",
+    verifyOk: true,
+    authOk: true,
+    testMode: false,
+  });
+  assert.equal(allowed.allowed, true);
+  assert.equal(allowed.reason, "ok");
 });

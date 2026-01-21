@@ -2,41 +2,13 @@ import "server-only";
 
 import { Storage } from "@google-cloud/storage";
 import { buildGcsObjectKey, sanitizeFilename } from "@/lib/storage/gcsNaming";
+import { ensureGcpAdcBootstrap } from "@/lib/gcpAdcBootstrap";
 
 const DEFAULT_SIGN_TTL_SECONDS = 15 * 60;
 
 let cachedStorage: Storage | null = null;
-let cachedCreds: Record<string, any> | null = null;
 
-export function parseGcsServiceAccountJson(): {
-  ok: true;
-  credentials: Record<string, any>;
-} | {
-  ok: false;
-  error: string;
-} {
-  const raw = process.env.GCS_SERVICE_ACCOUNT_JSON;
-  if (!raw) {
-    return { ok: false, error: "GCS_SERVICE_ACCOUNT_JSON not set" };
-  }
-
-  const trimmed = raw.trim();
-
-  const tryParse = (input: string) => {
-    try {
-      return JSON.parse(input);
-    } catch {
-      return null;
-    }
-  };
-
-  const parsed = tryParse(trimmed) ?? tryParse(trimmed.replace(/\\n/g, "\n"));
-  if (!parsed || typeof parsed !== "object") {
-    return { ok: false, error: "Invalid GCS_SERVICE_ACCOUNT_JSON" };
-  }
-
-  return { ok: true, credentials: parsed };
-}
+ensureGcpAdcBootstrap();
 
 export function getGcsBucketName(): string {
   const bucket = process.env.GCS_BUCKET;
@@ -46,21 +18,34 @@ export function getGcsBucketName(): string {
   return bucket;
 }
 
+function getGcsProjectId(): string | null {
+  return (
+    process.env.GCS_PROJECT_ID ||
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.GOOGLE_PROJECT_ID ||
+    process.env.GCP_PROJECT_ID ||
+    null
+  );
+}
+
+export function getGcsClient(): Storage {
+  return new Storage({
+    projectId: getGcsProjectId() ?? undefined,
+  });
+}
+
 function getGcsStorage(): Storage {
   if (cachedStorage) return cachedStorage;
 
-  if (!cachedCreds) {
-    const parsed = parseGcsServiceAccountJson();
-    if (!parsed.ok) {
-      throw new Error(parsed.error);
-    }
-    cachedCreds = parsed.credentials;
+  ensureGcpAdcBootstrap();
+
+  if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    throw new Error(
+      "Missing GCS credentials. Configure GCP_WIF_PROVIDER + GCP_SERVICE_ACCOUNT_EMAIL + VERCEL_OIDC_TOKEN (Vercel) or GOOGLE_APPLICATION_CREDENTIALS (local).",
+    );
   }
 
-  cachedStorage = new Storage({
-    credentials: cachedCreds,
-    projectId: cachedCreds.project_id,
-  });
+  cachedStorage = getGcsClient();
 
   return cachedStorage;
 }

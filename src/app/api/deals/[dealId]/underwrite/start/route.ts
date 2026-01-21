@@ -4,6 +4,9 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { runPolicyAwareUnderwriting } from "@/lib/underwrite/policyEngine";
+import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
+import { buildUnderwriteStartGate } from "@/lib/deals/lifecycleGuards";
+import { logUnderwriteVerifyLedger } from "@/lib/deals/underwriteVerifyLedger";
 import { upsertDealStatusAndLog } from "@/lib/deals/status";
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
@@ -87,6 +90,61 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     await initializeIntake(dealId, bankId, { reason: "underwrite_start" });
+
+    const testMode = process.env.BANKER_TEST_MODE === "1";
+
+    const verify = await verifyUnderwrite({
+      dealId,
+      actor: "system",
+      logAttempt: !testMode,
+      verifySource: "runtime",
+      verifyDetails: {
+        url: req.url,
+        auth: true,
+        html: false,
+        metaFallback: false,
+        redacted: true,
+        error: testMode ? "banker_test_mode" : undefined,
+      },
+    });
+
+    if (testMode) {
+      await logUnderwriteVerifyLedger({
+        dealId,
+        bankId,
+        status: "fail",
+        source: "runtime",
+        details: {
+          url: req.url,
+          auth: true,
+          html: false,
+          metaFallback: false,
+          error: "banker_test_mode",
+          redacted: true,
+        },
+        recommendedNextAction: verify.ok ? null : verify.recommendedNextAction,
+        diagnostics: verify.ok ? null : (verify.diagnostics as Record<string, unknown>),
+      });
+    }
+
+    const gate = buildUnderwriteStartGate({
+      lifecycleStage: deal.lifecycle_stage,
+      verifyOk: verify.ok && !testMode,
+      authOk: true,
+      testMode,
+    });
+
+    if (!gate.allowed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "UNDERWRITE_VERIFY_FAILED",
+          gate,
+          verify,
+        },
+        { status: 409 }
+      );
+    }
 
     if (deal.lifecycle_stage !== "collecting" && deal.lifecycle_stage !== "ready") {
       return NextResponse.json(

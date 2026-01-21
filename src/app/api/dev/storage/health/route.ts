@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { parseGcsServiceAccountJson } from "@/lib/storage/gcs";
+import { ensureGcpAdcBootstrap } from "@/lib/gcpAdcBootstrap";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 
 export const runtime = "nodejs";
@@ -12,13 +12,19 @@ export async function GET() {
       await requireSuperAdmin();
     }
 
-    const creds = parseGcsServiceAccountJson();
+    ensureGcpAdcBootstrap();
+    const hasWif = Boolean(
+      process.env.GCP_WIF_PROVIDER &&
+        process.env.GCP_SERVICE_ACCOUNT_EMAIL &&
+        process.env.VERCEL_OIDC_TOKEN,
+    );
+    const hasAdc = Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS || hasWif);
 
     return NextResponse.json({
       ok: true,
       doc_store: process.env.DOC_STORE || null,
       gcs_bucket_set: Boolean(process.env.GCS_BUCKET),
-      gcs_creds_parse_ok: creds.ok,
+      gcs_adc_configured: hasAdc,
     });
   } catch (error: any) {
     return NextResponse.json(

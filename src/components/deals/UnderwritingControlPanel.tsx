@@ -10,10 +10,27 @@ export function UnderwritingControlPanel({
   dealId,
   lifecycleStage,
   intakeInitialized,
+  verifyLedger,
 }: {
   dealId: string;
   lifecycleStage?: string | null;
   intakeInitialized?: boolean;
+  verifyLedger?: {
+    status: "pass" | "fail";
+    source: "builder" | "runtime";
+    details: {
+      url: string;
+      httpStatus?: number;
+      auth?: boolean;
+      html?: boolean;
+      metaFallback?: boolean;
+      error?: string;
+      redacted?: boolean;
+    };
+    recommendedNextAction?: string | null;
+    diagnostics?: Record<string, unknown> | null;
+    createdAt?: string | null;
+  } | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -95,6 +112,34 @@ export function UnderwritingControlPanel({
     intakeInitialized,
   });
 
+  const verifyFailure = verifyLedger?.status === "fail";
+  const verifyHint = verifyLedger?.details?.html
+    ? "Underwrite endpoint returned HTML — likely auth-gated."
+    : verifyLedger?.details?.metaFallback
+      ? "Primary JSON unavailable, meta fallback used."
+      : verifyLedger?.details?.auth === false
+        ? "Session not authorized to start underwriting."
+        : verifyLedger?.details?.error === "banker_test_mode"
+          ? "Banker test mode blocks underwriting."
+          : verifyFailure
+            ? "Underwrite verification has not passed."
+            : "";
+
+  const allowStart = gate.allowed && !verifyFailure;
+
+  const builderMode = process.env.NEXT_PUBLIC_BUDDY_ROLE === "builder";
+
+  const buttonTitle = verifyFailure
+    ? verifyHint || "Underwrite verification blocked."
+    : allowStart
+      ? "Start underwriting"
+      : gate.blockers[0] || "Underwriting is blocked.";
+
+  const displayBlockers = [...gate.blockers];
+  if (verifyFailure && verifyHint) {
+    displayBlockers.unshift(verifyHint);
+  }
+
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur shadow-[0_18px_50px_rgba(0,0,0,0.35)] p-4">
       <div className="flex items-center justify-between mb-4">
@@ -102,13 +147,25 @@ export function UnderwritingControlPanel({
           <Icon name="rocket_launch" className="h-5 w-5 text-white" />
           <h3 className="text-sm font-semibold text-white">Underwriting</h3>
         </div>
+        {verifyLedger ? (
+          <span
+            className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+              verifyLedger.status === "pass"
+                ? "bg-emerald-400/20 text-emerald-100"
+                : "bg-amber-400/20 text-amber-100"
+            }`}
+          >
+            {verifyLedger.status === "pass" ? "Verify: PASS" : "Verify: BLOCKED"}
+          </span>
+        ) : null}
       </div>
 
       <button
         type="button"
         data-testid="start-underwriting"
-        disabled={busy || loadingGate || !gate.allowed}
+        disabled={busy || loadingGate || !allowStart}
         onClick={startUnderwriting}
+        title={buttonTitle}
         className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-900 disabled:opacity-60 pointer-events-auto"
       >
         {busy ? (
@@ -125,16 +182,29 @@ export function UnderwritingControlPanel({
       </button>
 
       <p className="mt-2 text-xs text-white/60 text-center">
-        {gate.allowed
+        {allowStart
           ? "Ready to start underwriting."
           : gate.blockers[0] || "Underwriting is blocked until required documents are received."}
       </p>
 
-      {!gate.allowed && gate.blockers.length > 0 ? (
+      {verifyFailure ? (
+        <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100">
+          <div className="font-semibold">Buddy</div>
+          <div className="mt-1">{verifyHint}</div>
+        </div>
+      ) : null}
+
+      {builderMode && verifyLedger ? (
+        <pre className="mt-3 max-h-40 overflow-auto rounded-lg border border-white/10 bg-white/5 p-2 text-[11px] text-white/70">
+          {JSON.stringify(verifyLedger, null, 2)}
+        </pre>
+      ) : null}
+
+      {!allowStart && displayBlockers.length > 0 ? (
         <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
           <div className="font-semibold text-white/80">Blockers</div>
           <ul className="mt-2 space-y-1">
-            {gate.blockers.map((b, idx) => (
+            {displayBlockers.map((b, idx) => (
               <li key={`${b}-${idx}`} className="flex items-center gap-2">
                 <span>❌</span>
                 <span>{b}</span>

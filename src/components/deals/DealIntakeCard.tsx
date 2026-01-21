@@ -57,6 +57,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [autoSeeding, setAutoSeeding] = useState(false);
+  const [retryingIntake, setRetryingIntake] = useState(false);
   const [aiRecognizing, setAiRecognizing] = useState(false);
   const [aiProgress, setAiProgress] = useState<null | {
     totalDocs: number | null;
@@ -199,15 +200,17 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
     setIgniteBusy(true);
     setIgniteMessage(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/ignite`, { method: "POST" });
+      const res = await fetch(`/api/deals/${dealId}/intake/init`, { method: "POST" });
       const json = await res.json();
       if (!res.ok || !json?.ok) {
         setIgniteMessage(json?.error || "Failed to start intake");
         return;
       }
-      setStage("intake");
-      onLifecycleStageChange?.("intake");
+      const nextStage = String(json?.stage ?? "intake");
+      setStage(nextStage);
+      onLifecycleStageChange?.(nextStage);
       await onChecklistSeeded?.();
+      await refreshDealContext("intake_initialized");
       setIgniteMessage("Deal intake started. You can upload documents now.");
     } catch (e: any) {
       setIgniteMessage(e?.message || "Failed to start intake");
@@ -547,6 +550,37 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
     }
   }
 
+  async function retryIntake() {
+    if (!hasValidDealId) return;
+    setRetryingIntake(true);
+    setMatchMessage("🔄 Retrying intake (auto-seed + reconcile)…");
+
+    try {
+      const seedRes = await fetch(`/api/deals/${dealId}/auto-seed`, { method: "POST" });
+      const seedJson = await seedRes.json();
+
+      if (!seedRes.ok || !seedJson?.ok) {
+        const err = seedJson?.error || seedJson?.message || "auto_seed_failed";
+        setMatchMessage(`❌ Retry intake failed: ${err}`);
+        return;
+      }
+
+      await fetch(`/api/deals/${dealId}/uploads/reconcile`, { method: "POST" });
+      await fetch(`/api/deals/${dealId}/checklist/reconcile`, { method: "POST" });
+
+      emitChecklistRefresh(dealId);
+      if (onChecklistSeeded) {
+        await onChecklistSeeded();
+      }
+      await refreshDealContext("intake_retry");
+      setMatchMessage("✅ Intake retry complete. Checklist and uploads reconciled.");
+    } catch (e: any) {
+      setMatchMessage(`❌ Retry intake failed: ${e?.message || "unexpected_error"}`);
+    } finally {
+      setRetryingIntake(false);
+    }
+  }
+
   async function runAiDocRecognition() {
     if (!hasValidDealId) return;
     setAiRecognizing(true);
@@ -662,7 +696,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
               `⚠️ AI Doc Recognition can't run OCR in this environment.\n\n` +
                 `Error: ${firstError}\n\n` +
                 `${configHintLines.length ? configHintLines.join("\n") + "\n\n" : ""}` +
-                `Fix: set Vercel env vars (USE_GEMINI_OCR=\"true\", GOOGLE_CLOUD_PROJECT, and service-account JSON via GEMINI_SERVICE_ACCOUNT_JSON) and redeploy.`,
+                `Fix: set Vercel env vars (USE_GEMINI_OCR=\"true\", GOOGLE_CLOUD_PROJECT, and ADC/WIF envs like GCP_WIF_PROVIDER + GCP_SERVICE_ACCOUNT_EMAIL + VERCEL_OIDC_TOKEN, or GOOGLE_APPLICATION_CREDENTIALS) and redeploy.`,
             );
             return;
           }
@@ -923,10 +957,10 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
         <button
           type="button"
           onClick={runAiDocRecognition}
-          disabled={saving || autoSeeding || aiRecognizing}
+          disabled={saving || autoSeeding || retryingIntake || aiRecognizing}
           className={cn(
             "w-full rounded-xl px-3 py-2 text-sm font-semibold transition-all",
-            (saving || autoSeeding || aiRecognizing)
+            (saving || autoSeeding || retryingIntake || aiRecognizing)
               ? "bg-blue-600 text-white cursor-wait animate-pulse"
               : "bg-white text-neutral-900",
           )}
@@ -997,11 +1031,23 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
           <button
             type="button"
             onClick={() => save(true, true)}
-            disabled={saving || autoSeeding}
+            disabled={saving || autoSeeding || retryingIntake}
             className="w-full rounded-xl px-3 py-2 text-sm font-semibold bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-50"
             title="Force auto-seed even with uploads processing (admin only)"
           >
             🔒 Admin Override: Force Seed
+          </button>
+        )}
+
+        {(process.env.NODE_ENV !== "production" || isAdmin) && (
+          <button
+            type="button"
+            onClick={retryIntake}
+            disabled={saving || autoSeeding || retryingIntake}
+            className="w-full rounded-xl px-3 py-2 text-sm font-semibold bg-neutral-800 hover:bg-neutral-700 text-white disabled:opacity-50"
+            title="Retry intake initialization + reconciliation"
+          >
+            {retryingIntake ? "Retrying intake…" : "Retry Intake"}
           </button>
         )}
       </form>

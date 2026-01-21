@@ -25,6 +25,23 @@ import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
 import { cn } from "@/lib/utils";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 
+type UnderwriteVerifyLedgerEvent = {
+  status: "pass" | "fail";
+  source: "builder" | "runtime";
+  details: {
+    url: string;
+    httpStatus?: number;
+    auth?: boolean;
+    html?: boolean;
+    metaFallback?: boolean;
+    error?: string;
+    redacted?: boolean;
+  };
+  recommendedNextAction?: string | null;
+  diagnostics?: Record<string, unknown> | null;
+  createdAt?: string | null;
+};
+
 /**
  * Client wrapper for Deal Cockpit.
  * - Wires DealIntakeCard auto-seed → EnhancedChecklistCard refresh
@@ -39,6 +56,7 @@ export default function DealCockpitClient({
   ignitedEvent,
   intakeInitialized,
   verify,
+  verifyLedger,
 }: {
   dealId: string;
   isAdmin?: boolean;
@@ -55,6 +73,7 @@ export default function DealCockpitClient({
   ignitedEvent?: { source: string | null; createdAt: string | null } | null;
   intakeInitialized?: boolean;
   verify: VerifyUnderwriteResult;
+  verifyLedger?: UnderwriteVerifyLedgerEvent | null;
 }) {
   const [displayName, setDisplayName] = useState<string | null>(dealName?.displayName ?? null);
   const [nickname, setNickname] = useState<string | null>(dealName?.nickname ?? null);
@@ -279,6 +298,7 @@ export default function DealCockpitClient({
                 dealId={dealId}
                 lifecycleStage={stage}
                 intakeInitialized={intakeInitialized}
+                verifyLedger={verifyLedger ?? null}
               />
             </SafeBoundary>
 

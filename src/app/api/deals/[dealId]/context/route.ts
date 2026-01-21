@@ -7,6 +7,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { normalizeGoogleError } from "@/lib/google/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -128,15 +129,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
           trigger: "context",
         });
         if (!init.ok) {
+          const normalized = normalizeGoogleError(init.error);
           await logLedgerEvent({
             dealId,
             bankId: deal.bank_id,
-            eventKey: "intake.init_failed",
+            eventKey: "deal.intake.failed",
             uiState: "done",
-            uiMessage: "Intake init failed",
+            uiMessage: `Intake init failed: ${normalized.code}`,
             meta: {
               trigger: "context",
-              error: init.error ?? "unknown",
+              error_code: normalized.code,
+              error_message: normalized.message,
             },
           });
         }
@@ -146,15 +149,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
           error: e?.message ?? String(e),
         });
         try {
+          const normalized = normalizeGoogleError(e);
           await logLedgerEvent({
             dealId,
             bankId: deal.bank_id,
-            eventKey: "intake.init_failed",
+            eventKey: "deal.intake.failed",
             uiState: "done",
-            uiMessage: "Intake init failed",
+            uiMessage: `Intake init failed: ${normalized.code}`,
             meta: {
               trigger: "context",
-              error: e?.message ?? String(e),
+              error_code: normalized.code,
+              error_message: normalized.message,
             },
           });
         } catch {}

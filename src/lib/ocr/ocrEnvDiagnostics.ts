@@ -18,11 +18,9 @@ export function getOcrEnvDiagnostics(): OcrEnvDiagnostics {
   // Mirrors the credential sources supported by `runGeminiOcrJob`.
   const hasGoogleCredentialsHint = Boolean(
     process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-      process.env.GEMINI_SERVICE_ACCOUNT_JSON ||
-      process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
-      process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ||
-      // Back-compat: some setups paste service-account JSON into GEMINI_API_KEY.
-      process.env.GEMINI_API_KEY,
+      (process.env.GCP_WIF_PROVIDER &&
+        process.env.GCP_SERVICE_ACCOUNT_EMAIL &&
+        process.env.VERCEL_OIDC_TOKEN),
   );
 
   const googleLocation =

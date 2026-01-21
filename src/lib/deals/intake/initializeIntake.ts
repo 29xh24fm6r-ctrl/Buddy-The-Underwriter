@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildChecklistForLoanType } from "@/lib/deals/checklistPresets";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { normalizeGoogleError } from "@/lib/google/errors";
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
 import { emitBuilderLifecycleSignal } from "@/lib/buddy/builderSignals";
 
@@ -242,6 +243,9 @@ export async function initializeIntake(
     const status = alreadyInitialized ? "already_initialized" : "initialized";
     return { ok: true, status, intakeInitialized, checklistSeeded, loanType } as const;
   } catch (error: any) {
+    const normalized = normalizeGoogleError(error);
+    const rawMessage = String(error?.message ?? String(error));
+    const truncated = rawMessage.length > 400 ? `${rawMessage.slice(0, 399)}…` : rawMessage;
     try {
       await logLedgerEvent({
         dealId,
@@ -255,6 +259,20 @@ export async function initializeIntake(
           result: "failed",
           deal_id: dealId,
             bank_id: resolvedBankId ?? null,
+          error_code: normalized.code,
+          error_message: truncated,
+        },
+      });
+      await logLedgerEvent({
+        dealId,
+        bankId: resolvedBankId ?? "",
+        eventKey: "deal.intake.failed",
+        uiState: "done",
+        uiMessage: `Intake failed: ${normalized.code}`,
+        meta: {
+          trigger,
+          error_code: normalized.code,
+          error_message: truncated,
         },
       });
     } catch (logError) {
