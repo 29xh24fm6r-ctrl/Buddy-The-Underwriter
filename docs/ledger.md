@@ -8,3 +8,4 @@
 | 4 | 2025-12-28 | Borrower Portal | Replace prototype controls with real toolbar | "remove 100% add", chevron text | Real buttons w/ icons + tooltips |
 | 5 | 2025-12-28 | Borrower Portal | A11y + keyboard navigation | Production quality | tab order, aria, focus visible |
 | 6 | 2025-12-28 | Borrower Portal | E2E smoke test | Prevent regression | Playwright check for icon tokens |
+| 7 | 2026-01-21 | BUG | Intake init stalled + Run Summary missing runId + verify google WIF/GCS/Vertex | Spec written: docs/codex/spec-intake-stall-and-run-summary.md | OPEN |

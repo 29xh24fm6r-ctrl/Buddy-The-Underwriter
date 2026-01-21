@@ -130,26 +130,44 @@ export function BuddyProvider({ children }: { children: React.ReactNode }) {
 
   const emit = useCallback((sig: BuddySignal) => {
     setState((s) => {
-      let next = appendSignal(s, sig);
+      const route = sig.route ?? s.lastRoute ?? pathname ?? undefined;
+      const dealId = typeof sig.dealId !== "undefined" ? sig.dealId : s.dealId;
+      const runId = sig.payload?.runId ?? s.runId ?? null;
+      const payload = {
+        ...(sig.payload ?? {}),
+        kind: sig.payload?.kind ?? sig.type,
+        ...(route ? { route } : {}),
+        ...(dealId ? { dealId } : {}),
+        ...(runId ? { runId } : {}),
+      };
 
-      if (sig.route) next = { ...next, lastRoute: sig.route };
-      if (sig.page) next = { ...next, lastPage: sig.page };
-      if (typeof sig.dealId !== "undefined") next = { ...next, dealId: sig.dealId };
+      const normalizedSig: BuddySignal = {
+        ...sig,
+        dealId: dealId ?? sig.dealId,
+        route,
+        payload,
+      };
+
+      let next = appendSignal(s, normalizedSig);
+
+      if (normalizedSig.route) next = { ...next, lastRoute: normalizedSig.route };
+      if (normalizedSig.page) next = { ...next, lastPage: normalizedSig.page };
+      if (typeof normalizedSig.dealId !== "undefined") next = { ...next, dealId: normalizedSig.dealId };
 
       if (envObserverEnabled()) {
-        const insight = classifySignal(sig);
+        const insight = classifySignal(normalizedSig);
         if (insight) {
           next = appendInsight(next, {
             ...insight,
-            route: sig.route ?? next.lastRoute,
-            page: sig.page ?? next.lastPage,
+            route: normalizedSig.route ?? next.lastRoute,
+            page: normalizedSig.page ?? next.lastPage,
             dealId: next.dealId ?? null,
-            meta: sig.meta,
+            meta: normalizedSig.meta,
           });
         }
       }
 
-      const interpreted = interpretSignal(sig);
+      const interpreted = interpretSignal(normalizedSig);
       if (interpreted) {
         next = { ...next, narration: interpreted };
       }
@@ -360,7 +378,7 @@ function interpretSignal(signal: BuddySignal) {
       const state = String(signal.payload?.state ?? "");
       if (state === "failed") {
         return {
-          message: "Intake auto-init failed; check ledger event `intake.init_failed`.",
+          message: "Intake auto-init failed; check ledger event `deal.intake.failed`.",
           tone: "warn",
         };
       }

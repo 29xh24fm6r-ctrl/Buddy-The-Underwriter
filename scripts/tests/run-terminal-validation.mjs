@@ -17,8 +17,8 @@ async function j(url, init) {
 const deal = await j(`${BASE}/api/_builder/deals/latest`, { headers: { "x-buddy-builder-token": TOKEN } });
 console.log("deals/latest:", JSON.stringify(deal, null, 2));
 
-const dealId = deal?.json?.dealId;
-if (!dealId) throw new Error("no dealId from deals/latest");
+const dealId = process.env.DEAL_ID || deal?.json?.dealId;
+if (!dealId) throw new Error("no dealId (set DEAL_ID or enable deals/latest)");
 
 const seed = await j(`${BASE}/api/builder/deals/${dealId}/seed-intake`, {
   method: "POST",

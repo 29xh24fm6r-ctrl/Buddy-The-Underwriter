@@ -1,7 +1,6 @@
 import "server-only";
 import { VertexAI } from "@google-cloud/vertexai";
-import * as crypto from "node:crypto";
-import * as fs from "node:fs/promises";
+import { ensureGcpAdcBootstrap } from "@/lib/gcpAdcBootstrap";
 
 type GeminiOcrArgs = {
   fileBytes: Buffer;
@@ -35,60 +34,12 @@ function normalizeMimeType(mimeType: string): string {
   return normalized;
 }
 
-type ServiceAccountJson = {
-  type: string;
-  project_id?: string;
-  private_key?: string;
-  client_email?: string;
-};
-
-async function ensureGoogleAdcConfigured(): Promise<void> {
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) return;
-
-  const rawJson =
-    process.env.GEMINI_SERVICE_ACCOUNT_JSON ||
-    process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
-    process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ||
-    // Back-compat: some setups paste the service account JSON into GEMINI_API_KEY.
-    process.env.GEMINI_API_KEY;
-
-  if (!rawJson) {
-    throw new Error(
-      "Missing Google credentials for Gemini OCR. Set GOOGLE_APPLICATION_CREDENTIALS to a service-account JSON file path, or set GEMINI_SERVICE_ACCOUNT_JSON to the JSON contents.",
-    );
-  }
-
-  let parsed: ServiceAccountJson;
-  try {
-    parsed = JSON.parse(rawJson) as ServiceAccountJson;
-  } catch {
-    throw new Error(
-      "Invalid JSON in GEMINI_SERVICE_ACCOUNT_JSON/GOOGLE_SERVICE_ACCOUNT_JSON (or GEMINI_API_KEY). Provide valid service-account JSON, or set GOOGLE_APPLICATION_CREDENTIALS to a file path.",
-    );
-  }
-
-  const isServiceAccount =
-    parsed?.type === "service_account" &&
-    typeof parsed.private_key === "string" &&
-    typeof parsed.client_email === "string";
-
-  if (!isServiceAccount) {
-    throw new Error(
-      "Google credentials JSON must be a service_account (must include type, client_email, private_key).",
-    );
-  }
-
-  if (!process.env.GOOGLE_CLOUD_PROJECT && typeof parsed.project_id === "string") {
-    process.env.GOOGLE_CLOUD_PROJECT = parsed.project_id;
-  }
-
-  const filePath = `/tmp/buddy-google-sa-${crypto.randomUUID()}.json`;
-  await fs.writeFile(filePath, JSON.stringify(parsed), { encoding: "utf8", mode: 0o600 });
-  process.env.GOOGLE_APPLICATION_CREDENTIALS = filePath;
-}
-
 function getGoogleProjectId(): string {
-  const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GOOGLE_PROJECT_ID;
+  const projectId =
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.GOOGLE_PROJECT_ID ||
+    process.env.GCS_PROJECT_ID ||
+    process.env.GCP_PROJECT_ID;
   if (!projectId) {
     throw new Error(
       "Missing Google Cloud project id. Set GOOGLE_CLOUD_PROJECT (recommended) or GOOGLE_PROJECT_ID.",
@@ -152,7 +103,7 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
     modelCandidates,
   });
 
-  await ensureGoogleAdcConfigured();
+  ensureGcpAdcBootstrap();
   const vertexAI = new VertexAI({
     project: getGoogleProjectId(),
     location: getGoogleLocation(),

@@ -12,6 +12,7 @@ import { reconcileUploadsForDeal } from "@/lib/documents/reconcileUploads";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { reconcileDealChecklist } from "@/lib/checklist/engine";
 import { getChecklistState } from "@/lib/checklist/getChecklistState";
+import { normalizeGoogleError } from "@/lib/google/errors";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 
 export const runtime = "nodejs";
@@ -39,6 +40,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const tracer = trace.getTracer("api.auto-seed");
 
   return await tracer.startActiveSpan("auto-seed.POST", async (rootSpan) => {
+    let dealId: string | null = null;
+    let bankId: string | null = null;
     try {
       // Add standard HTTP attributes so Honeycomb queries can group/filter by http.*
       // (Next.js auto-instrumentation may not always populate these for custom spans.)
@@ -70,8 +73,21 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         });
       }
 
-    const { dealId } = await ctx.params;
-    const bankId = await getCurrentBankId();
+      const params = await ctx.params;
+      dealId = params.dealId;
+      bankId = await getCurrentBankId();
+
+      if (!dealId) {
+        rootSpan.setStatus({ code: SpanStatusCode.ERROR });
+        return NextResponse.json({ ok: false, error: "missing_deal_id" }, { status: 400 });
+      }
+      if (!bankId) {
+        rootSpan.setStatus({ code: SpanStatusCode.ERROR });
+        return NextResponse.json({ ok: false, error: "missing_bank_id" }, { status: 400 });
+      }
+
+      const resolvedDealId = dealId;
+      const resolvedBankId = bankId;
     const sb = supabaseAdmin();
 
     // Parse query params for readiness-driven logic
@@ -352,6 +368,20 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       Array.isArray(upsertedRows) ? upsertedRows.length : 0
     );
 
+    await logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "deal.checklist.seeded",
+      uiState: "done",
+      uiMessage: `Checklist seeded (${checklistRowsWithBank.length})`,
+      meta: {
+        loan_type: intake.loan_type,
+        seeded: checklistRowsWithBank.length,
+        partial,
+        force,
+      },
+    });
+
     // Ensure seeded rows are in a deterministic initial state without clobbering received items.
     // (Older seeds may have inserted rows with status NULL.)
     try {
@@ -372,7 +402,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       "auto-seed.reconcile-uploads",
       async (span) => {
         try {
-          const res = await reconcileUploadsForDeal(dealId, bankId);
+          const res = await reconcileUploadsForDeal(resolvedDealId, resolvedBankId);
           span.setAttribute("reconcile.matched", res.matched);
           span.setStatus({ code: SpanStatusCode.OK });
           return res;
@@ -386,11 +416,20 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       }
     );
     await logLedgerEvent({
-      dealId,
-      bankId,
+      dealId: resolvedDealId,
+      bankId: resolvedBankId,
       eventKey: "reconcile_uploads",
       uiState: "done",
       uiMessage: `Matched ${reconcileRes.matched} documents`,
+      meta: { matched: reconcileRes.matched },
+    });
+
+    await logLedgerEvent({
+      dealId: resolvedDealId,
+      bankId: resolvedBankId,
+      eventKey: "deal.uploads.reconciled",
+      uiState: "done",
+      uiMessage: `Uploads reconciled (${reconcileRes.matched})`,
       meta: { matched: reconcileRes.matched },
     });
 
@@ -400,7 +439,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       try {
         await tracer.startActiveSpan("auto-seed.reconcile-deal-checklist", async (span) => {
           try {
-            const r = await reconcileDealChecklist(dealId);
+            const r = await reconcileDealChecklist(resolvedDealId);
             span.setStatus({ code: SpanStatusCode.OK });
             console.log("[auto-seed] reconcileDealChecklist", r);
           } catch (e: any) {
@@ -410,6 +449,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           } finally {
             span.end();
           }
+        });
+
+        await logLedgerEvent({
+          dealId: resolvedDealId,
+          bankId: resolvedBankId,
+          eventKey: "deal.checklist.reconciled",
+          uiState: "done",
+          uiMessage: "Checklist reconciled",
+          meta: { source: "auto_seed" },
         });
       } catch (e) {
         console.warn("[auto-seed] reconcileDealChecklist failed (non-fatal):", e);
@@ -423,7 +471,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     try {
       await tracer.startActiveSpan("auto-seed.auto-match", async (span) => {
         try {
-          const { data: files } = await sb.rpc("list_deal_documents", { p_deal_id: dealId });
+          const { data: files } = await sb.rpc("list_deal_documents", { p_deal_id: resolvedDealId });
 
           const fileCount = Array.isArray(files) ? files.length : 0;
           span.setAttribute("docs.file_count", fileCount);
@@ -432,7 +480,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           if (files && Array.isArray(files) && files.length > 0) {
             for (const file of files) {
               const result = await autoMatchChecklistFromFilename({
-                dealId,
+                dealId: resolvedDealId,
                 filename: file.original_filename,
                 fileId: file.id,
               });
@@ -555,7 +603,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // 🧠 CONVERGENCE: Recompute deal readiness after auto-seed
     await tracer.startActiveSpan("auto-seed.recompute-readiness", async (span) => {
       try {
-        await recomputeDealReady(dealId);
+        await recomputeDealReady(resolvedDealId);
         span.setStatus({ code: SpanStatusCode.OK });
       } catch (e: any) {
         span.recordException(e);
@@ -568,7 +616,20 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     // Snapshot checklist counts after reconciliation so UI can display totals.
     // This avoids confusing UX where `matchedCount` can be 0 when items were already received.
-    const postChecklist = await getChecklistState({ dealId, includeItems: false });
+    const postChecklist = await getChecklistState({ dealId: resolvedDealId, includeItems: false });
+
+    await logLedgerEvent({
+      dealId: resolvedDealId,
+      bankId: resolvedBankId,
+      eventKey: "deal.intake.advanced",
+      uiState: "done",
+      uiMessage: "Intake progressed after auto-seed",
+      meta: {
+        loan_type: intake.loan_type,
+        matched: matchedCount,
+        checklist_seeded: checklistRowsWithBank.length,
+      },
+    });
 
 
     rootSpan.setStatus({ code: SpanStatusCode.OK });
@@ -602,18 +663,38 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     } catch (error: any) {
     console.error("[auto-seed] unexpected error:", error);
 
+    const normalized = normalizeGoogleError(error);
+
     rootSpan.recordException(error);
     rootSpan.setStatus({ code: SpanStatusCode.ERROR });
 
     Sentry.captureException(error, {
       tags: { route: "auto-seed", phase: "unexpected" },
     });
+
+    if (dealId && bankId) {
+      try {
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "deal.intake.failed",
+          uiState: "done",
+          uiMessage: `Intake failed: ${normalized.code}`,
+          meta: {
+            error_code: normalized.code,
+            error_message: normalized.message,
+            source: "auto_seed",
+          },
+        });
+      } catch {}
+    }
     
     // Even on error, return graceful response
     return NextResponse.json({
       ok: false,
       status: "error",
-      error: "Auto-seed failed. Please try again or contact support.",
+      error: normalized.code,
+      message: normalized.message,
     }, { status: 500 });
     } finally {
       // Best-effort: set status code for error cases if not already set.

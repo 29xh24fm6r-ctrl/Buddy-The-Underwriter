@@ -66,6 +66,7 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
   const [ctxStatus, setCtxStatus] = useState<number | null>(null);
   const [pulse, setPulse] = useState<number>(0);
   const [lastChangeAt, setLastChangeAt] = useState<number | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
 
   // Use centralized pipeline hook
   const { pipeline } = usePipelineState(dealId);
@@ -85,6 +86,28 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
     return () => clearInterval(t);
   }, []);
 
+  // Poll buddy session storage for active runId
+  useEffect(() => {
+    let alive = true;
+    const read = () => {
+      if (!alive) return;
+      try {
+        const raw = window.sessionStorage.getItem("buddy.session.v1");
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as { runId?: string | null };
+        const next = typeof parsed?.runId === "string" ? parsed.runId : null;
+        setRunId((prev) => (prev === next ? prev : next));
+      } catch {
+        // ignore
+      }
+    };
+    read();
+    const t = setInterval(read, 2000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
   const badge = useMemo(() => {
     const secs = Math.floor(elapsedMs / 1000);
     const lastOk = lastOkAt ? `${Math.floor((Date.now() - lastOkAt) / 1000)}s ago` : "—";
@@ -95,6 +118,7 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
   const debugBundle = useMemo(() => {
     return {
       dealId,
+      runId,
       step,
       ctxStatus,
       pipelineOk,
@@ -103,7 +127,7 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
       probe,
       client_ts: new Date().toISOString(),
     };
-  }, [dealId, step, ctxStatus, pipelineOk, lastOkAt, lastChangeAt, probe]);
+  }, [dealId, runId, step, ctxStatus, pipelineOk, lastOkAt, lastChangeAt, probe]);
 
   // Expose latest debug bundle for other client components (best-effort).
   // Used for click-tracking and reproduction when triggering long-running actions.

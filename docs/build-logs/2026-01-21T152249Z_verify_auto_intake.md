@@ -651,3 +651,231 @@ verify(after_upload): {
   }
 }
 ```
+
+## preview:gate:start
+
+```
+BASE=https://buddy-the-underwriter-agekewaty-mpalas-projects-a4dbbece.vercel.app
+UTC=2026-01-21T16:49:41.864Z
+tries=60 sleep=5s
+```
+
+## preview:gate:ready
+
+```
+status=200
+ct=application/json
+matched=/api/builder/token/status
+body={"ok":true,"auth":true,"envPresent":true,"headerPresent":true,"tokenHash":"sha256:3dff47968113","envLenRaw":32,"envLenTrim":32,"headerLenRaw":32,"headerLenTrim":32,"envHashRaw":"sha256:3dff47968113","envHashTrim":"sha256:3dff47968113","headerHashRaw":"sha256:3dff47968113","headerHashTrim":"sha256:3dff47968113","authRaw":true,"authTrim":true}
+```
+
+## probe:builder_upload:output
+
+```
+{
+  "url": "https://buddy-the-underwriter-agekewaty-mpalas-projects-a4dbbece.vercel.app/api/builder/deals/dc6ce3a1-491e-435e-b11b-14b47a74d409/documents/upload",
+  "status": 204,
+  "allow": "OPTIONS, POST",
+  "matched": "/api/builder/deals/[dealId]/documents/upload",
+  "ct": null,
+  "body_prefix": ""
+}
+{
+  "url": "https://buddy-the-underwriter-agekewaty-mpalas-projects-a4dbbece.vercel.app/api/_builder/deals/dc6ce3a1-491e-435e-b11b-14b47a74d409/documents/upload",
+  "status": 204,
+  "allow": "OPTIONS, POST",
+  "matched": "/api/builder/deals/[dealId]/documents/upload",
+  "ct": null,
+  "body_prefix": ""
+}
+
+```
+
+## validation:terminal:output
+
+```
+deals/latest: {
+  "status": 200,
+  "json": {
+    "ok": true,
+    "dealId": "dc6ce3a1-491e-435e-b11b-14b47a74d409",
+    "createdAt": "2026-01-18T19:33:16.873+00:00",
+    "name": "Hellmans Mayonaise"
+  }
+}
+seed-intake: {
+  "status": 200,
+  "json": {
+    "ok": true,
+    "dealId": "dc6ce3a1-491e-435e-b11b-14b47a74d409",
+    "bankId": "bedf308d-b3f8-4e97-a900-202dd5e27035",
+    "stage": "collecting",
+    "diagnostics": {
+      "steps": [
+        {
+          "name": "initialize_intake",
+          "ok": true,
+          "status": "initialized"
+        },
+        {
+          "name": "materialize_required_checklist",
+          "ok": true,
+          "status": "materialized_6"
+        },
+        {
+          "name": "ensure_borrower",
+          "ok": true,
+          "status": "already_attached"
+        },
+        {
+          "name": "ensure_lifecycle_collecting",
+          "ok": true,
+          "status": "set_collecting_stage_only"
+        },
+        {
+          "name": "ensure_financial_snapshot",
+          "ok": true,
+          "status": "already_present"
+        }
+      ]
+    }
+  }
+}
+verify(after_seed): {
+  "status": 200,
+  "json": {
+    "ok": false,
+    "dealId": "dc6ce3a1-491e-435e-b11b-14b47a74d409",
+    "auth": true,
+    "recommendedNextAction": "checklist_incomplete",
+    "diagnostics": {
+      "dealId": "dc6ce3a1-491e-435e-b11b-14b47a74d409",
+      "lookedIn": [
+        "supabase.deals"
+      ],
+      "foundIn": {
+        "supabaseDeals": true
+      },
+      "bankId": "bedf308d-b3f8-4e97-a900-202dd5e27035",
+      "lifecycleStage": "collecting",
+      "lifecycleSource": "stage",
+      "dbError": null,
+      "lifecycleError": null,
+      "missing": [
+        "PFS_CURRENT",
+        "IRS_PERSONAL_3Y",
+        "IRS_BUSINESS_3Y",
+        "FIN_STMT_PL_YTD",
+        "FIN_STMT_BS_YTD",
+        "PROPERTY_INSURANCE"
+      ]
+    },
+    "ledgerEventsWritten": [
+      "deal.underwrite.verify"
+    ]
+  }
+}
+upload: {
+  "status": 500,
+  "json": {
+    "ok": false,
+    "error": "builder_upload_failed",
+    "message": "Invalid GCS_SERVICE_ACCOUNT_JSON"
+  }
+}
+verify(after_upload): {
+  "status": 200,
+  "json": {
+    "ok": false,
+    "dealId": "dc6ce3a1-491e-435e-b11b-14b47a74d409",
+    "auth": true,
+    "recommendedNextAction": "checklist_incomplete",
+    "diagnostics": {
+      "dealId": "dc6ce3a1-491e-435e-b11b-14b47a74d409",
+      "lookedIn": [
+        "supabase.deals"
+      ],
+      "foundIn": {
+        "supabaseDeals": true
+      },
+      "bankId": "bedf308d-b3f8-4e97-a900-202dd5e27035",
+      "lifecycleStage": "collecting",
+      "lifecycleSource": "stage",
+      "dbError": null,
+      "lifecycleError": null,
+      "missing": [
+        "PFS_CURRENT",
+        "IRS_PERSONAL_3Y",
+        "IRS_BUSINESS_3Y",
+        "FIN_STMT_PL_YTD",
+        "FIN_STMT_BS_YTD",
+        "PROPERTY_INSURANCE"
+      ]
+    },
+    "ledgerEventsWritten": [
+      "deal.underwrite.verify"
+    ]
+  }
+}
+
+```
+
+## preview:gate:start
+
+```
+BASE=https://app.buddytheunderwriter.com
+UTC=2026-01-21T17:42:08.454Z
+tries=60 sleep=5s
+```
+
+## preview:gate:ready
+
+```
+status=200
+ct=application/json
+matched=/api/builder/token/status
+body={"ok":true,"auth":false,"envPresent":true,"headerPresent":true,"tokenHash":"sha256:3dff47968113e5f3ea2d44f923a3f8dc7e8f147333b58feea4e5ca1a3f8b64bd"}
+```
+
+## probe:builder_upload:output
+
+```
+{
+  "url": "https://app.buddytheunderwriter.com/api/builder/deals/dc6ce3a1-491e-435e-b11b-14b47a74d409/documents/upload",
+  "status": 404,
+  "allow": null,
+  "matched": "/_not-found",
+  "ct": "text/html; charset=utf-8",
+  "body_prefix": "<!DOCTYPE html><html lang=\"en\" class=\"dark\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-wid"
+}
+{
+  "url": "https://app.buddytheunderwriter.com/api/_builder/deals/dc6ce3a1-491e-435e-b11b-14b47a74d409/documents/upload",
+  "status": 404,
+  "allow": null,
+  "matched": "/_not-found",
+  "ct": "text/html; charset=utf-8",
+  "body_prefix": "<!DOCTYPE html><html lang=\"en\" class=\"dark\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-wid"
+}
+
+```
+
+## validation:terminal:output
+
+```
+deals/latest: {
+  "status": 404,
+  "ct": "text/html; charset=utf-8",
+  "matched": "/_not-found",
+  "body_prefix": "<!DOCTYPE html><html lang=\"en\" class=\"dark\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesh"
+}
+file:///workspaces/Buddy-The-Underwriter/scripts/tests/run-terminal-validation.mjs:21
+if (!dealId) throw new Error("no dealId from deals/latest");
+                   ^
+
+Error: no dealId from deals/latest
+    at file:///workspaces/Buddy-The-Underwriter/scripts/tests/run-terminal-validation.mjs:21:20
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+Node.js v20.20.0
+
+```

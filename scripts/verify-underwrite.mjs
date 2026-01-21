@@ -152,6 +152,7 @@ const main = async () => {
   const auditUrl = `${baseUrl}/api/builder/stitch/audit`;
   const mintUrl = `${baseUrl}/api/builder/deals/mint`;
   const makeReadyUrl = `${baseUrl}/api/builder/deals/make-ready`;
+  const googleVerifyUrl = `${baseUrl}/api/_builder/verify/google`;
 
   console.log(`[verify:underwrite] Using preview ${baseUrl}`);
 
@@ -208,6 +209,21 @@ const main = async () => {
     headers: buildHeaders(authProbe.headers),
   });
 
+  const googleVerify = await requestJson("verify-google", googleVerifyUrl, {
+    headers: buildHeaders(authProbe.headers),
+  });
+
+  const googleOk =
+    googleVerify.payload?.adc?.ok === true &&
+    googleVerify.payload?.gcs?.ok === true &&
+    googleVerify.payload?.vertex?.ok === true;
+
+  if (!googleOk) {
+    console.error("[verify:underwrite] Google verify failed");
+    console.error(JSON.stringify(redactSecrets(googleVerify.payload ?? {}, secrets), null, 2));
+    process.exit(1);
+  }
+
   const minted = await requestJson("mint-deal", mintUrl, {
     method: "POST",
     headers: buildHeaders(authProbe.headers),
@@ -260,6 +276,7 @@ const main = async () => {
     baseUrl,
     tokenStatus: authProbe.tokenStatus,
     stitchAudit: audit.payload,
+    googleVerify: googleVerify.payload,
     minted: minted.payload,
     blockedVerify: blocked.payload,
     readyMutation: ready.payload,

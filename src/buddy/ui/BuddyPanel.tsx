@@ -352,7 +352,7 @@ export function BuddyPanel() {
                         <button
                           className="text-xs px-3 py-1 rounded-full border border-black/10 hover:bg-black/5"
                           onClick={() => {
-                            copyRunSummary(state.runId ?? "run", state.signals);
+                            void copyRunSummary(state.runId ?? "run", state.signals);
                             pushToast("Run summary copied");
                           }}
                         >
@@ -707,26 +707,56 @@ function timeAgo(ts?: number) {
   return `${hr}h ago`;
 }
 
-function copyRunSummary(runId: string, signals: BuddySignal[]) {
-  const relevant = signals.filter(
-    (s) => s.payload?.runId === runId || s.type === "error" || s.type === "user.mark"
-  );
-  const lines = relevant.map((s) => {
-    const t = new Date(s.ts ?? Date.now()).toISOString();
-    const extra =
-      s.type === "user.action"
-        ? ` action=${String(s.payload?.action ?? s.payload?.testid ?? "")}`.trim()
-        : "";
-    const msg =
-      s.type === "error"
-        ? ` ERROR: ${String(s.payload?.message ?? s.payload?.reason ?? "unknown")}`
-        : s.type === "user.mark"
-          ? ` ${String(s.payload?.mark ?? "mark").toUpperCase()}: ${String(
-              s.payload?.note ?? "(no note)"
-            )} @ ${String(s.payload?.path ?? "")}`.trim()
-          : ` ${summaryFor(s)}`;
-    return `- ${t} · ${s.type}${extra} ·${msg}`;
-  });
+async function copyRunSummary(runId: string, signals: BuddySignal[]) {
+  let lines: string[] | null = null;
+
+  try {
+    const res = await fetch(`/api/_buddy/runs/${runId}/summary`, { cache: "no-store" });
+    const json = await res.json();
+    if (res.ok && json?.ok && Array.isArray(json.events)) {
+      lines = json.events.map((ev: any) => {
+        const t = new Date(ev.ts ?? Date.now()).toISOString();
+        const kind = String(ev.kind ?? ev.type ?? "event");
+        const extra =
+          kind === "user.action"
+            ? ` action=${String(ev.payload?.action ?? ev.payload?.testid ?? "")}`.trim()
+            : "";
+        const msg =
+          kind === "error"
+            ? ` ERROR: ${String(ev.payload?.message ?? ev.payload?.reason ?? "unknown")}`
+            : kind === "user.mark"
+              ? ` ${String(ev.payload?.mark ?? "mark").toUpperCase()}: ${String(
+                  ev.payload?.note ?? "(no note)"
+                )} @ ${String(ev.payload?.path ?? ev.payload?.route ?? "")}`.trim()
+              : ` ${String(ev.payload?.summary ?? ev.payload?.text ?? "") || kind}`;
+        return `- ${t} · ${kind}${extra} ·${msg}`;
+      });
+    }
+  } catch {
+    // ignore
+  }
+
+  if (!lines) {
+    const relevant = signals.filter(
+      (s) => s.payload?.runId === runId || s.type === "error" || s.type === "user.mark"
+    );
+    lines = relevant.map((s) => {
+      const t = new Date(s.ts ?? Date.now()).toISOString();
+      const extra =
+        s.type === "user.action"
+          ? ` action=${String(s.payload?.action ?? s.payload?.testid ?? "")}`.trim()
+          : "";
+      const msg =
+        s.type === "error"
+          ? ` ERROR: ${String(s.payload?.message ?? s.payload?.reason ?? "unknown")}`
+          : s.type === "user.mark"
+            ? ` ${String(s.payload?.mark ?? "mark").toUpperCase()}: ${String(
+                s.payload?.note ?? "(no note)"
+              )} @ ${String(s.payload?.path ?? "")}`.trim()
+            : ` ${summaryFor(s)}`;
+      return `- ${t} · ${s.type}${extra} ·${msg}`;
+    });
+  }
 
   const out = `# Buddy Exploration Run\n\nRun: ${runId}\n\n## Timeline\n${lines.join("\n")}\n`;
 

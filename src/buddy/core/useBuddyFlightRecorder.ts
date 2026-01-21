@@ -4,6 +4,7 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
+import { getDealIdFromPath } from "@/buddy/getDealIdFromPath";
 
 export function useBuddyFlightRecorder(opts: { enabled: boolean; runId: string | null }) {
   const { enabled, runId } = opts;
@@ -13,11 +14,16 @@ export function useBuddyFlightRecorder(opts: { enabled: boolean; runId: string |
     if (!enabled) return;
 
     const onError = (event: ErrorEvent) => {
+      const dealId = getDealIdFromPath(window.location.pathname);
       emitBuddySignal({
         type: "error",
         source: "window.onerror",
+        dealId,
         payload: {
           runId,
+          kind: "error",
+          route: window.location.pathname,
+          dealId,
           message: event.message,
           filename: event.filename,
           lineno: event.lineno,
@@ -27,11 +33,16 @@ export function useBuddyFlightRecorder(opts: { enabled: boolean; runId: string |
     };
 
     const onRejection = (event: PromiseRejectionEvent) => {
+      const dealId = getDealIdFromPath(window.location.pathname);
       emitBuddySignal({
         type: "error",
         source: "window.onunhandledrejection",
+        dealId,
         payload: {
           runId,
+          kind: "error",
+          route: window.location.pathname,
+          dealId,
           reason: String(event.reason ?? "unknown"),
         },
       });
@@ -50,17 +61,24 @@ export function useBuddyFlightRecorder(opts: { enabled: boolean; runId: string |
 
       if (!testid && !action && tag !== "button" && tag !== "a") return;
 
+      const route = window.location.pathname;
+      const dealId = getDealIdFromPath(route);
+
       emitBuddySignal({
         type: "user.action",
         source: "flightRecorder.click",
+        dealId,
         payload: {
           runId,
+          kind: "user.action",
+          route,
+          dealId,
           testid: testid ?? undefined,
           action: action ?? undefined,
           tag,
           text: text || undefined,
           href: (target as HTMLAnchorElement).href ?? undefined,
-          path: window.location.pathname,
+          path: route,
         },
       });
     };
@@ -78,10 +96,13 @@ export function useBuddyFlightRecorder(opts: { enabled: boolean; runId: string |
 
   useEffect(() => {
     if (!enabled) return;
+    const route = pathname;
+    const dealId = getDealIdFromPath(route ?? "");
     emitBuddySignal({
       type: "page.ready",
       source: "flightRecorder.route",
-      payload: { runId, path: pathname },
+      dealId,
+      payload: { runId, path: pathname, kind: "page.ready", route, dealId },
     });
   }, [enabled, pathname, runId]);
 }

@@ -37,6 +37,38 @@ async function ensureBorrowerUploadRow(sb: ReturnType<typeof supabaseAdmin>, arg
     return { uploadId: String(existing.data.id), created: false };
   }
 
+  // Repair path: sometimes uploads are recorded without deal_id. Fix and log.
+  const orphan = await sb
+    .from("borrower_uploads")
+    .select("id, deal_id")
+    .eq("bank_id", args.bankId)
+    .eq("storage_path", args.storagePath)
+    .is("deal_id", null)
+    .maybeSingle();
+
+  if (orphan.data?.id) {
+    await sb
+      .from("borrower_uploads")
+      .update({ deal_id: args.dealId })
+      .eq("id", orphan.data.id);
+
+    await logLedgerEvent({
+      dealId: args.dealId,
+      bankId: args.bankId,
+      eventKey: "deal.uploads.repaired",
+      uiState: "done",
+      uiMessage: "Repaired orphaned upload",
+      meta: {
+        repaired: 1,
+        borrower_upload_id: orphan.data.id,
+        storage_path: args.storagePath,
+        storage_bucket: args.storageBucket,
+      },
+    });
+
+    return { uploadId: String(orphan.data.id), created: false };
+  }
+
   const uploadedAt = args.uploadedAt ?? new Date().toISOString();
 
   const ins = await sb
