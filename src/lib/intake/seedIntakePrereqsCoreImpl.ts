@@ -1,17 +1,4 @@
-import "server-only";
-
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
-import { buildDealFinancialSnapshotForBank } from "@/lib/deals/financialSnapshot";
-import { computeFinancialStress } from "@/lib/deals/financialStressEngine";
-import { evaluateSbaEligibility } from "@/lib/sba/eligibilityEngine";
-import {
-  persistFinancialSnapshot,
-  persistFinancialSnapshotDecision,
-} from "@/lib/deals/financialSnapshotPersistence";
-import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
-import { buildChecklistForLoanType } from "@/lib/deals/checklistPresets";
 
 export type SeedIntakePrereqsOptions = {
   dealId: string;
@@ -34,13 +21,19 @@ const DEFAULT_LOAN_TYPE = "CRE_OWNER_OCCUPIED";
 
 type SeedDeps = {
   sb?: SupabaseClient;
-  initializeIntake?: typeof initializeIntake;
-  buildDealFinancialSnapshotForBank?: typeof buildDealFinancialSnapshotForBank;
-  computeFinancialStress?: typeof computeFinancialStress;
-  evaluateSbaEligibility?: typeof evaluateSbaEligibility;
-  persistFinancialSnapshot?: typeof persistFinancialSnapshot;
-  persistFinancialSnapshotDecision?: typeof persistFinancialSnapshotDecision;
-  logLedgerEvent?: typeof logLedgerEvent;
+  initializeIntake?: (dealId: string, bankId?: string | null, opts?: any) => Promise<any>;
+  buildChecklistForLoanType?: (loanType: string) => Array<{
+    checklist_key: string;
+    title: string;
+    required: boolean;
+    description?: string | null;
+  }>;
+  buildDealFinancialSnapshotForBank?: (args: any) => Promise<any>;
+  computeFinancialStress?: (args: any) => any;
+  evaluateSbaEligibility?: (args: any) => any;
+  persistFinancialSnapshot?: (args: any) => Promise<any>;
+  persistFinancialSnapshotDecision?: (args: any) => Promise<any>;
+  logLedgerEvent?: (args: any) => Promise<any>;
   now?: () => string;
 };
 
@@ -73,17 +66,9 @@ export async function seedIntakePrereqsCore(
   args: SeedIntakePrereqsOptions,
   deps: SeedDeps = {},
 ): Promise<SeedIntakePrereqsResult> {
-  const sb = deps.sb ?? supabaseAdmin();
-  const initIntake = deps.initializeIntake ?? initializeIntake;
+  const sb =
+    deps.sb ?? (await import("@/lib/supabase/admin")).supabaseAdmin();
   const now = deps.now ?? (() => new Date().toISOString());
-  const buildSnapshot =
-    deps.buildDealFinancialSnapshotForBank ?? buildDealFinancialSnapshotForBank;
-  const stressEngine = deps.computeFinancialStress ?? computeFinancialStress;
-  const sbaEval = deps.evaluateSbaEligibility ?? evaluateSbaEligibility;
-  const persistSnapshot = deps.persistFinancialSnapshot ?? persistFinancialSnapshot;
-  const persistDecision =
-    deps.persistFinancialSnapshotDecision ?? persistFinancialSnapshotDecision;
-  const ledger = deps.logLedgerEvent ?? logLedgerEvent;
 
   const { dealId, bankId, source } = args;
   const ensureBorrower = args.ensureBorrower ?? false;
@@ -120,6 +105,13 @@ export async function seedIntakePrereqsCore(
   };
 
   await step("initialize_intake", async () => {
+    const initIntake =
+      deps.initializeIntake ??
+      (await import("@/lib/deals/intake/initializeIntake")).initializeIntake;
+    const ledger =
+      deps.logLedgerEvent ??
+      (await import("@/lib/pipeline/logLedgerEvent")).logLedgerEvent;
+
     const init = await initIntake(dealId, bankId, {
       reason: `banker_intake_${source}`,
       trigger: "auto",
@@ -140,6 +132,10 @@ export async function seedIntakePrereqsCore(
   });
 
   await step("materialize_required_checklist", async () => {
+    const ledger =
+      deps.logLedgerEvent ??
+      (await import("@/lib/pipeline/logLedgerEvent")).logLedgerEvent;
+
     if (!loanTypeHint) {
       const { data: intake } = await sb
         .from("deal_intake")
@@ -152,7 +148,10 @@ export async function seedIntakePrereqsCore(
     }
 
     const loanType = String(loanTypeHint || DEFAULT_LOAN_TYPE);
-    const requiredRows = buildChecklistForLoanType(loanType as any).filter(
+    const buildChecklist =
+      deps.buildChecklistForLoanType ??
+      (await import("@/lib/deals/checklistPresets")).buildChecklistForLoanType;
+    const requiredRows = buildChecklist(loanType as any).filter(
       (row) => row.required,
     );
 
@@ -294,6 +293,23 @@ export async function seedIntakePrereqsCore(
         return "already_present";
       }
 
+      const buildSnapshot =
+        deps.buildDealFinancialSnapshotForBank ??
+        (await import("@/lib/deals/financialSnapshot")).buildDealFinancialSnapshotForBank;
+      const stressEngine =
+        deps.computeFinancialStress ??
+        (await import("@/lib/deals/financialStressEngine")).computeFinancialStress;
+      const sbaEval =
+        deps.evaluateSbaEligibility ??
+        (await import("@/lib/sba/eligibilityEngine")).evaluateSbaEligibility;
+      const persistSnapshot =
+        deps.persistFinancialSnapshot ??
+        (await import("@/lib/deals/financialSnapshotPersistence")).persistFinancialSnapshot;
+      const persistDecision =
+        deps.persistFinancialSnapshotDecision ??
+        (await import("@/lib/deals/financialSnapshotPersistence"))
+          .persistFinancialSnapshotDecision;
+
       const snapshot = await buildSnapshot({ dealId, bankId });
       const stress = stressEngine({
         snapshot,
@@ -322,16 +338,24 @@ export async function seedIntakePrereqsCore(
         asOfTimestamp: now(),
       });
 
+      if (!snapRow?.id) {
+        throw new Error("snapshot_missing");
+      }
+
       await persistDecision({
         snapshotId: snapRow.id,
         dealId,
         bankId,
         inputs: {
+          snapshot,
           loanTerms: { principal: 1_000_000, amortMonths: 300, interestOnly: false, rate: 7.5 },
-          loanProductType: "SBA7a",
-          useOfProceeds: ["working_capital"],
-          entityType: "Unknown",
-          dealType: null,
+          stressScenario: { vacancyUpPct: 0.1, rentDownPct: 0.1, rateUpBps: 200 },
+          sbaInputs: {
+            borrowerEntityType: "Unknown",
+            useOfProceeds: ["working_capital"],
+            dealType: null,
+            loanProductType: "SBA7a",
+          },
         },
         stress,
         sba,
@@ -346,7 +370,7 @@ export async function seedIntakePrereqsCore(
     ok: true,
     dealId,
     bankId,
-    stage: setStageCollecting ? "collecting" : "intake",
+    stage: setStageCollecting ? "collecting" : "unknown",
     diagnostics,
   };
 }

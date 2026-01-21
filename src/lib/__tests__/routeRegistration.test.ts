@@ -16,6 +16,8 @@ test("builder verify and meta routes are registered", () => {
   const builderDecisionLatest = routePath("src/app/api/builder/deals/[dealId]/decision/latest/route.ts");
   const builderFinancialDecision = routePath("src/app/api/builder/deals/[dealId]/financial-snapshot/decision/route.ts");
   const builderSeedIntake = routePath("src/app/api/builder/deals/[dealId]/seed-intake/route.ts");
+  const builderUpload = routePath("src/app/api/builder/deals/[dealId]/documents/upload/route.ts");
+  const builderUploadAlias = routePath("src/app/api/_builder/deals/[dealId]/documents/upload/route.ts");
   const bankerInitIntake = routePath("src/app/api/deals/[dealId]/intake/init/route.ts");
   const nextStepRoute = routePath("src/app/api/deals/[dealId]/next-step/route.ts");
   const commandPage = routePath("src/app/(app)/deals/[dealId]/command/page.tsx");
@@ -33,6 +35,8 @@ test("builder verify and meta routes are registered", () => {
   assert.ok(fs.existsSync(builderDecisionLatest));
   assert.ok(fs.existsSync(builderFinancialDecision));
   assert.ok(fs.existsSync(builderSeedIntake));
+  assert.ok(fs.existsSync(builderUpload));
+  assert.ok(fs.existsSync(builderUploadAlias));
   assert.ok(fs.existsSync(bankerInitIntake));
   assert.ok(fs.existsSync(nextStepRoute));
   assert.ok(fs.existsSync(commandPage));
