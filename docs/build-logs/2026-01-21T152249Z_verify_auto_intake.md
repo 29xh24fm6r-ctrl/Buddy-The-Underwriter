@@ -477,3 +477,177 @@ pnpm -s typecheck
   ]
 }
 ```
+
+## preview:build_gate:start
+
+```
+BASE=https://buddy-the-underwriter-i01dtrlxt-mpalas-projects-a4dbbece.vercel.app\nUTC=Wed Jan 21 16:28:35 UTC 2026\ntries=60 sleep=5s
+```
+
+## preview:build_gate:ready
+
+```
+HTTP/2 200 
+ct=application/json
+matched=/api/builder/token/status
+body={"ok":true,"auth":true,"envPresent":true,"headerPresent":true,"tokenHash":"sha256:3dff47968113","envLenRaw":32,"envLenTrim":32,"headerLenRaw":32,"headerLenTrim":32,"envHashRaw":"sha256:3dff47968113","envHashTrim":"sha256:3dff47968113","headerHashRaw":"sha256:3dff47968113","headerHashTrim":"sha256:3dff47968113","authRaw":true,"authTrim":true}
+```
+
+## probe:builder_upload:command
+
+```
+BASE=https://buddy-the-underwriter-i01dtrlxt-mpalas-projects-a4dbbece.vercel.app DEAL_ID=dc6ce3a1-491e-435e-b11b-14b47a74d409 node scripts/tests/probe-builder-upload.mjs
+```
+
+## probe:builder_upload:output
+
+```
+{
+  "url": "https://buddy-the-underwriter-i01dtrlxt-mpalas-projects-a4dbbece.vercel.app/api/builder/deals/dc6ce3a1-491e-435e-b11b-14b47a74d409/documents/upload",
+  "status": 204,
+  "allow": "OPTIONS, POST",
+  "matched": "/api/builder/deals/[dealId]/documents/upload",
+  "ct": null,
+  "body_prefix": ""
+}
+{
+  "url": "https://buddy-the-underwriter-i01dtrlxt-mpalas-projects-a4dbbece.vercel.app/api/_builder/deals/dc6ce3a1-491e-435e-b11b-14b47a74d409/documents/upload",
+  "status": 204,
+  "allow": "OPTIONS, POST",
+  "matched": "/api/builder/deals/[dealId]/documents/upload",
+  "ct": null,
+  "body_prefix": ""
+}
+```
+
+## validation:terminal:command
+
+```
+BASE=https://buddy-the-underwriter-i01dtrlxt-mpalas-projects-a4dbbece.vercel.app BUDDY_BUILDER_VERIFY_TOKEN=*** node scripts/tests/run-terminal-validation.mjs
+```
+
+## validation:terminal:output
+
+```
+deals/latest: {
+  "status": 200,
+  "json": {
+    "ok": true,
+    "dealId": "dc6ce3a1-491e-435e-b11b-14b47a74d409",
+    "createdAt": "2026-01-18T19:33:16.873+00:00",
+    "name": "Hellmans Mayonaise"
+  }
+}
+seed-intake: {
+  "status": 200,
+  "json": {
+    "ok": true,
+    "dealId": "dc6ce3a1-491e-435e-b11b-14b47a74d409",
+    "bankId": "bedf308d-b3f8-4e97-a900-202dd5e27035",
+    "stage": "collecting",
+    "diagnostics": {
+      "steps": [
+        {
+          "name": "initialize_intake",
+          "ok": true,
+          "status": "initialized"
+        },
+        {
+          "name": "materialize_required_checklist",
+          "ok": true,
+          "status": "materialized_6"
+        },
+        {
+          "name": "ensure_borrower",
+          "ok": true,
+          "status": "already_attached"
+        },
+        {
+          "name": "ensure_lifecycle_collecting",
+          "ok": true,
+          "status": "set_collecting_stage_only"
+        },
+        {
+          "name": "ensure_financial_snapshot",
+          "ok": true,
+          "status": "already_present"
+        }
+      ]
+    }
+  }
+}
+verify(after_seed): {
+  "status": 200,
+  "json": {
+    "ok": false,
+    "dealId": "dc6ce3a1-491e-435e-b11b-14b47a74d409",
+    "auth": true,
+    "recommendedNextAction": "checklist_incomplete",
+    "diagnostics": {
+      "dealId": "dc6ce3a1-491e-435e-b11b-14b47a74d409",
+      "lookedIn": [
+        "supabase.deals"
+      ],
+      "foundIn": {
+        "supabaseDeals": true
+      },
+      "bankId": "bedf308d-b3f8-4e97-a900-202dd5e27035",
+      "lifecycleStage": "collecting",
+      "lifecycleSource": "stage",
+      "dbError": null,
+      "lifecycleError": null,
+      "missing": [
+        "PFS_CURRENT",
+        "IRS_PERSONAL_3Y",
+        "IRS_BUSINESS_3Y",
+        "FIN_STMT_PL_YTD",
+        "FIN_STMT_BS_YTD",
+        "PROPERTY_INSURANCE"
+      ]
+    },
+    "ledgerEventsWritten": [
+      "deal.underwrite.verify"
+    ]
+  }
+}
+upload: {
+  "status": 500,
+  "ct": "",
+  "matched": "/api/builder/deals/[dealId]/documents/upload",
+  "body_prefix": ""
+}
+verify(after_upload): {
+  "status": 200,
+  "json": {
+    "ok": false,
+    "dealId": "dc6ce3a1-491e-435e-b11b-14b47a74d409",
+    "auth": true,
+    "recommendedNextAction": "checklist_incomplete",
+    "diagnostics": {
+      "dealId": "dc6ce3a1-491e-435e-b11b-14b47a74d409",
+      "lookedIn": [
+        "supabase.deals"
+      ],
+      "foundIn": {
+        "supabaseDeals": true
+      },
+      "bankId": "bedf308d-b3f8-4e97-a900-202dd5e27035",
+      "lifecycleStage": "collecting",
+      "lifecycleSource": "stage",
+      "dbError": null,
+      "lifecycleError": null,
+      "missing": [
+        "PFS_CURRENT",
+        "IRS_PERSONAL_3Y",
+        "IRS_BUSINESS_3Y",
+        "FIN_STMT_PL_YTD",
+        "FIN_STMT_BS_YTD",
+        "PROPERTY_INSURANCE"
+      ]
+    },
+    "ledgerEventsWritten": [
+      "deal.underwrite.verify"
+    ]
+  }
+}
+```

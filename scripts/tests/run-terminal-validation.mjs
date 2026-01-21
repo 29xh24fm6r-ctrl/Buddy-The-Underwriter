@@ -33,13 +33,14 @@ const verify1 = await j(`${BASE}/api/_builder/verify/underwrite?dealId=${dealId}
 console.log("verify(after_seed):", JSON.stringify(verify1, null, 2));
 
 const pdf = readFileSync("/tmp/buddy_dummy.pdf");
-const form = new FormData();
-form.set("file", new Blob([pdf], { type: "application/pdf" }), "buddy_dummy.pdf");
-
 const upload = await j(`${BASE}/api/builder/deals/${dealId}/documents/upload`, {
   method: "POST",
-  headers: { "x-buddy-builder-token": TOKEN },
-  body: form,
+  headers: { "x-buddy-builder-token": TOKEN, "content-type": "application/json" },
+  body: JSON.stringify({
+    filename: "buddy_dummy.pdf",
+    mimeType: "application/pdf",
+    base64: Buffer.from(pdf).toString("base64"),
+  }),
 });
 console.log("upload:", JSON.stringify(upload, null, 2));
 

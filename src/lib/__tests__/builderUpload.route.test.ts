@@ -36,7 +36,9 @@ function createFakeSupabase(): FakeSupabase {
 test("builder upload rejects missing token", async () => {
   const handler = createBuilderUploadHandler({
     mustBuilderToken: () => {
-      throw new Error("unauthorized");
+      throw new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
+        status: 401,
+      });
     },
   } as any);
 
@@ -45,15 +47,8 @@ test("builder upload rejects missing token", async () => {
     { method: "POST", body: new FormData() },
   );
 
-  let thrown: any = null;
-  try {
-    await handler(req, { params: Promise.resolve({ dealId: "deal-1" }) });
-  } catch (err) {
-    thrown = err;
-  }
-
-  assert.ok(thrown instanceof Error);
-  assert.equal((thrown as Error).message, "unauthorized");
+  const res = await handler(req, { params: Promise.resolve({ dealId: "deal-1" }) });
+  assert.equal(res.status, 401);
 });
 
 test("builder upload rejects missing file", async () => {
