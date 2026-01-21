@@ -131,7 +131,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
     }
 
     const msg = String(res.error?.message ?? "");
-    if (msg.includes("lifecycle_stage") && !msg.includes("stage")) {
+    if (msg.includes("lifecycle_stage")) {
       const stageOnly = await sb
         .from("deals")
         .update({ stage: "collecting", updated_at: now })
