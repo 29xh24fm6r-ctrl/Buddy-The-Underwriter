@@ -199,15 +199,17 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
     setIgniteBusy(true);
     setIgniteMessage(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/ignite`, { method: "POST" });
+      const res = await fetch(`/api/deals/${dealId}/intake/init`, { method: "POST" });
       const json = await res.json();
       if (!res.ok || !json?.ok) {
         setIgniteMessage(json?.error || "Failed to start intake");
         return;
       }
-      setStage("intake");
-      onLifecycleStageChange?.("intake");
+      const nextStage = String(json?.stage ?? "intake");
+      setStage(nextStage);
+      onLifecycleStageChange?.(nextStage);
       await onChecklistSeeded?.();
+      await refreshDealContext("intake_initialized");
       setIgniteMessage("Deal intake started. You can upload documents now.");
     } catch (e: any) {
       setIgniteMessage(e?.message || "Failed to start intake");

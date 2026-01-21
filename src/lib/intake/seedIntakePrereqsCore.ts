@@ -1,0 +1,267 @@
+import "server-only";
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
+import { buildDealFinancialSnapshotForBank } from "@/lib/deals/financialSnapshot";
+import { computeFinancialStress } from "@/lib/deals/financialStressEngine";
+import { evaluateSbaEligibility } from "@/lib/sba/eligibilityEngine";
+import {
+  persistFinancialSnapshot,
+  persistFinancialSnapshotDecision,
+} from "@/lib/deals/financialSnapshotPersistence";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+
+export type SeedIntakePrereqsOptions = {
+  dealId: string;
+  bankId: string;
+  source: "banker" | "builder";
+  ensureBorrower?: boolean;
+  ensureFinancialSnapshot?: boolean;
+  setStageCollecting?: boolean;
+};
+
+export type SeedIntakePrereqsResult = {
+  ok: true;
+  dealId: string;
+  bankId: string;
+  stage: "collecting" | "intake" | "unknown";
+  diagnostics: { steps: Array<{ name: string; ok: boolean; status?: string; error?: string }> };
+};
+
+type SeedDeps = {
+  sb?: SupabaseClient;
+  initializeIntake?: typeof initializeIntake;
+  buildDealFinancialSnapshotForBank?: typeof buildDealFinancialSnapshotForBank;
+  computeFinancialStress?: typeof computeFinancialStress;
+  evaluateSbaEligibility?: typeof evaluateSbaEligibility;
+  persistFinancialSnapshot?: typeof persistFinancialSnapshot;
+  persistFinancialSnapshotDecision?: typeof persistFinancialSnapshotDecision;
+  logLedgerEvent?: typeof logLedgerEvent;
+  now?: () => string;
+};
+
+async function updateDealWithFallback(
+  sb: SupabaseClient,
+  dealId: string,
+  payload: Record<string, any>,
+) {
+  const attempt = await sb.from("deals").update(payload).eq("id", dealId);
+  if (!attempt.error) return;
+
+  const msg = String(attempt.error?.message ?? "");
+  if (!msg.includes("column")) {
+    throw attempt.error;
+  }
+
+  const fallbackPayload: Record<string, any> = {
+    borrower_id: payload.borrower_id,
+    borrower_name: payload.borrower_name,
+    updated_at: payload.updated_at,
+    name: payload.name,
+    display_name: payload.display_name,
+  };
+
+  const fallback = await sb.from("deals").update(fallbackPayload).eq("id", dealId);
+  if (fallback.error) throw fallback.error;
+}
+
+export async function seedIntakePrereqsCore(
+  args: SeedIntakePrereqsOptions,
+  deps: SeedDeps = {},
+): Promise<SeedIntakePrereqsResult> {
+  const sb = deps.sb ?? supabaseAdmin();
+  const initIntake = deps.initializeIntake ?? initializeIntake;
+  const now = deps.now ?? (() => new Date().toISOString());
+  const buildSnapshot =
+    deps.buildDealFinancialSnapshotForBank ?? buildDealFinancialSnapshotForBank;
+  const stressEngine = deps.computeFinancialStress ?? computeFinancialStress;
+  const sbaEval = deps.evaluateSbaEligibility ?? evaluateSbaEligibility;
+  const persistSnapshot = deps.persistFinancialSnapshot ?? persistFinancialSnapshot;
+  const persistDecision =
+    deps.persistFinancialSnapshotDecision ?? persistFinancialSnapshotDecision;
+  const ledger = deps.logLedgerEvent ?? logLedgerEvent;
+
+  const { dealId, bankId, source } = args;
+  const ensureBorrower = args.ensureBorrower ?? false;
+  const ensureFinancialSnapshot = args.ensureFinancialSnapshot ?? false;
+  const setStageCollecting = args.setStageCollecting ?? false;
+
+  const { data: deal, error } = await sb
+    .from("deals")
+    .select("id, bank_id, borrower_id, borrower_name, name, display_name")
+    .eq("id", dealId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`seedIntakePrereqsCore: deal lookup failed: ${error.message}`);
+  }
+
+  if (!deal) {
+    throw new Error(`seedIntakePrereqsCore: deal not found: ${dealId}`);
+  }
+
+  if (deal.bank_id && String(deal.bank_id) !== String(bankId)) {
+    throw new Error("seedIntakePrereqsCore: tenant_mismatch");
+  }
+
+  const diagnostics: SeedIntakePrereqsResult["diagnostics"] = { steps: [] };
+  const step = async (name: string, fn: () => Promise<string | undefined>) => {
+    try {
+      const status = await fn();
+      diagnostics.steps.push({ name, ok: true, status });
+    } catch (e: any) {
+      diagnostics.steps.push({ name, ok: false, error: String(e?.message ?? e) });
+    }
+  };
+
+  await step("initialize_intake", async () => {
+    await initIntake(dealId, bankId, { reason: `banker_intake_${source}`, trigger: "auto" });
+    await ledger({
+      dealId,
+      bankId,
+      eventKey: "intake.initialized",
+      uiState: "done",
+      uiMessage: "Intake initialized",
+      meta: { source },
+    });
+    return "initialized";
+  });
+
+  if (ensureBorrower) {
+    await step("ensure_borrower", async () => {
+      if (deal.borrower_id) {
+        return "already_attached";
+      }
+
+      const legalName =
+        String(deal.display_name ?? deal.name ?? "Builder Seed Borrower").trim() ||
+        "Builder Seed Borrower";
+
+      const { data: borrower, error: borrowerErr } = await sb
+        .from("borrowers")
+        .insert({
+          bank_id: bankId,
+          legal_name: legalName,
+          entity_type: "Unknown",
+          primary_contact_name: "Builder Seed",
+          primary_contact_email: `builder+${dealId.slice(0, 8)}@example.com`,
+        })
+        .select("id, legal_name")
+        .single();
+
+      if (borrowerErr || !borrower) {
+        throw borrowerErr ?? new Error("borrower_insert_failed");
+      }
+
+      await updateDealWithFallback(sb, dealId, {
+        borrower_id: borrower.id,
+        borrower_name: borrower.legal_name ?? legalName,
+        updated_at: now(),
+      });
+
+      return "attached";
+    });
+  }
+
+  if (setStageCollecting) {
+    await step("ensure_lifecycle_collecting", async () => {
+      const res = await sb
+        .from("deals")
+        .update({ lifecycle_stage: "collecting", stage: "collecting", updated_at: now() })
+        .eq("id", dealId);
+
+      if (!res.error) {
+        return "set_collecting";
+      }
+
+      const msg = String(res.error?.message ?? "");
+      if (msg.includes("lifecycle_stage")) {
+        const stageOnly = await sb
+          .from("deals")
+          .update({ stage: "collecting", updated_at: now() })
+          .eq("id", dealId);
+
+        if (!stageOnly.error) {
+          return "set_collecting_stage_only";
+        }
+
+        return "column_missing";
+      }
+
+      if (msg.includes("stage")) {
+        return "column_missing";
+      }
+
+      throw res.error;
+    });
+  }
+
+  if (ensureFinancialSnapshot) {
+    await step("ensure_financial_snapshot", async () => {
+      const { count } = await sb
+        .from("financial_snapshot_decisions")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId);
+
+      if (count && count > 0) {
+        return "already_present";
+      }
+
+      const snapshot = await buildSnapshot({ dealId, bankId });
+      const stress = stressEngine({
+        snapshot,
+        loanTerms: { principal: 1_000_000, amortMonths: 300, interestOnly: false, rate: 7.5 },
+        stress: { vacancyUpPct: 0.1, rentDownPct: 0.1, rateUpBps: 200 },
+      });
+      const sba = sbaEval({
+        snapshot,
+        borrowerEntityType: "Unknown",
+        useOfProceeds: ["working_capital"],
+        dealType: null,
+        loanProductType: "SBA7a",
+      });
+      const narrative = {
+        executiveSummary: "Seed intake snapshot",
+        cashFlowAnalysis: "Seed intake snapshot",
+        risks: [],
+        mitigants: [],
+        recommendation: "Seed intake snapshot",
+      };
+
+      const snapRow = await persistSnapshot({
+        dealId,
+        bankId,
+        snapshot,
+        asOfTimestamp: now(),
+      });
+
+      await persistDecision({
+        snapshotId: snapRow.id,
+        dealId,
+        bankId,
+        inputs: {
+          loanTerms: { principal: 1_000_000, amortMonths: 300, interestOnly: false, rate: 7.5 },
+          loanProductType: "SBA7a",
+          useOfProceeds: ["working_capital"],
+          entityType: "Unknown",
+          dealType: null,
+        },
+        stress,
+        sba,
+        narrative,
+      });
+
+      return "created";
+    });
+  }
+
+  return {
+    ok: true,
+    dealId,
+    bankId,
+    stage: setStageCollecting ? "collecting" : "intake",
+    diagnostics,
+  };
+}
