@@ -34,6 +34,7 @@ export type VerifyUnderwriteBlocked = {
     bankId?: string | null;
     dbError?: string | null;
     missing?: string[];
+    lifecycleColumn?: "lifecycle_stage" | "lifecycle_state" | null;
     lifecycleStage?: string | null;
   };
   ledgerEventsWritten: string[];
@@ -64,6 +65,50 @@ async function hasCreditSnapshot(sb: SupabaseClient, dealId: string) {
     .select("id", { count: "exact", head: true })
     .eq("deal_id", dealId);
   return Boolean(count && count > 0);
+}
+
+async function fetchDeal(
+  sb: SupabaseClient,
+  dealId: string,
+): Promise<{
+  deal:
+    | {
+        id: string;
+        bank_id: string | null;
+        display_name?: string | null;
+        name?: string | null;
+        borrower_id?: string | null;
+        lifecycle_stage?: string | null;
+        lifecycle_state?: string | null;
+      }
+    | null;
+  error: { message?: string } | null;
+  lifecycleColumn: "lifecycle_stage" | "lifecycle_state" | null;
+}> {
+  const baseSelect = "id, bank_id, display_name, name, borrower_id";
+  const primary = await sb
+    .from("deals")
+    .select(`${baseSelect}, lifecycle_stage`)
+    .eq("id", dealId)
+    .maybeSingle();
+
+  if (!primary.error) {
+    return { deal: primary.data, error: null, lifecycleColumn: "lifecycle_stage" };
+  }
+
+  if (primary.error?.message?.includes("lifecycle_stage")) {
+    const fallback = await sb
+      .from("deals")
+      .select(`${baseSelect}, lifecycle_state`)
+      .eq("id", dealId)
+      .maybeSingle();
+    if (!fallback.error) {
+      return { deal: fallback.data, error: null, lifecycleColumn: "lifecycle_state" };
+    }
+    return { deal: null, error: fallback.error, lifecycleColumn: "lifecycle_state" };
+  }
+
+  return { deal: null, error: primary.error, lifecycleColumn: "lifecycle_stage" };
 }
 
 export async function verifyUnderwriteCore(
@@ -109,11 +154,7 @@ export async function verifyUnderwriteCore(
     ledgerEventsWritten.push("deal.underwrite.verify");
   };
 
-  const { data: deal, error } = await sb
-    .from("deals")
-    .select("id, bank_id, display_name, name, borrower_id, lifecycle_stage")
-    .eq("id", dealId)
-    .maybeSingle();
+  const { deal, error, lifecycleColumn } = await fetchDeal(sb, dealId);
 
   const lookupDiagnostics = {
     dealId,
@@ -122,7 +163,14 @@ export async function verifyUnderwriteCore(
       supabaseDeals: Boolean(deal && !error),
     },
     bankId: deal?.bank_id ? String(deal.bank_id) : null,
-    lifecycleStage: deal?.lifecycle_stage ? String(deal.lifecycle_stage) : null,
+    lifecycleStage: deal
+      ? String(
+          lifecycleColumn === "lifecycle_state"
+            ? deal.lifecycle_state
+            : deal.lifecycle_stage,
+        )
+      : null,
+    lifecycleColumn,
     dbError: error?.message ?? null,
   };
 
