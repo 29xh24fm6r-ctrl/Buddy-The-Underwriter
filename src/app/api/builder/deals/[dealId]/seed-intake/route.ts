@@ -56,7 +56,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
 
   const { data: deal, error: dealErr } = await sb
     .from("deals")
-    .select("id, bank_id, borrower_id, borrower_name, name, display_name, lifecycle_stage")
+    .select("id, bank_id, borrower_id, borrower_name, name, display_name")
     .eq("id", dealId)
     .maybeSingle();
 
@@ -121,16 +121,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ dealId: string
   });
 
   await step("ensure_lifecycle_collecting", async () => {
-    const current = String(deal.lifecycle_stage ?? "").trim();
-    if (current === "collecting" || current === "underwriting" || current === "ready") {
-      return "already_ready";
+    const res = await sb
+      .from("deals")
+      .update({ lifecycle_stage: "collecting", stage: "collecting", updated_at: now })
+      .eq("id", dealId);
+
+    if (!res.error) {
+      return "set_collecting";
     }
 
-    await updateDealWithFallback(sb, dealId, {
-      lifecycle_stage: "collecting",
-      stage: "collecting",
-      updated_at: now,
-    });
+    const msg = String(res.error?.message ?? "");
+    if (msg.includes("lifecycle_stage") || msg.includes("stage")) {
+      return "column_missing";
+    }
+
+    throw res.error;
   });
 
   await step("ensure_financial_snapshot", async () => {
