@@ -65,6 +65,11 @@ export type VerifyUnderwriteParams = {
 };
 
 const INTAKE_COMPLETE_STAGES = new Set(["collecting", "underwriting", "ready"]);
+const KNOWN_LIFECYCLE_STAGES = new Set([
+  "created",
+  "intake",
+  ...INTAKE_COMPLETE_STAGES,
+]);
 
 async function hasCreditSnapshot(sb: SupabaseClient, dealId: string) {
   const { count } = await sb
@@ -116,24 +121,14 @@ async function fetchDeal(
   }
 
   const row = base.data as Record<string, any>;
-  const lifecycleFromRow =
-    row.lifecycle_stage ??
-    row.deal_state ??
-    row.pipeline_state ??
-    row.status ??
-    row.stage ??
-    null;
+  const candidate = row.lifecycle_stage ?? row.stage ?? null;
+  const stageValue = candidate ? String(candidate) : null;
+  const lifecycleFromRow = stageValue && KNOWN_LIFECYCLE_STAGES.has(stageValue) ? stageValue : null;
   const lifecycleSource = row.lifecycle_stage
     ? "lifecycle_stage"
-    : row.deal_state
-      ? "deal_state"
-      : row.pipeline_state
-        ? "pipeline_state"
-        : row.status
-          ? "status"
-          : row.stage
-            ? "stage"
-            : null;
+    : row.stage
+      ? "stage"
+      : null;
 
   return {
     deal: base.data,
