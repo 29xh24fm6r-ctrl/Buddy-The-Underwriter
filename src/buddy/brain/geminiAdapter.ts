@@ -3,7 +3,7 @@ import "server-only";
 
 import type { BuddyContextPack } from "@/buddy/brain/types";
 import { VertexAI } from "@google-cloud/vertexai";
-import { ensureGcpAdcBootstrap } from "@/lib/gcpAdcBootstrap";
+import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
 
 function getGoogleProjectId(): string {
   const projectId =
@@ -26,9 +26,11 @@ function getGoogleLocation(): string {
 export async function geminiShadowAnalyze(ctx: BuddyContextPack) {
   const model = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
   await ensureGcpAdcBootstrap();
+  const googleAuthOptions = await getVertexAuthOptions();
   const vertex = new VertexAI({
     project: getGoogleProjectId(),
     location: getGoogleLocation(),
+    ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
   });
   const gemini = vertex.getGenerativeModel({ model });
 

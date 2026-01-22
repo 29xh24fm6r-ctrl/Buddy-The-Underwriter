@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { VertexAI } from "@google-cloud/vertexai";
-import { ensureGcpAdcBootstrap } from "@/lib/gcpAdcBootstrap";
+import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
 
 export const runtime = "nodejs";
 
@@ -25,7 +25,12 @@ export async function GET() {
 
   try {
     await ensureGcpAdcBootstrap();
-    const vertex = new VertexAI({ project, location });
+    const googleAuthOptions = await getVertexAuthOptions();
+    const vertex = new VertexAI({
+      project,
+      location,
+      ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
+    });
     const gm = vertex.getGenerativeModel({ model });
 
     const resp = await gm.generateContent({

@@ -1,6 +1,6 @@
 import "server-only";
 import { VertexAI } from "@google-cloud/vertexai";
-import { ensureGcpAdcBootstrap } from "@/lib/gcpAdcBootstrap";
+import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
 
 type GeminiOcrArgs = {
   fileBytes: Buffer;
@@ -104,9 +104,11 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
   });
 
   await ensureGcpAdcBootstrap();
+  const googleAuthOptions = await getVertexAuthOptions();
   const vertexAI = new VertexAI({
     project: getGoogleProjectId(),
     location: getGoogleLocation(),
+    ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
   });
 
   const normalizedMimeType = normalizeMimeType(mimeType);
