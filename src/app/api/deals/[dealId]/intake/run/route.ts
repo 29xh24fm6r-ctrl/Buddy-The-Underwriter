@@ -37,3 +37,10 @@ export async function POST(_req: Request, ctx: Ctx) {
     );
   }
 }
+
+export async function GET() {
+  return NextResponse.json(
+    { ok: false, error: "method_not_allowed", message: "Use POST for intake run." },
+    { status: 405 },
+  );
+}

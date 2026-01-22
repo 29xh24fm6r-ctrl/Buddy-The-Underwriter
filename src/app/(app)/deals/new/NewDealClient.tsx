@@ -32,6 +32,8 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
   const [debugInfo, setDebugInfo] = useState<{ requestId: string | null; stage: string | null }>(
     { requestId: null, stage: null },
   );
+  const [processing, setProcessing] = useState(false);
+  const [processError, setProcessError] = useState<string | null>(null);
 
   const handleFiles = useCallback((selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
@@ -84,6 +86,8 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
     if (files.length === 0) return;
 
     setUploading(true);
+    setProcessing(false);
+    setProcessError(null);
     setUploadProgress({ current: 0, total: files.length });
 
     const classifyNetworkError = (e: unknown) => {
@@ -145,6 +149,28 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
       throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
     };
 
+    const pollIntakeStatus = async (dealId: string) => {
+      const maxAttempts = 20;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        try {
+          const res = await fetch(`/api/deals/${dealId}/intake/status`, { cache: "no-store" });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok || json?.ok === false) {
+            return { ok: false, error: json?.error || `HTTP ${res.status}` };
+          }
+          const stage = String(json?.stage || "");
+          const recommended = json?.recommendedNextAction ?? null;
+          if (stage === "complete" || stage === "ready" || stage === "underwriting" || !recommended) {
+            return { ok: true, status: "ready" };
+          }
+        } catch {
+          // ignore transient polling errors
+        }
+      }
+      return { ok: true, status: "timeout" };
+    };
+
     try {
       // 1. Create the deal
       setDebugInfo({ requestId: null, stage: "create_deal" });
@@ -199,7 +225,23 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
         }
       }
 
-      // 3. Redirect to the deal cockpit (command center)
+      // 3. Trigger intake orchestration
+      setProcessing(true);
+      setDebugInfo({ requestId: null, stage: "intake_run" });
+      const runRes = await fetch(`/api/deals/${dealId}/intake/run`, { method: "POST" });
+      const runJson = await runRes.json().catch(() => ({}));
+      if (!runRes.ok || runJson?.ok === false) {
+        throw new Error(`Intake run failed (${runRes.status}): ${runJson?.error || "unknown"}`);
+      }
+
+      // 4. Optional: poll intake status for a short window
+      setDebugInfo({ requestId: null, stage: "intake_poll" });
+      const pollResult = await pollIntakeStatus(dealId);
+      if (!pollResult.ok) {
+        throw new Error(`Intake status error: ${pollResult.error || "unknown"}`);
+      }
+
+      // 5. Redirect to the deal cockpit (command center)
       router.push(
         `/deals/${dealId}/cockpit${createdName ? `?n=${encodeURIComponent(createdName)}` : ""}`,
       );
@@ -219,9 +261,13 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
         );
         return;
       }
-      alert(msg || "Upload failed");
+      const friendly = msg || "Upload failed";
+      setProcessError(friendly);
+      alert(friendly);
     } finally {
       setUploading(false);
+      setProcessing(false);
+      setDebugInfo({ requestId: null, stage: null });
     }
   }, [files, dealName, bankId, router]);
 
@@ -396,22 +442,23 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setFiles([])}
+                disabled={uploading || processing}
                 className="px-6 py-3 text-gray-400 hover:text-white transition-colors"
               >
                 Clear
               </button>
               <button
                 onClick={handleUpload}
-                disabled={uploading}
+                disabled={uploading || processing}
                 className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center gap-2"
               >
-                {uploading ? (
+                {uploading || processing ? (
                   <>
-                    {uploadProgress.current}/{uploadProgress.total}
+                    {uploading ? `${uploadProgress.current}/${uploadProgress.total}` : "Processing"}
                     <span className="animate-spin material-symbols-outlined text-[20px]">
                       progress_activity
                     </span>
-                    Uploading...
+                    {uploading ? "Uploading..." : "Processing..."}
                     {debugInfo.requestId ? (
                       <span className="ml-2 text-xs text-white/80">
                         (Request: {debugInfo.requestId}{debugInfo.stage ? ` • ${debugInfo.stage}` : ""})
@@ -431,6 +478,12 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
               </button>
             </div>
           )}
+
+          {processError ? (
+            <div className="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+              {processError}
+            </div>
+          ) : null}
 
           {/* Help Text */}
           <div className="mt-8 p-6 bg-blue-500/10 border border-blue-500/30 rounded-xl">
