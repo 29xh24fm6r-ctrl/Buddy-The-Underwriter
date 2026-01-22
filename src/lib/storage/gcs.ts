@@ -32,12 +32,6 @@ function isVercelRuntime(): boolean {
 
 export async function getGcsClient(): Promise<Storage> {
   const projectId = getGcsProjectId() ?? undefined;
-  const isVercel = isVercelRuntime();
-  const branch = isVercel
-    ? "vercel-wif"
-    : process.env.GOOGLE_APPLICATION_CREDENTIALS
-      ? "local-adc"
-      : "missing-env";
 
   console.log("[gcs-auth] runtime", {
     VERCEL: process.env.VERCEL,
@@ -57,9 +51,13 @@ export async function getGcsClient(): Promise<Storage> {
       GCS_UPLOADS_ENABLED: process.env.GCS_UPLOADS_ENABLED,
     },
   });
-  console.log("[gcs-auth] branch=", branch);
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    console.log("[gcs-auth] branch=local-adc");
+    return new Storage({ projectId });
+  }
 
-  if (isVercel) {
+  if (isVercelRuntime()) {
+    console.log("[gcs-auth] branch=vercel-wif");
     try {
       const authClient = await getVercelWifAuthClient();
       console.log("[gcs-auth] vercel-oidc-token=present", true);
@@ -76,10 +74,7 @@ export async function getGcsClient(): Promise<Storage> {
     }
   }
 
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    return new Storage({ projectId });
-  }
-
+  console.log("[gcs-auth] branch=missing-env");
   throw new Error(
     "Missing GCS credentials. Local: set GOOGLE_APPLICATION_CREDENTIALS. Vercel: set GCP_SERVICE_ACCOUNT_EMAIL and either GCP_WIF_PROVIDER or (GCP_PROJECT_NUMBER + GCP_WORKLOAD_IDENTITY_POOL_ID + GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID).",
   );
