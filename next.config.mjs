@@ -29,14 +29,6 @@ const nextConfig = {
       },
     ];
   },
-  async rewrites() {
-    return [
-      {
-        source: "/api/_builder/:path*",
-        destination: "/api/builder/:path*",
-      },
-    ];
-  },
   outputFileTracingIncludes: {
     "/api/builder/stitch/audit": [
       "src/stitch/stitchSurfaceRegistry.ts",
