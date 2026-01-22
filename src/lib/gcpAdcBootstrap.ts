@@ -1,14 +1,9 @@
 import "server-only";
 
 import fs from "node:fs";
+import { resolveAudience, resolveServiceAccountEmail } from "@/lib/gcp/wif";
 
 const WIF_CREDENTIALS_PATH = "/tmp/gcp-wif.json";
-
-function normalizeAudience(provider: string): string {
-  return provider.startsWith("//iam.googleapis.com/")
-    ? provider
-    : `//iam.googleapis.com/${provider}`;
-}
 
 function getProjectId(): string | null {
   return (
@@ -21,26 +16,30 @@ function getProjectId(): string | null {
 }
 
 function buildWifConfig(): Record<string, any> | null {
-  const provider = process.env.GCP_WIF_PROVIDER;
-  const serviceAccountEmail = process.env.GCP_SERVICE_ACCOUNT_EMAIL;
-  const subjectToken = process.env.VERCEL_OIDC_TOKEN;
-
-  if (!provider || !serviceAccountEmail || !subjectToken) {
+  const subjectToken = process.env.GCP_WIF_SUBJECT_TOKEN || process.env.VERCEL_OIDC_TOKEN;
+  if (!subjectToken) {
     return null;
   }
 
-  return {
-    type: "external_account",
-    audience: normalizeAudience(provider),
-    subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
-    token_url: "https://sts.googleapis.com/v1/token",
-    service_account_impersonation_url:
-      `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${serviceAccountEmail}:generateAccessToken`,
-    credential_source: {
-      environment_id: "aws1",
-      subject_token: subjectToken,
-    },
-  };
+  try {
+    const audience = resolveAudience();
+    const serviceAccountEmail = resolveServiceAccountEmail();
+
+    return {
+      type: "external_account",
+      audience,
+      subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
+      token_url: "https://sts.googleapis.com/v1/token",
+      service_account_impersonation_url:
+        `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${serviceAccountEmail}:generateAccessToken`,
+      credential_source: {
+        environment_id: "vercel",
+        subject_token: subjectToken,
+      },
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function ensureGcpAdcBootstrap(): void {

@@ -1,14 +1,12 @@
 import "server-only";
 
-import { Storage } from "@google-cloud/storage";
+import { Storage, type StorageOptions } from "@google-cloud/storage";
 import { buildGcsObjectKey, sanitizeFilename } from "@/lib/storage/gcsNaming";
-import { ensureGcpAdcBootstrap } from "@/lib/gcpAdcBootstrap";
+import { getVercelWifAuthClient } from "@/lib/gcp/vercelAuth";
 
 const DEFAULT_SIGN_TTL_SECONDS = 15 * 60;
 
 let cachedStorage: Storage | null = null;
-
-ensureGcpAdcBootstrap();
 
 export function getGcsBucketName(): string {
   const bucket = process.env.GCS_BUCKET;
@@ -28,24 +26,34 @@ function getGcsProjectId(): string | null {
   );
 }
 
-export function getGcsClient(): Storage {
-  return new Storage({
-    projectId: getGcsProjectId() ?? undefined,
-  });
+function isVercelRuntime(): boolean {
+  return process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);
 }
 
-function getGcsStorage(): Storage {
-  if (cachedStorage) return cachedStorage;
+export async function getGcsClient(): Promise<Storage> {
+  const projectId = getGcsProjectId() ?? undefined;
 
-  ensureGcpAdcBootstrap();
-
-  if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    throw new Error(
-      "Missing GCS credentials. Configure GCP_WIF_PROVIDER + GCP_SERVICE_ACCOUNT_EMAIL + VERCEL_OIDC_TOKEN (Vercel) or GOOGLE_APPLICATION_CREDENTIALS (local).",
-    );
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return new Storage({ projectId });
   }
 
-  cachedStorage = getGcsClient();
+  if (isVercelRuntime()) {
+    const authClient = await getVercelWifAuthClient();
+    return new Storage({
+      projectId,
+      authClient: authClient as unknown as StorageOptions["authClient"],
+    });
+  }
+
+  throw new Error(
+    "Missing GCS credentials. Local: set GOOGLE_APPLICATION_CREDENTIALS. Vercel: set GCP_SERVICE_ACCOUNT_EMAIL and either GCP_WIF_PROVIDER or (GCP_PROJECT_NUMBER + GCP_WORKLOAD_IDENTITY_POOL_ID + GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID).",
+  );
+}
+
+async function getGcsStorage(): Promise<Storage> {
+  if (cachedStorage) return cachedStorage;
+
+  cachedStorage = await getGcsClient();
 
   return cachedStorage;
 }
@@ -57,7 +65,7 @@ export async function signGcsUploadUrl(args: {
   contentType: string;
   expiresSeconds?: number;
 }): Promise<string> {
-  const storage = getGcsStorage();
+  const storage = await getGcsStorage();
   const bucket = getGcsBucketName();
   const expires = Date.now() + (args.expiresSeconds ?? DEFAULT_SIGN_TTL_SECONDS) * 1000;
 
@@ -75,7 +83,7 @@ export async function signGcsReadUrl(args: {
   key: string;
   expiresSeconds?: number;
 }): Promise<string> {
-  const storage = getGcsStorage();
+  const storage = await getGcsStorage();
   const bucket = getGcsBucketName();
   const expires = Date.now() + (args.expiresSeconds ?? DEFAULT_SIGN_TTL_SECONDS) * 1000;
 
