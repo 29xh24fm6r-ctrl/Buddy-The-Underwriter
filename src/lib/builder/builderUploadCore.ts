@@ -74,50 +74,38 @@ async function uploadBytes(
   const mimeType = args.mimeType || "application/octet-stream";
 
   if (docStore === "gcs") {
-    const buildGcsObjectKey =
-      deps.buildGcsObjectKey ??
-      (await import("@/lib/storage/gcs")).buildGcsObjectKey;
+    console.log("[upload] using bucket", process.env.GCS_BUCKET);
     const getGcsClient =
       deps.getGcsClient ??
       (await import("@/lib/storage/gcs")).getGcsClient;
-    const getGcsBucketName =
-      deps.getGcsBucketName ??
-      (await import("@/lib/storage/gcs")).getGcsBucketName;
 
-    if (!buildGcsObjectKey || !getGcsClient || !getGcsBucketName) {
+    if (!getGcsClient) {
       throw new Error("gcs_helpers_missing");
     }
 
-    const fileId = (deps.randomUUID ?? (() => crypto.randomUUID()))();
-    const objectPath = buildGcsObjectKey({
-      bankId: args.bankId,
-      dealId: args.dealId,
-      fileId,
-      filename,
-    });
+    const documentId = (deps.randomUUID ?? (() => crypto.randomUUID()))();
+    const objectPath = `deals/${args.dealId}/documents/${documentId}/${safeName(filename)}`;
 
-    const bucketName = getGcsBucketName();
     const storage = await getGcsClient();
-    const [signedUploadUrl] = await storage.bucket(bucketName).file(objectPath).getSignedUrl({
-      version: "v4",
-      action: "write",
-      expires: Date.now() + Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900") * 1000,
-      contentType: mimeType,
-    });
-
-    const bytes = new Uint8Array(buffer);
-    const uploadRes = await fetch(signedUploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": mimeType },
-      body: bytes,
-    });
-
-    if (!uploadRes.ok) {
-      throw new Error("gcs_upload_failed");
+    const bucket = storage.bucket(process.env.GCS_BUCKET!);
+    const file = bucket.file(objectPath);
+    const fileBuffer = buffer;
+    try {
+      await file.save(fileBuffer, {
+        resumable: false,
+        contentType: mimeType ?? "application/pdf",
+        metadata: { cacheControl: "private, max-age=0, no-transform" },
+      });
+    } catch (err: any) {
+      console.log("[upload] gcs-upload-error", {
+        name: err?.name,
+        message: err?.message,
+      });
+      throw err;
     }
 
     return {
-      storageBucket: bucketName,
+      storageBucket: process.env.GCS_BUCKET!,
       storagePath: objectPath,
       sizeBytes: buffer.length,
       mimeType,
@@ -169,49 +157,38 @@ async function uploadFile(
   const buffer = Buffer.from(arrayBuffer);
 
   if (docStore === "gcs") {
-    const buildGcsObjectKey =
-      deps.buildGcsObjectKey ??
-      (await import("@/lib/storage/gcs")).buildGcsObjectKey;
+    console.log("[upload] using bucket", process.env.GCS_BUCKET);
     const getGcsClient =
       deps.getGcsClient ??
       (await import("@/lib/storage/gcs")).getGcsClient;
-    const getGcsBucketName =
-      deps.getGcsBucketName ??
-      (await import("@/lib/storage/gcs")).getGcsBucketName;
 
-    if (!buildGcsObjectKey || !getGcsClient || !getGcsBucketName) {
+    if (!getGcsClient) {
       throw new Error("gcs_helpers_missing");
     }
 
-    const fileId = (deps.randomUUID ?? (() => crypto.randomUUID()))();
-    const objectPath = buildGcsObjectKey({
-      bankId: args.bankId,
-      dealId: args.dealId,
-      fileId,
-      filename,
-    });
+    const documentId = (deps.randomUUID ?? (() => crypto.randomUUID()))();
+    const objectPath = `deals/${args.dealId}/documents/${documentId}/${safeName(filename)}`;
 
-    const bucketName = getGcsBucketName();
     const storage = await getGcsClient();
-    const [signedUploadUrl] = await storage.bucket(bucketName).file(objectPath).getSignedUrl({
-      version: "v4",
-      action: "write",
-      expires: Date.now() + Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900") * 1000,
-      contentType: mimeType,
-    });
-
-    const uploadRes = await fetch(signedUploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": mimeType },
-      body: buffer,
-    });
-
-    if (!uploadRes.ok) {
-      throw new Error("gcs_upload_failed");
+    const bucket = storage.bucket(process.env.GCS_BUCKET!);
+    const file = bucket.file(objectPath);
+    const fileBuffer = buffer;
+    try {
+      await file.save(fileBuffer, {
+        resumable: false,
+        contentType: mimeType ?? "application/pdf",
+        metadata: { cacheControl: "private, max-age=0, no-transform" },
+      });
+    } catch (err: any) {
+      console.log("[upload] gcs-upload-error", {
+        name: err?.name,
+        message: err?.message,
+      });
+      throw err;
     }
 
     return {
-      storageBucket: bucketName,
+      storageBucket: process.env.GCS_BUCKET!,
       storagePath: objectPath,
       sizeBytes: file.size,
       mimeType,

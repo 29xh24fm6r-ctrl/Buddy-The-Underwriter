@@ -37,6 +37,10 @@ function usage() {
   console.error("usage: node scripts/tests/run-terminal-validation.mjs [BASE] [TOKEN]");
 }
 
+function looksLikeHtml(s) {
+  return /<!doctype html|<html/i.test(s);
+}
+
 async function j(url, init) {
   const r = await fetch(url, init);
   const ct = r.headers.get("content-type") || "";
@@ -63,13 +67,50 @@ async function main() {
     console.warn("[terminal-validation] BASE not provided; using localhost.");
   }
 
+  const buildMetaRes = await fetch(`${BASE}/api/build-meta`);
+  const buildMetaCt = buildMetaRes.headers.get("content-type") || "";
+  const buildMetaText = await buildMetaRes.text();
+  if (buildMetaRes.status !== 200 || !buildMetaCt.includes("application/json")) {
+    throw new Error("BASE does not serve /api/build-meta JSON (likely wrong preview URL).");
+  }
+
+  let buildMeta;
+  try {
+    buildMeta = JSON.parse(buildMetaText);
+  } catch {
+    throw new Error("BASE does not serve /api/build-meta JSON (likely wrong preview URL).");
+  }
+
+  console.log(
+    `[terminal-validation] build-meta sha=${buildMeta?.sha ?? "unknown"} ref=${buildMeta?.ref ?? "unknown"}`,
+  );
+
   if (!TOKEN) {
     console.error("missing TOKEN (set BUDDY_BUILDER_VERIFY_TOKEN env var or pass as argv[3])");
     usage();
     process.exit(2);
   }
 
-  const deal = await j(`${BASE}/api/_builder/deals/latest`, { headers: { "x-buddy-builder-token": TOKEN } });
+  const latestRes = await fetch(`${BASE}/api/_builder/deals/latest`, {
+    headers: { "x-buddy-builder-token": TOKEN },
+  });
+  const latestCt = latestRes.headers.get("content-type") || "";
+  const latestText = await latestRes.text();
+  if (latestCt.startsWith("text/html") || looksLikeHtml(latestText)) {
+    throw new Error("/api/_builder/deals/latest returned HTML; routing is broken on this deployment.");
+  }
+
+  let deal;
+  if (!latestCt.includes("application/json")) {
+    deal = {
+      status: latestRes.status,
+      ct: latestCt,
+      matched: latestRes.headers.get("x-matched-path"),
+      body_prefix: latestText.slice(0, 160),
+    };
+  } else {
+    deal = { status: latestRes.status, json: JSON.parse(latestText) };
+  }
   console.log("deals/latest:", JSON.stringify(deal, null, 2));
 
   const dealId = process.env.DEAL_ID || deal?.json?.dealId;
