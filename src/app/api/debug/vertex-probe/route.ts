@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { VertexAI } from "@google-cloud/vertexai";
 import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
+import { getVercelWifAuthClient } from "@/lib/gcp/vercelAuth";
 
 export const runtime = "nodejs";
 
@@ -32,6 +33,19 @@ export async function GET(req: Request) {
     }
   }
 
+  let wifAccessTokenOk: boolean | null = null;
+  let wifAccessTokenError: string | null = null;
+  if (hasOidcHeader) {
+    try {
+      const authClient = await getVercelWifAuthClient();
+      const accessToken = await authClient.getAccessToken();
+      wifAccessTokenOk = Boolean(accessToken);
+    } catch (e: any) {
+      wifAccessTokenOk = false;
+      wifAccessTokenError = String(e?.message ?? e);
+    }
+  }
+
   const project =
     process.env.GOOGLE_CLOUD_PROJECT ||
     process.env.GCP_PROJECT_ID;
@@ -41,7 +55,15 @@ export async function GET(req: Request) {
 
   if (!project) {
     return NextResponse.json(
-      { ok: false, hasOidcHeader, hasOidcEnv, oidcClaims, error: "Missing GOOGLE_CLOUD_PROJECT/GCP_PROJECT_ID" },
+      {
+        ok: false,
+        hasOidcHeader,
+        hasOidcEnv,
+        oidcClaims,
+        wifAccessTokenOk,
+        wifAccessTokenError,
+        error: "Missing GOOGLE_CLOUD_PROJECT/GCP_PROJECT_ID",
+      },
       { status: 500 }
     );
   }
@@ -68,6 +90,8 @@ export async function GET(req: Request) {
       hasOidcHeader,
       hasOidcEnv,
       oidcClaims,
+      wifAccessTokenOk,
+      wifAccessTokenError,
       project,
       location,
       model,
@@ -80,6 +104,8 @@ export async function GET(req: Request) {
         hasOidcHeader,
         hasOidcEnv,
         oidcClaims,
+        wifAccessTokenOk,
+        wifAccessTokenError,
         project,
         location,
         model,
