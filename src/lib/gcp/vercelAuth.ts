@@ -7,6 +7,7 @@ import { resolveAudience, resolveServiceAccountEmail } from "@/lib/gcp/wif";
 export async function getVercelWifAuthClient(): Promise<IdentityPoolClient> {
   const oidc = await getVercelOidcToken();
   console.log("[gcs-auth] oidc-token-length", oidc?.length ?? 0);
+  const scopes = ["https://www.googleapis.com/auth/cloud-platform"];
 
   return new IdentityPoolClient({
     type: "external_account",
@@ -15,6 +16,7 @@ export async function getVercelWifAuthClient(): Promise<IdentityPoolClient> {
     token_url: "https://sts.googleapis.com/v1/token",
     service_account_impersonation_url:
       `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${resolveServiceAccountEmail()}:generateAccessToken`,
+    scopes,
     subject_token_supplier: {
       getSubjectToken: async () => oidc,
     },
