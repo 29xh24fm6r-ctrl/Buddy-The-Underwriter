@@ -14,6 +14,7 @@ import { reconcileDealChecklist } from "@/lib/checklist/engine";
 import { getChecklistState } from "@/lib/checklist/getChecklistState";
 import { normalizeGoogleError } from "@/lib/google/errors";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
+import { orchestrateIntake } from "@/lib/intake/orchestrateIntake";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -630,6 +631,16 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         checklist_seeded: checklistRowsWithBank.length,
       },
     });
+
+    try {
+      await orchestrateIntake({
+        dealId: resolvedDealId,
+        bankId: resolvedBankId,
+        source: "builder",
+      });
+    } catch (e) {
+      console.warn("[auto-seed] intake orchestrator failed (non-fatal)", e);
+    }
 
 
     rootSpan.setStatus({ code: SpanStatusCode.OK });

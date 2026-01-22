@@ -130,18 +130,20 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
         });
         if (!init.ok) {
           const normalized = normalizeGoogleError(init.error);
-          await logLedgerEvent({
-            dealId,
-            bankId: deal.bank_id,
-            eventKey: "deal.intake.failed",
-            uiState: "done",
-            uiMessage: `Intake init failed: ${normalized.code}`,
-            meta: {
-              trigger: "context",
-              error_code: normalized.code,
-              error_message: normalized.message,
-            },
-          });
+          if (normalized.code !== "GOOGLE_UNKNOWN") {
+            await logLedgerEvent({
+              dealId,
+              bankId: deal.bank_id,
+              eventKey: "deal.intake.failed",
+              uiState: "done",
+              uiMessage: `Intake init failed: ${normalized.code}`,
+              meta: {
+                trigger: "context",
+                error_code: normalized.code,
+                error_message: normalized.message,
+              },
+            });
+          }
         }
       } catch (e: any) {
         console.warn("[context] initializeIntake failed", {
@@ -150,18 +152,20 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
         });
         try {
           const normalized = normalizeGoogleError(e);
-          await logLedgerEvent({
-            dealId,
-            bankId: deal.bank_id,
-            eventKey: "deal.intake.failed",
-            uiState: "done",
-            uiMessage: `Intake init failed: ${normalized.code}`,
-            meta: {
-              trigger: "context",
-              error_code: normalized.code,
-              error_message: normalized.message,
-            },
-          });
+          if (normalized.code !== "GOOGLE_UNKNOWN") {
+            await logLedgerEvent({
+              dealId,
+              bankId: deal.bank_id,
+              eventKey: "deal.intake.failed",
+              uiState: "done",
+              uiMessage: `Intake init failed: ${normalized.code}`,
+              meta: {
+                trigger: "context",
+                error_code: normalized.code,
+                error_message: normalized.message,
+              },
+            });
+          }
         } catch {}
       }
     }

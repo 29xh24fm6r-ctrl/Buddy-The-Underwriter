@@ -246,42 +246,58 @@ export async function initializeIntake(
     const normalized = normalizeGoogleError(error);
     const rawMessage = String(error?.message ?? String(error));
     const truncated = rawMessage.length > 400 ? `${rawMessage.slice(0, 399)}…` : rawMessage;
+    const isRetryableUnknown = normalized.code === "GOOGLE_UNKNOWN";
     try {
-      await logLedgerEvent({
-        dealId,
-        bankId: resolvedBankId ?? "",
-        eventKey: "pipeline.intake.init_failed",
-        uiState: "done",
-        uiMessage: "Intake auto-init failed",
-        meta: {
-          source: "system",
-          trigger,
-          result: "failed",
-          deal_id: dealId,
+      if (!isRetryableUnknown) {
+        await logLedgerEvent({
+          dealId,
+          bankId: resolvedBankId ?? "",
+          eventKey: "pipeline.intake.init_failed",
+          uiState: "done",
+          uiMessage: "Intake auto-init failed",
+          meta: {
+            source: "system",
+            trigger,
+            result: "failed",
+            deal_id: dealId,
             bank_id: resolvedBankId ?? null,
-          error_code: normalized.code,
-          error_message: truncated,
-        },
-      });
-      await logLedgerEvent({
-        dealId,
-        bankId: resolvedBankId ?? "",
-        eventKey: "deal.intake.failed",
-        uiState: "done",
-        uiMessage: `Intake failed: ${normalized.code}`,
-        meta: {
-          trigger,
-          error_code: normalized.code,
-          error_message: truncated,
-        },
-      });
+            error_code: normalized.code,
+            error_message: truncated,
+          },
+        });
+        await logLedgerEvent({
+          dealId,
+          bankId: resolvedBankId ?? "",
+          eventKey: "deal.intake.failed",
+          uiState: "done",
+          uiMessage: `Intake failed: ${normalized.code}`,
+          meta: {
+            trigger,
+            error_code: normalized.code,
+            error_message: truncated,
+          },
+        });
+      } else {
+        await logLedgerEvent({
+          dealId,
+          bankId: resolvedBankId ?? "",
+          eventKey: "deal.intake.retrying",
+          uiState: "info",
+          uiMessage: "Intake retrying",
+          meta: {
+            trigger,
+            error_code: normalized.code,
+            error_message: truncated,
+          },
+        });
+      }
     } catch (logError) {
       console.error("[intake] failed to log init_failed", logError);
     }
     void emitBuilderLifecycleSignal({
       dealId,
       phase: "intake",
-      state: "failed",
+      state: isRetryableUnknown ? "retrying" : "failed",
       trigger,
       note: error?.message ?? String(error),
     });

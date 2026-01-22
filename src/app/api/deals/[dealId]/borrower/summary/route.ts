@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
+import { extractBorrowerFromDocs } from "@/lib/borrower/extractBorrowerFromDocs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,11 +57,35 @@ export async function GET(_req: Request, ctx: { params: Promise<{ dealId: string
       .order("created_at", { ascending: true })
       .limit(6);
 
+    let suggestedBorrower: any = null;
+    if (!borrower) {
+      try {
+        const extracted = await extractBorrowerFromDocs({
+          dealId,
+          bankId: access.bankId,
+        });
+        if (extracted?.legalName || extracted?.entityType) {
+          suggestedBorrower = {
+            legal_name: extracted.legalName ?? null,
+            entity_type: extracted.entityType ?? null,
+            ein: extracted.einMasked ?? null,
+            address: extracted.address ?? null,
+            state_of_formation: extracted.stateOfFormation ?? null,
+            source_doc_id: extracted.sourceDocId ?? null,
+            confidence: extracted.confidence ?? null,
+          };
+        }
+      } catch (e) {
+        console.warn("[borrower/summary] suggestion failed", e);
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       borrower,
       principals: principals ?? [],
       dealBorrowerName: (deal as any)?.borrower_name ?? null,
+      suggestedBorrower,
     });
   } catch (error: any) {
     console.error("[/api/deals/[dealId]/borrower/summary]", error);

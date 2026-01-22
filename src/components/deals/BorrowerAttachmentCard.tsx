@@ -15,6 +15,15 @@ type BorrowerSummary = {
   } | null;
   principals: Array<{ id: string; name: string | null }>;
   dealBorrowerName: string | null;
+  suggestedBorrower?: {
+    legal_name: string | null;
+    entity_type: string | null;
+    ein: string | null;
+    address: string | null;
+    state_of_formation: string | null;
+    source_doc_id: string | null;
+    confidence: number | null;
+  } | null;
 };
 
 type BorrowerSearchRow = {
@@ -44,6 +53,25 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
   const [ein, setEin] = useState("");
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  const entityTypeOptions = [
+    "LLC",
+    "Corp",
+    "S-Corp",
+    "Partnership",
+    "Sole Prop",
+    "Individual",
+    "Unknown",
+  ];
+
+  function toFriendlyError(code: string) {
+    if (code === "entity_type_required") return "Entity type is required.";
+    if (code === "legal_name_required") return "Legal name is required.";
+    if (code === "primary_contact_required") {
+      return "Primary contact name and email are required.";
+    }
+    return code || "Failed to create borrower.";
+  }
 
   useEffect(() => {
     if (!toast) return;
@@ -127,6 +155,14 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
       setErr("Legal name is required.");
       return;
     }
+    if (!entityType.trim()) {
+      setErr("Entity type is required.");
+      return;
+    }
+    if (!contactName.trim() || !contactEmail.trim()) {
+      setErr("Primary contact name and email are required.");
+      return;
+    }
     setCreating(true);
     setErr(null);
     try {
@@ -143,7 +179,7 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
       });
       const json = await res.json();
       if (!res.ok || !json?.ok) {
-        throw new Error(json?.error || `HTTP ${res.status}`);
+        throw new Error(toFriendlyError(json?.error || `HTTP ${res.status}`));
       }
       setToast("Borrower created and attached.");
       setMode("idle");
@@ -161,6 +197,7 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
   }
 
   const hasBorrower = Boolean(summary?.borrower);
+  const suggestion = summary?.suggestedBorrower ?? null;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -254,6 +291,38 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
             <div className="text-sm text-slate-700">
               No borrower attached yet.
             </div>
+            {suggestion ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+                <div className="font-semibold">Detected from uploaded documents</div>
+                <div className="mt-1">
+                  {suggestion.legal_name || "Unknown borrower"}
+                  {suggestion.entity_type ? ` · ${suggestion.entity_type}` : ""}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLegalName(suggestion.legal_name || "");
+                      setEntityType(suggestion.entity_type || "");
+                      setEin(suggestion.ein || "");
+                      setMode("create");
+                    }}
+                    className="rounded-xl border border-emerald-300 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode("create");
+                    }}
+                    className="rounded-xl border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -341,12 +410,18 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
                 placeholder="Legal name"
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
               />
-              <input
+              <select
                 value={entityType}
                 onChange={(e) => setEntityType(e.target.value)}
-                placeholder="Entity type (LLC, Corp, Individual)"
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              />
+              >
+                <option value="">Select entity type</option>
+                {entityTypeOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
               <input
                 value={contactName}
                 onChange={(e) => setContactName(e.target.value)}

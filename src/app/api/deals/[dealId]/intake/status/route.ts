@@ -18,7 +18,11 @@ type IntakeStatusResponse = {
   dealId: string;
   uploads: { total: number; processed: number; pending: number };
   checklist: { required_total: number; received_required: number; missing_required: number };
+  borrower: { attached: boolean };
+  principals: { detected: boolean; count: number };
+  financialSnapshot: { exists: boolean };
   stage: string | null;
+  recommendedNextAction: string | null;
   lastError: {
     code: string;
     message: string;
@@ -75,7 +79,11 @@ export async function GET(_req: Request, ctx: Ctx): Promise<NextResponse<IntakeS
         dealId,
         uploads: { total: 0, processed: 0, pending: 0 },
         checklist: { required_total: 0, received_required: 0, missing_required: 0 },
+        borrower: { attached: false },
+        principals: { detected: false, count: 0 },
+        financialSnapshot: { exists: false },
         stage: null,
+        recommendedNextAction: null,
         lastError: null,
         deps: { gcs: "fail", vertex: "fail" },
       },
@@ -88,7 +96,7 @@ export async function GET(_req: Request, ctx: Ctx): Promise<NextResponse<IntakeS
 
   const { data: deal } = await sb
     .from("deals")
-    .select("id, bank_id, stage, lifecycle_stage")
+    .select("id, bank_id, stage, lifecycle_stage, borrower_id")
     .eq("id", dealId)
     .maybeSingle();
 
@@ -99,7 +107,11 @@ export async function GET(_req: Request, ctx: Ctx): Promise<NextResponse<IntakeS
         dealId,
         uploads: { total: 0, processed: 0, pending: 0 },
         checklist: { required_total: 0, received_required: 0, missing_required: 0 },
+        borrower: { attached: false },
+        principals: { detected: false, count: 0 },
+        financialSnapshot: { exists: false },
         stage: null,
+        recommendedNextAction: null,
         lastError: null,
         deps: { gcs: "fail", vertex: "fail" },
       },
@@ -136,6 +148,33 @@ export async function GET(_req: Request, ctx: Ctx): Promise<NextResponse<IntakeS
   ).length;
   const requiredTotal = requiredRows.length;
   const missingRequired = Math.max(requiredTotal - receivedRequired, 0);
+
+  const [{ count: principalCount }, { count: snapshotCount }] = await Promise.all([
+    sb
+      .from("deal_entities")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .eq("entity_kind", "PERSON"),
+    sb
+      .from("financial_snapshot_decisions")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .eq("bank_id", bankId),
+  ]);
+
+  const borrowerAttached = Boolean(deal.borrower_id);
+  const principalsDetected = Boolean(principalCount && principalCount > 0);
+  const financialSnapshotExists = Boolean(snapshotCount && snapshotCount > 0);
+
+  const recommendedNextAction = !borrowerAttached
+    ? "Waiting on borrower attachment"
+    : !principalsDetected
+      ? "Waiting on ownership/principals"
+      : !financialSnapshotExists
+        ? "Waiting on financial snapshot"
+        : missingRequired > 0
+          ? "Waiting on required checklist"
+          : null;
 
   const { data: ledger } = await sb
     .from("deal_pipeline_ledger")
@@ -175,7 +214,11 @@ export async function GET(_req: Request, ctx: Ctx): Promise<NextResponse<IntakeS
       received_required: receivedRequired,
       missing_required: missingRequired,
     },
+    borrower: { attached: borrowerAttached },
+    principals: { detected: principalsDetected, count: principalCount ?? 0 },
+    financialSnapshot: { exists: financialSnapshotExists },
     stage: (deal.stage as string) ?? deal.lifecycle_stage ?? null,
+    recommendedNextAction,
     lastError,
     deps: {
       gcs: gcsProbe.ok ? "ok" : "fail",
