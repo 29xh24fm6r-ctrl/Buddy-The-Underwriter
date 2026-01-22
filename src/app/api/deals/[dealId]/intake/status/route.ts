@@ -100,7 +100,23 @@ export async function GET(_req: Request, ctx: Ctx): Promise<NextResponse<IntakeS
     .eq("id", dealId)
     .maybeSingle();
 
-  if (!deal || !deal.bank_id || deal.bank_id !== bankId) {
+  if (!deal) {
+    return NextResponse.json({
+      ok: true,
+      dealId,
+      uploads: { total: 0, processed: 0, pending: 0 },
+      checklist: { required_total: 0, received_required: 0, missing_required: 0 },
+      borrower: { attached: false },
+      principals: { detected: false, count: 0 },
+      financialSnapshot: { exists: false },
+      stage: "creating",
+      recommendedNextAction: "wait",
+      lastError: null,
+      deps: { gcs: "fail", vertex: "fail" },
+    });
+  }
+
+  if (!deal.bank_id || deal.bank_id !== bankId) {
     return NextResponse.json(
       {
         ok: false,

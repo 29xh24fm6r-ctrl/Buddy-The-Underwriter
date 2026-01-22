@@ -150,13 +150,23 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
     };
 
     const pollIntakeStatus = async (dealId: string) => {
-      const maxAttempts = 20;
+      const maxAttempts = 30;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         await new Promise((r) => setTimeout(r, 1000));
         try {
           const res = await fetch(`/api/deals/${dealId}/intake/status`, { cache: "no-store" });
+          if (res.status === 404) {
+            // Transient during creation/replication.
+            continue;
+          }
           const json = await res.json().catch(() => ({}));
+          if (res.status === 401) {
+            return { ok: false, error: "Unauthorized" };
+          }
           if (!res.ok || json?.ok === false) {
+            if (res.status >= 500) {
+              continue;
+            }
             return { ok: false, error: json?.error || `HTTP ${res.status}` };
           }
           const stage = String(json?.stage || "");
@@ -250,20 +260,18 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
 
       const { isAbort, isNetwork, msg } = classifyNetworkError(error);
       if (isAbort) {
-        alert(
-          "Create deal timed out (20s). This is usually a Vercel cold-start / serverless stall. No DevTools needed: retry once. If it keeps happening, tell me the Request ID shown during upload so I can correlate it in Vercel logs.",
+        setProcessError(
+          "Create deal timed out (20s). This is usually a cold-start/serverless stall. Retry once; if it keeps happening, share the Request ID + Stage shown during upload.",
         );
         return;
       }
       if (isNetwork) {
-        alert(
-          "Network error calling the backend (Failed to fetch). No DevTools needed: retry once. If it keeps happening, tell me the Request ID + Stage shown during upload so I can pinpoint the failing step in Vercel logs.",
+        setProcessError(
+          "Network error calling the backend. Retry once; if it keeps happening, share the Request ID + Stage shown during upload.",
         );
         return;
       }
-      const friendly = msg || "Upload failed";
-      setProcessError(friendly);
-      alert(friendly);
+      setProcessError(msg || "Upload failed");
     } finally {
       setUploading(false);
       setProcessing(false);
