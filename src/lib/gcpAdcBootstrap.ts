@@ -22,7 +22,6 @@ function isVercelRuntime(): boolean {
 }
 
 export async function getVertexAuthOptions(): Promise<GoogleAuthOptions | undefined> {
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) return undefined;
   if (!isVercelRuntime()) return undefined;
   const authClient = await getVercelWifAuthClient();
   return { authClient };
