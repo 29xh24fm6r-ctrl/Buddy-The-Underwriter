@@ -99,12 +99,21 @@ async function uploadBytes(
 
     const bucketName = getGcsBucketName();
     const storage = await getGcsClient();
-    const [signedUploadUrl] = await storage.bucket(bucketName).file(objectPath).getSignedUrl({
-      version: "v4",
-      action: "write",
-      expires: Date.now() + Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900") * 1000,
-      contentType: mimeType,
-    });
+    let signedUploadUrl: string;
+    try {
+      [signedUploadUrl] = await storage.bucket(bucketName).file(objectPath).getSignedUrl({
+        version: "v4",
+        action: "write",
+        expires: Date.now() + Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900") * 1000,
+        contentType: mimeType,
+      });
+    } catch (err: any) {
+      console.log("[upload] gcs-signed-url-error", {
+        name: err?.name,
+        message: err?.message,
+      });
+      throw err;
+    }
 
     const bytes = new Uint8Array(buffer);
     const uploadRes = await fetch(signedUploadUrl, {
@@ -195,12 +204,21 @@ async function uploadFile(
 
     const bucketName = getGcsBucketName();
     const storage = await getGcsClient();
-    const [signedUploadUrl] = await storage.bucket(bucketName).file(objectPath).getSignedUrl({
-      version: "v4",
-      action: "write",
-      expires: Date.now() + Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900") * 1000,
-      contentType: mimeType,
-    });
+    let signedUploadUrl: string;
+    try {
+      [signedUploadUrl] = await storage.bucket(bucketName).file(objectPath).getSignedUrl({
+        version: "v4",
+        action: "write",
+        expires: Date.now() + Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900") * 1000,
+        contentType: mimeType,
+      });
+    } catch (err: any) {
+      console.log("[upload] gcs-signed-url-error", {
+        name: err?.name,
+        message: err?.message,
+      });
+      throw err;
+    }
 
     const uploadRes = await fetch(signedUploadUrl, {
       method: "PUT",
