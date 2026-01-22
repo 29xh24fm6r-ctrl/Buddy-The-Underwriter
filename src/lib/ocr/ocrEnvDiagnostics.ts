@@ -16,11 +16,15 @@ export function getOcrEnvDiagnostics(): OcrEnvDiagnostics {
   );
 
   // Mirrors the credential sources supported by `runGeminiOcrJob`.
+  const hasWifProvider = Boolean(process.env.GCP_WIF_PROVIDER);
+  const hasWifSplit = Boolean(
+    process.env.GCP_PROJECT_NUMBER &&
+      process.env.GCP_WORKLOAD_IDENTITY_POOL_ID &&
+      process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID,
+  );
   const hasGoogleCredentialsHint = Boolean(
     process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-      (process.env.GCP_WIF_PROVIDER &&
-        process.env.GCP_SERVICE_ACCOUNT_EMAIL &&
-        process.env.VERCEL_OIDC_TOKEN),
+      (process.env.GCP_SERVICE_ACCOUNT_EMAIL && (hasWifProvider || hasWifSplit)),
   );
 
   const googleLocation =

@@ -41,7 +41,7 @@ async function probeGcs(): Promise<{ ok: boolean; error?: { code: string; messag
   try {
     ensureGcpAdcBootstrap();
     const bucket = getGcsBucketName();
-    const storage = getGcsClient();
+    const storage = await getGcsClient();
     await withTimeout(storage.bucket(bucket).getMetadata(), 4000, "gcs_metadata");
     return { ok: true };
   } catch (e: any) {

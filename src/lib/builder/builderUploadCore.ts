@@ -24,7 +24,7 @@ type BuilderUploadDeps = {
   initializeIntake?: (dealId: string, bankId?: string | null, opts?: any) => Promise<any>;
   getSupabaseStorageClient?: () => any;
   buildGcsObjectKey?: (args: any) => string;
-  signGcsUploadUrl?: (args: any) => Promise<string>;
+  getGcsClient?: () => Promise<any>;
   getGcsBucketName?: () => string;
   logLedgerEvent?: (args: any) => Promise<any>;
   getLatestLockedQuoteId?: (sb: SupabaseClient, dealId: string) => Promise<string | null>;
@@ -77,14 +77,14 @@ async function uploadBytes(
     const buildGcsObjectKey =
       deps.buildGcsObjectKey ??
       (await import("@/lib/storage/gcs")).buildGcsObjectKey;
-    const signGcsUploadUrl =
-      deps.signGcsUploadUrl ??
-      (await import("@/lib/storage/gcs")).signGcsUploadUrl;
+    const getGcsClient =
+      deps.getGcsClient ??
+      (await import("@/lib/storage/gcs")).getGcsClient;
     const getGcsBucketName =
       deps.getGcsBucketName ??
       (await import("@/lib/storage/gcs")).getGcsBucketName;
 
-    if (!buildGcsObjectKey || !signGcsUploadUrl || !getGcsBucketName) {
+    if (!buildGcsObjectKey || !getGcsClient || !getGcsBucketName) {
       throw new Error("gcs_helpers_missing");
     }
 
@@ -96,10 +96,13 @@ async function uploadBytes(
       filename,
     });
 
-    const signedUploadUrl = await signGcsUploadUrl({
-      key: objectPath,
+    const bucketName = getGcsBucketName();
+    const storage = await getGcsClient();
+    const [signedUploadUrl] = await storage.bucket(bucketName).file(objectPath).getSignedUrl({
+      version: "v4",
+      action: "write",
+      expires: Date.now() + Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900") * 1000,
       contentType: mimeType,
-      expiresSeconds: Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900"),
     });
 
     const bytes = new Uint8Array(buffer);
@@ -114,7 +117,7 @@ async function uploadBytes(
     }
 
     return {
-      storageBucket: getGcsBucketName(),
+      storageBucket: bucketName,
       storagePath: objectPath,
       sizeBytes: buffer.length,
       mimeType,
@@ -169,14 +172,14 @@ async function uploadFile(
     const buildGcsObjectKey =
       deps.buildGcsObjectKey ??
       (await import("@/lib/storage/gcs")).buildGcsObjectKey;
-    const signGcsUploadUrl =
-      deps.signGcsUploadUrl ??
-      (await import("@/lib/storage/gcs")).signGcsUploadUrl;
+    const getGcsClient =
+      deps.getGcsClient ??
+      (await import("@/lib/storage/gcs")).getGcsClient;
     const getGcsBucketName =
       deps.getGcsBucketName ??
       (await import("@/lib/storage/gcs")).getGcsBucketName;
 
-    if (!buildGcsObjectKey || !signGcsUploadUrl || !getGcsBucketName) {
+    if (!buildGcsObjectKey || !getGcsClient || !getGcsBucketName) {
       throw new Error("gcs_helpers_missing");
     }
 
@@ -188,10 +191,13 @@ async function uploadFile(
       filename,
     });
 
-    const signedUploadUrl = await signGcsUploadUrl({
-      key: objectPath,
+    const bucketName = getGcsBucketName();
+    const storage = await getGcsClient();
+    const [signedUploadUrl] = await storage.bucket(bucketName).file(objectPath).getSignedUrl({
+      version: "v4",
+      action: "write",
+      expires: Date.now() + Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900") * 1000,
       contentType: mimeType,
-      expiresSeconds: Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900"),
     });
 
     const uploadRes = await fetch(signedUploadUrl, {
@@ -205,7 +211,7 @@ async function uploadFile(
     }
 
     return {
-      storageBucket: getGcsBucketName(),
+      storageBucket: bucketName,
       storagePath: objectPath,
       sizeBytes: file.size,
       mimeType,

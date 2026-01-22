@@ -13,10 +13,14 @@ export async function GET() {
     }
 
     ensureGcpAdcBootstrap();
+    const hasWifProvider = Boolean(process.env.GCP_WIF_PROVIDER);
+    const hasWifSplit = Boolean(
+      process.env.GCP_PROJECT_NUMBER &&
+        process.env.GCP_WORKLOAD_IDENTITY_POOL_ID &&
+        process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID,
+    );
     const hasWif = Boolean(
-      process.env.GCP_WIF_PROVIDER &&
-        process.env.GCP_SERVICE_ACCOUNT_EMAIL &&
-        process.env.VERCEL_OIDC_TOKEN,
+      process.env.GCP_SERVICE_ACCOUNT_EMAIL && (hasWifProvider || hasWifSplit),
     );
     const hasAdc = Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS || hasWif);
 

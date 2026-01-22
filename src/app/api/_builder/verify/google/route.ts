@@ -60,7 +60,7 @@ export async function GET(req: Request) {
   let gcsOk = false;
   try {
     const bucket = getGcsBucketName();
-    const client = getGcsClient();
+    const client = await getGcsClient();
     await withTimeout(client.bucket(bucket).getMetadata(), 4000, "gcs_metadata");
     gcsOk = true;
   } catch (e: any) {

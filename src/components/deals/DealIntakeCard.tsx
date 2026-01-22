@@ -696,7 +696,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
               `⚠️ AI Doc Recognition can't run OCR in this environment.\n\n` +
                 `Error: ${firstError}\n\n` +
                 `${configHintLines.length ? configHintLines.join("\n") + "\n\n" : ""}` +
-                `Fix: set Vercel env vars (USE_GEMINI_OCR=\"true\", GOOGLE_CLOUD_PROJECT, and ADC/WIF envs like GCP_WIF_PROVIDER + GCP_SERVICE_ACCOUNT_EMAIL + VERCEL_OIDC_TOKEN, or GOOGLE_APPLICATION_CREDENTIALS) and redeploy.`,
+                `Fix: set Vercel env vars (USE_GEMINI_OCR=\"true\", GOOGLE_CLOUD_PROJECT, and ADC/WIF envs with GCP_SERVICE_ACCOUNT_EMAIL plus either GCP_WIF_PROVIDER or GCP_PROJECT_NUMBER + GCP_WORKLOAD_IDENTITY_POOL_ID + GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID, or GOOGLE_APPLICATION_CREDENTIALS) and redeploy.`,
             );
             return;
           }
