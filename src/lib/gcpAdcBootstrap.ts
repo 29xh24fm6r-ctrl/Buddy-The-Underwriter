@@ -1,6 +1,7 @@
 import "server-only";
 
 import fs from "node:fs";
+import { getVercelOidcToken } from "@vercel/oidc";
 import { resolveAudience, resolveServiceAccountEmail } from "@/lib/gcp/wif";
 
 const WIF_CREDENTIALS_PATH = "/tmp/gcp-wif.json";
@@ -14,11 +15,24 @@ function getProjectId(): string | null {
   );
 }
 
-function buildWifConfig(): Record<string, any> | null {
-  const subjectToken = process.env.GCP_WIF_SUBJECT_TOKEN || process.env.VERCEL_OIDC_TOKEN;
-  if (!subjectToken) {
+function isVercelRuntime(): boolean {
+  return process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);
+}
+
+async function resolveSubjectToken(): Promise<string | null> {
+  const envToken = process.env.GCP_WIF_SUBJECT_TOKEN || process.env.VERCEL_OIDC_TOKEN;
+  if (envToken) return envToken;
+  if (!isVercelRuntime()) return null;
+  try {
+    return await getVercelOidcToken();
+  } catch {
     return null;
   }
+}
+
+async function buildWifConfig(): Promise<Record<string, any> | null> {
+  const subjectToken = await resolveSubjectToken();
+  if (!subjectToken) return null;
 
   try {
     const audience = resolveAudience();
@@ -41,10 +55,10 @@ function buildWifConfig(): Record<string, any> | null {
   }
 }
 
-export function ensureGcpAdcBootstrap(): void {
+export async function ensureGcpAdcBootstrap(): Promise<void> {
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS) return;
 
-  const config = buildWifConfig();
+  const config = await buildWifConfig();
   if (!config) return;
 
   const nextContents = JSON.stringify(config);
@@ -78,7 +92,7 @@ export async function runVertexAdcSmokeTest(): Promise<{ ok: true; model: string
     throw new Error("gcp_adc_smoke_disabled");
   }
 
-  ensureGcpAdcBootstrap();
+  await ensureGcpAdcBootstrap();
 
   const { VertexAI } = await import("@google-cloud/vertexai");
   const project = getProjectId();

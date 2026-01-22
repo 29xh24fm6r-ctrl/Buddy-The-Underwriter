@@ -39,7 +39,7 @@ function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T
 
 async function probeGcs(): Promise<{ ok: boolean; error?: { code: string; message: string } }> {
   try {
-    ensureGcpAdcBootstrap();
+    await ensureGcpAdcBootstrap();
     const bucket = getGcsBucketName();
     const storage = await getGcsClient();
     await withTimeout(storage.bucket(bucket).getMetadata(), 4000, "gcs_metadata");

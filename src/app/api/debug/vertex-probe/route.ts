@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { VertexAI } from "@google-cloud/vertexai";
+import { ensureGcpAdcBootstrap } from "@/lib/gcpAdcBootstrap";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,7 @@ export async function GET() {
   }
 
   try {
+    await ensureGcpAdcBootstrap();
     const vertex = new VertexAI({ project, location });
     const gm = vertex.getGenerativeModel({ model });
 

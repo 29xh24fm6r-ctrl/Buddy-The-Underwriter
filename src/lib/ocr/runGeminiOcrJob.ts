@@ -103,7 +103,7 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
     modelCandidates,
   });
 
-  ensureGcpAdcBootstrap();
+  await ensureGcpAdcBootstrap();
   const vertexAI = new VertexAI({
     project: getGoogleProjectId(),
     location: getGoogleLocation(),

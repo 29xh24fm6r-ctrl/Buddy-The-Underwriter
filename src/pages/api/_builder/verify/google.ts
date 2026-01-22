@@ -42,7 +42,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let adcOk = false;
   let adcType: string | null = null;
   try {
-    ensureGcpAdcBootstrap();
+    await ensureGcpAdcBootstrap();
     const adcPath = process.env.GOOGLE_APPLICATION_CREDENTIALS ?? null;
     adcType = resolveAdcType(adcPath);
     adcOk = Boolean(adcPath && adcType);

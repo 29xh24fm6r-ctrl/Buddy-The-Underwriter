@@ -12,7 +12,7 @@ export async function GET() {
       await requireSuperAdmin();
     }
 
-    ensureGcpAdcBootstrap();
+    await ensureGcpAdcBootstrap();
     const hasWifProvider = Boolean(process.env.GCP_WIF_PROVIDER);
     const hasWifSplit = Boolean(
       process.env.GCP_PROJECT_NUMBER &&

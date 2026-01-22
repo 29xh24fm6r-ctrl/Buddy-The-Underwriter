@@ -25,7 +25,7 @@ function getGoogleLocation(): string {
 
 export async function geminiShadowAnalyze(ctx: BuddyContextPack) {
   const model = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
-  ensureGcpAdcBootstrap();
+  await ensureGcpAdcBootstrap();
   const vertex = new VertexAI({
     project: getGoogleProjectId(),
     location: getGoogleLocation(),
