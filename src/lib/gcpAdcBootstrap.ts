@@ -4,7 +4,6 @@ import fs from "node:fs";
 import { resolveAudience, resolveServiceAccountEmail } from "@/lib/gcp/wif";
 
 const WIF_CREDENTIALS_PATH = "/tmp/gcp-wif.json";
-
 function getProjectId(): string | null {
   return (
     process.env.GOOGLE_CLOUD_PROJECT ||
