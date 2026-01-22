@@ -4,10 +4,15 @@ import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstr
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: Request) {
   if (process.env.ALLOW_GEMINI_PROBE !== "true") {
     return NextResponse.json({ ok: false, error: "Probe disabled" }, { status: 403 });
   }
+
+  const oidcHeader = req.headers.get("x-vercel-oidc-token");
+  const oidcEnv = process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL_OIDC_TOKEN_0 || null;
+  const hasOidcHeader = Boolean(oidcHeader);
+  const hasOidcEnv = Boolean(oidcEnv);
 
   const project =
     process.env.GOOGLE_CLOUD_PROJECT ||
@@ -18,7 +23,7 @@ export async function GET() {
 
   if (!project) {
     return NextResponse.json(
-      { ok: false, error: "Missing GOOGLE_CLOUD_PROJECT/GCP_PROJECT_ID" },
+      { ok: false, hasOidcHeader, hasOidcEnv, error: "Missing GOOGLE_CLOUD_PROJECT/GCP_PROJECT_ID" },
       { status: 500 }
     );
   }
@@ -40,10 +45,10 @@ export async function GET() {
     const text =
       resp?.response?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
 
-    return NextResponse.json({ ok: true, project, location, model, text });
+    return NextResponse.json({ ok: true, hasOidcHeader, hasOidcEnv, project, location, model, text });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, project, location, model, error: String(e?.message ?? e) },
+      { ok: false, hasOidcHeader, hasOidcEnv, project, location, model, error: String(e?.message ?? e) },
       { status: 500 }
     );
   }
