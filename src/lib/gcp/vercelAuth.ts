@@ -6,6 +6,7 @@ import { resolveAudience, resolveServiceAccountEmail } from "@/lib/gcp/wif";
 
 export async function getVercelWifAuthClient(): Promise<IdentityPoolClient> {
   const oidc = await getVercelOidcToken();
+  console.log("[gcs-auth] oidc-token-length", oidc?.length ?? 0);
 
   return new IdentityPoolClient({
     type: "external_account",

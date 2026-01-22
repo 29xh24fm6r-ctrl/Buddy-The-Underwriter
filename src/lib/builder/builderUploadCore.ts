@@ -74,6 +74,7 @@ async function uploadBytes(
   const mimeType = args.mimeType || "application/octet-stream";
 
   if (docStore === "gcs") {
+    console.log("[upload] using bucket", process.env.GCS_BUCKET);
     const buildGcsObjectKey =
       deps.buildGcsObjectKey ??
       (await import("@/lib/storage/gcs")).buildGcsObjectKey;
@@ -169,6 +170,7 @@ async function uploadFile(
   const buffer = Buffer.from(arrayBuffer);
 
   if (docStore === "gcs") {
+    console.log("[upload] using bucket", process.env.GCS_BUCKET);
     const buildGcsObjectKey =
       deps.buildGcsObjectKey ??
       (await import("@/lib/storage/gcs")).buildGcsObjectKey;
