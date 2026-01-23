@@ -35,6 +35,11 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
   const [processing, setProcessing] = useState(false);
   const [processError, setProcessError] = useState<string | null>(null);
 
+  function isSigningFailure(result: { error?: string; code?: string }) {
+    const msg = String(result?.error || "").toLowerCase();
+    return msg.includes("signed url") || msg.includes("sign") || msg.includes("signing");
+  }
+
   const handleFiles = useCallback((selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
     const fileArray = Array.from(selectedFiles);
@@ -210,9 +215,16 @@ export default function NewDealClient({ bankId }: { bankId: string }) {
 
         if (result.ok) {
           successCount++;
-        } else {
-          console.error(`Failed to upload ${file.name}:`, result.error);
+          continue;
         }
+
+        const requestTag = result.request_id ? ` (Request: ${result.request_id})` : "";
+        const message = isSigningFailure(result)
+          ? `Upload signing failed (Google auth). Please contact admin or retry.${requestTag}`
+          : `Upload failed: ${result.error || "Unknown error"}.${requestTag}`;
+
+        setProcessError(message);
+        throw new Error(message);
       }
 
       console.log(`Uploaded ${successCount}/${files.length} files to deal ${dealId}`);

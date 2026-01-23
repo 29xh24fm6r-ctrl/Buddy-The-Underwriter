@@ -3,9 +3,13 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { signUploadUrl } from "@/lib/uploads/sign";
-import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
+import { getGcsBucketName } from "@/lib/storage/gcs";
 import { findExistingDocBySha } from "@/lib/storage/dedupe";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { getVercelOidcToken } from "@/lib/google/vercelOidc";
+import { exchangeOidcForFederatedAccessToken } from "@/lib/google/wifSts";
+import { generateAccessToken, signBlob } from "@/lib/google/iamCredentials";
+import { createV4SignedPutUrl } from "@/lib/google/gcsV4Signer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,6 +82,7 @@ type Context = {
  */
 export async function POST(req: NextRequest, ctx: Context) {
   try {
+    const requestId = req.headers.get("x-request-id") || `sign_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     const { userId } = await withTimeout(clerkAuth(), 8_000, "clerkAuth");
     if (!userId) {
       console.warn("[files/sign] unauthorized", {
@@ -91,6 +96,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       return NextResponse.json(
         {
           ok: false,
+          requestId,
           error: "Unauthorized",
           details:
             "No Clerk session on this request. Ensure you are signed in on this host and retry. If using a forwarded port domain (e.g. *.app.github.dev), ensure it is allowed in Clerk settings.",
@@ -112,7 +118,7 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     if (!filename || !size_bytes) {
       return NextResponse.json(
-        { ok: false, error: "Missing filename or size_bytes" },
+        { ok: false, requestId, error: "Missing filename or size_bytes" },
         { status: 400 },
       );
     }
@@ -127,6 +133,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       return NextResponse.json(
         {
           ok: false,
+          requestId,
           error: "Unsupported file type",
           details: `File type '${mime_type}' is not allowed. Supported: PDF, images, Excel, Word, text, ZIP.`,
         },
@@ -138,7 +145,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     const MAX_BYTES = 50 * 1024 * 1024; // 50MB
     if (size_bytes > MAX_BYTES) {
       return NextResponse.json(
-        { ok: false, error: "File too large (max 50MB)" },
+        { ok: false, requestId, error: "File too large (max 50MB)" },
         { status: 413 },
       );
     }
@@ -161,7 +168,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     if (dealErr || !deal) {
       console.error("[files/sign] deal access denied", { dealId, bankId, dealErr });
       return NextResponse.json(
-        { ok: false, error: "Deal not found or access denied" },
+        { ok: false, requestId, error: "Deal not found or access denied" },
         { status: 403 },
       );
     }
@@ -201,39 +208,76 @@ export async function POST(req: NextRequest, ctx: Context) {
 
         return NextResponse.json({
           ok: true,
+          requestId,
           deduped: true,
           existingDocumentId: existing.id,
         });
       }
 
       const fileId = randomUUID();
-      const objectPath = buildGcsObjectKey({
-        bankId,
-        dealId,
-        fileId,
-        filename,
-      });
-      const expiresSeconds = Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900");
-      const signedUploadUrl = await signGcsUploadUrl({
-        key: objectPath,
+      const safeName = String(filename).replace(/[^a-zA-Z0-9._-]/g, "_");
+      const uploadPrefix = process.env.GCS_UPLOAD_PREFIX || "deals";
+      const objectPath = `${uploadPrefix}/${dealId}/${fileId}-${safeName}`;
+      const expiresSeconds = Number(process.env.GCS_SIGN_TTL_SECONDS || "900");
+      const region = process.env.GCS_SIGN_REGION || "us-central1";
+      const bucket = process.env.GCS_BUCKET || getGcsBucketName();
+      const serviceAccountEmail = process.env.GCP_SERVICE_ACCOUNT_EMAIL || "";
+
+      if (!bucket || !serviceAccountEmail || !process.env.GCP_WORKLOAD_IDENTITY_PROVIDER) {
+        return NextResponse.json(
+          {
+            ok: false,
+            requestId,
+            error: "missing_gcp_config",
+            message: "Missing GCP signing configuration.",
+            hint: "Set GCS_BUCKET, GCP_SERVICE_ACCOUNT_EMAIL, and GCP_WORKLOAD_IDENTITY_PROVIDER.",
+          },
+          { status: 500 },
+        );
+      }
+
+      const oidc = getVercelOidcToken(req);
+      if (!oidc) {
+        return NextResponse.json(
+          {
+            ok: false,
+            requestId,
+            error: "missing_vercel_oidc",
+            message: "Vercel OIDC token not present.",
+            hint: "Ensure Vercel OIDC is enabled and forwarded to this route.",
+          },
+          { status: 500 },
+        );
+      }
+
+      const federated = await exchangeOidcForFederatedAccessToken(oidc);
+      const saToken = await generateAccessToken(federated);
+      const signed = await createV4SignedPutUrl({
+        bucket,
+        objectKey: objectPath,
         contentType: mime_type || "application/octet-stream",
         expiresSeconds,
+        region,
+        serviceAccountEmail,
+        signBlob: (bytes) => signBlob(saToken, bytes),
       });
 
-      const bucket = getGcsBucketName();
       const expiresAt = new Date(Date.now() + expiresSeconds * 1000).toISOString();
 
       return NextResponse.json({
         ok: true,
+        requestId,
         deduped: false,
+        method: "PUT",
+        uploadUrl: signed.url,
+        headers: signed.headers,
+        objectKey: signed.objectKey,
         bucket,
-        key: objectPath,
-        signedUploadUrl,
         expiresAt,
         upload: {
           file_id: fileId,
           object_path: objectPath,
-          signed_url: signedUploadUrl,
+          signed_url: signed.url,
           token: null,
           checklist_key,
           bucket,
@@ -316,6 +360,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     return NextResponse.json(
       {
         ok: false,
+        requestId: req.headers.get("x-request-id") || null,
         error: isTimeout ? "Request timed out" : "Internal server error",
         details: error.message || String(error),
       },
