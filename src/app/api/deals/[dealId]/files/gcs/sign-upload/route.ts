@@ -7,6 +7,11 @@ import { findExistingDocBySha } from "@/lib/storage/dedupe";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import crypto from "node:crypto";
 import { buildGcsSignedUploadResponse } from "@/lib/storage/gcsUploadResponse";
+import {
+  createDealUploadSession,
+  upsertUploadSessionFile,
+  validateUploadSession,
+} from "@/lib/uploads/uploadSession";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,6 +62,8 @@ export async function POST(req: NextRequest, ctx: Context) {
       contentType,
       sizeBytes,
       sha256,
+      upload_session_id,
+      session_id,
     } = body ?? {};
 
     if (!filename || !contentType || !sizeBytes) {
@@ -87,6 +94,9 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
+    const headerSessionId = req.headers.get("x-buddy-upload-session-id");
+    let uploadSessionId = headerSessionId || upload_session_id || session_id || null;
+    let uploadSessionExpiresAt: string | null = null;
 
     const { data: deal, error: dealErr } = await sb
       .from("deals")
@@ -139,12 +149,38 @@ export async function POST(req: NextRequest, ctx: Context) {
       });
     }
 
+    if (uploadSessionId) {
+      const validation = await validateUploadSession({
+        sb,
+        sessionId: uploadSessionId,
+        dealId,
+        bankId,
+      });
+      if (!validation.ok) {
+        return NextResponse.json(
+          { ok: false, error: validation.error },
+          { status: 409 },
+        );
+      }
+    } else {
+      const created = await createDealUploadSession({
+        sb,
+        dealId,
+        bankId,
+        source: "banker",
+        createdByUserId: userId,
+      });
+      uploadSessionId = created.sessionId;
+      uploadSessionExpiresAt = created.expiresAt;
+    }
+
     const fileId = crypto.randomUUID();
     const objectPath = buildGcsObjectKey({
       bankId,
       dealId,
       fileId,
       filename,
+      uploadSessionId,
     });
 
     const expiresSeconds = Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900");
@@ -157,12 +193,29 @@ export async function POST(req: NextRequest, ctx: Context) {
     const bucket = getGcsBucketName();
     const expiresAt = new Date(Date.now() + expiresSeconds * 1000).toISOString();
 
+    if (uploadSessionId) {
+      await upsertUploadSessionFile({
+        sb,
+        sessionId: uploadSessionId,
+        dealId,
+        bankId,
+        fileId,
+        filename,
+        contentType,
+        sizeBytes,
+        objectKey: objectPath,
+        bucket,
+      });
+    }
+
     return NextResponse.json(
       buildGcsSignedUploadResponse({
         bucket,
         key: objectPath,
         signedUploadUrl,
         expiresSeconds,
+        uploadSessionId,
+        uploadSessionExpiresAt,
       }),
     );
   } catch (error: any) {

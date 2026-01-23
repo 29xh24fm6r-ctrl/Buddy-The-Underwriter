@@ -11,6 +11,8 @@ import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
+import { validateUploadSession } from "@/lib/uploads/uploadSession";
+import crypto from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,6 +69,14 @@ export async function POST(req: Request) {
   const filename = body?.filename;
   const mimeType = body?.mimeType || null;
   const sizeBytes = typeof body?.sizeBytes === "number" ? body.sizeBytes : null;
+  const fileId = body?.fileId || body?.file_id || null;
+  const headerSessionId = req.headers.get("x-buddy-upload-session-id");
+  const uploadSessionId =
+    headerSessionId ||
+    body?.uploadSessionId ||
+    body?.upload_session_id ||
+    body?.session_id ||
+    null;
 
   if (!token || typeof token !== "string")
     return NextResponse.json({ error: "Missing token" }, { status: 400 });
@@ -74,6 +84,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing path" }, { status: 400 });
   if (!filename || typeof filename !== "string")
     return NextResponse.json({ error: "Missing filename" }, { status: 400 });
+  if (!uploadSessionId || typeof uploadSessionId !== "string")
+    return NextResponse.json({ error: "Missing uploadSessionId" }, { status: 400 });
 
   const rl = rateLimit(
     `portal:${token.slice(0, 12)}:upload_commit`,
@@ -106,6 +118,82 @@ export async function POST(req: Request) {
       { error: "Deal intake not started" },
       { status: 403 },
     );
+  }
+
+  const sessionValidation = await validateUploadSession({
+    sb,
+    sessionId: uploadSessionId,
+    dealId: invite.deal_id,
+    bankId: invite.bank_id,
+  });
+
+  if (!sessionValidation.ok) {
+    return NextResponse.json(
+      { error: sessionValidation.error },
+      { status: 409 },
+    );
+  }
+
+  const resolvedFileId = typeof fileId === "string" && fileId ? fileId : crypto.randomUUID();
+
+  const existingFile = await sb
+    .from("deal_upload_session_files")
+    .select("id")
+    .eq("session_id", uploadSessionId)
+    .eq("file_id", resolvedFileId)
+    .maybeSingle();
+
+  if (existingFile.data?.id) {
+    await sb
+      .from("deal_upload_session_files")
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        size_bytes: sizeBytes ?? 0,
+      })
+      .eq("id", existingFile.data.id);
+  } else {
+    await sb
+      .from("deal_upload_session_files")
+      .insert({
+        session_id: uploadSessionId,
+        deal_id: invite.deal_id,
+        bank_id: invite.bank_id,
+        file_id: resolvedFileId,
+        filename,
+        content_type: mimeType || "application/octet-stream",
+        size_bytes: sizeBytes ?? 0,
+        object_key: path,
+        bucket: "borrower_uploads",
+        status: "completed",
+        completed_at: new Date().toISOString(),
+      });
+  }
+
+  const totalRes = await sb
+    .from("deal_upload_session_files")
+    .select("id", { count: "exact", head: true })
+    .eq("session_id", uploadSessionId);
+
+  const completeRes = await sb
+    .from("deal_upload_session_files")
+    .select("id", { count: "exact", head: true })
+    .eq("session_id", uploadSessionId)
+    .eq("status", "completed");
+
+  const total = totalRes.count ?? 0;
+  const completed = completeRes.count ?? 0;
+
+  if (total > 0 && total === completed) {
+    await sb
+      .from("deal_upload_sessions")
+      .update({ status: "completed" })
+      .eq("id", uploadSessionId);
+  } else {
+    await sb
+      .from("deal_upload_sessions")
+      .update({ status: "uploading" })
+      .eq("id", uploadSessionId);
   }
 
   const upload = await recordBorrowerUploadAndMaterialize({
@@ -219,5 +307,6 @@ export async function POST(req: Request) {
     reconciled: upload.reconciled,
     checklistKey: ingest.checklistKey ?? null,
     matchReason: ingest.matchReason ?? null,
+    uploadSessionId,
   });
 }

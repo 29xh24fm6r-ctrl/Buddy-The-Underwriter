@@ -4,6 +4,11 @@ import { signUploadUrl } from "@/lib/uploads/sign";
 import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
 import { findExistingDocBySha } from "@/lib/storage/dedupe";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import {
+  createDealUploadSession,
+  upsertUploadSessionFile,
+  validateUploadSession,
+} from "@/lib/uploads/uploadSession";
 import crypto from "node:crypto";
 
 export const runtime = "nodejs";
@@ -58,6 +63,8 @@ export async function POST(req: NextRequest, ctx: Context) {
       size_bytes,
       checklist_key = null,
       sha256,
+      upload_session_id,
+      session_id,
     } = body ?? {};
 
     if (!filename || !size_bytes) {
@@ -89,7 +96,7 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     const { data: link, error: linkErr } = await sb
       .from("borrower_portal_links")
-      .select("deal_id, expires_at")
+      .select("id, deal_id, expires_at")
       .eq("token", token)
       .maybeSingle();
 
@@ -110,6 +117,47 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     const dealId = link.deal_id;
+    const { data: deal } = await sb
+      .from("deals")
+      .select("bank_id")
+      .eq("id", dealId)
+      .maybeSingle();
+
+    if (!deal?.bank_id) {
+      return NextResponse.json(
+        { ok: false, error: "Deal not found" },
+        { status: 404 },
+      );
+    }
+
+    const headerSessionId = req.headers.get("x-buddy-upload-session-id");
+    let uploadSessionId = headerSessionId || upload_session_id || session_id || null;
+    let uploadSessionExpiresAt: string | null = null;
+
+    if (uploadSessionId) {
+      const validation = await validateUploadSession({
+        sb,
+        sessionId: uploadSessionId,
+        dealId,
+        bankId: deal.bank_id,
+      });
+      if (!validation.ok) {
+        return NextResponse.json(
+          { ok: false, error: validation.error },
+          { status: 409 },
+        );
+      }
+    } else {
+      const created = await createDealUploadSession({
+        sb,
+        dealId,
+        bankId: deal.bank_id,
+        source: "borrower",
+        portalLinkId: link.id,
+      });
+      uploadSessionId = created.sessionId;
+      uploadSessionExpiresAt = created.expiresAt;
+    }
 
     // Bank-safe guardrails
     const MAX_BYTES = 50 * 1024 * 1024; // 50MB
@@ -123,19 +171,6 @@ export async function POST(req: NextRequest, ctx: Context) {
     const docStore = String(process.env.DOC_STORE || "").toLowerCase();
 
     if (docStore === "gcs") {
-      const { data: deal } = await sb
-        .from("deals")
-        .select("bank_id")
-        .eq("id", dealId)
-        .maybeSingle();
-
-      if (!deal?.bank_id) {
-        return NextResponse.json(
-          { ok: false, error: "Deal not found" },
-          { status: 404 },
-        );
-      }
-
       const existing = sha256
         ? await findExistingDocBySha({ sb, dealId, sha256 })
         : null;
@@ -181,6 +216,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         dealId,
         fileId,
         filename,
+        uploadSessionId,
       });
 
       const expiresSeconds = Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900");
@@ -193,6 +229,21 @@ export async function POST(req: NextRequest, ctx: Context) {
       const bucket = getGcsBucketName();
       const expiresAt = new Date(Date.now() + expiresSeconds * 1000).toISOString();
 
+      if (uploadSessionId) {
+        await upsertUploadSessionFile({
+          sb,
+          sessionId: uploadSessionId,
+          dealId,
+          bankId: deal.bank_id,
+          fileId,
+          filename,
+          contentType: mime_type || "application/octet-stream",
+          sizeBytes: size_bytes,
+          objectKey: objectPath,
+          bucket,
+        });
+      }
+
       return NextResponse.json({
         ok: true,
         deduped: false,
@@ -200,6 +251,8 @@ export async function POST(req: NextRequest, ctx: Context) {
         key: objectPath,
         signedUploadUrl,
         expiresAt,
+        upload_session_id: uploadSessionId,
+        upload_session_expires_at: uploadSessionExpiresAt,
         upload: {
           file_id: fileId,
           object_path: objectPath,
@@ -207,13 +260,15 @@ export async function POST(req: NextRequest, ctx: Context) {
           token: null,
           checklist_key,
           bucket,
+          upload_session_id: uploadSessionId,
         },
       });
     }
 
     const fileId = crypto.randomUUID();
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const objectPath = `deals/${dealId}/${fileId}__${safeName}`;
+    const sessionSegment = uploadSessionId ? `/${uploadSessionId}` : "";
+    const objectPath = `deals/${dealId}${sessionSegment}/${fileId}__${safeName}`;
 
     const bucket = process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
     const signResult = await signUploadUrl({ bucket, objectPath });
@@ -249,14 +304,32 @@ export async function POST(req: NextRequest, ctx: Context) {
       token,
     });
 
+    if (uploadSessionId) {
+      await upsertUploadSessionFile({
+        sb,
+        sessionId: uploadSessionId,
+        dealId,
+        bankId: deal.bank_id,
+        fileId,
+        filename,
+        contentType: mime_type || "application/octet-stream",
+        sizeBytes: size_bytes,
+        objectKey: objectPath,
+        bucket,
+      });
+    }
+
     return NextResponse.json({
       ok: true,
+      upload_session_id: uploadSessionId,
+      upload_session_expires_at: uploadSessionExpiresAt,
       upload: {
         file_id: fileId,
         object_path: objectPath,
         signed_url: signed.signedUrl,
         token: signed.token,
         checklist_key,
+        upload_session_id: uploadSessionId,
       },
     });
   } catch (error: any) {

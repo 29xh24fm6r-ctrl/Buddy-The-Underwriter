@@ -97,6 +97,7 @@ export async function POST(req: NextRequest) {
           signDealUpload({
             req: innerReq,
             dealId: innerDealId,
+            uploadSessionId: sessionId,
             filename: file.filename,
             mimeType: file.contentType || null,
             sizeBytes: file.sizeBytes,

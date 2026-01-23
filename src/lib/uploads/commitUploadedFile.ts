@@ -14,6 +14,7 @@ export type CommitUploadedFileArgs =
       size_bytes: number;
       checklist_key: string | null;
       sha256?: string;
+      upload_session_id?: string | null;
     }
   | {
       kind: "portal";
@@ -25,6 +26,7 @@ export type CommitUploadedFileArgs =
       size_bytes: number;
       checklist_key: string | null;
       sha256?: string;
+      upload_session_id?: string | null;
     };
 
 export async function commitUploadedFile(
@@ -43,6 +45,10 @@ export async function commitUploadedFile(
     size_bytes: args.size_bytes,
   };
 
+  if (args.upload_session_id) {
+    payload.session_id = args.upload_session_id;
+  }
+
   if (args.checklist_key) {
     payload.checklist_key = args.checklist_key;
   }
@@ -53,7 +59,12 @@ export async function commitUploadedFile(
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(args.upload_session_id
+        ? { "x-buddy-upload-session-id": args.upload_session_id }
+        : {}),
+    },
     body: JSON.stringify(payload),
   });
 

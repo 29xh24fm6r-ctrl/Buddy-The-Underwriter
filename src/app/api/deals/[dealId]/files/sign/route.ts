@@ -9,6 +9,11 @@ import {
   MAX_UPLOAD_BYTES,
   signDealUpload,
 } from "@/lib/uploads/signDealUpload";
+import {
+  createDealUploadSession,
+  upsertUploadSessionFile,
+  validateUploadSession,
+} from "@/lib/uploads/uploadSession";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -116,6 +121,8 @@ export async function POST(req: NextRequest, ctx: Context) {
       size_bytes,
       checklist_key = null,
       sha256,
+      upload_session_id,
+      session_id,
     } = body ?? {};
 
     if (!filename || !size_bytes) {
@@ -189,6 +196,34 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     const docStore = String(process.env.DOC_STORE || "").toLowerCase();
+    const headerSessionId = req.headers.get("x-buddy-upload-session-id");
+    let uploadSessionId = headerSessionId || upload_session_id || session_id || null;
+    let uploadSessionExpiresAt: string | null = null;
+
+    if (uploadSessionId) {
+      const validation = await validateUploadSession({
+        sb,
+        sessionId: uploadSessionId,
+        dealId,
+        bankId,
+      });
+      if (!validation.ok) {
+        return NextResponse.json(
+          { ok: false, requestId, error: validation.error },
+          { status: 409 },
+        );
+      }
+    } else {
+      const created = await createDealUploadSession({
+        sb,
+        dealId,
+        bankId,
+        source: "banker",
+        createdByUserId: userId,
+      });
+      uploadSessionId = created.sessionId;
+      uploadSessionExpiresAt = created.expiresAt;
+    }
 
     if (docStore === "gcs") {
       const existing = sha256
@@ -232,6 +267,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       const signResult = await signDealUpload({
         req,
         dealId,
+        uploadSessionId,
         filename,
         mimeType: mime_type,
         sizeBytes: size_bytes,
@@ -251,6 +287,21 @@ export async function POST(req: NextRequest, ctx: Context) {
         );
       }
 
+      if (uploadSessionId) {
+        await upsertUploadSessionFile({
+          sb,
+          sessionId: uploadSessionId,
+          dealId,
+          bankId,
+          fileId: signResult.upload.fileId,
+          filename,
+          contentType: mime_type || "application/octet-stream",
+          sizeBytes: size_bytes,
+          objectKey: signResult.upload.objectKey,
+          bucket: signResult.upload.bucket,
+        });
+      }
+
       return NextResponse.json({
         ok: true,
         requestId,
@@ -260,6 +311,8 @@ export async function POST(req: NextRequest, ctx: Context) {
         headers: signResult.upload.headers,
         objectKey: signResult.upload.objectKey,
         bucket: signResult.upload.bucket,
+        upload_session_id: uploadSessionId,
+        upload_session_expires_at: uploadSessionExpiresAt,
         upload: {
           file_id: signResult.upload.fileId,
           object_path: signResult.upload.objectKey,
@@ -267,6 +320,7 @@ export async function POST(req: NextRequest, ctx: Context) {
           token: null,
           checklist_key,
           bucket: signResult.upload.bucket,
+          upload_session_id: uploadSessionId,
         },
       });
     }
@@ -274,6 +328,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     const signResult = await signDealUpload({
       req,
       dealId,
+      uploadSessionId,
       filename,
       mimeType: mime_type,
       sizeBytes: size_bytes,
@@ -293,8 +348,25 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
+    if (uploadSessionId) {
+      await upsertUploadSessionFile({
+        sb,
+        sessionId: uploadSessionId,
+        dealId,
+        bankId,
+        fileId: signResult.upload.fileId,
+        filename,
+        contentType: mime_type || "application/octet-stream",
+        sizeBytes: size_bytes,
+        objectKey: signResult.upload.objectKey,
+        bucket: signResult.upload.bucket,
+      });
+    }
+
     return NextResponse.json({
       ok: true,
+      upload_session_id: uploadSessionId,
+      upload_session_expires_at: uploadSessionExpiresAt,
       upload: {
         file_id: signResult.upload.fileId,
         object_path: signResult.upload.objectKey,
@@ -302,6 +374,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         token: null,
         checklist_key,
         bucket: signResult.upload.bucket,
+        upload_session_id: uploadSessionId,
       },
     });
   } catch (error: any) {

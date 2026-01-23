@@ -3,6 +3,8 @@ export function buildGcsSignedUploadResponse(args: {
   key: string;
   signedUploadUrl: string;
   expiresSeconds: number;
+  uploadSessionId?: string | null;
+  uploadSessionExpiresAt?: string | null;
 }) {
   return {
     ok: true as const,
@@ -11,5 +13,7 @@ export function buildGcsSignedUploadResponse(args: {
     key: args.key,
     signedUploadUrl: args.signedUploadUrl,
     expiresAt: new Date(Date.now() + args.expiresSeconds * 1000).toISOString(),
+    upload_session_id: args.uploadSessionId ?? null,
+    upload_session_expires_at: args.uploadSessionExpiresAt ?? null,
   };
 }

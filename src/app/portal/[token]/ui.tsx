@@ -82,7 +82,15 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json?.error || "Failed to prepare upload");
-    return json as { signedUrl: string; path: string; bucket: string; token: string };
+    return json as {
+      signedUrl: string;
+      path: string;
+      bucket: string;
+      token: string;
+      uploadSessionId: string;
+      uploadSessionExpiresAt?: string | null;
+      fileId: string;
+    };
   }
 
   async function doUpload(requestId: string | null, file: File, taskKey?: string | null) {
@@ -110,7 +118,12 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
 
     const commit = await fetch("/api/portal/upload/commit", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(prep.uploadSessionId
+          ? { "x-buddy-upload-session-id": prep.uploadSessionId }
+          : {}),
+      },
       body: JSON.stringify({
         token,
         requestId,
@@ -119,6 +132,8 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
         filename: file.name,
         mimeType: file.type,
         sizeBytes: file.size,
+        uploadSessionId: prep.uploadSessionId,
+        fileId: prep.fileId,
       }),
     });
     const cj = await commit.json();

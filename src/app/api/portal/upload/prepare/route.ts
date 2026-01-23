@@ -4,6 +4,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireValidInvite } from "@/lib/portal/auth";
 import { rateLimit } from "@/lib/portal/ratelimit";
 import { signUploadUrl } from "@/lib/uploads/sign";
+import { createDealUploadSession, upsertUploadSessionFile } from "@/lib/uploads/uploadSession";
+import crypto from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +43,16 @@ export async function POST(req: Request) {
   }
 
   const safeName = filename.replace(/[^a-zA-Z0-9._-]+/g, "_");
-  const path = `${invite.deal_id}/${Date.now()}_${safeName}`;
+  const created = await createDealUploadSession({
+    sb,
+    dealId: invite.deal_id,
+    bankId: invite.bank_id,
+    source: "borrower",
+    createdByName: invite.name ?? null,
+    createdByEmail: invite.email ?? null,
+  });
+  const fileId = crypto.randomUUID();
+  const path = `${invite.deal_id}/${created.sessionId}/${Date.now()}_${safeName}`;
 
   const bucket = process.env.SUPABASE_UPLOAD_BUCKET || "borrower_uploads";
   const signResult = await signUploadUrl({ bucket, objectPath: path });
@@ -62,6 +73,19 @@ export async function POST(req: Request) {
     );
   }
 
+  await upsertUploadSessionFile({
+    sb,
+    sessionId: created.sessionId,
+    dealId: invite.deal_id,
+    bankId: invite.bank_id,
+    fileId,
+    filename,
+    contentType: mimeType || "application/octet-stream",
+    sizeBytes: 0,
+    objectKey: path,
+    bucket,
+  });
+
   return NextResponse.json({
     bucket,
     path,
@@ -69,5 +93,8 @@ export async function POST(req: Request) {
     token: signResult.token,
     mimeType,
     requestId: signResult.requestId,
+    uploadSessionId: created.sessionId,
+    uploadSessionExpiresAt: created.expiresAt,
+    fileId,
   });
 }

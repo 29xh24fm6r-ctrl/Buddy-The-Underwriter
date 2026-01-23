@@ -111,6 +111,7 @@ export default function BorrowerPortalPage() {
       let dealIdFromToken = "";
       let fileId = "";
       let objectPath = "";
+      let uploadSessionId = "";
 
       xhr.upload.onprogress = (evt) => {
         if (!evt.lengthComputable) return;
@@ -163,9 +164,15 @@ export default function BorrowerPortalPage() {
             itemsRef.current.find((x) => x.id === id)?.checklistKey ?? "";
           const recordRes = await fetch(`/api/deals/${dealIdFromToken}/files/record`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              ...(uploadSessionId
+                ? { "x-buddy-upload-session-id": uploadSessionId }
+                : {}),
+            },
             body: JSON.stringify({
               file_id: fileId,
+              session_id: uploadSessionId || null,
               object_path: objectPath,
               original_filename: file.name,
               mime_type: file.type,
@@ -262,6 +269,7 @@ export default function BorrowerPortalPage() {
           const upload = signJson?.upload ?? {};
           fileId = upload?.file_id ?? "";
           objectPath = upload?.object_path ?? "";
+          uploadSessionId = upload?.upload_session_id ?? signJson?.upload_session_id ?? "";
           const signedUrl: string = upload?.signed_url ?? "";
 
           // 2) Upload bytes DIRECTLY to storage via XHR PUT for progress tracking

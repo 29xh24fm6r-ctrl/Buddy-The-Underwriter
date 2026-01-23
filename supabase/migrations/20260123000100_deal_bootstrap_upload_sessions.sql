@@ -11,11 +11,18 @@ CREATE TABLE IF NOT EXISTS deal_upload_sessions (
   expires_at timestamptz NOT NULL,
   status text NOT NULL DEFAULT 'ready',
   created_by text NULL,
-  metadata jsonb NULL
+  created_by_user_id text NULL,
+  created_by_email text NULL,
+  created_by_name text NULL,
+  source text NOT NULL DEFAULT 'banker',
+  portal_link_id uuid NULL REFERENCES borrower_portal_links(id) ON DELETE SET NULL,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  CONSTRAINT deal_upload_sessions_source_check CHECK (source IN ('banker','borrower','system'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_deal_upload_sessions_deal_id ON deal_upload_sessions(deal_id);
 CREATE INDEX IF NOT EXISTS idx_deal_upload_sessions_bank_id ON deal_upload_sessions(bank_id);
+CREATE INDEX IF NOT EXISTS idx_deal_upload_sessions_portal_link_id ON deal_upload_sessions(portal_link_id);
 
 CREATE TABLE IF NOT EXISTS deal_upload_session_files (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -42,7 +49,12 @@ CREATE INDEX IF NOT EXISTS idx_deal_upload_session_files_session
 CREATE OR REPLACE FUNCTION public.deal_bootstrap_create(
   p_bank_id uuid,
   p_name text,
-  p_created_by text
+  p_created_by text,
+  p_source text DEFAULT 'banker',
+  p_portal_link_id uuid DEFAULT NULL,
+  p_created_by_user_id text DEFAULT NULL,
+  p_created_by_email text DEFAULT NULL,
+  p_created_by_name text DEFAULT NULL
 )
 RETURNS TABLE(deal_id uuid, session_id uuid, expires_at timestamptz)
 LANGUAGE plpgsql
@@ -55,8 +67,34 @@ BEGIN
   INSERT INTO deals (id, bank_id, name, borrower_name, created_at, updated_at, intake_state)
   VALUES (v_deal_id, p_bank_id, p_name, p_name, now(), now(), 'UPLOAD_SESSION_READY');
 
-  INSERT INTO deal_upload_sessions (id, deal_id, bank_id, created_at, expires_at, status, created_by)
-  VALUES (v_session_id, v_deal_id, p_bank_id, now(), v_expires_at, 'ready', p_created_by);
+  INSERT INTO deal_upload_sessions (
+    id,
+    deal_id,
+    bank_id,
+    created_at,
+    expires_at,
+    status,
+    created_by,
+    created_by_user_id,
+    created_by_email,
+    created_by_name,
+    source,
+    portal_link_id
+  )
+  VALUES (
+    v_session_id,
+    v_deal_id,
+    p_bank_id,
+    now(),
+    v_expires_at,
+    'ready',
+    p_created_by,
+    p_created_by_user_id,
+    p_created_by_email,
+    p_created_by_name,
+    p_source,
+    p_portal_link_id
+  );
 
   RETURN QUERY SELECT v_deal_id, v_session_id, v_expires_at;
 END;

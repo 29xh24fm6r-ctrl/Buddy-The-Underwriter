@@ -25,8 +25,11 @@ export interface SignedUploadResponse {
     token?: string;
     checklist_key?: string | null;
     bucket?: string;
+    upload_session_id?: string | null;
   };
   deal_id?: string; // For borrower portal
+  upload_session_id?: string | null;
+  upload_session_expires_at?: string | null;
   error?: string;
   details?: string; // Extended error info
   request_id?: string;
@@ -300,6 +303,8 @@ export async function directDealDocumentUpload(
     }
 
     const { file_id, object_path, signed_url } = signData.upload;
+    const uploadSessionId =
+      signData.upload?.upload_session_id || signData.upload_session_id || null;
 
     stage(requestId, onStage, "sign_ok", { file_id, object_path });
 
@@ -328,10 +333,14 @@ export async function directDealDocumentUpload(
         headers: {
           "Content-Type": "application/json",
           "x-request-id": requestId,
+          ...(uploadSessionId
+            ? { "x-buddy-upload-session-id": uploadSessionId }
+            : {}),
         },
         body: JSON.stringify({
           file_id,
           object_path,
+          session_id: uploadSessionId,
           original_filename: file.name,
           mime_type: file.type,
           size_bytes: file.size,
@@ -445,6 +454,8 @@ export async function uploadBorrowerFile(
     }
 
     const { file_id, object_path, signed_url } = signData.upload;
+    const uploadSessionId =
+      signData.upload?.upload_session_id || signData.upload_session_id || null;
 
     // Step 2: Upload directly to storage
     const uploadResult = await uploadViaSignedUrl(signed_url, file, onProgress);
@@ -460,10 +471,14 @@ export async function uploadBorrowerFile(
       headers: {
         "Content-Type": "application/json",
         "x-request-id": requestId,
+        ...(uploadSessionId
+          ? { "x-buddy-upload-session-id": uploadSessionId }
+          : {}),
       },
       body: JSON.stringify({
         file_id,
         object_path,
+        session_id: uploadSessionId,
         original_filename: file.name,
         mime_type: file.type,
         size_bytes: file.size,

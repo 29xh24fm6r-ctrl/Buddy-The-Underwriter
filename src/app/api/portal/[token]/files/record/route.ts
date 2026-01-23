@@ -9,6 +9,7 @@ import { recordReceipt } from "@/lib/portal/receipts";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 import { isBorrowerUploadAllowed } from "@/lib/deals/lifecycleGuards";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
+import { validateUploadSession } from "@/lib/uploads/uploadSession";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +42,12 @@ export async function POST(req: NextRequest, ctx: Context) {
       size_bytes,
       checklist_key = null,
       sha256,
+      session_id,
+      upload_session_id,
     } = body;
+
+    const headerSessionId = req.headers.get("x-buddy-upload-session-id");
+    const resolvedSessionId = headerSessionId || upload_session_id || session_id || null;
 
     const resolvedPath = storage_path || object_path;
     const resolvedBucket =
@@ -59,6 +65,13 @@ export async function POST(req: NextRequest, ctx: Context) {
     if (!file_id || !resolvedPath || !original_filename) {
       return NextResponse.json(
         { ok: false, error: "Missing required fields" },
+        { status: 400 },
+      );
+    }
+
+    if (!resolvedSessionId) {
+      return NextResponse.json(
+        { ok: false, error: "Missing uploadSessionId" },
         { status: 400 },
       );
     }
@@ -106,6 +119,80 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     await initializeIntake(dealId, deal.bank_id, { reason: "borrower_upload" });
+
+    const sessionValidation = await validateUploadSession({
+      sb,
+      sessionId: resolvedSessionId,
+      dealId,
+      bankId: deal.bank_id,
+    });
+
+    if (!sessionValidation.ok) {
+      return NextResponse.json(
+        { ok: false, error: sessionValidation.error },
+        { status: 409 },
+      );
+    }
+
+    const existingFile = await sb
+      .from("deal_upload_session_files")
+      .select("id")
+      .eq("session_id", resolvedSessionId)
+      .eq("file_id", file_id)
+      .maybeSingle();
+
+    if (existingFile.data?.id) {
+      await sb
+        .from("deal_upload_session_files")
+        .update({
+          status: "completed",
+          completed_at: new Date().toISOString(),
+          size_bytes: size_bytes ?? 0,
+        })
+        .eq("id", existingFile.data.id);
+    } else {
+      await sb
+        .from("deal_upload_session_files")
+        .insert({
+          session_id: resolvedSessionId,
+          deal_id: dealId,
+          bank_id: deal.bank_id,
+          file_id,
+          filename: original_filename,
+          content_type: mime_type ?? "application/octet-stream",
+          size_bytes: size_bytes ?? 0,
+          object_key: resolvedPath,
+          bucket: resolvedBucket,
+          status: "completed",
+          completed_at: new Date().toISOString(),
+        });
+    }
+
+    const totalRes = await sb
+      .from("deal_upload_session_files")
+      .select("id", { count: "exact", head: true })
+      .eq("session_id", resolvedSessionId);
+
+    const completeRes = await sb
+      .from("deal_upload_session_files")
+      .select("id", { count: "exact", head: true })
+      .eq("session_id", resolvedSessionId)
+      .eq("status", "completed");
+
+    const total = totalRes.count ?? 0;
+    const completed = completeRes.count ?? 0;
+
+    if (total > 0 && total === completed) {
+      await sb
+        .from("deal_upload_sessions")
+        .update({ status: "completed" })
+        .eq("id", resolvedSessionId);
+    } else {
+      await sb
+        .from("deal_upload_sessions")
+        .update({ status: "uploading" })
+        .eq("id", resolvedSessionId);
+    }
 
     const { data: refreshed } = await sb
       .from("deals")

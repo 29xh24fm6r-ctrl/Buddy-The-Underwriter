@@ -22,7 +22,9 @@ export function buildGcsObjectKey(args: {
   dealId: string;
   fileId: string;
   filename: string;
+  uploadSessionId?: string | null;
 }): string {
   const safeName = sanitizeFilename(args.filename);
-  return `banks/${args.bankId}/deals/${args.dealId}/${args.fileId}/${safeName}`;
+  const sessionSegment = args.uploadSessionId ? `/${args.uploadSessionId}` : "";
+  return `banks/${args.bankId}/deals/${args.dealId}${sessionSegment}/${args.fileId}/${safeName}`;
 }

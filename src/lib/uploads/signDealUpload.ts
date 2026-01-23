@@ -30,6 +30,7 @@ export const ALLOWED_MIME_TYPES = new Set([
 export type SignDealUploadInput = {
   req: NextRequest;
   dealId: string;
+  uploadSessionId?: string | null;
   filename: string;
   mimeType?: string | null;
   sizeBytes: number;
@@ -65,7 +66,7 @@ function randomUUID() {
 export async function signDealUpload(
   input: SignDealUploadInput,
 ): Promise<SignDealUploadOk | SignDealUploadErr> {
-  const { req, dealId, filename, mimeType, sizeBytes, checklistKey, requestId } = input;
+  const { req, dealId, uploadSessionId, filename, mimeType, sizeBytes, checklistKey, requestId } = input;
 
   if (!filename || !sizeBytes) {
     return { ok: false, requestId, error: "missing_filename_or_size" };
@@ -113,7 +114,8 @@ export async function signDealUpload(
       };
     }
 
-    const objectKey = `${uploadPrefix}/${dealId}/${fileId}-${safeName}`;
+    const sessionSegment = uploadSessionId ? `/${uploadSessionId}` : "";
+    const objectKey = `${uploadPrefix}/${dealId}${sessionSegment}/${fileId}-${safeName}`;
     const federated = await exchangeOidcForFederatedAccessToken(oidc);
     const saToken = await generateAccessToken(federated);
     const signed = await createV4SignedPutUrl({
@@ -139,7 +141,8 @@ export async function signDealUpload(
     };
   }
 
-  const objectKey = `deals/${dealId}/${fileId}__${safeName}`;
+  const sessionSegment = uploadSessionId ? `/${uploadSessionId}` : "";
+  const objectKey = `deals/${dealId}${sessionSegment}/${fileId}__${safeName}`;
   const bucket = process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
   const signResult = await signUploadUrl({ bucket, objectPath: objectKey });
 

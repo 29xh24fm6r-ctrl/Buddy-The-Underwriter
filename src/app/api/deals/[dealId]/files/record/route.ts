@@ -28,17 +28,17 @@ type Context = {
 
 /**
  * POST /api/deals/[dealId]/files/record
- * 
+ *
  * Records file metadata after successful direct upload to storage.
  * Called AFTER client uploads bytes via signed URL.
- * 
+ *
  * Flow:
  * 1. Client uploads file to signed URL from /files/sign
  * 2. Client calls this endpoint with metadata
  * 3. We insert record into deal_documents table
  * 4. Emit ledger event (document.uploaded)
  * 5. Trigger checklist auto-resolution (if checklist_key provided)
- * 
+ *
  * This endpoint handles METADATA ONLY, never file bytes.
  */
 export async function POST(req: NextRequest, ctx: Context) {
@@ -67,7 +67,11 @@ export async function POST(req: NextRequest, ctx: Context) {
       checklist_key = null,
       sha256,
       session_id,
+      upload_session_id,
     } = body;
+
+    const headerSessionId = req.headers.get("x-buddy-upload-session-id");
+    const resolvedSessionId = headerSessionId || upload_session_id || session_id || null;
 
     const resolvedPath = storage_path || object_path;
     const resolvedBucket =
@@ -86,6 +90,13 @@ export async function POST(req: NextRequest, ctx: Context) {
     if (!file_id || !resolvedPath || !original_filename) {
       return NextResponse.json(
         { ok: false, error: "Missing required fields", request_id: requestId },
+        { status: 400 },
+      );
+    }
+
+    if (!resolvedSessionId) {
+      return NextResponse.json(
+        { ok: false, error: "missing_upload_session", request_id: requestId },
         { status: 400 },
       );
     }
@@ -142,11 +153,11 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     await initializeIntake(dealId, bankId, { reason: "files_record", trigger: "files.record" });
 
-    if (session_id) {
+    if (resolvedSessionId) {
       const sessionRes = await sb
         .from("deal_upload_sessions")
         .select("id, deal_id, bank_id, expires_at, status")
-        .eq("id", session_id)
+        .eq("id", resolvedSessionId)
         .maybeSingle();
 
       if (sessionRes.error || !sessionRes.data) {
@@ -183,7 +194,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       const fileRes = await sb
         .from("deal_upload_session_files")
         .select("id, size_bytes, status")
-        .eq("session_id", session_id)
+        .eq("session_id", resolvedSessionId)
         .eq("file_id", file_id)
         .maybeSingle();
 
@@ -212,12 +223,12 @@ export async function POST(req: NextRequest, ctx: Context) {
       const totalRes = await sb
         .from("deal_upload_session_files")
         .select("id", { count: "exact", head: true })
-        .eq("session_id", session_id);
+        .eq("session_id", resolvedSessionId);
 
       const completeRes = await sb
         .from("deal_upload_session_files")
         .select("id", { count: "exact", head: true })
-        .eq("session_id", session_id)
+        .eq("session_id", resolvedSessionId)
         .eq("status", "completed");
 
       const total = totalRes.count ?? 0;
@@ -227,14 +238,14 @@ export async function POST(req: NextRequest, ctx: Context) {
         await sb
           .from("deal_upload_sessions")
           .update({ status: "uploading" })
-          .eq("id", session_id);
+          .eq("id", resolvedSessionId);
       }
 
       if (total > 0 && total === completed) {
         await sb
           .from("deal_upload_sessions")
           .update({ status: "completed" })
-          .eq("id", session_id);
+          .eq("id", resolvedSessionId);
 
         const nextState: DealIntakeState = "UPLOAD_COMPLETE";
         if (canTransitionIntakeState((deal as any).intake_state || "CREATED", nextState)) {
