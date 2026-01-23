@@ -4,6 +4,7 @@ import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { uploadFileWithSignedUrl } from "@/lib/uploads/uploadFile";
+import { createUploadSession } from "@/lib/api/uploads";
 import { markUploadsCompletedAction } from "./actions";
 import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
 
@@ -16,28 +17,24 @@ type SelectedFile = {
 type DealBootstrapResponse = {
   ok: boolean;
   dealId?: string;
-  uploadSession?: {
-    sessionId: string;
-    expiresAt: string;
-    files: Array<{
-      fileId: string;
-      signedUrl: string;
-      method: "PUT";
-      contentType: string;
-      sizeBytes: number;
-      headers: Record<string, string>;
-      objectKey: string;
-      bucket: string;
-      checklistKey?: string | null;
-      filename?: string;
-    }>;
-  };
+  sessionId?: string;
+  uploadSessionExpiresAt?: string | null;
+  uploadUrls?: Array<{
+    fileId: string;
+    signedUrl: string;
+    method: "PUT";
+    headers: Record<string, string>;
+    objectKey: string;
+    bucket: string;
+    filename: string;
+    sizeBytes: number;
+  }>;
   error?: string;
   details?: string;
   requestId?: string;
 };
 
-type UploadSpec = NonNullable<DealBootstrapResponse["uploadSession"]>["files"][number];
+type UploadSpec = NonNullable<DealBootstrapResponse["uploadUrls"]>[number];
 
 function uid() {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -147,35 +144,29 @@ export default function NewDealClient({
       const rid = requestId();
       const t = setTimeout(() => ac.abort(), 20000);
       try {
-        const createRes = await fetch("/api/deals/bootstrap", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-request-id": rid },
-          signal: ac.signal,
-          body: JSON.stringify({
-            dealName: dealName || `Deal - ${new Date().toLocaleDateString()}`,
-            files: files.map((f) => ({
-              filename: f.file.name,
-              contentType: f.file.type,
-              sizeBytes: f.file.size,
-              checklistKey: f.checklistKey || null,
-            })),
-          }),
+        const payload = await createUploadSession({
+          dealName: dealName || `Deal - ${new Date().toLocaleDateString()}`,
+          source: "banker",
+          files: files.map((f) => ({
+            name: f.file.name,
+            size: f.file.size,
+            mime: f.file.type,
+          })),
         });
 
-        const payload = (await createRes.json().catch(() => null)) as DealBootstrapResponse | null;
-        if (!createRes.ok || !payload?.ok) {
-          const errText = payload?.error || `Failed to bootstrap deal (${createRes.status})`;
+        if (!payload?.ok) {
+          const errText = payload?.error || "Failed to bootstrap deal";
           throw new Error(errText);
         }
 
-        if (!payload?.dealId || !payload?.uploadSession?.files?.length) {
+        if (!payload?.dealId || !payload?.uploadUrls?.length || !payload?.sessionId) {
           throw new Error("failed_to_bootstrap_deal");
         }
 
         return {
           dealId: payload.dealId,
-          sessionId: payload.uploadSession.sessionId,
-          uploads: payload.uploadSession.files,
+          sessionId: payload.sessionId,
+          uploads: payload.uploadUrls,
           requestId: rid,
         };
       } finally {
