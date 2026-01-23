@@ -50,6 +50,7 @@ export async function uploadViaSignedUrl(
   signedUrl: string,
   file: File,
   onProgress?: (percent: number) => void,
+  headers?: Record<string, string>,
 ): Promise<UploadResult> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
@@ -102,9 +103,46 @@ export async function uploadViaSignedUrl(
     });
 
     xhr.open("PUT", signedUrl);
-    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    const contentType = file.type || "application/octet-stream";
+    xhr.setRequestHeader("Content-Type", contentType);
+    if (headers) {
+      for (const [key, value] of Object.entries(headers)) {
+        if (key.toLowerCase() === "content-type") continue;
+        xhr.setRequestHeader(key, value);
+      }
+    }
     xhr.send(file);
   });
+}
+
+export async function uploadFileWithSignedUrl(args: {
+  uploadUrl?: string;
+  headers?: Record<string, string>;
+  file: File;
+  context: "new-deal" | "existing-deal";
+  maxAttempts?: number;
+}): Promise<UploadResult> {
+  const { uploadUrl, headers, file, context } = args;
+  if (!uploadUrl) {
+    const err = "invariant_violation_missing_signed_url";
+    if (context === "new-deal") throw new Error(err);
+    return { ok: false, error: err, code: "MISSING_SIGNED_URL" };
+  }
+
+  const maxAttempts = Math.max(1, args.maxAttempts ?? 2);
+  let lastResult: UploadResult = { ok: false, error: "upload_failed" };
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    lastResult = await uploadViaSignedUrl(uploadUrl, file, undefined, headers);
+    if (lastResult.ok) return lastResult;
+    if (context === "new-deal") break;
+  }
+
+  if (context === "new-deal") {
+    throw new Error("upload_session_expired_restart");
+  }
+
+  return lastResult;
 }
 
 function sleep(ms: number) {

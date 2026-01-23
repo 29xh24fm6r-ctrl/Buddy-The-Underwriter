@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { uploadViaSignedUrl } from "@/lib/uploads/uploadFile";
+import { uploadFileWithSignedUrl } from "@/lib/uploads/uploadFile";
 import { markUploadsCompletedAction } from "./actions";
 import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
 
@@ -24,11 +24,14 @@ type UploadSessionResponse = {
     fileId: string;
     checklistKey?: string | null;
     bucket: string;
+    sizeBytes?: number;
   }>;
   error?: string;
   details?: string;
   requestId?: string;
 };
+
+type UploadSpec = NonNullable<UploadSessionResponse["uploads"]>[number];
 
 function uid() {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -57,6 +60,7 @@ export default function NewDealClient({
   );
   const [processing, setProcessing] = useState(false);
   const [processError, setProcessError] = useState<string | null>(null);
+  const [needsRestart, setNeedsRestart] = useState(false);
 
   const handleFiles = useCallback((selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
@@ -101,6 +105,16 @@ export default function NewDealClient({
     [handleFiles]
   );
 
+  const handleRestart = useCallback(() => {
+    setFiles([]);
+    setUploading(false);
+    setProcessing(false);
+    setProcessError(null);
+    setNeedsRestart(false);
+    setUploadProgress({ current: 0, total: 0 });
+    setDebugInfo({ requestId: null, stage: null });
+  }, []);
+
   const removeFile = useCallback((id: string) => {
     setFiles((prev) => prev.filter((x) => x.id !== id));
   }, []);
@@ -111,6 +125,7 @@ export default function NewDealClient({
     setUploading(true);
     setProcessing(false);
     setProcessError(null);
+    setNeedsRestart(false);
     setUploadProgress({ current: 0, total: files.length });
 
     const classifyNetworkError = (e: unknown) => {
@@ -208,13 +223,29 @@ export default function NewDealClient({
       return { ok: true, status: "timeout" };
     };
 
+    let sessionRequestId: string | null = null;
+
     try {
       // 1. Create deal + upload session
       setDebugInfo({ requestId: null, stage: "create_upload_session" });
       const session = await createUploadSessionWithRetries();
+      sessionRequestId = session.requestId ?? null;
       const dealId = session.dealId;
       const createdName = dealName;
       console.log(`Created deal ${dealId} (request ${session.requestId}), uploading ${files.length} files...`);
+
+      if (!session.uploads || session.uploads.length === 0) {
+        throw new Error("upload_session_missing_uploads");
+      }
+
+      const uploadsByKey = new Map<string, UploadSpec[]>();
+      for (const upload of session.uploads) {
+        const sizeKey = upload.sizeBytes ?? 0;
+        const key = `${upload.filename}::${sizeKey}`;
+        const bucket = uploadsByKey.get(key) ?? [];
+        bucket.push(upload);
+        uploadsByKey.set(key, bucket);
+      }
 
       // 2. Upload files to the deal
       setUploadProgress({ current: 0, total: files.length });
@@ -225,18 +256,22 @@ export default function NewDealClient({
         const rid = requestId();
         setDebugInfo({ requestId: rid, stage: "starting_file" });
         setUploadProgress({ current: i + 1, total: files.length });
-        const uploadSpec = session.uploads[i];
+
+        const key = `${file.name}::${file.size}`;
+        const bucket = uploadsByKey.get(key) ?? [];
+        const uploadSpec = bucket.shift();
         if (!uploadSpec) {
-          throw new Error("upload_session_mismatch");
+          throw new Error("upload_session_missing_uploads");
         }
+        if (bucket.length === 0) uploadsByKey.delete(key);
 
         setDebugInfo({ requestId: rid, stage: "upload_put" });
-        const uploadRes = await uploadViaSignedUrl(uploadSpec.uploadUrl, file);
-        if (!uploadRes.ok) {
-          const message = `Upload failed: ${uploadRes.error || "Unknown error"}`;
-          setProcessError(message);
-          throw new Error(message);
-        }
+        await uploadFileWithSignedUrl({
+          uploadUrl: uploadSpec.uploadUrl,
+          headers: uploadSpec.headers,
+          file,
+          context: "new-deal",
+        });
 
         setDebugInfo({ requestId: rid, stage: "record_file" });
         const recordRes = await fetch(`/api/deals/${dealId}/files/record`, {
@@ -306,6 +341,11 @@ export default function NewDealClient({
       console.error("Upload failed:", error);
 
       const { isAbort, isNetwork, msg } = classifyNetworkError(error);
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const isSessionError =
+        rawMessage.includes("upload_session") ||
+        rawMessage.includes("invariant_violation") ||
+        rawMessage.includes("upload_session_expired_restart");
       if (isAbort) {
         setProcessError(
           "Create deal timed out (20s). This is usually a cold-start/serverless stall. Retry once; if it keeps happening, share the Request ID + Stage shown during upload.",
@@ -315,6 +355,14 @@ export default function NewDealClient({
       if (isNetwork) {
         setProcessError(
           "Network error calling the backend. Retry once; if it keeps happening, share the Request ID + Stage shown during upload.",
+        );
+        return;
+      }
+      if (isSessionError) {
+        setNeedsRestart(true);
+        const tag = sessionRequestId ? ` (Request: ${sessionRequestId})` : "";
+        setProcessError(
+          `Upload session failed (no re-sign). Please restart this deal creation.${tag}`,
         );
         return;
       }
@@ -536,7 +584,17 @@ export default function NewDealClient({
 
           {processError ? (
             <div className="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-              {processError}
+              <div className="flex items-center justify-between gap-3">
+                <span>{processError}</span>
+                {needsRestart ? (
+                  <button
+                    onClick={handleRestart}
+                    className="rounded-md border border-rose-400/60 px-3 py-1 text-xs font-semibold text-rose-100 hover:border-rose-300"
+                  >
+                    Restart
+                  </button>
+                ) : null}
+              </div>
             </div>
           ) : null}
 

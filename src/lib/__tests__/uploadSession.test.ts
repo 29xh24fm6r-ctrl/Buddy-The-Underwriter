@@ -29,4 +29,5 @@ test("upload-session returns uploads for each file", async () => {
   assert.equal(uploads.length, files.length);
   assert.equal(uploads[0].objectKey, "deals/deal_123/one.pdf");
   assert.equal(uploads[1].checklistKey, "PFS");
+  assert.equal(uploads[1].sizeBytes, 456);
 });

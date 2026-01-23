@@ -16,6 +16,7 @@ export type UploadSessionItem = {
   fileId: string;
   checklistKey?: string | null;
   bucket: string;
+  sizeBytes: number;
 };
 
 export async function buildUploadSession(args: {
@@ -55,6 +56,7 @@ export async function buildUploadSession(args: {
       fileId: signed.upload.fileId,
       checklistKey: signed.upload.checklistKey ?? null,
       bucket: signed.upload.bucket,
+      sizeBytes: file.sizeBytes,
     });
   }
 
