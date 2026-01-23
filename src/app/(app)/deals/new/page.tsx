@@ -3,5 +3,6 @@ import NewDealClient from "./NewDealClient";
 
 export default async function DealIntakePage() {
   const bankId = await getCurrentBankId();
-  return <NewDealClient bankId={bankId} />;
+  const initialDealName = `Deal - ${new Date().toLocaleDateString()}`;
+  return <NewDealClient bankId={bankId} initialDealName={initialDealName} />;
 }

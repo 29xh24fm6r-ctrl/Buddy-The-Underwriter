@@ -21,13 +21,19 @@ function requestId() {
   return `req_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-export default function NewDealClient({ bankId }: { bankId: string }) {
+export default function NewDealClient({
+  bankId,
+  initialDealName,
+}: {
+  bankId: string;
+  initialDealName: string;
+}) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [files, setFiles] = useState<SelectedFile[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [dealName, setDealName] = useState(`Deal - ${new Date().toLocaleDateString()}`);
+  const [dealName, setDealName] = useState(initialDealName || "");
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [debugInfo, setDebugInfo] = useState<{ requestId: string | null; stage: string | null }>(
     { requestId: null, stage: null },
