@@ -215,6 +215,14 @@ export async function directDealDocumentUpload(
           ok: signRes.ok,
           response_ok: Boolean(signData?.ok),
         });
+        const dealNotFound =
+          signRes.status === 404 ||
+          signData?.error === "deal_not_found" ||
+          String(signData?.details || "").includes("deal_not_found");
+        if (dealNotFound && attempt < 3) {
+          await sleep(300 * attempt);
+          continue;
+        }
         break;
       } catch (e) {
         const isAbort = (e as any)?.name === "AbortError";

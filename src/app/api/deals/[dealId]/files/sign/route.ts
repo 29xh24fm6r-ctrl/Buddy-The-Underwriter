@@ -29,6 +29,41 @@ function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T
   ]);
 }
 
+async function checkDealAccessWithRetries(args: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  dealId: string;
+  bankId: string;
+  maxAttempts?: number;
+}) {
+  const maxAttempts = args.maxAttempts ?? 3;
+  let lastError: any = null;
+  let deal: { id: string } | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await withTimeout(
+      args.sb
+        .from("deals")
+        .select("id")
+        .eq("id", args.dealId)
+        .eq("bank_id", args.bankId)
+        .maybeSingle(),
+      8_000,
+      "checkDealAccess",
+    );
+
+    deal = (res?.data ?? null) as any;
+    lastError = res?.error ?? null;
+
+    if (deal?.id) return { deal, error: null };
+    if (lastError) break;
+    if (attempt < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 250 * attempt));
+    }
+  }
+
+  return { deal: null, error: lastError };
+}
+
 // Bank-grade MIME type allowlist (SBA-compliant document types)
 const ALLOWED_MIME_TYPES = new Set([
   // PDFs (most common for financial documents)
@@ -154,22 +189,13 @@ export async function POST(req: NextRequest, ctx: Context) {
     const sb = supabaseAdmin();
     const bankId = await withTimeout(getCurrentBankId(), 8_000, "getCurrentBankId");
 
-    const { data: deal, error: dealErr } = await withTimeout(
-      sb
-        .from("deals")
-        .select("id")
-        .eq("id", dealId)
-        .eq("bank_id", bankId)
-        .maybeSingle(),
-      8_000,
-      "checkDealAccess",
-    );
+    const { deal, error: dealErr } = await checkDealAccessWithRetries({ sb, dealId, bankId });
 
     if (dealErr || !deal) {
       console.error("[files/sign] deal access denied", { dealId, bankId, dealErr });
       return NextResponse.json(
-        { ok: false, requestId, error: "Deal not found or access denied" },
-        { status: 403 },
+        { ok: false, requestId, error: "deal_not_found" },
+        { status: 404 },
       );
     }
 
