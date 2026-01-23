@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
+import { uploadViaSignedUrl } from "@/lib/uploads/uploadFile";
 import { markUploadsCompletedAction } from "./actions";
 import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
 
@@ -11,6 +11,23 @@ type SelectedFile = {
   id: string;
   file: File;
   checklistKey: string; // empty = unclassified
+};
+
+type UploadSessionResponse = {
+  ok: boolean;
+  dealId?: string;
+  uploads?: Array<{
+    filename: string;
+    objectKey: string;
+    uploadUrl: string;
+    headers: Record<string, string>;
+    fileId: string;
+    checklistKey?: string | null;
+    bucket: string;
+  }>;
+  error?: string;
+  details?: string;
+  requestId?: string;
 };
 
 function uid() {
@@ -40,11 +57,6 @@ export default function NewDealClient({
   );
   const [processing, setProcessing] = useState(false);
   const [processError, setProcessError] = useState<string | null>(null);
-
-  function isSigningFailure(result: { error?: string; code?: string }) {
-    const msg = String(result?.error || "").toLowerCase();
-    return msg.includes("signed url") || msg.includes("sign") || msg.includes("signing");
-  }
 
   const handleFiles = useCallback((selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
@@ -109,44 +121,48 @@ export default function NewDealClient({
       return { msg, name, isAbort, isNetwork };
     };
 
-    const createDeal = async () => {
+    const createUploadSession = async () => {
       const ac = new AbortController();
       const rid = requestId();
       const t = setTimeout(() => ac.abort(), 20000);
       try {
-        const createRes = await fetch("/api/deals", {
+        const createRes = await fetch("/api/deals/new/upload-session", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-request-id": rid },
           signal: ac.signal,
           body: JSON.stringify({
-            name: dealName || `Deal - ${new Date().toLocaleDateString()}`,
+            dealName: dealName || `Deal - ${new Date().toLocaleDateString()}`,
+            files: files.map((f) => ({
+              filename: f.file.name,
+              contentType: f.file.type,
+              sizeBytes: f.file.size,
+              checklistKey: f.checklistKey || null,
+            })),
           }),
         });
 
-        if (!createRes.ok) {
-          const errJson = await createRes.json().catch(() => null as any);
-          const errText = errJson?.error || `Failed to create deal (${createRes.status})`;
+        const payload = (await createRes.json().catch(() => null)) as UploadSessionResponse | null;
+        if (!createRes.ok || !payload?.ok) {
+          const errText = payload?.error || `Failed to create upload session (${createRes.status})`;
           throw new Error(errText);
         }
 
-        const payload = await createRes.json().catch(() => null as any);
-        const dealId = String(payload?.deal?.id || payload?.dealId || "");
-        const createdName = String(payload?.deal?.borrower_name || "");
-        if (!dealId) throw new Error("failed_to_create_deal:missing_dealId");
-        return { dealId, requestId: rid, createdName };
+        if (!payload?.dealId || !payload?.uploads?.length) {
+          throw new Error("failed_to_create_upload_session");
+        }
+
+        return { dealId: payload.dealId, uploads: payload.uploads, requestId: rid };
       } finally {
         clearTimeout(t);
       }
     };
 
-    const createDealWithRetries = async () => {
-      // These failures are almost always transient serverless/network issues.
-      // Retry a couple times before surfacing an error.
+    const createUploadSessionWithRetries = async () => {
       const maxAttempts = 3;
       let lastErr: unknown = null;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-          return await createDeal();
+          return await createUploadSession();
         } catch (e) {
           lastErr = e;
           const { isAbort, isNetwork } = classifyNetworkError(e);
@@ -193,12 +209,12 @@ export default function NewDealClient({
     };
 
     try {
-      // 1. Create the deal
-      setDebugInfo({ requestId: null, stage: "create_deal" });
-      const created = await createDealWithRetries();
-      const dealId = created.dealId;
-      const createdName = created.createdName;
-      console.log(`Created deal ${dealId} (request ${created.requestId}), uploading ${files.length} files...`);
+      // 1. Create deal + upload session
+      setDebugInfo({ requestId: null, stage: "create_upload_session" });
+      const session = await createUploadSessionWithRetries();
+      const dealId = session.dealId;
+      const createdName = dealName;
+      console.log(`Created deal ${dealId} (request ${session.requestId}), uploading ${files.length} files...`);
 
       // 2. Upload files to the deal
       setUploadProgress({ current: 0, total: files.length });
@@ -209,28 +225,41 @@ export default function NewDealClient({
         const rid = requestId();
         setDebugInfo({ requestId: rid, stage: "starting_file" });
         setUploadProgress({ current: i + 1, total: files.length });
-        
-        const result = await directDealDocumentUpload({
-          dealId,
-          file,
-          checklistKey: item.checklistKey ? item.checklistKey : null,
-          source: "internal",
-          requestId: rid,
-          onStage: (stageName) => setDebugInfo({ requestId: rid, stage: stageName }),
-        });
-
-        if (result.ok) {
-          successCount++;
-          continue;
+        const uploadSpec = session.uploads[i];
+        if (!uploadSpec) {
+          throw new Error("upload_session_mismatch");
         }
 
-        const requestTag = result.request_id ? ` (Request: ${result.request_id})` : "";
-        const message = isSigningFailure(result)
-          ? `Upload signing failed (Google auth). Please contact admin or retry.${requestTag}`
-          : `Upload failed: ${result.error || "Unknown error"}.${requestTag}`;
+        setDebugInfo({ requestId: rid, stage: "upload_put" });
+        const uploadRes = await uploadViaSignedUrl(uploadSpec.uploadUrl, file);
+        if (!uploadRes.ok) {
+          const message = `Upload failed: ${uploadRes.error || "Unknown error"}`;
+          setProcessError(message);
+          throw new Error(message);
+        }
 
-        setProcessError(message);
-        throw new Error(message);
+        setDebugInfo({ requestId: rid, stage: "record_file" });
+        const recordRes = await fetch(`/api/deals/${dealId}/files/record`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-request-id": rid },
+          body: JSON.stringify({
+            file_id: uploadSpec.fileId,
+            object_path: uploadSpec.objectKey,
+            original_filename: file.name,
+            mime_type: file.type || "application/octet-stream",
+            size_bytes: file.size,
+            checklist_key: item.checklistKey || null,
+            storage_bucket: uploadSpec.bucket,
+          }),
+        });
+
+        if (!recordRes.ok) {
+          const errJson = await recordRes.json().catch(() => null as any);
+          const errText = errJson?.error || `Record failed (${recordRes.status})`;
+          throw new Error(errText);
+        }
+
+        successCount++;
       }
 
       console.log(`Uploaded ${successCount}/${files.length} files to deal ${dealId}`);

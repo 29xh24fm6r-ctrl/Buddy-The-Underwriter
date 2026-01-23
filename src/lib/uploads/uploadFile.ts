@@ -217,8 +217,11 @@ export async function directDealDocumentUpload(
         });
         const dealNotFound =
           signRes.status === 404 ||
+          signRes.status === 409 ||
           signData?.error === "deal_not_found" ||
-          String(signData?.details || "").includes("deal_not_found");
+          signData?.error === "deal_not_ready" ||
+          String(signData?.details || "").includes("deal_not_found") ||
+          String(signData?.details || "").includes("deal_not_ready");
         if (dealNotFound && attempt < 3) {
           await sleep(300 * attempt);
           continue;

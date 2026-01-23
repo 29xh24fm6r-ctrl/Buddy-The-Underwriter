@@ -87,7 +87,6 @@ export async function buildFinancialSnapshot(args: {
     stress,
     sba,
     narrative,
-    status: "ready",
   });
 
   return { status: "created", snapshotId: snapRow.id };

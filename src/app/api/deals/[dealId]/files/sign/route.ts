@@ -2,14 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { signUploadUrl } from "@/lib/uploads/sign";
-import { getGcsBucketName } from "@/lib/storage/gcs";
 import { findExistingDocBySha } from "@/lib/storage/dedupe";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
-import { getVercelOidcToken } from "@/lib/google/vercelOidc";
-import { exchangeOidcForFederatedAccessToken } from "@/lib/google/wifSts";
-import { generateAccessToken, signBlob } from "@/lib/google/iamCredentials";
-import { createV4SignedPutUrl } from "@/lib/google/gcsV4Signer";
+import {
+  ALLOWED_MIME_TYPES,
+  MAX_UPLOAD_BYTES,
+  signDealUpload,
+} from "@/lib/uploads/signDealUpload";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,37 +61,6 @@ async function checkDealAccessWithRetries(args: {
 
   return { deal: null, error: lastError };
 }
-
-// Bank-grade MIME type allowlist (SBA-compliant document types)
-const ALLOWED_MIME_TYPES = new Set([
-  // PDFs (most common for financial documents)
-  "application/pdf",
-  
-  // Images (scanned documents, photos of receipts, etc.)
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "image/tiff",
-  "image/tif",
-  "image/gif",
-  "image/webp",
-  
-  // Excel/Spreadsheets (financial statements, P&L, balance sheets)
-  "application/vnd.ms-excel", // .xls
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
-  "text/csv",
-  
-  // Word documents (business plans, narratives)
-  "application/msword", // .doc
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
-  
-  // Plain text (sometimes used for simple disclosures)
-  "text/plain",
-  
-  // ZIP archives (multi-document packages)
-  "application/zip",
-  "application/x-zip-compressed",
-]);
 
 type Context = {
   params: Promise<{ dealId: string }>;
@@ -176,8 +144,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     // Bank-safe guardrails
-    const MAX_BYTES = 50 * 1024 * 1024; // 50MB
-    if (size_bytes > MAX_BYTES) {
+    if (size_bytes > MAX_UPLOAD_BYTES) {
       return NextResponse.json(
         { ok: false, requestId, error: "File too large (max 50MB)" },
         { status: 413 },
@@ -193,8 +160,8 @@ export async function POST(req: NextRequest, ctx: Context) {
     if (dealErr || !deal) {
       console.error("[files/sign] deal access denied", { dealId, bankId, dealErr });
       return NextResponse.json(
-        { ok: false, requestId, error: "deal_not_found" },
-        { status: 404 },
+        { ok: false, requestId, error: "deal_not_ready", hint: "Create deal before signing" },
+        { status: 409 },
       );
     }
 
@@ -222,26 +189,8 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     const docStore = String(process.env.DOC_STORE || "").toLowerCase();
-    const wantsGcs = docStore === "gcs";
-    const uploadPrefix = process.env.GCS_UPLOAD_PREFIX || "deals";
-    const expiresSeconds = Number(process.env.GCS_SIGN_TTL_SECONDS || "900");
-    const region = process.env.GCS_SIGN_REGION || "us-central1";
-    const gcsBucket = process.env.GCS_BUCKET || getGcsBucketName();
-    const serviceAccountEmail = process.env.GCP_SERVICE_ACCOUNT_EMAIL || "";
-    const hasGcsConfig = Boolean(gcsBucket && serviceAccountEmail && process.env.GCP_WORKLOAD_IDENTITY_PROVIDER);
-    const strictGcs = process.env.GCS_STRICT_SIGNING === "1";
-    const docStoreEffective = wantsGcs && (!hasGcsConfig && !strictGcs) ? "supabase" : docStore;
 
-    if (wantsGcs && !hasGcsConfig && !strictGcs) {
-      console.warn("[files/sign] missing gcs config, falling back to supabase", {
-        requestId,
-        bucket: Boolean(gcsBucket),
-        serviceAccountEmail: Boolean(serviceAccountEmail),
-        hasWorkloadProvider: Boolean(process.env.GCP_WORKLOAD_IDENTITY_PROVIDER),
-      });
-    }
-
-    if (docStoreEffective === "gcs") {
+    if (docStore === "gcs") {
       const existing = sha256
         ? await findExistingDocBySha({ sb, dealId, sha256 })
         : null;
@@ -280,135 +229,79 @@ export async function POST(req: NextRequest, ctx: Context) {
         });
       }
 
-      const fileId = randomUUID();
-      const safeName = String(filename).replace(/[^a-zA-Z0-9._-]/g, "_");
-      const objectPath = `${uploadPrefix}/${dealId}/${fileId}-${safeName}`;
-
-      if (!hasGcsConfig) {
-        return NextResponse.json(
-          {
-            ok: false,
-            requestId,
-            error: "missing_gcp_config",
-            message: "Missing GCP signing configuration.",
-            hint: "Set GCS_BUCKET, GCP_SERVICE_ACCOUNT_EMAIL, and GCP_WORKLOAD_IDENTITY_PROVIDER.",
-          },
-          { status: 500 },
-        );
-      }
-
-      const oidc = getVercelOidcToken(req);
-      if (!oidc) {
-        return NextResponse.json(
-          {
-            ok: false,
-            requestId,
-            error: "missing_vercel_oidc",
-            message: "Vercel OIDC token not present.",
-            hint: "Ensure Vercel OIDC is enabled and forwarded to this route.",
-          },
-          { status: 500 },
-        );
-      }
-
-      const federated = await exchangeOidcForFederatedAccessToken(oidc);
-      const saToken = await generateAccessToken(federated);
-      const signed = await createV4SignedPutUrl({
-        bucket: gcsBucket,
-        objectKey: objectPath,
-        contentType: mime_type || "application/octet-stream",
-        expiresSeconds,
-        region,
-        serviceAccountEmail,
-        signBlob: (bytes) => signBlob(saToken, bytes),
+      const signResult = await signDealUpload({
+        req,
+        dealId,
+        filename,
+        mimeType: mime_type,
+        sizeBytes: size_bytes,
+        checklistKey: checklist_key,
+        requestId,
       });
 
-      const expiresAt = new Date(Date.now() + expiresSeconds * 1000).toISOString();
+      if (!signResult.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            requestId: signResult.requestId,
+            error: signResult.error,
+            details: signResult.details,
+          },
+          { status: 500 },
+        );
+      }
 
       return NextResponse.json({
         ok: true,
         requestId,
         deduped: false,
         method: "PUT",
-        uploadUrl: signed.url,
-        headers: signed.headers,
-        objectKey: signed.objectKey,
-        bucket: gcsBucket,
-        expiresAt,
+        uploadUrl: signResult.upload.uploadUrl,
+        headers: signResult.upload.headers,
+        objectKey: signResult.upload.objectKey,
+        bucket: signResult.upload.bucket,
         upload: {
-          file_id: fileId,
-          object_path: objectPath,
-          signed_url: signed.url,
+          file_id: signResult.upload.fileId,
+          object_path: signResult.upload.objectKey,
+          signed_url: signResult.upload.uploadUrl,
           token: null,
           checklist_key,
-          bucket: gcsBucket,
+          bucket: signResult.upload.bucket,
         },
       });
     }
 
-    // Supabase Storage (legacy)
-    const fileId = randomUUID();
-    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const objectPath = `deals/${dealId}/${fileId}__${safeName}`;
-
-    const bucket = process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
-
-    console.log("[files/sign] pre-flight check", {
+    const signResult = await signDealUpload({
+      req,
       dealId,
-      fileId,
-      bucket,
-      objectPath,
-      has_service_role: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-      has_url: Boolean(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL),
-      env_bucket: process.env.SUPABASE_UPLOAD_BUCKET || null,
+      filename,
+      mimeType: mime_type,
+      sizeBytes: size_bytes,
+      checklistKey: checklist_key,
+      requestId,
     });
 
-    const signResult = await withTimeout(
-      signUploadUrl({ bucket, objectPath }),
-      12_000,
-      "signUploadUrl",
-    );
-
     if (!signResult.ok) {
-      console.error("[files/sign] failed to create signed URL", {
-        requestId: signResult.requestId,
-        error: signResult.error,
-        detail: signResult.detail,
-      });
       return NextResponse.json(
         {
           ok: false,
           requestId: signResult.requestId,
           error: signResult.error,
-          details: signResult.detail || "Unknown storage error",
+          details: signResult.details,
         },
         { status: 500 },
       );
     }
 
-    const signed = {
-      signedUrl: signResult.signedUrl,
-      token: signResult.token,
-      path: signResult.path,
-    };
-
-    console.log("[files/sign] created signed URL", {
-      dealId,
-      fileId,
-      filename: safeName,
-      size_bytes,
-      bucket,
-    });
-
     return NextResponse.json({
       ok: true,
       upload: {
-        file_id: fileId,
-        object_path: objectPath,
-        signed_url: signed.signedUrl,
-        token: signed.token,
+        file_id: signResult.upload.fileId,
+        object_path: signResult.upload.objectKey,
+        signed_url: signResult.upload.uploadUrl,
+        token: null,
         checklist_key,
-        bucket,
+        bucket: signResult.upload.bucket,
       },
     });
   } catch (error: any) {

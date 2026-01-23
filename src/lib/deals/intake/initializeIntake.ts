@@ -282,7 +282,7 @@ export async function initializeIntake(
           dealId,
           bankId: resolvedBankId ?? "",
           eventKey: "deal.intake.retrying",
-          uiState: "info",
+          uiState: "waiting",
           uiMessage: "Intake retrying",
           meta: {
             trigger,
