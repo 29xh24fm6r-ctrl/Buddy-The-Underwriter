@@ -1,6 +1,7 @@
-import "server-only";
-
 import crypto from "node:crypto";
+import { assertServerOnly } from "@/lib/serverOnly";
+
+assertServerOnly();
 
 export type V4SignedPutOptions = {
   bucket: string;

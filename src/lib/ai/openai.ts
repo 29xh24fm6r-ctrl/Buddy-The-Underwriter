@@ -1,5 +1,7 @@
 // src/lib/ai/openai.ts
-import "server-only";
+import { assertServerOnly } from "@/lib/serverOnly";
+
+assertServerOnly();
 
 type Json = any;
 

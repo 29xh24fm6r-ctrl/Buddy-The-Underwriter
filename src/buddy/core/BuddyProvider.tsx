@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { BuddySignal } from "@/buddy/types";
 import { getBuddySignalEventName } from "@/buddy/emitBuddySignal";
@@ -17,6 +17,7 @@ import {
   addFinding,
   appendInsight,
   appendSignal,
+  buddySessionStore,
   loadBuddySession,
   saveBuddySession,
   startRun,
@@ -102,10 +103,18 @@ function classifySignal(sig: BuddySignal): {
 }
 
 export function BuddyProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<BuddySessionState>(() => loadBuddySession());
+  const [state, setState] = useState<BuddySessionState>(() => buddySessionStore.getState());
+  const didHydrateRef = useRef(false);
   const pathname = usePathname();
 
   useEffect(() => {
+    const hydrated = loadBuddySession();
+    didHydrateRef.current = true;
+    setState(hydrated);
+  }, []);
+
+  useEffect(() => {
+    if (!didHydrateRef.current) return;
     saveBuddySession(state);
   }, [state]);
 

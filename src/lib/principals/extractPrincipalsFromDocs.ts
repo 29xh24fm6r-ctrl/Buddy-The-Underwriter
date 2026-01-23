@@ -1,6 +1,7 @@
-import "server-only";
-
 import { extractOwnershipFindings } from "@/lib/ownership/extractor";
+import { assertServerOnly } from "@/lib/serverOnly";
+
+assertServerOnly();
 
 export type PrincipalFinding = {
   fullName: string;

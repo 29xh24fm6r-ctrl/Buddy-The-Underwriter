@@ -1,7 +1,8 @@
 // src/lib/supabase/admin.ts
-import "server-only";
-
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { assertServerOnly } from "@/lib/serverOnly";
+
+assertServerOnly();
 
 /**
  * We intentionally type Database as `any` until you generate Supabase types.

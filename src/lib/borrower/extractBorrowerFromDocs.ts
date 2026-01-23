@@ -1,7 +1,8 @@
-import "server-only";
-
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { aiJson } from "@/lib/ai/openai";
+import { assertServerOnly } from "@/lib/serverOnly";
+
+assertServerOnly();
 
 export type BorrowerExtraction = {
   legalName: string | null;
