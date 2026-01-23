@@ -174,8 +174,26 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     const docStore = String(process.env.DOC_STORE || "").toLowerCase();
+    const wantsGcs = docStore === "gcs";
+    const uploadPrefix = process.env.GCS_UPLOAD_PREFIX || "deals";
+    const expiresSeconds = Number(process.env.GCS_SIGN_TTL_SECONDS || "900");
+    const region = process.env.GCS_SIGN_REGION || "us-central1";
+    const gcsBucket = process.env.GCS_BUCKET || getGcsBucketName();
+    const serviceAccountEmail = process.env.GCP_SERVICE_ACCOUNT_EMAIL || "";
+    const hasGcsConfig = Boolean(gcsBucket && serviceAccountEmail && process.env.GCP_WORKLOAD_IDENTITY_PROVIDER);
+    const strictGcs = process.env.GCS_STRICT_SIGNING === "1";
+    const docStoreEffective = wantsGcs && (!hasGcsConfig && !strictGcs) ? "supabase" : docStore;
 
-    if (docStore === "gcs") {
+    if (wantsGcs && !hasGcsConfig && !strictGcs) {
+      console.warn("[files/sign] missing gcs config, falling back to supabase", {
+        requestId,
+        bucket: Boolean(gcsBucket),
+        serviceAccountEmail: Boolean(serviceAccountEmail),
+        hasWorkloadProvider: Boolean(process.env.GCP_WORKLOAD_IDENTITY_PROVIDER),
+      });
+    }
+
+    if (docStoreEffective === "gcs") {
       const existing = sha256
         ? await findExistingDocBySha({ sb, dealId, sha256 })
         : null;
@@ -216,14 +234,9 @@ export async function POST(req: NextRequest, ctx: Context) {
 
       const fileId = randomUUID();
       const safeName = String(filename).replace(/[^a-zA-Z0-9._-]/g, "_");
-      const uploadPrefix = process.env.GCS_UPLOAD_PREFIX || "deals";
       const objectPath = `${uploadPrefix}/${dealId}/${fileId}-${safeName}`;
-      const expiresSeconds = Number(process.env.GCS_SIGN_TTL_SECONDS || "900");
-      const region = process.env.GCS_SIGN_REGION || "us-central1";
-      const bucket = process.env.GCS_BUCKET || getGcsBucketName();
-      const serviceAccountEmail = process.env.GCP_SERVICE_ACCOUNT_EMAIL || "";
 
-      if (!bucket || !serviceAccountEmail || !process.env.GCP_WORKLOAD_IDENTITY_PROVIDER) {
+      if (!hasGcsConfig) {
         return NextResponse.json(
           {
             ok: false,
@@ -253,7 +266,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       const federated = await exchangeOidcForFederatedAccessToken(oidc);
       const saToken = await generateAccessToken(federated);
       const signed = await createV4SignedPutUrl({
-        bucket,
+        bucket: gcsBucket,
         objectKey: objectPath,
         contentType: mime_type || "application/octet-stream",
         expiresSeconds,
@@ -272,7 +285,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         uploadUrl: signed.url,
         headers: signed.headers,
         objectKey: signed.objectKey,
-        bucket,
+        bucket: gcsBucket,
         expiresAt,
         upload: {
           file_id: fileId,
@@ -280,7 +293,7 @@ export async function POST(req: NextRequest, ctx: Context) {
           signed_url: signed.url,
           token: null,
           checklist_key,
-          bucket,
+          bucket: gcsBucket,
         },
       });
     }
