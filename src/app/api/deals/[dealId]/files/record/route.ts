@@ -8,6 +8,7 @@ import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { igniteDeal } from "@/lib/deals/igniteDeal";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
+import { canTransitionIntakeState, type DealIntakeState } from "@/lib/deals/intakeState";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       size_bytes,
       checklist_key = null,
       sha256,
+      session_id,
     } = body;
 
     const resolvedPath = storage_path || object_path;
@@ -139,6 +141,118 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     await initializeIntake(dealId, bankId, { reason: "files_record", trigger: "files.record" });
+
+    if (session_id) {
+      const sessionRes = await sb
+        .from("deal_upload_sessions")
+        .select("id, deal_id, bank_id, expires_at, status")
+        .eq("id", session_id)
+        .maybeSingle();
+
+      if (sessionRes.error || !sessionRes.data) {
+        return NextResponse.json(
+          { ok: false, error: "invalid_upload_session", request_id: requestId },
+          { status: 409 },
+        );
+      }
+
+      const session = sessionRes.data as any;
+      const expiresAt = session.expires_at ? new Date(session.expires_at) : null;
+      const expired = expiresAt ? Date.now() > expiresAt.getTime() : false;
+      if (expired || session.status === "failed" || session.status === "completed") {
+        return NextResponse.json(
+          { ok: false, error: "upload_session_expired", request_id: requestId },
+          { status: 409 },
+        );
+      }
+
+      if (String(session.bank_id) !== String(bankId)) {
+        return NextResponse.json(
+          { ok: false, error: "upload_session_bank_mismatch", request_id: requestId },
+          { status: 409 },
+        );
+      }
+
+      if (String(session.deal_id) !== String(dealId)) {
+        return NextResponse.json(
+          { ok: false, error: "upload_session_mismatch", request_id: requestId },
+          { status: 409 },
+        );
+      }
+
+      const fileRes = await sb
+        .from("deal_upload_session_files")
+        .select("id, size_bytes, status")
+        .eq("session_id", session_id)
+        .eq("file_id", file_id)
+        .maybeSingle();
+
+      if (fileRes.error || !fileRes.data) {
+        return NextResponse.json(
+          { ok: false, error: "upload_session_file_missing", request_id: requestId },
+          { status: 409 },
+        );
+      }
+
+      const fileRow = fileRes.data as any;
+      if (Number(fileRow.size_bytes || 0) !== Number(size_bytes || 0)) {
+        return NextResponse.json(
+          { ok: false, error: "upload_session_size_mismatch", request_id: requestId },
+          { status: 409 },
+        );
+      }
+
+      if (fileRow.status !== "completed") {
+        await sb
+          .from("deal_upload_session_files")
+          .update({ status: "completed", completed_at: new Date().toISOString() })
+          .eq("id", fileRow.id);
+      }
+
+      const totalRes = await sb
+        .from("deal_upload_session_files")
+        .select("id", { count: "exact", head: true })
+        .eq("session_id", session_id);
+
+      const completeRes = await sb
+        .from("deal_upload_session_files")
+        .select("id", { count: "exact", head: true })
+        .eq("session_id", session_id)
+        .eq("status", "completed");
+
+      const total = totalRes.count ?? 0;
+      const completed = completeRes.count ?? 0;
+
+      if (session.status === "ready") {
+        await sb
+          .from("deal_upload_sessions")
+          .update({ status: "uploading" })
+          .eq("id", session_id);
+      }
+
+      if (total > 0 && total === completed) {
+        await sb
+          .from("deal_upload_sessions")
+          .update({ status: "completed" })
+          .eq("id", session_id);
+
+        const nextState: DealIntakeState = "UPLOAD_COMPLETE";
+        if (canTransitionIntakeState((deal as any).intake_state || "CREATED", nextState)) {
+          await sb
+            .from("deals")
+            .update({ intake_state: nextState })
+            .eq("id", dealId);
+        }
+      } else {
+        const nextState: DealIntakeState = "UPLOADING";
+        if (canTransitionIntakeState((deal as any).intake_state || "CREATED", nextState)) {
+          await sb
+            .from("deals")
+            .update({ intake_state: nextState })
+            .eq("id", dealId);
+        }
+      }
+    }
 
     // Verify file exists in storage (optional but recommended)
     // This MUST be best-effort and bounded; do not block the upload UX.

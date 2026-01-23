@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/requireRole";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { orchestrateIntake } from "@/lib/intake/orchestrateIntake";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { canTransitionIntakeState, type DealIntakeState } from "@/lib/deals/intakeState";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,11 +25,33 @@ export async function POST(_req: Request, ctx: Ctx) {
       );
     }
 
+    const sb = supabaseAdmin();
+    const dealRes = await sb
+      .from("deals")
+      .select("intake_state")
+      .eq("id", dealId)
+      .maybeSingle();
+
+    const currentState = (dealRes.data as any)?.intake_state || "CREATED";
+    const nextState: DealIntakeState = "INTAKE_RUNNING";
+    if (canTransitionIntakeState(currentState, nextState)) {
+      await sb.from("deals").update({ intake_state: nextState }).eq("id", dealId);
+    }
+
     const result = await orchestrateIntake({
       dealId,
       bankId: access.bankId,
       source: "banker",
     });
+
+    if (result?.ok) {
+      const finalState: DealIntakeState = "READY_FOR_UNDERWRITE";
+      if (canTransitionIntakeState(nextState, finalState)) {
+        await sb.from("deals").update({ intake_state: finalState }).eq("id", dealId);
+      }
+    } else {
+      await sb.from("deals").update({ intake_state: "FAILED" }).eq("id", dealId);
+    }
 
     return NextResponse.json(result);
   } catch (error: any) {

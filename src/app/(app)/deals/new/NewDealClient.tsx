@@ -13,25 +13,31 @@ type SelectedFile = {
   checklistKey: string; // empty = unclassified
 };
 
-type UploadSessionResponse = {
+type DealBootstrapResponse = {
   ok: boolean;
   dealId?: string;
-  uploads?: Array<{
-    filename: string;
-    objectKey: string;
-    uploadUrl: string;
-    headers: Record<string, string>;
-    fileId: string;
-    checklistKey?: string | null;
-    bucket: string;
-    sizeBytes?: number;
-  }>;
+  uploadSession?: {
+    sessionId: string;
+    expiresAt: string;
+    files: Array<{
+      fileId: string;
+      signedUrl: string;
+      method: "PUT";
+      contentType: string;
+      sizeBytes: number;
+      headers: Record<string, string>;
+      objectKey: string;
+      bucket: string;
+      checklistKey?: string | null;
+      filename?: string;
+    }>;
+  };
   error?: string;
   details?: string;
   requestId?: string;
 };
 
-type UploadSpec = NonNullable<UploadSessionResponse["uploads"]>[number];
+type UploadSpec = NonNullable<DealBootstrapResponse["uploadSession"]>["files"][number];
 
 function uid() {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -136,12 +142,12 @@ export default function NewDealClient({
       return { msg, name, isAbort, isNetwork };
     };
 
-    const createUploadSession = async () => {
+    const createBootstrap = async () => {
       const ac = new AbortController();
       const rid = requestId();
       const t = setTimeout(() => ac.abort(), 20000);
       try {
-        const createRes = await fetch("/api/deals/new/upload-session", {
+        const createRes = await fetch("/api/deals/bootstrap", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-request-id": rid },
           signal: ac.signal,
@@ -156,28 +162,33 @@ export default function NewDealClient({
           }),
         });
 
-        const payload = (await createRes.json().catch(() => null)) as UploadSessionResponse | null;
+        const payload = (await createRes.json().catch(() => null)) as DealBootstrapResponse | null;
         if (!createRes.ok || !payload?.ok) {
-          const errText = payload?.error || `Failed to create upload session (${createRes.status})`;
+          const errText = payload?.error || `Failed to bootstrap deal (${createRes.status})`;
           throw new Error(errText);
         }
 
-        if (!payload?.dealId || !payload?.uploads?.length) {
-          throw new Error("failed_to_create_upload_session");
+        if (!payload?.dealId || !payload?.uploadSession?.files?.length) {
+          throw new Error("failed_to_bootstrap_deal");
         }
 
-        return { dealId: payload.dealId, uploads: payload.uploads, requestId: rid };
+        return {
+          dealId: payload.dealId,
+          sessionId: payload.uploadSession.sessionId,
+          uploads: payload.uploadSession.files,
+          requestId: rid,
+        };
       } finally {
         clearTimeout(t);
       }
     };
 
-    const createUploadSessionWithRetries = async () => {
+    const createBootstrapWithRetries = async () => {
       const maxAttempts = 3;
       let lastErr: unknown = null;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-          return await createUploadSession();
+          return await createBootstrap();
         } catch (e) {
           lastErr = e;
           const { isAbort, isNetwork } = classifyNetworkError(e);
@@ -228,9 +239,10 @@ export default function NewDealClient({
     try {
       // 1. Create deal + upload session
       setDebugInfo({ requestId: null, stage: "create_upload_session" });
-      const session = await createUploadSessionWithRetries();
+      const session = await createBootstrapWithRetries();
       sessionRequestId = session.requestId ?? null;
       const dealId = session.dealId;
+      const sessionId = session.sessionId;
       const createdName = dealName;
       console.log(`Created deal ${dealId} (request ${session.requestId}), uploading ${files.length} files...`);
 
@@ -240,8 +252,7 @@ export default function NewDealClient({
 
       const uploadsByKey = new Map<string, UploadSpec[]>();
       for (const upload of session.uploads) {
-        const sizeKey = upload.sizeBytes ?? 0;
-        const key = `${upload.filename}::${sizeKey}`;
+        const key = `${upload.filename || ""}::${upload.sizeBytes}`;
         const bucket = uploadsByKey.get(key) ?? [];
         bucket.push(upload);
         uploadsByKey.set(key, bucket);
@@ -267,7 +278,7 @@ export default function NewDealClient({
 
         setDebugInfo({ requestId: rid, stage: "upload_put" });
         await uploadFileWithSignedUrl({
-          uploadUrl: uploadSpec.uploadUrl,
+          uploadUrl: uploadSpec.signedUrl,
           headers: uploadSpec.headers,
           file,
           context: "new-deal",
@@ -279,6 +290,7 @@ export default function NewDealClient({
           headers: { "Content-Type": "application/json", "x-request-id": rid },
           body: JSON.stringify({
             file_id: uploadSpec.fileId,
+            session_id: sessionId,
             object_path: uploadSpec.objectKey,
             original_filename: file.name,
             mime_type: file.type || "application/octet-stream",
@@ -362,7 +374,7 @@ export default function NewDealClient({
         setNeedsRestart(true);
         const tag = sessionRequestId ? ` (Request: ${sessionRequestId})` : "";
         setProcessError(
-          `Upload session failed (no re-sign). Please restart this deal creation.${tag}`,
+          `Upload session expired/invalid — restart deal creation.${tag}`,
         );
         return;
       }
