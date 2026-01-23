@@ -37,15 +37,14 @@ async function checkDealAccessWithRetries(args: {
 }) {
   const maxAttempts = args.maxAttempts ?? 3;
   let lastError: any = null;
-  let deal: { id: string } | null = null;
+  let deal: { id: string; bank_id?: string | null } | null = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const res = await withTimeout(
       args.sb
         .from("deals")
-        .select("id")
+        .select("id, bank_id")
         .eq("id", args.dealId)
-        .eq("bank_id", args.bankId)
         .maybeSingle(),
       8_000,
       "checkDealAccess",
@@ -197,6 +196,29 @@ export async function POST(req: NextRequest, ctx: Context) {
         { ok: false, requestId, error: "deal_not_found" },
         { status: 404 },
       );
+    }
+
+    const dealBankId = deal.bank_id ? String(deal.bank_id) : null;
+    if (dealBankId && dealBankId !== bankId) {
+      console.warn("[files/sign] deal bank mismatch", { dealId, bankId, dealBankId });
+      return NextResponse.json(
+        { ok: false, requestId, error: "deal_bank_mismatch" },
+        { status: 403 },
+      );
+    }
+
+    if (!dealBankId) {
+      const up = await sb
+        .from("deals")
+        .update({ bank_id: bankId })
+        .eq("id", dealId);
+      if (up.error) {
+        console.warn("[files/sign] failed to backfill bank_id", {
+          dealId,
+          bankId,
+          error: up.error.message,
+        });
+      }
     }
 
     const docStore = String(process.env.DOC_STORE || "").toLowerCase();

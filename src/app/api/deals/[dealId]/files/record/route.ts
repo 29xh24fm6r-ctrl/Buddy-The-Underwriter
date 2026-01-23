@@ -105,11 +105,26 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    if (deal.bank_id !== bankId) {
+    const dealBankId = deal.bank_id ? String(deal.bank_id) : null;
+    if (dealBankId && dealBankId !== bankId) {
       return NextResponse.json(
         { ok: false, error: "Deal not found", request_id: requestId },
         { status: 404 },
       );
+    }
+
+    if (!dealBankId) {
+      const up = await sb
+        .from("deals")
+        .update({ bank_id: bankId })
+        .eq("id", dealId);
+      if (up.error) {
+        console.warn("[files/record] failed to backfill bank_id", {
+          dealId,
+          bankId,
+          error: up.error.message,
+        });
+      }
     }
 
     await initializeIntake(dealId, bankId, { reason: "banker_upload" });
