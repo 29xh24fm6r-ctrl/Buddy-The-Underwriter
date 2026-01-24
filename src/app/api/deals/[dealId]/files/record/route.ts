@@ -3,11 +3,14 @@
  *
  * Records file metadata after successful direct upload to storage.
  *
- * NOTE: Replication-lag handling in this file assumes deal creation
- * has already occurred upstream (in createUploadSessionApi.ts).
- * The retry logic here is DEFENSIVE, not a substitute for correct
- * deal creation flow. The primary safeguard is in createUploadSessionApi
- * which polls until the deal is replicated before returning.
+ * SESSION-AUTHORITATIVE ARCHITECTURE:
+ * When an upload session is verified, we DO NOT query the `deals` table.
+ * The session was created atomically with the deal via deal_bootstrap_create,
+ * so if the session exists with matching deal_id, the deal EXISTS on primary.
+ * This eliminates replica lag issues entirely for the critical upload path.
+ *
+ * The deal lookup (with retry) only runs when session verification fails,
+ * which should be rare in production.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -181,95 +184,119 @@ export async function POST(req: NextRequest, ctx: Context) {
       }
     }
 
-    // Verify deal exists with ENHANCED retry logic
-    // If session verified, we KNOW the deal exists, just need replica to catch up
+    // ======================================================================
+    // SESSION-AUTHORITATIVE ARCHITECTURE:
+    // If session is verified, the deal EXISTS (created atomically on primary).
+    // DO NOT read the `deals` table - skip replica dependencies entirely.
+    // ======================================================================
     let deal: { id: string; bank_id: string | null; lifecycle_stage: string | null; intake_state?: string } | null = null;
-    let dealErr: any = null;
 
-    // More retries if session verified (we know it exists, just waiting for replica)
-    const maxAttempts = sessionVerified ? 6 : 4;
-    const baseDelay = 500; // ms
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const result = await sb
-        .from("deals")
-        .select("id, bank_id, lifecycle_stage, intake_state")
-        .eq("id", dealId)
-        .maybeSingle();
-
-      deal = result.data;
-      dealErr = result.error;
-
-      if (deal) {
-        if (attempt > 1) {
-          const totalWait = Array.from({length: attempt - 1}, (_, i) => baseDelay * (i + 1)).reduce((a, b) => a + b, 0);
-          console.log("[files/record] deal found on retry", {
-            dealId,
-            attempt,
-            sessionVerified,
-            totalWaitMs: totalWait
-          });
-        }
-        break;
-      }
-
-      if (attempt < maxAttempts) {
-        const delay = baseDelay * attempt; // Linear backoff: 500, 1000, 1500, 2000, 2500ms
-        console.log("[files/record] deal not found, retrying...", {
-          dealId,
-          attempt,
-          nextDelayMs: delay,
-          sessionVerified,
-          maxAttempts,
-        });
-        await new Promise(r => setTimeout(r, delay));
-      }
-    }
-
-    if (dealErr || !deal) {
-      console.error("[files/record] deal not found in DB after retries", {
+    if (sessionVerified && sessionData) {
+      // Session was created atomically with deal via deal_bootstrap_create.
+      // The session's bank_id IS the deal's bank_id. Trust it.
+      console.log("[files/record] session-authoritative: skipping deal lookup", {
         dealId,
-        dealErr: dealErr?.message,
-        sessionVerified,
-        maxAttempts,
-        requestId
+        sessionId: resolvedSessionId,
+        sessionBankId: sessionData.bank_id,
       });
 
-      // If session was verified but deal still not found, this is a serious replication issue
-      const errorCode = sessionVerified ? "deal_replication_lag" : "deal_not_found_db";
+      // Verify bank authorization using session's bank_id (not from deals table)
+      const sessionBankId = String(sessionData.bank_id);
+      if (sessionBankId !== bankId) {
+        console.error("[files/record] session bank_id mismatch", { dealId, sessionBankId, userBankId: bankId });
+        return NextResponse.json(
+          { ok: false, error: "deal_bank_mismatch", dealBankId: sessionBankId, userBankId: bankId, request_id: requestId },
+          { status: 404 },
+        );
+      }
 
-      return NextResponse.json(
-        {
-          ok: false,
-          error: errorCode,
-          details: dealErr?.message,
-          sessionVerified,
-          request_id: requestId
-        },
-        { status: 404 },
-      );
-    }
+      // Construct minimal deal object from session data (no replica read needed)
+      deal = {
+        id: dealId,
+        bank_id: sessionBankId,
+        lifecycle_stage: null, // Will be handled by igniteDeal if needed
+        intake_state: undefined,
+      };
+    } else {
+      // Session not verified - fall back to deal lookup with retry logic
+      let dealErr: any = null;
+      const maxAttempts = 4;
+      const baseDelay = 500; // ms
 
-    const dealBankId = deal.bank_id ? String(deal.bank_id) : null;
-    if (dealBankId && dealBankId !== bankId) {
-      console.error("[files/record] bank_id mismatch", { dealId, dealBankId, userBankId: bankId });
-      return NextResponse.json(
-        { ok: false, error: "deal_bank_mismatch", dealBankId, userBankId: bankId, request_id: requestId },
-        { status: 404 },
-      );
-    }
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const result = await sb
+          .from("deals")
+          .select("id, bank_id, lifecycle_stage, intake_state")
+          .eq("id", dealId)
+          .maybeSingle();
 
-    if (!dealBankId) {
-      const up = await sb
-        .from("deals")
-        .update({ bank_id: bankId })
-        .eq("id", dealId);
-      if (up.error) {
-        console.warn("[files/record] failed to backfill bank_id", {
+        deal = result.data;
+        dealErr = result.error;
+
+        if (deal) {
+          if (attempt > 1) {
+            const totalWait = Array.from({length: attempt - 1}, (_, i) => baseDelay * (i + 1)).reduce((a, b) => a + b, 0);
+            console.log("[files/record] deal found on retry", {
+              dealId,
+              attempt,
+              totalWaitMs: totalWait
+            });
+          }
+          break;
+        }
+
+        if (attempt < maxAttempts) {
+          const delay = baseDelay * attempt; // Linear backoff: 500, 1000, 1500, 2000ms
+          console.log("[files/record] deal not found, retrying...", {
+            dealId,
+            attempt,
+            nextDelayMs: delay,
+            maxAttempts,
+          });
+          await new Promise(r => setTimeout(r, delay));
+        }
+      }
+
+      if (dealErr || !deal) {
+        console.error("[files/record] deal not found in DB after retries", {
           dealId,
-          bankId,
-          error: up.error.message,
+          dealErr: dealErr?.message,
+          maxAttempts,
+          requestId
         });
+
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "deal_not_found_db",
+            details: dealErr?.message,
+            request_id: requestId
+          },
+          { status: 404 },
+        );
+      }
+
+      const dealBankId = deal.bank_id ? String(deal.bank_id) : null;
+      if (dealBankId && dealBankId !== bankId) {
+        console.error("[files/record] bank_id mismatch", { dealId, dealBankId, userBankId: bankId });
+        return NextResponse.json(
+          { ok: false, error: "deal_bank_mismatch", dealBankId, userBankId: bankId, request_id: requestId },
+          { status: 404 },
+        );
+      }
+
+      if (!dealBankId) {
+        const up = await sb
+          .from("deals")
+          .update({ bank_id: bankId })
+          .eq("id", dealId);
+        if (up.error) {
+          console.warn("[files/record] failed to backfill bank_id", {
+            dealId,
+            bankId,
+            error: up.error.message,
+          });
+        }
       }
     }
 
