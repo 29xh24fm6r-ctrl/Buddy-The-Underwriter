@@ -20,6 +20,7 @@ import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
 import BorrowerAttachmentCard from "./BorrowerAttachmentCard";
 import { DocumentClassificationInbox } from "@/components/deals/DocumentClassificationInbox";
 import { LifecycleStatusPanel } from "@/components/deals/LifecycleStatusPanel";
+import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
 import { cn } from "@/lib/utils";
@@ -339,6 +340,11 @@ export default function DealCockpitClient({
                 dealId={dealId}
                 initialState={unifiedLifecycleState ?? null}
               />
+            </SafeBoundary>
+
+            {/* Deal Story Timeline */}
+            <SafeBoundary>
+              <DealStoryTimeline dealId={dealId} />
             </SafeBoundary>
 
             <div className={cn(glassPanel, "overflow-hidden")}>

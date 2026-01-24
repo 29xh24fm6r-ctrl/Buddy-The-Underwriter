@@ -1,10 +1,17 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 // Import from client-safe module to avoid server-only code in client components
-import type { LifecycleState, LifecycleStage } from "@/buddy/lifecycle/client";
-import { STAGE_LABELS } from "@/buddy/lifecycle/client";
+import type { LifecycleState, LifecycleStage, LifecycleBlocker } from "@/buddy/lifecycle/client";
+import {
+  STAGE_LABELS,
+  getNextAction,
+  getBlockerFixAction,
+  getNextActionIcon,
+} from "@/buddy/lifecycle/client";
 
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
 const glassHeader = "border-b border-white/10 bg-white/[0.02] px-5 py-3";
@@ -99,7 +106,90 @@ function getBlockerIcon(code: string): string {
   }
 }
 
+/**
+ * Format blocker evidence for display.
+ */
+function formatEvidence(blocker: LifecycleBlocker): string | null {
+  if (!blocker.evidence || Object.keys(blocker.evidence).length === 0) {
+    return null;
+  }
+
+  // Special handling for missing docs
+  if (blocker.code === "missing_required_docs" && blocker.evidence.missing) {
+    const missing = blocker.evidence.missing as string[];
+    if (missing.length <= 3) {
+      return `Missing: ${missing.join(", ")}`;
+    }
+    return `Missing: ${missing.slice(0, 2).join(", ")} +${missing.length - 2} more`;
+  }
+
+  // Default: show first key-value pair
+  const [key, value] = Object.entries(blocker.evidence)[0];
+  if (typeof value === "string") {
+    return `${key}: ${value}`;
+  }
+  return null;
+}
+
+/**
+ * Fixable Blocker Card component.
+ */
+function FixableBlockerCard({
+  blocker,
+  dealId,
+  onRefresh,
+}: {
+  blocker: LifecycleBlocker;
+  dealId: string;
+  onRefresh: () => void;
+}) {
+  const fixAction = getBlockerFixAction(blocker, dealId);
+  const evidence = formatEvidence(blocker);
+
+  return (
+    <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 overflow-hidden">
+      <div className="px-3 py-2.5">
+        <div className="flex items-start gap-2">
+          <span className="material-symbols-outlined text-amber-400 text-[18px] mt-0.5">
+            {getBlockerIcon(blocker.code)}
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-amber-200 font-medium">{blocker.message}</p>
+            {evidence && (
+              <p className="text-xs text-amber-200/60 mt-0.5">{evidence}</p>
+            )}
+          </div>
+        </div>
+      </div>
+      {fixAction && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/5 border-t border-amber-500/10">
+          <Link
+            href={fixAction.href}
+            className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 px-2.5 py-1 text-xs font-medium text-amber-200 transition-colors"
+          >
+            <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+            {fixAction.label}
+          </Link>
+          {fixAction.secondary && (
+            <button
+              onClick={() => {
+                // TODO: Implement secondary actions (like send reminder)
+                console.log("Secondary action:", fixAction.secondary?.action);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md bg-white/5 hover:bg-white/10 px-2.5 py-1 text-xs font-medium text-white/60 transition-colors"
+            >
+              <span className="material-symbols-outlined text-[14px]">send</span>
+              {fixAction.secondary.label}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function LifecycleStatusPanel({ dealId, initialState }: Props) {
+  const router = useRouter();
   const [state, setState] = useState<LifecycleState | null>(initialState);
   const [isAdvancing, setIsAdvancing] = useState(false);
   const [advanceResult, setAdvanceResult] = useState<{
@@ -119,50 +209,69 @@ export function LifecycleStatusPanel({ dealId, initialState }: Props) {
     }
   }, [dealId]);
 
-  const handleAdvance = useCallback(async () => {
-    setIsAdvancing(true);
-    setAdvanceResult(null);
+  const handleNextAction = useCallback(async () => {
+    if (!state) return;
 
-    try {
-      const res = await fetch(`/api/deals/${dealId}/lifecycle/advance`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const data = await res.json();
+    const nextAction = getNextAction(state, dealId);
 
-      if (data.ok && data.advanced) {
-        setState(data.state);
-        setAdvanceResult({
-          type: "success",
-          message: `Advanced to ${STAGE_LABELS[data.state.stage as LifecycleStage] || data.state.stage}`,
+    // If blocked or complete, don't do anything
+    if (nextAction.intent === "blocked" || nextAction.intent === "complete") {
+      return;
+    }
+
+    // If should advance first, then navigate
+    if (nextAction.shouldAdvance) {
+      setIsAdvancing(true);
+      setAdvanceResult(null);
+
+      try {
+        const res = await fetch(`/api/deals/${dealId}/lifecycle/advance`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
         });
-      } else if (data.ok && !data.advanced) {
-        setAdvanceResult({
-          type: "blocked",
-          message: data.reason || "No advancement possible",
-        });
-      } else if (data.error === "blocked") {
-        setState(data.state);
-        setAdvanceResult({
-          type: "blocked",
-          message: `Blocked by ${data.blockers?.length || 0} issue(s)`,
-        });
-      } else {
+        const data = await res.json();
+
+        if (data.ok && data.advanced) {
+          setState(data.state);
+          setAdvanceResult({
+            type: "success",
+            message: `Advanced to ${STAGE_LABELS[data.state.stage as LifecycleStage] || data.state.stage}`,
+          });
+          // Navigate after short delay to show success
+          if (nextAction.href) {
+            setTimeout(() => router.push(nextAction.href!), 500);
+          }
+        } else if (data.ok && !data.advanced) {
+          // No advancement needed, just navigate
+          if (nextAction.href) {
+            router.push(nextAction.href);
+          }
+        } else if (data.error === "blocked") {
+          setState(data.state);
+          setAdvanceResult({
+            type: "blocked",
+            message: `Blocked by ${data.blockers?.length || 0} issue(s)`,
+          });
+        } else {
+          setAdvanceResult({
+            type: "error",
+            message: data.error || "Advance failed",
+          });
+        }
+      } catch (e) {
+        console.error("[LifecycleStatusPanel] Advance failed:", e);
         setAdvanceResult({
           type: "error",
-          message: data.error || "Advance failed",
+          message: "Network error",
         });
+      } finally {
+        setIsAdvancing(false);
       }
-    } catch (e) {
-      console.error("[LifecycleStatusPanel] Advance failed:", e);
-      setAdvanceResult({
-        type: "error",
-        message: "Network error",
-      });
-    } finally {
-      setIsAdvancing(false);
+    } else if (nextAction.href) {
+      // Just navigate
+      router.push(nextAction.href);
     }
-  }, [dealId]);
+  }, [dealId, state, router]);
 
   if (!state) {
     return (
@@ -182,7 +291,24 @@ export function LifecycleStatusPanel({ dealId, initialState }: Props) {
     ? 100
     : Math.round(((currentStageIndex + 1) / STAGE_ORDER.length) * 100);
 
-  const canAdvance = state.blockers.length === 0 && state.stage !== "closed" && state.stage !== "workout";
+  const nextAction = getNextAction(state, dealId);
+  const nextActionIcon = getNextActionIcon(nextAction.intent);
+
+  // Button styling based on intent
+  const getButtonStyle = () => {
+    switch (nextAction.intent) {
+      case "advance":
+        return "bg-gradient-to-r from-sky-500 to-emerald-500 text-white hover:from-sky-400 hover:to-emerald-400 shadow-lg shadow-sky-500/20";
+      case "navigate":
+        return "bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-400 hover:to-indigo-400 shadow-lg shadow-blue-500/20";
+      case "blocked":
+        return "bg-amber-500/20 text-amber-300 cursor-not-allowed";
+      case "complete":
+        return "bg-emerald-500/20 text-emerald-300 cursor-default";
+      default:
+        return "bg-white/5 text-white/30";
+    }
+  };
 
   return (
     <div className={cn(glassPanel, "overflow-hidden")}>
@@ -200,8 +326,8 @@ export function LifecycleStatusPanel({ dealId, initialState }: Props) {
       </div>
 
       <div className="p-4 space-y-4">
-        {/* Current Stage Badge */}
-        <div className="flex items-center justify-between">
+        {/* Current Stage Badge + Next Action */}
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <span className={cn(
               "inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-semibold",
@@ -209,7 +335,7 @@ export function LifecycleStatusPanel({ dealId, initialState }: Props) {
             )}>
               {STAGE_LABELS[state.stage] || state.stage}
             </span>
-            <span className="text-xs text-white/40">{progressPct}% complete</span>
+            <span className="text-xs text-white/40">{progressPct}%</span>
           </div>
         </div>
 
@@ -261,36 +387,26 @@ export function LifecycleStatusPanel({ dealId, initialState }: Props) {
           </div>
         </div>
 
-        {/* Blockers Section */}
+        {/* Blockers Section - Now Fixable Cards */}
         {state.blockers.length > 0 && (
           <div className="space-y-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-amber-400/80">
-              Blocking Advancement
+              Fix to Continue ({state.blockers.length})
             </span>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {state.blockers.map((blocker, i) => (
-                <div
+                <FixableBlockerCard
                   key={`${blocker.code}-${i}`}
-                  className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2"
-                >
-                  <span className="material-symbols-outlined text-amber-400 text-[16px] mt-0.5">
-                    {getBlockerIcon(blocker.code)}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-amber-200 font-medium">{blocker.message}</p>
-                    {blocker.evidence && Object.keys(blocker.evidence).length > 0 && (
-                      <p className="text-[10px] text-amber-200/60 mt-0.5 truncate">
-                        {JSON.stringify(blocker.evidence)}
-                      </p>
-                    )}
-                  </div>
-                </div>
+                  blocker={blocker}
+                  dealId={dealId}
+                  onRefresh={refresh}
+                />
               ))}
             </div>
           </div>
         )}
 
-        {/* Advance Button */}
+        {/* Next Best Action Button */}
         <div className="pt-2">
           {advanceResult && (
             <div className={cn(
@@ -304,31 +420,30 @@ export function LifecycleStatusPanel({ dealId, initialState }: Props) {
           )}
 
           <button
-            onClick={handleAdvance}
-            disabled={!canAdvance || isAdvancing}
+            onClick={handleNextAction}
+            disabled={nextAction.intent === "blocked" || nextAction.intent === "complete" || isAdvancing}
             className={cn(
-              "w-full rounded-lg px-4 py-2.5 text-sm font-semibold transition-all",
-              canAdvance
-                ? "bg-gradient-to-r from-sky-500 to-emerald-500 text-white hover:from-sky-400 hover:to-emerald-400 shadow-lg shadow-sky-500/20"
-                : "bg-white/5 text-white/30 cursor-not-allowed"
+              "w-full rounded-lg px-4 py-3 text-sm font-semibold transition-all",
+              getButtonStyle()
             )}
           >
             {isAdvancing ? (
               <span className="flex items-center justify-center gap-2">
-                <span className="animate-spin material-symbols-outlined text-[16px]">progress_activity</span>
-                Advancing...
-              </span>
-            ) : state.stage === "closed" || state.stage === "workout" ? (
-              "Lifecycle Complete"
-            ) : canAdvance ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
-                Advance Lifecycle
+                <span className="animate-spin material-symbols-outlined text-[18px]">progress_activity</span>
+                Working...
               </span>
             ) : (
-              "Resolve Blockers to Advance"
+              <span className="flex items-center justify-center gap-2">
+                <span className="material-symbols-outlined text-[18px]">{nextActionIcon}</span>
+                {nextAction.label}
+              </span>
             )}
           </button>
+          {nextAction.description && (
+            <p className="mt-2 text-[11px] text-white/40 text-center">
+              {nextAction.description}
+            </p>
+          )}
         </div>
 
         {/* Last Advanced */}

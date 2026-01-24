@@ -31,3 +31,11 @@ export type {
   ChecklistUpdatedPayload,
   BlockerResolvedPayload,
 } from "./events";
+
+// Next action helpers (safe for client - pure functions with no server dependencies)
+export {
+  getNextAction,
+  getBlockerFixAction,
+  getNextActionIcon,
+} from "./nextAction";
+export type { NextAction } from "./nextAction";
