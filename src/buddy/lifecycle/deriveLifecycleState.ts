@@ -31,6 +31,12 @@ import type {
   LifecycleDerived,
   LifecycleBlockerCode,
 } from "./model";
+import {
+  safeFetch,
+  safeSupabaseQuery,
+  safeSupabaseCount,
+  type SafeFetchContext,
+} from "./safeFetch";
 
 // Type for the internal lifecycle stage from deals table
 type DealLifecycleStage = "created" | "intake" | "collecting" | "underwriting" | "ready";
@@ -45,6 +51,15 @@ type DealStatusStage =
   | "closing"
   | "funded"
   | "declined";
+
+// Type for deal data from query
+type DealData = {
+  id: string;
+  bank_id: string | null;
+  lifecycle_stage: string | null;
+  ready_at: string | null;
+  deal_status: { stage: string } | null;
+};
 
 /**
  * Derive the unified lifecycle state for a deal.
@@ -67,187 +82,188 @@ export async function deriveLifecycleState(dealId: string): Promise<LifecycleSta
 
 /**
  * Internal implementation - all the real work happens here.
- * Defensively handles all async operations.
+ * Uses safeFetch wrapper for consistent error handling.
  */
 async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleState> {
   const sb = supabaseAdmin();
+  const ctx: SafeFetchContext = { dealId };
   const runtimeBlockers: LifecycleBlocker[] = [];
 
   // 1. Fetch core deal data (critical - no deal = not found state)
-  let deal: { id: string; bank_id: string | null; lifecycle_stage: string | null; ready_at: string | null; deal_status: any } | null = null;
-  try {
-    const { data, error: dealError } = await sb
-      .from("deals")
-      .select(
+  const dealResult = await safeSupabaseQuery<DealData>(
+    "deal",
+    () =>
+      sb
+        .from("deals")
+        .select(
+          `
+          id,
+          bank_id,
+          lifecycle_stage,
+          ready_at,
+          deal_status!inner(stage)
         `
-        id,
-        bank_id,
-        lifecycle_stage,
-        ready_at,
-        deal_status!inner(stage)
-      `
-      )
-      .eq("id", dealId)
-      .maybeSingle();
+        )
+        .eq("id", dealId)
+        .maybeSingle(),
+    ctx
+  );
 
-    if (dealError) {
-      console.warn("[deriveLifecycleState] Deal fetch error:", dealError.message);
-      return createNotFoundState();
-    }
-    deal = data;
-  } catch (err) {
-    console.error("[deriveLifecycleState] Deal fetch threw:", err);
+  if (!dealResult.ok || !dealResult.data) {
     return createNotFoundState();
   }
 
-  if (!deal) {
-    return createNotFoundState();
-  }
-
+  const deal = dealResult.data;
   const lifecycleStage = (deal.lifecycle_stage as DealLifecycleStage) || "created";
   const dealStatusStage = ((deal.deal_status as any)?.stage as DealStatusStage) || null;
 
-  // 2. Fetch checklist data (defensive)
+  // 2. Fetch checklist data
   let checklist: Array<{ checklist_key: string; required: boolean; status: string }> = [];
-  try {
-    const { data: checklistItems, error: checklistError } = await sb
-      .from("deal_checklist_items")
-      .select("checklist_key, required, status")
-      .eq("deal_id", dealId);
+  const checklistResult = await safeSupabaseQuery<typeof checklist>(
+    "checklist",
+    () =>
+      sb
+        .from("deal_checklist_items")
+        .select("checklist_key, required, status")
+        .eq("deal_id", dealId),
+    ctx
+  );
 
-    if (checklistError) {
-      console.warn("[deriveLifecycleState] Checklist fetch error:", checklistError.message);
-      runtimeBlockers.push({
-        code: "data_fetch_failed",
-        message: "Could not load checklist data",
-        evidence: { table: "deal_checklist_items" },
-      });
-    } else {
-      checklist = checklistItems || [];
-    }
-  } catch (err) {
-    console.error("[deriveLifecycleState] Checklist fetch threw:", err);
-    runtimeBlockers.push({
-      code: "data_fetch_failed",
-      message: "Could not load checklist data",
-      evidence: { table: "deal_checklist_items" },
-    });
+  if (!checklistResult.ok) {
+    runtimeBlockers.push(checklistResult.blocker);
+  } else {
+    checklist = checklistResult.data || [];
   }
 
   const requiredItems = checklist.filter((item) => item.required);
   const satisfiedItems = requiredItems.filter((item) => item.status === "satisfied");
   const missingItems = requiredItems.filter((item) => item.status !== "satisfied");
 
-  // 3. Compute deal readiness using existing function (defensive)
+  // 3. Compute deal readiness using existing function
   let borrowerChecklistSatisfied = false;
-  try {
-    const readinessResult = await computeDealReadiness(dealId);
-    borrowerChecklistSatisfied = readinessResult.ready;
-  } catch (err) {
-    console.warn("[deriveLifecycleState] computeDealReadiness threw:", err);
-    // Fall back to checklist-based calculation
+  const readinessResult = await safeFetch(
+    "readiness",
+    () => computeDealReadiness(dealId),
+    ctx
+  );
+
+  if (readinessResult.ok) {
+    borrowerChecklistSatisfied = readinessResult.data.ready;
+  } else {
+    // Fall back to checklist-based calculation (don't add blocker - it's a soft failure)
     borrowerChecklistSatisfied = requiredItems.length > 0 && missingItems.length === 0;
   }
 
-  // 4. Check for financial snapshot (defensive)
+  // 4. Check for financial snapshot
   let financialSnapshotExists = false;
-  try {
-    const { count: snapshotCount, error: snapshotError } = await sb
-      .from("deal_truth_snapshots")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId);
+  const snapshotResult = await safeSupabaseCount(
+    "snapshot",
+    () =>
+      sb
+        .from("deal_truth_snapshots")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId),
+    ctx
+  );
 
-    if (snapshotError) {
-      console.warn("[deriveLifecycleState] Snapshot count error:", snapshotError.message);
-    } else {
-      financialSnapshotExists = (snapshotCount ?? 0) > 0;
-    }
-  } catch (err) {
-    console.error("[deriveLifecycleState] Snapshot count threw:", err);
+  if (snapshotResult.ok) {
+    financialSnapshotExists = snapshotResult.data > 0;
   }
+  // Note: snapshot fetch failure is silent - we default to false (conservative)
 
-  // 5. Check for decision snapshot (defensive)
+  // 5. Check for decision snapshot
   let decisionPresent = false;
   let committeeRequired = false;
   let latestDecisionId: string | null = null;
-  try {
-    const { data: latestDecision, error: decisionError } = await sb
-      .from("decision_snapshots")
-      .select("id, status, committee_required")
-      .eq("deal_id", dealId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
 
-    if (decisionError) {
-      console.warn("[deriveLifecycleState] Decision fetch error:", decisionError.message);
-    } else if (latestDecision) {
-      decisionPresent = latestDecision.status === "final";
-      committeeRequired = latestDecision.committee_required ?? false;
-      latestDecisionId = latestDecision.id;
-    }
-  } catch (err) {
-    console.error("[deriveLifecycleState] Decision fetch threw:", err);
+  const decisionResult = await safeSupabaseQuery<{
+    id: string;
+    status: string;
+    committee_required: boolean;
+  }>(
+    "decision",
+    () =>
+      sb
+        .from("decision_snapshots")
+        .select("id, status, committee_required")
+        .eq("deal_id", dealId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ctx
+  );
+
+  if (decisionResult.ok && decisionResult.data) {
+    decisionPresent = decisionResult.data.status === "final";
+    committeeRequired = decisionResult.data.committee_required ?? false;
+    latestDecisionId = decisionResult.data.id;
   }
+  // Note: decision fetch failure is silent - we default to no decision (conservative)
 
-  // 6. Check attestation status if decision exists (defensive)
+  // 6. Check attestation status if decision exists
   let attestationSatisfied = true;
   if (latestDecisionId && deal.bank_id) {
-    try {
-      const { getAttestationStatus } = await import("@/lib/decision/attestation");
-      const attestationStatus = await getAttestationStatus(dealId, latestDecisionId, deal.bank_id);
-      attestationSatisfied = attestationStatus.satisfied;
-    } catch (err) {
-      console.warn("[deriveLifecycleState] getAttestationStatus threw:", err);
-      // Default to satisfied to avoid blocking on fetch failure
-      attestationSatisfied = true;
+    const attestationResult = await safeFetch(
+      "attestation",
+      async () => {
+        const { getAttestationStatus } = await import("@/lib/decision/attestation");
+        return getAttestationStatus(dealId, latestDecisionId!, deal.bank_id!);
+      },
+      ctx
+    );
+
+    if (attestationResult.ok) {
+      attestationSatisfied = attestationResult.data.satisfied;
     }
+    // Note: attestation fetch failure defaults to satisfied (don't block on fetch failure)
   }
 
-  // 7. Check for committee packet (defensive)
+  // 7. Check for committee packet
   let committeePacketReady = false;
-  try {
-    const { count: packetCount, error: packetError } = await sb
-      .from("deal_events")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId)
-      .eq("kind", "deal.committee.packet.generated");
+  const packetResult = await safeSupabaseCount(
+    "packet",
+    () =>
+      sb
+        .from("deal_events")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId)
+        .eq("kind", "deal.committee.packet.generated"),
+    ctx
+  );
 
-    if (packetError) {
-      console.warn("[deriveLifecycleState] Packet count error:", packetError.message);
-    } else {
-      committeePacketReady = (packetCount ?? 0) > 0;
-    }
-  } catch (err) {
-    console.error("[deriveLifecycleState] Packet count threw:", err);
+  if (packetResult.ok) {
+    committeePacketReady = packetResult.data > 0;
   }
+  // Note: packet fetch failure is silent - defaults to false (conservative)
 
-  // 8. Fetch last lifecycle advancement event (defensive)
+  // 8. Fetch last lifecycle advancement event
   let lastAdvancedAt: string | null = null;
-  try {
-    const { data: lastAdvancementEvent, error: advanceError } = await sb
-      .from("deal_events")
-      .select("created_at")
-      .eq("deal_id", dealId)
-      .eq("kind", "deal.lifecycle_advanced")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+  const advancementResult = await safeSupabaseQuery<{ created_at: string }>(
+    "advancement",
+    () =>
+      sb
+        .from("deal_events")
+        .select("created_at")
+        .eq("deal_id", dealId)
+        .eq("kind", "deal.lifecycle_advanced")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ctx
+  );
 
-    if (advanceError) {
-      console.warn("[deriveLifecycleState] Advancement event error:", advanceError.message);
-    } else {
-      lastAdvancedAt = lastAdvancementEvent?.created_at ?? null;
-    }
-  } catch (err) {
-    console.error("[deriveLifecycleState] Advancement event threw:", err);
+  if (advancementResult.ok && advancementResult.data) {
+    lastAdvancedAt = advancementResult.data.created_at;
   }
+  // Note: advancement fetch failure is silent - cosmetic only
 
   // Build derived state (safe math - guard against divide by zero)
   const requiredDocsReceivedPct =
     requiredItems.length > 0
       ? Math.round((satisfiedItems.length / requiredItems.length) * 100)
-      : checklist.length === 0 ? 0 : 100; // No checklist = 0%, empty required = 100%
+      : checklist.length === 0
+        ? 0
+        : 100; // No checklist = 0%, empty required = 100%
 
   const derived: LifecycleDerived = {
     requiredDocsReceivedPct,

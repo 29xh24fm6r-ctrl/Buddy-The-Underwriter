@@ -42,6 +42,7 @@ export type LifecycleStage =
  * Each code maps to actionable remediation.
  */
 export type LifecycleBlockerCode =
+  // Business logic blockers
   | "missing_required_docs"
   | "identity_not_verified"
   | "financial_snapshot_missing"
@@ -54,7 +55,15 @@ export type LifecycleBlockerCode =
   | "closing_docs_missing"
   | "deal_not_found"
   | "checklist_not_seeded"
-  // Runtime/infrastructure blockers (used when deriveLifecycleState encounters errors)
+  // Runtime/infrastructure blockers - specific per data source
+  | "checklist_fetch_failed"
+  | "snapshot_fetch_failed"
+  | "decision_fetch_failed"
+  | "attestation_fetch_failed"
+  | "packet_fetch_failed"
+  | "advancement_fetch_failed"
+  | "readiness_fetch_failed"
+  // Generic fallbacks (use specific codes above when possible)
   | "data_fetch_failed"
   | "internal_error";
 

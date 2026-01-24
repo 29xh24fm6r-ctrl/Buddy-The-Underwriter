@@ -55,6 +55,7 @@ function getStageColor(stage: LifecycleStage): string {
 
 function getBlockerIcon(code: string): string {
   switch (code) {
+    // Business logic blockers
     case "missing_required_docs":
       return "description";
     case "financial_snapshot_missing":
@@ -73,6 +74,22 @@ function getBlockerIcon(code: string): string {
       return "assignment";
     case "deal_not_found":
       return "search_off";
+    // Specific fetch failure blockers
+    case "checklist_fetch_failed":
+      return "checklist";
+    case "snapshot_fetch_failed":
+      return "account_balance";
+    case "decision_fetch_failed":
+      return "gavel";
+    case "attestation_fetch_failed":
+      return "verified_user";
+    case "packet_fetch_failed":
+      return "folder";
+    case "advancement_fetch_failed":
+      return "arrow_forward";
+    case "readiness_fetch_failed":
+      return "fact_check";
+    // Generic infrastructure blockers
     case "data_fetch_failed":
       return "cloud_off";
     case "internal_error":
