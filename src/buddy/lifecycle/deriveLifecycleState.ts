@@ -15,6 +15,10 @@
  * - getAttestationStatus() for attestation blockers
  *
  * This is the SINGLE SOURCE OF TRUTH for "where is this deal?"
+ *
+ * CRITICAL: This function MUST NEVER THROW.
+ * Missing data → blocker, NOT exception.
+ * GET /api/deals/:id/lifecycle NEVER returns 500.
  */
 
 import "server-only";
@@ -47,101 +51,208 @@ type DealStatusStage =
  *
  * This is a read-only function that computes state from canonical sources.
  * It never mutates data - that's the job of advanceDealLifecycle().
+ *
+ * CRITICAL: This function MUST NEVER THROW.
+ * All DB/service calls are wrapped defensively. Missing data → blocker, NOT exception.
  */
 export async function deriveLifecycleState(dealId: string): Promise<LifecycleState> {
+  // Wrap the entire function in try/catch as ultimate safety net
+  try {
+    return await deriveLifecycleStateInternal(dealId);
+  } catch (err) {
+    console.error("[deriveLifecycleState] Unexpected error (returning safe fallback):", err);
+    return createErrorState("internal_error", "Failed to derive lifecycle state");
+  }
+}
+
+/**
+ * Internal implementation - all the real work happens here.
+ * Defensively handles all async operations.
+ */
+async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleState> {
   const sb = supabaseAdmin();
+  const runtimeBlockers: LifecycleBlocker[] = [];
 
-  // 1. Fetch core deal data
-  const { data: deal, error: dealError } = await sb
-    .from("deals")
-    .select(
+  // 1. Fetch core deal data (critical - no deal = not found state)
+  let deal: { id: string; bank_id: string | null; lifecycle_stage: string | null; ready_at: string | null; deal_status: any } | null = null;
+  try {
+    const { data, error: dealError } = await sb
+      .from("deals")
+      .select(
+        `
+        id,
+        bank_id,
+        lifecycle_stage,
+        ready_at,
+        deal_status!inner(stage)
       `
-      id,
-      bank_id,
-      lifecycle_stage,
-      ready_at,
-      deal_status!inner(stage)
-    `
-    )
-    .eq("id", dealId)
-    .maybeSingle();
+      )
+      .eq("id", dealId)
+      .maybeSingle();
 
-  if (dealError || !deal) {
+    if (dealError) {
+      console.warn("[deriveLifecycleState] Deal fetch error:", dealError.message);
+      return createNotFoundState();
+    }
+    deal = data;
+  } catch (err) {
+    console.error("[deriveLifecycleState] Deal fetch threw:", err);
+    return createNotFoundState();
+  }
+
+  if (!deal) {
     return createNotFoundState();
   }
 
   const lifecycleStage = (deal.lifecycle_stage as DealLifecycleStage) || "created";
   const dealStatusStage = ((deal.deal_status as any)?.stage as DealStatusStage) || null;
 
-  // 2. Fetch checklist data
-  const { data: checklistItems } = await sb
-    .from("deal_checklist_items")
-    .select("checklist_key, required, status")
-    .eq("deal_id", dealId);
+  // 2. Fetch checklist data (defensive)
+  let checklist: Array<{ checklist_key: string; required: boolean; status: string }> = [];
+  try {
+    const { data: checklistItems, error: checklistError } = await sb
+      .from("deal_checklist_items")
+      .select("checklist_key, required, status")
+      .eq("deal_id", dealId);
 
-  const checklist = checklistItems || [];
+    if (checklistError) {
+      console.warn("[deriveLifecycleState] Checklist fetch error:", checklistError.message);
+      runtimeBlockers.push({
+        code: "data_fetch_failed",
+        message: "Could not load checklist data",
+        evidence: { table: "deal_checklist_items" },
+      });
+    } else {
+      checklist = checklistItems || [];
+    }
+  } catch (err) {
+    console.error("[deriveLifecycleState] Checklist fetch threw:", err);
+    runtimeBlockers.push({
+      code: "data_fetch_failed",
+      message: "Could not load checklist data",
+      evidence: { table: "deal_checklist_items" },
+    });
+  }
+
   const requiredItems = checklist.filter((item) => item.required);
   const satisfiedItems = requiredItems.filter((item) => item.status === "satisfied");
   const missingItems = requiredItems.filter((item) => item.status !== "satisfied");
 
-  // 3. Compute deal readiness using existing function
-  const readinessResult = await computeDealReadiness(dealId);
-
-  // 4. Check for financial snapshot
-  const { count: snapshotCount } = await sb
-    .from("deal_truth_snapshots")
-    .select("id", { count: "exact", head: true })
-    .eq("deal_id", dealId);
-
-  const financialSnapshotExists = (snapshotCount ?? 0) > 0;
-
-  // 5. Check for decision snapshot
-  const { data: latestDecision } = await sb
-    .from("decision_snapshots")
-    .select("id, status, committee_required")
-    .eq("deal_id", dealId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const decisionPresent = latestDecision?.status === "final";
-  const committeeRequired = latestDecision?.committee_required ?? false;
-
-  // 6. Check attestation status if decision exists
-  let attestationSatisfied = true;
-  if (latestDecision?.id && deal.bank_id) {
-    const { getAttestationStatus } = await import("@/lib/decision/attestation");
-    const attestationStatus = await getAttestationStatus(dealId, latestDecision.id, deal.bank_id);
-    attestationSatisfied = attestationStatus.satisfied;
+  // 3. Compute deal readiness using existing function (defensive)
+  let borrowerChecklistSatisfied = false;
+  try {
+    const readinessResult = await computeDealReadiness(dealId);
+    borrowerChecklistSatisfied = readinessResult.ready;
+  } catch (err) {
+    console.warn("[deriveLifecycleState] computeDealReadiness threw:", err);
+    // Fall back to checklist-based calculation
+    borrowerChecklistSatisfied = requiredItems.length > 0 && missingItems.length === 0;
   }
 
-  // 7. Check for committee packet (simplified check)
-  const { count: packetCount } = await sb
-    .from("deal_events")
-    .select("id", { count: "exact", head: true })
-    .eq("deal_id", dealId)
-    .eq("kind", "deal.committee.packet.generated");
+  // 4. Check for financial snapshot (defensive)
+  let financialSnapshotExists = false;
+  try {
+    const { count: snapshotCount, error: snapshotError } = await sb
+      .from("deal_truth_snapshots")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId);
 
-  const committeePacketReady = (packetCount ?? 0) > 0;
+    if (snapshotError) {
+      console.warn("[deriveLifecycleState] Snapshot count error:", snapshotError.message);
+    } else {
+      financialSnapshotExists = (snapshotCount ?? 0) > 0;
+    }
+  } catch (err) {
+    console.error("[deriveLifecycleState] Snapshot count threw:", err);
+  }
 
-  // 8. Fetch last lifecycle advancement event
-  const { data: lastAdvancementEvent } = await sb
-    .from("deal_events")
-    .select("created_at")
-    .eq("deal_id", dealId)
-    .eq("kind", "deal.lifecycle_advanced")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // 5. Check for decision snapshot (defensive)
+  let decisionPresent = false;
+  let committeeRequired = false;
+  let latestDecisionId: string | null = null;
+  try {
+    const { data: latestDecision, error: decisionError } = await sb
+      .from("decision_snapshots")
+      .select("id, status, committee_required")
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  // Build derived state
+    if (decisionError) {
+      console.warn("[deriveLifecycleState] Decision fetch error:", decisionError.message);
+    } else if (latestDecision) {
+      decisionPresent = latestDecision.status === "final";
+      committeeRequired = latestDecision.committee_required ?? false;
+      latestDecisionId = latestDecision.id;
+    }
+  } catch (err) {
+    console.error("[deriveLifecycleState] Decision fetch threw:", err);
+  }
+
+  // 6. Check attestation status if decision exists (defensive)
+  let attestationSatisfied = true;
+  if (latestDecisionId && deal.bank_id) {
+    try {
+      const { getAttestationStatus } = await import("@/lib/decision/attestation");
+      const attestationStatus = await getAttestationStatus(dealId, latestDecisionId, deal.bank_id);
+      attestationSatisfied = attestationStatus.satisfied;
+    } catch (err) {
+      console.warn("[deriveLifecycleState] getAttestationStatus threw:", err);
+      // Default to satisfied to avoid blocking on fetch failure
+      attestationSatisfied = true;
+    }
+  }
+
+  // 7. Check for committee packet (defensive)
+  let committeePacketReady = false;
+  try {
+    const { count: packetCount, error: packetError } = await sb
+      .from("deal_events")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .eq("kind", "deal.committee.packet.generated");
+
+    if (packetError) {
+      console.warn("[deriveLifecycleState] Packet count error:", packetError.message);
+    } else {
+      committeePacketReady = (packetCount ?? 0) > 0;
+    }
+  } catch (err) {
+    console.error("[deriveLifecycleState] Packet count threw:", err);
+  }
+
+  // 8. Fetch last lifecycle advancement event (defensive)
+  let lastAdvancedAt: string | null = null;
+  try {
+    const { data: lastAdvancementEvent, error: advanceError } = await sb
+      .from("deal_events")
+      .select("created_at")
+      .eq("deal_id", dealId)
+      .eq("kind", "deal.lifecycle_advanced")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (advanceError) {
+      console.warn("[deriveLifecycleState] Advancement event error:", advanceError.message);
+    } else {
+      lastAdvancedAt = lastAdvancementEvent?.created_at ?? null;
+    }
+  } catch (err) {
+    console.error("[deriveLifecycleState] Advancement event threw:", err);
+  }
+
+  // Build derived state (safe math - guard against divide by zero)
+  const requiredDocsReceivedPct =
+    requiredItems.length > 0
+      ? Math.round((satisfiedItems.length / requiredItems.length) * 100)
+      : checklist.length === 0 ? 0 : 100; // No checklist = 0%, empty required = 100%
+
   const derived: LifecycleDerived = {
-    requiredDocsReceivedPct:
-      requiredItems.length > 0
-        ? Math.round((satisfiedItems.length / requiredItems.length) * 100)
-        : 100,
+    requiredDocsReceivedPct,
     requiredDocsMissing: missingItems.map((item) => item.checklist_key),
-    borrowerChecklistSatisfied: readinessResult.ready,
+    borrowerChecklistSatisfied,
     underwriteStarted: lifecycleStage === "underwriting" || lifecycleStage === "ready",
     financialSnapshotExists,
     committeePacketReady,
@@ -153,12 +264,12 @@ export async function deriveLifecycleState(dealId: string): Promise<LifecycleSta
   // Map to unified stage
   const stage = mapToUnifiedStage(lifecycleStage, dealStatusStage, derived);
 
-  // Compute blockers
-  const blockers = computeBlockers(stage, derived, checklist.length);
+  // Compute blockers (merge with any runtime fetch failures)
+  const blockers = [...computeBlockers(stage, derived, checklist.length), ...runtimeBlockers];
 
   return {
     stage,
-    lastAdvancedAt: lastAdvancementEvent?.created_at ?? null,
+    lastAdvancedAt,
     blockers,
     derived,
   };
@@ -288,6 +399,34 @@ function createNotFoundState(): LifecycleState {
       {
         code: "deal_not_found",
         message: "Deal not found or access denied",
+      },
+    ],
+    derived: {
+      requiredDocsReceivedPct: 0,
+      requiredDocsMissing: [],
+      borrowerChecklistSatisfied: false,
+      underwriteStarted: false,
+      financialSnapshotExists: false,
+      committeePacketReady: false,
+      decisionPresent: false,
+      committeeRequired: false,
+      attestationSatisfied: true,
+    },
+  };
+}
+
+/**
+ * Create a state for unexpected errors.
+ * This ensures we NEVER throw - we always return a valid LifecycleState.
+ */
+function createErrorState(code: string, message: string): LifecycleState {
+  return {
+    stage: "intake_created",
+    lastAdvancedAt: null,
+    blockers: [
+      {
+        code: code as LifecycleBlockerCode,
+        message,
       },
     ],
     derived: {

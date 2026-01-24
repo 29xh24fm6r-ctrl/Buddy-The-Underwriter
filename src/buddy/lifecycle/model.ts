@@ -53,7 +53,10 @@ export type LifecycleBlockerCode =
   | "attestation_missing"
   | "closing_docs_missing"
   | "deal_not_found"
-  | "checklist_not_seeded";
+  | "checklist_not_seeded"
+  // Runtime/infrastructure blockers (used when deriveLifecycleState encounters errors)
+  | "data_fetch_failed"
+  | "internal_error";
 
 /**
  * A blocker with human-readable message and optional evidence.

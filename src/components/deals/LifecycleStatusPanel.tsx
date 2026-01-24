@@ -71,6 +71,12 @@ function getBlockerIcon(code: string): string {
       return "verified_user";
     case "closing_docs_missing":
       return "assignment";
+    case "deal_not_found":
+      return "search_off";
+    case "data_fetch_failed":
+      return "cloud_off";
+    case "internal_error":
+      return "error";
     default:
       return "warning";
   }

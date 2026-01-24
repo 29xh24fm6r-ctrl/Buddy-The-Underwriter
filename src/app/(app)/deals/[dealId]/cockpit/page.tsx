@@ -97,12 +97,18 @@ export default async function DealCockpitPage({ params }: Props) {
   const access = await ensureDealBankAccess(dealId);
   if (access.ok) {
     const sb = supabaseAdmin();
+
+    // Derive unified lifecycle state FIRST - this is the single source of truth
+    unifiedLifecycleState = await deriveLifecycleState(dealId);
+
+    // Fetch deal metadata (name, borrower info)
     const { data: deal } = await sb
       .from("deals")
       .select("display_name, nickname, borrower_name, borrower_id, lifecycle_stage")
       .eq("id", dealId)
       .eq("bank_id", access.bankId)
       .maybeSingle();
+
     dealName = {
       displayName: (deal as any)?.display_name ?? null,
       nickname: (deal as any)?.nickname ?? null,
@@ -118,30 +124,24 @@ export default async function DealCockpitPage({ params }: Props) {
     );
     const borrowerAttached = Boolean((deal as any)?.borrower_id);
 
-    const { data: checklist } = await sb
-      .from("deal_checklist_items")
-      .select("checklist_key, required, received_at")
-      .eq("deal_id", dealId)
-      .eq("required", true);
-
-    const missingDocsCount = (checklist ?? []).filter((item: any) => !item.received_at).length;
-    const requiredDocsCount = (checklist ?? []).length;
-    const documentsReady = requiredDocsCount > 0 && missingDocsCount === 0;
-
-    const { count: snapshotCount } = await sb
-      .from("financial_snapshot_decisions")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId);
-
-    const financialSnapshotReady = Boolean(snapshotCount && snapshotCount > 0);
+    // SINGLE SOURCE OF TRUTH: Derive docs/financial readiness from lifecycle state
+    const lifecycleDerived = unifiedLifecycleState?.derived;
+    const requiredDocsMissingCount = lifecycleDerived?.requiredDocsMissing?.length ?? 0;
+    // Estimate total required docs from percentage (if 80% and 2 missing → 10 total)
+    const pct = lifecycleDerived?.requiredDocsReceivedPct ?? 0;
+    const estimatedTotal = requiredDocsMissingCount > 0 && pct < 100
+      ? Math.round(requiredDocsMissingCount / ((100 - pct) / 100))
+      : requiredDocsMissingCount;
+    const documentsReady = lifecycleDerived?.borrowerChecklistSatisfied ?? false;
+    const financialSnapshotReady = lifecycleDerived?.financialSnapshotExists ?? false;
 
     readiness = {
       named: hasDisplayName || hasNickname,
       borrowerAttached,
       documentsReady,
       financialSnapshotReady,
-      requiredDocsCount,
-      missingDocsCount,
+      requiredDocsCount: estimatedTotal,
+      missingDocsCount: requiredDocsMissingCount,
     };
 
     const { data: intake } = await sb
@@ -197,9 +197,6 @@ export default async function DealCockpitPage({ params }: Props) {
     }
 
     verify = await verifyUnderwrite({ dealId, actor: "banker" });
-
-    // Derive unified lifecycle state
-    unifiedLifecycleState = await deriveLifecycleState(dealId);
   }
 
   return (
