@@ -7,7 +7,7 @@ type Template = any;
 
 export default function TemplatesVaultClient() {
   const sp = useSearchParams();
-  const bankIdFromUrl = useMemo(() => sp.get("bankId") ?? "", [sp]);
+  const bankIdFromUrl = useMemo(() => (sp ? sp.get("bankId") ?? "" : ""), [sp]);
 
   const [bankId, setBankId] = useState("");
   const [templates, setTemplates] = useState<Template[]>([]);

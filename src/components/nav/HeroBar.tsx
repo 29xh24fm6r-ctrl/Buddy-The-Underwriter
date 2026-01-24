@@ -23,6 +23,7 @@ function cls(active: boolean) {
 
 export function HeroBar() {
   const pathname = usePathname();
+  const safePathname = pathname ?? "";
 
   return (
     <div className="sticky top-0 z-50 w-full border-b border-white/10 bg-black/70 backdrop-blur">
@@ -34,7 +35,7 @@ export function HeroBar() {
 
           <div className="hidden md:flex items-center gap-1">
             {NAV.map((n) => (
-              <Link key={n.href} href={n.href} className={cls(pathname.startsWith(n.href))}>
+              <Link key={n.href} href={n.href} className={cls(safePathname.startsWith(n.href))}>
                 {n.label}
               </Link>
             ))}
@@ -61,7 +62,7 @@ export function HeroBar() {
       <div className="md:hidden overflow-x-auto border-t border-white/10">
         <div className="flex gap-1 px-2 py-2">
           {NAV.map((n) => (
-            <Link key={n.href} href={n.href} className={cls(pathname.startsWith(n.href))}>
+            <Link key={n.href} href={n.href} className={cls(safePathname.startsWith(n.href))}>
               {n.label}
             </Link>
           ))}

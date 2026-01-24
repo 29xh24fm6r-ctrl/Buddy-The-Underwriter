@@ -21,7 +21,7 @@ interface PolicyChunk {
 
 export default function PolicyChunksClient() {
   const searchParams = useSearchParams();
-  const assetId = searchParams.get("asset_id");
+  const assetId = searchParams?.get("asset_id") ?? null;
 
   const [chunks, setChunks] = useState<PolicyChunk[]>([]);
   const [loading, setLoading] = useState(true);

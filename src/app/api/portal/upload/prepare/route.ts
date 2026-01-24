@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireValidInvite } from "@/lib/portal/auth";
 import { rateLimit } from "@/lib/portal/ratelimit";
 import { signUploadUrl } from "@/lib/uploads/sign";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { createDealUploadSession, upsertUploadSessionFile } from "@/lib/uploads/uploadSession";
 import crypto from "node:crypto";
 
@@ -50,6 +51,20 @@ export async function POST(req: Request) {
     source: "borrower",
     createdByName: invite.name ?? null,
     createdByEmail: invite.email ?? null,
+  });
+
+  await logLedgerEvent({
+    dealId: invite.deal_id,
+    bankId: invite.bank_id,
+    eventKey: "upload.session.created",
+    uiState: "done",
+    uiMessage: "Upload session created",
+    meta: {
+      session_id: created.sessionId,
+      expires_at: created.expiresAt,
+      source: "borrower",
+      flow: "portal_prepare",
+    },
   });
   const fileId = crypto.randomUUID();
   const path = `${invite.deal_id}/${created.sessionId}/${Date.now()}_${safeName}`;

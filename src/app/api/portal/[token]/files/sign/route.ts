@@ -157,6 +157,20 @@ export async function POST(req: NextRequest, ctx: Context) {
       });
       uploadSessionId = created.sessionId;
       uploadSessionExpiresAt = created.expiresAt;
+
+      await logLedgerEvent({
+        dealId,
+        bankId: deal.bank_id,
+        eventKey: "upload.session.created",
+        uiState: "done",
+        uiMessage: "Upload session created",
+        meta: {
+          session_id: uploadSessionId,
+          expires_at: uploadSessionExpiresAt,
+          source: "borrower",
+          flow: "portal.files.sign",
+        },
+      });
     }
 
     // Bank-safe guardrails

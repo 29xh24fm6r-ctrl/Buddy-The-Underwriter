@@ -13,8 +13,9 @@ function NavItem({
   icon: string;
 }) {
   const pathname = usePathname();
+  const safePathname = pathname ?? "";
   const active =
-    pathname === href || (href !== "/deals" && pathname.startsWith(href));
+    safePathname === href || (href !== "/deals" && safePathname.startsWith(href));
 
   return (
     <Link
@@ -52,7 +53,8 @@ function NavItem({
 
 export default function DealsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const dealMatch = pathname.match(/^\/deals\/([0-9a-f-]{36})/i);
+  const safePathname = pathname ?? "";
+  const dealMatch = safePathname.match(/^\/deals\/([0-9a-f-]{36})/i);
   const dealId = dealMatch ? dealMatch[1] : null;
   const underwriteHref = dealId ? `/deals/${dealId}/underwrite` : "/underwrite";
 

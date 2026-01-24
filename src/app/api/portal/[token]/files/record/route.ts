@@ -28,6 +28,9 @@ type Context = {
  * Called AFTER client uploads bytes via signed URL.
  */
 export async function POST(req: NextRequest, ctx: Context) {
+  let dealIdForLog: string | null = null;
+  let bankIdForLog: string | null = null;
+
   try {
     const { token } = await ctx.params;
     const body = await req.json();
@@ -53,6 +56,9 @@ export async function POST(req: NextRequest, ctx: Context) {
     const resolvedBucket =
       storage_bucket || process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
 
+    let dealIdForLog: string | null = null;
+    let bankIdForLog: string | null = null;
+
     console.log("[UPLOAD RECORD ROUTE HIT - PORTAL]", {
       token,
       object_path: resolvedPath,
@@ -65,13 +71,6 @@ export async function POST(req: NextRequest, ctx: Context) {
     if (!file_id || !resolvedPath || !original_filename) {
       return NextResponse.json(
         { ok: false, error: "Missing required fields" },
-        { status: 400 },
-      );
-    }
-
-    if (!resolvedSessionId) {
-      return NextResponse.json(
-        { ok: false, error: "Missing uploadSessionId" },
         { status: 400 },
       );
     }
@@ -118,6 +117,31 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
+    dealIdForLog = dealId;
+    bankIdForLog = deal.bank_id;
+
+    if (!resolvedSessionId) {
+      await logLedgerEvent({
+        dealId,
+        bankId: deal.bank_id,
+        eventKey: "upload.rejected",
+        uiState: "done",
+        uiMessage: "Upload rejected: missing session",
+        meta: {
+          file_id,
+          upload_session_id: null,
+          reason: "missing_upload_session",
+          storage_path: resolvedPath,
+          storage_bucket: resolvedBucket,
+          source: "borrower_portal",
+        },
+      });
+      return NextResponse.json(
+        { ok: false, error: "Missing uploadSessionId" },
+        { status: 400 },
+      );
+    }
+
     await initializeIntake(dealId, deal.bank_id, { reason: "borrower_upload" });
 
     const sessionValidation = await validateUploadSession({
@@ -128,45 +152,103 @@ export async function POST(req: NextRequest, ctx: Context) {
     });
 
     if (!sessionValidation.ok) {
+      await logLedgerEvent({
+        dealId,
+        bankId: deal.bank_id,
+        eventKey: "upload.rejected",
+        uiState: "done",
+        uiMessage: "Upload rejected: invalid session",
+        meta: {
+          file_id,
+          upload_session_id: resolvedSessionId,
+          reason: sessionValidation.error,
+          storage_path: resolvedPath,
+          storage_bucket: resolvedBucket,
+          source: "borrower_portal",
+        },
+      });
       return NextResponse.json(
         { ok: false, error: sessionValidation.error },
         { status: 409 },
       );
     }
 
+    await logLedgerEvent({
+      dealId,
+      bankId: deal.bank_id,
+      eventKey: "upload.received",
+      uiState: "done",
+      uiMessage: "Upload received",
+      meta: {
+        file_id,
+        upload_session_id: resolvedSessionId,
+        storage_path: resolvedPath,
+        storage_bucket: resolvedBucket,
+        source: "borrower_portal",
+      },
+    });
+
     const existingFile = await sb
       .from("deal_upload_session_files")
-      .select("id")
+      .select("id, size_bytes")
       .eq("session_id", resolvedSessionId)
       .eq("file_id", file_id)
       .maybeSingle();
 
-    if (existingFile.data?.id) {
-      await sb
-        .from("deal_upload_session_files")
-        .update({
-          status: "completed",
-          completed_at: new Date().toISOString(),
-          size_bytes: size_bytes ?? 0,
-        })
-        .eq("id", existingFile.data.id);
-    } else {
-      await sb
-        .from("deal_upload_session_files")
-        .insert({
-          session_id: resolvedSessionId,
-          deal_id: dealId,
-          bank_id: deal.bank_id,
+    if (!existingFile.data?.id) {
+      await logLedgerEvent({
+        dealId,
+        bankId: deal.bank_id,
+        eventKey: "upload.rejected",
+        uiState: "done",
+        uiMessage: "Upload rejected: session file missing",
+        meta: {
           file_id,
-          filename: original_filename,
-          content_type: mime_type ?? "application/octet-stream",
-          size_bytes: size_bytes ?? 0,
-          object_key: resolvedPath,
-          bucket: resolvedBucket,
-          status: "completed",
-          completed_at: new Date().toISOString(),
-        });
+          upload_session_id: resolvedSessionId,
+          reason: "upload_session_file_missing",
+          storage_path: resolvedPath,
+          storage_bucket: resolvedBucket,
+          source: "borrower_portal",
+        },
+      });
+      return NextResponse.json(
+        { ok: false, error: "upload_session_file_missing" },
+        { status: 409 },
+      );
     }
+
+    if (Number(existingFile.data?.size_bytes || 0) !== Number(size_bytes || 0)) {
+      await logLedgerEvent({
+        dealId,
+        bankId: deal.bank_id,
+        eventKey: "upload.rejected",
+        uiState: "done",
+        uiMessage: "Upload rejected: size mismatch",
+        meta: {
+          file_id,
+          upload_session_id: resolvedSessionId,
+          reason: "upload_session_size_mismatch",
+          expected_size: Number(existingFile.data?.size_bytes || 0),
+          received_size: Number(size_bytes || 0),
+          storage_path: resolvedPath,
+          storage_bucket: resolvedBucket,
+          source: "borrower_portal",
+        },
+      });
+      return NextResponse.json(
+        { ok: false, error: "upload_session_size_mismatch" },
+        { status: 409 },
+      );
+    }
+
+    await sb
+      .from("deal_upload_session_files")
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        size_bytes: size_bytes ?? 0,
+      })
+      .eq("id", existingFile.data.id);
 
     const totalRes = await sb
       .from("deal_upload_session_files")
@@ -229,6 +311,21 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     // Canonical ingestion: insert doc + stamp checklist + reconcile + log ledger
+    await logLedgerEvent({
+      dealId,
+      bankId: deal.bank_id,
+      eventKey: "upload.process.start",
+      uiState: "working",
+      uiMessage: "Upload processing started",
+      meta: {
+        file_id,
+        upload_session_id: resolvedSessionId,
+        storage_path: resolvedPath,
+        storage_bucket: resolvedBucket,
+        source: "borrower_portal",
+      },
+    });
+
     const result = await ingestDocument({
       dealId,
       bankId: deal.bank_id,
@@ -349,6 +446,22 @@ export async function POST(req: NextRequest, ctx: Context) {
       checklist_key,
     });
 
+    await logLedgerEvent({
+      dealId,
+      bankId: deal.bank_id,
+      eventKey: "upload.process.complete",
+      uiState: "done",
+      uiMessage: "Upload processing completed",
+      meta: {
+        file_id,
+        upload_session_id: resolvedSessionId,
+        document_id: result.documentId,
+        storage_path: resolvedPath,
+        storage_bucket: resolvedBucket,
+        source: "borrower_portal",
+      },
+    });
+
     return NextResponse.json({ ok: true, file_id, ...result });
   } catch (error: any) {
     console.error("[portal/files/record] uncaught exception", {
@@ -356,6 +469,16 @@ export async function POST(req: NextRequest, ctx: Context) {
       stack: error?.stack,
       name: error?.name,
     });
+    if (typeof dealIdForLog === "string" && typeof bankIdForLog === "string") {
+      await logLedgerEvent({
+        dealId: dealIdForLog,
+        bankId: bankIdForLog,
+        eventKey: "upload.process.failed",
+        uiState: "done",
+        uiMessage: "Upload processing failed",
+        meta: { error: error?.message || String(error), source: "borrower_portal" },
+      });
+    }
     return NextResponse.json(
       { ok: false, error: error?.message || "Internal server error" },
       { status: 500 },

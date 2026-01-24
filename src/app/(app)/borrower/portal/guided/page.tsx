@@ -9,7 +9,7 @@ import { useSearchParams } from "next/navigation";
 
 function GuidedPortalContent() {
   const searchParams = useSearchParams();
-  const token = searchParams.get("token");
+  const token = searchParams?.get("token") ?? null;
   const [evidenceItems, setEvidenceItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 

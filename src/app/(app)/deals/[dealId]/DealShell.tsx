@@ -390,7 +390,7 @@ export default function DealShell({
                 key={t.href}
                 href={t.href}
                 label={t.label}
-                active={pathname === t.href || pathname.startsWith(t.href + "/")}
+                active={(pathname ?? "") === t.href || (pathname ?? "").startsWith(t.href + "/")}
               />
             ))}
           </div>

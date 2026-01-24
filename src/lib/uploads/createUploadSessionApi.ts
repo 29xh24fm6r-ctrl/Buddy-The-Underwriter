@@ -227,6 +227,19 @@ export async function handleCreateUploadSession(
     });
     sessionId = created.sessionId;
     expiresAt = created.expiresAt;
+
+    await logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "upload.session.created",
+      uiState: "done",
+      uiMessage: "Upload session created",
+      meta: {
+        session_id: sessionId,
+        expires_at: expiresAt,
+        source,
+      },
+    });
   }
 
   const uploads = await buildUploadSession({

@@ -42,10 +42,11 @@ export function useDealCommand() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const safePathname = pathname ?? "";
 
   return useCallback(
     (cmd: DealCommand) => {
-      const currentParams = new URLSearchParams(params.toString());
+      const currentParams = new URLSearchParams(params?.toString() ?? "");
 
       switch (cmd.type) {
         case "ASSIGN_UNDERWRITER": {
@@ -54,7 +55,7 @@ export function useDealCommand() {
             modal: "assignUnderwriter",
             focus: "assignees",
           });
-          router.replace(`${pathname}?${next.toString()}`);
+          router.replace(`${safePathname}?${next.toString()}`);
           scrollToId("assignees");
           return;
         }
@@ -65,7 +66,7 @@ export function useDealCommand() {
             panel: "jobs",
             focus: "jobs",
           });
-          router.replace(`${pathname}?${next.toString()}`);
+          router.replace(`${safePathname}?${next.toString()}`);
           scrollToId("jobs");
           return;
         }
@@ -76,7 +77,7 @@ export function useDealCommand() {
             panel: "upload",
             focus: "upload",
           });
-          router.replace(`${pathname}?${next.toString()}`);
+          router.replace(`${safePathname}?${next.toString()}`);
           scrollToId("upload");
           return;
         }
@@ -87,7 +88,7 @@ export function useDealCommand() {
             panel: "drafts",
             focus: "drafts",
           });
-          router.replace(`${pathname}?${next.toString()}`);
+          router.replace(`${safePathname}?${next.toString()}`);
           scrollToId("drafts");
           return;
         }
@@ -99,7 +100,7 @@ export function useDealCommand() {
             panel: "messages",
             focus: "messages",
           });
-          router.replace(`${pathname}?${next.toString()}`);
+          router.replace(`${safePathname}?${next.toString()}`);
           scrollToId("messages");
           return;
         }
@@ -110,7 +111,7 @@ export function useDealCommand() {
             panel: "conditions",
             focus: "conditions",
           });
-          router.replace(`${pathname}?${next.toString()}`);
+          router.replace(`${safePathname}?${next.toString()}`);
           scrollToId("conditions");
           return;
         }
@@ -122,7 +123,7 @@ export function useDealCommand() {
             panel: "forms",
             focus: "forms",
           });
-          router.replace(`${pathname}?${next.toString()}`);
+          router.replace(`${safePathname}?${next.toString()}`);
           scrollToId("forms");
           return;
         }
@@ -133,7 +134,7 @@ export function useDealCommand() {
             panel: "conditions",
             focus: "conditions",
           });
-          router.replace(`${pathname}?${next.toString()}`);
+          router.replace(`${safePathname}?${next.toString()}`);
           scrollToId("conditions");
           return;
         }
@@ -144,7 +145,7 @@ export function useDealCommand() {
             panel: "conditions",
             focus: "conditions",
           });
-          router.replace(`${pathname}?${next.toString()}`);
+          router.replace(`${safePathname}?${next.toString()}`);
           scrollToId("conditions");
           return;
         }
@@ -154,7 +155,7 @@ export function useDealCommand() {
           const next = buildDealUrlState(currentParams, {
             focus: cmd.section,
           });
-          router.replace(`${pathname}?${next.toString()}`);
+          router.replace(`${safePathname}?${next.toString()}`);
           scrollToId(cmd.section);
           return;
         }

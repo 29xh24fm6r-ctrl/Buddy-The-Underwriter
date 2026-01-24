@@ -9,8 +9,9 @@ export default function AdminBankPicker() {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
+  const safePathname = pathname ?? "";
 
-  const initialBankId = useMemo(() => sp.get("bankId") ?? "", [sp]);
+  const initialBankId = useMemo(() => (sp ? sp.get("bankId") ?? "" : ""), [sp]);
 
   const [banks, setBanks] = useState<Bank[]>([]);
   const [bankId, setBankId] = useState(initialBankId);
@@ -46,10 +47,10 @@ export default function AdminBankPicker() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || "Failed to set bank");
 
-      const next = new URLSearchParams(sp.toString());
+      const next = new URLSearchParams(sp?.toString() ?? "");
       next.set("bankId", nextBankId);
       const qs = next.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname);
+      router.replace(qs ? `${safePathname}?${qs}` : safePathname);
       router.refresh();
     } catch (e: any) {
       setErr(e?.message || "Failed to set bank");

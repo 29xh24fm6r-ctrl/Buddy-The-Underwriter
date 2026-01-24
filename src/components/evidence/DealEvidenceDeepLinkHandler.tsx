@@ -22,12 +22,13 @@ export function DealEvidenceDeepLinkHandler(props: { dealId: string }) {
   const setFocusedOverlayId = useViewerStore((s: any) => s.setFocusedOverlayId);
 
   useEffect(() => {
-    const fileId = sp.get("fileId");
-    const pageRaw = sp.get("page");
-    const overlayId = sp.get("overlayId");
+    const params = sp ?? new URLSearchParams();
+    const fileId = params.get("fileId");
+    const pageRaw = params.get("page");
+    const overlayId = params.get("overlayId");
 
-    const gcsRaw = sp.get("gcs");
-    const gceRaw = sp.get("gce");
+    const gcsRaw = params.get("gcs");
+    const gceRaw = params.get("gce");
 
     if (!fileId || !pageRaw) return;
 

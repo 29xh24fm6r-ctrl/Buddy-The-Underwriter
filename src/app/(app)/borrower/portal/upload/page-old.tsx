@@ -14,7 +14,7 @@ import UploadQueueCard from "@/components/borrower/UploadQueueCard";
 
 export default function BorrowerPortalUploadPage() {
   const sp = useSearchParams();
-  const token = useMemo(() => sp.get("token") || "", [sp]);
+  const token = useMemo(() => (sp ? sp.get("token") ?? "" : ""), [sp]);
 
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [dragOver, setDragOver] = useState(false);

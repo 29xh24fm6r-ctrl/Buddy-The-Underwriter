@@ -12,7 +12,7 @@ function AuthForm() {
   const [error, setError] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const router = useRouter();
-  const next = searchParams.get("next") || "/";
+  const next = searchParams?.get("next") || "/";
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();

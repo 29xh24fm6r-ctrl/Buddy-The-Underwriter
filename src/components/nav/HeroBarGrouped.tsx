@@ -38,6 +38,7 @@ function cls(active: boolean) {
 
 export function HeroBarGrouped() {
   const pathname = usePathname();
+  const safePathname = pathname ?? "";
 
   return (
     <div className="sticky top-0 z-50 w-full border-b border-white/10 bg-black/70 backdrop-blur">
@@ -52,7 +53,7 @@ export function HeroBarGrouped() {
               <div key={group.label} className="flex items-center gap-1">
                 <span className="text-xs text-white/40 px-2">{group.label}</span>
                 {group.items.map((item) => (
-                  <Link key={item.href} href={item.href} className={cls(pathname.startsWith(item.href))}>
+                  <Link key={item.href} href={item.href} className={cls(safePathname.startsWith(item.href))}>
                     {item.label}
                   </Link>
                 ))}
@@ -81,7 +82,7 @@ export function HeroBarGrouped() {
       <div className="lg:hidden overflow-x-auto border-t border-white/10">
         <div className="flex gap-1 px-2 py-2">
           {NAV_GROUPS.flatMap((g) => g.items).map((n) => (
-            <Link key={n.href} href={n.href} className={cls(pathname.startsWith(n.href))}>
+            <Link key={n.href} href={n.href} className={cls(safePathname.startsWith(n.href))}>
               {n.label}
             </Link>
           ))}

@@ -14,7 +14,7 @@ type Routing = {
 
 export default function EmailRoutingAdminPage() {
   const sp = useSearchParams();
-  const bankId = useMemo(() => sp.get("bankId") ?? "", [sp]);
+  const bankId = useMemo(() => (sp ? sp.get("bankId") ?? "" : ""), [sp]);
 
   const [routing, setRouting] = useState<Routing | null>(null);
   const [saving, setSaving] = useState(false);

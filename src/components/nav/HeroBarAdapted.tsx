@@ -47,10 +47,11 @@ function cls(active: boolean) {
 export function HeroBarAdapted() {
   const pathname = usePathname();
   const params = useParams();
+  const safePathname = pathname ?? "";
   const dealId = params?.dealId as string | undefined;
 
   // For deal-specific pages, show deal-level actions
-  const isDealPage = pathname.includes("/deals/") && dealId;
+  const isDealPage = safePathname.includes("/deals/") && dealId;
 
   return (
     <div className="sticky top-0 z-50 w-full border-b border-white/10 bg-black/70 backdrop-blur">
@@ -63,19 +64,19 @@ export function HeroBarAdapted() {
           {/* Deal-level nav when on a deal page */}
           {isDealPage && (
             <div className="hidden lg:flex items-center gap-1 border-l border-white/10 pl-4">
-              <Link href={`/deals/${dealId}`} className={cls(pathname === `/deals/${dealId}`)}>
+              <Link href={`/deals/${dealId}`} className={cls(safePathname === `/deals/${dealId}`)}>
                 Overview
               </Link>
-              <Link href={`/deals/${dealId}/underwrite`} className={cls(pathname.includes("/underwrite"))}>
+              <Link href={`/deals/${dealId}/underwrite`} className={cls(safePathname.includes("/underwrite"))}>
                 Underwrite
               </Link>
-              <Link href={`/deals/${dealId}/sba`} className={cls(pathname.includes('/sba'))}>
+              <Link href={`/deals/${dealId}/sba`} className={cls(safePathname.includes('/sba'))}>
                 SBA/Pricing
               </Link>
-              <Link href={`/deals/${dealId}/borrower`} className={cls(pathname.includes('/borrower'))}>
+              <Link href={`/deals/${dealId}/borrower`} className={cls(safePathname.includes('/borrower'))}>
                 Borrower
               </Link>
-              <Link href={`/deals/${dealId}/borrower-inbox`} className={cls(pathname.includes('/borrower-inbox'))}>
+              <Link href={`/deals/${dealId}/borrower-inbox`} className={cls(safePathname.includes('/borrower-inbox'))}>
                 Inbox
               </Link>
             </div>
@@ -91,7 +92,7 @@ export function HeroBarAdapted() {
                     <Link
                       key={item.href + (item.query || '')}
                       href={item.href + (item.query || '')}
-                      className={cls(pathname.startsWith(item.href))}
+                      className={cls(safePathname.startsWith(item.href))}
                     >
                       {item.label}
                     </Link>
@@ -125,22 +126,22 @@ export function HeroBarAdapted() {
         <div className="flex gap-1 px-2 py-2">
           {isDealPage ? (
             <>
-              <Link href={`/deals/${dealId}`} className={cls(pathname === `/deals/${dealId}`)}>
+              <Link href={`/deals/${dealId}`} className={cls(safePathname === `/deals/${dealId}`)}>
                 Overview
               </Link>
-              <Link href={`/deals/${dealId}/underwrite`} className={cls(pathname.includes("/underwrite"))}>
+              <Link href={`/deals/${dealId}/underwrite`} className={cls(safePathname.includes("/underwrite"))}>
                 Underwrite
               </Link>
-              <Link href={`/deals/${dealId}/sba`} className={cls(pathname.includes('/sba'))}>
+              <Link href={`/deals/${dealId}/sba`} className={cls(safePathname.includes('/sba'))}>
                 SBA
               </Link>
-              <Link href={`/deals/${dealId}/borrower`} className={cls(pathname.includes('/borrower'))}>
+              <Link href={`/deals/${dealId}/borrower`} className={cls(safePathname.includes('/borrower'))}>
                 Borrower
               </Link>
             </>
           ) : (
             NAV_GROUPS.flatMap((g) => g.items).map((n) => (
-              <Link key={n.href + (n.query || '')} href={n.href + (n.query || '')} className={cls(pathname.startsWith(n.href))}>
+              <Link key={n.href + (n.query || '')} href={n.href + (n.query || '')} className={cls(safePathname.startsWith(n.href))}>
                 {n.label}
               </Link>
             ))

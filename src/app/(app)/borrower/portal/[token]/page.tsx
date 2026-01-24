@@ -31,7 +31,7 @@ function uid() {
 
 export default function BorrowerPortalPage() {
   const params = useParams<{ token: string }>();
-  const token = params.token;
+  const token = params?.token ?? "";
 
   const [items, setItems] = useState<UploadItem[]>([]);
   const [dragOver, setDragOver] = useState(false);

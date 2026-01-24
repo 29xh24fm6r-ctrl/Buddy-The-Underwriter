@@ -6,6 +6,8 @@ import { useRouter, useParams } from "next/navigation";
 export default function AttestPage() {
   const router = useRouter();
   const params = useParams<{ dealId: string; snapshotId: string }>();
+  const dealId = params?.dealId ?? "";
+  const snapshotId = params?.snapshotId ?? "";
   const [role, setRole] = useState("");
   const [statement, setStatement] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -17,7 +19,8 @@ export default function AttestPage() {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch(`/api/deals/${params.dealId}/decision/${params.snapshotId}/attest`, {
+      if (!dealId || !snapshotId) throw new Error("missing_params");
+      const res = await fetch(`/api/deals/${dealId}/decision/${snapshotId}/attest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role, statement }),
@@ -29,7 +32,7 @@ export default function AttestPage() {
       }
 
       // Success - redirect back to decision page
-      router.push(`/deals/${params.dealId}/decision?snapshot=${params.snapshotId}`);
+      router.push(`/deals/${dealId}/decision?snapshot=${snapshotId}`);
     } catch (err: any) {
       setError(err.message);
     } finally {

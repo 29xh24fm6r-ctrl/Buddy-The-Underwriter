@@ -9,7 +9,7 @@ import { useParams } from "next/navigation";
 
 export default function OverridesPage() {
   const params = useParams();
-  const dealId = params.dealId as string;
+  const dealId = (params?.dealId as string) ?? "";
   const [overrides, setOverrides] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -31,6 +31,7 @@ export default function OverridesPage() {
   }, [dealId]);
 
   useEffect(() => {
+    if (!dealId) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadOverrides();
   }, [dealId]);

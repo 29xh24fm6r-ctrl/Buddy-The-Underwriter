@@ -14,7 +14,7 @@ import RecentActivityCard from "@/components/borrower/RecentActivityCard";
 
 export default function BorrowerPortalClient() {
   const sp = useSearchParams();
-  const token = useMemo(() => sp.get("token") || "", [sp]);
+  const token = useMemo(() => (sp ? sp.get("token") ?? "" : ""), [sp]);
 
   const { state, load, derived } = usePortalRequests(token);
 

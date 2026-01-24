@@ -223,6 +223,20 @@ export async function POST(req: NextRequest, ctx: Context) {
       });
       uploadSessionId = created.sessionId;
       uploadSessionExpiresAt = created.expiresAt;
+
+      await logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "upload.session.created",
+        uiState: "done",
+        uiMessage: "Upload session created",
+        meta: {
+          session_id: uploadSessionId,
+          expires_at: uploadSessionExpiresAt,
+          source: "banker",
+          flow: "files.sign",
+        },
+      });
     }
 
     if (docStore === "gcs") {

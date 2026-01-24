@@ -10,13 +10,17 @@ import { JsonPanel } from "@/components/decision/JsonPanel";
 
 export default function ReplayPage() {
   const params = useParams();
-  const dealId = params.dealId as string;
+  const dealId = (params?.dealId as string) ?? "";
   const [snapshots, setSnapshots] = useState<any[]>([]);
   const [diffs, setDiffs] = useState<Map<string, any>>(new Map());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
+      if (!dealId) {
+        setLoading(false);
+        return;
+      }
       // Get latest snapshot
       const res = await fetch(`/api/deals/${dealId}/decision/latest`);
       const data = await res.json();

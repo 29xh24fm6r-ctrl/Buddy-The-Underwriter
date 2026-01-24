@@ -20,12 +20,14 @@ export default function DealModals({ dealId }: DealModalsProps) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const safePathname = pathname ?? "";
+  const safeParams = params ?? new URLSearchParams();
 
-  const uiState = parseDealUiState(params);
+  const uiState = parseDealUiState(safeParams);
 
   const closeModal = () => {
-    const next = buildDealUrlState(new URLSearchParams(params.toString()), { modal: null });
-    router.replace(`${pathname}?${next.toString()}`);
+    const next = buildDealUrlState(new URLSearchParams(safeParams.toString()), { modal: null });
+    router.replace(`${safePathname}?${next.toString()}`);
   };
 
   // Render active modal based on URL state

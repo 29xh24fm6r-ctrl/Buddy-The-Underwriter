@@ -95,6 +95,20 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     if (!resolvedSessionId) {
+      await logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "upload.rejected",
+        uiState: "done",
+        uiMessage: "Upload rejected: missing session",
+        meta: {
+          file_id,
+          upload_session_id: null,
+          reason: "missing_upload_session",
+          storage_path: resolvedPath,
+          storage_bucket: resolvedBucket,
+        },
+      });
       return NextResponse.json(
         { ok: false, error: "missing_upload_session", request_id: requestId },
         { status: 400 },
@@ -161,6 +175,20 @@ export async function POST(req: NextRequest, ctx: Context) {
         .maybeSingle();
 
       if (sessionRes.error || !sessionRes.data) {
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "upload.rejected",
+          uiState: "done",
+          uiMessage: "Upload rejected: invalid session",
+          meta: {
+            file_id,
+            upload_session_id: resolvedSessionId,
+            reason: "invalid_upload_session",
+            storage_path: resolvedPath,
+            storage_bucket: resolvedBucket,
+          },
+        });
         return NextResponse.json(
           { ok: false, error: "invalid_upload_session", request_id: requestId },
           { status: 409 },
@@ -171,6 +199,20 @@ export async function POST(req: NextRequest, ctx: Context) {
       const expiresAt = session.expires_at ? new Date(session.expires_at) : null;
       const expired = expiresAt ? Date.now() > expiresAt.getTime() : false;
       if (expired || session.status === "failed" || session.status === "completed") {
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "upload.rejected",
+          uiState: "done",
+          uiMessage: "Upload rejected: session expired",
+          meta: {
+            file_id,
+            upload_session_id: resolvedSessionId,
+            reason: "upload_session_expired",
+            storage_path: resolvedPath,
+            storage_bucket: resolvedBucket,
+          },
+        });
         return NextResponse.json(
           { ok: false, error: "upload_session_expired", request_id: requestId },
           { status: 409 },
@@ -178,6 +220,20 @@ export async function POST(req: NextRequest, ctx: Context) {
       }
 
       if (String(session.bank_id) !== String(bankId)) {
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "upload.rejected",
+          uiState: "done",
+          uiMessage: "Upload rejected: bank mismatch",
+          meta: {
+            file_id,
+            upload_session_id: resolvedSessionId,
+            reason: "upload_session_bank_mismatch",
+            storage_path: resolvedPath,
+            storage_bucket: resolvedBucket,
+          },
+        });
         return NextResponse.json(
           { ok: false, error: "upload_session_bank_mismatch", request_id: requestId },
           { status: 409 },
@@ -185,6 +241,20 @@ export async function POST(req: NextRequest, ctx: Context) {
       }
 
       if (String(session.deal_id) !== String(dealId)) {
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "upload.rejected",
+          uiState: "done",
+          uiMessage: "Upload rejected: deal mismatch",
+          meta: {
+            file_id,
+            upload_session_id: resolvedSessionId,
+            reason: "upload_session_mismatch",
+            storage_path: resolvedPath,
+            storage_bucket: resolvedBucket,
+          },
+        });
         return NextResponse.json(
           { ok: false, error: "upload_session_mismatch", request_id: requestId },
           { status: 409 },
@@ -199,6 +269,20 @@ export async function POST(req: NextRequest, ctx: Context) {
         .maybeSingle();
 
       if (fileRes.error || !fileRes.data) {
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "upload.rejected",
+          uiState: "done",
+          uiMessage: "Upload rejected: session file missing",
+          meta: {
+            file_id,
+            upload_session_id: resolvedSessionId,
+            reason: "upload_session_file_missing",
+            storage_path: resolvedPath,
+            storage_bucket: resolvedBucket,
+          },
+        });
         return NextResponse.json(
           { ok: false, error: "upload_session_file_missing", request_id: requestId },
           { status: 409 },
@@ -207,6 +291,22 @@ export async function POST(req: NextRequest, ctx: Context) {
 
       const fileRow = fileRes.data as any;
       if (Number(fileRow.size_bytes || 0) !== Number(size_bytes || 0)) {
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "upload.rejected",
+          uiState: "done",
+          uiMessage: "Upload rejected: size mismatch",
+          meta: {
+            file_id,
+            upload_session_id: resolvedSessionId,
+            reason: "upload_session_size_mismatch",
+            expected_size: Number(fileRow.size_bytes || 0),
+            received_size: Number(size_bytes || 0),
+            storage_path: resolvedPath,
+            storage_bucket: resolvedBucket,
+          },
+        });
         return NextResponse.json(
           { ok: false, error: "upload_session_size_mismatch", request_id: requestId },
           { status: 409 },
@@ -265,6 +365,20 @@ export async function POST(req: NextRequest, ctx: Context) {
       }
     }
 
+    await logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "upload.received",
+      uiState: "done",
+      uiMessage: "Upload received",
+      meta: {
+        file_id,
+        upload_session_id: resolvedSessionId,
+        storage_path: resolvedPath,
+        storage_bucket: resolvedBucket,
+      },
+    });
+
     // Verify file exists in storage (optional but recommended)
     // This MUST be best-effort and bounded; do not block the upload UX.
     let fileExists: any[] | null = null;
@@ -301,6 +415,20 @@ export async function POST(req: NextRequest, ctx: Context) {
         });
       }
     }
+
+    await logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "upload.process.start",
+      uiState: "working",
+      uiMessage: "Upload processing started",
+      meta: {
+        file_id,
+        upload_session_id: resolvedSessionId,
+        storage_path: resolvedPath,
+        storage_bucket: resolvedBucket,
+      },
+    });
 
     // ✅ 1) Materialize banker upload into canonical deal_documents (idempotent)
     const documentKey = `path:${resolvedPath}`.replace(/[^a-z0-9_:/-]/gi, "_");
@@ -439,6 +567,21 @@ export async function POST(req: NextRequest, ctx: Context) {
       checklist_key,
     });
 
+    await logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "upload.process.complete",
+      uiState: "done",
+      uiMessage: "Upload processing completed",
+      meta: {
+        file_id,
+        upload_session_id: resolvedSessionId,
+        document_id: documentId,
+        storage_path: resolvedPath,
+        storage_bucket: resolvedBucket,
+      },
+    });
+
     return NextResponse.json({
       ok: true,
       file_id,
@@ -451,6 +594,22 @@ export async function POST(req: NextRequest, ctx: Context) {
       stack: error.stack,
       name: error.name,
     });
+    const requestId = req.headers.get("x-request-id") || null;
+    const dealId = await ctx.params.then((p) => p.dealId).catch(() => null as any);
+    const bankId = await getCurrentBankId().catch(() => null as any);
+    if (dealId && bankId) {
+      await logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "upload.process.failed",
+        uiState: "done",
+        uiMessage: "Upload processing failed",
+        meta: {
+          error: error?.message || String(error),
+          request_id: requestId,
+        },
+      });
+    }
     return NextResponse.json(
       {
         ok: false,
