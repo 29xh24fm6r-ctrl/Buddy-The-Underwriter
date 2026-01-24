@@ -24,7 +24,8 @@ import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
 import { cn } from "@/lib/utils";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
-import type { LifecycleState } from "@/buddy/lifecycle";
+// Import from client-safe module to avoid server-only code in client components
+import type { LifecycleState } from "@/buddy/lifecycle/client";
 
 // Glass panel style for Stitch-like design
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";

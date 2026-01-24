@@ -2,8 +2,9 @@
 
 import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import type { LifecycleState, LifecycleStage, LifecycleBlocker } from "@/buddy/lifecycle";
-import { STAGE_LABELS } from "@/buddy/lifecycle";
+// Import from client-safe module to avoid server-only code in client components
+import type { LifecycleState, LifecycleStage } from "@/buddy/lifecycle/client";
+import { STAGE_LABELS } from "@/buddy/lifecycle/client";
 
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
 const glassHeader = "border-b border-white/10 bg-white/[0.02] px-5 py-3";
