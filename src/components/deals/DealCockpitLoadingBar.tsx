@@ -289,8 +289,8 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
   }
 
   return (
-    <div className="sticky top-0 z-[60] border-b border-neutral-800 bg-black/60 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-2">
+    <div className="relative z-30 border-b border-neutral-800 bg-black/60 backdrop-blur pointer-events-none">
+      <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-2 pointer-events-auto">
         <div className="flex items-center gap-2">
           <span
             className="inline-block h-2 w-2 rounded-full bg-emerald-400/70"

@@ -43,14 +43,40 @@ export default async function Page({
     }
 
     const sb = supabaseAdmin();
-    const { data: deal } = await sb
-        .from("deals")
-        .select("lifecycle_stage")
-        .eq("id", dealId)
-        .eq("bank_id", access.bankId)
-        .maybeSingle();
 
-    if (!deal?.lifecycle_stage || deal.lifecycle_stage === "created") {
+    // Check for deal stage, uploaded files, and seeded checklist in parallel
+    // Note: uploads can come from borrower portal (borrower_uploads) OR banker uploads (deal_documents)
+    const [dealRes, borrowerUploadsRes, dealDocumentsRes, checklistRes] = await Promise.all([
+        sb.from("deals")
+            .select("lifecycle_stage")
+            .eq("id", dealId)
+            .eq("bank_id", access.bankId)
+            .maybeSingle(),
+        sb.from("borrower_uploads")
+            .select("id", { count: "exact", head: true })
+            .eq("deal_id", dealId),
+        sb.from("deal_documents")
+            .select("id", { count: "exact", head: true })
+            .eq("deal_id", dealId),
+        sb.from("deal_checklist_items")
+            .select("id", { count: "exact", head: true })
+            .eq("deal_id", dealId),
+    ]);
+
+    const deal = dealRes.data;
+    const hasUploads = (borrowerUploadsRes.count ?? 0) > 0 || (dealDocumentsRes.count ?? 0) > 0;
+    const hasChecklist = (checklistRes.count ?? 0) > 0;
+
+    // Show Documents tab if:
+    // 1. Lifecycle stage is beyond "created", OR
+    // 2. Files have been uploaded, OR
+    // 3. Checklist has been seeded/materialized
+    const shouldShowDocuments =
+        (deal?.lifecycle_stage && deal.lifecycle_stage !== "created") ||
+        hasUploads ||
+        hasChecklist;
+
+    if (!shouldShowDocuments) {
         return (
             <div className="p-6">
                 <h1 className="text-xl font-semibold text-white">Documents</h1>

@@ -18,7 +18,6 @@ import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar"
 import { DealCockpitNarrator } from "@/components/deals/DealCockpitNarrator";
 import { DealCockpitInsights } from "@/components/deals/DealCockpitInsights";
 import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
-import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
 import BorrowerAttachmentCard from "./BorrowerAttachmentCard";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
@@ -75,8 +74,6 @@ export default function DealCockpitClient({
   verify: VerifyUnderwriteResult;
   verifyLedger?: UnderwriteVerifyLedgerEvent | null;
 }) {
-  const [displayName, setDisplayName] = useState<string | null>(dealName?.displayName ?? null);
-  const [nickname, setNickname] = useState<string | null>(dealName?.nickname ?? null);
   const [stage, setStage] = useState<string | null>(lifecycleStage ?? null);
   const searchParams = useSearchParams();
   const optimisticName = (searchParams?.get("n") ?? "").trim();
@@ -94,17 +91,14 @@ export default function DealCockpitClient({
     return "Intake started";
   }, [ignitedEvent?.source]);
 
-  const highlightDealName = useAnchorAutofocus("deal-name");
   const highlightIntake = useAnchorAutofocus("intake");
   const highlightBorrower = useAnchorAutofocus("borrower-attach");
   const highlightDocuments = useAnchorAutofocus("documents");
 
   React.useEffect(() => {
-    setDisplayName(dealName?.displayName ?? null);
-    setNickname(dealName?.nickname ?? null);
     setBorrowerName(dealName?.borrowerName ?? (optimisticName || null));
     setStage(lifecycleStage ?? null);
-  }, [dealName?.displayName, dealName?.nickname, dealName?.borrowerName, optimisticName, lifecycleStage]);
+  }, [dealName?.borrowerName, optimisticName, lifecycleStage]);
 
   // Invariant: deal display name should persist across create -> cockpit without flashing "NEEDS NAME".
   const effectiveBorrowerName = borrowerName || optimisticName || null;
@@ -181,30 +175,10 @@ export default function DealCockpitClient({
             <div className="inline-flex w-fit items-center rounded-full bg-neutral-900 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
               Underwriting
             </div>
-            <h1 className="text-3xl font-bold">Deal Cockpit</h1>
+            <h1 id="deal-name" className="text-3xl font-bold scroll-mt-24">Deal Cockpit</h1>
             {lifecycleStage && lifecycleStage !== "created" && ignitedLabel ? (
               <div className="text-xs text-white/60">{ignitedLabel}</div>
             ) : null}
-            <div
-              id="deal-name"
-              className={cn(
-                "scroll-mt-24 rounded-xl transition",
-                highlightDealName && "ring-2 ring-sky-400/60 bg-sky-500/5",
-              )}
-            >
-              <DealNameInlineEditor
-                dealId={dealId}
-                displayName={displayName}
-                nickname={nickname}
-                borrowerName={effectiveBorrowerName}
-                size="md"
-                tone="dark"
-                onUpdated={(next) => {
-                  setDisplayName(next.displayName ?? null);
-                  setNickname(next.nickname ?? null);
-                }}
-              />
-            </div>
           </div>
           <div className="flex items-center gap-3">
             <Link
