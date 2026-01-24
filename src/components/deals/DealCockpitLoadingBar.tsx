@@ -257,6 +257,37 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
     );
   };
 
+  // When everything is OK (step=ready, no errors), collapse to a minimal indicator
+  const isFullyReady = step === "ready" && !err && routeOk && ctxOk && pipelineOk;
+  const [collapsed, setCollapsed] = useState(false);
+
+  // Auto-collapse after being ready for 3 seconds
+  useEffect(() => {
+    if (isFullyReady) {
+      const t = setTimeout(() => setCollapsed(true), 3000);
+      return () => clearTimeout(t);
+    } else {
+      setCollapsed(false);
+    }
+  }, [isFullyReady]);
+
+  // Collapsed state: minimal non-blocking indicator in corner
+  if (collapsed) {
+    return (
+      <div className="fixed top-2 right-2 z-[60]">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="flex items-center gap-1.5 rounded-full border border-emerald-800/50 bg-black/80 px-2.5 py-1 text-[10px] text-emerald-300 hover:bg-black/90 backdrop-blur"
+          title="Expand debug bar"
+        >
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          OK
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="sticky top-0 z-[60] border-b border-neutral-800 bg-black/60 backdrop-blur">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-2">
@@ -298,6 +329,17 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
           >
             Copy debug
           </button>
+
+          {isFullyReady && (
+            <button
+              type="button"
+              onClick={() => setCollapsed(true)}
+              className="rounded-full border border-neutral-800 bg-neutral-950/40 px-3 py-1 text-xs text-neutral-200 hover:bg-neutral-900"
+              title="Collapse debug bar"
+            >
+              Collapse
+            </button>
+          )}
         </div>
       </div>
 
@@ -323,7 +365,7 @@ export function DealCockpitLoadingBar(props: { dealId?: string | null }) {
           </div>
         ) : (
           <div className="rounded-xl border border-emerald-800 bg-emerald-950/20 p-2 text-xs text-emerald-200">
-            Backend responding ✅ (context + pipeline reachable). If UI still isn't rendering, it's a client chunk/hydration issue.
+            Backend responding (context + pipeline reachable). Auto-collapsing...
           </div>
         )}
       </div>
