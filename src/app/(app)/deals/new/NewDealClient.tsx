@@ -235,7 +235,22 @@ export default function NewDealClient({
       const dealId = session.dealId;
       const sessionId = session.sessionId;
       const createdName = dealName;
-      console.log(`Created deal ${dealId} (request ${session.requestId}), uploading ${files.length} files...`);
+
+      // =====================================================================
+      // INVARIANT: Files may not be uploaded unless dealId exists
+      // This check ensures the deal was created before any upload attempts.
+      // If this fails, it indicates a bug in createUploadSession.
+      // =====================================================================
+      if (!dealId) {
+        throw new Error("invariant_violation: upload attempted without dealId");
+      }
+
+      console.log("[upload:start]", {
+        dealId,
+        sessionId,
+        fileCount: files.length,
+        requestId: session.requestId,
+      });
 
       if (!session.uploads || session.uploads.length === 0) {
         throw new Error("upload_session_missing_uploads");

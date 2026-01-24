@@ -167,19 +167,51 @@ export async function handleCreateUploadSession(
       sessionId = row.session_id;
       expiresAt = row.expires_at;
 
-      // Verify the deal was actually created (debug replication issues)
-      const verifyDeal = await sb
-        .from("deals")
-        .select("id, bank_id")
-        .eq("id", dealId)
-        .maybeSingle();
+      // =======================================================================
+      // CRITICAL: Wait for deal to be replicated before returning
+      // The RPC creates the deal, but read replicas may lag. We poll until
+      // the deal is visible to ensure downstream requests can find it.
+      // This is the PRIMARY safeguard; /files/record retry logic is BACKUP.
+      // =======================================================================
+      const maxVerifyAttempts = 5;
+      const verifyDelayMs = 300;
+      let verifiedDeal: { id: string; bank_id: string | null } | null = null;
 
-      if (!verifyDeal.data) {
-        console.error("[createUploadSession] CRITICAL: deal_bootstrap_create returned ID but deal not found!", {
+      for (let attempt = 1; attempt <= maxVerifyAttempts; attempt++) {
+        const verifyResult = await sb
+          .from("deals")
+          .select("id, bank_id")
+          .eq("id", dealId)
+          .maybeSingle();
+
+        if (verifyResult.data) {
+          verifiedDeal = verifyResult.data;
+          if (attempt > 1) {
+            console.log("[createUploadSession] Deal verified after replication wait", {
+              dealId,
+              attempt,
+              totalWaitMs: (attempt - 1) * verifyDelayMs,
+            });
+          }
+          break;
+        }
+
+        if (attempt < maxVerifyAttempts) {
+          console.log("[createUploadSession] Deal not yet visible, waiting for replication...", {
+            dealId,
+            attempt,
+            nextDelayMs: verifyDelayMs,
+          });
+          await new Promise(r => setTimeout(r, verifyDelayMs));
+        }
+      }
+
+      if (!verifiedDeal) {
+        console.error("[createUploadSession] CRITICAL: deal_bootstrap_create returned ID but deal not found after retries!", {
           dealId,
           sessionId,
           bankId,
-          verifyError: verifyDeal.error?.message,
+          maxVerifyAttempts,
         });
         return NextResponse.json(
           { ok: false, error: "deal_creation_failed_verification", dealId, requestId },
@@ -187,9 +219,10 @@ export async function handleCreateUploadSession(
         );
       }
 
-      console.log("[createUploadSession] Deal verified after bootstrap", {
+      console.log("[deal:create] deal created", {
         dealId,
-        dealBankId: verifyDeal.data.bank_id,
+        source: "deals/new",
+        dealBankId: verifiedDeal.bank_id,
         expectedBankId: bankId,
       });
 

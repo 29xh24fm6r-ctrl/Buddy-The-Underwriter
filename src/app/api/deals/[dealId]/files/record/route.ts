@@ -1,3 +1,15 @@
+/**
+ * POST /api/deals/[dealId]/files/record
+ *
+ * Records file metadata after successful direct upload to storage.
+ *
+ * NOTE: Replication-lag handling in this file assumes deal creation
+ * has already occurred upstream (in createUploadSessionApi.ts).
+ * The retry logic here is DEFENSIVE, not a substitute for correct
+ * deal creation flow. The primary safeguard is in createUploadSessionApi
+ * which polls until the deal is replicated before returning.
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth } from "@/lib/auth/clerkServer";
@@ -53,6 +65,18 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     const { dealId } = await ctx.params;
+
+    // =====================================================================
+    // INVARIANT: dealId must be provided
+    // This is an early boundary check before any other processing.
+    // =====================================================================
+    if (!dealId) {
+      return NextResponse.json(
+        { ok: false, error: "missing_deal_id", request_id: requestId },
+        { status: 400 },
+      );
+    }
+
     const bankId = await getCurrentBankId();
     const body = await req.json();
 
