@@ -10,6 +10,7 @@ import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 import { isBorrowerUploadAllowed } from "@/lib/deals/lifecycleGuards";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { validateUploadSession } from "@/lib/uploads/uploadSession";
+import { queueArtifact } from "@/lib/artifacts/queueArtifact";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -376,6 +377,21 @@ export async function POST(req: NextRequest, ctx: Context) {
         source: "borrower_portal",
       },
     });
+
+    // Queue for Magic Intake classification (non-blocking)
+    if (result.documentId) {
+      queueArtifact({
+        dealId,
+        bankId: deal.bank_id,
+        sourceTable: "deal_documents",
+        sourceId: result.documentId,
+      }).catch((err) => {
+        console.warn("[portal/files/record] queueArtifact failed (non-fatal)", {
+          documentId: result.documentId,
+          error: err?.message,
+        });
+      });
+    }
 
     // Borrower-safe receipt + portal checklist highlight (hint-based)
     // This is intentionally separate from canonical checklist reconciliation.

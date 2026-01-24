@@ -3,6 +3,21 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import Link from "next/link";
+import {
+  GlassShell,
+  GlassPageHeader,
+  GlassPanel,
+  GlassStatCard,
+  GlassInfoBox,
+  GlassActionCard,
+  GlassTable,
+  GlassTableHeader,
+  GlassTableHeaderCell,
+  GlassTableBody,
+  GlassTableRow,
+  GlassTableCell,
+  GlassEmptyState,
+} from "@/components/layout";
 
 function formatBytes(bytes: unknown): string {
   const n = typeof bytes === "number" ? bytes : Number(bytes);
@@ -92,205 +107,159 @@ export default async function DocumentsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f1115] p-6">
-      {/* Header */}
-      <header className="mb-6">
-        <h1 className="text-3xl font-bold text-white">Documents & Evidence</h1>
-        <p className="text-white/60 mt-2">
-          Manage documents across all deals and build your evidence library
-        </p>
-      </header>
+    <GlassShell>
+      <GlassPageHeader
+        title="Documents & Evidence"
+        subtitle="Manage documents across all deals and build your evidence library"
+      />
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <Link
+        <GlassActionCard
+          icon="folder_open"
+          iconColor="text-primary"
+          title="Deal Documents"
+          description="View and manage documents for active deals"
           href="/deals"
-          className="block p-6 bg-[#181b21] border border-white/10 rounded-lg hover:border-primary/50 transition-colors group"
-        >
-          <span className="material-symbols-outlined text-4xl text-primary mb-3 block">
-            folder_open
-          </span>
-          <h3 className="text-lg font-semibold text-white mb-2">Deal Documents</h3>
-          <p className="text-sm text-white/60">
-            View and manage documents for active deals
-          </p>
-          <div className="mt-4 text-primary text-sm font-medium inline-flex items-center gap-1 group-hover:gap-2 transition-all">
-            Go to Deals
-            <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-          </div>
-        </Link>
-
-        <Link
+          actionLabel="Go to Deals"
+        />
+        <GlassActionCard
+          icon="cloud_upload"
+          iconColor="text-amber-500"
+          title="Upload Documents"
+          description="Start a new deal and upload initial documents"
           href="/deals/new"
-          className="block p-6 bg-[#181b21] border border-white/10 rounded-lg hover:border-primary/50 transition-colors group"
-        >
-          <span className="material-symbols-outlined text-4xl text-amber-500 mb-3 block">
-            cloud_upload
-          </span>
-          <h3 className="text-lg font-semibold text-white mb-2">Upload Documents</h3>
-          <p className="text-sm text-white/60">
-            Start a new deal and upload initial documents
-          </p>
-          <div className="mt-4 text-primary text-sm font-medium inline-flex items-center gap-1 group-hover:gap-2 transition-all">
-            New Deal Intake
-            <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-          </div>
-        </Link>
-
-        <div className="p-6 bg-[#181b21] border border-white/10 rounded-lg opacity-60">
-          <span className="material-symbols-outlined text-4xl text-white/40 mb-3 block">
-            library_books
-          </span>
-          <h3 className="text-lg font-semibold text-white mb-2">Evidence Library</h3>
-          <p className="text-sm text-white/60">
-            Searchable repository of all evidence across deals
-          </p>
-          <div className="mt-4 text-white/40 text-sm font-medium inline-flex items-center gap-1">
-            Coming Soon
-          </div>
-        </div>
+          actionLabel="New Deal Intake"
+        />
+        <GlassActionCard
+          icon="library_books"
+          iconColor="text-white/40"
+          title="Evidence Library"
+          description="Searchable repository of all evidence across deals"
+          disabled
+          disabledLabel="Coming Soon"
+        />
       </div>
 
       {/* Recent Activity */}
-      <div className="bg-[#181b21] border border-white/10 rounded-lg p-6">
-        <h2 className="text-xl font-semibold text-white mb-4">Recent Activity</h2>
+      <GlassPanel header="Recent Activity">
         {recentDocs.length === 0 ? (
-          <div className="text-center py-12">
-            <span className="material-symbols-outlined text-white/20 text-6xl">
-              description
-            </span>
-            <p className="text-white/60 mt-4">
-              No documents yet. Upload files via <Link href="/deals/new" className="text-primary hover:underline">New Deal Intake</Link>.
-            </p>
-          </div>
+          <GlassEmptyState
+            icon="description"
+            title="No documents yet"
+            description={
+              <>
+                Upload files via{" "}
+                <Link href="/deals/new" className="text-primary hover:underline">
+                  New Deal Intake
+                </Link>
+                .
+              </>
+            }
+          />
         ) : (
-          <div className="overflow-hidden rounded-lg border border-white/10">
-            <table className="w-full">
-              <thead className="bg-[#1f242d] border-b border-white/10">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-white/70 uppercase tracking-wider">
-                    Document
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-white/70 uppercase tracking-wider">
-                    Deal
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-white/70 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-white/70 uppercase tracking-wider">
-                    Uploaded
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {recentDocs.map((d) => {
-                  const dealName = dealsById.get(String(d.deal_id))?.name || "Deal";
-                  const uploadedLabel = d.created_at
-                    ? new Date(d.created_at).toLocaleString("en-US", {
-                        year: "numeric",
-                        month: "short",
-                        day: "2-digit",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })
-                    : "-";
-                  const status = d.checklist_key ? "Classified" : "Needs review";
+          <GlassTable>
+            <GlassTableHeader>
+              <GlassTableHeaderCell>Document</GlassTableHeaderCell>
+              <GlassTableHeaderCell>Deal</GlassTableHeaderCell>
+              <GlassTableHeaderCell>Status</GlassTableHeaderCell>
+              <GlassTableHeaderCell align="right">Uploaded</GlassTableHeaderCell>
+            </GlassTableHeader>
+            <GlassTableBody>
+              {recentDocs.map((d) => {
+                const dealName = dealsById.get(String(d.deal_id))?.name || "Deal";
+                const uploadedLabel = d.created_at
+                  ? new Date(d.created_at).toLocaleString("en-US", {
+                      year: "numeric",
+                      month: "short",
+                      day: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : "-";
+                const status = d.checklist_key ? "Classified" : "Needs review";
 
-                  return (
-                    <tr key={d.id} className="hover:bg-white/5 transition-colors">
-                      <td className="px-4 py-3 text-sm text-white">
-                        <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-white/40 text-[18px]">
-                            description
-                          </span>
-                          <span className="truncate max-w-[520px]">
-                            {d.original_filename || "(unnamed)"}
-                          </span>
-                          {d.size_bytes ? (
-                            <span className="text-xs text-white/40">• {formatBytes(d.size_bytes)}</span>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        <Link
-                          href={`/deals/${d.deal_id}/cockpit`}
-                          className="text-primary hover:underline"
-                        >
-                          {dealName}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        <span
-                          className={
-                            "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium " +
-                            (d.checklist_key
-                              ? "bg-primary/20 text-primary border border-primary/30"
-                              : "bg-amber-500/20 text-amber-500 border border-amber-500/30")
-                          }
-                        >
-                          {status}
+                return (
+                  <GlassTableRow key={d.id}>
+                    <GlassTableCell>
+                      <div className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-white/40 text-[18px]">
+                          description
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm text-white/70">
-                        {uploadedLabel}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        <span className="truncate max-w-[520px]">
+                          {d.original_filename || "(unnamed)"}
+                        </span>
+                        {d.size_bytes ? (
+                          <span className="text-xs text-white/40">
+                            {formatBytes(d.size_bytes)}
+                          </span>
+                        ) : null}
+                      </div>
+                    </GlassTableCell>
+                    <GlassTableCell>
+                      <Link
+                        href={`/deals/${d.deal_id}/cockpit`}
+                        className="text-primary hover:underline"
+                      >
+                        {dealName}
+                      </Link>
+                    </GlassTableCell>
+                    <GlassTableCell>
+                      <span
+                        className={
+                          "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium " +
+                          (d.checklist_key
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                            : "bg-amber-500/20 text-amber-400 border border-amber-500/30")
+                        }
+                      >
+                        {status}
+                      </span>
+                    </GlassTableCell>
+                    <GlassTableCell align="right">
+                      <span className="text-white/70">{uploadedLabel}</span>
+                    </GlassTableCell>
+                  </GlassTableRow>
+                );
+              })}
+            </GlassTableBody>
+          </GlassTable>
         )}
-      </div>
+      </GlassPanel>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
-        <div className="p-4 bg-[#181b21] border border-white/10 rounded-lg">
-          <div className="text-sm text-white/60 mb-1">Total Documents</div>
-          <div className="text-2xl font-bold text-white">
-            {typeof totalDocs === "number" ? totalDocs.toLocaleString("en-US") : "-"}
-          </div>
-        </div>
-        <div className="p-4 bg-[#181b21] border border-white/10 rounded-lg">
-          <div className="text-sm text-white/60 mb-1">Pending Review</div>
-          <div className="text-2xl font-bold text-white">
-            {typeof pendingReview === "number" ? pendingReview.toLocaleString("en-US") : "-"}
-          </div>
-        </div>
-        <div className="p-4 bg-[#181b21] border border-white/10 rounded-lg">
-          <div className="text-sm text-white/60 mb-1">Auto-Classified</div>
-          <div className="text-2xl font-bold text-white">
-            {typeof autoClassified === "number" ? autoClassified.toLocaleString("en-US") : "-"}
-          </div>
-        </div>
-        <div className="p-4 bg-[#181b21] border border-white/10 rounded-lg">
-          <div className="text-sm text-white/60 mb-1">Storage Used (recent)</div>
-          <div className="text-2xl font-bold text-white">
-            {storageApproxBytes != null ? formatBytes(storageApproxBytes) : "-"}
-          </div>
-        </div>
+        <GlassStatCard
+          label="Total Documents"
+          value={typeof totalDocs === "number" ? totalDocs.toLocaleString("en-US") : "-"}
+        />
+        <GlassStatCard
+          label="Pending Review"
+          value={typeof pendingReview === "number" ? pendingReview.toLocaleString("en-US") : "-"}
+        />
+        <GlassStatCard
+          label="Auto-Classified"
+          value={typeof autoClassified === "number" ? autoClassified.toLocaleString("en-US") : "-"}
+        />
+        <GlassStatCard
+          label="Storage Used (recent)"
+          value={storageApproxBytes != null ? formatBytes(storageApproxBytes) : "-"}
+        />
       </div>
 
       {/* Help Text */}
-      <div className="mt-6 p-4 bg-primary/10 border border-primary/30 rounded-lg">
-        <div className="flex items-start gap-3">
-          <span className="material-symbols-outlined text-primary text-[20px] mt-0.5">
-            info
-          </span>
-          <div>
-            <div className="text-sm font-semibold text-white mb-1">
-              Documents are organized by deal
-            </div>
-            <div className="text-sm text-white/70">
-              To view or upload documents, navigate to a specific deal from the{" "}
-              <Link href="/deals" className="text-primary hover:underline">
-                Deals page
-              </Link>
-              . The Evidence Library (global document search) is coming soon.
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+      <GlassInfoBox
+        icon="info"
+        title="Documents are organized by deal"
+        variant="info"
+        className="mt-6"
+      >
+        To view or upload documents, navigate to a specific deal from the{" "}
+        <Link href="/deals" className="text-primary hover:underline">
+          Deals page
+        </Link>
+        . The Evidence Library (global document search) is coming soon.
+      </GlassInfoBox>
+    </GlassShell>
   );
 }

@@ -18,6 +18,7 @@ import { DealCockpitNarrator } from "@/components/deals/DealCockpitNarrator";
 import { DealCockpitInsights } from "@/components/deals/DealCockpitInsights";
 import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
 import BorrowerAttachmentCard from "./BorrowerAttachmentCard";
+import { DocumentClassificationInbox } from "@/components/deals/DocumentClassificationInbox";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
 import { cn } from "@/lib/utils";
@@ -318,6 +319,11 @@ export default function DealCockpitClient({
                 </SafeBoundary>
               </div>
             </div>
+
+            {/* Document Classification - Magic Intake */}
+            <SafeBoundary>
+              <DocumentClassificationInbox dealId={dealId} />
+            </SafeBoundary>
           </div>
 
           {/* Right Column - Underwriting & Progress */}

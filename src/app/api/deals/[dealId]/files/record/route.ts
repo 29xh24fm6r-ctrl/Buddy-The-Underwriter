@@ -24,6 +24,7 @@ import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { igniteDeal } from "@/lib/deals/igniteDeal";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { canTransitionIntakeState, type DealIntakeState } from "@/lib/deals/intakeState";
+import { queueArtifact } from "@/lib/artifacts/queueArtifact";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -668,6 +669,21 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     // ✅ 2) Reconcile checklist immediately (THIS flips received/pending)
     await reconcileChecklistForDeal({ sb, dealId });
+
+    // ✅ 2.5) Queue for Magic Intake classification (non-blocking)
+    if (documentId) {
+      queueArtifact({
+        dealId,
+        bankId,
+        sourceTable: "deal_documents",
+        sourceId: documentId,
+      }).catch((err) => {
+        console.warn("[files/record] queueArtifact failed (non-fatal)", {
+          documentId,
+          error: err?.message,
+        });
+      });
+    }
 
     // ✅ 3) Pipeline ledger audit trail
     await logLedgerEvent({

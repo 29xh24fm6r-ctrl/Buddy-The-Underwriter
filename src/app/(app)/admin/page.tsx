@@ -1,5 +1,11 @@
 import Link from "next/link";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import {
+  GlassShell,
+  GlassPageHeader,
+  GlassActionCard,
+  GlassInfoBox,
+} from "@/components/layout";
 
 export const dynamic = "force-dynamic";
 
@@ -10,114 +16,127 @@ export default async function AdminHome() {
   const bankSuffix = bankId ? `?bankId=${encodeURIComponent(bankId)}` : "";
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Admin</h1>
-        <div className="text-sm text-muted-foreground">
-          Super-admin tooling for templates, audit, and platform configuration.
-        </div>
-        <div className="mt-2 text-xs text-muted-foreground">
-          Current bank: <span className="font-mono">{bankId ?? "(none)"}</span>
-          {!bankPick.ok ? (
-            <span className="ml-2">(reason: {bankPick.reason})</span>
-          ) : null}
-        </div>
-      </div>
+    <GlassShell>
+      <GlassPageHeader
+        title="Admin"
+        subtitle="Super-admin tooling for templates, audit, and platform configuration"
+        badge={
+          <span className="text-xs font-mono text-white/50">
+            Bank: {bankId ?? "(none)"}
+            {!bankPick.ok ? ` (${bankPick.reason})` : ""}
+          </span>
+        }
+      />
 
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        <Link
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <GlassActionCard
+          icon="shield_person"
+          iconColor="text-blue-400"
+          title="Roles"
+          description="Assign Clerk roles (super_admin, etc.)."
           href="/admin/roles"
-          className="rounded-lg border p-4 hover:bg-muted/50 transition"
-        >
-          <div className="font-medium">Roles</div>
-          <div className="text-sm text-muted-foreground">Assign Clerk roles (super_admin, etc.).</div>
-        </Link>
+          actionLabel="Manage Roles"
+        />
 
-        <Link
+        <GlassActionCard
+          icon="lock"
+          iconColor="text-emerald-400"
+          title="Permissions"
+          description="Live capability matrix from current users."
           href="/admin/permissions"
-          className="rounded-lg border p-4 hover:bg-muted/50 transition"
-        >
-          <div className="font-medium">Permissions</div>
-          <div className="text-sm text-muted-foreground">Live capability matrix from current users.</div>
-        </Link>
+          actionLabel="View Permissions"
+        />
 
-        <Link
+        <GlassActionCard
+          icon="history"
+          iconColor="text-amber-400"
+          title="Audit"
+          description="Canonical event ledger viewer (audit_ledger)."
           href="/admin/audit"
-          className="rounded-lg border p-4 hover:bg-muted/50 transition"
-        >
-          <div className="font-medium">Audit</div>
-          <div className="text-sm text-muted-foreground">Canonical event ledger viewer (audit_ledger).</div>
-        </Link>
+          actionLabel="View Audit Log"
+        />
 
-        <Link
+        <GlassActionCard
+          icon="description"
+          iconColor="text-purple-400"
+          title="Templates"
+          description="Upload/list bank PDF templates (AcroForm parsing)."
           href="/admin/templates"
-          className="rounded-lg border p-4 hover:bg-muted/50 transition"
-        >
-          <div className="font-medium">Templates</div>
-          <div className="text-sm text-muted-foreground">Upload/list bank PDF templates (AcroForm parsing).</div>
-        </Link>
+          actionLabel="Manage Templates"
+        />
 
-        <Link
+        <GlassActionCard
+          icon="text_fields"
+          iconColor="text-cyan-400"
+          title="Fields"
+          description="Template field registry + required flags."
           href="/admin/fields"
-          className="rounded-lg border p-4 hover:bg-muted/50 transition"
-        >
-          <div className="font-medium">Fields</div>
-          <div className="text-sm text-muted-foreground">Template field registry + required flags.</div>
-        </Link>
+          actionLabel="View Fields"
+        />
 
-        <Link
+        <GlassActionCard
+          icon="merge"
+          iconColor="text-pink-400"
+          title="Merge Fields"
+          description="Canonical field coverage across templates."
           href="/admin/merge-fields"
-          className="rounded-lg border p-4 hover:bg-muted/50 transition"
-        >
-          <div className="font-medium">Merge Fields</div>
-          <div className="text-sm text-muted-foreground">Canonical field coverage across templates.</div>
-        </Link>
+          actionLabel="View Merge Fields"
+        />
 
-        <Link
-          href={`/admin/email-routing${bankSuffix}`}
-          className="rounded-lg border p-4 hover:bg-muted/50 transition"
-        >
-          <div className="font-medium">Email Routing</div>
-          <div className="text-sm text-muted-foreground">
-            Bank-level contact routing & verified sender settings.
-          </div>
-          {!bankId ? (
-            <div className="mt-2 text-xs text-amber-700">Add a bank selection to use this page.</div>
-          ) : null}
-        </Link>
+        <div className="relative">
+          <GlassActionCard
+            icon="mail"
+            iconColor="text-orange-400"
+            title="Email Routing"
+            description="Bank-level contact routing & verified sender settings."
+            href={`/admin/email-routing${bankSuffix}`}
+            actionLabel="Configure Email"
+          />
+          {!bankId && (
+            <div className="absolute bottom-3 left-5 right-5">
+              <div className="text-xs text-amber-400">
+                Add a bank selection to use this page.
+              </div>
+            </div>
+          )}
+        </div>
 
-        <Link
+        <GlassActionCard
+          icon="bug_report"
+          iconColor="text-red-400"
+          title="Diagnostics"
+          description="Pipeline health and job diagnostics."
           href="/admin/diagnostics"
-          className="rounded-lg border p-4 hover:bg-muted/50 transition"
-        >
-          <div className="font-medium">Diagnostics</div>
-          <div className="text-sm text-muted-foreground">Pipeline health and job diagnostics.</div>
-        </Link>
+          actionLabel="View Diagnostics"
+        />
 
-        <Link
+        <GlassActionCard
+          icon="monitoring"
+          iconColor="text-teal-400"
+          title="Metrics"
+          description="Admin telemetry (AI/errors/rate limits)."
           href="/admin/metrics"
-          className="rounded-lg border p-4 hover:bg-muted/50 transition"
-        >
-          <div className="font-medium">Metrics</div>
-          <div className="text-sm text-muted-foreground">Admin telemetry (AI/errors/rate limits).</div>
-        </Link>
+          actionLabel="View Metrics"
+        />
 
-        <Link
+        <GlassActionCard
+          icon="key"
+          iconColor="text-yellow-400"
+          title="Demo Access"
+          description="Invite-only access + usage telemetry."
           href="/admin/demo-access"
-          className="rounded-lg border p-4 hover:bg-muted/50 transition"
-        >
-          <div className="font-medium">Demo Access</div>
-          <div className="text-sm text-muted-foreground">Invite-only access + usage telemetry.</div>
-        </Link>
+          actionLabel="Manage Access"
+        />
 
-        <Link
+        <GlassActionCard
+          icon="cleaning_services"
+          iconColor="text-lime-400"
+          title="Demo Hygiene"
+          description="Archive, purge, and reset demo deals."
           href="/admin/demo-hygiene"
-          className="rounded-lg border p-4 hover:bg-muted/50 transition"
-        >
-          <div className="font-medium">Demo Hygiene</div>
-          <div className="text-sm text-muted-foreground">Archive, purge, and reset demo deals.</div>
-        </Link>
+          actionLabel="Manage Hygiene"
+        />
       </div>
-    </div>
+    </GlassShell>
   );
 }

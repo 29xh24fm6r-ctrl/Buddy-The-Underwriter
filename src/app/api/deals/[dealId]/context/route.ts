@@ -196,6 +196,28 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
     const riskFlags: string[] = [];
     if (deal.risk_score && deal.risk_score > 70) riskFlags.push("High Risk Score");
 
+    // 5.5) Artifact processing stats
+    let artifactStats: { queued: number; processing: number; matched: number; failed: number } | null = null;
+    try {
+      const { data: artifactCounts } = await withTimeout(
+        sb.rpc("get_deal_artifacts_summary", { p_deal_id: dealId }),
+        5_000,
+        "artifactStats",
+      );
+      const row = Array.isArray(artifactCounts) ? artifactCounts[0] : artifactCounts;
+      if (row) {
+        artifactStats = {
+          queued: Number(row.queued) || 0,
+          processing: Number(row.processing) || 0,
+          matched: Number(row.matched) || 0,
+          failed: Number(row.failed) || 0,
+        };
+      }
+    } catch (e: any) {
+      // Artifact stats are optional - don't fail context on RPC errors
+      console.warn("[context] artifact stats failed", { dealId, error: e?.message });
+    }
+
     // 6) Legacy context payload (keep existing consumers happy)
     const context: DealContext = {
       dealId: deal.id,
@@ -235,7 +257,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
       payload: { stage: deal.stage ?? null, risk_score: deal.risk_score ?? null },
     });
 
-    return NextResponse.json({ ...probe, ...context });
+    return NextResponse.json({ ...probe, ...context, artifacts: artifactStats });
   } catch (e: any) {
     const isTimeout = String(e?.message || "").startsWith("timeout:");
     console.error("GET /api/deals/[dealId]/context error:", e);
