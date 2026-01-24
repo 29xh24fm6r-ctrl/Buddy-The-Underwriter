@@ -44,7 +44,7 @@ function FinancialSnapshotCapsule({ dealId }: { dealId: string }) {
   if (notFound) return null;
   if (loading) {
     return (
-      <div className="hidden xl:flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+      <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
         <div className="text-xs text-white/60">Snapshot…</div>
       </div>
     );
@@ -52,7 +52,7 @@ function FinancialSnapshotCapsule({ dealId }: { dealId: string }) {
 
   if (error) {
     return (
-      <div className="hidden xl:flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+      <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
         <span className="text-xs text-white/60">Snapshot unavailable</span>
       </div>
     );
@@ -85,7 +85,7 @@ function FinancialSnapshotCapsule({ dealId }: { dealId: string }) {
   })();
 
   return (
-    <div className="hidden xl:flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+    <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
       <span className={["inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold", badge].join(" ")}
         title={`Completeness: ${s.completeness_pct?.toFixed?.(1) ?? s.completeness_pct}% — Missing: ${missingCount}`}
       >
@@ -130,7 +130,7 @@ function MatchedLendersCapsule({ dealId }: { dealId: string }) {
   const { data, loading } = useLenderMatches(dealId);
   if (loading) {
     return (
-      <div className="hidden xl:flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+      <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
         <span className="text-xs text-white/60">Lenders…</span>
       </div>
     );
@@ -141,7 +141,7 @@ function MatchedLendersCapsule({ dealId }: { dealId: string }) {
 
   const top = matched[0];
   return (
-    <div className="hidden xl:flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+    <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
       <span className="text-xs text-white/60">Lenders</span>
       <span className="text-xs font-semibold text-white">{matched.length}</span>
       <span className="text-xs text-white/60">Top:</span>
@@ -278,105 +278,113 @@ export default function DealShell({
     <div className="min-h-screen bg-[#0b0d10] text-white">
       {/* Deal header */}
       <div className="sticky top-0 z-40 border-b border-white/10 bg-black/30 backdrop-blur-xl">
-        <div className="mx-auto max-w-[1600px] px-6 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <Link
-              href="/deals"
-              className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-white/80 hover:text-white hover:bg-white/5 border border-white/10"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-                arrow_back
-              </span>
-              Deals
-            </Link>
-
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex w-fit items-center rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/80">
-                  Deal workspace
-                </span>
-                {borrowerName ? (
-                  <span className="text-xs text-white/60 truncate">{borrowerName}</span>
-                ) : (
-                  <span className="text-xs text-white/40 truncate">Borrower not set</span>
-                )}
-                <button
-                  type="button"
-                  onClick={handleCopyDealId}
-                  className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/70 hover:bg-white/10"
-                >
-                  <Icon name="description" className="h-3.5 w-3.5" />
-                  {copyToast ?? "Copy ID"}
-                </button>
-              </div>
-
-              <div className="mt-1 min-w-0">
-                <DealNameInlineEditor
-                  dealId={dealId}
-                  displayName={displayName}
-                  nickname={nickname}
-                  borrowerName={borrowerName ?? deal?.name ?? null}
-                  legalName={legalName}
-                  size="lg"
-                  tone="dark"
-                  onUpdated={(next) => {
-                    setNameOverride({
-                      displayName: next.displayName ?? null,
-                      nickname: next.nickname ?? null,
-                    });
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <FinancialSnapshotCapsule dealId={dealId} />
-            <MatchedLendersCapsule dealId={dealId} />
-            <Link
-              href={`/credit-memo/${dealId}/canonical`}
-              className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-white bg-primary hover:bg-primary/90"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-                description
-              </span>
-              Canonical Credit Memo
-            </Link>
-            <div className="hidden lg:flex flex-col items-end gap-0.5">
-              <span
-                className={[
-                  "inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize",
-                  canonicalBadge,
-                ].join(" ")}
+        <div className="mx-auto max-w-[1600px] px-6 py-3">
+          {/* Row 1: Back + Deal name + Actions */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {/* Left: Back button + Deal name (always visible, takes priority) */}
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <Link
+                href="/deals"
+                className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-white/80 hover:text-white hover:bg-white/5 border border-white/10 shrink-0"
               >
-                {canonicalMemoStatus?.status ?? "pending"}
-              </span>
-              <div className="text-[11px] text-white/50">
-                Last data: {canonicalMemoStatus?.last_generated_at ?? "—"}
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                  arrow_back
+                </span>
+                <span className="hidden sm:inline">Deals</span>
+              </Link>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  {borrowerName ? (
+                    <span className="text-xs text-white/60 truncate max-w-[200px]">{borrowerName}</span>
+                  ) : (
+                    <span className="text-xs text-white/40 truncate">Borrower not set</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleCopyDealId}
+                    className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/70 hover:bg-white/10 shrink-0"
+                  >
+                    <Icon name="description" className="h-3.5 w-3.5" />
+                    {copyToast ?? "Copy ID"}
+                  </button>
+                </div>
+
+                <div className="mt-1 min-w-0">
+                  <DealNameInlineEditor
+                    dealId={dealId}
+                    displayName={displayName}
+                    nickname={nickname}
+                    borrowerName={borrowerName ?? deal?.name ?? null}
+                    legalName={legalName}
+                    size="lg"
+                    tone="dark"
+                    onUpdated={(next) => {
+                      setNameOverride({
+                        displayName: next.displayName ?? null,
+                        nickname: next.nickname ?? null,
+                      });
+                    }}
+                  />
+                </div>
               </div>
             </div>
-            <ExportCanonicalMemoPdfButton
-              dealId={dealId}
-              className="inline-flex items-center rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10 disabled:opacity-60"
-              label="Export PDF"
-            />
+
+            {/* Right: Key actions (responsive) */}
+            <div className="flex items-center gap-2 shrink-0">
+              <Link
+                href={`/credit-memo/${dealId}/canonical`}
+                className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-white bg-primary hover:bg-primary/90"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                  description
+                </span>
+                <span className="hidden sm:inline">Credit Memo</span>
+              </Link>
+              <ExportCanonicalMemoPdfButton
+                dealId={dealId}
+                className="hidden sm:inline-flex items-center rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10 disabled:opacity-60"
+                label="PDF"
+              />
+            </div>
           </div>
 
-          <div className="hidden md:flex items-center gap-2 text-xs text-white/70">
-            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-white/50">Loan</div>
-              <div className="text-sm font-semibold text-white">
-                {deal?.amount != null ? formatAmount(deal.amount) : "—"}
+          {/* Row 2: Financial metrics + status (hidden on small screens) */}
+          <div className="hidden lg:flex items-center justify-between gap-4 mt-3 pt-3 border-t border-white/5">
+            <div className="flex items-center gap-3">
+              <FinancialSnapshotCapsule dealId={dealId} />
+              <MatchedLendersCapsule dealId={dealId} />
+            </div>
+
+            <div className="flex items-center gap-2 text-xs text-white/70">
+              <div className="flex flex-col items-end gap-0.5">
+                <span
+                  className={[
+                    "inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize",
+                    canonicalBadge,
+                  ].join(" ")}
+                >
+                  {canonicalMemoStatus?.status ?? "pending"}
+                </span>
+                <div className="text-[11px] text-white/50">
+                  Last: {canonicalMemoStatus?.last_generated_at ?? "—"}
+                </div>
               </div>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-white/50">Status</div>
-              <div className="text-sm font-semibold text-white">{deal?.stage ?? "—"}</div>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-white/50">Risk</div>
-              <div className="text-sm font-semibold text-white">
-                {deal?.risk_score != null ? String(deal.risk_score) : "—"}
+              <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-white/50">Loan</div>
+                <div className="text-sm font-semibold text-white">
+                  {deal?.amount != null ? formatAmount(deal.amount) : "—"}
+                </div>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-white/50">Status</div>
+                <div className="text-sm font-semibold text-white">{deal?.stage ?? "—"}</div>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-white/50">Risk</div>
+                <div className="text-sm font-semibold text-white">
+                  {deal?.risk_score != null ? String(deal.risk_score) : "—"}
+                </div>
               </div>
             </div>
           </div>
