@@ -118,14 +118,58 @@ export async function POST(req: NextRequest, ctx: Context) {
     // Verify deal exists (authorization already happened at /files/sign)
     const sb = supabaseAdmin();
 
-    // Retry logic for potential replication lag
-    let deal: { id: string; bank_id: string | null; lifecycle_stage: string | null } | null = null;
+    // ======================================================================
+    // FIX: Verify upload session FIRST to handle replication lag
+    // The session and deal are created atomically via deal_bootstrap_create,
+    // so if session exists with matching deal_id, we can trust the deal exists
+    // (even if read replica is slow to catch up)
+    // ======================================================================
+
+    let sessionVerified = false;
+    let sessionData: {
+      id: string;
+      deal_id: string;
+      bank_id: string;
+      expires_at: string | null;
+      status: string;
+    } | null = null;
+
+    if (resolvedSessionId) {
+      const sessionCheck = await sb
+        .from("deal_upload_sessions")
+        .select("id, deal_id, bank_id, expires_at, status")
+        .eq("id", resolvedSessionId)
+        .maybeSingle();
+
+      if (sessionCheck.data && String(sessionCheck.data.deal_id) === String(dealId)) {
+        sessionVerified = true;
+        sessionData = sessionCheck.data as any;
+        console.log("[files/record] session verified, deal creation confirmed via atomic transaction", {
+          dealId,
+          sessionId: resolvedSessionId,
+          sessionBankId: sessionCheck.data.bank_id,
+        });
+      } else if (sessionCheck.error) {
+        console.warn("[files/record] session check failed", {
+          sessionId: resolvedSessionId,
+          error: sessionCheck.error.message
+        });
+      }
+    }
+
+    // Verify deal exists with ENHANCED retry logic
+    // If session verified, we KNOW the deal exists, just need replica to catch up
+    let deal: { id: string; bank_id: string | null; lifecycle_stage: string | null; intake_state?: string } | null = null;
     let dealErr: any = null;
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    // More retries if session verified (we know it exists, just waiting for replica)
+    const maxAttempts = sessionVerified ? 6 : 4;
+    const baseDelay = 500; // ms
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const result = await sb
         .from("deals")
-        .select("id, bank_id, lifecycle_stage")
+        .select("id, bank_id, lifecycle_stage, intake_state")
         .eq("id", dealId)
         .maybeSingle();
 
@@ -134,21 +178,50 @@ export async function POST(req: NextRequest, ctx: Context) {
 
       if (deal) {
         if (attempt > 1) {
-          console.log("[files/record] deal found on retry", { dealId, attempt });
+          const totalWait = Array.from({length: attempt - 1}, (_, i) => baseDelay * (i + 1)).reduce((a, b) => a + b, 0);
+          console.log("[files/record] deal found on retry", {
+            dealId,
+            attempt,
+            sessionVerified,
+            totalWaitMs: totalWait
+          });
         }
         break;
       }
 
-      if (attempt < 3) {
-        console.log("[files/record] deal not found, retrying...", { dealId, attempt });
-        await new Promise(r => setTimeout(r, 500 * attempt)); // 500ms, 1000ms delays
+      if (attempt < maxAttempts) {
+        const delay = baseDelay * attempt; // Linear backoff: 500, 1000, 1500, 2000, 2500ms
+        console.log("[files/record] deal not found, retrying...", {
+          dealId,
+          attempt,
+          nextDelayMs: delay,
+          sessionVerified,
+          maxAttempts,
+        });
+        await new Promise(r => setTimeout(r, delay));
       }
     }
 
     if (dealErr || !deal) {
-      console.error("[files/record] deal not found in DB after retries", { dealId, dealErr });
+      console.error("[files/record] deal not found in DB after retries", {
+        dealId,
+        dealErr: dealErr?.message,
+        sessionVerified,
+        maxAttempts,
+        requestId
+      });
+
+      // If session was verified but deal still not found, this is a serious replication issue
+      const errorCode = sessionVerified ? "deal_replication_lag" : "deal_not_found_db";
+
       return NextResponse.json(
-        { ok: false, error: "deal_not_found_db", details: dealErr?.message, request_id: requestId },
+        {
+          ok: false,
+          error: errorCode,
+          details: dealErr?.message,
+          sessionVerified,
+          request_id: requestId
+        },
         { status: 404 },
       );
     }
@@ -190,37 +263,50 @@ export async function POST(req: NextRequest, ctx: Context) {
     await initializeIntake(dealId, bankId, { reason: "files_record", trigger: "files.record" });
 
     if (resolvedSessionId) {
-      const sessionRes = await sb
-        .from("deal_upload_sessions")
-        .select("id, deal_id, bank_id, expires_at, status")
-        .eq("id", resolvedSessionId)
-        .maybeSingle();
+      // Reuse cached sessionData if we already verified it, otherwise fetch fresh
+      let session: {
+        id: string;
+        deal_id: string;
+        bank_id: string;
+        expires_at: string | null;
+        status: string;
+      } | null = sessionData;
 
-      if (sessionRes.error || !sessionRes.data) {
-        await logLedgerEvent({
-          dealId,
-          bankId,
-          eventKey: "upload.rejected",
-          uiState: "done",
-          uiMessage: "Upload rejected: invalid session",
-          meta: {
-            file_id,
-            upload_session_id: resolvedSessionId,
-            reason: "invalid_upload_session",
-            storage_path: resolvedPath,
-            storage_bucket: resolvedBucket,
-          },
-        });
-        return NextResponse.json(
-          { ok: false, error: "invalid_upload_session", request_id: requestId },
-          { status: 409 },
-        );
+      if (!session) {
+        const sessionRes = await sb
+          .from("deal_upload_sessions")
+          .select("id, deal_id, bank_id, expires_at, status")
+          .eq("id", resolvedSessionId)
+          .maybeSingle();
+
+        if (sessionRes.error || !sessionRes.data) {
+          await logLedgerEvent({
+            dealId,
+            bankId,
+            eventKey: "upload.rejected",
+            uiState: "done",
+            uiMessage: "Upload rejected: invalid session",
+            meta: {
+              file_id,
+              upload_session_id: resolvedSessionId,
+              reason: "invalid_upload_session",
+              storage_path: resolvedPath,
+              storage_bucket: resolvedBucket,
+            },
+          });
+          return NextResponse.json(
+            { ok: false, error: "invalid_upload_session", request_id: requestId },
+            { status: 409 },
+          );
+        }
+        session = sessionRes.data as any;
       }
 
-      const session = sessionRes.data as any;
-      const expiresAt = session.expires_at ? new Date(session.expires_at) : null;
+      // At this point session is guaranteed to be non-null
+      const validSession = session!;
+      const expiresAt = validSession.expires_at ? new Date(validSession.expires_at) : null;
       const expired = expiresAt ? Date.now() > expiresAt.getTime() : false;
-      if (expired || session.status === "failed" || session.status === "completed") {
+      if (expired || validSession.status === "failed" || validSession.status === "completed") {
         await logLedgerEvent({
           dealId,
           bankId,
@@ -241,7 +327,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         );
       }
 
-      if (String(session.bank_id) !== String(bankId)) {
+      if (String(validSession.bank_id) !== String(bankId)) {
         await logLedgerEvent({
           dealId,
           bankId,
@@ -262,7 +348,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         );
       }
 
-      if (String(session.deal_id) !== String(dealId)) {
+      if (String(validSession.deal_id) !== String(dealId)) {
         await logLedgerEvent({
           dealId,
           bankId,
@@ -356,7 +442,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       const total = totalRes.count ?? 0;
       const completed = completeRes.count ?? 0;
 
-      if (session.status === "ready") {
+      if (validSession.status === "ready") {
         await sb
           .from("deal_upload_sessions")
           .update({ status: "uploading" })
