@@ -8,7 +8,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Ctx = { params: Promise<{ runId: string }> };
+type Ctx = { params: { runId: string } };
 
 export async function GET(_req: Request, ctx: Ctx) {
   const { userId } = await clerkAuth();
@@ -16,7 +16,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const { runId } = await ctx.params;
+  const { runId } = ctx.params;
   if (!runId) {
     return NextResponse.json({ ok: false, error: "missing_run_id" }, { status: 400 });
   }
