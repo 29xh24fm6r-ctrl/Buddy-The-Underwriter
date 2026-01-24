@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getChecklistState } from "@/lib/checklist/getChecklistState";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
