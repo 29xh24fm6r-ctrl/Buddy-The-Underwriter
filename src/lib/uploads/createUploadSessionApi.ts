@@ -171,10 +171,11 @@ export async function handleCreateUploadSession(
       // CRITICAL: Wait for deal to be replicated before returning
       // The RPC creates the deal, but read replicas may lag. We poll until
       // the deal is visible to ensure downstream requests can find it.
-      // This is the PRIMARY safeguard; /files/record retry logic is BACKUP.
+      // This is the PRIMARY invariant enforcement point.
+      // Downstream retry logic in /files/record is defensive only.
       // =======================================================================
-      const maxVerifyAttempts = 5;
-      const verifyDelayMs = 300;
+      const maxVerifyAttempts = 8;
+      const verifyDelayMs = 400;
       let verifiedDeal: { id: string; bank_id: string | null } | null = null;
 
       for (let attempt = 1; attempt <= maxVerifyAttempts; attempt++) {
