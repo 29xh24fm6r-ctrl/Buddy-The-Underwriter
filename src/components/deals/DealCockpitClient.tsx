@@ -14,7 +14,6 @@ import { EnhancedChecklistCard } from "@/components/deals/EnhancedChecklistCard"
 import { UnderwritingControlPanel } from "@/components/deals/UnderwritingControlPanel";
 import { SafeBoundary } from "@/components/SafeBoundary";
 import { PipelineIndicator } from "@/components/deals/PipelineStatus";
-import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
 import { DealCockpitNarrator } from "@/components/deals/DealCockpitNarrator";
 import { DealCockpitInsights } from "@/components/deals/DealCockpitInsights";
 import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
@@ -23,6 +22,10 @@ import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
 import { cn } from "@/lib/utils";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
+
+// Glass panel style for Stitch-like design
+const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
+const glassHeader = "border-b border-white/10 bg-white/[0.02] px-5 py-3";
 
 type UnderwriteVerifyLedgerEvent = {
   status: "pass" | "fail";
@@ -165,147 +168,220 @@ export default function DealCockpitClient({
     },
   ];
 
+  // Resolve deal title: display_name > nickname > borrowerName > "Untitled deal"
+  const resolvedDealTitle = dealName?.displayName?.trim() || dealName?.nickname?.trim() || effectiveBorrowerName || "Untitled deal";
+  const isUntitled = resolvedDealTitle === "Untitled deal";
+
+  // Stage badge styling
+  const stageBadge = (() => {
+    if (!stage || stage === "created") return { label: "New", className: "bg-slate-500/20 text-slate-300 border-slate-400/30" };
+    if (stage === "intake" || stage === "ignited") return { label: "Intake", className: "bg-sky-500/20 text-sky-300 border-sky-400/30" };
+    if (stage === "underwriting") return { label: "Underwriting", className: "bg-amber-500/20 text-amber-300 border-amber-400/30" };
+    if (stage === "approved" || stage === "funded") return { label: stage, className: "bg-emerald-500/20 text-emerald-300 border-emerald-400/30" };
+    return { label: stage, className: "bg-white/10 text-white/70 border-white/20" };
+  })();
+
   return (
     <div className="min-h-screen text-white">
-      <DealCockpitLoadingBar dealId={dealId} />
+      {/* Cockpit Container */}
+      <div className="mx-auto max-w-7xl px-6 py-6 space-y-6">
 
-      <div className="container mx-auto p-6 space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-2">
-            <div className="inline-flex w-fit items-center rounded-full bg-neutral-900 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
-              Underwriting
+        {/* Hero Header - Strong hierarchy with deal title prominence */}
+        <div className={cn(glassPanel, "overflow-hidden")}>
+          <div className={glassHeader}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/60">
+                  <span className="material-symbols-outlined text-white text-[18px]">analytics</span>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-white/50">Deal Cockpit</div>
+                  <h1 id="deal-name" className={cn(
+                    "text-xl font-bold tracking-tight scroll-mt-24",
+                    isUntitled ? "text-amber-300/80 italic" : "text-white"
+                  )}>
+                    {resolvedDealTitle}
+                  </h1>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className={cn(
+                  "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold capitalize",
+                  stageBadge.className
+                )}>
+                  {stageBadge.label}
+                </span>
+                <PipelineIndicator dealId={dealId} />
+              </div>
             </div>
-            <h1 id="deal-name" className="text-3xl font-bold scroll-mt-24">Deal Cockpit</h1>
-            {lifecycleStage && lifecycleStage !== "created" && ignitedLabel ? (
-              <div className="text-xs text-white/60">{ignitedLabel}</div>
-            ) : null}
           </div>
-          <div className="flex items-center gap-3">
-            <Link
-              href={`/deals/${dealId}/pricing`}
-              className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-white/80 hover:border-white/20"
-            >
-              Risk Pricing
-            </Link>
-            <PipelineIndicator dealId={dealId} />
+
+          {/* Readiness Status Bar */}
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold uppercase tracking-wider text-white/50">Readiness</span>
+              {ignitedLabel && lifecycleStage !== "created" ? (
+                <span className="text-xs text-white/40">{ignitedLabel}</span>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {readinessItems.map((item) => (
+                <Link
+                  key={item.key}
+                  href={item.href}
+                  className={cn(
+                    "group inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:scale-[1.02]",
+                    item.ok
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20"
+                      : "border-amber-500/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
+                  )}
+                >
+                  <span className={cn(
+                    "flex h-4 w-4 items-center justify-center rounded-full text-[10px]",
+                    item.ok ? "bg-emerald-500/30" : "bg-amber-500/30"
+                  )}>
+                    {item.ok ? "✓" : "!"}
+                  </span>
+                  <span>{item.label}</span>
+                  {item.detail ? (
+                    <span className="text-[10px] opacity-70 font-mono">{item.detail}</span>
+                  ) : null}
+                </Link>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* 🎙️ MAGIC NARRATOR - Calm, confident system voice */}
+        {/* System Narrator */}
         <DealCockpitNarrator dealId={dealId} />
 
+        {/* Deal Health Insights */}
         <SafeBoundary>
           <DealCockpitInsights dealId={dealId} />
         </SafeBoundary>
 
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-white/70">
-            Readiness checklist
-          </div>
-          <div className="mt-3 flex flex-wrap gap-3">
-            {readinessItems.map((item) => (
-              <Link
-                key={item.key}
-                href={item.href}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                  item.ok
-                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
-                    : "border-amber-400/40 bg-amber-400/10 text-amber-100"
-                }`}
-              >
-                <span>{item.ok ? "✅" : "❌"}</span>
-                <span>{item.label}</span>
-                {item.detail ? <span className="text-[10px] opacity-80">{item.detail}</span> : null}
-              </Link>
-            ))}
-          </div>
-        </div>
-
+        {/* Two Column Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left Column */}
+
+          {/* Left Column - Intake & Setup */}
           <div className="space-y-6">
-            <SafeBoundary>
-              <div
-                id="intake"
-                className={cn(
-                  "scroll-mt-24 rounded-xl transition",
-                  highlightIntake && "ring-2 ring-sky-400/60 bg-sky-500/5",
-                )}
-              >
-                <DealIntakeCard
-                  dealId={dealId}
-                  onChecklistSeeded={handleChecklistSeeded}
-                  isAdmin={isAdmin}
-                  lifecycleStage={stage}
-                  onLifecycleStageChange={setStage}
-                />
+            <div className={cn(glassPanel, "overflow-hidden")}>
+              <div className={glassHeader}>
+                <span className="text-xs font-bold uppercase tracking-widest text-white/50">Intake & Setup</span>
               </div>
-            </SafeBoundary>
+              <div className="p-4 space-y-4">
+                <SafeBoundary>
+                  <div
+                    id="intake"
+                    className={cn(
+                      "scroll-mt-24 rounded-xl transition",
+                      highlightIntake && "ring-2 ring-sky-400/60 bg-sky-500/5",
+                    )}
+                  >
+                    <DealIntakeCard
+                      dealId={dealId}
+                      onChecklistSeeded={handleChecklistSeeded}
+                      isAdmin={isAdmin}
+                      lifecycleStage={stage}
+                      onLifecycleStageChange={setStage}
+                    />
+                  </div>
+                </SafeBoundary>
 
-            <SafeBoundary>
-              <div
-                id="borrower-attach"
-                className={cn(
-                  "scroll-mt-24 rounded-xl transition",
-                  highlightBorrower && "ring-2 ring-sky-400/60 bg-sky-500/5",
-                )}
-              >
-                <BorrowerAttachmentCard dealId={dealId} />
+                <SafeBoundary>
+                  <div
+                    id="borrower-attach"
+                    className={cn(
+                      "scroll-mt-24 rounded-xl transition",
+                      highlightBorrower && "ring-2 ring-sky-400/60 bg-sky-500/5",
+                    )}
+                  >
+                    <BorrowerAttachmentCard dealId={dealId} />
+                  </div>
+                </SafeBoundary>
+
+                <SafeBoundary>
+                  <div id="borrower-request" className="scroll-mt-24">
+                    <BorrowerRequestComposerCard dealId={dealId} />
+                  </div>
+                </SafeBoundary>
               </div>
-            </SafeBoundary>
+            </div>
 
-            <SafeBoundary>
-              <div id="borrower-request" className="scroll-mt-24">
-                <BorrowerRequestComposerCard dealId={dealId} />
+            <div className={cn(glassPanel, "overflow-hidden")}>
+              <div className={glassHeader}>
+                <span className="text-xs font-bold uppercase tracking-widest text-white/50">Files & Documents</span>
               </div>
-            </SafeBoundary>
-
-            <SafeBoundary>
-              <DealFilesCard dealId={dealId} />
-            </SafeBoundary>
+              <div className="p-4">
+                <SafeBoundary>
+                  <DealFilesCard dealId={dealId} />
+                </SafeBoundary>
+              </div>
+            </div>
           </div>
 
-          {/* Right Column */}
+          {/* Right Column - Underwriting & Progress */}
           <div className="space-y-6">
-            <SafeBoundary>
-              <UnderwritingControlPanel
-                dealId={dealId}
-                lifecycleStage={stage}
-                intakeInitialized={intakeInitialized}
-                verifyLedger={verifyLedger ?? null}
-              />
-            </SafeBoundary>
-
-            <SafeBoundary>
-              <DealOutputsPanel dealId={dealId} verify={verify} />
-            </SafeBoundary>
-
-            <SafeBoundary>
-              <DealProgressWidget dealId={dealId} />
-            </SafeBoundary>
-
-            <SafeBoundary>
-              <div
-                id="documents"
-                className={cn(
-                  "scroll-mt-24 rounded-xl transition",
-                  highlightDocuments && "ring-2 ring-sky-400/60 bg-sky-500/5",
-                )}
-              >
-                <EnhancedChecklistCard
-                  dealId={dealId}
-                  onRefresh={handleChecklistRefresh}
-                />
+            <div className={cn(glassPanel, "overflow-hidden")}>
+              <div className={glassHeader}>
+                <span className="text-xs font-bold uppercase tracking-widest text-white/50">Underwriting</span>
               </div>
-            </SafeBoundary>
+              <div className="p-4 space-y-4">
+                <SafeBoundary>
+                  <UnderwritingControlPanel
+                    dealId={dealId}
+                    lifecycleStage={stage}
+                    intakeInitialized={intakeInitialized}
+                    verifyLedger={verifyLedger ?? null}
+                  />
+                </SafeBoundary>
 
-            <SafeBoundary>
-              <BorrowerUploadLinksCard dealId={dealId} lifecycleStage={stage} />
-            </SafeBoundary>
+                <SafeBoundary>
+                  <DealOutputsPanel dealId={dealId} verify={verify} />
+                </SafeBoundary>
+              </div>
+            </div>
 
-            <SafeBoundary>
-              <UploadAuditCard dealId={dealId} />
-            </SafeBoundary>
+            <div className={cn(glassPanel, "overflow-hidden")}>
+              <div className={glassHeader}>
+                <span className="text-xs font-bold uppercase tracking-widest text-white/50">Progress & Checklist</span>
+              </div>
+              <div className="p-4 space-y-4">
+                <SafeBoundary>
+                  <DealProgressWidget dealId={dealId} />
+                </SafeBoundary>
+
+                <SafeBoundary>
+                  <div
+                    id="documents"
+                    className={cn(
+                      "scroll-mt-24 rounded-xl transition",
+                      highlightDocuments && "ring-2 ring-sky-400/60 bg-sky-500/5",
+                    )}
+                  >
+                    <EnhancedChecklistCard
+                      dealId={dealId}
+                      onRefresh={handleChecklistRefresh}
+                    />
+                  </div>
+                </SafeBoundary>
+              </div>
+            </div>
+
+            <div className={cn(glassPanel, "overflow-hidden")}>
+              <div className={glassHeader}>
+                <span className="text-xs font-bold uppercase tracking-widest text-white/50">Borrower Portal</span>
+              </div>
+              <div className="p-4 space-y-4">
+                <SafeBoundary>
+                  <BorrowerUploadLinksCard dealId={dealId} lifecycleStage={stage} />
+                </SafeBoundary>
+
+                <SafeBoundary>
+                  <UploadAuditCard dealId={dealId} />
+                </SafeBoundary>
+              </div>
+            </div>
           </div>
         </div>
       </div>
