@@ -168,63 +168,16 @@ export async function handleCreateUploadSession(
       expiresAt = row.expires_at;
 
       // =======================================================================
-      // CRITICAL: Wait for deal to be replicated before returning
-      // The RPC creates the deal, but read replicas may lag. We poll until
-      // the deal is visible to ensure downstream requests can find it.
-      // This is the PRIMARY invariant enforcement point.
+      // IMPORTANT: deal_bootstrap_create executes on the PRIMARY database.
+      // If this RPC succeeds, the deal EXISTS - period.
+      // Do NOT re-query replicas to confirm existence.
       // Downstream retry logic in /files/record is defensive only.
       // =======================================================================
-      const maxVerifyAttempts = 8;
-      const verifyDelayMs = 400;
-      let verifiedDeal: { id: string; bank_id: string | null } | null = null;
-
-      for (let attempt = 1; attempt <= maxVerifyAttempts; attempt++) {
-        const verifyResult = await sb
-          .from("deals")
-          .select("id, bank_id")
-          .eq("id", dealId)
-          .maybeSingle();
-
-        if (verifyResult.data) {
-          verifiedDeal = verifyResult.data;
-          if (attempt > 1) {
-            console.log("[createUploadSession] Deal verified after replication wait", {
-              dealId,
-              attempt,
-              totalWaitMs: (attempt - 1) * verifyDelayMs,
-            });
-          }
-          break;
-        }
-
-        if (attempt < maxVerifyAttempts) {
-          console.log("[createUploadSession] Deal not yet visible, waiting for replication...", {
-            dealId,
-            attempt,
-            nextDelayMs: verifyDelayMs,
-          });
-          await new Promise(r => setTimeout(r, verifyDelayMs));
-        }
-      }
-
-      if (!verifiedDeal) {
-        console.error("[createUploadSession] CRITICAL: deal_bootstrap_create returned ID but deal not found after retries!", {
-          dealId,
-          sessionId,
-          bankId,
-          maxVerifyAttempts,
-        });
-        return NextResponse.json(
-          { ok: false, error: "deal_creation_failed_verification", dealId, requestId },
-          { status: 500 },
-        );
-      }
-
-      console.log("[deal:create] deal created", {
+      console.log("[deal:create] deal bootstrap confirmed via primary write", {
         dealId,
+        sessionId,
+        bankId,
         source: "deals/new",
-        dealBankId: verifiedDeal.bank_id,
-        expectedBankId: bankId,
       });
 
       await logLedgerEvent({
