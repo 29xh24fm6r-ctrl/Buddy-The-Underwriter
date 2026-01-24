@@ -19,10 +19,12 @@ import { DealCockpitInsights } from "@/components/deals/DealCockpitInsights";
 import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
 import BorrowerAttachmentCard from "./BorrowerAttachmentCard";
 import { DocumentClassificationInbox } from "@/components/deals/DocumentClassificationInbox";
+import { LifecycleStatusPanel } from "@/components/deals/LifecycleStatusPanel";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
 import { cn } from "@/lib/utils";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
+import type { LifecycleState } from "@/buddy/lifecycle";
 
 // Glass panel style for Stitch-like design
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
@@ -60,6 +62,7 @@ export default function DealCockpitClient({
   intakeInitialized,
   verify,
   verifyLedger,
+  unifiedLifecycleState,
 }: {
   dealId: string;
   isAdmin?: boolean;
@@ -77,6 +80,7 @@ export default function DealCockpitClient({
   intakeInitialized?: boolean;
   verify: VerifyUnderwriteResult;
   verifyLedger?: UnderwriteVerifyLedgerEvent | null;
+  unifiedLifecycleState?: LifecycleState | null;
 }) {
   const [stage, setStage] = useState<string | null>(lifecycleStage ?? null);
   const searchParams = useSearchParams();
@@ -328,6 +332,14 @@ export default function DealCockpitClient({
 
           {/* Right Column - Underwriting & Progress */}
           <div className="space-y-6">
+            {/* Unified Lifecycle Status */}
+            <SafeBoundary>
+              <LifecycleStatusPanel
+                dealId={dealId}
+                initialState={unifiedLifecycleState ?? null}
+              />
+            </SafeBoundary>
+
             <div className={cn(glassPanel, "overflow-hidden")}>
               <div className={glassHeader}>
                 <span className="text-xs font-bold uppercase tracking-widest text-white/50">Underwriting</span>

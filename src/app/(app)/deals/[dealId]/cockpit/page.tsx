@@ -4,7 +4,9 @@ import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar"
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
+import { deriveLifecycleState } from "@/buddy/lifecycle";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
+import type { LifecycleState } from "@/buddy/lifecycle";
 
 type UnderwriteVerifyLedgerEvent = {
   status: "pass" | "fail";
@@ -91,6 +93,7 @@ export default async function DealCockpitPage({ params }: Props) {
     ledgerEventsWritten: [],
   };
   let verifyLedger: UnderwriteVerifyLedgerEvent | null = null;
+  let unifiedLifecycleState: LifecycleState | null = null;
   const access = await ensureDealBankAccess(dealId);
   if (access.ok) {
     const sb = supabaseAdmin();
@@ -194,6 +197,9 @@ export default async function DealCockpitPage({ params }: Props) {
     }
 
     verify = await verifyUnderwrite({ dealId, actor: "banker" });
+
+    // Derive unified lifecycle state
+    unifiedLifecycleState = await deriveLifecycleState(dealId);
   }
 
   return (
@@ -208,6 +214,7 @@ export default async function DealCockpitPage({ params }: Props) {
         intakeInitialized={intakeInitialized}
         verify={verify}
         verifyLedger={verifyLedger}
+        unifiedLifecycleState={unifiedLifecycleState}
       />
     </div>
   );
