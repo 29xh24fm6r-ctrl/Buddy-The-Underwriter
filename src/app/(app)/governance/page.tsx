@@ -1,6 +1,6 @@
 /**
  * /governance - Governance Command Center
- * 
+ *
  * Canonical entry point for all governance features.
  * Shows policy compliance, exception trends, committee behavior, attestation status.
  */
@@ -8,6 +8,13 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import Link from "next/link";
+import {
+  GlassShell,
+  GlassPageHeader,
+  GlassPanel,
+  GlassStatCard,
+  GlassActionCard,
+} from "@/components/layout";
 
 export default async function GovernancePage() {
   const bankId = await getCurrentBankId();
@@ -39,137 +46,134 @@ export default async function GovernancePage() {
     .limit(10);
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold">Governance Command Center</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          Policy compliance, attestation status, and committee governance
-        </p>
-      </div>
+    <GlassShell>
+      <GlassPageHeader
+        title="Governance Command Center"
+        subtitle="Policy compliance, attestation status, and committee governance"
+      />
 
       {/* Governance Status Cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4 mb-6">
         {/* Attestation Policy */}
-        <div className="border rounded-lg p-4 bg-white">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Attestation Policy</h3>
+        <GlassPanel header="Attestation Policy">
           {attestationPolicy ? (
-            <div className="space-y-1 text-sm">
-              <div>
-                <span className="text-gray-600">Required Count:</span>{" "}
-                <span className="font-medium">{attestationPolicy.required_count}</span>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-white/60">Required Count:</span>
+                <span className="font-medium text-white">{attestationPolicy.required_count}</span>
               </div>
               {attestationPolicy.required_roles && (
-                <div>
-                  <span className="text-gray-600">Required Roles:</span>{" "}
-                  <span className="font-medium">{attestationPolicy.required_roles.join(", ")}</span>
+                <div className="flex justify-between">
+                  <span className="text-white/60">Required Roles:</span>
+                  <span className="font-medium text-white">
+                    {attestationPolicy.required_roles.join(", ")}
+                  </span>
                 </div>
               )}
             </div>
           ) : (
-            <p className="text-xs text-gray-500">Not configured</p>
+            <p className="text-sm text-white/50">Not configured</p>
           )}
-        </div>
+        </GlassPanel>
 
         {/* Committee Policy */}
-        <div className="border rounded-lg p-4 bg-white">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Committee Policy</h3>
+        <GlassPanel header="Committee Policy">
           {committeePolicy ? (
-            <div className="space-y-1 text-sm">
-              <div>
-                <span className="text-gray-600">Status:</span>{" "}
-                <span className={`font-medium ${committeePolicy.enabled ? "text-green-600" : "text-gray-400"}`}>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-white/60">Status:</span>
+                <span
+                  className={`font-medium ${committeePolicy.enabled ? "text-emerald-400" : "text-white/40"}`}
+                >
                   {committeePolicy.enabled ? "Enabled" : "Disabled"}
                 </span>
               </div>
-              <div>
-                <span className="text-gray-600">Rules:</span>{" "}
-                <span className="font-medium">{Object.keys(committeePolicy.rules_json || {}).length} defined</span>
+              <div className="flex justify-between">
+                <span className="text-white/60">Rules:</span>
+                <span className="font-medium text-white">
+                  {Object.keys(committeePolicy.rules_json || {}).length} defined
+                </span>
               </div>
             </div>
           ) : (
-            <p className="text-xs text-gray-500">Not configured</p>
+            <p className="text-sm text-white/50">Not configured</p>
           )}
-        </div>
+        </GlassPanel>
 
         {/* Committee Members */}
-        <div className="border rounded-lg p-4 bg-white">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Committee Members</h3>
-          <div className="text-2xl font-bold text-purple-600">
-            {committeeMembers?.length || 0}
-          </div>
-          <p className="text-xs text-gray-500 mt-1">Active members</p>
-        </div>
+        <GlassStatCard
+          label="Committee Members"
+          value={String(committeeMembers?.length || 0)}
+        />
       </div>
 
       {/* Quick Links */}
-      <div className="border rounded-lg p-4 bg-white">
-        <h2 className="text-lg font-semibold mb-3">Quick Links</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <Link
-            href="/portfolio"
-            className="border rounded-lg p-3 hover:bg-gray-50 transition-colors"
-          >
-            <div className="font-medium text-sm">Portfolio Dashboard</div>
-            <div className="text-xs text-gray-600 mt-1">System-wide risk metrics</div>
-          </Link>
-          
-          <Link
-            href="/committee"
-            className="border rounded-lg p-3 hover:bg-gray-50 transition-colors"
-          >
-            <div className="font-medium text-sm">Committee Center</div>
-            <div className="text-xs text-gray-600 mt-1">Voting, dissent, minutes</div>
-          </Link>
-
-          <Link
-            href="/policy"
-            className="border rounded-lg p-3 hover:bg-gray-50 transition-colors"
-          >
-            <div className="font-medium text-sm">Living Credit Policy</div>
-            <div className="text-xs text-gray-600 mt-1">Policy docs & extracted rules</div>
-          </Link>
-
-          <Link
-            href="/examiner"
-            className="border rounded-lg p-3 hover:bg-gray-50 transition-colors"
-          >
-            <div className="font-medium text-sm">Examiner Mode</div>
-            <div className="text-xs text-gray-600 mt-1">Read-only regulator view</div>
-          </Link>
-        </div>
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <GlassActionCard
+          icon="analytics"
+          iconColor="text-blue-400"
+          title="Portfolio Dashboard"
+          description="System-wide risk metrics"
+          href="/portfolio"
+          actionLabel="View Portfolio"
+        />
+        <GlassActionCard
+          icon="groups"
+          iconColor="text-purple-400"
+          title="Committee Center"
+          description="Voting, dissent, minutes"
+          href="/committee"
+          actionLabel="View Committee"
+        />
+        <GlassActionCard
+          icon="policy"
+          iconColor="text-emerald-400"
+          title="Living Credit Policy"
+          description="Policy docs & extracted rules"
+          href="/policy"
+          actionLabel="View Policy"
+        />
+        <GlassActionCard
+          icon="verified_user"
+          iconColor="text-amber-400"
+          title="Examiner Mode"
+          description="Read-only regulator view"
+          href="/examiner"
+          actionLabel="Enter Examiner Mode"
+        />
       </div>
 
       {/* Recent Decisions */}
-      <div className="border rounded-lg p-4 bg-white">
-        <h2 className="text-lg font-semibold mb-3">Recent Decisions</h2>
+      <GlassPanel header="Recent Decisions">
         <div className="space-y-2">
           {recentDecisions && recentDecisions.length > 0 ? (
             recentDecisions.map((decision: any) => (
               <Link
                 key={decision.id}
                 href={`/deals/${decision.deal_id}/decision`}
-                className="flex items-center justify-between p-2 border rounded hover:bg-gray-50 transition-colors"
+                className="flex items-center justify-between p-3 rounded-lg border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full ${
-                    decision.status === "final" ? "bg-green-500" : "bg-yellow-500"
-                  }`} />
+                  <div
+                    className={`w-2 h-2 rounded-full ${
+                      decision.status === "final" ? "bg-emerald-500" : "bg-amber-500"
+                    }`}
+                  />
                   <div className="text-sm">
-                    <div className="font-medium">{decision.decision || "Pending"}</div>
-                    <div className="text-xs text-gray-500">
+                    <div className="font-medium text-white">{decision.decision || "Pending"}</div>
+                    <div className="text-xs text-white/50">
                       {new Date(decision.created_at).toLocaleDateString()}
                     </div>
                   </div>
                 </div>
-                <div className="text-xs text-gray-500">Deal #{decision.deal_id.slice(0, 8)}</div>
+                <div className="text-xs text-white/50">Deal #{decision.deal_id.slice(0, 8)}</div>
               </Link>
             ))
           ) : (
-            <p className="text-sm text-gray-500">No decisions yet</p>
+            <p className="text-sm text-white/50">No decisions yet</p>
           )}
         </div>
-      </div>
-    </div>
+      </GlassPanel>
+    </GlassShell>
   );
 }

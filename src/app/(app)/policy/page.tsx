@@ -1,13 +1,18 @@
 /**
  * /policy - Living Credit Policy
- * 
+ *
  * Shows uploaded policy docs, extracted rules, drift indicators,
  * and suggested policy updates.
  */
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import Link from "next/link";
+import {
+  GlassShell,
+  GlassPageHeader,
+  GlassPanel,
+  GlassActionCard,
+} from "@/components/layout";
 
 export default async function PolicyPage() {
   const bankId = await getCurrentBankId();
@@ -35,78 +40,86 @@ export default async function PolicyPage() {
     .maybeSingle();
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold">Living Credit Policy</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          Policy documents, extracted rules, and drift detection
-        </p>
-      </div>
+    <GlassShell>
+      <GlassPageHeader
+        title="Living Credit Policy"
+        subtitle="Policy documents, extracted rules, and drift detection"
+      />
 
       {/* Active Policies */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4 mb-6">
         {/* Committee Policy */}
-        <div className="border rounded-lg p-4 bg-white">
-          <h3 className="text-lg font-semibold mb-3">Committee Policy</h3>
+        <GlassPanel header="Committee Policy">
           {committeePolicy ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">Status:</span>
-                <span className={`font-medium ${committeePolicy.enabled ? "text-green-600" : "text-gray-400"}`}>
+                <span className="text-white/60">Status:</span>
+                <span
+                  className={`font-medium ${committeePolicy.enabled ? "text-emerald-400" : "text-white/40"}`}
+                >
                   {committeePolicy.enabled ? "Enabled" : "Disabled"}
                 </span>
               </div>
               <div className="mt-3">
-                <h4 className="text-sm font-medium text-gray-700 mb-2">Trigger Rules</h4>
+                <h4 className="text-sm font-medium text-white/70 mb-2">Trigger Rules</h4>
                 <div className="space-y-1 text-xs">
                   {Object.entries(committeePolicy.rules_json || {}).map(([key, value]) => (
-                    <div key={key} className="flex items-center justify-between bg-gray-50 p-2 rounded">
-                      <span className="text-gray-600">{key.replace(/_/g, " ")}</span>
-                      <span className="font-mono font-medium">{JSON.stringify(value)}</span>
+                    <div
+                      key={key}
+                      className="flex items-center justify-between bg-white/[0.03] p-2 rounded border border-white/5"
+                    >
+                      <span className="text-white/60">{key.replace(/_/g, " ")}</span>
+                      <span className="font-mono font-medium text-white">
+                        {JSON.stringify(value)}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
           ) : (
-            <p className="text-sm text-gray-500">Not configured</p>
+            <p className="text-sm text-white/50">Not configured</p>
           )}
-        </div>
+        </GlassPanel>
 
         {/* Attestation Policy */}
-        <div className="border rounded-lg p-4 bg-white">
-          <h3 className="text-lg font-semibold mb-3">Attestation Policy</h3>
+        <GlassPanel header="Attestation Policy">
           {attestationPolicy ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">Required Count:</span>
-                <span className="font-medium text-purple-600">{attestationPolicy.required_count}</span>
+                <span className="text-white/60">Required Count:</span>
+                <span className="font-medium text-purple-400">
+                  {attestationPolicy.required_count}
+                </span>
               </div>
-              {attestationPolicy.required_roles && attestationPolicy.required_roles.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">Required Roles</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {attestationPolicy.required_roles.map((role: string) => (
-                      <span key={role} className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">
-                        {role}
-                      </span>
-                    ))}
+              {attestationPolicy.required_roles &&
+                attestationPolicy.required_roles.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-white/70 mb-2">Required Roles</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {attestationPolicy.required_roles.map((role: string) => (
+                        <span
+                          key={role}
+                          className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded border border-purple-500/30"
+                        >
+                          {role}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
             </div>
           ) : (
-            <p className="text-sm text-gray-500">Not configured</p>
+            <p className="text-sm text-white/50">Not configured</p>
           )}
-        </div>
+        </GlassPanel>
       </div>
 
       {/* Extracted Policy Rules */}
-      <div className="border rounded-lg p-4 bg-white">
-        <h2 className="text-lg font-semibold mb-3">AI-Extracted Policy Rules</h2>
-        <p className="text-sm text-gray-600 mb-4">
-          Rules extracted from uploaded policy documents. Requires human approval before enforcement.
+      <GlassPanel header="AI-Extracted Policy Rules" className="mb-6">
+        <p className="text-sm text-white/60 mb-4">
+          Rules extracted from uploaded policy documents. Requires human approval before
+          enforcement.
         </p>
         {extractedRules && extractedRules.length > 0 ? (
           <div className="space-y-3">
@@ -115,65 +128,66 @@ export default async function PolicyPage() {
                 key={rule.id}
                 className={`border-l-4 p-3 rounded ${
                   rule.approved
-                    ? "border-green-500 bg-green-50"
-                    : "border-yellow-500 bg-yellow-50"
+                    ? "border-emerald-500 bg-emerald-500/10"
+                    : "border-amber-500 bg-amber-500/10"
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <div className="font-medium text-sm">
+                  <div className="font-medium text-sm text-white">
                     Policy Rule #{rule.id.slice(0, 8)}
                   </div>
-                  <span className={`text-xs px-2 py-1 rounded ${
-                    rule.approved
-                      ? "bg-green-100 text-green-800"
-                      : "bg-yellow-100 text-yellow-800"
-                  }`}>
+                  <span
+                    className={`text-xs px-2 py-1 rounded ${
+                      rule.approved
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                        : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                    }`}
+                  >
                     {rule.approved ? "Approved" : "Pending Review"}
                   </span>
                 </div>
                 <div className="text-xs space-y-1">
                   {Object.entries(rule.rules_json || {}).map(([key, value]) => (
                     <div key={key} className="flex items-center justify-between">
-                      <span className="text-gray-600">{key.replace(/_/g, " ")}</span>
-                      <span className="font-mono font-medium">{JSON.stringify(value)}</span>
+                      <span className="text-white/60">{key.replace(/_/g, " ")}</span>
+                      <span className="font-mono font-medium text-white">
+                        {JSON.stringify(value)}
+                      </span>
                     </div>
                   ))}
                 </div>
                 {rule.explanation && (
-                  <div className="mt-2 text-xs text-gray-700 italic">
-                    {rule.explanation}
-                  </div>
+                  <div className="mt-2 text-xs text-white/70 italic">{rule.explanation}</div>
                 )}
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-white/50">
             No extracted rules yet. Upload policy documents and run extraction.
           </p>
         )}
-      </div>
+      </GlassPanel>
 
       {/* Policy Actions */}
-      <div className="border rounded-lg p-4 bg-white">
-        <h2 className="text-lg font-semibold mb-3">Policy Actions</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <Link
-            href="/settings/committee"
-            className="border rounded-lg p-3 hover:bg-gray-50 transition-colors"
-          >
-            <div className="font-medium text-sm">Configure Committee Policy</div>
-            <div className="text-xs text-gray-600 mt-1">Set trigger rules for committee review</div>
-          </Link>
-          <Link
-            href="/settings/attestation"
-            className="border rounded-lg p-3 hover:bg-gray-50 transition-colors"
-          >
-            <div className="font-medium text-sm">Configure Attestation Policy</div>
-            <div className="text-xs text-gray-600 mt-1">Set required signatories and roles</div>
-          </Link>
-        </div>
+      <div className="grid grid-cols-2 gap-4">
+        <GlassActionCard
+          icon="groups"
+          iconColor="text-purple-400"
+          title="Configure Committee Policy"
+          description="Set trigger rules for committee review"
+          href="/settings/committee"
+          actionLabel="Configure"
+        />
+        <GlassActionCard
+          icon="verified_user"
+          iconColor="text-emerald-400"
+          title="Configure Attestation Policy"
+          description="Set required signatories and roles"
+          href="/settings/attestation"
+          actionLabel="Configure"
+        />
       </div>
-    </div>
+    </GlassShell>
   );
 }

@@ -34,11 +34,19 @@
 | /admin | AdminPage | No | NEEDS_GLASSHELL | Light theme, needs dark glass |
 | /admin/* | Various | No | NEEDS_GLASSHELL | Light theme pages |
 | /analytics | AnalyticsPage | No | NEEDS_GLASSHELL | Check styling |
-| /exceptions | ExceptionsPage | No | NEEDS_GLASSHELL | Check styling |
-| /risk | RiskPage | No | NEEDS_GLASSHELL | Check styling |
-| /governance | GovernancePage | No | NEEDS_GLASSHELL | Check styling |
-| /workout | WorkoutPage | No | NEEDS_GLASSHELL | Check styling |
-| /committee | CommitteePage | No | NEEDS_GLASSHELL | Check styling |
+| /exceptions | ExceptionsPage | No | OK | **CONVERTED** - Uses GlassShell |
+| /risk | RiskPage | No | OK | **CONVERTED** - Uses GlassShell |
+| /governance | GovernancePage | No | OK | **CONVERTED** - Uses GlassShell |
+| /workout | WorkoutPage | No | OK | **CONVERTED** - Uses GlassShell |
+| /workout/case | WorkoutCasePage | No | OK | **CONVERTED** - Uses GlassShell |
+| /workout/case-file | WorkoutCaseFilePage | No | OK | **CONVERTED** - Uses GlassShell |
+| /workout/chargeoff | ChargeoffPage | No | OK | **CONVERTED** - Uses GlassShell |
+| /workout/legal | LegalPage | No | OK | **CONVERTED** - Uses GlassShell |
+| /workout/reo | REOPage | No | OK | **CONVERTED** - Uses GlassShell |
+| /workout/committee-packet | PacketPage | No | OK | **CONVERTED** - Uses GlassShell |
+| /committee | CommitteePage | No | OK | **CONVERTED** - Uses GlassShell |
+| /policy | PolicyPage | No | OK | **CONVERTED** - Uses GlassShell |
+| /examiner | ExaminerPage | No | OK | **CONVERTED** - Uses GlassShell |
 | /recovery | RecoveryPage | No | NEEDS_GLASSHELL | Check styling |
 
 ## Layout Types
@@ -65,11 +73,6 @@ Routes with mixed/conflicting layouts that need cleanup.
 
 3. **Secondary NEEDS_GLASSHELL** - Supporting pages
    - /analytics
-   - /exceptions
-   - /risk
-   - /governance
-   - /workout
-   - /committee
    - /recovery
 
 ## Design Constants
@@ -91,9 +94,33 @@ const sectionTitle = "text-xs font-bold uppercase tracking-widest text-white/50"
 
 ## Implementation Plan
 
-1. Create `GlassShell` layout component
-2. Create `GlassPageHeader` component
-3. Create `GlassTable` component
-4. Apply to each route in priority order
+1. ~~Create `GlassShell` layout component~~ ✓
+2. ~~Create `GlassPageHeader` component~~ ✓
+3. ~~Create `GlassTable` component~~ ✓
+4. ~~Apply to each route in priority order~~ ✓ (partially complete)
 5. Fix /portfolio mixed layout
-6. Add layout audit dev tool
+6. ~~Add layout audit dev tool~~ ✓ (scripts/layout-audit.mjs)
+
+## Audit Script
+
+Run `pnpm audit:layout` to check for:
+- Routes not documented in this file
+- Light theme violations (bg-white, text-gray-*, etc.)
+
+## Converted Routes (2025-01-24)
+
+The following routes were converted to use GlassShell components:
+
+- `/exceptions` - Exceptions queue page
+- `/risk` - Risk Intelligence dashboard
+- `/governance` - Governance Command Center
+- `/workout` - Workout Command Center
+- `/workout/case` - Workout Case Management
+- `/workout/case-file` - Workout Case Files
+- `/workout/chargeoff` - Chargeoff Pipeline
+- `/workout/legal` - Workout Legal
+- `/workout/reo` - Workout REO Tracking
+- `/workout/committee-packet` - Committee Packet Builder
+- `/committee` - Credit Committee page
+- `/policy` - Living Credit Policy page
+- `/examiner` - Examiner Mode Dashboard

@@ -25,6 +25,7 @@
     "vercel:preview:url": "node scripts/vercel-latest-url.mjs",
     "verify:underwrite": "node scripts/verify-underwrite.mjs",
     "check:icons": "node scripts/check-no-material-icon-tokens.mjs",
+    "audit:layout": "node scripts/layout-audit.mjs",
     "capture:marketing": "node scripts/capture-marketing-screenshots.mjs",
     "e2e:install": "playwright install --with-deps",
     "e2e:smoke": "playwright test --config=playwright.config.ts",

@@ -1,12 +1,19 @@
 /**
  * /risk - Behavioral & Systemic Risk Dashboard
- * 
+ *
  * Shows underwriter override concentration, repeated exception patterns,
  * "this will be criticized" flags, silent risk accumulation alerts.
  */
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import {
+  GlassShell,
+  GlassPageHeader,
+  GlassPanel,
+  GlassStatCard,
+  GlassInfoBox,
+} from "@/components/layout";
 
 export default async function RiskPage() {
   const bankId = await getCurrentBankId();
@@ -37,57 +44,39 @@ export default async function RiskPage() {
     .eq("committee_required", true)
     .eq("status", "final");
 
+  // Fetch total decisions count
+  const { count: totalDecisions } = await sb
+    .from("decision_snapshots")
+    .select("*", { count: "exact", head: true })
+    .eq("bank_id", bankId)
+    .eq("status", "final");
+
   // Calculate override concentration
-  const overrideRate = (
-    (committeeOverrides?.length || 0) / 
-    Math.max(1, (await sb.from("decision_snapshots")
-      .select("*", { count: "exact", head: true })
-      .eq("bank_id", bankId)
-      .eq("status", "final")).count || 1)
-  ) * 100;
+  const overrideRate =
+    ((committeeOverrides?.length || 0) / Math.max(1, totalDecisions || 1)) * 100;
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold">Risk Intelligence</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          Behavioral patterns, systemic risk, and early-warning signals
-        </p>
-      </div>
+    <GlassShell>
+      <GlassPageHeader
+        title="Risk Intelligence"
+        subtitle="Behavioral patterns, systemic risk, and early-warning signals"
+      />
 
       {/* Key Risk Metrics */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="border rounded-lg p-4 bg-white">
-          <div className="text-sm text-gray-600 mb-1">Committee Override Rate</div>
-          <div className="text-3xl font-bold text-red-600">
-            {overrideRate.toFixed(1)}%
-          </div>
-          <div className="text-xs text-gray-500 mt-1">
-            {committeeOverrides?.length || 0} of {
-              (await sb.from("decision_snapshots")
-                .select("*", { count: "exact", head: true })
-                .eq("bank_id", bankId)
-                .eq("status", "final")).count || 0
-            } decisions required committee
-          </div>
-        </div>
-
-        <div className="border rounded-lg p-4 bg-white">
-          <div className="text-sm text-gray-600 mb-1">Decisions with Exceptions</div>
-          <div className="text-3xl font-bold text-amber-600">
-            {exceptionsData?.length || 0}
-          </div>
-          <div className="text-xs text-gray-500 mt-1">
-            Active exception patterns detected
-          </div>
-        </div>
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <GlassStatCard
+          label="Committee Override Rate"
+          value={`${overrideRate.toFixed(1)}%`}
+        />
+        <GlassStatCard
+          label="Decisions with Exceptions"
+          value={String(exceptionsData?.length || 0)}
+        />
       </div>
 
       {/* Exception Concentration by User */}
-      <div className="border rounded-lg p-4 bg-white">
-        <h2 className="text-lg font-semibold mb-3">Exception Concentration by Underwriter</h2>
-        <p className="text-sm text-gray-600 mb-4">
+      <GlassPanel header="Exception Concentration by Underwriter" className="mb-6">
+        <p className="text-sm text-white/60 mb-4">
           Tracks which users are granting the most exceptions. High concentration may indicate
           training needs or policy drift.
         </p>
@@ -96,17 +85,20 @@ export default async function RiskPage() {
             {Object.entries(exceptionsByUser)
               .sort(([, a], [, b]) => b - a)
               .map(([userId, count]) => (
-                <div key={userId} className="flex items-center justify-between p-2 border rounded">
+                <div
+                  key={userId}
+                  className="flex items-center justify-between p-3 rounded-lg border border-white/10 bg-white/[0.02]"
+                >
                   <div className="text-sm">
-                    <div className="font-medium">User {userId.slice(0, 8)}</div>
+                    <div className="font-medium text-white">User {userId.slice(0, 8)}</div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-bold text-amber-600">{count} exceptions</span>
-                    <div className="w-32 bg-gray-200 rounded-full h-2">
+                    <span className="text-sm font-bold text-amber-400">{count} exceptions</span>
+                    <div className="w-32 bg-white/10 rounded-full h-2">
                       <div
                         className="bg-amber-500 h-2 rounded-full"
                         style={{
-                          width: `${Math.min(100, (count / Math.max(...Object.values(exceptionsByUser))) * 100)}%`
+                          width: `${Math.min(100, (count / Math.max(...Object.values(exceptionsByUser))) * 100)}%`,
                         }}
                       />
                     </div>
@@ -115,57 +107,49 @@ export default async function RiskPage() {
               ))}
           </div>
         ) : (
-          <p className="text-sm text-gray-500">No exception data available</p>
+          <p className="text-sm text-white/50">No exception data available</p>
         )}
-      </div>
+      </GlassPanel>
 
       {/* Early Warning Signals */}
-      <div className="border rounded-lg p-4 bg-white">
-        <h2 className="text-lg font-semibold mb-3">Early-Warning Signals</h2>
-        <p className="text-sm text-gray-600 mb-4">
+      <GlassPanel header="Early-Warning Signals" className="mb-6">
+        <p className="text-sm text-white/60 mb-4">
           Patterns that may attract regulatory scrutiny:
         </p>
         <div className="space-y-3">
           {overrideRate > 20 && (
-            <div className="border-l-4 border-red-500 bg-red-50 p-3">
-              <div className="font-medium text-sm text-red-800">
-                ⚠️ High Committee Override Rate ({overrideRate.toFixed(1)}%)
-              </div>
-              <div className="text-xs text-red-700 mt-1">
-                Rate exceeds 20% threshold. Examiners may question policy effectiveness.
-              </div>
-            </div>
+            <GlassInfoBox
+              icon="warning"
+              title={`High Committee Override Rate (${overrideRate.toFixed(1)}%)`}
+              variant="error"
+            >
+              Rate exceeds 20% threshold. Examiners may question policy effectiveness.
+            </GlassInfoBox>
           )}
 
-          {Object.values(exceptionsByUser).some(count => count > 5) && (
-            <div className="border-l-4 border-yellow-500 bg-yellow-50 p-3">
-              <div className="font-medium text-sm text-yellow-800">
-                ⚠️ Exception Concentration Detected
-              </div>
-              <div className="text-xs text-yellow-700 mt-1">
-                One or more underwriters have granted 5+ exceptions. Consider peer review.
-              </div>
-            </div>
+          {Object.values(exceptionsByUser).some((count) => count > 5) && (
+            <GlassInfoBox icon="warning" title="Exception Concentration Detected" variant="warning">
+              One or more underwriters have granted 5+ exceptions. Consider peer review.
+            </GlassInfoBox>
           )}
 
-          {!overrideRate && !Object.keys(exceptionsByUser).length && (
-            <div className="text-sm text-gray-500 italic">
+          {overrideRate <= 20 && !Object.values(exceptionsByUser).some((count) => count > 5) && (
+            <p className="text-sm text-white/50 italic">
               No early-warning signals detected. Portfolio appears within normal parameters.
-            </div>
+            </p>
           )}
         </div>
-      </div>
+      </GlassPanel>
 
       {/* Future: Stress Test Integration */}
-      <div className="border rounded-lg p-4 bg-gray-50">
-        <h2 className="text-lg font-semibold mb-3">Coming Soon</h2>
-        <div className="space-y-2 text-sm text-gray-600">
+      <GlassPanel header="Coming Soon">
+        <div className="space-y-2 text-sm text-white/60">
           <div>• Policy drift detection (actual vs. stated policy)</div>
           <div>• Silent risk accumulation alerts</div>
           <div>• Counterfactual decision analysis</div>
           <div>• Stress test scenario builder</div>
         </div>
-      </div>
-    </div>
+      </GlassPanel>
+    </GlassShell>
   );
 }

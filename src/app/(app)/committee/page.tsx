@@ -1,6 +1,6 @@
 /**
  * /committee - Credit Committee Command Center
- * 
+ *
  * Shows active decisions awaiting vote, vote tallies, dissent, minutes.
  * Historical decisions by committee.
  */
@@ -8,6 +8,12 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import Link from "next/link";
+import {
+  GlassShell,
+  GlassPageHeader,
+  GlassPanel,
+  GlassStatCard,
+} from "@/components/layout";
 
 export default async function CommitteePage() {
   const bankId = await getCurrentBankId();
@@ -39,52 +45,52 @@ export default async function CommitteePage() {
     .eq("bank_id", bankId);
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold">Credit Committee</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          Active votes, dissent, and minutes
-        </p>
-      </div>
+    <GlassShell>
+      <GlassPageHeader
+        title="Credit Committee"
+        subtitle="Active votes, dissent, and minutes"
+      />
 
       {/* Committee Members */}
-      <div className="border rounded-lg p-4 bg-white">
-        <h2 className="text-lg font-semibold mb-3">Committee Roster</h2>
-        <div className="text-2xl font-bold text-purple-600 mb-2">
-          {members?.length || 0} Members
-        </div>
+      <GlassPanel header="Committee Roster" className="mb-6">
+        <GlassStatCard
+          label="Total Members"
+          value={String(members?.length || 0)}
+          className="mb-4"
+        />
         <div className="grid grid-cols-4 gap-2">
           {members?.map((member: any) => (
-            <div key={member.id} className="text-sm border rounded p-2">
-              <div className="font-medium">{member.user_id.slice(0, 8)}</div>
-              <div className="text-xs text-gray-500">{member.role || "Member"}</div>
+            <div
+              key={member.id}
+              className="text-sm border border-white/10 rounded p-2 bg-white/[0.02]"
+            >
+              <div className="font-medium text-white">{member.user_id.slice(0, 8)}</div>
+              <div className="text-xs text-white/50">{member.role || "Member"}</div>
             </div>
           ))}
         </div>
-      </div>
+      </GlassPanel>
 
       {/* Active Decisions Awaiting Vote */}
-      <div className="border rounded-lg p-4 bg-white">
-        <h2 className="text-lg font-semibold mb-3">Active Decisions Awaiting Vote</h2>
+      <GlassPanel header="Active Decisions Awaiting Vote" className="mb-6">
         {activeDecisions && activeDecisions.length > 0 ? (
           <div className="space-y-2">
             {activeDecisions.map((decision: any) => (
               <Link
                 key={decision.id}
                 href={`/deals/${decision.deal_id}/decision?snapshot=${decision.id}`}
-                className="flex items-center justify-between p-3 border rounded hover:bg-gray-50 transition-colors"
+                className="flex items-center justify-between p-3 border border-white/10 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] transition-colors"
               >
                 <div>
-                  <div className="font-medium text-sm">
+                  <div className="font-medium text-sm text-white">
                     {decision.deals?.name || `Deal ${decision.deal_id.slice(0, 8)}`}
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">
+                  <div className="text-xs text-white/50 mt-1">
                     Submitted {new Date(decision.created_at).toLocaleDateString()}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
+                  <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-1 rounded border border-amber-500/30">
                     Awaiting Vote
                   </span>
                 </div>
@@ -92,35 +98,36 @@ export default async function CommitteePage() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-gray-500">No active decisions awaiting committee vote</p>
+          <p className="text-sm text-white/50">No active decisions awaiting committee vote</p>
         )}
-      </div>
+      </GlassPanel>
 
       {/* Recent Committee Decisions */}
-      <div className="border rounded-lg p-4 bg-white">
-        <h2 className="text-lg font-semibold mb-3">Recent Committee Decisions</h2>
+      <GlassPanel header="Recent Committee Decisions">
         {recentCommitteeDecisions && recentCommitteeDecisions.length > 0 ? (
           <div className="space-y-2">
             {recentCommitteeDecisions.map((decision: any) => (
               <Link
                 key={decision.id}
                 href={`/deals/${decision.deal_id}/decision?snapshot=${decision.id}`}
-                className="flex items-center justify-between p-3 border rounded hover:bg-gray-50 transition-colors"
+                className="flex items-center justify-between p-3 border border-white/10 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] transition-colors"
               >
                 <div>
-                  <div className="font-medium text-sm">
+                  <div className="font-medium text-sm text-white">
                     {decision.deals?.name || `Deal ${decision.deal_id.slice(0, 8)}`}
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">
+                  <div className="text-xs text-white/50 mt-1">
                     {new Date(decision.created_at).toLocaleDateString()}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`text-xs px-2 py-1 rounded ${
-                    decision.decision?.toLowerCase().includes("approve")
-                      ? "bg-green-100 text-green-800"
-                      : "bg-red-100 text-red-800"
-                  }`}>
+                  <span
+                    className={`text-xs px-2 py-1 rounded border ${
+                      decision.decision?.toLowerCase().includes("approve")
+                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                        : "bg-red-500/20 text-red-300 border-red-500/30"
+                    }`}
+                  >
                     {decision.decision || "Unknown"}
                   </span>
                 </div>
@@ -128,9 +135,9 @@ export default async function CommitteePage() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-gray-500">No committee decisions yet</p>
+          <p className="text-sm text-white/50">No committee decisions yet</p>
         )}
-      </div>
-    </div>
+      </GlassPanel>
+    </GlassShell>
   );
 }
