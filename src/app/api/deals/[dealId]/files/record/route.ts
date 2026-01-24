@@ -125,17 +125,18 @@ export async function POST(req: NextRequest, ctx: Context) {
       .maybeSingle();
 
     if (dealErr || !deal) {
-      console.error("[files/record] deal not found", { dealId, dealErr });
+      console.error("[files/record] deal not found in DB", { dealId, dealErr });
       return NextResponse.json(
-        { ok: false, error: "Deal not found", request_id: requestId },
+        { ok: false, error: "deal_not_found_db", details: dealErr?.message, request_id: requestId },
         { status: 404 },
       );
     }
 
     const dealBankId = deal.bank_id ? String(deal.bank_id) : null;
     if (dealBankId && dealBankId !== bankId) {
+      console.error("[files/record] bank_id mismatch", { dealId, dealBankId, userBankId: bankId });
       return NextResponse.json(
-        { ok: false, error: "Deal not found", request_id: requestId },
+        { ok: false, error: "deal_bank_mismatch", dealBankId, userBankId: bankId, request_id: requestId },
         { status: 404 },
       );
     }
