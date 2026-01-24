@@ -22,7 +22,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ dealId: s
 
     const body = await req.json().catch(() => ({}));
     const displayName = normalizeName(body?.display_name);
-    const nickname = normalizeName(body?.nickname);
+    // Canonical name storage: only use display_name (nickname is deprecated for persistence)
 
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok) {
@@ -35,10 +35,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ dealId: s
     const sb = supabaseAdmin();
     const { data, error } = await sb
       .from("deals")
-      .update({ display_name: displayName, nickname })
+      .update({ display_name: displayName })
       .eq("id", dealId)
       .eq("bank_id", access.bankId)
-      .select("id, display_name, nickname")
+      .select("id, display_name")
       .maybeSingle();
 
     if (error || !data) {
@@ -57,7 +57,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ dealId: s
       meta: {
         deal_id: dealId,
         display_name: data.display_name ?? null,
-        nickname: data.nickname ?? null,
       },
     });
 
@@ -65,7 +64,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ dealId: s
       ok: true,
       dealId: data.id,
       display_name: data.display_name ?? null,
-      nickname: data.nickname ?? null,
+      nickname: null, // Deprecated - always null for backwards compat
     });
   } catch (error) {
     console.error("[/api/deals/[dealId]/name]", error);

@@ -28,18 +28,17 @@ export default function DealNameInlineEditor({
 }: DealNameInlineEditorProps) {
   const { toast } = useToast();
   const [displayName, setDisplayName] = React.useState<string | null>(initialDisplayName ?? null);
-  const [nickname, setNickname] = React.useState<string | null>(initialNickname ?? null);
+  // nickname is deprecated for persistence but kept for backwards compat in resolution
+  const [nickname] = React.useState<string | null>(initialNickname ?? null);
   const [editing, setEditing] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [draftDisplayName, setDraftDisplayName] = React.useState(displayName ?? "");
-  const [draftNickname, setDraftNickname] = React.useState(nickname ?? "");
   const [copyToast, setCopyToast] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     setDisplayName(initialDisplayName ?? null);
-    setNickname(initialNickname ?? null);
-  }, [initialDisplayName, initialNickname]);
+  }, [initialDisplayName]);
 
   const labelResult = React.useMemo(
     () =>
@@ -77,12 +76,10 @@ export default function DealNameInlineEditor({
 
     const payload = {
       display_name: draftDisplayName.trim() || null,
-      nickname: draftNickname.trim() || null,
     };
 
-    const prev = { displayName, nickname };
+    const prev = { displayName };
     setDisplayName(payload.display_name);
-    setNickname(payload.nickname);
 
     try {
       const res = await fetch(`/api/deals/${dealId}/name`, {
@@ -97,13 +94,11 @@ export default function DealNameInlineEditor({
       }
 
       setDisplayName(json.display_name ?? null);
-      setNickname(json.nickname ?? null);
       setEditing(false);
       toast({ title: "Deal name updated", detail: "Saved to your pipeline." });
-      onUpdated?.({ displayName: json.display_name ?? null, nickname: json.nickname ?? null });
+      onUpdated?.({ displayName: json.display_name ?? null, nickname: null });
     } catch (err: any) {
       setDisplayName(prev.displayName ?? null);
-      setNickname(prev.nickname ?? null);
       setError(err?.message ?? "Failed to update deal name");
       toast({ title: "Couldn't update deal name", detail: err?.message ?? "Please try again." });
     } finally {
@@ -124,7 +119,6 @@ export default function DealNameInlineEditor({
 
   function startEditing() {
     setDraftDisplayName(displayName ?? "");
-    setDraftNickname(nickname ?? "");
     setEditing(true);
     setError(null);
   }
@@ -179,15 +173,7 @@ export default function DealNameInlineEditor({
               onChange={(e) => setDraftDisplayName(e.target.value)}
               placeholder="Harbor Point Multifamily"
               className={`w-full rounded-lg border px-3 py-2 text-sm ${inputBorder} ${inputBg} ${inputText}`}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className={`text-xs font-semibold ${tone === "dark" ? "text-white/70" : "text-neutral-600"}`}>Nickname (optional)</label>
-            <input
-              value={draftNickname}
-              onChange={(e) => setDraftNickname(e.target.value)}
-              placeholder="HP - Austin"
-              className={`w-full rounded-lg border px-3 py-2 text-sm ${inputBorder} ${inputBg} ${inputText}`}
+              autoFocus
             />
           </div>
           {error ? <div className="text-xs text-rose-600">{error}</div> : null}
