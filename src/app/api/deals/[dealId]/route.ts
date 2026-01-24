@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export async function GET(
       );
     }
 
-    const supabase = getSupabaseServerClient();
+    const supabase = supabaseAdmin();
 
     // Load deal with bank info (bank_id guaranteed by FK constraint)
     const { data: deal, error } = await supabase
