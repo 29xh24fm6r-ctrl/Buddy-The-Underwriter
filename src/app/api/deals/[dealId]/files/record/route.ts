@@ -118,14 +118,35 @@ export async function POST(req: NextRequest, ctx: Context) {
     // Verify deal exists (authorization already happened at /files/sign)
     const sb = supabaseAdmin();
 
-    const { data: deal, error: dealErr } = await sb
-      .from("deals")
-      .select("id, bank_id, lifecycle_stage")
-      .eq("id", dealId)
-      .maybeSingle();
+    // Retry logic for potential replication lag
+    let deal: { id: string; bank_id: string | null; lifecycle_stage: string | null } | null = null;
+    let dealErr: any = null;
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const result = await sb
+        .from("deals")
+        .select("id, bank_id, lifecycle_stage")
+        .eq("id", dealId)
+        .maybeSingle();
+
+      deal = result.data;
+      dealErr = result.error;
+
+      if (deal) {
+        if (attempt > 1) {
+          console.log("[files/record] deal found on retry", { dealId, attempt });
+        }
+        break;
+      }
+
+      if (attempt < 3) {
+        console.log("[files/record] deal not found, retrying...", { dealId, attempt });
+        await new Promise(r => setTimeout(r, 500 * attempt)); // 500ms, 1000ms delays
+      }
+    }
 
     if (dealErr || !deal) {
-      console.error("[files/record] deal not found in DB", { dealId, dealErr });
+      console.error("[files/record] deal not found in DB after retries", { dealId, dealErr });
       return NextResponse.json(
         { ok: false, error: "deal_not_found_db", details: dealErr?.message, request_id: requestId },
         { status: 404 },

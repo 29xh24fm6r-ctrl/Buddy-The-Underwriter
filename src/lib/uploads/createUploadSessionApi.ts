@@ -167,6 +167,32 @@ export async function handleCreateUploadSession(
       sessionId = row.session_id;
       expiresAt = row.expires_at;
 
+      // Verify the deal was actually created (debug replication issues)
+      const verifyDeal = await sb
+        .from("deals")
+        .select("id, bank_id")
+        .eq("id", dealId)
+        .maybeSingle();
+
+      if (!verifyDeal.data) {
+        console.error("[createUploadSession] CRITICAL: deal_bootstrap_create returned ID but deal not found!", {
+          dealId,
+          sessionId,
+          bankId,
+          verifyError: verifyDeal.error?.message,
+        });
+        return NextResponse.json(
+          { ok: false, error: "deal_creation_failed_verification", dealId, requestId },
+          { status: 500 },
+        );
+      }
+
+      console.log("[createUploadSession] Deal verified after bootstrap", {
+        dealId,
+        dealBankId: verifyDeal.data.bank_id,
+        expectedBankId: bankId,
+      });
+
       await logLedgerEvent({
         dealId,
         bankId,
