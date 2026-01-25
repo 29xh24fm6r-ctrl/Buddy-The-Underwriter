@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { deriveDealMode } from "@/lib/deals/deriveDealMode";
 import { usePipelineState } from "@/lib/pipeline/usePipelineState";
 import { PIPELINE_COPY } from "@/lib/pipeline/pipelineCopy";
+import { useShouldPoll } from "@/buddy/cockpit";
 
 type Props = {
   dealId: string;
@@ -11,7 +11,8 @@ type Props = {
 
 export function DealCockpitNarrator({ dealId }: Props) {
   const { pipeline } = usePipelineState(dealId);
-  
+  const { shouldPoll } = useShouldPoll();
+
   const [checklistState, setChecklistState] = React.useState<{
     state: "empty" | "ready";
     pendingCount: number;
@@ -47,10 +48,15 @@ export function DealCockpitNarrator({ dealId }: Props) {
       }
     };
 
+    // Initial fetch
     fetchState();
-    const interval = setInterval(fetchState, 10000);
+
+    // Only poll if cockpit says we should (deal is busy)
+    if (!shouldPoll) return;
+
+    const interval = setInterval(fetchState, 5000); // 5s when busy
     return () => clearInterval(interval);
-  }, [dealId]);
+  }, [dealId, shouldPoll]);
 
   // Use pipeline message if available, otherwise use canonical copy
   const message = pipeline.lastMessage || PIPELINE_COPY[pipeline.uiState].long;

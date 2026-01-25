@@ -21,6 +21,8 @@ import BorrowerAttachmentCard from "./BorrowerAttachmentCard";
 import { DocumentClassificationInbox } from "@/components/deals/DocumentClassificationInbox";
 import { LifecycleStatusPanel } from "@/components/deals/LifecycleStatusPanel";
 import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
+import { LiveIndicator } from "@/components/deals/LiveIndicator";
+import { CockpitDataProvider } from "@/buddy/cockpit";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
 import { cn } from "@/lib/utils";
@@ -192,6 +194,7 @@ export default function DealCockpitClient({
   })();
 
   return (
+    <CockpitDataProvider dealId={dealId}>
     <div className="min-h-screen text-white">
       {/* Cockpit Container */}
       <div className="mx-auto max-w-7xl px-6 py-6 space-y-6">
@@ -215,6 +218,7 @@ export default function DealCockpitClient({
                 </div>
               </div>
               <div className="flex items-center gap-3">
+                <LiveIndicator />
                 <span className={cn(
                   "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold capitalize",
                   stageBadge.className
@@ -415,5 +419,6 @@ export default function DealCockpitClient({
         </div>
       </div>
     </div>
+    </CockpitDataProvider>
   );
 }

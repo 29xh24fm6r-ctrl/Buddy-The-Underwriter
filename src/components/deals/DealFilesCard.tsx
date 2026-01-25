@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
+import { useShouldPoll } from "@/buddy/cockpit";
 
 type DealFile = {
   file_id: string;
@@ -18,6 +19,7 @@ type DealFile = {
 };
 
 export default function DealFilesCard({ dealId }: { dealId: string }) {
+  const { shouldPoll } = useShouldPoll();
   const [files, setFiles] = useState<DealFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -121,11 +123,15 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
 
   useEffect(() => {
     loadFiles();
+
+    // Only poll when cockpit says we should (deal is busy)
+    if (!shouldPoll) return;
+
     const interval = setInterval(() => {
       void loadFiles({ silent: true });
-    }, 10000);
+    }, 5000); // 5s when busy
     return () => clearInterval(interval);
-  }, [dealId]);
+  }, [dealId, shouldPoll]);
 
   async function handleAutoMatch() {
     setMatching(true);
