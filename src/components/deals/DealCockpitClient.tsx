@@ -21,7 +21,7 @@ import BorrowerAttachmentCard from "./BorrowerAttachmentCard";
 import { DocumentClassificationInbox } from "@/components/deals/DocumentClassificationInbox";
 import { LifecycleStatusPanel } from "@/components/deals/LifecycleStatusPanel";
 import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
-import { LiveIndicator } from "@/components/deals/LiveIndicator";
+import { LiveIndicator, ProcessingIndicator, CockpitToastStack } from "@/components/deals/LiveIndicator";
 import { CockpitDataProvider } from "@/buddy/cockpit";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
@@ -341,6 +341,9 @@ export default function DealCockpitClient({
 
           {/* Right Column - Underwriting & Progress */}
           <div className="space-y-6">
+            {/* Processing Micro-State */}
+            <ProcessingIndicator />
+
             {/* Unified Lifecycle Status */}
             <SafeBoundary>
               <LifecycleStatusPanel
@@ -419,6 +422,9 @@ export default function DealCockpitClient({
         </div>
       </div>
     </div>
+
+    {/* Toast Stack for "What Changed" notifications */}
+    <CockpitToastStack />
     </CockpitDataProvider>
   );
 }

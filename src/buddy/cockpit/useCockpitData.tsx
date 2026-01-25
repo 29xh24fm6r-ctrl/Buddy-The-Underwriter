@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { usePipelineState } from "@/lib/pipeline/usePipelineState";
+import type { LifecycleState, LifecycleStage } from "@/buddy/lifecycle/model";
+import { STAGE_LABELS } from "@/buddy/lifecycle/model";
 
 /**
  * Cockpit Data Hook
@@ -11,16 +13,19 @@ import { usePipelineState } from "@/lib/pipeline/usePipelineState";
  * - Polls slow (30s) or not at all when idle
  * - Stops polling when tab is hidden
  * - Provides unified isBusy state for all widgets
+ * - Tracks state changes and emits "what changed" toasts
  *
  * Goals:
  * - No network churn unless (a) user acts, or (b) deal is actively processing
  * - Single source of truth for "should we poll?"
+ * - Make state changes visible to user
  */
 
 // Polling intervals
 const BUSY_POLL_MS = 5000; // 5s when busy
 const IDLE_POLL_MS = 30000; // 30s when idle (optional, can be 0 for no idle polling)
 const NO_POLL = 0;
+const USER_ACTION_TIMEOUT_MS = 30000; // Consider "active" for 30s after user action
 
 export type ChecklistSummary = {
   state: "empty" | "processing" | "ready";
@@ -28,6 +33,14 @@ export type ChecklistSummary = {
   received: number;
   pending: number;
   optional: number;
+};
+
+export type CockpitToast = {
+  id: string;
+  type: "stage_advanced" | "blockers_cleared" | "doc_classified" | "upload_complete" | "info";
+  title: string;
+  detail?: string;
+  ts: number;
 };
 
 export type CockpitData = {
@@ -47,6 +60,16 @@ export type CockpitData = {
   refresh: () => Promise<void>;
   /** Whether tab is visible */
   isVisible: boolean;
+  /** Current lifecycle state (for diff tracking) */
+  lifecycleState: LifecycleState | null;
+  /** Active toasts (what changed) */
+  toasts: CockpitToast[];
+  /** Dismiss a toast */
+  dismissToast: (id: string) => void;
+  /** Mark user action (keeps Live indicator active for 30s) */
+  markUserAction: () => void;
+  /** Whether user has acted recently (within 30s) */
+  userRecentlyActive: boolean;
 };
 
 async function fetchChecklistSummary(dealId: string): Promise<ChecklistSummary | null> {
@@ -78,6 +101,78 @@ async function fetchUploadsStatus(dealId: string): Promise<number> {
   }
 }
 
+async function fetchLifecycleState(dealId: string): Promise<LifecycleState | null> {
+  try {
+    const res = await fetch(`/api/deals/${dealId}/lifecycle`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.state || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Compute diffs between lifecycle states and return toast descriptions.
+ */
+function computeLifecycleDiff(
+  prev: LifecycleState | null,
+  next: LifecycleState | null
+): CockpitToast[] {
+  if (!prev || !next) return [];
+
+  const toasts: CockpitToast[] = [];
+  const now = Date.now();
+
+  // Stage advancement
+  if (prev.stage !== next.stage) {
+    const label = STAGE_LABELS[next.stage] || next.stage;
+    toasts.push({
+      id: `stage_${now}`,
+      type: "stage_advanced",
+      title: `Advanced to ${label}`,
+      ts: now,
+    });
+  }
+
+  // Blockers cleared
+  const prevBlockerCount = prev.blockers.length;
+  const nextBlockerCount = next.blockers.length;
+  if (nextBlockerCount < prevBlockerCount) {
+    const cleared = prevBlockerCount - nextBlockerCount;
+    toasts.push({
+      id: `blockers_${now}`,
+      type: "blockers_cleared",
+      title: `${cleared} blocker${cleared > 1 ? "s" : ""} cleared`,
+      ts: now,
+    });
+  }
+
+  // Docs progress
+  const prevDocsPct = prev.derived.requiredDocsReceivedPct;
+  const nextDocsPct = next.derived.requiredDocsReceivedPct;
+  if (nextDocsPct > prevDocsPct && nextDocsPct === 100) {
+    toasts.push({
+      id: `docs_${now}`,
+      type: "doc_classified",
+      title: "All required documents received",
+      ts: now,
+    });
+  }
+
+  // Financial snapshot appeared
+  if (!prev.derived.financialSnapshotExists && next.derived.financialSnapshotExists) {
+    toasts.push({
+      id: `snapshot_${now}`,
+      type: "info",
+      title: "Financial snapshot ready",
+      ts: now,
+    });
+  }
+
+  return toasts;
+}
+
 export function useCockpitData(dealId: string | null): CockpitData {
   // Use existing pipeline state hook for working/idle detection
   const { pipeline } = usePipelineState(dealId);
@@ -87,16 +182,33 @@ export function useCockpitData(dealId: string | null): CockpitData {
   const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(true);
+  const [lifecycleState, setLifecycleState] = useState<LifecycleState | null>(null);
+  const [toasts, setToasts] = useState<CockpitToast[]>([]);
+  const [lastUserActionAt, setLastUserActionAt] = useState<number | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inflightRef = useRef(false);
+  const prevLifecycleRef = useRef<LifecycleState | null>(null);
+
+  // Check if user has acted recently (within 30s)
+  const userRecentlyActive = lastUserActionAt !== null && Date.now() - lastUserActionAt < USER_ACTION_TIMEOUT_MS;
 
   // Derive isBusy from pipeline state and processing uploads
   const isBusy = pipeline.isWorking || processingUploads > 0 || checklistSummary?.state === "processing";
 
-  // Determine polling interval based on busy state and visibility
-  const pollInterval = !isVisible ? NO_POLL : isBusy ? BUSY_POLL_MS : IDLE_POLL_MS;
+  // Determine polling interval based on busy state, visibility, and user activity
+  // Live when: isBusy OR user recently acted
+  const shouldBeLive = isBusy || userRecentlyActive;
+  const pollInterval = !isVisible ? NO_POLL : shouldBeLive ? BUSY_POLL_MS : IDLE_POLL_MS;
   const isPolling = pollInterval > 0 && isVisible;
+
+  const markUserAction = useCallback(() => {
+    setLastUserActionAt(Date.now());
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   const fetchData = useCallback(async () => {
     if (!dealId) return;
@@ -104,21 +216,42 @@ export function useCockpitData(dealId: string | null): CockpitData {
 
     inflightRef.current = true;
     try {
-      const [checklist, uploads] = await Promise.all([
+      const [checklist, uploads, lifecycle] = await Promise.all([
         fetchChecklistSummary(dealId),
         fetchUploadsStatus(dealId),
+        fetchLifecycleState(dealId),
       ]);
 
       setChecklistSummary(checklist);
       setProcessingUploads(uploads);
       setLastFetchedAt(new Date().toISOString());
       setError(null);
+
+      // Compute lifecycle diffs and emit toasts
+      if (lifecycle) {
+        const newToasts = computeLifecycleDiff(prevLifecycleRef.current, lifecycle);
+        if (newToasts.length > 0) {
+          setToasts((prev) => [...prev, ...newToasts].slice(-5)); // Keep last 5
+        }
+        prevLifecycleRef.current = lifecycle;
+        setLifecycleState(lifecycle);
+      }
     } catch (e: any) {
       setError(e?.message || "Failed to fetch cockpit data");
     } finally {
       inflightRef.current = false;
     }
   }, [dealId]);
+
+  // Auto-dismiss toasts after 4s
+  useEffect(() => {
+    if (toasts.length === 0) return;
+    const timer = setTimeout(() => {
+      const now = Date.now();
+      setToasts((prev) => prev.filter((t) => now - t.ts < 4000));
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [toasts]);
 
   // Handle visibility changes
   useEffect(() => {
@@ -171,8 +304,9 @@ export function useCockpitData(dealId: string | null): CockpitData {
   }, [dealId, pollInterval, isVisible, fetchData]);
 
   const refresh = useCallback(async () => {
+    markUserAction(); // Refresh counts as user action
     await fetchData();
-  }, [fetchData]);
+  }, [fetchData, markUserAction]);
 
   return {
     isBusy,
@@ -183,6 +317,11 @@ export function useCockpitData(dealId: string | null): CockpitData {
     error,
     refresh,
     isVisible,
+    lifecycleState,
+    toasts,
+    dismissToast,
+    markUserAction,
+    userRecentlyActive,
   };
 }
 
@@ -230,4 +369,12 @@ export function useShouldPoll(): { shouldPoll: boolean; isBusy: boolean } {
     shouldPoll: ctx.isPolling,
     isBusy: ctx.isBusy,
   };
+}
+
+/**
+ * Hook to mark user actions (for Live indicator tracking).
+ */
+export function useMarkUserAction(): () => void {
+  const ctx = useContext(CockpitDataContext);
+  return ctx?.markUserAction ?? (() => {});
 }
