@@ -94,12 +94,23 @@ export default async function DealCockpitPage({ params }: Props) {
   };
   let verifyLedger: UnderwriteVerifyLedgerEvent | null = null;
   let unifiedLifecycleState: LifecycleState | null = null;
+  let lifecycleAvailable = true; // Track whether lifecycle data is reliable
   const access = await ensureDealBankAccess(dealId);
   if (access.ok) {
     const sb = supabaseAdmin();
 
     // Derive unified lifecycle state FIRST - this is the single source of truth
-    unifiedLifecycleState = await deriveLifecycleState(dealId);
+    try {
+      unifiedLifecycleState = await deriveLifecycleState(dealId);
+      // Check for infrastructure errors in the state
+      const errorCodes = ["internal_error", "data_fetch_failed", "deal_not_found"];
+      if (unifiedLifecycleState?.blockers.some((b) => errorCodes.includes(b.code))) {
+        lifecycleAvailable = false;
+      }
+    } catch (e) {
+      console.error("[DealCockpitPage] deriveLifecycleState failed:", e);
+      lifecycleAvailable = false;
+    }
 
     // Fetch deal metadata (name, borrower info)
     const { data: deal } = await sb
@@ -212,6 +223,7 @@ export default async function DealCockpitPage({ params }: Props) {
         verify={verify}
         verifyLedger={verifyLedger}
         unifiedLifecycleState={unifiedLifecycleState}
+        lifecycleAvailable={lifecycleAvailable}
       />
     </div>
   );

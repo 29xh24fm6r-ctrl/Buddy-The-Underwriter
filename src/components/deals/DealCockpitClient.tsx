@@ -65,6 +65,7 @@ export default function DealCockpitClient({
   verify,
   verifyLedger,
   unifiedLifecycleState,
+  lifecycleAvailable = true,
 }: {
   dealId: string;
   isAdmin?: boolean;
@@ -83,6 +84,8 @@ export default function DealCockpitClient({
   verify: VerifyUnderwriteResult;
   verifyLedger?: UnderwriteVerifyLedgerEvent | null;
   unifiedLifecycleState?: LifecycleState | null;
+  /** Whether lifecycle data is available/reliable. If false, shows degraded UI. */
+  lifecycleAvailable?: boolean;
 }) {
   const [stage, setStage] = useState<string | null>(lifecycleStage ?? null);
   const searchParams = useSearchParams();
@@ -339,6 +342,7 @@ export default function DealCockpitClient({
               <LifecycleStatusPanel
                 dealId={dealId}
                 initialState={unifiedLifecycleState ?? null}
+                available={lifecycleAvailable}
               />
             </SafeBoundary>
 

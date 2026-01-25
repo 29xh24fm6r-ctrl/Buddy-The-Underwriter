@@ -99,6 +99,8 @@ export type LifecycleDerived = {
   committeeRequired: boolean;
   /** True if attestation requirements are satisfied */
   attestationSatisfied: boolean;
+  /** Request correlation ID for debugging (optional, set by route) */
+  correlationId?: string;
 };
 
 /**

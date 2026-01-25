@@ -19,7 +19,47 @@ const glassHeader = "border-b border-white/10 bg-white/[0.02] px-5 py-3";
 type Props = {
   dealId: string;
   initialState: LifecycleState | null;
+  /** Whether the lifecycle data is available/reliable. If false, shows degraded UI. */
+  available?: boolean;
 };
+
+/**
+ * Check if state indicates lifecycle is unavailable (route-level or derive-level errors).
+ */
+function isLifecycleUnavailable(state: LifecycleState | null): boolean {
+  if (!state) return true;
+  // Check for infrastructure/route errors in blockers
+  const errorCodes = [
+    "route_error",
+    "params_error",
+    "validation_error",
+    "access_error",
+    "derive_error",
+    "unexpected_error",
+    "serialization_error",
+    "internal_error",
+    "data_fetch_failed",
+  ];
+  return state.blockers.some((b) => errorCodes.includes(b.code));
+}
+
+/**
+ * Extract correlation ID from state for debugging.
+ */
+function getCorrelationId(state: LifecycleState | null): string | null {
+  if (!state) return null;
+  // Check derived first
+  if ((state.derived as any)?.correlationId) {
+    return (state.derived as any).correlationId;
+  }
+  // Check blocker evidence
+  for (const blocker of state.blockers) {
+    if (blocker.evidence?.correlationId) {
+      return blocker.evidence.correlationId as string;
+    }
+  }
+  return null;
+}
 
 const STAGE_ORDER: LifecycleStage[] = [
   "intake_created",
@@ -188,7 +228,7 @@ function FixableBlockerCard({
   );
 }
 
-export function LifecycleStatusPanel({ dealId, initialState }: Props) {
+export function LifecycleStatusPanel({ dealId, initialState, available }: Props) {
   const router = useRouter();
   const [state, setState] = useState<LifecycleState | null>(initialState);
   const [isAdvancing, setIsAdvancing] = useState(false);
@@ -196,16 +236,28 @@ export function LifecycleStatusPanel({ dealId, initialState }: Props) {
     type: "success" | "error" | "blocked";
     message: string;
   } | null>(null);
+  const [fetchFailed, setFetchFailed] = useState(false);
+
+  // Determine if lifecycle is unavailable (either from prop or state inspection)
+  const lifecycleUnavailable = available === false || fetchFailed || isLifecycleUnavailable(state);
+  const correlationId = getCorrelationId(state);
 
   const refresh = useCallback(async () => {
     try {
+      setFetchFailed(false);
       const res = await fetch(`/api/deals/${dealId}/lifecycle`);
       const data = await res.json();
-      if (data.ok && data.state) {
+      // Always returns 200 now, check ok field
+      if (data.state) {
         setState(data.state);
+        // If ok is false, mark as unavailable
+        if (!data.ok) {
+          setFetchFailed(true);
+        }
       }
     } catch (e) {
       console.error("[LifecycleStatusPanel] Refresh failed:", e);
+      setFetchFailed(true);
     }
   }, [dealId]);
 
@@ -326,25 +378,49 @@ export function LifecycleStatusPanel({ dealId, initialState }: Props) {
       </div>
 
       <div className="p-4 space-y-4">
+        {/* Unavailable Warning Banner */}
+        {lifecycleUnavailable && (
+          <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2">
+            <div className="flex items-start gap-2">
+              <span className="material-symbols-outlined text-red-400 text-[16px] mt-0.5">cloud_off</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-red-200 font-medium">Lifecycle temporarily unavailable</p>
+                <p className="text-[10px] text-red-200/60 mt-0.5">
+                  Showing partial data. Some actions may be disabled.
+                </p>
+                {correlationId && (
+                  <p className="text-[10px] text-red-200/40 mt-1 font-mono">
+                    ID: {correlationId}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Current Stage Badge + Next Action */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <span className={cn(
               "inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-semibold",
-              getStageColor(state.stage)
+              lifecycleUnavailable ? "bg-white/10 text-white/50 border-white/20" : getStageColor(state.stage)
             )}>
-              {STAGE_LABELS[state.stage] || state.stage}
+              {lifecycleUnavailable ? "—" : (STAGE_LABELS[state.stage] || state.stage)}
             </span>
-            <span className="text-xs text-white/40">{progressPct}%</span>
+            <span className="text-xs text-white/40">{lifecycleUnavailable ? "—" : `${progressPct}%`}</span>
           </div>
         </div>
 
         {/* Progress Bar */}
         <div className="relative h-2 rounded-full bg-white/10 overflow-hidden">
-          <div
-            className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-sky-500 to-emerald-500 transition-all duration-500"
-            style={{ width: `${progressPct}%` }}
-          />
+          {lifecycleUnavailable ? (
+            <div className="absolute inset-0 bg-white/5" />
+          ) : (
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-sky-500 to-emerald-500 transition-all duration-500"
+              style={{ width: `${progressPct}%` }}
+            />
+          )}
         </div>
 
         {/* Derived Facts */}
@@ -352,16 +428,16 @@ export function LifecycleStatusPanel({ dealId, initialState }: Props) {
           <div className="flex items-center gap-2">
             <span className={cn(
               "h-2 w-2 rounded-full",
-              state.derived.borrowerChecklistSatisfied ? "bg-emerald-400" : "bg-amber-400"
+              lifecycleUnavailable ? "bg-white/20" : (state.derived.borrowerChecklistSatisfied ? "bg-emerald-400" : "bg-amber-400")
             )} />
             <span className="text-white/60">
-              Docs: {state.derived.requiredDocsReceivedPct}%
+              Docs: {lifecycleUnavailable ? "—" : `${state.derived.requiredDocsReceivedPct}%`}
             </span>
           </div>
           <div className="flex items-center gap-2">
             <span className={cn(
               "h-2 w-2 rounded-full",
-              state.derived.financialSnapshotExists ? "bg-emerald-400" : "bg-amber-400"
+              lifecycleUnavailable ? "bg-white/20" : (state.derived.financialSnapshotExists ? "bg-emerald-400" : "bg-amber-400")
             )} />
             <span className="text-white/60">
               Financial snapshot
@@ -370,7 +446,7 @@ export function LifecycleStatusPanel({ dealId, initialState }: Props) {
           <div className="flex items-center gap-2">
             <span className={cn(
               "h-2 w-2 rounded-full",
-              state.derived.underwriteStarted ? "bg-emerald-400" : "bg-white/20"
+              lifecycleUnavailable ? "bg-white/20" : (state.derived.underwriteStarted ? "bg-emerald-400" : "bg-white/20")
             )} />
             <span className="text-white/60">
               Underwriting
@@ -379,7 +455,7 @@ export function LifecycleStatusPanel({ dealId, initialState }: Props) {
           <div className="flex items-center gap-2">
             <span className={cn(
               "h-2 w-2 rounded-full",
-              state.derived.decisionPresent ? "bg-emerald-400" : "bg-white/20"
+              lifecycleUnavailable ? "bg-white/20" : (state.derived.decisionPresent ? "bg-emerald-400" : "bg-white/20")
             )} />
             <span className="text-white/60">
               Decision
@@ -421,16 +497,21 @@ export function LifecycleStatusPanel({ dealId, initialState }: Props) {
 
           <button
             onClick={handleNextAction}
-            disabled={nextAction.intent === "blocked" || nextAction.intent === "complete" || isAdvancing}
+            disabled={lifecycleUnavailable || nextAction.intent === "blocked" || nextAction.intent === "complete" || isAdvancing}
             className={cn(
               "w-full rounded-lg px-4 py-3 text-sm font-semibold transition-all",
-              getButtonStyle()
+              lifecycleUnavailable ? "bg-white/5 text-white/30 cursor-not-allowed" : getButtonStyle()
             )}
           >
             {isAdvancing ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="animate-spin material-symbols-outlined text-[18px]">progress_activity</span>
                 Working...
+              </span>
+            ) : lifecycleUnavailable ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="material-symbols-outlined text-[18px]">block</span>
+                Actions Unavailable
               </span>
             ) : (
               <span className="flex items-center justify-center gap-2">
