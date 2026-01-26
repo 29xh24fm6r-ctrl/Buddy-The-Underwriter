@@ -31,6 +31,11 @@ import {
   createTimestamp,
   safeWithTimeout,
 } from "@/lib/api/respond";
+import {
+  deriveUnderwritingStance,
+  type UnderwritingStanceResult,
+  type ChecklistItemInput,
+} from "@/lib/underwrite/deriveUnderwritingStance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,6 +62,7 @@ type ContextPayload = {
   deal?: { id: string; bank_id: string | null; created_at: string | null };
   ensured_bank?: { ok: true; bankId: string; updated: boolean } | null;
   artifacts?: { queued: number; processing: number; matched: number; failed: number } | null;
+  underwritingStance?: UnderwritingStanceResult | null;
   error?: { code: string; message: string };
   meta: { dealId: string; correlationId: string; ts: string };
 };
@@ -255,6 +261,26 @@ async function buildPayload(
       openConditions = openConditionsResult.data.count;
     }
 
+    // === Phase 8.5: Derive underwriting stance (non-fatal) ===
+    let underwritingStance: UnderwritingStanceResult | null = null;
+    const checklistResult = await safeWithTimeout(
+      sb.from("deal_checklist_items").select("checklist_key, status, required").eq("deal_id", dealId),
+      8_000,
+      "checklistForStance",
+      correlationId
+    );
+    if (checklistResult.ok && checklistResult.data.data) {
+      const checklistItems: ChecklistItemInput[] = (checklistResult.data.data as Array<{ checklist_key: string; status: string; required?: boolean }>).map((item) => ({
+        checklist_key: item.checklist_key,
+        status: item.status as ChecklistItemInput["status"],
+        required: item.required,
+      }));
+      underwritingStance = deriveUnderwritingStance({
+        checklistItems,
+        hasFinancialSnapshot: false, // TODO: detect snapshot existence
+      });
+    }
+
     // === Phase 9: Risk flags ===
     const riskFlags: string[] = [];
     if (deal.risk_score && deal.risk_score > 70) riskFlags.push("High Risk Score");
@@ -312,6 +338,7 @@ async function buildPayload(
       deal: { id: deal.id, bank_id: deal.bank_id ?? null, created_at: (deal as Record<string, unknown>).created_at as string | null ?? null },
       ensured_bank,
       artifacts: artifactStats,
+      underwritingStance,
       meta: { dealId, correlationId, ts },
     };
   } catch (unexpectedErr) {
