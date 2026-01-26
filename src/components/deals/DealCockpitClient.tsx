@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -10,7 +10,6 @@ import DealFilesCard from "@/components/deals/DealFilesCard";
 import BorrowerUploadLinksCard from "@/components/deals/BorrowerUploadLinksCard";
 import UploadAuditCard from "@/components/deals/UploadAuditCard";
 import { DealProgressWidget } from "@/components/deals/DealProgressWidget";
-import { EnhancedChecklistCard } from "@/components/deals/EnhancedChecklistCard";
 import { UnderwritingControlPanel } from "@/components/deals/UnderwritingControlPanel";
 import { SafeBoundary } from "@/components/SafeBoundary";
 import { PipelineIndicator } from "@/components/deals/PipelineStatus";
@@ -53,8 +52,8 @@ type UnderwriteVerifyLedgerEvent = {
 
 /**
  * Client wrapper for Deal Cockpit.
- * - Wires DealIntakeCard auto-seed → EnhancedChecklistCard refresh
  * - Shows live status bar to prove backend is responding during load
+ * - Lifecycle panel is the single source of truth for deal progress
  */
 export default function DealCockpitClient({
   dealId,
@@ -95,9 +94,6 @@ export default function DealCockpitClient({
   const [borrowerName, setBorrowerName] = useState<string | null>(
     dealName?.borrowerName ?? (optimisticName || null),
   );
-  const [checklistRefresh, setChecklistRefresh] =
-    useState<(() => Promise<void>) | null>(null);
-
   const ignitedLabel = React.useMemo(() => {
     const source = ignitedEvent?.source ?? null;
     if (!source) return null;
@@ -108,7 +104,6 @@ export default function DealCockpitClient({
 
   const highlightIntake = useAnchorAutofocus("intake");
   const highlightBorrower = useAnchorAutofocus("borrower-attach");
-  const highlightDocuments = useAnchorAutofocus("documents");
 
   React.useEffect(() => {
     setBorrowerName(dealName?.borrowerName ?? (optimisticName || null));
@@ -127,24 +122,6 @@ export default function DealCockpitClient({
       payload: { action },
     });
   }, [dealId, effectiveBorrowerName]);
-
-  // Checklist registers its refresh function
-  const handleChecklistRefresh = useCallback((refreshFn: () => Promise<void>) => {
-    setChecklistRefresh(() => refreshFn);
-  }, []);
-
-  // Intake triggers checklist refresh after seeding
-  const handleChecklistSeeded = useCallback(async () => {
-    if (!checklistRefresh) return;
-    try {
-      console.log("[DealCockpitClient] Refreshing checklist after auto-seed");
-      // Allow state to settle (prevents rare latch/race)
-      await new Promise((r) => setTimeout(r, 0));
-      await checklistRefresh();
-    } catch (e) {
-      console.error("[DealCockpitClient] Checklist refresh failed:", e);
-    }
-  }, [checklistRefresh]);
 
   const readinessItems = [
     {
@@ -294,7 +271,6 @@ export default function DealCockpitClient({
                   >
                     <DealIntakeCard
                       dealId={dealId}
-                      onChecklistSeeded={handleChecklistSeeded}
                       isAdmin={isAdmin}
                       lifecycleStage={stage}
                       onLifecycleStageChange={setStage}
@@ -380,26 +356,11 @@ export default function DealCockpitClient({
 
             <div className={cn(glassPanel, "overflow-hidden")}>
               <div className={glassHeader}>
-                <span className="text-xs font-bold uppercase tracking-widest text-white/50">Progress & Checklist</span>
+                <span className="text-xs font-bold uppercase tracking-widest text-white/50">Progress</span>
               </div>
-              <div className="p-4 space-y-4">
+              <div className="p-4">
                 <SafeBoundary>
                   <DealProgressWidget dealId={dealId} />
-                </SafeBoundary>
-
-                <SafeBoundary>
-                  <div
-                    id="documents"
-                    className={cn(
-                      "scroll-mt-24 rounded-xl transition",
-                      highlightDocuments && "ring-2 ring-sky-400/60 bg-sky-500/5",
-                    )}
-                  >
-                    <EnhancedChecklistCard
-                      dealId={dealId}
-                      onRefresh={handleChecklistRefresh}
-                    />
-                  </div>
                 </SafeBoundary>
               </div>
             </div>
