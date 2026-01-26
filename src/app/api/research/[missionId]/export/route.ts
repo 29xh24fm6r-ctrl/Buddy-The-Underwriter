@@ -1,19 +1,20 @@
 /**
  * GET /api/research/[missionId]/export
  *
- * Export research mission as PDF or DOCX.
+ * Export research mission as PDF, DOCX, or Markdown.
  *
  * Query params:
- * - format: "pdf" | "docx" (default: "pdf")
+ * - format: "pdf" | "docx" | "markdown" (default: "pdf")
  *
  * Response:
- * - PDF/DOCX file download
+ * - PDF/DOCX/Markdown file download
  * - Or JSON error if format not supported
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { renderPackToMarkdown, compileCreditCommitteePack } from "@/lib/research/creditCommitteePack";
+import { generateDocument } from "@/lib/research/export/generateDocuments";
 import type {
   ResearchMission,
   ResearchFact,
@@ -143,28 +144,42 @@ export async function GET(
       });
     }
 
-    if (format === "pdf") {
-      // For now, return markdown with a note that PDF generation requires a server-side PDF library
-      // In production, this would use a library like puppeteer or pdfkit
-      const pdfPlaceholder = {
-        ok: true,
-        message: "PDF export requires server-side PDF generation library. Returning markdown.",
-        markdown: fullMarkdown,
-        format: "markdown",
-      };
-      return NextResponse.json(pdfPlaceholder, { status: 200, headers });
-    }
+    // Generate PDF or DOCX using the document generation module
+    if (format === "pdf" || format === "docx") {
+      // Get deal name for filename
+      const { data: deal } = await supabase
+        .from("deals")
+        .select("company_name")
+        .eq("id", mission.deal_id)
+        .single();
 
-    if (format === "docx") {
-      // For now, return markdown with a note that DOCX generation requires a server-side library
-      // In production, this would use a library like docx or officegen
-      const docxPlaceholder = {
-        ok: true,
-        message: "DOCX export requires server-side document generation library. Returning markdown.",
-        markdown: fullMarkdown,
-        format: "markdown",
-      };
-      return NextResponse.json(docxPlaceholder, { status: 200, headers });
+      const docResult = await generateDocument({
+        pack: packResult.pack,
+        sources: sources as ResearchSource[],
+        format,
+        missionId,
+        dealName: deal?.company_name,
+        generatedAt: new Date().toISOString(),
+      });
+
+      if (!docResult.ok || !docResult.buffer) {
+        return NextResponse.json(
+          { ok: false, error: docResult.error ?? "Document generation failed" },
+          { status: 500, headers }
+        );
+      }
+
+      // Convert Buffer to Uint8Array for NextResponse compatibility
+      const bodyData = new Uint8Array(docResult.buffer);
+      return new NextResponse(bodyData, {
+        status: 200,
+        headers: {
+          ...headers,
+          "Content-Type": docResult.contentType!,
+          "Content-Disposition": `attachment; filename="${docResult.filename}"`,
+          "Content-Length": String(docResult.buffer.length),
+        },
+      });
     }
 
     return NextResponse.json(

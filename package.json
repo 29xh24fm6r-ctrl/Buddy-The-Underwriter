@@ -54,6 +54,7 @@
     "busboy": "^1.6.0",
     "cheerio": "^1.1.2",
     "clsx": "^2.1.1",
+    "docx": "^9.5.1",
     "domhandler": "^5.0.3",
     "framer-motion": "^12.23.26",
     "google-auth-library": "^10.5.0",

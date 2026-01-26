@@ -656,3 +656,361 @@ describe("Industry Underwriting Context", () => {
     assert.strictEqual(result.recommended_action, "proceed_to_committee");
   });
 });
+
+// ============================================================================
+// Data Provenance Tests
+// ============================================================================
+
+import {
+  calculateSourceProvenance,
+  calculateFactProvenance,
+  calculateInferenceProvenance,
+  generateProvenanceReport,
+  buildTrustChain,
+  explainProvenance,
+} from "../research/provenance";
+
+describe("Data Provenance Scoring", () => {
+  it("should calculate source provenance with trust score", () => {
+    const source = createMockSource("src-1", {
+      source_url: "https://api.census.gov/data/2021/cbp",
+      source_class: "government",
+      retrieved_at: new Date().toISOString(),
+    });
+
+    const provenance = calculateSourceProvenance(source);
+
+    assert.ok(provenance.base_trust > 0.9); // Government sources have high trust
+    assert.ok(provenance.freshness_factor > 0.9); // Recent data
+    assert.ok(provenance.final_trust > 0.8);
+  });
+
+  it("should penalize old sources with lower freshness factor", () => {
+    const oldDate = new Date();
+    oldDate.setFullYear(oldDate.getFullYear() - 2); // 2 years ago
+
+    const source = createMockSource("src-1", {
+      source_url: "https://api.census.gov/data/2021/cbp",
+      source_class: "government",
+      retrieved_at: oldDate.toISOString(),
+    });
+
+    const provenance = calculateSourceProvenance(source);
+
+    assert.ok(provenance.freshness_factor < 0.9); // Penalized for age
+  });
+
+  it("should calculate fact provenance combining source and extraction", () => {
+    const source = createMockSource("src-1", {
+      source_url: "https://api.census.gov/data/2021/cbp",
+      retrieved_at: new Date().toISOString(),
+    });
+    const fact = createMockFact("fact-1", "market_size", "src-1", {
+      confidence: 0.85,
+      extracted_by: "rule",
+    });
+
+    const provenance = calculateFactProvenance(fact, source);
+
+    assert.ok(provenance.extraction_factor === 0.95); // Rule-based extraction
+    assert.ok(provenance.adjusted_confidence > 0);
+    assert.ok(provenance.adjusted_confidence <= fact.confidence);
+  });
+
+  it("should apply lower extraction factor for model-based extraction", () => {
+    const source = createMockSource("src-1", {
+      source_url: "https://api.census.gov/data/2021/cbp",
+      retrieved_at: new Date().toISOString(),
+    });
+    const ruleFact = createMockFact("fact-1", "market_size", "src-1", {
+      confidence: 0.85,
+      extracted_by: "rule",
+    });
+    const modelFact = createMockFact("fact-2", "market_size", "src-1", {
+      confidence: 0.85,
+      extracted_by: "model",
+    });
+
+    const ruleProv = calculateFactProvenance(ruleFact, source);
+    const modelProv = calculateFactProvenance(modelFact, source);
+
+    assert.ok(ruleProv.extraction_factor > modelProv.extraction_factor);
+  });
+
+  it("should calculate inference provenance with chain depth penalty", () => {
+    const source = createMockSource("src-1", {
+      source_url: "https://api.census.gov/data/2021/cbp",
+      retrieved_at: new Date().toISOString(),
+    });
+    const fact = createMockFact("fact-1", "market_size", "src-1", {
+      confidence: 0.85,
+    });
+    const inference = createMockInference("inf-1", "growth_trajectory", ["fact-1"], {
+      confidence: 0.8,
+    });
+
+    const provenance = calculateInferenceProvenance(inference, [fact], [source]);
+
+    assert.strictEqual(provenance.chain_depth, 2);
+    assert.ok(provenance.adjusted_confidence <= inference.confidence);
+  });
+
+  it("should generate full provenance report", () => {
+    const source = createMockSource("src-1", {
+      source_url: "https://api.census.gov/data/2021/cbp",
+      retrieved_at: new Date().toISOString(),
+    });
+    const fact = createMockFact("fact-1", "market_size", "src-1");
+    const inference = createMockInference("inf-1", "growth_trajectory", ["fact-1"]);
+
+    const report = generateProvenanceReport([source], [fact], [inference]);
+
+    assert.strictEqual(report.sources.length, 1);
+    assert.strictEqual(report.facts.length, 1);
+    assert.strictEqual(report.inferences.length, 1);
+    assert.ok(report.summary.avg_source_trust > 0);
+  });
+
+  it("should build trust chain for inference", () => {
+    const source = createMockSource("src-1", {
+      source_url: "https://api.census.gov/data/2021/cbp",
+      retrieved_at: new Date().toISOString(),
+    });
+    const fact = createMockFact("fact-1", "market_size", "src-1");
+    const inference = createMockInference("inf-1", "growth_trajectory", ["fact-1"]);
+
+    const chain = buildTrustChain(inference, [fact], [source]);
+
+    assert.ok(chain.length >= 3); // source, fact, inference
+    assert.ok(chain.some((n) => n.type === "source"));
+    assert.ok(chain.some((n) => n.type === "fact"));
+    assert.ok(chain.some((n) => n.type === "inference"));
+  });
+
+  it("should generate human-readable provenance explanation", () => {
+    const source = createMockSource("src-1", {
+      source_url: "https://api.census.gov/data/2021/cbp",
+      source_name: "Census CBP",
+      retrieved_at: new Date().toISOString(),
+    });
+    const fact = createMockFact("fact-1", "market_size", "src-1");
+    const inference = createMockInference("inf-1", "growth_trajectory", ["fact-1"]);
+
+    const explanation = explainProvenance(inference, [fact], [source]);
+
+    assert.ok(explanation.includes("Provenance Analysis"));
+    assert.ok(explanation.includes("confidence"));
+  });
+});
+
+// ============================================================================
+// Conflict Resolver Tests
+// ============================================================================
+
+import {
+  detectConflicts,
+  detectFactConflict,
+  mergeConflicts,
+  getPreferredFact,
+} from "../research/conflictResolver";
+
+describe("Conflict Resolver", () => {
+  it("should detect numeric disagreement between facts", () => {
+    const source1 = createMockSource("src-1", {
+      source_url: "https://api.census.gov/data/2021/cbp",
+      source_name: "Census",
+    });
+    const source2 = createMockSource("src-2", {
+      source_url: "https://api.bls.gov/data/test",
+      source_name: "BLS",
+    });
+
+    const fact1 = createMockFact("fact-1", "market_size", "src-1", {
+      value: { value: 100000000, unit: "USD" },
+    });
+    const fact2 = createMockFact("fact-2", "market_size", "src-2", {
+      value: { value: 150000000, unit: "USD" }, // 50% difference
+    });
+
+    const report = detectConflicts([fact1, fact2], [source1, source2]);
+
+    assert.ok(report.ok);
+    assert.strictEqual(report.conflicts.length, 1);
+    assert.strictEqual(report.conflicts[0].conflict_type, "numeric_disagreement");
+    assert.strictEqual(report.conflicts[0].severity, "high"); // 50% is high
+  });
+
+  it("should not flag small numeric differences as conflicts", () => {
+    const source1 = createMockSource("src-1");
+    const source2 = createMockSource("src-2");
+
+    const fact1 = createMockFact("fact-1", "market_size", "src-1", {
+      value: { value: 100000000, unit: "USD" },
+    });
+    const fact2 = createMockFact("fact-2", "market_size", "src-2", {
+      value: { value: 102000000, unit: "USD" }, // 2% difference
+    });
+
+    const report = detectConflicts([fact1, fact2], [source1, source2]);
+
+    assert.strictEqual(report.conflicts.length, 0); // Within 10% threshold
+  });
+
+  it("should detect directional disagreement", () => {
+    const source1 = createMockSource("src-1");
+    const source2 = createMockSource("src-2");
+
+    const fact1 = createMockFact("fact-1", "growth_trend", "src-1", {
+      value: { text: "Industry is growing rapidly" },
+    });
+    const fact2 = createMockFact("fact-2", "growth_trend", "src-2", {
+      value: { text: "Industry is declining significantly" },
+    });
+
+    const report = detectConflicts([fact1, fact2], [source1, source2]);
+
+    assert.ok(report.conflicts.length >= 1);
+    const directionalConflict = report.conflicts.find(
+      (c) => c.conflict_type === "directional_disagreement"
+    );
+    assert.ok(directionalConflict);
+    assert.strictEqual(directionalConflict!.severity, "high");
+  });
+
+  it("should generate explanation for conflicts", () => {
+    const source1 = createMockSource("src-1", { source_name: "Source A" });
+    const source2 = createMockSource("src-2", { source_name: "Source B" });
+
+    const fact1 = createMockFact("fact-1", "market_size", "src-1", {
+      value: { value: 100 },
+    });
+    const fact2 = createMockFact("fact-2", "market_size", "src-2", {
+      value: { value: 150 },
+    });
+
+    const conflict = detectFactConflict(
+      fact1,
+      fact2,
+      new Map([
+        ["src-1", source1],
+        ["src-2", source2],
+      ])
+    );
+
+    assert.ok(conflict);
+    assert.ok(conflict!.explanation.includes("Source A"));
+    assert.ok(conflict!.explanation.includes("Source B"));
+  });
+
+  it("should recommend preferring higher trust source", () => {
+    const source1 = createMockSource("src-1", {
+      source_url: "https://api.census.gov/data/test", // High trust
+      source_name: "Census",
+    });
+    const source2 = createMockSource("src-2", {
+      source_url: "https://unknown-source.com/data", // Low trust
+      source_name: "Unknown",
+    });
+
+    const fact1 = createMockFact("fact-1", "market_size", "src-1", {
+      value: { value: 100 },
+    });
+    const fact2 = createMockFact("fact-2", "market_size", "src-2", {
+      value: { value: 200 },
+    });
+
+    const conflict = detectFactConflict(
+      fact1,
+      fact2,
+      new Map([
+        ["src-1", source1],
+        ["src-2", source2],
+      ])
+    );
+
+    assert.ok(conflict);
+    assert.strictEqual(conflict!.recommendation, "prefer_higher_trust");
+  });
+
+  it("should merge related conflicts", () => {
+    const source1 = createMockSource("src-1");
+    const source2 = createMockSource("src-2");
+    const source3 = createMockSource("src-3");
+
+    const fact1 = createMockFact("fact-1", "market_size", "src-1", {
+      value: { value: 100 },
+    });
+    const fact2 = createMockFact("fact-2", "market_size", "src-2", {
+      value: { value: 200 },
+    });
+    const fact3 = createMockFact("fact-3", "market_size", "src-3", {
+      value: { value: 300 },
+    });
+
+    const report = detectConflicts(
+      [fact1, fact2, fact3],
+      [source1, source2, source3]
+    );
+
+    const merged = mergeConflicts(report.conflicts);
+
+    // Should merge into fewer conflicts
+    assert.ok(merged.length <= report.conflicts.length);
+  });
+
+  it("should get preferred fact based on recommendation", () => {
+    const source1 = createMockSource("src-1", {
+      source_url: "https://api.census.gov/data/test",
+    });
+    const source2 = createMockSource("src-2", {
+      source_url: "https://unknown.com/data",
+    });
+
+    const fact1 = createMockFact("fact-1", "market_size", "src-1", {
+      value: { value: 100 },
+    });
+    const fact2 = createMockFact("fact-2", "market_size", "src-2", {
+      value: { value: 200 },
+    });
+
+    const conflict = detectFactConflict(
+      fact1,
+      fact2,
+      new Map([
+        ["src-1", source1],
+        ["src-2", source2],
+      ])
+    );
+
+    assert.ok(conflict);
+    const preferred = getPreferredFact(conflict!);
+    assert.ok(preferred);
+    assert.strictEqual(preferred!.fact_id, "fact-1"); // Census has higher trust
+  });
+
+  it("should calculate conflict summary correctly", () => {
+    const source1 = createMockSource("src-1");
+    const source2 = createMockSource("src-2");
+
+    const fact1 = createMockFact("fact-1", "market_size", "src-1", {
+      value: { value: 100 },
+    });
+    const fact2 = createMockFact("fact-2", "market_size", "src-2", {
+      value: { value: 200 },
+    });
+    const fact3 = createMockFact("fact-3", "growth_trend", "src-1", {
+      value: { text: "growing" },
+    });
+    const fact4 = createMockFact("fact-4", "growth_trend", "src-2", {
+      value: { text: "declining" },
+    });
+
+    const report = detectConflicts(
+      [fact1, fact2, fact3, fact4],
+      [source1, source2]
+    );
+
+    assert.ok(report.summary.total_conflicts >= 2);
+    assert.ok(report.summary.by_fact_type["market_size"] >= 1);
+  });
+});

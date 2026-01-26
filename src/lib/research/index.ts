@@ -203,6 +203,46 @@ export type {
   RecommendedAction,
 } from "./deriveIndustryUnderwritingContext";
 
+// Data Provenance Scoring
+export {
+  calculateSourceProvenance,
+  calculateFactProvenance,
+  calculateInferenceProvenance,
+  generateProvenanceReport,
+  buildTrustChain,
+  explainProvenance,
+} from "./provenance";
+
+export type {
+  ProvenanceScore,
+  ProvenanceFactor,
+  TrustChainNode,
+  SourceProvenance,
+  FactProvenance,
+  InferenceProvenance,
+  ProvenanceReport,
+} from "./provenance";
+
+// Conflict Resolution
+export {
+  detectConflicts,
+  detectFactConflict,
+  mergeConflicts,
+  applyResolution,
+  getPreferredFact,
+} from "./conflictResolver";
+
+export type {
+  ConflictType,
+  ConflictSeverity,
+  FactConflict,
+  ConflictingFact,
+  ConflictRecommendation,
+  ConflictResolution,
+  ConflictReport,
+  ConflictSummary,
+} from "./conflictResolver";
+
 // Note: runMission and runIndustryLandscapeMission are server-only
 // Import them directly from "@/lib/research/runMission" in server contexts
 
