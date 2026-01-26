@@ -2,42 +2,120 @@ import type { ChecklistRuleSet } from "./types";
 
 /**
  * Checklist Engine v2: Rule Sets
- * 
+ *
  * Each rule set defines required/optional documents for a loan type.
- * This is a stub - expand with actual rules as needed.
+ * Keys MUST match the canonical keys used by matchers and UI:
+ * - IRS_BUSINESS_3Y, IRS_PERSONAL_3Y (tax returns)
+ * - PFS_CURRENT (personal financial statement)
+ * - FIN_STMT_PL_YTD, FIN_STMT_BS_YTD (financial statements)
+ * - BANK_STMT_3M (bank statements)
+ * - etc.
  */
 
+/**
+ * Universal/default checklist for any loan type.
+ * Used when loan_type is unknown or doesn't match a specific ruleset.
+ * Covers the most common required documents.
+ */
+const UNIVERSAL_ITEMS = [
+  {
+    checklist_key: "IRS_BUSINESS_3Y",
+    title: "Business Tax Returns (3 years)",
+    required: true,
+    description: "Most recent 3 years of business tax returns (1120, 1120S, or 1065)",
+  },
+  {
+    checklist_key: "IRS_PERSONAL_3Y",
+    title: "Personal Tax Returns (3 years)",
+    required: true,
+    description: "Most recent 3 years of personal tax returns (1040) for all owners ≥20%",
+  },
+  {
+    checklist_key: "PFS_CURRENT",
+    title: "Personal Financial Statement",
+    required: true,
+    description: "Current personal financial statement for all owners ≥20%",
+  },
+  {
+    checklist_key: "FIN_STMT_PL_YTD",
+    title: "Income Statement / P&L (YTD)",
+    required: true,
+    description: "Year-to-date profit & loss / income statement",
+  },
+  {
+    checklist_key: "FIN_STMT_BS_YTD",
+    title: "Balance Sheet (Current)",
+    required: true,
+    description: "Most recent balance sheet",
+  },
+  {
+    checklist_key: "BANK_STMT_3M",
+    title: "Bank Statements (3 months)",
+    required: false,
+    description: "Most recent 3 months of business bank statements",
+  },
+];
+
 export const RULESETS: ChecklistRuleSet[] = [
+  // Universal/default - used when loan_type is unknown
+  {
+    key: "UNIVERSAL_V1",
+    loan_type_norm: "UNKNOWN",
+    version: 1,
+    items: UNIVERSAL_ITEMS,
+  },
+  // CRE Owner-Occupied
   {
     key: "CRE_OWNER_OCCUPIED_V1",
     loan_type_norm: "CRE_OWNER_OCCUPIED",
     version: 1,
     items: [
+      ...UNIVERSAL_ITEMS,
       {
-        checklist_key: "BUSINESS_TAX_RETURN",
-        title: "Business Tax Returns",
-        required: true,
-        description: "3 years of business tax returns",
+        checklist_key: "RENT_ROLL",
+        title: "Rent Roll",
+        required: false,
+        description: "Current rent roll (if property has tenants)",
       },
       {
-        checklist_key: "PERSONAL_TAX_RETURN",
-        title: "Personal Tax Returns",
-        required: true,
-        description: "3 years of personal tax returns for owners ≥20%",
-      },
-      {
-        checklist_key: "FINANCIAL_STATEMENT",
-        title: "Business Financial Statements",
-        required: true,
-        description: "Recent balance sheet and P&L",
-      },
-      {
-        checklist_key: "PERSONAL_FINANCIAL_STATEMENT",
-        title: "Personal Financial Statement",
-        required: true,
-        description: "PFS for owners ≥20%",
+        checklist_key: "PROPERTY_T12",
+        title: "Trailing 12 Operating Statement",
+        required: false,
+        description: "T-12 operating statement for the property",
       },
     ],
   },
-  // Add more rule sets as needed
+  // CRE Investor
+  {
+    key: "CRE_INVESTOR_V1",
+    loan_type_norm: "CRE_INVESTOR",
+    version: 1,
+    items: [
+      ...UNIVERSAL_ITEMS,
+      {
+        checklist_key: "RENT_ROLL",
+        title: "Rent Roll",
+        required: true,
+        description: "Current rent roll with tenant details",
+      },
+      {
+        checklist_key: "PROPERTY_T12",
+        title: "Trailing 12 Operating Statement",
+        required: true,
+        description: "T-12 operating statement for the property",
+      },
+      {
+        checklist_key: "LEASES_TOP",
+        title: "Top Tenant Leases",
+        required: false,
+        description: "Copies of leases for top tenants",
+      },
+      {
+        checklist_key: "PROPERTY_INSURANCE",
+        title: "Property Insurance",
+        required: false,
+        description: "Current insurance declarations page",
+      },
+    ],
+  },
 ];

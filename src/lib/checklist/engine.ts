@@ -192,11 +192,15 @@ export async function reconcileDealChecklist(dealId: string) {
 
   if (intakeErr) throw new Error(`intake_read_failed: ${intakeErr.message}`);
 
-  const rs = getRuleSetForLoanType(intake?.loan_type ?? null);
+  // Get ruleset for loan type, falling back to UNKNOWN (universal) if no match
+  let rs = getRuleSetForLoanType(intake?.loan_type ?? null);
+  if (!rs) {
+    // Use universal ruleset when loan_type is unknown or doesn't match
+    rs = getRuleSetForLoanType("UNKNOWN");
+  }
 
-  // 2) Seed checklist (idempotent) when we have a ruleset.
-  // IMPORTANT: Even without intake/loan_type, we still want to stamp documents
-  // from filename (step 4) so uploads BEFORE intake can reconcile later.
+  // 2) Seed checklist (idempotent).
+  // With the universal ruleset, we ALWAYS seed core items so uploads can be matched.
   const rows = rs ? buildChecklistRows(dealId, rs.items) : [];
 
   if (rs) {
