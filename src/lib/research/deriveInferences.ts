@@ -226,6 +226,242 @@ function deriveGrowthTrajectory(facts: ResearchFact[]): DerivedInference | null 
 }
 
 /**
+ * Derive demand stability from population and income trends.
+ * Key for market_demand missions.
+ */
+function deriveDemandStability(facts: ResearchFact[]): DerivedInference | null {
+  const populationFacts = facts.filter((f) => f.fact_type === "population");
+  const incomeFacts = facts.filter((f) => f.fact_type === "median_income");
+  const growthRateFacts = facts.filter(
+    (f) => f.fact_type === "other" && (f.value as { category?: string }).category === "population_growth_rate"
+  );
+
+  if (populationFacts.length === 0 && incomeFacts.length === 0) {
+    return null;
+  }
+
+  // Use a score-based approach that TypeScript can follow
+  let stabilityScore = 1; // 0=low, 1=medium, 2=high
+  const reasons: string[] = [];
+
+  // Population growth assessment
+  if (growthRateFacts.length > 0) {
+    const growthRate = parseFloat((growthRateFacts[0].value as { text: string }).text);
+    if (!isNaN(growthRate)) {
+      if (growthRate > 1.0) {
+        reasons.push(`population growing ${growthRate.toFixed(2)}% annually`);
+        stabilityScore = 2;
+      } else if (growthRate > 0) {
+        reasons.push(`population stable (+${growthRate.toFixed(2)}%)`);
+      } else if (growthRate > -0.5) {
+        reasons.push(`population slightly declining (${growthRate.toFixed(2)}%)`);
+        if (stabilityScore > 1) stabilityScore = 1;
+      } else {
+        reasons.push(`population declining (${growthRate.toFixed(2)}%)`);
+        stabilityScore = 0;
+      }
+    }
+  }
+
+  // Income assessment
+  if (incomeFacts.length > 0) {
+    const incomeValue = incomeFacts[0].value as NumericValue;
+    const medianIncome = incomeValue.value;
+    const geography = incomeValue.geography ?? "area";
+
+    // US national median is ~$75k
+    if (medianIncome > 85000) {
+      reasons.push(`above-average median income ($${medianIncome.toLocaleString()}) in ${geography}`);
+      if (stabilityScore > 0) stabilityScore = 2;
+    } else if (medianIncome > 60000) {
+      reasons.push(`moderate median income ($${medianIncome.toLocaleString()}) in ${geography}`);
+    } else {
+      reasons.push(`below-average median income ($${medianIncome.toLocaleString()}) in ${geography}`);
+      if (stabilityScore > 1) stabilityScore = 1;
+    }
+  }
+
+  // Total population assessment
+  if (populationFacts.length > 0) {
+    const popValue = populationFacts[0].value as NumericValue;
+    const population = popValue.value;
+    const geography = popValue.geography ?? "area";
+
+    if (population > 1_000_000) {
+      reasons.push(`substantial population base (${(population / 1_000_000).toFixed(2)}M) in ${geography}`);
+    } else if (population > 100_000) {
+      reasons.push(`moderate population (${(population / 1_000).toFixed(0)}K) in ${geography}`);
+    } else {
+      reasons.push(`smaller population (${population.toLocaleString()}) limits demand ceiling`);
+      if (stabilityScore > 1) stabilityScore = 1;
+    }
+  }
+
+  if (reasons.length === 0) return null;
+
+  // Convert score to text
+  const stability = stabilityScore === 2 ? "high" : stabilityScore === 0 ? "low" : "medium";
+
+  const inputFactIds = [
+    ...populationFacts.slice(0, 3).map((f) => f.id),
+    ...incomeFacts.slice(0, 2).map((f) => f.id),
+    ...growthRateFacts.slice(0, 2).map((f) => f.id),
+  ];
+
+  return {
+    inference_type: "other",
+    conclusion: `${stability.toUpperCase()} demand stability: ${reasons.join("; ")}.`,
+    input_fact_ids: inputFactIds,
+    confidence: reasons.length >= 2 ? 0.85 : 0.7,
+    reasoning: `Demand stability assessed based on ${reasons.length} demographic indicators.`,
+  };
+}
+
+/**
+ * Derive geographic concentration risk from demographic spread.
+ */
+function deriveGeographicConcentration(facts: ResearchFact[]): DerivedInference | null {
+  const populationFacts = facts.filter((f) => f.fact_type === "population");
+  const incomeFacts = facts.filter((f) => f.fact_type === "median_income");
+
+  // Need multiple geographic areas to assess concentration
+  if (populationFacts.length < 2) {
+    return null;
+  }
+
+  // Extract unique geographies
+  const geographies = new Set<string>();
+  for (const fact of [...populationFacts, ...incomeFacts]) {
+    const value = fact.value as NumericValue;
+    if (value.geography) {
+      geographies.add(value.geography);
+    }
+  }
+
+  let concentration: "high" | "medium" | "low";
+  let reasoning: string;
+
+  if (geographies.size === 1) {
+    concentration = "high";
+    reasoning = `Data from single geography (${[...geographies][0]}); high geographic concentration risk`;
+  } else if (geographies.size <= 3) {
+    concentration = "medium";
+    reasoning = `Data from ${geographies.size} geographies; moderate geographic diversification`;
+  } else {
+    concentration = "low";
+    reasoning = `Data from ${geographies.size} geographies; good geographic diversification`;
+  }
+
+  const inputFactIds = populationFacts.slice(0, 5).map((f) => f.id);
+
+  return {
+    inference_type: "geographic_concentration",
+    conclusion: `${concentration.toUpperCase()} geographic concentration.`,
+    input_fact_ids: inputFactIds,
+    confidence: 0.75,
+    reasoning,
+  };
+}
+
+/**
+ * Derive demographic tailwinds/headwinds from population and income trends.
+ */
+function deriveDemographicTailwindsHeadwinds(facts: ResearchFact[]): DerivedInference[] {
+  const inferences: DerivedInference[] = [];
+
+  // Population growth tailwind/headwind
+  const growthRateFacts = facts.filter(
+    (f) => f.fact_type === "other" && (f.value as { category?: string }).category === "population_growth_rate"
+  );
+
+  if (growthRateFacts.length > 0) {
+    const growthRate = parseFloat((growthRateFacts[0].value as { text: string }).text);
+    if (!isNaN(growthRate)) {
+      if (growthRate > 1.5) {
+        inferences.push({
+          inference_type: "tailwind",
+          conclusion: `Strong population growth (+${growthRate.toFixed(2)}% annually) drives organic demand expansion.`,
+          input_fact_ids: [growthRateFacts[0].id],
+          confidence: 0.85,
+          reasoning: "Population growth above 1.5% creates natural demand tailwind.",
+        });
+      } else if (growthRate < -0.5) {
+        inferences.push({
+          inference_type: "headwind",
+          conclusion: `Population decline (${growthRate.toFixed(2)}% annually) may constrain long-term demand.`,
+          input_fact_ids: [growthRateFacts[0].id],
+          confidence: 0.8,
+          reasoning: "Population decline creates structural demand headwind.",
+        });
+      }
+    }
+  }
+
+  // Income-based tailwind/headwind
+  const incomeFacts = facts.filter((f) => f.fact_type === "median_income");
+  if (incomeFacts.length > 0) {
+    const incomeValue = incomeFacts[0].value as NumericValue;
+    const medianIncome = incomeValue.value;
+
+    if (medianIncome > 100000) {
+      inferences.push({
+        inference_type: "tailwind",
+        conclusion: `High median income ($${medianIncome.toLocaleString()}) indicates strong purchasing power.`,
+        input_fact_ids: [incomeFacts[0].id],
+        confidence: 0.8,
+        reasoning: "Above-average income supports premium pricing and higher-margin services.",
+      });
+    } else if (medianIncome < 50000) {
+      inferences.push({
+        inference_type: "headwind",
+        conclusion: `Below-average median income ($${medianIncome.toLocaleString()}) may limit discretionary spending.`,
+        input_fact_ids: [incomeFacts[0].id],
+        confidence: 0.75,
+        reasoning: "Lower income levels may constrain demand for non-essential goods/services.",
+      });
+    }
+  }
+
+  // Education-based (workforce quality) tailwind
+  const educationFacts = facts.filter(
+    (f) => f.fact_type === "other" && (f.value as { category?: string }).category === "college_educated_pct"
+  );
+  if (educationFacts.length > 0) {
+    const educationPct = parseFloat((educationFacts[0].value as { text: string }).text);
+    if (!isNaN(educationPct) && educationPct > 35) {
+      inferences.push({
+        inference_type: "tailwind",
+        conclusion: `Highly educated workforce (${educationPct.toFixed(1)}% college-educated) supports knowledge-based services.`,
+        input_fact_ids: [educationFacts[0].id],
+        confidence: 0.75,
+        reasoning: "Higher education levels correlate with professional services demand.",
+      });
+    }
+  }
+
+  // Housing market health (as proxy for local economy)
+  const homeValueFacts = facts.filter(
+    (f) => f.fact_type === "other" && (f.value as { category?: string }).category === "median_home_value"
+  );
+  if (homeValueFacts.length > 0) {
+    const homeValue = parseFloat((homeValueFacts[0].value as { text: string }).text);
+    if (!isNaN(homeValue)) {
+      if (homeValue > 400000) {
+        inferences.push({
+          inference_type: "tailwind",
+          conclusion: `High home values ($${homeValue.toLocaleString()}) indicate affluent market with strong local economy.`,
+          input_fact_ids: [homeValueFacts[0].id],
+          confidence: 0.7,
+          reasoning: "High property values correlate with economic prosperity and consumer spending.",
+        });
+      }
+    }
+  }
+
+  return inferences;
+}
+
+/**
  * Derive tailwinds and headwinds from growth and market data.
  */
 function deriveTailwindsHeadwinds(facts: ResearchFact[]): DerivedInference[] {
@@ -313,9 +549,25 @@ export function deriveInferences(facts: ResearchFact[]): InferenceDerivationResu
     inferences.push(growthTrajectory);
   }
 
-  // 4. Tailwinds and headwinds
+  // 4. Demand stability (from demographics)
+  const demandStability = deriveDemandStability(facts);
+  if (demandStability) {
+    inferences.push(demandStability);
+  }
+
+  // 5. Geographic concentration
+  const geoConcentration = deriveGeographicConcentration(facts);
+  if (geoConcentration) {
+    inferences.push(geoConcentration);
+  }
+
+  // 6. Tailwinds and headwinds (industry)
   const tailwindsHeadwinds = deriveTailwindsHeadwinds(facts);
   inferences.push(...tailwindsHeadwinds);
+
+  // 7. Demographic tailwinds and headwinds
+  const demoTailwindsHeadwinds = deriveDemographicTailwindsHeadwinds(facts);
+  inferences.push(...demoTailwindsHeadwinds);
 
   return { inferences };
 }

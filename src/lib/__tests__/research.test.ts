@@ -65,9 +65,28 @@ describe("Source Discovery", () => {
 
   it("should return empty for unsupported mission types", () => {
     const subject: MissionSubject = { naics_code: "236" };
-    const sources = discoverSources("demographics", subject);
+    // regulatory_environment and management_backgrounds are not yet implemented
+    const sources = discoverSources("regulatory_environment", subject);
 
     assert.equal(sources.length, 0, "Should return empty for unimplemented mission type");
+  });
+
+  it("should return Census ACS sources for market_demand missions", () => {
+    const subject: MissionSubject = { geography: "TX" };
+    const sources = discoverSources("market_demand", subject);
+
+    assert.ok(sources.length > 0, "Should return sources for market_demand");
+    const hasACS = sources.some((s) => s.source_name.includes("ACS") || s.source_name.includes("Census"));
+    assert.ok(hasACS, "Should include Census ACS sources");
+  });
+
+  it("should return Census sources for demographics missions", () => {
+    const subject: MissionSubject = { geography: "CA" };
+    const sources = discoverSources("demographics", subject);
+
+    assert.ok(sources.length > 0, "Should return sources for demographics");
+    const hasDemographic = sources.some((s) => s.source_name.includes("Demographic") || s.source_name.includes("ACS"));
+    assert.ok(hasDemographic, "Should include demographic sources");
   });
 
   it("should include Census and BLS sources for industry missions", () => {

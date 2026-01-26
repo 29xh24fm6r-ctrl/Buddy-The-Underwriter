@@ -255,6 +255,246 @@ function compileMarketDynamics(
 }
 
 /**
+ * Compile the Market Demand section.
+ * Focused on population, income, and demand stability.
+ */
+function compileMarketDemand(
+  facts: ResearchFact[],
+  inferences: ResearchInference[]
+): NarrativeSection | null {
+  const sentences: NarrativeSentence[] = [];
+
+  // Population facts
+  const populationFacts = facts.filter((f) => f.fact_type === "population");
+  if (populationFacts.length > 0) {
+    // Get the largest area's population
+    const sortedPop = [...populationFacts].sort((a, b) => {
+      const aVal = (a.value as NumericValue).value;
+      const bVal = (b.value as NumericValue).value;
+      return bVal - aVal;
+    });
+
+    const topPop = sortedPop[0];
+    const popValue = topPop.value as NumericValue;
+    const formatted = popValue.value >= 1_000_000
+      ? `${(popValue.value / 1_000_000).toFixed(2)} million`
+      : popValue.value.toLocaleString();
+
+    sentences.push({
+      text: `The target market area (${popValue.geography}) has a population of approximately ${formatted}.`,
+      citations: [factCitation(topPop.id)],
+    });
+  }
+
+  // Population growth
+  const growthRateFacts = facts.filter(
+    (f) => f.fact_type === "other" && (f.value as { category?: string }).category === "population_growth_rate"
+  );
+  if (growthRateFacts.length > 0) {
+    const growthFact = growthRateFacts[0];
+    const growthRate = parseFloat((growthFact.value as { text: string }).text);
+    if (!isNaN(growthRate)) {
+      const direction = growthRate >= 0 ? "growing" : "declining";
+      sentences.push({
+        text: `The population is ${direction} at ${Math.abs(growthRate).toFixed(2)}% annually.`,
+        citations: [factCitation(growthFact.id)],
+      });
+    }
+  }
+
+  // Median income facts
+  const incomeFacts = facts.filter((f) => f.fact_type === "median_income");
+  if (incomeFacts.length > 0) {
+    const incomeFact = incomeFacts[0];
+    const incomeValue = incomeFact.value as NumericValue;
+
+    sentences.push({
+      text: `Median household income in ${incomeValue.geography ?? "the area"} is $${incomeValue.value.toLocaleString()}.`,
+      citations: [factCitation(incomeFact.id)],
+    });
+  }
+
+  // Per capita income
+  const perCapitaFacts = facts.filter(
+    (f) => f.fact_type === "other" && (f.value as { category?: string }).category === "per_capita_income"
+  );
+  if (perCapitaFacts.length > 0) {
+    const pcFact = perCapitaFacts[0];
+    const pcIncome = parseFloat((pcFact.value as { text: string }).text);
+    if (!isNaN(pcIncome)) {
+      sentences.push({
+        text: `Per capita income is $${pcIncome.toLocaleString()}.`,
+        citations: [factCitation(pcFact.id)],
+      });
+    }
+  }
+
+  // Demand stability inference
+  const demandInference = inferences.find(
+    (i) => i.inference_type === "other" && i.conclusion.toLowerCase().includes("demand stability")
+  );
+  if (demandInference) {
+    sentences.push({
+      text: demandInference.conclusion,
+      citations: [inferenceCitation(demandInference.id)],
+    });
+  }
+
+  // Geographic concentration
+  const geoInference = inferences.find((i) => i.inference_type === "geographic_concentration");
+  if (geoInference) {
+    sentences.push({
+      text: geoInference.conclusion,
+      citations: [inferenceCitation(geoInference.id)],
+    });
+  }
+
+  if (sentences.length === 0) {
+    return null;
+  }
+
+  return {
+    title: "Market Demand",
+    sentences,
+  };
+}
+
+/**
+ * Compile the Demographics section.
+ * Focused on workforce, education, housing characteristics.
+ */
+function compileDemographics(
+  facts: ResearchFact[],
+  inferences: ResearchInference[]
+): NarrativeSection | null {
+  const sentences: NarrativeSentence[] = [];
+
+  // Median age
+  const ageFacts = facts.filter(
+    (f) => f.fact_type === "other" && (f.value as { category?: string }).category === "median_age"
+  );
+  if (ageFacts.length > 0) {
+    const ageFact = ageFacts[0];
+    const medianAge = parseFloat((ageFact.value as { text: string }).text);
+    if (!isNaN(medianAge)) {
+      sentences.push({
+        text: `The median age in the area is ${medianAge.toFixed(1)} years.`,
+        citations: [factCitation(ageFact.id)],
+      });
+    }
+  }
+
+  // Education level
+  const educationFacts = facts.filter(
+    (f) => f.fact_type === "other" && (f.value as { category?: string }).category === "college_educated_pct"
+  );
+  if (educationFacts.length > 0) {
+    const eduFact = educationFacts[0];
+    const eduPct = parseFloat((eduFact.value as { text: string }).text);
+    if (!isNaN(eduPct)) {
+      sentences.push({
+        text: `Approximately ${eduPct.toFixed(1)}% of the adult population holds a college degree or higher.`,
+        citations: [factCitation(eduFact.id)],
+      });
+    }
+  }
+
+  // Unemployment rate
+  const unemploymentFacts = facts.filter(
+    (f) => f.fact_type === "other" && (f.value as { category?: string }).category === "unemployment_rate"
+  );
+  if (unemploymentFacts.length > 0) {
+    const unempFact = unemploymentFacts[0];
+    const unempRate = parseFloat((unempFact.value as { text: string }).text);
+    if (!isNaN(unempRate)) {
+      sentences.push({
+        text: `The local unemployment rate is ${unempRate.toFixed(1)}%.`,
+        citations: [factCitation(unempFact.id)],
+      });
+    }
+  }
+
+  // Housing units
+  const housingFacts = facts.filter(
+    (f) => f.fact_type === "other" && (f.value as { category?: string }).category === "housing_units"
+  );
+  if (housingFacts.length > 0) {
+    const housingFact = housingFacts[0];
+    const units = parseInt((housingFact.value as { text: string }).text, 10);
+    if (!isNaN(units)) {
+      const formatted = units >= 1_000_000
+        ? `${(units / 1_000_000).toFixed(2)} million`
+        : units.toLocaleString();
+      sentences.push({
+        text: `There are approximately ${formatted} housing units in the area.`,
+        citations: [factCitation(housingFact.id)],
+      });
+    }
+  }
+
+  // Median home value
+  const homeValueFacts = facts.filter(
+    (f) => f.fact_type === "other" && (f.value as { category?: string }).category === "median_home_value"
+  );
+  if (homeValueFacts.length > 0) {
+    const hvFact = homeValueFacts[0];
+    const homeValue = parseFloat((hvFact.value as { text: string }).text);
+    if (!isNaN(homeValue)) {
+      sentences.push({
+        text: `Median home value is $${homeValue.toLocaleString()}.`,
+        citations: [factCitation(hvFact.id)],
+      });
+    }
+  }
+
+  // Occupancy rate
+  const occupancyFacts = facts.filter(
+    (f) => f.fact_type === "other" && (f.value as { category?: string }).category === "housing_occupancy_rate"
+  );
+  if (occupancyFacts.length > 0) {
+    const occFact = occupancyFacts[0];
+    const occRate = parseFloat((occFact.value as { text: string }).text);
+    if (!isNaN(occRate)) {
+      sentences.push({
+        text: `Housing occupancy rate is ${occRate.toFixed(1)}%.`,
+        citations: [factCitation(occFact.id)],
+      });
+    }
+  }
+
+  // Demographic tailwinds (if any)
+  const demoTailwinds = inferences.filter(
+    (i) => i.inference_type === "tailwind" &&
+    (i.reasoning?.toLowerCase().includes("population") ||
+     i.reasoning?.toLowerCase().includes("income") ||
+     i.reasoning?.toLowerCase().includes("education") ||
+     i.reasoning?.toLowerCase().includes("home"))
+  );
+
+  if (demoTailwinds.length > 0) {
+    sentences.push({
+      text: "Demographic tailwinds:",
+      citations: [],
+    });
+    for (const tw of demoTailwinds.slice(0, 3)) {
+      sentences.push({
+        text: `• ${tw.conclusion}`,
+        citations: [inferenceCitation(tw.id)],
+      });
+    }
+  }
+
+  if (sentences.length === 0) {
+    return null;
+  }
+
+  return {
+    title: "Demographics",
+    sentences,
+  };
+}
+
+/**
  * Compile a summary section.
  */
 function compileSummary(
@@ -265,7 +505,8 @@ function compileSummary(
 
   // Create a summary based on available inferences
   const keyInferences = inferences.filter((i) =>
-    ["competitive_intensity", "market_attractiveness", "growth_trajectory"].includes(i.inference_type)
+    ["competitive_intensity", "market_attractiveness", "growth_trajectory", "geographic_concentration"].includes(i.inference_type) ||
+    (i.inference_type === "other" && i.conclusion.toLowerCase().includes("demand stability"))
   );
 
   if (keyInferences.length === 0) {
@@ -315,13 +556,25 @@ export function compileNarrative(
     sections.push(competitive);
   }
 
-  // 3. Market Dynamics
+  // 3. Market Demand (Phase 2)
+  const marketDemand = compileMarketDemand(facts, inferences);
+  if (marketDemand) {
+    sections.push(marketDemand);
+  }
+
+  // 4. Demographics (Phase 2)
+  const demographics = compileDemographics(facts, inferences);
+  if (demographics) {
+    sections.push(demographics);
+  }
+
+  // 5. Market Dynamics
   const dynamics = compileMarketDynamics(facts, inferences);
   if (dynamics) {
     sections.push(dynamics);
   }
 
-  // 4. Summary (always last)
+  // 6. Summary (always last)
   const summary = compileSummary(facts, inferences);
   if (summary) {
     sections.push(summary);

@@ -306,10 +306,101 @@ const marketDemandRule: PlannerRule = {
 };
 
 /**
- * Rule 4: Regulatory Environment
+ * Rule 4: Demographics
+ *
+ * Trigger: Market demand mission completed OR large loan for area-dependent business
+ * Priority: 3.5 (after market_demand, before regulatory)
+ */
+const demographicsRule: PlannerRule = {
+  name: "geography_triggers_demographics_research",
+  version: 1,
+  description: "Geography available + specific demographic needs → demographics research",
+  mission_type: "demographics",
+
+  evaluate: (input: PlannerInput): RuleResult | null => {
+    const { entity_signals, existing_missions, loan_amount } = input;
+    const geography = entity_signals.operating_states?.[0] ?? entity_signals.headquarters_state;
+    const naicsCode = entity_signals.naics_code;
+
+    // Need geography for demographics
+    if (!geography) {
+      return null;
+    }
+
+    // Skip if done
+    if (hasMissionCompleted(existing_missions, "demographics")) {
+      return {
+        should_run: false,
+        priority: 4,
+        subject: { geography },
+        rationale: "Demographics research already completed.",
+        confidence: 1,
+        supporting_fact_ids: [],
+      };
+    }
+
+    if (hasMissionRunning(existing_missions, "demographics")) {
+      return null;
+    }
+
+    // Trigger conditions:
+    // 1. Market demand completed (deeper dive on demographics)
+    // 2. Consumer-facing or workforce-dependent industry
+    // 3. Larger deal where demographic context is valuable
+
+    const marketDemandDone = hasMissionCompleted(existing_missions, "market_demand");
+    const isConsumerFacing = naicsCode && (
+      naicsCode.startsWith("44") || // Retail
+      naicsCode.startsWith("45") || // Retail
+      naicsCode.startsWith("72") || // Accommodation/Food
+      naicsCode.startsWith("81") || // Other services
+      naicsCode.startsWith("62")    // Healthcare
+    );
+    const isLargeDeal = loan_amount && loan_amount >= 1_000_000;
+
+    // Need at least one trigger
+    if (!marketDemandDone && !isConsumerFacing && !isLargeDeal) {
+      return {
+        should_run: false,
+        priority: 4,
+        subject: { geography },
+        rationale: "Demographics research not triggered. Consider if detailed demographics would add value.",
+        confidence: 0.6,
+        supporting_fact_ids: [],
+      };
+    }
+
+    // Build rationale
+    const reasons: string[] = [];
+    if (marketDemandDone) {
+      reasons.push("market demand research complete, proceeding with deeper demographic analysis");
+    }
+    if (isConsumerFacing) {
+      reasons.push("consumer-facing industry benefits from demographic context");
+    }
+    if (isLargeDeal) {
+      reasons.push(`loan size ($${(loan_amount! / 1_000_000).toFixed(1)}M) warrants comprehensive analysis`);
+    }
+
+    return {
+      should_run: true,
+      priority: 4,
+      subject: {
+        geography,
+        naics_code: naicsCode,
+      },
+      rationale: `Demographics research triggered: ${reasons.join("; ")}.`,
+      confidence: marketDemandDone ? 0.9 : 0.8,
+      supporting_fact_ids: getSupportingFactIds(input, ["population", "median_income", "median_age"]),
+    };
+  },
+};
+
+/**
+ * Rule 5: Regulatory Environment
  *
  * Trigger: Regulated industry OR multi-state operations
- * Priority: 4
+ * Priority: 5
  */
 const regulatoryRule: PlannerRule = {
   name: "regulated_industry_triggers_regulatory_research",
@@ -330,7 +421,7 @@ const regulatoryRule: PlannerRule = {
     if (!regulatedCheck.regulated && !isMultiState) {
       return {
         should_run: false,
-        priority: 4,
+        priority: 5,
         subject: {},
         rationale: "Industry is not heavily regulated and operations are single-state. Regulatory research not required.",
         confidence: 0.7,
@@ -342,7 +433,7 @@ const regulatoryRule: PlannerRule = {
     if (hasMissionCompleted(existing_missions, "regulatory_environment")) {
       return {
         should_run: false,
-        priority: 4,
+        priority: 5,
         subject: {},
         rationale: "Regulatory environment research already completed.",
         confidence: 1,
@@ -365,7 +456,7 @@ const regulatoryRule: PlannerRule = {
 
     return {
       should_run: true,
-      priority: 4,
+      priority: 5,
       subject: {
         naics_code: naicsCode,
         geography: operatingStates.join(","),
@@ -378,10 +469,10 @@ const regulatoryRule: PlannerRule = {
 };
 
 /**
- * Rule 5: Management & Ownership Backgrounds
+ * Rule 6: Management & Ownership Backgrounds
  *
  * Trigger: Principals >= 20% ownership identified
- * Priority: 5
+ * Priority: 6
  */
 const managementBackgroundsRule: PlannerRule = {
   name: "principals_trigger_management_research",
@@ -397,7 +488,7 @@ const managementBackgroundsRule: PlannerRule = {
     if (principals.length === 0) {
       return {
         should_run: false,
-        priority: 5,
+        priority: 6,
         subject: {},
         rationale: "No principals with >= 20% ownership identified. Management research deferred.",
         confidence: 0,
@@ -410,7 +501,7 @@ const managementBackgroundsRule: PlannerRule = {
     if (hasMissionCompleted(existing_missions, "management_backgrounds")) {
       return {
         should_run: false,
-        priority: 5,
+        priority: 6,
         subject: {},
         rationale: "Management backgrounds research already completed.",
         confidence: 1,
@@ -426,7 +517,7 @@ const managementBackgroundsRule: PlannerRule = {
     if (underwriting_stance === "insufficient_information") {
       return {
         should_run: false,
-        priority: 5,
+        priority: 6,
         subject: {},
         rationale: "Waiting for core financial documents before researching management backgrounds.",
         confidence: 0.8,
@@ -444,7 +535,7 @@ const managementBackgroundsRule: PlannerRule = {
 
     return {
       should_run: true,
-      priority: 5,
+      priority: 6,
       subject: {
         company_name: entity_signals.legal_company_name,
         keywords: principals.map((p) => p.name),
@@ -464,6 +555,7 @@ const ALL_RULES: PlannerRule[] = [
   industryLandscapeRule,
   competitiveAnalysisRule,
   marketDemandRule,
+  demographicsRule,
   regulatoryRule,
   managementBackgroundsRule,
 ];
