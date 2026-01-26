@@ -39,64 +39,117 @@ function loadManifest() {
   return JSON.parse(raw);
 }
 
-// Patterns that indicate Never-500 compliance in source code
-const COMPLIANCE_PATTERNS = [
-  "respond200",           // Uses shared envelope helper
-  "createJsonResponse",   // Uses local JSON response helper
-  "status: 200",          // Explicitly returns 200
-  "jsonSafe",             // Uses JSON-safe serialization
-];
+// ========================================
+// SEAL LINT: Static Pattern Checks
+// ========================================
 
-// Patterns that indicate correlation ID usage
-const CORRELATION_PATTERNS = [
-  "correlationId",
-  "x-correlation-id",
-  "makeCorrelationId",
-  "generateCorrelationId",
-];
+// Required patterns (at least one must be present)
+const SEAL_PATTERNS = {
+  responder: {
+    patterns: ["respond200", "createJsonResponse"],
+    error: 'Missing sealed responder (respond200 or createJsonResponse)',
+    fix: 'Use respond200() from @/lib/api/respond or define createJsonResponse()',
+  },
+  correlationId: {
+    patterns: ["correlationId", "generateCorrelationId", "makeCorrelationId"],
+    error: 'Missing correlation ID generation',
+    fix: 'Add: const correlationId = generateCorrelationId("prefix");',
+  },
+  routeIdentity: {
+    patterns: ["x-buddy-route", 'ROUTE =', 'ROUTE='],
+    error: 'Missing route identity (x-buddy-route header)',
+    fix: 'Add: const ROUTE = "/api/deals/[dealId]/..."; and include in headers',
+  },
+  catchBlock: {
+    patterns: [/} catch\s*\(/],
+    error: 'Missing ultimate catch block',
+    fix: 'Wrap handler body in try/catch to prevent uncaught exceptions',
+    isRegex: true,
+  },
+  runtimeNodejs: {
+    patterns: ['runtime = "nodejs"', "runtime = 'nodejs'"],
+    error: 'Missing runtime = "nodejs" export',
+    fix: 'Add: export const runtime = "nodejs";',
+  },
+  dynamicForce: {
+    patterns: ['dynamic = "force-dynamic"', "dynamic = 'force-dynamic'"],
+    error: 'Missing dynamic = "force-dynamic" export',
+    fix: 'Add: export const dynamic = "force-dynamic";',
+  },
+};
 
-// Patterns that indicate route identity header
-const ROUTE_IDENTITY_PATTERNS = [
-  "x-buddy-route",
-  "createHeaders",
-  "ROUTE",
-];
+// Forbidden patterns (must NOT be present in handler body)
+const FORBIDDEN_PATTERNS = {
+  directNextResponse: {
+    // Match NextResponse.json that's NOT inside a createJsonResponse function
+    // This is a heuristic - we check if NextResponse.json appears outside the helper
+    test: (content) => {
+      // Count occurrences of NextResponse.json
+      const matches = content.match(/NextResponse\.json\s*\(/g) || [];
+      // If there's a createJsonResponse function, allow one usage inside it
+      const hasHelper = content.includes('function createJsonResponse');
+      // If using respond200 from import, no direct usage should exist
+      const usesRespond200 = content.includes('respond200');
+
+      if (usesRespond200) {
+        // Should have zero NextResponse.json calls
+        return matches.length > 0;
+      }
+      if (hasHelper) {
+        // Allow up to 2 usages (success + error fallback inside helper)
+        return matches.length > 2;
+      }
+      // No helper, no respond200 - this is wrong
+      return matches.length > 0;
+    },
+    error: 'Direct NextResponse.json usage outside sealed helper',
+    fix: 'Use respond200() or wrap all responses in createJsonResponse()',
+  },
+};
 
 /**
- * Static check: Verify source file follows Never-500 pattern
+ * Check if content contains any of the patterns
+ */
+function hasPattern(content, patterns, isRegex = false) {
+  return patterns.some((p) => {
+    if (isRegex || p instanceof RegExp) {
+      return p.test ? p.test(content) : new RegExp(p).test(content);
+    }
+    return content.includes(p);
+  });
+}
+
+/**
+ * Static check: Verify source file follows Never-500 seal contract
  */
 function checkSourceFile(route) {
   const errors = [];
   const filePath = route.sourceFile;
 
   if (!fs.existsSync(filePath)) {
-    return { ok: false, errors: [`File not found: ${filePath}`] };
+    return {
+      ok: false,
+      errors: [{
+        message: `File not found: ${filePath}`,
+        fix: 'Create the route file or update manifest',
+      }],
+    };
   }
 
   const content = fs.readFileSync(filePath, "utf-8");
 
-  // Check for compliance pattern
-  const hasCompliance = COMPLIANCE_PATTERNS.some((p) => content.includes(p));
-  if (!hasCompliance) {
-    errors.push("Missing Never-500 compliance pattern (respond200/createJsonResponse/status:200/jsonSafe)");
+  // Check required patterns
+  for (const [key, check] of Object.entries(SEAL_PATTERNS)) {
+    if (!hasPattern(content, check.patterns, check.isRegex)) {
+      errors.push({ message: check.error, fix: check.fix });
+    }
   }
 
-  // Check for correlation ID
-  const hasCorrelation = CORRELATION_PATTERNS.some((p) => content.includes(p));
-  if (!hasCorrelation) {
-    errors.push("Missing correlation ID pattern");
-  }
-
-  // Check for route identity
-  const hasRouteIdentity = ROUTE_IDENTITY_PATTERNS.some((p) => content.includes(p));
-  if (!hasRouteIdentity) {
-    errors.push("Missing route identity pattern (x-buddy-route)");
-  }
-
-  // Check for try-catch
-  const hasCatch = /catch.*err|} catch/.test(content);
-  if (!hasCatch) {
-    errors.push("Missing ultimate catch block");
+  // Check forbidden patterns
+  for (const [key, check] of Object.entries(FORBIDDEN_PATTERNS)) {
+    if (check.test(content)) {
+      errors.push({ message: check.error, fix: check.fix });
+    }
   }
 
   return { ok: errors.length === 0, errors };
@@ -186,7 +239,7 @@ async function main() {
   let passes = 0;
 
   // Static checks (always run)
-  console.log("--- Static Source File Checks ---");
+  console.log("--- Static Seal Lint Checks ---");
   for (const route of manifest.routes) {
     const result = checkSourceFile(route);
     if (result.ok) {
@@ -195,7 +248,12 @@ async function main() {
     } else {
       console.log(`${RED}  ✗${RESET} ${route.name} (${route.sourceFile})`);
       for (const err of result.errors) {
-        console.log(`      - ${err}`);
+        const msg = typeof err === 'string' ? err : err.message;
+        const fix = typeof err === 'object' && err.fix ? err.fix : null;
+        console.log(`      ${RED}✗${RESET} ${msg}`);
+        if (fix) {
+          console.log(`        ${YELLOW}→ Fix:${RESET} ${fix}`);
+        }
       }
       failures++;
     }
