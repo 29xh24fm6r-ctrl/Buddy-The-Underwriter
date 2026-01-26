@@ -56,11 +56,11 @@ function formatRelative(iso: string | null | undefined, nowMs: number) {
 
 function riskBand(score: number | null | undefined) {
   if (score == null || Number.isNaN(score)) {
-    return { label: "Unknown", tone: "neutral" as const };
+    return { label: "Not computed", tone: "neutral" as const, isUnknown: true };
   }
-  if (score >= 70) return { label: "High", tone: "red" as const };
-  if (score >= 40) return { label: "Medium", tone: "amber" as const };
-  return { label: "Low", tone: "emerald" as const };
+  if (score >= 70) return { label: "High", tone: "red" as const, isUnknown: false };
+  if (score >= 40) return { label: "Medium", tone: "amber" as const, isUnknown: false };
+  return { label: "Low", tone: "emerald" as const, isUnknown: false };
 }
 
 function eventIcon(eventKey: string) {
@@ -148,44 +148,62 @@ export function DealCockpitInsights({ dealId }: { dealId: string }) {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="rounded-lg border border-white/10 bg-gradient-to-b from-sky-500/10 to-white/5 p-3">
             <div className="text-xs text-white/70">Checklist completion</div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <div className="text-2xl font-semibold text-white">{checklistPct}%</div>
-              <div className="text-xs text-white/60">
-                {received} / {required}
-              </div>
-            </div>
-            <div className="mt-2 h-2 w-full rounded-full bg-white/10">
-              <div
-                className="h-2 rounded-full bg-neutral-900 transition-all"
-                style={{ width: `${checklistPct}%` }}
-              />
-            </div>
+            {required === 0 ? (
+              <>
+                <div className="mt-2 text-lg font-semibold text-white/80">Awaiting setup</div>
+                <div className="mt-1 text-xs text-white/50">Checklist will be seeded when documents are uploaded.</div>
+              </>
+            ) : (
+              <>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <div className="text-2xl font-semibold text-white">{checklistPct}%</div>
+                  <div className="text-xs text-white/60">
+                    {received} / {required}
+                  </div>
+                </div>
+                <div className="mt-2 h-2 w-full rounded-full bg-white/10">
+                  <div
+                    className="h-2 rounded-full bg-neutral-900 transition-all"
+                    style={{ width: `${checklistPct}%` }}
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           <div className="rounded-lg border border-white/10 bg-gradient-to-b from-emerald-500/10 to-white/5 p-3">
             <div className="text-xs text-white/70">Risk indicator</div>
-            <div className="mt-2 flex items-center gap-2">
-              <span className="text-xl font-semibold text-white">{risk.label}</span>
-              {typeof riskScore === "number" ? (
-                <span className="text-xs text-white/70">Score {Math.round(riskScore)}</span>
-              ) : null}
-            </div>
-            <div className="mt-2 h-2 w-full rounded-full bg-white/10">
-              <div
-                className="h-2 rounded-full"
-                style={{
-                  width: `${Math.min(Math.max(Math.round(riskScore ?? 0), 0), 100)}%`,
-                  backgroundColor:
-                    risk.tone === "red"
-                      ? "#ef4444"
-                      : risk.tone === "amber"
-                        ? "#f59e0b"
-                        : risk.tone === "emerald"
-                          ? "#10b981"
-                          : "#a3a3a3",
-                }}
-              />
-            </div>
+            {risk.isUnknown ? (
+              <>
+                <div className="mt-2 text-lg font-semibold text-white/80">{risk.label}</div>
+                <div className="mt-1 text-xs text-white/50">Complete financials to compute risk score.</div>
+              </>
+            ) : (
+              <>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-xl font-semibold text-white">{risk.label}</span>
+                  {typeof riskScore === "number" ? (
+                    <span className="text-xs text-white/70">Score {Math.round(riskScore)}</span>
+                  ) : null}
+                </div>
+                <div className="mt-2 h-2 w-full rounded-full bg-white/10">
+                  <div
+                    className="h-2 rounded-full"
+                    style={{
+                      width: `${Math.min(Math.max(Math.round(riskScore ?? 0), 0), 100)}%`,
+                      backgroundColor:
+                        risk.tone === "red"
+                          ? "#ef4444"
+                          : risk.tone === "amber"
+                            ? "#f59e0b"
+                            : risk.tone === "emerald"
+                              ? "#10b981"
+                              : "#a3a3a3",
+                    }}
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           <div className="rounded-lg border border-white/10 bg-gradient-to-b from-amber-400/10 to-white/5 p-3">

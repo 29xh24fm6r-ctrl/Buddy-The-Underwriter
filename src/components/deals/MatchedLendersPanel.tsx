@@ -25,7 +25,12 @@ export default function MatchedLendersPanel({ dealId }: { dealId: string }) {
   if (error || (data && !data.ok)) {
     return (
       <div className="rounded-xl border border-neutral-200 bg-white shadow-sm p-4">
-        <div className="text-sm text-neutral-600">Matched lenders unavailable.</div>
+        <div className="flex items-center gap-2 mb-2">
+          <Icon name="handshake" className="h-5 w-5 text-neutral-400" />
+          <h3 className="text-sm font-semibold text-neutral-500">Matched Lenders</h3>
+        </div>
+        <div className="text-sm text-neutral-500">Not available yet</div>
+        <div className="text-xs text-neutral-400 mt-1">We'll match lenders after financial snapshot and terms are set.</div>
       </div>
     );
   }
@@ -39,7 +44,10 @@ export default function MatchedLendersPanel({ dealId }: { dealId: string }) {
         <h3 className="text-sm font-semibold">Matched Lenders</h3>
       </div>
       {matches.length === 0 ? (
-        <div className="text-sm text-neutral-600">No matching lenders found.</div>
+        <div>
+          <div className="text-sm text-neutral-500">No lender match yet</div>
+          <div className="text-xs text-neutral-400 mt-1">We'll match lenders after financial snapshot and terms are set.</div>
+        </div>
       ) : (
         <div className="space-y-2">
           {matches.slice(0, 5).map((m: any, idx: number) => (

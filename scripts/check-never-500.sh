@@ -19,6 +19,9 @@ CRITICAL_ROUTES=(
   "src/app/api/deals/[dealId]/context/route.ts"
   "src/app/api/deals/[dealId]/checklist/list/route.ts"
   "src/app/api/deals/[dealId]/artifacts/route.ts"
+  "src/app/api/deals/[dealId]/underwrite/start/route.ts"
+  "src/app/api/deals/[dealId]/decision/latest/route.ts"
+  "src/app/api/deals/[dealId]/financial-snapshot/decision/route.ts"
 )
 
 # Patterns that indicate Never-500 compliance
