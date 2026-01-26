@@ -170,7 +170,7 @@ export function buildChecklistRows(dealId: string, rules: ChecklistDefinition[])
     title: r.title,
     required: r.required,
     description: r.description ?? null,
-    status: r.required ? "missing" : "pending",
+    status: "missing",
   }));
 }
 
