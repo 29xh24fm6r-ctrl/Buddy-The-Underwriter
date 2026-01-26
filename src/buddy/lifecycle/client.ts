@@ -38,4 +38,4 @@ export {
   getBlockerFixAction,
   getNextActionIcon,
 } from "./nextAction";
-export type { NextAction } from "./nextAction";
+export type { NextAction, ServerActionType } from "./nextAction";

@@ -8,19 +8,32 @@
 import type { LifecycleState, LifecycleStage, LifecycleBlocker } from "./model";
 
 /**
+ * Server actions that can be run one-click without navigation.
+ */
+export type ServerActionType =
+  | "generate_snapshot"
+  | "generate_packet"
+  | "run_ai_classification"
+  | "send_reminder";
+
+/**
  * The next action a user should take.
  */
 export type NextAction = {
   /** Human-readable label for the button */
   label: string;
-  /** Optional href to navigate to after action */
+  /** Optional href to navigate to after action (fallback if action fails) */
   href?: string;
   /** Intent type for styling/behavior */
-  intent: "advance" | "navigate" | "blocked" | "complete";
+  intent: "advance" | "navigate" | "blocked" | "complete" | "runnable";
   /** Whether the action should auto-advance lifecycle */
   shouldAdvance?: boolean;
   /** Description of what will happen */
   description?: string;
+  /** Server action to run (for intent="runnable") */
+  serverAction?: ServerActionType;
+  /** Estimated time for the action */
+  estimatedTime?: string;
 };
 
 /**
@@ -87,9 +100,11 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
       return {
         label: "Generate Snapshot",
         href: `/deals/${dealId}/pricing`,
-        intent: "navigate",
-        shouldAdvance: false,
+        intent: "runnable",
+        serverAction: "generate_snapshot",
+        shouldAdvance: true,
         description: "Create financial snapshot to unlock underwriting",
+        estimatedTime: "~15s",
       };
 
     case "underwrite_ready":
@@ -236,6 +251,8 @@ export function getNextActionIcon(intent: NextAction["intent"]): string {
       return "arrow_forward";
     case "navigate":
       return "open_in_new";
+    case "runnable":
+      return "bolt"; // Lightning bolt for one-click actions
     case "blocked":
       return "block";
     case "complete":

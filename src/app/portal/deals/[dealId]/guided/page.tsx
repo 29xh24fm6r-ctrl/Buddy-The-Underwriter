@@ -4,6 +4,8 @@ import * as React from "react";
 import { ToastProvider, useToast } from "@/components/portal/toast/ToastProvider";
 import { ConfettiBurst } from "@/components/portal/fun/ConfettiBurst";
 import { BuddyCoachCard } from "@/components/portal/BuddyCoachCard";
+import { BorrowerPortalDataProvider, useBorrowerPortalDataContext } from "@/buddy/portal";
+import { BorrowerLiveIndicator, BorrowerProcessingBanner, BorrowerToastStack } from "@/components/portal/BorrowerLiveIndicator";
 
 type Guided = {
   ok: boolean;
@@ -40,14 +42,32 @@ function statusPill(status: string) {
 export default function GuidedBorrowerUploadPageShell({ params }: any) {
   return (
     <ToastProvider>
-      <GuidedBorrowerUploadPage params={params} />
+      <GuidedBorrowerUploadPageWrapper params={params} />
     </ToastProvider>
   );
 }
 
-function GuidedBorrowerUploadPage({ params }: any) {
+function GuidedBorrowerUploadPageWrapper({ params }: any) {
   const [unwrappedParams, setUnwrappedParams] = React.useState<{ dealId: string } | null>(null);
+
+  React.useEffect(() => {
+    Promise.resolve(params).then(setUnwrappedParams);
+  }, [params]);
+
+  if (!unwrappedParams?.dealId) {
+    return <div className="p-6 text-sm text-gray-600">Loading...</div>;
+  }
+
+  return (
+    <BorrowerPortalDataProvider dealId={unwrappedParams.dealId}>
+      <GuidedBorrowerUploadPage dealId={unwrappedParams.dealId} />
+    </BorrowerPortalDataProvider>
+  );
+}
+
+function GuidedBorrowerUploadPage({ dealId }: { dealId: string }) {
   const { toast } = useToast();
+  const portalData = useBorrowerPortalDataContext();
   const [data, setData] = React.useState<Guided | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -56,20 +76,18 @@ function GuidedBorrowerUploadPage({ params }: any) {
   const [burst, setBurst] = React.useState(false);
   const prevPercentRef = React.useRef<number>(-1);
   const prevReceivedSetRef = React.useRef<Set<string>>(new Set());
-
-  React.useEffect(() => {
-    Promise.resolve(params).then(setUnwrappedParams);
-  }, [params]);
+  const prevVerifiedSetRef = React.useRef<Set<string>>(new Set());
+  const prevProcessingRef = React.useRef<boolean>(false);
 
   async function load() {
-    if (!unwrappedParams?.dealId) return;
+    if (!dealId) return;
     setError(null);
     setLoading(true);
     try {
       const token = localStorage.getItem("buddy_invite_token");
       if (!token) throw new Error("No invite token found");
 
-      const res = await fetch(`/api/portal/deals/${unwrappedParams.dealId}/guided`, {
+      const res = await fetch(`/api/portal/deals/${dealId}/guided`, {
         method: "GET",
         headers: { authorization: `Bearer ${token}` },
       });
@@ -83,65 +101,110 @@ function GuidedBorrowerUploadPage({ params }: any) {
     }
   }
 
+  // Initial load
   React.useEffect(() => {
-    if (!unwrappedParams?.dealId) return;
     load();
-    const t = window.setInterval(load, 8000);
-    return () => window.clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unwrappedParams?.dealId]);
+  }, [dealId]);
+
+  // Smart polling: refresh when processing completes or on visibility change
+  // Uses the portal data context instead of raw setInterval
+  React.useEffect(() => {
+    const wasProcessing = prevProcessingRef.current;
+    const isProcessing = portalData.isProcessing;
+
+    // When processing completes, refresh to show updated checklist
+    if (wasProcessing && !isProcessing) {
+      load();
+    }
+
+    prevProcessingRef.current = isProcessing;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [portalData.isProcessing]);
+
+  // Fallback idle polling (much slower than before - 30s vs 8s)
+  // The portal context handles fast polling when processing
+  React.useEffect(() => {
+    // Only poll if not processing (context handles fast polling when processing)
+    if (portalData.isProcessing) return;
+
+    const IDLE_POLL_MS = 30000; // 30s idle polling
+    const timer = window.setInterval(load, IDLE_POLL_MS);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dealId, portalData.isProcessing]);
 
   // Micro celebrations when data updates
   React.useEffect(() => {
     if (!data) return;
 
-    // 1) Progress toast
     const pct = data.progress.percent ?? 0;
     const prevPct = prevPercentRef.current;
-    if (prevPct >= 0 && pct > prevPct) {
-      toast({
-        title: "Nice! You leveled up ✅",
-        detail: `Progress is now ${pct}%.`,
-      });
-    }
 
-    // 2) Checklist item flips to received
+    // Track received items (status = received or verified)
     const receivedNow = new Set(
       (data.checklist ?? [])
         .filter((i) => i.required && (i.status === "received" || i.status === "verified"))
         .map((i) => i.id)
     );
 
-    const prevSet = prevReceivedSetRef.current;
-    const newlyReceived = Array.from(receivedNow).filter((id) => !prevSet.has(id));
+    // Track verified items (status = verified only)
+    const verifiedNow = new Set(
+      (data.checklist ?? [])
+        .filter((i) => i.required && i.status === "verified")
+        .map((i) => i.id)
+    );
+
+    const prevReceivedSet = prevReceivedSetRef.current;
+    const prevVerifiedSet = prevVerifiedSetRef.current;
+
+    // Detect newly received documents
+    const newlyReceived = Array.from(receivedNow).filter((id) => !prevReceivedSet.has(id));
     if (newlyReceived.length) {
       setBurst(true);
       window.setTimeout(() => setBurst(false), 50);
 
-      const item = data.checklist.find((x) => x.id === newlyReceived[0]);
-      toast({
-        title: "Document matched to checklist ✅",
-        detail: item ? `Checked off: ${item.title}` : "Checklist updated.",
-      });
+      // Show specific document name: "Received: 2022-2024 Personal Returns"
+      for (const id of newlyReceived) {
+        const item = data.checklist.find((x) => x.id === id);
+        if (item) {
+          toast({
+            title: `Received: ${item.title}`,
+            detail: "Matched to your checklist.",
+          });
+        }
+      }
     }
 
-    // 3) Finish line celebration
-    if (prevPct < 100 && pct >= 100) {
+    // Detect newly verified documents (classified)
+    const newlyVerified = Array.from(verifiedNow).filter((id) => !prevVerifiedSet.has(id) && prevReceivedSet.has(id));
+    if (newlyVerified.length) {
+      // Show specific document name: "Classified: Rent Roll"
+      for (const id of newlyVerified) {
+        const item = data.checklist.find((x) => x.id === id);
+        if (item) {
+          toast({
+            title: `Classified: ${item.title}`,
+            detail: "Document verified and organized.",
+          });
+        }
+      }
+    }
+
+    // Finish line celebration
+    if (prevPct >= 0 && prevPct < 100 && pct >= 100) {
       setBurst(true);
       window.setTimeout(() => setBurst(false), 50);
       toast({
-        title: "You're done 🎉",
+        title: "You're done!",
         detail: "We've received everything required. We'll take it from here.",
       });
     }
 
     prevPercentRef.current = pct;
     prevReceivedSetRef.current = receivedNow;
+    prevVerifiedSetRef.current = verifiedNow;
   }, [data, toast]);
-
-  if (!unwrappedParams) {
-    return <div className="p-6 text-sm text-gray-600">Loading…</div>;
-  }
 
   if (loading && !data) {
     return <div className="p-6 text-sm text-gray-600">Loading your checklist…</div>;
@@ -159,12 +222,19 @@ function GuidedBorrowerUploadPage({ params }: any) {
   return (
     <div className="mx-auto max-w-5xl p-4 md:p-6">
       <ConfettiBurst fire={burst} />
+      <BorrowerToastStack />
+
+      {/* Processing Banner */}
+      <BorrowerProcessingBanner />
 
       {/* Header: calm + personal */}
       <div className="rounded-2xl border bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-xs text-gray-500">Borrower Portal</div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">Borrower Portal</span>
+              <BorrowerLiveIndicator />
+            </div>
             <div className="mt-1 text-lg font-semibold">
               {data.display.dealName} • {data.display.borrowerName}
             </div>
@@ -203,7 +273,13 @@ function GuidedBorrowerUploadPage({ params }: any) {
                 Upload what you have — we'll handle the rest. You don't need to "know credit."
               </div>
             </div>
-            <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" onClick={load}>
+            <button
+              className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+              onClick={() => {
+                portalData.markUserAction();
+                load();
+              }}
+            >
               Refresh
             </button>
           </div>
@@ -279,9 +355,9 @@ function GuidedBorrowerUploadPage({ params }: any) {
 
         {/* Right: Buddy Coach with "I can't find it" flow */}
         <div className="space-y-4">
-          {unwrappedParams?.dealId && <BuddyCoachCard dealId={unwrappedParams.dealId} guidedSnapshot={data} />}
+          <BuddyCoachCard dealId={dealId} guidedSnapshot={data} />
           {/* Chat */}
-          {unwrappedParams?.dealId && <BorrowerChat dealId={unwrappedParams.dealId} />}
+          <BorrowerChat dealId={dealId} />
         </div>
       </div>
     </div>

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 // Import from client-safe module to avoid server-only code in client components
 import type { LifecycleState, LifecycleStage, LifecycleBlocker } from "@/buddy/lifecycle/client";
+import type { ServerActionType } from "@/buddy/lifecycle/client";
 import {
   STAGE_LABELS,
   getNextAction,
@@ -98,6 +99,78 @@ function getStageColor(stage: LifecycleStage): string {
     default:
       return "bg-white/10 text-white/70 border-white/20";
   }
+}
+
+/**
+ * Get a banker-friendly explanation for why a blocker matters.
+ * These help bankers answer "Why does Buddy need this?" to borrowers.
+ */
+function getBankerExplanation(blocker: LifecycleBlocker): string {
+  switch (blocker.code) {
+    case "missing_required_docs":
+      return "These documents verify the borrower's financial position and ability to service the loan. Without them, we can't calculate accurate ratios or validate collateral.";
+    case "financial_snapshot_missing":
+      return "The financial snapshot consolidates all borrower data into standardized metrics (DSCR, LTV, etc.) that our credit policy requires for underwriting.";
+    case "checklist_not_seeded":
+      return "Before we can track progress, we need to define what documents this deal requires based on deal type and amount.";
+    case "underwrite_not_started":
+      return "Underwriting analysis must be completed to assess risk factors and determine if the loan meets our credit standards.";
+    case "committee_packet_missing":
+      return "Credit committee requires a formatted packet with all relevant data, analysis, and recommendations for their review.";
+    case "decision_missing":
+      return "A formal credit decision must be recorded before we can proceed to closing or workout.";
+    case "attestation_missing":
+      return "Final sign-off confirms all conditions have been reviewed and the loan is ready for funding.";
+    case "closing_docs_missing":
+      return "Legal closing documents must be prepared and executed before funds can be disbursed.";
+    default:
+      return "This item must be resolved to move forward with the deal.";
+  }
+}
+
+/**
+ * Get a summary of what Buddy has automated for this deal.
+ */
+function getBuddyActionsSummary(state: LifecycleState): { completed: string[]; inProgress: string[] } {
+  const completed: string[] = [];
+  const inProgress: string[] = [];
+
+  // Check what's been done based on derived state
+  if (state.derived.requiredDocsReceivedPct > 0) {
+    const docPct = state.derived.requiredDocsReceivedPct;
+    if (docPct === 100) {
+      completed.push("Classified and organized all submitted documents");
+    } else {
+      completed.push(`Classified ${docPct}% of required documents`);
+      inProgress.push("Waiting for remaining documents from borrower");
+    }
+  }
+
+  if (state.derived.financialSnapshotExists) {
+    completed.push("Generated financial snapshot with key ratios");
+  }
+
+  if (state.derived.underwriteStarted) {
+    completed.push("Initiated underwriting analysis");
+  }
+
+  if (state.derived.committeePacketReady) {
+    completed.push("Compiled committee packet");
+  }
+
+  // Stage-based inferences
+  if (state.stage !== "intake_created") {
+    completed.push("Set up deal and created document checklist");
+  }
+
+  if (["docs_requested", "docs_in_progress"].includes(state.stage)) {
+    completed.push("Sent document request to borrower portal");
+    if (state.derived.requiredDocsMissing.length > 0) {
+      inProgress.push("Monitoring for missing documents");
+    }
+  }
+
+  return { completed, inProgress };
 }
 
 function getBlockerIcon(code: string): string {
@@ -228,6 +301,110 @@ function FixableBlockerCard({
   );
 }
 
+/**
+ * "Explain like I'm a banker" panel.
+ * Provides trust-building explanations for blockers and summarizes Buddy's work.
+ */
+function BankerExplainerPanel({
+  state,
+  isExpanded,
+  onToggle,
+}: {
+  state: LifecycleState;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const { completed, inProgress } = getBuddyActionsSummary(state);
+  const hasBlockers = state.blockers.length > 0;
+
+  return (
+    <div className="border-t border-white/10 mt-4 pt-3">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between text-xs text-white/50 hover:text-white/70 transition-colors"
+      >
+        <span className="flex items-center gap-1.5">
+          <span className="material-symbols-outlined text-[14px]">help_outline</span>
+          Explain like I'm a banker
+        </span>
+        <span className="material-symbols-outlined text-[14px] transition-transform" style={{ transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }}>
+          expand_more
+        </span>
+      </button>
+
+      {isExpanded && (
+        <div className="mt-3 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
+          {/* What Buddy already did */}
+          <div>
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-300/80 mb-2">
+              <span className="material-symbols-outlined text-[12px]">smart_toy</span>
+              What Buddy already did
+            </div>
+            {completed.length === 0 ? (
+              <p className="text-xs text-white/40 italic">No automated actions yet</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {completed.map((item, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs text-white/60">
+                    <span className="material-symbols-outlined text-emerald-400 text-[12px] mt-0.5">check_circle</span>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {inProgress.length > 0 && (
+              <ul className="mt-2 space-y-1.5">
+                {inProgress.map((item, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs text-white/50">
+                    <span className="material-symbols-outlined text-sky-400 text-[12px] mt-0.5 animate-pulse">pending</span>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Why Buddy is asking for blockers */}
+          {hasBlockers && (
+            <div>
+              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300/80 mb-2">
+                <span className="material-symbols-outlined text-[12px]">lightbulb</span>
+                Why we need these items
+              </div>
+              <div className="space-y-3">
+                {state.blockers.map((blocker, i) => (
+                  <div key={`${blocker.code}-${i}`} className="rounded-lg bg-white/[0.02] border border-white/5 p-2.5">
+                    <p className="text-xs text-white/70 font-medium mb-1">{blocker.message}</p>
+                    <p className="text-[11px] text-white/40 leading-relaxed">
+                      {getBankerExplanation(blocker)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Quick stat */}
+          <div className="flex items-center gap-4 pt-2 border-t border-white/5">
+            <div className="text-center">
+              <div className="text-lg font-bold text-violet-300">{completed.length}</div>
+              <div className="text-[10px] text-white/40">automated steps</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-amber-300">{state.blockers.length}</div>
+              <div className="text-[10px] text-white/40">items pending</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-sky-300">{state.derived.requiredDocsReceivedPct}%</div>
+              <div className="text-[10px] text-white/40">docs received</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function LifecycleStatusPanel({ dealId, initialState, available }: Props) {
   const router = useRouter();
   const [state, setState] = useState<LifecycleState | null>(initialState);
@@ -237,6 +414,7 @@ export function LifecycleStatusPanel({ dealId, initialState, available }: Props)
     message: string;
   } | null>(null);
   const [fetchFailed, setFetchFailed] = useState(false);
+  const [bankerExplainerOpen, setBankerExplainerOpen] = useState(false);
 
   // Determine if lifecycle is unavailable (either from prop or state inspection)
   const lifecycleUnavailable = available === false || fetchFailed || isLifecycleUnavailable(state);
@@ -261,6 +439,47 @@ export function LifecycleStatusPanel({ dealId, initialState, available }: Props)
     }
   }, [dealId]);
 
+  /**
+   * Execute a server action (for one-click actions like "Generate Snapshot").
+   */
+  const executeServerAction = useCallback(async (action: ServerActionType): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      let endpoint: string;
+      let method = "POST";
+
+      switch (action) {
+        case "generate_snapshot":
+          endpoint = `/api/deals/${dealId}/snapshot/generate`;
+          break;
+        case "generate_packet":
+          endpoint = `/api/deals/${dealId}/committee/packet/generate`;
+          break;
+        case "run_ai_classification":
+          endpoint = `/api/deals/${dealId}/files/classify-all`;
+          break;
+        case "send_reminder":
+          endpoint = `/api/deals/${dealId}/borrower/reminder`;
+          break;
+        default:
+          return { ok: false, error: "Unknown action" };
+      }
+
+      const res = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        return { ok: false, error: data.error || `HTTP ${res.status}` };
+      }
+
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || "Network error" };
+    }
+  }, [dealId]);
+
   const handleNextAction = useCallback(async () => {
     if (!state) return;
 
@@ -271,12 +490,32 @@ export function LifecycleStatusPanel({ dealId, initialState, available }: Props)
       return;
     }
 
-    // If should advance first, then navigate
-    if (nextAction.shouldAdvance) {
-      setIsAdvancing(true);
-      setAdvanceResult(null);
+    setIsAdvancing(true);
+    setAdvanceResult(null);
 
-      try {
+    try {
+      // For runnable actions, execute the server action first
+      if (nextAction.intent === "runnable" && nextAction.serverAction) {
+        const actionResult = await executeServerAction(nextAction.serverAction);
+
+        if (!actionResult.ok) {
+          setAdvanceResult({
+            type: "error",
+            message: actionResult.error || "Action failed",
+          });
+          setIsAdvancing(false);
+          return;
+        }
+
+        // Action succeeded - show brief success then advance if needed
+        setAdvanceResult({
+          type: "success",
+          message: `${nextAction.label} complete`,
+        });
+      }
+
+      // If should advance, do it now
+      if (nextAction.shouldAdvance) {
         const res = await fetch(`/api/deals/${dealId}/lifecycle/advance`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -289,15 +528,13 @@ export function LifecycleStatusPanel({ dealId, initialState, available }: Props)
             type: "success",
             message: `Advanced to ${STAGE_LABELS[data.state.stage as LifecycleStage] || data.state.stage}`,
           });
-          // Navigate after short delay to show success
-          if (nextAction.href) {
+          // Navigate after short delay to show success (only if not a runnable action)
+          if (nextAction.intent !== "runnable" && nextAction.href) {
             setTimeout(() => router.push(nextAction.href!), 500);
           }
         } else if (data.ok && !data.advanced) {
-          // No advancement needed, just navigate
-          if (nextAction.href) {
-            router.push(nextAction.href);
-          }
+          // Refresh state to show new status
+          await refresh();
         } else if (data.error === "blocked") {
           setState(data.state);
           setAdvanceResult({
@@ -310,20 +547,23 @@ export function LifecycleStatusPanel({ dealId, initialState, available }: Props)
             message: data.error || "Advance failed",
           });
         }
-      } catch (e) {
-        console.error("[LifecycleStatusPanel] Advance failed:", e);
-        setAdvanceResult({
-          type: "error",
-          message: "Network error",
-        });
-      } finally {
-        setIsAdvancing(false);
+      } else if (nextAction.intent === "navigate" && nextAction.href) {
+        // Just navigate (for non-runnable, non-advance actions)
+        router.push(nextAction.href);
+      } else if (nextAction.intent === "runnable") {
+        // Runnable action completed without advance - refresh to show new state
+        await refresh();
       }
-    } else if (nextAction.href) {
-      // Just navigate
-      router.push(nextAction.href);
+    } catch (e) {
+      console.error("[LifecycleStatusPanel] Action failed:", e);
+      setAdvanceResult({
+        type: "error",
+        message: "Network error",
+      });
+    } finally {
+      setIsAdvancing(false);
     }
-  }, [dealId, state, router]);
+  }, [dealId, state, router, executeServerAction, refresh]);
 
   if (!state) {
     return (
@@ -351,6 +591,8 @@ export function LifecycleStatusPanel({ dealId, initialState, available }: Props)
     switch (nextAction.intent) {
       case "advance":
         return "bg-gradient-to-r from-sky-500 to-emerald-500 text-white hover:from-sky-400 hover:to-emerald-400 shadow-lg shadow-sky-500/20";
+      case "runnable":
+        return "bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:from-violet-400 hover:to-fuchsia-400 shadow-lg shadow-violet-500/20";
       case "navigate":
         return "bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-400 hover:to-indigo-400 shadow-lg shadow-blue-500/20";
       case "blocked":
@@ -532,6 +774,15 @@ export function LifecycleStatusPanel({ dealId, initialState, available }: Props)
           <p className="text-[10px] text-white/30 text-center">
             Last advanced: {new Date(state.lastAdvancedAt).toLocaleString()}
           </p>
+        )}
+
+        {/* Explain like I'm a banker panel */}
+        {!lifecycleUnavailable && (
+          <BankerExplainerPanel
+            state={state}
+            isExpanded={bankerExplainerOpen}
+            onToggle={() => setBankerExplainerOpen(!bankerExplainerOpen)}
+          />
         )}
       </div>
     </div>

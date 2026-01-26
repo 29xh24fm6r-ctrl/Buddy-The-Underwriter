@@ -26,6 +26,8 @@ jobs:
         run: pnpm -s typecheck
       - name: Lint
         run: pnpm -s lint
+      - name: Check cockpit polling guardrail
+        run: bash scripts/check-cockpit-polling.sh
       - name: Build
         run: pnpm -s build:ci
         env:
