@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "description": "Canonical list of critical API routes that MUST follow the Never-500 pattern",
+  "contract": {
+    "http_status": 200,
+    "required_headers": ["x-correlation-id", "x-buddy-route"],
+    "response_format": "JSON with 'ok' boolean field"
+  },
+  "routes": [
+    {
+      "name": "deal",
+      "method": "GET",
+      "path": "/api/deals/{dealId}",
+      "sourceFile": "src/app/api/deals/[dealId]/route.ts",
+      "routeHeader": "/api/deals/[dealId]",
+      "correlationPrefix": "deal-",
+      "probe": "scripts/tests/gate-probe-deal-route.mjs"
+    },
+    {
+      "name": "lifecycle",
+      "method": "GET",
+      "path": "/api/deals/{dealId}/lifecycle",
+      "sourceFile": "src/app/api/deals/[dealId]/lifecycle/route.ts",
+      "routeHeader": "/api/deals/[dealId]/lifecycle",
+      "correlationPrefix": "lc-",
+      "probe": "scripts/tests/gate-probe-lifecycle.mjs"
+    },
+    {
+      "name": "context",
+      "method": "GET",
+      "path": "/api/deals/{dealId}/context",
+      "sourceFile": "src/app/api/deals/[dealId]/context/route.ts",
+      "routeHeader": "/api/deals/[dealId]/context",
+      "correlationPrefix": "ctx-",
+      "probe": "scripts/tests/gate-probe-context.mjs"
+    },
+    {
+      "name": "checklist_list",
+      "method": "GET",
+      "path": "/api/deals/{dealId}/checklist/list",
+      "sourceFile": "src/app/api/deals/[dealId]/checklist/list/route.ts",
+      "routeHeader": "/api/deals/[dealId]/checklist/list",
+      "correlationPrefix": "cl-",
+      "probe": "scripts/tests/gate-probe-checklist-list.mjs"
+    },
+    {
+      "name": "artifacts",
+      "method": "GET",
+      "path": "/api/deals/{dealId}/artifacts",
+      "sourceFile": "src/app/api/deals/[dealId]/artifacts/route.ts",
+      "routeHeader": "/api/deals/[dealId]/artifacts",
+      "correlationPrefix": "art-",
+      "probe": "scripts/tests/gate-probe-artifacts.mjs"
+    },
+    {
+      "name": "underwrite_start",
+      "method": "POST",
+      "path": "/api/deals/{dealId}/underwrite/start",
+      "sourceFile": "src/app/api/deals/[dealId]/underwrite/start/route.ts",
+      "routeHeader": "/api/deals/[dealId]/underwrite/start",
+      "correlationPrefix": "uws-",
+      "probe": "scripts/tests/gate-probe-underwrite-start.mjs"
+    },
+    {
+      "name": "decision_latest",
+      "method": "GET",
+      "path": "/api/deals/{dealId}/decision/latest",
+      "sourceFile": "src/app/api/deals/[dealId]/decision/latest/route.ts",
+      "routeHeader": "/api/deals/[dealId]/decision/latest",
+      "correlationPrefix": "dec-",
+      "probe": "scripts/tests/gate-probe-decision-latest.mjs"
+    },
+    {
+      "name": "financial_snapshot_decision",
+      "method": "GET",
+      "path": "/api/deals/{dealId}/financial-snapshot/decision",
+      "sourceFile": "src/app/api/deals/[dealId]/financial-snapshot/decision/route.ts",
+      "routeHeader": "/api/deals/[dealId]/financial-snapshot/decision",
+      "correlationPrefix": "fsd-",
+      "probe": "scripts/tests/gate-probe-financial-snapshot.mjs"
+    }
+  ]
+}
