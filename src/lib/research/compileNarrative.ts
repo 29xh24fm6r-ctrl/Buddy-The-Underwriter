@@ -494,6 +494,332 @@ function compileDemographics(
   };
 }
 
+// ============================================================================
+// Regulatory Environment Narrative (Phase 3)
+// ============================================================================
+
+/**
+ * Compile the Regulatory Environment section.
+ */
+function compileRegulatoryEnvironment(
+  facts: ResearchFact[],
+  inferences: ResearchInference[]
+): NarrativeSection | null {
+  const sentences: NarrativeSentence[] = [];
+
+  // Regulatory burden level
+  const burdenFacts = facts.filter((f) => f.fact_type === "regulatory_burden_level");
+  if (burdenFacts.length > 0) {
+    const burdenFact = burdenFacts[0];
+    const burden = ((burdenFact.value as { text?: string; category?: string }).text ?? "").toLowerCase();
+    const category = ((burdenFact.value as { text?: string; category?: string }).category ?? "").toLowerCase();
+
+    let description = "";
+    if (burden === "high") {
+      description = "This industry operates under a high regulatory burden";
+    } else if (burden === "medium") {
+      description = "This industry faces moderate regulatory requirements";
+    } else {
+      description = "This industry operates with relatively low regulatory burden";
+    }
+
+    if (category.includes("federal")) {
+      description += " from federal agencies.";
+    } else if (category.includes("epa")) {
+      description += " from environmental regulations.";
+    } else {
+      description += ".";
+    }
+
+    sentences.push({
+      text: description,
+      citations: [factCitation(burdenFact.id)],
+    });
+  }
+
+  // Federal rule count
+  const ruleCountFacts = facts.filter((f) => f.fact_type === "federal_rule_count");
+  if (ruleCountFacts.length > 0) {
+    const ruleFact = ruleCountFacts[0];
+    const value = ruleFact.value as NumericValue;
+
+    sentences.push({
+      text: `Federal agencies published ${value.value} rules affecting this industry in the past 12 months.`,
+      citations: [factCitation(ruleFact.id)],
+    });
+  }
+
+  // Licensing requirements
+  const licensingFacts = facts.filter((f) => f.fact_type === "licensing_required");
+  if (licensingFacts.length > 0) {
+    sentences.push({
+      text: `State-level licensing is required in ${licensingFacts.length} jurisdiction(s).`,
+      citations: licensingFacts.slice(0, 3).map((f) => factCitation(f.id)),
+    });
+  }
+
+  // State-specific constraints
+  const constraintFacts = facts.filter((f) => f.fact_type === "state_specific_constraint");
+  if (constraintFacts.length > 0) {
+    sentences.push({
+      text: "State-specific regulatory constraints:",
+      citations: [],
+    });
+
+    for (const fact of constraintFacts.slice(0, 3)) {
+      const value = fact.value as { text: string };
+      sentences.push({
+        text: `• ${value.text}`,
+        citations: [factCitation(fact.id)],
+      });
+    }
+  }
+
+  // Compliance requirements
+  const complianceFacts = facts.filter((f) => f.fact_type === "compliance_requirement");
+  if (complianceFacts.length > 0) {
+    sentences.push({
+      text: `${complianceFacts.length} specific compliance requirement(s) identified:`,
+      citations: [],
+    });
+
+    for (const fact of complianceFacts.slice(0, 3)) {
+      const value = fact.value as { text: string };
+      sentences.push({
+        text: `• ${value.text}`,
+        citations: [factCitation(fact.id)],
+      });
+    }
+  }
+
+  // Enforcement action count
+  const enforcementFacts = facts.filter((f) => f.fact_type === "enforcement_action_count");
+  if (enforcementFacts.length > 0) {
+    const enforcementFact = enforcementFacts[0];
+    const value = enforcementFact.value as NumericValue;
+
+    sentences.push({
+      text: `Regulatory agencies recorded ${value.value} enforcement ${value.unit} in this industry.`,
+      citations: [factCitation(enforcementFact.id)],
+    });
+  }
+
+  // Compliance cost indicator
+  const costFacts = facts.filter((f) => f.fact_type === "compliance_cost_indicator");
+  if (costFacts.length > 0) {
+    const costFact = costFacts[0];
+    const cost = ((costFact.value as { text?: string }).text ?? "").toLowerCase();
+
+    let costDescription = "";
+    if (cost === "high") {
+      costDescription = "Compliance costs are significant, with substantial penalties for violations.";
+    } else if (cost === "medium") {
+      costDescription = "Compliance costs are moderate.";
+    } else {
+      costDescription = "Compliance costs are generally manageable.";
+    }
+
+    sentences.push({
+      text: costDescription,
+      citations: [factCitation(costFact.id)],
+    });
+  }
+
+  // Regulatory risk inference
+  const riskInference = inferences.find((i) => i.inference_type === "regulatory_risk_level");
+  if (riskInference) {
+    sentences.push({
+      text: riskInference.conclusion,
+      citations: [inferenceCitation(riskInference.id)],
+    });
+  }
+
+  // Expansion constraint inference
+  const expansionInference = inferences.find((i) => i.inference_type === "expansion_constraint_risk");
+  if (expansionInference) {
+    sentences.push({
+      text: expansionInference.conclusion,
+      citations: [inferenceCitation(expansionInference.id)],
+    });
+  }
+
+  // Licensing complexity inference
+  const licensingInference = inferences.find((i) => i.inference_type === "licensing_complexity");
+  if (licensingInference) {
+    sentences.push({
+      text: licensingInference.conclusion,
+      citations: [inferenceCitation(licensingInference.id)],
+    });
+  }
+
+  if (sentences.length === 0) {
+    return null;
+  }
+
+  return {
+    title: "Regulatory Environment",
+    sentences,
+  };
+}
+
+// ============================================================================
+// Management Backgrounds Narrative (Phase 4)
+// ============================================================================
+
+/**
+ * Compile the Management Backgrounds section.
+ */
+function compileManagementBackgrounds(
+  facts: ResearchFact[],
+  inferences: ResearchInference[]
+): NarrativeSection | null {
+  const sentences: NarrativeSentence[] = [];
+
+  // Years of experience
+  const experienceFacts = facts.filter((f) => f.fact_type === "years_experience");
+  if (experienceFacts.length > 0) {
+    // Find max experience
+    let maxExp = 0;
+    let maxExpFact = experienceFacts[0];
+    for (const fact of experienceFacts) {
+      const value = fact.value as NumericValue;
+      if (value.value > maxExp) {
+        maxExp = value.value;
+        maxExpFact = fact;
+      }
+    }
+
+    sentences.push({
+      text: `The business has ${maxExp}+ years of documented operating history.`,
+      citations: [factCitation(maxExpFact.id)],
+    });
+  }
+
+  // Prior entities
+  const priorEntityFacts = facts.filter((f) => f.fact_type === "prior_entity");
+  if (priorEntityFacts.length > 0) {
+    const publicEntities = priorEntityFacts.filter(
+      (f) => ((f.value as { category?: string }).category ?? "").includes("sec")
+    );
+    const otherEntities = priorEntityFacts.filter(
+      (f) => !((f.value as { category?: string }).category ?? "").includes("sec")
+    );
+
+    if (publicEntities.length > 0) {
+      sentences.push({
+        text: `Management has ${publicEntities.length} public company affiliation(s) on record.`,
+        citations: publicEntities.slice(0, 3).map((f) => factCitation(f.id)),
+      });
+    }
+
+    if (otherEntities.length > 0) {
+      sentences.push({
+        text: `${otherEntities.length} prior business entity affiliation(s) identified.`,
+        citations: otherEntities.slice(0, 3).map((f) => factCitation(f.id)),
+      });
+    }
+  }
+
+  // Role history
+  const roleHistoryFacts = facts.filter((f) => f.fact_type === "role_history");
+  if (roleHistoryFacts.length > 0) {
+    sentences.push({
+      text: "Management background includes:",
+      citations: [],
+    });
+
+    for (const fact of roleHistoryFacts.slice(0, 3)) {
+      const value = fact.value as { text: string };
+      sentences.push({
+        text: `• ${value.text}`,
+        citations: [factCitation(fact.id)],
+      });
+    }
+  }
+
+  // Sanctions status
+  const sanctionsFacts = facts.filter((f) => f.fact_type === "sanctions_status");
+  const hasScreening = sanctionsFacts.some(
+    (f) => ((f.value as { text?: string }).text ?? "") === "screening_available"
+  );
+  if (hasScreening) {
+    sentences.push({
+      text: "OFAC sanctions screening data is available for verification.",
+      citations: sanctionsFacts.slice(0, 1).map((f) => factCitation(f.id)),
+    });
+  }
+
+  // Bankruptcy history
+  const bankruptcyFacts = facts.filter((f) => f.fact_type === "bankruptcy_history");
+  if (bankruptcyFacts.length > 0) {
+    sentences.push({
+      text: `⚠️ ${bankruptcyFacts.length} bankruptcy case(s) identified in public records:`,
+      citations: [],
+    });
+
+    for (const fact of bankruptcyFacts.slice(0, 3)) {
+      const value = fact.value as { text: string };
+      sentences.push({
+        text: `• ${value.text}`,
+        citations: [factCitation(fact.id)],
+      });
+    }
+  }
+
+  // Litigation history
+  const litigationFacts = facts.filter((f) => f.fact_type === "litigation_history");
+  if (litigationFacts.length > 0) {
+    let totalCases = 0;
+    for (const fact of litigationFacts) {
+      const value = fact.value as NumericValue;
+      totalCases += value.value;
+    }
+
+    if (totalCases > 0) {
+      sentences.push({
+        text: `${totalCases} civil litigation matter(s) identified in court records.`,
+        citations: litigationFacts.slice(0, 2).map((f) => factCitation(f.id)),
+      });
+    }
+  }
+
+  // Execution risk inference
+  const executionInference = inferences.find((i) => i.inference_type === "execution_risk_level");
+  if (executionInference) {
+    sentences.push({
+      text: executionInference.conclusion,
+      citations: [inferenceCitation(executionInference.id)],
+    });
+  }
+
+  // Management depth inference
+  const depthInference = inferences.find((i) => i.inference_type === "management_depth");
+  if (depthInference) {
+    sentences.push({
+      text: depthInference.conclusion,
+      citations: [inferenceCitation(depthInference.id)],
+    });
+  }
+
+  // Adverse event risk inference
+  const adverseInference = inferences.find((i) => i.inference_type === "adverse_event_risk");
+  if (adverseInference) {
+    sentences.push({
+      text: adverseInference.conclusion,
+      citations: [inferenceCitation(adverseInference.id)],
+    });
+  }
+
+  if (sentences.length === 0) {
+    return null;
+  }
+
+  return {
+    title: "Management Backgrounds",
+    sentences,
+  };
+}
+
 /**
  * Compile a summary section.
  */
@@ -505,7 +831,14 @@ function compileSummary(
 
   // Create a summary based on available inferences
   const keyInferences = inferences.filter((i) =>
-    ["competitive_intensity", "market_attractiveness", "growth_trajectory", "geographic_concentration"].includes(i.inference_type) ||
+    [
+      "competitive_intensity",
+      "market_attractiveness",
+      "growth_trajectory",
+      "geographic_concentration",
+      "regulatory_risk_level",
+      "execution_risk_level",
+    ].includes(i.inference_type) ||
     (i.inference_type === "other" && i.conclusion.toLowerCase().includes("demand stability"))
   );
 
@@ -568,13 +901,25 @@ export function compileNarrative(
     sections.push(demographics);
   }
 
-  // 5. Market Dynamics
+  // 5. Regulatory Environment (Phase 3)
+  const regulatory = compileRegulatoryEnvironment(facts, inferences);
+  if (regulatory) {
+    sections.push(regulatory);
+  }
+
+  // 6. Management Backgrounds (Phase 4)
+  const management = compileManagementBackgrounds(facts, inferences);
+  if (management) {
+    sections.push(management);
+  }
+
+  // 7. Market Dynamics
   const dynamics = compileMarketDynamics(facts, inferences);
   if (dynamics) {
     sections.push(dynamics);
   }
 
-  // 6. Summary (always last)
+  // 8. Summary (always last)
   const summary = compileSummary(facts, inferences);
   if (summary) {
     sections.push(summary);

@@ -87,5 +87,19 @@ export {
   validateNarrativeCitations,
 } from "./compileNarrative";
 
+// Credit Committee Pack (Phase 5)
+export type {
+  CreditCommitteePackSection,
+  RiskIndicator,
+  CreditCommitteePack,
+  CompilePackInput,
+  CompilePackResult,
+} from "./creditCommitteePack";
+
+export {
+  compileCreditCommitteePack,
+  renderPackToMarkdown,
+} from "./creditCommitteePack";
+
 // Note: runMission and runIndustryLandscapeMission are server-only
 // Import them directly from "@/lib/research/runMission" in server contexts

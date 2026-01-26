@@ -63,12 +63,22 @@ describe("Source Discovery", () => {
     assert.equal(sources.length, 0, "Should return empty array without NAICS");
   });
 
-  it("should return empty for unsupported mission types", () => {
-    const subject: MissionSubject = { naics_code: "236" };
-    // regulatory_environment and management_backgrounds are not yet implemented
+  it("should return sources for regulatory_environment missions", () => {
+    const subject: MissionSubject = { naics_code: "622", geography: "CA" };
     const sources = discoverSources("regulatory_environment", subject);
 
-    assert.equal(sources.length, 0, "Should return empty for unimplemented mission type");
+    assert.ok(sources.length > 0, "Should return sources for regulatory_environment");
+    const hasFederalRegister = sources.some((s) => s.source_name.includes("Federal Register"));
+    assert.ok(hasFederalRegister, "Should include Federal Register sources");
+  });
+
+  it("should return sources for management_backgrounds missions", () => {
+    const subject: MissionSubject = { company_name: "Acme Corp", geography: "TX" };
+    const sources = discoverSources("management_backgrounds", subject);
+
+    assert.ok(sources.length > 0, "Should return sources for management_backgrounds");
+    const hasEdgar = sources.some((s) => s.source_name.includes("SEC") || s.source_name.includes("EDGAR"));
+    assert.ok(hasEdgar, "Should include SEC EDGAR sources");
   });
 
   it("should return Census ACS sources for market_demand missions", () => {
@@ -482,3 +492,356 @@ function createMockFact(
     as_of_date: "2024-01-01",
   };
 }
+
+// ============================================================================
+// Phase 3: Regulatory Environment Tests
+// ============================================================================
+
+describe("Regulatory Environment (Phase 3)", () => {
+  it("should derive regulatory risk level from burden facts", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "regulatory_burden_level", { text: "high", category: "federal_activity" }),
+      createMockFact("f2", "enforcement_action_count", { value: 150, unit: "violations" }),
+      createMockFact("f3", "compliance_cost_indicator", { text: "high", category: "osha_penalty_avg" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const riskInference = result.inferences.find((i) => i.inference_type === "regulatory_risk_level");
+    assert.ok(riskInference, "Should derive regulatory risk level");
+    assert.ok(riskInference!.conclusion.includes("HIGH"), "Should be HIGH with multiple high-risk indicators");
+  });
+
+  it("should derive expansion constraint risk from licensing facts", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "licensing_required", { text: "yes", category: "CA_state_licensing" }),
+      createMockFact("f2", "licensing_required", { text: "yes", category: "TX_state_licensing" }),
+      createMockFact("f3", "state_specific_constraint", { text: "State licensing required in CA", category: "licensing" }),
+      createMockFact("f4", "state_specific_constraint", { text: "State licensing required in TX", category: "licensing" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const expansionInference = result.inferences.find((i) => i.inference_type === "expansion_constraint_risk");
+    assert.ok(expansionInference, "Should derive expansion constraint risk");
+    assert.ok(expansionInference!.input_fact_ids.length > 0, "Must have input fact IDs");
+  });
+
+  it("should derive licensing complexity from compliance requirements", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "licensing_required", { text: "yes", category: "state_licensing" }),
+      createMockFact("f2", "federal_rule_count", { value: 15, unit: "rules (12mo)" }),
+      createMockFact("f3", "compliance_requirement", { text: "Annual safety inspection required", category: "osha" }),
+      createMockFact("f4", "compliance_requirement", { text: "Environmental permit required", category: "epa" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const licensingInference = result.inferences.find((i) => i.inference_type === "licensing_complexity");
+    assert.ok(licensingInference, "Should derive licensing complexity");
+  });
+
+  it("should compile regulatory narrative section", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "regulatory_burden_level", { text: "medium", category: "federal_activity" }),
+      createMockFact("f2", "federal_rule_count", { value: 8, unit: "rules (12mo)" }),
+      createMockFact("f3", "licensing_required", { text: "yes", category: "CA_state_licensing" }),
+    ];
+
+    const inferences: ResearchInference[] = [
+      {
+        id: "inf-1",
+        mission_id: "mission-001",
+        inference_type: "regulatory_risk_level",
+        conclusion: "MEDIUM regulatory risk: moderate regulatory activity level.",
+        input_fact_ids: ["f1"],
+        confidence: 0.75,
+        reasoning: "Based on federal regulatory activity.",
+        created_at: "2024-01-01T00:00:00Z",
+      },
+    ];
+
+    const result = compileNarrative(facts, inferences);
+
+    assert.ok(result.ok, "Compilation should succeed");
+    const regSection = result.sections.find((s) => s.title === "Regulatory Environment");
+    assert.ok(regSection, "Should have Regulatory Environment section");
+    assert.ok(regSection!.sentences.length > 0, "Section should have sentences");
+  });
+});
+
+// ============================================================================
+// Phase 4: Management Backgrounds Tests
+// ============================================================================
+
+describe("Management Backgrounds (Phase 4)", () => {
+  it("should derive execution risk from experience and adverse events", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "years_experience", { value: 3, unit: "years" }),
+      createMockFact("f2", "bankruptcy_history", { text: "Chapter 11 - 2020", category: "court_record" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const executionInference = result.inferences.find((i) => i.inference_type === "execution_risk_level");
+    assert.ok(executionInference, "Should derive execution risk level");
+    assert.ok(executionInference!.conclusion.includes("HIGH"), "Should be HIGH with bankruptcy history");
+  });
+
+  it("should derive low execution risk for experienced management", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "years_experience", { value: 15, unit: "years" }),
+      createMockFact("f2", "role_history", { text: "Public company executive: Fortune 500 Corp", category: "sec_10k" }),
+      createMockFact("f3", "prior_entity", { text: "Fortune 500 Corp", category: "sec_filing" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const executionInference = result.inferences.find((i) => i.inference_type === "execution_risk_level");
+    assert.ok(executionInference, "Should derive execution risk level");
+    assert.ok(!executionInference!.conclusion.includes("HIGH"), "Should NOT be HIGH with strong experience");
+  });
+
+  it("should derive management depth from experience and prior entities", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "years_experience", { value: 12, unit: "years" }),
+      createMockFact("f2", "prior_entity", { text: "Previous Business LLC", category: "corp_registry_active" }),
+      createMockFact("f3", "prior_entity", { text: "Other Venture Inc", category: "corp_registry_active" }),
+      createMockFact("f4", "prior_entity", { text: "Third Company Corp", category: "corp_registry_active" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const depthInference = result.inferences.find((i) => i.inference_type === "management_depth");
+    assert.ok(depthInference, "Should derive management depth");
+    assert.ok(depthInference!.conclusion.includes("STRONG") || depthInference!.conclusion.includes("ADEQUATE"),
+      "Should show adequate or strong management depth");
+  });
+
+  it("should derive adverse event risk from litigation history", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "litigation_history", { value: 12, unit: "cases" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const adverseInference = result.inferences.find((i) => i.inference_type === "adverse_event_risk");
+    assert.ok(adverseInference, "Should derive adverse event risk");
+    assert.ok(adverseInference!.conclusion.includes("HIGH"), "Should be HIGH with elevated litigation");
+  });
+
+  it("should compile management narrative section", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "years_experience", { value: 8, unit: "years" }),
+      createMockFact("f2", "prior_entity", { text: "Previous Business LLC", category: "corp_registry_active" }),
+      createMockFact("f3", "sanctions_status", { text: "screening_available", category: "ofac" }),
+    ];
+
+    const inferences: ResearchInference[] = [
+      {
+        id: "inf-1",
+        mission_id: "mission-001",
+        inference_type: "execution_risk_level",
+        conclusion: "MEDIUM execution risk: 8 years experience.",
+        input_fact_ids: ["f1"],
+        confidence: 0.7,
+        reasoning: "Based on operating history.",
+        created_at: "2024-01-01T00:00:00Z",
+      },
+    ];
+
+    const result = compileNarrative(facts, inferences);
+
+    assert.ok(result.ok, "Compilation should succeed");
+    const mgmtSection = result.sections.find((s) => s.title === "Management Backgrounds");
+    assert.ok(mgmtSection, "Should have Management Backgrounds section");
+    assert.ok(mgmtSection!.sentences.length > 0, "Section should have sentences");
+  });
+});
+
+// ============================================================================
+// Phase 5: Credit Committee Pack Tests
+// ============================================================================
+
+import { compileCreditCommitteePack, renderPackToMarkdown } from "../research/creditCommitteePack";
+import type { ResearchMission } from "../research/types";
+
+describe("Credit Committee Pack (Phase 5)", () => {
+  it("should compile a pack from multiple missions", () => {
+    const mockMission: ResearchMission = {
+      id: "mission-001",
+      deal_id: "deal-001",
+      mission_type: "industry_landscape",
+      subject: { naics_code: "236" },
+      depth: "committee",
+      status: "complete",
+      sources_count: 5,
+      facts_count: 10,
+      inferences_count: 4,
+      created_at: "2024-01-01T00:00:00Z",
+      completed_at: "2024-01-01T00:01:00Z",
+    };
+
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "employment_count", { count: 500000, year: 2023, geography: "US" }),
+      createMockFact("f2", "establishment_count", { value: 10000, unit: "establishments" }),
+      createMockFact("f3", "average_wage", { value: 65000, unit: "USD/year" }),
+    ];
+
+    const inferences: ResearchInference[] = [
+      {
+        id: "inf-1",
+        mission_id: "mission-001",
+        inference_type: "competitive_intensity",
+        conclusion: "MEDIUM competitive intensity in this industry.",
+        input_fact_ids: ["f1", "f2"],
+        confidence: 0.8,
+        reasoning: "Based on establishment count and employment data.",
+        created_at: "2024-01-01T00:00:00Z",
+      },
+      {
+        id: "inf-2",
+        mission_id: "mission-001",
+        inference_type: "market_attractiveness",
+        conclusion: "HIGH market attractiveness.",
+        input_fact_ids: ["f1"],
+        confidence: 0.85,
+        reasoning: "Large employment base.",
+        created_at: "2024-01-01T00:00:00Z",
+      },
+    ];
+
+    const result = compileCreditCommitteePack({
+      deal_id: "deal-001",
+      missions: [
+        {
+          mission: mockMission,
+          facts,
+          inferences,
+          sources: [],
+        },
+      ],
+      deal_context: {
+        borrower_name: "Acme Construction",
+        loan_amount: 2500000,
+        loan_purpose: "equipment financing",
+        industry_description: "commercial construction",
+      },
+    });
+
+    assert.ok(result.ok, "Pack compilation should succeed");
+    assert.ok(result.pack, "Should return pack");
+    assert.ok(result.pack!.sections.length >= 3, "Should have at least 3 sections");
+    assert.equal(result.pack!.deal_id, "deal-001", "Should have correct deal_id");
+    assert.equal(result.pack!.total_facts, 3, "Should count facts correctly");
+  });
+
+  it("should extract risk indicators from inferences", () => {
+    const mockMission: ResearchMission = {
+      id: "mission-002",
+      deal_id: "deal-002",
+      mission_type: "regulatory_environment",
+      subject: { naics_code: "622" },
+      depth: "committee",
+      status: "complete",
+      sources_count: 3,
+      facts_count: 5,
+      inferences_count: 2,
+      created_at: "2024-01-01T00:00:00Z",
+      completed_at: "2024-01-01T00:01:00Z",
+    };
+
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "regulatory_burden_level", { text: "high", category: "federal" }),
+    ];
+
+    const inferences: ResearchInference[] = [
+      {
+        id: "inf-1",
+        mission_id: "mission-002",
+        inference_type: "regulatory_risk_level",
+        conclusion: "HIGH regulatory risk: significant federal oversight.",
+        input_fact_ids: ["f1"],
+        confidence: 0.8,
+        reasoning: "Healthcare industry faces heavy regulation.",
+        created_at: "2024-01-01T00:00:00Z",
+      },
+    ];
+
+    const result = compileCreditCommitteePack({
+      deal_id: "deal-002",
+      missions: [{ mission: mockMission, facts, inferences, sources: [] }],
+    });
+
+    assert.ok(result.ok, "Pack compilation should succeed");
+    assert.ok(result.pack!.risk_indicators.length > 0, "Should have risk indicators");
+
+    const regRisk = result.pack!.risk_indicators.find((r) => r.category === "regulatory");
+    assert.ok(regRisk, "Should have regulatory risk indicator");
+    assert.equal(regRisk!.level, "high", "Should be high risk");
+  });
+
+  it("should render pack to markdown", () => {
+    const mockMission: ResearchMission = {
+      id: "mission-003",
+      deal_id: "deal-003",
+      mission_type: "industry_landscape",
+      subject: { naics_code: "236" },
+      depth: "committee",
+      status: "complete",
+      sources_count: 2,
+      facts_count: 3,
+      inferences_count: 1,
+      created_at: "2024-01-01T00:00:00Z",
+      completed_at: "2024-01-01T00:01:00Z",
+    };
+
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "employment_count", { count: 100000, year: 2023, geography: "US" }),
+    ];
+
+    const result = compileCreditCommitteePack({
+      deal_id: "deal-003",
+      missions: [{ mission: mockMission, facts, inferences: [], sources: [] }],
+    });
+
+    assert.ok(result.ok, "Pack compilation should succeed");
+
+    const markdown = renderPackToMarkdown(result.pack!);
+    assert.ok(markdown.includes("# Credit Committee Research Pack"), "Should have title");
+    assert.ok(markdown.includes("deal-003"), "Should include deal ID");
+    assert.ok(markdown.includes("Executive Summary"), "Should have executive summary");
+  });
+
+  it("should fail compilation with no missions", () => {
+    const result = compileCreditCommitteePack({
+      deal_id: "deal-004",
+      missions: [],
+    });
+
+    assert.ok(!result.ok, "Should fail with no missions");
+    assert.ok(result.error, "Should have error message");
+  });
+
+  it("should fail compilation with no facts", () => {
+    const mockMission: ResearchMission = {
+      id: "mission-005",
+      deal_id: "deal-005",
+      mission_type: "industry_landscape",
+      subject: { naics_code: "236" },
+      depth: "overview",
+      status: "complete",
+      sources_count: 0,
+      facts_count: 0,
+      inferences_count: 0,
+      created_at: "2024-01-01T00:00:00Z",
+    };
+
+    const result = compileCreditCommitteePack({
+      deal_id: "deal-005",
+      missions: [{ mission: mockMission, facts: [], inferences: [], sources: [] }],
+    });
+
+    assert.ok(!result.ok, "Should fail with no facts");
+  });
+});

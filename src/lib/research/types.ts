@@ -104,11 +104,34 @@ export type FactType =
   // Geographic facts
   | "population"
   | "median_income"
+  | "per_capita_income"
+  | "median_home_value"
+  | "median_age"
   | "business_density"
+  // Demographic facts
+  | "population_growth_rate"
+  | "college_educated_pct"
+  | "unemployment_rate"
+  | "housing_units"
+  | "housing_occupancy_rate"
   // Regulatory facts
   | "regulatory_body"
   | "compliance_requirement"
   | "recent_enforcement"
+  | "licensing_required"
+  | "regulatory_burden_level"
+  | "state_specific_constraint"
+  | "compliance_cost_indicator"
+  | "enforcement_action_count"
+  | "federal_rule_count"
+  // Management facts
+  | "years_experience"
+  | "prior_entity"
+  | "role_history"
+  | "adverse_event"
+  | "sanctions_status"
+  | "bankruptcy_history"
+  | "litigation_history"
   // General
   | "other";
 
@@ -187,6 +210,17 @@ export type InferenceType =
   | "geographic_concentration"
   | "tailwind"
   | "headwind"
+  // Regulatory inferences
+  | "regulatory_risk_level"
+  | "expansion_constraint_risk"
+  | "licensing_complexity"
+  // Management inferences
+  | "execution_risk_level"
+  | "management_depth"
+  | "adverse_event_risk"
+  // Demand stability
+  | "demand_stability"
+  // General
   | "other";
 
 export type ResearchInference = {

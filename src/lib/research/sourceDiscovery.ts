@@ -325,6 +325,353 @@ function discoverMarketDemandSources(subject: MissionSubject): DiscoveredSource[
   return sources;
 }
 
+// ============================================================================
+// Regulated Industries by NAICS (for determining licensing requirements)
+// ============================================================================
+
+type RegulatedIndustryInfo = {
+  naics_prefix: string;
+  industry_name: string;
+  regulatory_bodies: string[];
+  requires_state_licensing: boolean;
+  osha_relevant: boolean;
+  epa_relevant: boolean;
+};
+
+const REGULATED_INDUSTRIES: RegulatedIndustryInfo[] = [
+  // Healthcare
+  { naics_prefix: "621", industry_name: "Ambulatory Health Care", regulatory_bodies: ["CMS", "State Health Dept"], requires_state_licensing: true, osha_relevant: true, epa_relevant: false },
+  { naics_prefix: "622", industry_name: "Hospitals", regulatory_bodies: ["CMS", "Joint Commission", "State Health Dept"], requires_state_licensing: true, osha_relevant: true, epa_relevant: true },
+  { naics_prefix: "623", industry_name: "Nursing and Residential Care", regulatory_bodies: ["CMS", "State Health Dept"], requires_state_licensing: true, osha_relevant: true, epa_relevant: false },
+
+  // Construction
+  { naics_prefix: "236", industry_name: "Construction of Buildings", regulatory_bodies: ["OSHA", "State Contractor Board"], requires_state_licensing: true, osha_relevant: true, epa_relevant: true },
+  { naics_prefix: "237", industry_name: "Heavy and Civil Engineering", regulatory_bodies: ["OSHA", "DOT", "State Contractor Board"], requires_state_licensing: true, osha_relevant: true, epa_relevant: true },
+  { naics_prefix: "238", industry_name: "Specialty Trade Contractors", regulatory_bodies: ["OSHA", "State Contractor Board"], requires_state_licensing: true, osha_relevant: true, epa_relevant: true },
+
+  // Food Services
+  { naics_prefix: "722", industry_name: "Food Services and Drinking Places", regulatory_bodies: ["FDA", "State Health Dept", "Local Health"], requires_state_licensing: true, osha_relevant: false, epa_relevant: false },
+  { naics_prefix: "311", industry_name: "Food Manufacturing", regulatory_bodies: ["FDA", "USDA", "State Ag Dept"], requires_state_licensing: true, osha_relevant: true, epa_relevant: true },
+
+  // Transportation
+  { naics_prefix: "484", industry_name: "Truck Transportation", regulatory_bodies: ["DOT", "FMCSA"], requires_state_licensing: true, osha_relevant: true, epa_relevant: true },
+  { naics_prefix: "485", industry_name: "Transit and Ground Passenger", regulatory_bodies: ["DOT", "State PUC"], requires_state_licensing: true, osha_relevant: false, epa_relevant: false },
+
+  // Finance
+  { naics_prefix: "522", industry_name: "Credit Intermediation", regulatory_bodies: ["OCC", "FDIC", "State Banking"], requires_state_licensing: true, osha_relevant: false, epa_relevant: false },
+  { naics_prefix: "523", industry_name: "Securities and Investments", regulatory_bodies: ["SEC", "FINRA", "State Securities"], requires_state_licensing: true, osha_relevant: false, epa_relevant: false },
+  { naics_prefix: "524", industry_name: "Insurance", regulatory_bodies: ["State Insurance Dept"], requires_state_licensing: true, osha_relevant: false, epa_relevant: false },
+
+  // Environmental
+  { naics_prefix: "562", industry_name: "Waste Management", regulatory_bodies: ["EPA", "State Env Agency"], requires_state_licensing: true, osha_relevant: true, epa_relevant: true },
+
+  // Manufacturing
+  { naics_prefix: "324", industry_name: "Petroleum and Coal Products", regulatory_bodies: ["EPA", "OSHA", "DOE"], requires_state_licensing: false, osha_relevant: true, epa_relevant: true },
+  { naics_prefix: "325", industry_name: "Chemical Manufacturing", regulatory_bodies: ["EPA", "OSHA"], requires_state_licensing: false, osha_relevant: true, epa_relevant: true },
+
+  // Childcare
+  { naics_prefix: "624", industry_name: "Social Assistance (Childcare)", regulatory_bodies: ["State Licensing", "HHS"], requires_state_licensing: true, osha_relevant: false, epa_relevant: false },
+
+  // Real Estate
+  { naics_prefix: "531", industry_name: "Real Estate", regulatory_bodies: ["State Real Estate Commission"], requires_state_licensing: true, osha_relevant: false, epa_relevant: false },
+
+  // Professional Services
+  { naics_prefix: "5411", industry_name: "Legal Services", regulatory_bodies: ["State Bar"], requires_state_licensing: true, osha_relevant: false, epa_relevant: false },
+  { naics_prefix: "5412", industry_name: "Accounting Services", regulatory_bodies: ["State Board of Accountancy"], requires_state_licensing: true, osha_relevant: false, epa_relevant: false },
+
+  // Auto
+  { naics_prefix: "441", industry_name: "Motor Vehicle Dealers", regulatory_bodies: ["State DMV", "FTC"], requires_state_licensing: true, osha_relevant: false, epa_relevant: false },
+  { naics_prefix: "8111", industry_name: "Automotive Repair", regulatory_bodies: ["State BAR", "EPA"], requires_state_licensing: true, osha_relevant: false, epa_relevant: true },
+];
+
+/**
+ * Get regulated industry info for a NAICS code
+ */
+function getRegulatedIndustryInfo(naicsCode: string): RegulatedIndustryInfo | null {
+  // Try increasingly shorter prefixes
+  for (let len = naicsCode.length; len >= 2; len--) {
+    const prefix = naicsCode.slice(0, len);
+    const match = REGULATED_INDUSTRIES.find(r => r.naics_prefix === prefix);
+    if (match) return match;
+  }
+  return null;
+}
+
+/**
+ * Discover sources for a regulatory_environment mission.
+ * Sources: Federal Register, SBA SOP, state licensing, OSHA/EPA
+ */
+function discoverRegulatoryEnvironmentSources(subject: MissionSubject): DiscoveredSource[] {
+  const sources: DiscoveredSource[] = [];
+  const naicsCode = subject.naics_code;
+  const geography = subject.geography ?? "US";
+  const stateCode = extractStateCode(geography);
+
+  // Get regulatory info for this industry
+  const regulatedInfo = naicsCode ? getRegulatedIndustryInfo(naicsCode) : null;
+
+  // 1. Federal Register API - Recent rules and notices
+  // API: https://www.federalregister.gov/developers/documentation/api/v1
+  // Search by agency and date
+  const naics2 = naicsCode?.slice(0, 2);
+
+  // Map NAICS to relevant agencies for Federal Register search
+  const agencyMapping: Record<string, string[]> = {
+    "23": ["osha", "epa"], // Construction
+    "31": ["fda", "usda", "osha", "epa"], // Food manufacturing
+    "32": ["epa", "osha"], // Manufacturing
+    "33": ["osha", "epa"], // Manufacturing
+    "44": ["ftc", "cpsc"], // Retail
+    "45": ["ftc", "cpsc"], // Retail
+    "48": ["dot", "fmcsa"], // Transportation
+    "52": ["sec", "cfpb", "occ", "fdic"], // Finance
+    "53": ["cfpb", "hud"], // Real Estate
+    "54": ["ftc"], // Professional services
+    "56": ["osha", "epa"], // Waste management
+    "62": ["cms", "hhs", "osha"], // Healthcare
+    "72": ["fda", "osha"], // Food services
+    "81": ["epa", "ftc"], // Other services
+  };
+
+  const agencies = naics2 && agencyMapping[naics2] ? agencyMapping[naics2] : ["sba"];
+
+  // Federal Register - recent documents from relevant agencies
+  for (const agency of agencies.slice(0, 2)) { // Limit to 2 agencies
+    sources.push({
+      source_class: "regulatory",
+      source_name: `Federal Register - ${agency.toUpperCase()}`,
+      url: `https://www.federalregister.gov/api/v1/documents.json?conditions[agencies][]=${agency}&conditions[publication_date][gte]=2023-01-01&per_page=20&order=newest`,
+      fetch_kind: "json",
+      priority: sources.length + 1,
+    });
+  }
+
+  // 2. SBA SOP Reference (Size Standards and Lending)
+  // Note: SBA SOP is PDF-based, but we can link to public reference pages
+  sources.push({
+    source_class: "regulatory",
+    source_name: "SBA Size Standards",
+    url: `https://www.sba.gov/document/support-table-size-standards`,
+    fetch_kind: "html",
+    priority: sources.length + 1,
+  });
+
+  // SBA NAICS-specific size standards API
+  if (naicsCode) {
+    sources.push({
+      source_class: "regulatory",
+      source_name: "SBA NAICS Size Standards",
+      url: `https://data.sba.gov/dataset/size-standards/resource/d0e2c5ff-4f46-4972-b99b-f3e6a77e5c58`,
+      fetch_kind: "json",
+      priority: sources.length + 1,
+    });
+  }
+
+  // 3. OSHA Data (if relevant industry)
+  if (regulatedInfo?.osha_relevant || !regulatedInfo) {
+    // OSHA Establishment Search (inspection data)
+    sources.push({
+      source_class: "regulatory",
+      source_name: "OSHA Enforcement Data",
+      url: `https://enforcedata.dol.gov/api/v1/osha/establishment`,
+      fetch_kind: "json",
+      priority: sources.length + 1,
+    });
+
+    // OSHA Industry Profiles
+    if (naicsCode) {
+      sources.push({
+        source_class: "regulatory",
+        source_name: "OSHA Industry Data",
+        url: `https://www.osha.gov/data/sic-manual`,
+        fetch_kind: "html",
+        priority: sources.length + 1,
+      });
+    }
+  }
+
+  // 4. EPA Data (if environmental regulations relevant)
+  if (regulatedInfo?.epa_relevant || !regulatedInfo) {
+    // EPA ECHO (Enforcement and Compliance History)
+    sources.push({
+      source_class: "regulatory",
+      source_name: "EPA Enforcement & Compliance",
+      url: `https://echodata.epa.gov/echo/dfr_downloads/facilities.csv?output=JSON`,
+      fetch_kind: "json",
+      priority: sources.length + 1,
+    });
+
+    // EPA Air Emissions (for manufacturing/industrial)
+    if (naics2 && ["31", "32", "33", "23", "48", "56"].includes(naics2)) {
+      sources.push({
+        source_class: "regulatory",
+        source_name: "EPA Air Quality Data",
+        url: `https://aqs.epa.gov/data/api/list/states?email=test@test.com&key=test`,
+        fetch_kind: "json",
+        priority: sources.length + 1,
+      });
+    }
+  }
+
+  // 5. State-specific licensing (if applicable)
+  if (stateCode && regulatedInfo?.requires_state_licensing) {
+    // State business/professional licensing portals
+    // Note: These vary by state, we provide a reference URL pattern
+    const stateLicensingUrls: Record<string, string> = {
+      CA: "https://www.dca.ca.gov/webapps/licsearch.php",
+      TX: "https://www.tdlr.texas.gov/LicenseSearch/",
+      FL: "https://www.myfloridalicense.com/wl11.asp",
+      NY: "https://www.dos.ny.gov/licensing/",
+      // Add more states as needed
+    };
+
+    if (stateLicensingUrls[stateCode]) {
+      sources.push({
+        source_class: "regulatory",
+        source_name: `${stateCode} State Licensing`,
+        url: stateLicensingUrls[stateCode],
+        fetch_kind: "html",
+        priority: sources.length + 1,
+      });
+    }
+  }
+
+  // 6. Industry-specific regulations
+  if (regulatedInfo) {
+    // Add sources based on regulatory bodies
+    for (const body of regulatedInfo.regulatory_bodies.slice(0, 2)) {
+      const bodyUrls: Record<string, string> = {
+        CMS: "https://data.cms.gov/provider-data/",
+        FDA: "https://api.fda.gov/download.json",
+        DOT: "https://datahub.transportation.gov/api/views",
+        SEC: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany",
+        FINRA: "https://www.finra.org/rules-guidance",
+        CFPB: "https://www.consumerfinance.gov/data-research/",
+      };
+
+      if (bodyUrls[body]) {
+        sources.push({
+          source_class: "regulatory",
+          source_name: `${body} Regulatory Data`,
+          url: bodyUrls[body],
+          fetch_kind: "json",
+          priority: sources.length + 1,
+        });
+      }
+    }
+  }
+
+  return sources;
+}
+
+/**
+ * Discover sources for a management_backgrounds mission.
+ * Sources: SEC filings, state corporate registries, public records
+ */
+function discoverManagementBackgroundsSources(subject: MissionSubject): DiscoveredSource[] {
+  const sources: DiscoveredSource[] = [];
+  const companyName = subject.company_name;
+  const geography = subject.geography ?? "US";
+  const stateCode = extractStateCode(geography);
+
+  // 1. SEC EDGAR - Officer/Director searches
+  // CIK lookup for company
+  if (companyName) {
+    sources.push({
+      source_class: "regulatory",
+      source_name: "SEC EDGAR Company Search",
+      url: `https://efts.sec.gov/LATEST/search-index?q=${encodeURIComponent(companyName)}&dateRange=custom&startdt=2020-01-01&forms=10-K,10-Q,DEF%2014A`,
+      fetch_kind: "json",
+      priority: 1,
+    });
+
+    // SEC Full-Text search for company mentions
+    sources.push({
+      source_class: "regulatory",
+      source_name: "SEC EDGAR Full-Text",
+      url: `https://efts.sec.gov/LATEST/search-index?q="${encodeURIComponent(companyName)}"&forms=10-K,8-K,DEF%2014A`,
+      fetch_kind: "json",
+      priority: 2,
+    });
+  }
+
+  // 2. State Corporate Registry
+  // Note: These APIs vary significantly by state
+  if (stateCode) {
+    const stateCorpRegistries: Record<string, string> = {
+      CA: "https://businesssearch.sos.ca.gov/CBS/SearchResults",
+      TX: "https://mycpa.cpa.state.tx.us/coa/",
+      FL: "https://search.sunbiz.org/Inquiry/CorporationSearch/SearchResultDetail",
+      NY: "https://apps.dos.ny.gov/publicInquiry/",
+      DE: "https://icis.corp.delaware.gov/Ecorp/EntitySearch/NameSearch.aspx",
+      NV: "https://esos.nv.gov/EntitySearch/OnlineEntitySearch",
+    };
+
+    if (stateCorpRegistries[stateCode]) {
+      sources.push({
+        source_class: "regulatory",
+        source_name: `${stateCode} Corporate Registry`,
+        url: stateCorpRegistries[stateCode],
+        fetch_kind: "html",
+        priority: 3,
+      });
+    }
+  }
+
+  // 3. Federal Court Records (PACER is paid, but we can reference it)
+  // Instead, use free sources like RECAP Archive
+  if (companyName) {
+    sources.push({
+      source_class: "regulatory",
+      source_name: "CourtListener RECAP",
+      url: `https://www.courtlistener.com/api/rest/v3/dockets/?q=${encodeURIComponent(companyName)}`,
+      fetch_kind: "json",
+      priority: 4,
+    });
+  }
+
+  // 4. OFAC Sanctions List (Treasury SDN List)
+  // Free API for sanctions screening
+  sources.push({
+    source_class: "regulatory",
+    source_name: "OFAC SDN List",
+    url: "https://www.treasury.gov/ofac/downloads/sdn.csv",
+    fetch_kind: "html", // CSV format
+    priority: 5,
+  });
+
+  // 5. SBA Debarment List
+  sources.push({
+    source_class: "regulatory",
+    source_name: "SAM.gov Exclusions",
+    url: "https://sam.gov/api/prod/federalorganizations/v1/orgs",
+    fetch_kind: "json",
+    priority: 6,
+  });
+
+  // 6. State Business Entity Filings (UCC, Liens)
+  if (stateCode) {
+    const stateUccRegistries: Record<string, string> = {
+      CA: "https://businesssearch.sos.ca.gov/",
+      TX: "https://www.sos.state.tx.us/corp/sosda/index.shtml",
+      FL: "https://ccfcorp.dos.state.fl.us/",
+      NY: "https://appext20.dos.ny.gov/pls/ucc_public/",
+    };
+
+    if (stateUccRegistries[stateCode]) {
+      sources.push({
+        source_class: "regulatory",
+        source_name: `${stateCode} UCC Filings`,
+        url: stateUccRegistries[stateCode],
+        fetch_kind: "html",
+        priority: 7,
+      });
+    }
+  }
+
+  return sources;
+}
+
 /**
  * Discover sources for a demographics mission.
  * More detailed demographic analysis focused on consumer/workforce characteristics.
@@ -446,9 +793,10 @@ export function discoverSources(
       return discoverDemographicsSources(subject);
 
     case "regulatory_environment":
+      return discoverRegulatoryEnvironmentSources(subject);
+
     case "management_backgrounds":
-      // Phase 3: implement these
-      return [];
+      return discoverManagementBackgroundsSources(subject);
 
     default:
       return [];

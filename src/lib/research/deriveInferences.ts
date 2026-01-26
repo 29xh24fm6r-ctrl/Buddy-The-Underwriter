@@ -524,6 +524,441 @@ function deriveTailwindsHeadwinds(facts: ResearchFact[]): DerivedInference[] {
   return inferences;
 }
 
+// ============================================================================
+// Regulatory Inferences (Phase 3)
+// ============================================================================
+
+/**
+ * Derive regulatory risk level from burden, enforcement, and licensing facts.
+ */
+function deriveRegulatoryRiskLevel(facts: ResearchFact[]): DerivedInference | null {
+  const burdenFacts = facts.filter((f) => f.fact_type === "regulatory_burden_level");
+  const enforcementFacts = facts.filter((f) => f.fact_type === "enforcement_action_count");
+  const costFacts = facts.filter((f) => f.fact_type === "compliance_cost_indicator");
+  const licensingFacts = facts.filter((f) => f.fact_type === "licensing_required");
+  const complianceFacts = facts.filter((f) => f.fact_type === "compliance_requirement");
+
+  const allRegulatoryFacts = [...burdenFacts, ...enforcementFacts, ...costFacts, ...licensingFacts, ...complianceFacts];
+
+  if (allRegulatoryFacts.length === 0) {
+    return null;
+  }
+
+  // Score regulatory risk (0=low, 1=medium, 2=high)
+  let riskScore = 1;
+  const reasons: string[] = [];
+
+  // Check burden level
+  for (const fact of burdenFacts) {
+    const burden = ((fact.value as { text?: string }).text ?? "").toLowerCase();
+    if (burden === "high") {
+      riskScore = Math.max(riskScore, 2);
+      reasons.push("high regulatory activity level");
+    } else if (burden === "low") {
+      riskScore = Math.min(riskScore, 1);
+    }
+  }
+
+  // Check enforcement actions
+  for (const fact of enforcementFacts) {
+    const value = fact.value as NumericValue;
+    if (value.value > 100) {
+      riskScore = Math.max(riskScore, 2);
+      reasons.push(`significant enforcement activity (${value.value} ${value.unit})`);
+    } else if (value.value > 20) {
+      riskScore = Math.max(riskScore, 1);
+      reasons.push(`moderate enforcement (${value.value} ${value.unit})`);
+    }
+  }
+
+  // Check compliance cost indicators
+  for (const fact of costFacts) {
+    const cost = ((fact.value as { text?: string }).text ?? "").toLowerCase();
+    if (cost === "high") {
+      riskScore = Math.max(riskScore, 2);
+      reasons.push("high compliance costs");
+    }
+  }
+
+  // Check licensing requirements
+  for (const fact of licensingFacts) {
+    const required = ((fact.value as { text?: string }).text ?? "").toLowerCase();
+    if (required === "yes") {
+      riskScore = Math.max(riskScore, 1);
+      reasons.push("state licensing required");
+    }
+  }
+
+  // Count compliance requirements
+  if (complianceFacts.length > 5) {
+    riskScore = Math.max(riskScore, 2);
+    reasons.push(`${complianceFacts.length} compliance requirements identified`);
+  } else if (complianceFacts.length > 0) {
+    reasons.push(`${complianceFacts.length} compliance requirement(s)`);
+  }
+
+  if (reasons.length === 0) {
+    reasons.push("limited regulatory data available");
+  }
+
+  const riskLevel = riskScore === 2 ? "high" : riskScore === 0 ? "low" : "medium";
+  const inputFactIds = allRegulatoryFacts.slice(0, 10).map((f) => f.id);
+
+  return {
+    inference_type: "regulatory_risk_level",
+    conclusion: `${riskLevel.toUpperCase()} regulatory risk: ${reasons.join("; ")}.`,
+    input_fact_ids: inputFactIds,
+    confidence: reasons.length >= 2 ? 0.8 : 0.65,
+    reasoning: `Regulatory risk assessed from ${allRegulatoryFacts.length} regulatory facts across ${burdenFacts.length + enforcementFacts.length + costFacts.length} categories.`,
+  };
+}
+
+/**
+ * Derive expansion constraint risk from state-specific and licensing facts.
+ */
+function deriveExpansionConstraintRisk(facts: ResearchFact[]): DerivedInference | null {
+  const stateConstraintFacts = facts.filter((f) => f.fact_type === "state_specific_constraint");
+  const licensingFacts = facts.filter((f) => f.fact_type === "licensing_required");
+  const burdenFacts = facts.filter((f) => f.fact_type === "regulatory_burden_level");
+
+  const constraintFacts = [...stateConstraintFacts, ...licensingFacts];
+
+  if (constraintFacts.length === 0) {
+    return null;
+  }
+
+  // Count unique state constraints
+  const stateConstraints = stateConstraintFacts.length;
+  let constraintRisk: "high" | "medium" | "low";
+  let reasoning: string;
+
+  if (stateConstraints > 3 || licensingFacts.length > 2) {
+    constraintRisk = "high";
+    reasoning = `Multi-state licensing complexity: ${stateConstraints} state-specific constraints identified`;
+  } else if (stateConstraints > 1 || licensingFacts.length > 0) {
+    constraintRisk = "medium";
+    reasoning = `State licensing required: ${licensingFacts.length} licensing requirement(s), ${stateConstraints} state-specific constraint(s)`;
+  } else {
+    constraintRisk = "low";
+    reasoning = "Limited state-specific regulatory barriers to expansion";
+  }
+
+  const inputFactIds = constraintFacts.slice(0, 5).map((f) => f.id);
+
+  return {
+    inference_type: "expansion_constraint_risk",
+    conclusion: `${constraintRisk.toUpperCase()} expansion constraint risk: ${reasoning}.`,
+    input_fact_ids: inputFactIds,
+    confidence: 0.7,
+    reasoning: "Geographic expansion may require additional licensing and compliance efforts.",
+  };
+}
+
+/**
+ * Derive licensing complexity from licensing and compliance facts.
+ */
+function deriveLicensingComplexity(facts: ResearchFact[]): DerivedInference | null {
+  const licensingFacts = facts.filter((f) => f.fact_type === "licensing_required");
+  const complianceFacts = facts.filter((f) => f.fact_type === "compliance_requirement");
+  const ruleCountFacts = facts.filter((f) => f.fact_type === "federal_rule_count");
+
+  if (licensingFacts.length === 0 && complianceFacts.length === 0 && ruleCountFacts.length === 0) {
+    return null;
+  }
+
+  // Calculate complexity score
+  let complexityScore = 0;
+  const reasons: string[] = [];
+
+  // State licensing
+  if (licensingFacts.length > 0) {
+    complexityScore += licensingFacts.length;
+    reasons.push(`${licensingFacts.length} state licensing requirement(s)`);
+  }
+
+  // Federal rules
+  for (const fact of ruleCountFacts) {
+    const value = fact.value as NumericValue;
+    if (value.value > 10) {
+      complexityScore += 2;
+      reasons.push(`${value.value} federal rules in past 12 months`);
+    } else if (value.value > 0) {
+      complexityScore += 1;
+    }
+  }
+
+  // Compliance requirements
+  if (complianceFacts.length > 3) {
+    complexityScore += 2;
+    reasons.push(`${complianceFacts.length} compliance requirements`);
+  } else if (complianceFacts.length > 0) {
+    complexityScore += 1;
+  }
+
+  let complexity: "high" | "medium" | "low";
+  if (complexityScore >= 4) {
+    complexity = "high";
+  } else if (complexityScore >= 2) {
+    complexity = "medium";
+  } else {
+    complexity = "low";
+  }
+
+  const inputFactIds = [...licensingFacts, ...complianceFacts, ...ruleCountFacts].slice(0, 8).map((f) => f.id);
+
+  return {
+    inference_type: "licensing_complexity",
+    conclusion: `${complexity.toUpperCase()} licensing complexity: ${reasons.join("; ") || "minimal licensing requirements"}.`,
+    input_fact_ids: inputFactIds,
+    confidence: 0.7,
+    reasoning: `Licensing complexity scored at ${complexityScore} based on state/federal requirements.`,
+  };
+}
+
+// ============================================================================
+// Management Background Inferences (Phase 4)
+// ============================================================================
+
+/**
+ * Derive execution risk level from management experience and adverse events.
+ */
+function deriveExecutionRiskLevel(facts: ResearchFact[]): DerivedInference | null {
+  const experienceFacts = facts.filter((f) => f.fact_type === "years_experience");
+  const priorEntityFacts = facts.filter((f) => f.fact_type === "prior_entity");
+  const roleHistoryFacts = facts.filter((f) => f.fact_type === "role_history");
+  const adverseEventFacts = facts.filter((f) => f.fact_type === "adverse_event");
+  const bankruptcyFacts = facts.filter((f) => f.fact_type === "bankruptcy_history");
+  const litigationFacts = facts.filter((f) => f.fact_type === "litigation_history");
+  const sanctionsFacts = facts.filter((f) => f.fact_type === "sanctions_status");
+
+  const allMgmtFacts = [...experienceFacts, ...priorEntityFacts, ...roleHistoryFacts,
+                       ...adverseEventFacts, ...bankruptcyFacts, ...litigationFacts, ...sanctionsFacts];
+
+  if (allMgmtFacts.length === 0) {
+    return null;
+  }
+
+  // Score execution risk (0=low, 1=medium, 2=high)
+  let riskScore = 1; // Start at medium
+  const reasons: string[] = [];
+
+  // Experience reduces risk
+  for (const fact of experienceFacts) {
+    const value = fact.value as NumericValue;
+    if (value.value >= 10) {
+      riskScore = Math.min(riskScore, 0);
+      reasons.push(`${value.value}+ years operating experience`);
+    } else if (value.value >= 5) {
+      riskScore = Math.min(riskScore, 1);
+      reasons.push(`${value.value} years experience`);
+    } else if (value.value < 3) {
+      reasons.push(`limited operating history (${value.value} years)`);
+    }
+  }
+
+  // Prior entities (can be positive - track record)
+  if (priorEntityFacts.length > 0) {
+    const publicCompanies = priorEntityFacts.filter(
+      (f) => ((f.value as { category?: string }).category ?? "").includes("sec")
+    ).length;
+
+    if (publicCompanies > 0) {
+      riskScore = Math.min(riskScore, 1);
+      reasons.push(`${publicCompanies} prior public company affiliation(s)`);
+    } else if (priorEntityFacts.length > 2) {
+      reasons.push(`${priorEntityFacts.length} prior entity affiliations`);
+    }
+  }
+
+  // Role history (executive experience reduces risk)
+  if (roleHistoryFacts.length > 0) {
+    const executiveRoles = roleHistoryFacts.filter(
+      (f) => ((f.value as { text?: string }).text ?? "").toLowerCase().includes("executive")
+    ).length;
+
+    if (executiveRoles > 0) {
+      riskScore = Math.min(riskScore, 1);
+      reasons.push(`${executiveRoles} prior executive role(s)`);
+    }
+  }
+
+  // Adverse events increase risk
+  if (adverseEventFacts.length > 0) {
+    riskScore = Math.max(riskScore, 2);
+    reasons.push(`adverse event(s) identified`);
+  }
+
+  // Bankruptcy history is a significant risk factor
+  if (bankruptcyFacts.length > 0) {
+    riskScore = 2;
+    reasons.push(`${bankruptcyFacts.length} bankruptcy case(s) in history`);
+  }
+
+  // Litigation history
+  for (const fact of litigationFacts) {
+    const value = fact.value as NumericValue;
+    if (value.value > 5) {
+      riskScore = Math.max(riskScore, 2);
+      reasons.push(`elevated litigation history (${value.value} cases)`);
+    } else if (value.value > 0) {
+      reasons.push(`${value.value} litigation matter(s)`);
+    }
+  }
+
+  // Sanctions check
+  const hasSanctionsData = sanctionsFacts.some(
+    (f) => ((f.value as { text?: string }).text ?? "") === "screening_available"
+  );
+  if (hasSanctionsData) {
+    reasons.push("OFAC sanctions screening available");
+  }
+
+  if (reasons.length === 0) {
+    reasons.push("limited management background data");
+  }
+
+  const riskLevel = riskScore === 2 ? "high" : riskScore === 0 ? "low" : "medium";
+  const inputFactIds = allMgmtFacts.slice(0, 10).map((f) => f.id);
+
+  return {
+    inference_type: "execution_risk_level",
+    conclusion: `${riskLevel.toUpperCase()} execution risk: ${reasons.join("; ")}.`,
+    input_fact_ids: inputFactIds,
+    confidence: experienceFacts.length > 0 || adverseEventFacts.length > 0 ? 0.75 : 0.6,
+    reasoning: `Execution risk assessed from ${allMgmtFacts.length} management background facts.`,
+  };
+}
+
+/**
+ * Derive management depth from role history and experience facts.
+ */
+function deriveManagementDepth(facts: ResearchFact[]): DerivedInference | null {
+  const experienceFacts = facts.filter((f) => f.fact_type === "years_experience");
+  const roleHistoryFacts = facts.filter((f) => f.fact_type === "role_history");
+  const priorEntityFacts = facts.filter((f) => f.fact_type === "prior_entity");
+
+  if (experienceFacts.length === 0 && roleHistoryFacts.length === 0 && priorEntityFacts.length === 0) {
+    return null;
+  }
+
+  // Assess management depth
+  let depthScore = 0;
+  const reasons: string[] = [];
+
+  // Experience adds depth
+  for (const fact of experienceFacts) {
+    const value = fact.value as NumericValue;
+    if (value.value >= 10) {
+      depthScore += 2;
+      reasons.push(`deep operating experience (${value.value}+ years)`);
+    } else if (value.value >= 5) {
+      depthScore += 1;
+      reasons.push(`solid experience base (${value.value} years)`);
+    }
+  }
+
+  // Prior entities show track record
+  if (priorEntityFacts.length >= 3) {
+    depthScore += 2;
+    reasons.push(`${priorEntityFacts.length} prior entity affiliations`);
+  } else if (priorEntityFacts.length > 0) {
+    depthScore += 1;
+    reasons.push(`${priorEntityFacts.length} prior affiliation(s)`);
+  }
+
+  // Executive roles show leadership
+  const executiveRoles = roleHistoryFacts.filter(
+    (f) => ((f.value as { text?: string }).text ?? "").toLowerCase().includes("executive")
+  ).length;
+
+  if (executiveRoles > 0) {
+    depthScore += 1;
+    reasons.push(`${executiveRoles} executive role(s)`);
+  }
+
+  let depth: "strong" | "adequate" | "limited";
+  if (depthScore >= 4) {
+    depth = "strong";
+  } else if (depthScore >= 2) {
+    depth = "adequate";
+  } else {
+    depth = "limited";
+  }
+
+  const inputFactIds = [...experienceFacts, ...roleHistoryFacts, ...priorEntityFacts].slice(0, 8).map((f) => f.id);
+
+  return {
+    inference_type: "management_depth",
+    conclusion: `${depth.toUpperCase()} management depth: ${reasons.join("; ") || "limited background data available"}.`,
+    input_fact_ids: inputFactIds,
+    confidence: depthScore >= 2 ? 0.75 : 0.55,
+    reasoning: `Management depth scored at ${depthScore} based on experience and track record.`,
+  };
+}
+
+/**
+ * Derive adverse event risk from bankruptcy, litigation, and sanctions facts.
+ */
+function deriveAdverseEventRisk(facts: ResearchFact[]): DerivedInference | null {
+  const adverseEventFacts = facts.filter((f) => f.fact_type === "adverse_event");
+  const bankruptcyFacts = facts.filter((f) => f.fact_type === "bankruptcy_history");
+  const litigationFacts = facts.filter((f) => f.fact_type === "litigation_history");
+  const sanctionsFacts = facts.filter((f) => f.fact_type === "sanctions_status");
+
+  const allAdverseFacts = [...adverseEventFacts, ...bankruptcyFacts, ...litigationFacts, ...sanctionsFacts];
+
+  if (allAdverseFacts.length === 0) {
+    return null;
+  }
+
+  // Any bankruptcy is high risk
+  if (bankruptcyFacts.length > 0) {
+    return {
+      inference_type: "adverse_event_risk",
+      conclusion: `HIGH adverse event risk: ${bankruptcyFacts.length} bankruptcy case(s) identified in management/entity history.`,
+      input_fact_ids: bankruptcyFacts.slice(0, 5).map((f) => f.id),
+      confidence: 0.85,
+      reasoning: "Prior bankruptcy is a significant risk factor requiring enhanced due diligence.",
+    };
+  }
+
+  // Check litigation level
+  let litigationCount = 0;
+  for (const fact of litigationFacts) {
+    const value = fact.value as NumericValue;
+    litigationCount += value.value;
+  }
+
+  if (litigationCount > 10) {
+    return {
+      inference_type: "adverse_event_risk",
+      conclusion: `HIGH adverse event risk: ${litigationCount} litigation matters identified.`,
+      input_fact_ids: litigationFacts.map((f) => f.id),
+      confidence: 0.8,
+      reasoning: "Elevated litigation history warrants closer review of legal exposure.",
+    };
+  }
+
+  if (adverseEventFacts.length > 0 || litigationCount > 3) {
+    return {
+      inference_type: "adverse_event_risk",
+      conclusion: `MEDIUM adverse event risk: ${adverseEventFacts.length} adverse event(s), ${litigationCount} litigation matter(s).`,
+      input_fact_ids: allAdverseFacts.slice(0, 5).map((f) => f.id),
+      confidence: 0.7,
+      reasoning: "Some adverse history identified; recommend targeted due diligence.",
+    };
+  }
+
+  // Only sanctions screening available, no actual adverse events
+  return {
+    inference_type: "adverse_event_risk",
+    conclusion: "LOW adverse event risk: No significant adverse events identified in available records.",
+    input_fact_ids: allAdverseFacts.map((f) => f.id),
+    confidence: 0.6,
+    reasoning: "Limited adverse event data; recommend standard background verification.",
+  };
+}
+
 /**
  * Main inference derivation function.
  * Takes all facts from a mission and derives inferences.
@@ -568,6 +1003,38 @@ export function deriveInferences(facts: ResearchFact[]): InferenceDerivationResu
   // 7. Demographic tailwinds and headwinds
   const demoTailwindsHeadwinds = deriveDemographicTailwindsHeadwinds(facts);
   inferences.push(...demoTailwindsHeadwinds);
+
+  // 8. Regulatory inferences (Phase 3)
+  const regulatoryRisk = deriveRegulatoryRiskLevel(facts);
+  if (regulatoryRisk) {
+    inferences.push(regulatoryRisk);
+  }
+
+  const expansionConstraint = deriveExpansionConstraintRisk(facts);
+  if (expansionConstraint) {
+    inferences.push(expansionConstraint);
+  }
+
+  const licensingComplexity = deriveLicensingComplexity(facts);
+  if (licensingComplexity) {
+    inferences.push(licensingComplexity);
+  }
+
+  // 9. Management background inferences (Phase 4)
+  const executionRisk = deriveExecutionRiskLevel(facts);
+  if (executionRisk) {
+    inferences.push(executionRisk);
+  }
+
+  const managementDepth = deriveManagementDepth(facts);
+  if (managementDepth) {
+    inferences.push(managementDepth);
+  }
+
+  const adverseEventRisk = deriveAdverseEventRisk(facts);
+  if (adverseEventRisk) {
+    inferences.push(adverseEventRisk);
+  }
 
   return { inferences };
 }

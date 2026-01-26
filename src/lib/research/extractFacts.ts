@@ -689,6 +689,573 @@ function extractCensusEconomicFacts(source: ResearchSource): ExtractedFact[] {
   return facts;
 }
 
+// ============================================================================
+// Regulatory Fact Extractors (Phase 3)
+// ============================================================================
+
+/**
+ * Extract facts from Federal Register API data.
+ * Expected format: Federal Register API response with documents array.
+ */
+function extractFederalRegisterFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  const content = source.raw_content as Record<string, unknown>;
+
+  const results = content?.results as Array<Record<string, unknown>> | undefined;
+  if (!results || !Array.isArray(results)) {
+    return facts;
+  }
+
+  // Count rules by type (proposed vs final)
+  let proposedRules = 0;
+  let finalRules = 0;
+  let notices = 0;
+
+  for (const doc of results) {
+    const docType = String(doc.type ?? "").toLowerCase();
+    const agencies = doc.agencies as Array<Record<string, unknown>> | undefined;
+
+    if (docType.includes("proposed rule")) {
+      proposedRules++;
+    } else if (docType.includes("rule")) {
+      finalRules++;
+    } else if (docType.includes("notice")) {
+      notices++;
+    }
+
+    // Extract compliance requirements from significant rules
+    const significant = doc.significant === true;
+    const title = String(doc.title ?? "");
+    const abstract = String(doc.abstract ?? "");
+
+    if (significant && (title || abstract)) {
+      facts.push({
+        source_id: source.id,
+        fact_type: "compliance_requirement",
+        value: {
+          text: title.slice(0, 200),
+          category: "federal_rule",
+        } as TextValue,
+        confidence: 0.85,
+        extracted_by: "rule",
+        extraction_path: `$.results[document_number=${doc.document_number}]`,
+        as_of_date: String(doc.publication_date ?? ""),
+      });
+    }
+  }
+
+  // Summarize regulatory activity level
+  const totalRules = proposedRules + finalRules;
+  if (totalRules > 0) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "federal_rule_count",
+      value: {
+        value: totalRules,
+        unit: "rules (12mo)",
+        year: new Date().getFullYear(),
+      } as NumericValue,
+      confidence: 0.9,
+      extracted_by: "rule",
+      extraction_path: "$.results.count",
+    });
+  }
+
+  // Determine regulatory burden level based on activity
+  let burdenLevel: "low" | "medium" | "high" = "low";
+  if (totalRules > 20 || notices > 50) {
+    burdenLevel = "high";
+  } else if (totalRules > 5 || notices > 20) {
+    burdenLevel = "medium";
+  }
+
+  facts.push({
+    source_id: source.id,
+    fact_type: "regulatory_burden_level",
+    value: {
+      text: burdenLevel,
+      category: "federal_activity",
+    } as TextValue,
+    confidence: 0.75,
+    extracted_by: "rule",
+    extraction_path: "$.results.derived_burden",
+  });
+
+  return facts;
+}
+
+/**
+ * Extract facts from OSHA enforcement data.
+ */
+function extractOshaEnforcementFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  const content = source.raw_content as Record<string, unknown>;
+
+  // OSHA API returns enforcement data
+  const data = content?.data as Array<Record<string, unknown>> | undefined;
+  if (!data || !Array.isArray(data)) {
+    // Try alternative format
+    if (Array.isArray(content)) {
+      return extractOshaEnforcementFactsFromArray(source, content);
+    }
+    return facts;
+  }
+
+  // Count violations and penalties
+  let totalViolations = 0;
+  let totalPenalty = 0;
+  let seriousViolations = 0;
+
+  for (const record of data.slice(0, 100)) {
+    const violations = parseInt(String(record.total_violations ?? 0), 10);
+    const penalty = parseFloat(String(record.total_penalty ?? 0));
+    const serious = parseInt(String(record.serious_violations ?? 0), 10);
+
+    if (!isNaN(violations)) totalViolations += violations;
+    if (!isNaN(penalty)) totalPenalty += penalty;
+    if (!isNaN(serious)) seriousViolations += serious;
+  }
+
+  if (totalViolations > 0) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "enforcement_action_count",
+      value: {
+        value: totalViolations,
+        unit: "violations",
+      } as NumericValue,
+      confidence: 0.85,
+      extracted_by: "rule",
+      extraction_path: "$.data.total_violations",
+    });
+  }
+
+  // Derive compliance cost indicator from penalties
+  if (totalPenalty > 0) {
+    let costIndicator: "low" | "medium" | "high" = "low";
+    const avgPenalty = totalPenalty / Math.max(data.length, 1);
+    if (avgPenalty > 50000) {
+      costIndicator = "high";
+    } else if (avgPenalty > 10000) {
+      costIndicator = "medium";
+    }
+
+    facts.push({
+      source_id: source.id,
+      fact_type: "compliance_cost_indicator",
+      value: {
+        text: costIndicator,
+        category: "osha_penalty_avg",
+      } as TextValue,
+      confidence: 0.7,
+      extracted_by: "rule",
+      extraction_path: "$.data.derived_cost",
+    });
+  }
+
+  return facts;
+}
+
+function extractOshaEnforcementFactsFromArray(source: ResearchSource, content: unknown[]): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+
+  // If it's an array of inspection records
+  if (content.length > 0) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "enforcement_action_count",
+      value: {
+        value: content.length,
+        unit: "inspections",
+      } as NumericValue,
+      confidence: 0.8,
+      extracted_by: "rule",
+      extraction_path: "$.length",
+    });
+  }
+
+  return facts;
+}
+
+/**
+ * Extract facts from EPA ECHO data.
+ */
+function extractEpaEchoFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  const content = source.raw_content as Record<string, unknown>;
+
+  const results = content?.Results as Record<string, unknown>;
+  const facilities = results?.Facilities as Array<Record<string, unknown>> | undefined;
+
+  if (!facilities || !Array.isArray(facilities)) {
+    return facts;
+  }
+
+  // Analyze compliance status across facilities
+  let inViolation = 0;
+  let significantViolations = 0;
+
+  for (const facility of facilities.slice(0, 100)) {
+    const compStatus = String(facility.CurrViolFlag ?? "N");
+    const qatrStatus = String(facility.QtrsInNC ?? "0");
+
+    if (compStatus === "Y") inViolation++;
+    if (parseInt(qatrStatus, 10) >= 4) significantViolations++;
+  }
+
+  if (facilities.length > 0) {
+    const violationRate = (inViolation / facilities.length) * 100;
+
+    facts.push({
+      source_id: source.id,
+      fact_type: "compliance_requirement",
+      value: {
+        text: `${violationRate.toFixed(1)}% industry violation rate`,
+        category: "epa_compliance",
+      } as TextValue,
+      confidence: 0.8,
+      extracted_by: "rule",
+      extraction_path: "$.Results.Facilities.violation_rate",
+    });
+
+    // Regulatory burden from EPA
+    let epaRisk: "low" | "medium" | "high" = "low";
+    if (violationRate > 20 || significantViolations > 10) {
+      epaRisk = "high";
+    } else if (violationRate > 10 || significantViolations > 5) {
+      epaRisk = "medium";
+    }
+
+    facts.push({
+      source_id: source.id,
+      fact_type: "regulatory_burden_level",
+      value: {
+        text: epaRisk,
+        category: "epa_enforcement",
+      } as TextValue,
+      confidence: 0.75,
+      extracted_by: "rule",
+      extraction_path: "$.Results.Facilities.derived_risk",
+    });
+  }
+
+  return facts;
+}
+
+/**
+ * Extract facts from SBA size standards data.
+ */
+function extractSbaSizeStandardsFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  const content = source.raw_content as Record<string, unknown>;
+
+  // SBA data varies by format - try to extract relevant info
+  const result = content?.result as Record<string, unknown> | undefined;
+  const data = result?.records as Array<Record<string, unknown>> | undefined;
+
+  if (!data || !Array.isArray(data)) {
+    return facts;
+  }
+
+  for (const record of data.slice(0, 10)) {
+    const naics = String(record.NAICS ?? record.naics_code ?? "");
+    const sizeStandard = String(record.size_standard ?? record.SizeStandard ?? "");
+
+    if (naics && sizeStandard) {
+      facts.push({
+        source_id: source.id,
+        fact_type: "compliance_requirement",
+        value: {
+          text: `SBA size standard: ${sizeStandard}`,
+          category: "sba_size",
+        } as TextValue,
+        confidence: 0.9,
+        extracted_by: "rule",
+        extraction_path: `$.result.records[NAICS=${naics}]`,
+      });
+    }
+  }
+
+  return facts;
+}
+
+/**
+ * Extract facts indicating licensing requirements from state sources.
+ */
+function extractStateLicensingFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+
+  // State licensing pages are typically HTML - we note that licensing is required
+  // The actual license status would need to be checked manually
+  const sourceName = source.source_name;
+  const stateMatch = sourceName.match(/^([A-Z]{2})\s+State/);
+  const stateCode = stateMatch?.[1];
+
+  if (stateCode) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "licensing_required",
+      value: {
+        text: "yes",
+        category: `${stateCode}_state_licensing`,
+      } as TextValue,
+      confidence: 0.7,
+      extracted_by: "rule",
+      extraction_path: "$.derived_from_source_type",
+    });
+
+    facts.push({
+      source_id: source.id,
+      fact_type: "state_specific_constraint",
+      value: {
+        text: `State licensing required in ${stateCode}`,
+        category: "licensing",
+      } as TextValue,
+      confidence: 0.7,
+      extracted_by: "rule",
+      extraction_path: "$.derived_from_source_type",
+    });
+  }
+
+  return facts;
+}
+
+// ============================================================================
+// Management Background Fact Extractors (Phase 4)
+// ============================================================================
+
+/**
+ * Extract management facts from SEC EDGAR filings.
+ */
+function extractEdgarManagementFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  const content = source.raw_content as Record<string, unknown>;
+
+  const hits = (content?.hits as Record<string, unknown>)?.hits as Array<Record<string, unknown>> | undefined;
+
+  if (!hits || !Array.isArray(hits)) {
+    return facts;
+  }
+
+  for (const hit of hits.slice(0, 10)) {
+    const src = hit._source as Record<string, unknown> | undefined;
+    if (!src) continue;
+
+    const companyName = String(src.entity ?? src.company ?? "");
+    const filingDate = String(src.file_date ?? src.filing_date ?? "");
+    const formType = String(src.form ?? "");
+
+    if (!companyName) continue;
+
+    // Proxy statements (DEF 14A) contain management info
+    if (formType.includes("DEF") || formType.includes("14A")) {
+      facts.push({
+        source_id: source.id,
+        fact_type: "prior_entity",
+        value: {
+          text: companyName,
+          category: "sec_filing",
+        } as TextValue,
+        confidence: 0.85,
+        extracted_by: "rule",
+        extraction_path: `$.hits.hits[entity=${companyName}]`,
+        as_of_date: filingDate,
+      });
+    }
+
+    // 10-K filings indicate operating history
+    if (formType === "10-K") {
+      facts.push({
+        source_id: source.id,
+        fact_type: "role_history",
+        value: {
+          text: `Public company executive: ${companyName}`,
+          category: "sec_10k",
+        } as TextValue,
+        confidence: 0.8,
+        extracted_by: "rule",
+        extraction_path: `$.hits.hits[form=10-K]`,
+        as_of_date: filingDate,
+      });
+    }
+  }
+
+  return facts;
+}
+
+/**
+ * Extract facts from OFAC sanctions list.
+ */
+function extractOfacSanctionsFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  const content = source.raw_content;
+
+  // OFAC data is CSV - if we got it successfully, note the screening
+  if (content) {
+    // The presence of data means we can perform screening
+    // Actual matches would require name comparison
+    facts.push({
+      source_id: source.id,
+      fact_type: "sanctions_status",
+      value: {
+        text: "screening_available",
+        category: "ofac",
+      } as TextValue,
+      confidence: 0.6,
+      extracted_by: "rule",
+      extraction_path: "$.derived_from_source",
+    });
+  }
+
+  return facts;
+}
+
+/**
+ * Extract facts from SAM.gov exclusions data.
+ */
+function extractSamExclusionsFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  const content = source.raw_content as Record<string, unknown>;
+
+  // SAM.gov API returns organization data
+  const orgs = content?.orglist as Array<Record<string, unknown>> | undefined;
+
+  if (orgs && Array.isArray(orgs) && orgs.length > 0) {
+    // Note that debarment data is available
+    facts.push({
+      source_id: source.id,
+      fact_type: "adverse_event",
+      value: {
+        text: "debarment_screening_available",
+        category: "sam_gov",
+      } as TextValue,
+      confidence: 0.6,
+      extracted_by: "rule",
+      extraction_path: "$.orglist.derived",
+    });
+  }
+
+  return facts;
+}
+
+/**
+ * Extract facts from CourtListener/RECAP court records.
+ */
+function extractCourtRecordsFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  const content = source.raw_content as Record<string, unknown>;
+
+  const results = content?.results as Array<Record<string, unknown>> | undefined;
+
+  if (!results || !Array.isArray(results)) {
+    return facts;
+  }
+
+  // Count cases by type
+  let bankruptcyCases = 0;
+  let civilCases = 0;
+
+  for (const docket of results.slice(0, 50)) {
+    const court = String(docket.court ?? "").toLowerCase();
+    const caseName = String(docket.case_name ?? "");
+
+    if (court.includes("bankr")) {
+      bankruptcyCases++;
+
+      facts.push({
+        source_id: source.id,
+        fact_type: "bankruptcy_history",
+        value: {
+          text: caseName.slice(0, 100),
+          category: "court_record",
+        } as TextValue,
+        confidence: 0.75,
+        extracted_by: "rule",
+        extraction_path: `$.results[court=${court}]`,
+        as_of_date: String(docket.date_filed ?? ""),
+      });
+    } else {
+      civilCases++;
+    }
+  }
+
+  // Litigation history summary
+  if (civilCases > 0) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "litigation_history",
+      value: {
+        value: civilCases,
+        unit: "cases",
+      } as NumericValue,
+      confidence: 0.7,
+      extracted_by: "rule",
+      extraction_path: "$.results.civil_count",
+    });
+  }
+
+  return facts;
+}
+
+/**
+ * Extract facts from state corporate registry data.
+ */
+function extractCorporateRegistryFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  const content = source.raw_content as Record<string, unknown>;
+
+  // Corporate registry formats vary by state
+  // Look for common fields
+  const entities = (content?.results ?? content?.entities) as Array<Record<string, unknown>> | undefined;
+
+  if (!entities || !Array.isArray(entities)) {
+    return facts;
+  }
+
+  for (const entity of entities.slice(0, 10)) {
+    const entityName = String(entity.name ?? entity.entityName ?? entity.business_name ?? "");
+    const status = String(entity.status ?? entity.entityStatus ?? "");
+    const formed = String(entity.formation_date ?? entity.dateFormed ?? entity.date_of_formation ?? "");
+
+    if (!entityName) continue;
+
+    facts.push({
+      source_id: source.id,
+      fact_type: "prior_entity",
+      value: {
+        text: entityName,
+        category: `corp_registry_${status.toLowerCase().replace(/\s+/g, "_")}`,
+      } as TextValue,
+      confidence: 0.8,
+      extracted_by: "rule",
+      extraction_path: `$.results[name=${entityName}]`,
+      as_of_date: formed || undefined,
+    });
+
+    // Calculate years of operation for active entities
+    if (status.toLowerCase().includes("active") && formed) {
+      const formDate = new Date(formed);
+      if (!isNaN(formDate.getTime())) {
+        const yearsOperating = Math.floor((Date.now() - formDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+
+        facts.push({
+          source_id: source.id,
+          fact_type: "years_experience",
+          value: {
+            value: yearsOperating,
+            unit: "years",
+          } as NumericValue,
+          confidence: 0.75,
+          extracted_by: "rule",
+          extraction_path: `$.results[name=${entityName}].derived_years`,
+        });
+      }
+    }
+  }
+
+  return facts;
+}
+
 /**
  * Main fact extraction function.
  * Routes to appropriate extractor based on source characteristics.
@@ -707,6 +1274,9 @@ export function extractFacts(source: ResearchSource): FactExtractionResult {
     facts = extractCensusCbpFacts(source);
   } else if (sourceName.includes("bls") || (sourceName.includes("employment") && !sourceName.includes("census"))) {
     facts = extractBlsEmploymentFacts(source);
+  } else if (sourceName.includes("edgar") && (sourceName.includes("management") || sourceName.includes("full-text"))) {
+    // Management-focused EDGAR search
+    facts = extractEdgarManagementFacts(source);
   } else if (sourceName.includes("edgar") || sourceName.includes("sec")) {
     facts = extractEdgarCompanyFacts(source);
   } else if (sourceName.includes("census") && sourceName.includes("economic")) {
@@ -720,6 +1290,28 @@ export function extractFacts(source: ResearchSource): FactExtractionResult {
   } else if (sourceName.includes("census") && sourceName.includes("acs")) {
     // Generic ACS extractor for population, income, demographics
     facts = extractCensusAcsFacts(source);
+  }
+  // Regulatory extractors (Phase 3)
+  else if (sourceName.includes("federal register")) {
+    facts = extractFederalRegisterFacts(source);
+  } else if (sourceName.includes("osha")) {
+    facts = extractOshaEnforcementFacts(source);
+  } else if (sourceName.includes("epa") && (sourceName.includes("enforcement") || sourceName.includes("echo"))) {
+    facts = extractEpaEchoFacts(source);
+  } else if (sourceName.includes("sba") && (sourceName.includes("size") || sourceName.includes("naics"))) {
+    facts = extractSbaSizeStandardsFacts(source);
+  } else if (sourceName.includes("state licensing")) {
+    facts = extractStateLicensingFacts(source);
+  }
+  // Management extractors (Phase 4)
+  else if (sourceName.includes("ofac") || sourceName.includes("sdn")) {
+    facts = extractOfacSanctionsFacts(source);
+  } else if (sourceName.includes("sam.gov") || sourceName.includes("exclusions")) {
+    facts = extractSamExclusionsFacts(source);
+  } else if (sourceName.includes("courtlistener") || sourceName.includes("recap")) {
+    facts = extractCourtRecordsFacts(source);
+  } else if (sourceName.includes("corporate registry") || sourceName.includes("ucc")) {
+    facts = extractCorporateRegistryFacts(source);
   }
 
   return { facts };
