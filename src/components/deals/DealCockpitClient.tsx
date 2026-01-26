@@ -23,6 +23,7 @@ import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
 import { LiveIndicator, ProcessingIndicator, CockpitToastStack } from "@/components/deals/LiveIndicator";
 import { CockpitDataProvider } from "@/buddy/cockpit";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
+import { DegradedBanner } from "@/buddy/ui/DegradedBanner";
 import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
 import { cn } from "@/lib/utils";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
@@ -172,6 +173,8 @@ export default function DealCockpitClient({
 
   return (
     <CockpitDataProvider dealId={dealId}>
+    {/* Builder Observer: Show degraded API responses */}
+    <DegradedBanner dealId={dealId} />
     <div className="min-h-screen text-white">
       {/* Cockpit Container */}
       <div className="mx-auto max-w-7xl px-6 py-6 space-y-6">

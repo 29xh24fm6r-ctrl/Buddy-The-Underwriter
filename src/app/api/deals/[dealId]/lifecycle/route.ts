@@ -1,22 +1,39 @@
+/**
+ * GET /api/deals/[dealId]/lifecycle
+ *
+ * Returns the current lifecycle state for a deal.
+ * This is the single source of truth for "where is this deal and what's blocking it?"
+ *
+ * CONTRACT: This endpoint NEVER returns HTTP 500.
+ * - All errors are represented as { ok: false, state: LifecycleState with blockers }
+ * - Always returns HTTP 200 with JSON body
+ * - Response always includes x-correlation-id and x-buddy-route headers
+ * - Errors are diagnosable via correlationId in response + server logs
+ *
+ * RESPONSE BOUNDARY SEALED: All payload building happens before respond200().
+ */
 import "server-only";
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { deriveLifecycleState } from "@/buddy/lifecycle";
-import { jsonSafe, sanitizeErrorForEvidence } from "@/buddy/lifecycle/jsonSafe";
+import { sanitizeErrorForEvidence } from "@/buddy/lifecycle/jsonSafe";
 import type { LifecycleState } from "@/buddy/lifecycle";
+import { trackDegradedResponse } from "@/lib/api/degradedTracker";
+import {
+  respond200,
+  createHeaders,
+  generateCorrelationId,
+  createTimestamp,
+  validateUuidParam,
+} from "@/lib/api/respond";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Params = Promise<{ dealId: string }>;
+const ROUTE = "/api/deals/[dealId]/lifecycle";
 
-/**
- * Generate a correlation ID for request tracing.
- */
-function generateCorrelationId(): string {
-  return `lc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
+type Params = Promise<{ dealId: string }>;
 
 /**
  * Create a fallback error state that is always valid.
@@ -33,7 +50,7 @@ function createFallbackState(
     lastAdvancedAt: null,
     blockers: [
       {
-        code: errorCode as any,
+        code: errorCode as LifecycleState["blockers"][0]["code"],
         message: errorSummary,
         evidence: {
           correlationId,
@@ -53,45 +70,19 @@ function createFallbackState(
       decisionPresent: false,
       committeeRequired: false,
       attestationSatisfied: true,
-      // Include correlation for debugging
       correlationId,
     },
   };
 }
 
 /**
- * Validate dealId format without throwing.
+ * Build the response payload. All business logic happens here.
+ * Returns a plain JS object ready for serialization.
  */
-function validateDealId(dealId: unknown): { ok: true; dealId: string } | { ok: false; error: string } {
-  if (typeof dealId !== "string") {
-    return { ok: false, error: "dealId must be a string" };
-  }
-  if (!dealId || dealId === "undefined" || dealId === "null") {
-    return { ok: false, error: "dealId is empty or invalid" };
-  }
-  // Basic UUID format check (loose - accepts hyphenated UUIDs)
-  if (dealId.length < 10 || dealId.length > 50) {
-    return { ok: false, error: "dealId has invalid length" };
-  }
-  return { ok: true, dealId };
-}
-
-/**
- * GET /api/deals/[dealId]/lifecycle
- *
- * Returns the current lifecycle state for a deal.
- * This is the single source of truth for "where is this deal and what's blocking it?"
- *
- * CONTRACT: This endpoint NEVER returns HTTP 500.
- * - All errors are represented as { ok: false, state: LifecycleState with blockers }
- * - Always returns HTTP 200 with JSON body
- * - Errors are diagnosable via correlationId in response + server logs
- */
-export async function GET(
-  _req: NextRequest,
-  ctx: { params: Params }
-): Promise<NextResponse> {
-  const correlationId = generateCorrelationId();
+async function buildPayload(
+  ctx: { params: Params },
+  correlationId: string
+): Promise<{ ok: boolean; state: LifecycleState; _dealId: string }> {
   let dealId = "unknown";
 
   try {
@@ -100,34 +91,25 @@ export async function GET(
     try {
       const params = await ctx.params;
       rawDealId = params.dealId;
-    } catch (paramErr) {
-      console.error(
-        `[lifecycle] correlationId=${correlationId} dealId=unknown source=params error=failed_to_extract_params`,
-        paramErr
-      );
-      return createJsonResponse(
-        {
-          ok: false,
-          state: createFallbackState("unknown", correlationId, "Failed to extract request parameters", "params_error"),
-        },
-        correlationId
-      );
+    } catch {
+      console.error(`[lifecycle] correlationId=${correlationId} dealId=unknown source=params error=failed_to_extract_params`);
+      return {
+        ok: false,
+        state: createFallbackState("unknown", correlationId, "Failed to extract request parameters", "params_error"),
+        _dealId: "unknown",
+      };
     }
 
-    const validation = validateDealId(rawDealId);
+    const validation = validateUuidParam(rawDealId, "dealId");
     if (!validation.ok) {
-      console.warn(
-        `[lifecycle] correlationId=${correlationId} dealId=${rawDealId} source=validation error=${validation.error}`
-      );
-      return createJsonResponse(
-        {
-          ok: false,
-          state: createFallbackState(rawDealId || "invalid", correlationId, validation.error, "validation_error"),
-        },
-        correlationId
-      );
+      console.warn(`[lifecycle] correlationId=${correlationId} dealId=${rawDealId} source=validation error=${validation.error}`);
+      return {
+        ok: false,
+        state: createFallbackState(rawDealId || "invalid", correlationId, validation.error, "validation_error"),
+        _dealId: rawDealId || "invalid",
+      };
     }
-    dealId = validation.dealId;
+    dealId = validation.value;
 
     // === Phase 2: Verify deal access ===
     let access: { ok: boolean; error?: string; bankId?: string };
@@ -135,31 +117,22 @@ export async function GET(
       access = await ensureDealBankAccess(dealId);
     } catch (accessErr) {
       const errInfo = sanitizeErrorForEvidence(accessErr);
-      console.error(
-        `[lifecycle] correlationId=${correlationId} dealId=${dealId} source=access error=${errInfo.message}`
-      );
-      return createJsonResponse(
-        {
-          ok: false,
-          state: createFallbackState(dealId, correlationId, "Failed to verify deal access", "access_error"),
-        },
-        correlationId
-      );
+      console.error(`[lifecycle] correlationId=${correlationId} dealId=${dealId} source=access error=${errInfo.message}`);
+      return {
+        ok: false,
+        state: createFallbackState(dealId, correlationId, "Failed to verify deal access", "access_error"),
+        _dealId: dealId,
+      };
     }
 
     if (!access.ok) {
-      // Access denied is NOT a 500 - it's a valid response with blockers
       const errorCode = access.error === "deal_not_found" ? "deal_not_found" : "access_denied";
-      console.warn(
-        `[lifecycle] correlationId=${correlationId} dealId=${dealId} source=access error=${access.error}`
-      );
-      return createJsonResponse(
-        {
-          ok: false,
-          state: createFallbackState(dealId, correlationId, access.error || "Access denied", errorCode),
-        },
-        correlationId
-      );
+      console.warn(`[lifecycle] correlationId=${correlationId} dealId=${dealId} source=access error=${access.error}`);
+      return {
+        ok: false,
+        state: createFallbackState(dealId, correlationId, access.error || "Access denied", errorCode),
+        _dealId: dealId,
+      };
     }
 
     // === Phase 3: Derive lifecycle state ===
@@ -168,16 +141,12 @@ export async function GET(
       state = await deriveLifecycleState(dealId);
     } catch (deriveErr) {
       const errInfo = sanitizeErrorForEvidence(deriveErr);
-      console.error(
-        `[lifecycle] correlationId=${correlationId} dealId=${dealId} source=derive error=${errInfo.message}`
-      );
-      return createJsonResponse(
-        {
-          ok: false,
-          state: createFallbackState(dealId, correlationId, "Failed to derive lifecycle state", "derive_error"),
-        },
-        correlationId
-      );
+      console.error(`[lifecycle] correlationId=${correlationId} dealId=${dealId} source=derive error=${errInfo.message}`);
+      return {
+        ok: false,
+        state: createFallbackState(dealId, correlationId, "Failed to derive lifecycle state", "derive_error"),
+        _dealId: dealId,
+      };
     }
 
     // Inject correlationId into derived for debugging
@@ -191,101 +160,43 @@ export async function GET(
 
     // Check if deal wasn't found during derivation (not a 500, but ok: false)
     if (state.blockers.some((b) => b.code === "deal_not_found")) {
-      return createJsonResponse(
-        {
-          ok: false,
-          state: stateWithCorrelation,
-        },
-        correlationId
-      );
+      return { ok: false, state: stateWithCorrelation, _dealId: dealId };
     }
 
     // Check for internal errors in blockers (also ok: false)
     const hasInternalError = state.blockers.some((b) => b.code === "internal_error");
 
-    return createJsonResponse(
-      {
-        ok: !hasInternalError,
-        state: stateWithCorrelation,
-      },
-      correlationId
-    );
+    return { ok: !hasInternalError, state: stateWithCorrelation, _dealId: dealId };
   } catch (unexpectedErr) {
-    // === Ultimate safety net - should never reach here ===
     const errInfo = sanitizeErrorForEvidence(unexpectedErr);
-    console.error(
-      `[lifecycle] correlationId=${correlationId} dealId=${dealId} source=route_handler error=UNEXPECTED: ${errInfo.message}`
-    );
-    return createJsonResponse(
-      {
-        ok: false,
-        state: createFallbackState(dealId, correlationId, "Unexpected error in lifecycle route", "unexpected_error"),
-      },
-      correlationId
-    );
+    console.error(`[lifecycle] correlationId=${correlationId} dealId=${dealId} source=route_handler error=UNEXPECTED: ${errInfo.message}`);
+    return {
+      ok: false,
+      state: createFallbackState(dealId, correlationId, "Unexpected error in lifecycle route", "unexpected_error"),
+      _dealId: dealId,
+    };
   }
 }
 
-/**
- * Create a JSON response with:
- * - Status 200 (NEVER 500)
- * - x-correlation-id header
- * - JSON-safe serialization
- */
-function createJsonResponse(
-  body: { ok: boolean; state: LifecycleState },
-  correlationId: string
-): NextResponse {
-  try {
-    // Use jsonSafe to prevent serialization errors (BigInt, circular refs, etc.)
-    const safeBody = jsonSafe(body);
+export async function GET(_req: NextRequest, ctx: { params: Params }) {
+  const correlationId = generateCorrelationId("lc");
+  const headers = createHeaders(correlationId, ROUTE);
 
-    return NextResponse.json(safeBody, {
-      status: 200,
-      headers: {
-        "x-correlation-id": correlationId,
-        "cache-control": "no-store, max-age=0",
-      },
-    });
-  } catch (serializationErr) {
-    // Even serialization failed - return minimal safe response
-    console.error(
-      `[lifecycle] correlationId=${correlationId} source=serialization error=failed_to_serialize_response`
-    );
-    return NextResponse.json(
-      {
-        ok: false,
-        state: {
-          stage: "intake_created",
-          lastAdvancedAt: null,
-          blockers: [
-            {
-              code: "serialization_error",
-              message: "Failed to serialize lifecycle response",
-              evidence: { correlationId },
-            },
-          ],
-          derived: {
-            requiredDocsReceivedPct: 0,
-            requiredDocsMissing: [],
-            borrowerChecklistSatisfied: false,
-            underwriteStarted: false,
-            financialSnapshotExists: false,
-            committeePacketReady: false,
-            decisionPresent: false,
-            committeeRequired: false,
-            attestationSatisfied: true,
-            correlationId,
-          },
-        },
-      },
-      {
-        status: 200,
-        headers: {
-          "x-correlation-id": correlationId,
-          "cache-control": "no-store, max-age=0",
-        },
-      }
-    );
+  // Build payload (all business logic)
+  const { ok, state, _dealId } = await buildPayload(ctx, correlationId);
+
+  // Track degraded responses (fire-and-forget, no await)
+  if (!ok && state.blockers.length > 0) {
+    const firstBlocker = state.blockers[0];
+    trackDegradedResponse({
+      endpoint: ROUTE,
+      code: String(firstBlocker.code),
+      message: firstBlocker.message,
+      dealId: _dealId,
+      correlationId,
+    }).catch(() => {}); // Swallow any errors
   }
+
+  // SEALED RESPONSE: Single return point, all serialization handled inside respond200
+  return respond200({ ok, state }, headers);
 }

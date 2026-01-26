@@ -160,6 +160,22 @@ async function runProbe() {
     process.exit(1);
   }
 
+  // Check x-correlation-id header
+  const correlationHeader = response.headers.get("x-correlation-id");
+  if (!correlationHeader) {
+    console.error("❌ Missing x-correlation-id header");
+    process.exit(1);
+  }
+  console.log(`   x-correlation-id: ${correlationHeader}`);
+
+  // Check x-buddy-route header
+  const routeHeader = response.headers.get("x-buddy-route");
+  if (!routeHeader) {
+    console.error("❌ Missing x-buddy-route header");
+    process.exit(1);
+  }
+  console.log(`   x-buddy-route: ${routeHeader}`);
+
   // Parse JSON
   let data;
   try {

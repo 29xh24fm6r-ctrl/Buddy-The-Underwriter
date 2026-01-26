@@ -1,126 +1,3 @@
-// src/app/api/deals/[dealId]/context/route.ts
-import "server-only";
-
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import type { DealContext } from "@/lib/deals/contextTypes";
-import { clerkAuth } from "@/lib/auth/clerkServer";
-import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
-import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
-import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
-import { normalizeGoogleError } from "@/lib/google/errors";
-import { jsonSafe, sanitizeErrorForEvidence } from "@/buddy/lifecycle/jsonSafe";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-/**
- * Generate a correlation ID for request tracing.
- */
-function generateCorrelationId(): string {
-  return `ctx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-/**
- * Timeout helper that doesn't throw - returns result or null.
- */
-async function safeWithTimeout<T>(
-  p: PromiseLike<T>,
-  ms: number,
-  label: string,
-  correlationId: string
-): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
-  try {
-    const result = await Promise.race<T | "TIMEOUT">([
-      Promise.resolve(p),
-      new Promise<"TIMEOUT">((resolve) => setTimeout(() => resolve("TIMEOUT"), ms)),
-    ]);
-    if (result === "TIMEOUT") {
-      console.warn(`[context] correlationId=${correlationId} timeout=${label}`);
-      return { ok: false, error: `timeout:${label}` };
-    }
-    return { ok: true, data: result };
-  } catch (err) {
-    const errInfo = sanitizeErrorForEvidence(err);
-    console.warn(`[context] correlationId=${correlationId} error=${label}: ${errInfo.message}`);
-    return { ok: false, error: errInfo.message };
-  }
-}
-
-/**
- * Create a fallback context when we can't load the real one.
- */
-function createFallbackContext(dealId: string): DealContext {
-  return {
-    dealId,
-    stage: "intake",
-    borrower: {
-      name: "Unknown Borrower",
-      entityType: "Unknown",
-    },
-    risk: {
-      score: 0,
-      flags: [],
-    },
-    completeness: {
-      missingDocs: 0,
-      openConditions: 0,
-    },
-    permissions: {
-      canApprove: false,
-      canRequest: false,
-      canShare: false,
-    },
-  };
-}
-
-type ContextResponse = {
-  ok: boolean;
-  context: DealContext | null;
-  deal?: { id: string; bank_id: string | null; created_at: string | null };
-  ensured_bank?: { ok: true; bankId: string; updated: boolean } | null;
-  artifacts?: { queued: number; processing: number; matched: number; failed: number } | null;
-  error?: { code: string; message: string; correlationId: string };
-  meta: { dealId: string; correlationId: string; ts: string };
-};
-
-/**
- * Create a JSON response with:
- * - Status 200 (NEVER 500)
- * - x-correlation-id header
- * - JSON-safe serialization
- */
-function createJsonResponse(body: ContextResponse, correlationId: string): NextResponse {
-  try {
-    const safeBody = jsonSafe(body);
-    return NextResponse.json(safeBody, {
-      status: 200,
-      headers: {
-        "x-correlation-id": correlationId,
-        "cache-control": "no-store, max-age=0",
-      },
-    });
-  } catch (serializationErr) {
-    console.error(`[context] correlationId=${correlationId} source=serialization error=failed_to_serialize`);
-    return NextResponse.json(
-      {
-        ok: false,
-        context: null,
-        error: { code: "serialization_error", message: "Failed to serialize response", correlationId },
-        meta: { dealId: "unknown", correlationId, ts: new Date().toISOString() },
-      },
-      {
-        status: 200,
-        headers: {
-          "x-correlation-id": correlationId,
-          "cache-control": "no-store, max-age=0",
-        },
-      }
-    );
-  }
-}
-
 /**
  * GET /api/deals/[dealId]/context
  *
@@ -129,12 +6,71 @@ function createJsonResponse(body: ContextResponse, correlationId: string): NextR
  * CONTRACT: This endpoint NEVER returns HTTP 500.
  * - All errors are represented as { ok: false, context: null, error: { code, message, correlationId } }
  * - Always returns HTTP 200 with JSON body
+ * - Response always includes x-correlation-id and x-buddy-route headers
  * - Errors are diagnosable via correlationId in response + server logs
+ *
+ * RESPONSE BOUNDARY SEALED: All payload building happens before respond200().
  */
-export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
-  const correlationId = generateCorrelationId();
+import "server-only";
+
+import { NextRequest } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import type { DealContext } from "@/lib/deals/contextTypes";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
+import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { normalizeGoogleError } from "@/lib/google/errors";
+import { sanitizeErrorForEvidence } from "@/buddy/lifecycle/jsonSafe";
+import { trackDegradedResponse } from "@/lib/api/degradedTracker";
+import {
+  respond200,
+  createHeaders,
+  generateCorrelationId,
+  createTimestamp,
+  safeWithTimeout,
+} from "@/lib/api/respond";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const ROUTE = "/api/deals/[dealId]/context";
+
+/**
+ * Create a fallback context when we can't load the real one.
+ */
+function createFallbackContext(dealId: string): DealContext {
+  return {
+    dealId,
+    stage: "intake",
+    borrower: { name: "Unknown Borrower", entityType: "Unknown" },
+    risk: { score: 0, flags: [] },
+    completeness: { missingDocs: 0, openConditions: 0 },
+    permissions: { canApprove: false, canRequest: false, canShare: false },
+  };
+}
+
+type ContextPayload = {
+  ok: boolean;
+  context: DealContext | null;
+  deal?: { id: string; bank_id: string | null; created_at: string | null };
+  ensured_bank?: { ok: true; bankId: string; updated: boolean } | null;
+  artifacts?: { queued: number; processing: number; matched: number; failed: number } | null;
+  error?: { code: string; message: string };
+  meta: { dealId: string; correlationId: string; ts: string };
+};
+
+/**
+ * Build the response payload. All business logic happens here.
+ * Returns a plain JS object ready for serialization.
+ */
+async function buildPayload(
+  ctx: { params: Promise<{ dealId: string }> },
+  correlationId: string,
+  ts: string
+): Promise<ContextPayload> {
   let dealId = "unknown";
-  const ts = new Date().toISOString();
 
   try {
     // === Phase 1: Extract and validate dealId ===
@@ -142,57 +78,45 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
     try {
       const params = await ctx.params;
       rawDealId = params.dealId;
-    } catch (paramErr) {
+    } catch {
       console.error(`[context] correlationId=${correlationId} source=params error=failed_to_extract`);
-      return createJsonResponse(
-        {
-          ok: false,
-          context: null,
-          error: { code: "params_error", message: "Failed to extract request parameters", correlationId },
-          meta: { dealId: "unknown", correlationId, ts },
-        },
-        correlationId
-      );
+      return {
+        ok: false,
+        context: null,
+        error: { code: "params_error", message: "Failed to extract request parameters" },
+        meta: { dealId: "unknown", correlationId, ts },
+      };
     }
 
     if (!rawDealId || rawDealId === "undefined") {
-      return createJsonResponse(
-        {
-          ok: false,
-          context: null,
-          error: { code: "invalid_deal_id", message: "dealId is empty or invalid", correlationId },
-          meta: { dealId: rawDealId ?? "null", correlationId, ts },
-        },
-        correlationId
-      );
+      return {
+        ok: false,
+        context: null,
+        error: { code: "invalid_deal_id", message: "dealId is empty or invalid" },
+        meta: { dealId: rawDealId ?? "null", correlationId, ts },
+      };
     }
     dealId = rawDealId;
 
     // === Phase 2: Auth check ===
     const authResult = await safeWithTimeout(clerkAuth(), 8_000, "clerkAuth", correlationId);
     if (!authResult.ok) {
-      return createJsonResponse(
-        {
-          ok: false,
-          context: null,
-          error: { code: "auth_timeout", message: "Authentication timed out", correlationId },
-          meta: { dealId, correlationId, ts },
-        },
-        correlationId
-      );
+      return {
+        ok: false,
+        context: null,
+        error: { code: "auth_timeout", message: "Authentication timed out" },
+        meta: { dealId, correlationId, ts },
+      };
     }
 
     const { userId } = authResult.data;
     if (!userId) {
-      return createJsonResponse(
-        {
-          ok: false,
-          context: null,
-          error: { code: "unauthorized", message: "User not authenticated", correlationId },
-          meta: { dealId, correlationId, ts },
-        },
-        correlationId
-      );
+      return {
+        ok: false,
+        context: null,
+        error: { code: "unauthorized", message: "User not authenticated" },
+        meta: { dealId, correlationId, ts },
+      };
     }
 
     // === Phase 3: Get bank context ===
@@ -214,101 +138,75 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
     );
 
     if (!dealResult.ok) {
-      return createJsonResponse(
-        {
-          ok: false,
-          context: createFallbackContext(dealId),
-          error: { code: "deal_load_failed", message: dealResult.error, correlationId },
-          meta: { dealId, correlationId, ts },
-        },
-        correlationId
-      );
+      return {
+        ok: false,
+        context: createFallbackContext(dealId),
+        error: { code: "deal_load_failed", message: dealResult.error },
+        meta: { dealId, correlationId, ts },
+      };
     }
 
     const { data: deal, error: dealErr } = dealResult.data;
 
     if (dealErr) {
-      return createJsonResponse(
-        {
-          ok: false,
-          context: createFallbackContext(dealId),
-          error: { code: "deal_query_error", message: dealErr.message, correlationId },
-          meta: { dealId, correlationId, ts },
-        },
-        correlationId
-      );
+      return {
+        ok: false,
+        context: createFallbackContext(dealId),
+        error: { code: "deal_query_error", message: dealErr.message },
+        meta: { dealId, correlationId, ts },
+      };
     }
 
     if (!deal) {
-      return createJsonResponse(
-        {
-          ok: false,
-          context: null,
-          error: {
-            code: "deal_not_found",
-            message: "Deal not found. Verify the dealId exists in the connected Supabase environment.",
-            correlationId,
-          },
-          meta: { dealId, correlationId, ts },
-        },
-        correlationId
-      );
+      return {
+        ok: false,
+        context: null,
+        error: { code: "deal_not_found", message: "Deal not found. Verify the dealId exists." },
+        meta: { dealId, correlationId, ts },
+      };
     }
 
     // === Phase 5: Tenant enforcement ===
     if (!bankId && !deal.bank_id) {
-      return createJsonResponse(
-        {
-          ok: false,
-          context: createFallbackContext(dealId),
-          error: {
-            code: "bank_context_missing",
-            message: "User has no bank context. Check getCurrentBankId().",
-            correlationId,
-          },
-          meta: { dealId, correlationId, ts },
-        },
-        correlationId
-      );
+      return {
+        ok: false,
+        context: createFallbackContext(dealId),
+        error: { code: "bank_context_missing", message: "User has no bank context." },
+        meta: { dealId, correlationId, ts },
+      };
     }
 
     let ensured_bank: { ok: true; bankId: string; updated: boolean } | null = null;
 
     if (bankId) {
       if (deal.bank_id && deal.bank_id !== bankId) {
-        // Bank mismatch - don't leak existence across tenants
-        return createJsonResponse(
-          {
-            ok: false,
-            context: null,
-            error: { code: "deal_not_found", message: "Deal not found (bank mismatch)", correlationId },
-            meta: { dealId, correlationId, ts },
-          },
-          correlationId
-        );
+        return {
+          ok: false,
+          context: null,
+          error: { code: "deal_not_found", message: "Deal not found (bank mismatch)" },
+          meta: { dealId, correlationId, ts },
+        };
       }
 
       if (!deal.bank_id) {
-        // First-touch tenant binding
         const updateResult = await safeWithTimeout(
           sb.from("deals").update({ bank_id: bankId }).eq("id", dealId),
           10_000,
           "dealBankAssign",
           correlationId
         );
-        if (!updateResult.ok) {
-          // Non-fatal - continue with context load
-          console.warn(`[context] correlationId=${correlationId} dealId=${dealId} bank_assign_failed`);
-        } else {
+        if (updateResult.ok) {
           ensured_bank = { ok: true, bankId, updated: true };
           deal.bank_id = bankId;
+        } else {
+          console.warn(`[context] correlationId=${correlationId} dealId=${dealId} bank_assign_failed`);
         }
       } else {
         ensured_bank = { ok: true, bankId: deal.bank_id, updated: false };
       }
     }
 
-    // === Phase 6: Initialize intake (non-blocking) ===
+    // === Phase 6: Initialize intake (non-blocking, non-fatal) ===
     if (bankId && deal.bank_id) {
       try {
         const init = await initializeIntake(dealId, deal.bank_id, {
@@ -318,35 +216,25 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
         if (!init.ok) {
           const normalized = normalizeGoogleError(init.error);
           if (normalized.code !== "GOOGLE_UNKNOWN") {
-            await logLedgerEvent({
+            logLedgerEvent({
               dealId,
               bankId: deal.bank_id,
               eventKey: "deal.intake.failed",
               uiState: "done",
               uiMessage: `Intake init failed: ${normalized.code}`,
-              meta: {
-                trigger: "context",
-                error_code: normalized.code,
-                error_message: normalized.message,
-                correlationId,
-              },
-            }).catch(() => {}); // Don't throw on ledger failure
+              meta: { trigger: "context", error_code: normalized.code, correlationId },
+            }).catch(() => {});
           }
         }
-      } catch (e: any) {
-        // Intake init is non-fatal
-        console.warn(`[context] correlationId=${correlationId} dealId=${dealId} initializeIntake failed: ${e?.message}`);
+      } catch (e: unknown) {
+        console.warn(`[context] correlationId=${correlationId} dealId=${dealId} initializeIntake failed: ${(e as Error)?.message}`);
       }
     }
 
     // === Phase 7: Count missing documents (non-fatal) ===
     let missingDocs = 0;
     const missingDocsResult = await safeWithTimeout(
-      sb
-        .from("deal_document_requirements")
-        .select("*", { count: "exact", head: true })
-        .eq("deal_id", dealId)
-        .eq("status", "missing"),
+      sb.from("deal_document_requirements").select("*", { count: "exact", head: true }).eq("deal_id", dealId).eq("status", "missing"),
       10_000,
       "missingDocsCount",
       correlationId
@@ -358,11 +246,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
     // === Phase 8: Count open conditions (non-fatal) ===
     let openConditions = 0;
     const openConditionsResult = await safeWithTimeout(
-      sb
-        .from("deal_conditions")
-        .select("*", { count: "exact", head: true })
-        .eq("deal_id", dealId)
-        .in("status", ["pending", "in_progress"]),
+      sb.from("deal_conditions").select("*", { count: "exact", head: true }).eq("deal_id", dealId).in("status", ["pending", "in_progress"]),
       10_000,
       "openConditionsCount",
       correlationId
@@ -403,22 +287,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
         name: deal.borrower_name ?? "Unknown Borrower",
         entityType: deal.entity_type ?? "Unknown",
       },
-      risk: {
-        score: deal.risk_score ?? 0,
-        flags: riskFlags,
-      },
-      completeness: {
-        missingDocs,
-        openConditions,
-      },
-      permissions: {
-        canApprove: true,
-        canRequest: true,
-        canShare: true,
-      },
+      risk: { score: deal.risk_score ?? 0, flags: riskFlags },
+      completeness: { missingDocs, openConditions },
+      permissions: { canApprove: true, canRequest: true, canShare: true },
     };
 
-    // === Phase 12: Emit signal (non-blocking) ===
+    // === Phase 12: Emit signal (non-blocking, fire-and-forget) ===
     try {
       emitBuddySignalServer({
         type: "deal.loaded",
@@ -431,30 +305,47 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
       // Signal emission is non-fatal
     }
 
-    // === Success response ===
-    return createJsonResponse(
-      {
-        ok: true,
-        context,
-        deal: { id: deal.id, bank_id: deal.bank_id ?? null, created_at: (deal as any).created_at ?? null },
-        ensured_bank,
-        artifacts: artifactStats,
-        meta: { dealId, correlationId, ts },
-      },
-      correlationId
-    );
+    // === Success ===
+    return {
+      ok: true,
+      context,
+      deal: { id: deal.id, bank_id: deal.bank_id ?? null, created_at: (deal as Record<string, unknown>).created_at as string | null ?? null },
+      ensured_bank,
+      artifacts: artifactStats,
+      meta: { dealId, correlationId, ts },
+    };
   } catch (unexpectedErr) {
-    // === Ultimate safety net ===
     const errInfo = sanitizeErrorForEvidence(unexpectedErr);
     console.error(`[context] correlationId=${correlationId} dealId=${dealId} UNEXPECTED: ${errInfo.message}`);
-    return createJsonResponse(
-      {
-        ok: false,
-        context: createFallbackContext(dealId),
-        error: { code: "unexpected_error", message: "Unexpected error in context route", correlationId },
-        meta: { dealId, correlationId, ts },
-      },
-      correlationId
-    );
+    return {
+      ok: false,
+      context: createFallbackContext(dealId),
+      error: { code: "unexpected_error", message: "Unexpected error in context route" },
+      meta: { dealId, correlationId, ts },
+    };
   }
+}
+
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
+  const correlationId = generateCorrelationId("ctx");
+  const ts = createTimestamp();
+  const headers = createHeaders(correlationId, ROUTE);
+
+  // Build payload (all business logic)
+  const payload = await buildPayload(ctx, correlationId, ts);
+
+  // Track degraded responses (fire-and-forget, no await)
+  if (!payload.ok && payload.error) {
+    trackDegradedResponse({
+      endpoint: ROUTE,
+      code: payload.error.code,
+      message: payload.error.message,
+      dealId: payload.meta.dealId,
+      correlationId,
+      bankId: payload.deal?.bank_id ?? null,
+    }).catch(() => {}); // Swallow any errors
+  }
+
+  // SEALED RESPONSE: Single return point, all serialization handled inside respond200
+  return respond200(payload as Record<string, unknown>, headers);
 }

@@ -14,9 +14,11 @@ echo "🔍 Checking critical API routes for Never-500 pattern..."
 
 # Critical routes that MUST follow Never-500 pattern
 CRITICAL_ROUTES=(
+  "src/app/api/deals/[dealId]/route.ts"
   "src/app/api/deals/[dealId]/lifecycle/route.ts"
   "src/app/api/deals/[dealId]/context/route.ts"
   "src/app/api/deals/[dealId]/checklist/list/route.ts"
+  "src/app/api/deals/[dealId]/artifacts/route.ts"
 )
 
 # Patterns that indicate Never-500 compliance
@@ -33,6 +35,12 @@ CORRELATION_PATTERNS=(
   "x-correlation-id"
   "makeCorrelationId"
   "generateCorrelationId"
+)
+
+# Patterns that indicate route identity header (x-buddy-route)
+ROUTE_IDENTITY_PATTERNS=(
+  "x-buddy-route"
+  "createHeaders"
 )
 
 VIOLATIONS=""
