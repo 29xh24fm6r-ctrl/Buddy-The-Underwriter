@@ -43,6 +43,15 @@ export type {
   GetPlanResult,
   ApproveMissionInput,
   ApproveMissionResult,
+  // Autonomy types
+  AutonomyLevel,
+  AutonomySettings,
+  SetAutonomyInput,
+  SetAutonomyResult,
+  PlanOverrideAction,
+  PlanOverride,
+  ApplyOverrideInput,
+  ApplyOverrideResult,
   // Re-export
   UnderwritingStance,
 } from "./types";
@@ -65,3 +74,15 @@ export {
 
 // Event emission
 export { RESEARCH_EVENT_KINDS } from "./events";
+
+// Autonomy Management
+export {
+  getEffectiveAutonomyLevel,
+  setAutonomyLevel,
+  shouldAutoExecute,
+  isPlanningEnabled,
+  applyPlanOverride,
+  getPlanOverrides,
+  logAutonomyEvent,
+  getRecentAutonomyEvents,
+} from "./autonomy";

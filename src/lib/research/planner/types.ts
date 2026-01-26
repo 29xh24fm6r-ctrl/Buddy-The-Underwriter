@@ -270,3 +270,77 @@ export type ApproveMissionResult = {
   ok: boolean;
   error?: string;
 };
+
+// ============================================================================
+// Autonomy Levels
+// ============================================================================
+
+/**
+ * Research autonomy level determines how the planner executes.
+ * - OFF: No research planning or execution
+ * - RECOMMEND: Create plan for user approval before execution
+ * - AUTO_RUN: Automatically execute research plan
+ */
+export type AutonomyLevel = "OFF" | "RECOMMEND" | "AUTO_RUN";
+
+export type AutonomySettings = {
+  level: AutonomyLevel;
+  scope: "global" | "bank" | "deal";
+  bank_id?: string | null;
+  deal_id?: string | null;
+  set_by_user_id?: string | null;
+  updated_at: string;
+};
+
+export type SetAutonomyInput = {
+  level: AutonomyLevel;
+  deal_id?: string;
+  bank_id?: string;
+  user_id?: string;
+  reason?: string;
+};
+
+export type SetAutonomyResult = {
+  ok: boolean;
+  previous_level?: AutonomyLevel;
+  error?: string;
+};
+
+// ============================================================================
+// Plan Override Types
+// ============================================================================
+
+export type PlanOverrideAction =
+  | "approve"
+  | "reject"
+  | "disable_mission"
+  | "enable_mission"
+  | "reorder"
+  | "force_rerun";
+
+export type PlanOverride = {
+  id: string;
+  plan_id: string;
+  deal_id: string;
+  action: PlanOverrideAction;
+  mission_type?: MissionType | null;
+  data: Record<string, unknown>;
+  user_id: string;
+  reason?: string | null;
+  created_at: string;
+};
+
+export type ApplyOverrideInput = {
+  plan_id: string;
+  action: PlanOverrideAction;
+  mission_type?: MissionType;
+  data?: Record<string, unknown>;
+  user_id: string;
+  reason?: string;
+};
+
+export type ApplyOverrideResult = {
+  ok: boolean;
+  override_id?: string;
+  error?: string;
+};
