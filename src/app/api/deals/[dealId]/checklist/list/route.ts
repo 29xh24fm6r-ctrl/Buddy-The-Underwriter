@@ -84,22 +84,25 @@ type ChecklistResponse = {
   correlationId: string;
 };
 
+const ROUTE = "/api/deals/[dealId]/checklist/list";
+
 /**
  * Create a JSON response with:
  * - Status 200 (NEVER 500)
  * - x-correlation-id header
+ * - x-buddy-route header
  * - JSON-safe serialization
  */
 function createJsonResponse(body: ChecklistResponse, correlationId: string): NextResponse {
+  const headers = {
+    "x-correlation-id": correlationId,
+    "x-buddy-route": ROUTE,
+    "cache-control": "no-store, max-age=0",
+  };
+
   try {
     const safeBody = jsonSafe(body);
-    return NextResponse.json(safeBody, {
-      status: 200,
-      headers: {
-        "x-correlation-id": correlationId,
-        "cache-control": "no-store, max-age=0",
-      },
-    });
+    return NextResponse.json(safeBody, { status: 200, headers });
   } catch (serializationErr) {
     console.error(`[checklist/list] correlationId=${correlationId} source=serialization error=failed_to_serialize`);
     return NextResponse.json(
@@ -110,13 +113,7 @@ function createJsonResponse(body: ChecklistResponse, correlationId: string): Nex
         timestamp: new Date().toISOString(),
         correlationId,
       },
-      {
-        status: 200,
-        headers: {
-          "x-correlation-id": correlationId,
-          "cache-control": "no-store, max-age=0",
-        },
-      }
+      { status: 200, headers }
     );
   }
 }
