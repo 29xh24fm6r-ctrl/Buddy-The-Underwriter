@@ -772,6 +772,209 @@ function discoverDemographicsSources(subject: MissionSubject): DiscoveredSource[
 }
 
 /**
+ * Discover sources for a lender_fit_analysis mission.
+ * Sources: SBA programs, USDA Rural Development, CDFI, Treasury SSBCI
+ */
+function discoverLenderFitAnalysisSources(subject: MissionSubject): DiscoveredSource[] {
+  const sources: DiscoveredSource[] = [];
+  const naicsCode = subject.naics_code;
+  const geography = subject.geography ?? "US";
+  const stateCode = extractStateCode(geography);
+
+  // 1. SBA 7(a) and 504 Loan Program Data
+  // SBA Size Standards determine eligibility
+  sources.push({
+    source_class: "regulatory",
+    source_name: "SBA 7(a) Loan Program",
+    url: "https://www.sba.gov/funding-programs/loans/7a-loans",
+    fetch_kind: "html",
+    priority: 1,
+  });
+
+  sources.push({
+    source_class: "regulatory",
+    source_name: "SBA 504 Loan Program",
+    url: "https://www.sba.gov/funding-programs/loans/504-loans",
+    fetch_kind: "html",
+    priority: 2,
+  });
+
+  // NAICS-specific size standards
+  if (naicsCode) {
+    sources.push({
+      source_class: "regulatory",
+      source_name: "SBA Size Standards by NAICS",
+      url: `https://data.sba.gov/dataset/size-standards/resource/d0e2c5ff-4f46-4972-b99b-f3e6a77e5c58`,
+      fetch_kind: "json",
+      priority: 3,
+    });
+  }
+
+  // 2. USDA Rural Development Business Programs
+  if (stateCode) {
+    sources.push({
+      source_class: "government",
+      source_name: "USDA Business & Industry Loan Guarantees",
+      url: "https://www.rd.usda.gov/programs-services/business-programs/business-industry-loan-guarantees",
+      fetch_kind: "html",
+      priority: 4,
+    });
+
+    // Rural eligibility by state
+    sources.push({
+      source_class: "government",
+      source_name: "USDA Rural Eligibility",
+      url: `https://eligibility.sc.egov.usda.gov/eligibility/welcomeAction.do`,
+      fetch_kind: "html",
+      priority: 5,
+    });
+  }
+
+  // 3. CDFI Fund - Community Development Financial Institutions
+  sources.push({
+    source_class: "government",
+    source_name: "CDFI Fund Programs",
+    url: "https://www.cdfifund.gov/programs-training/programs",
+    fetch_kind: "html",
+    priority: 6,
+  });
+
+  // 4. Treasury State Small Business Credit Initiative (SSBCI)
+  sources.push({
+    source_class: "government",
+    source_name: "Treasury SSBCI Program",
+    url: "https://home.treasury.gov/policy-issues/small-business-programs/state-small-business-credit-initiative-ssbci",
+    fetch_kind: "html",
+    priority: 7,
+  });
+
+  // 5. Federal Reserve Small Business Lending Survey
+  sources.push({
+    source_class: "government",
+    source_name: "Fed Small Business Credit Survey",
+    url: "https://www.fedsmallbusiness.org/survey",
+    fetch_kind: "html",
+    priority: 8,
+  });
+
+  // 6. Industry-specific programs
+  const regulatedInfo = naicsCode ? getRegulatedIndustryInfo(naicsCode) : null;
+  if (regulatedInfo) {
+    // Healthcare-specific programs
+    if (regulatedInfo.naics_prefix.startsWith("62")) {
+      sources.push({
+        source_class: "government",
+        source_name: "HHS Health Center Programs",
+        url: "https://bphc.hrsa.gov/funding/funding-opportunities",
+        fetch_kind: "html",
+        priority: 9,
+      });
+    }
+
+    // Construction-specific bonding
+    if (regulatedInfo.naics_prefix.startsWith("23")) {
+      sources.push({
+        source_class: "regulatory",
+        source_name: "SBA Surety Bond Guarantee",
+        url: "https://www.sba.gov/funding-programs/surety-bonds",
+        fetch_kind: "html",
+        priority: 9,
+      });
+    }
+  }
+
+  return sources;
+}
+
+/**
+ * Discover sources for a scenario_stress mission.
+ * Sources: Industry benchmarks, economic indicators, Fed data
+ */
+function discoverScenarioStressSources(subject: MissionSubject): DiscoveredSource[] {
+  const sources: DiscoveredSource[] = [];
+  const naicsCode = subject.naics_code;
+
+  // 1. Federal Reserve Economic Data (FRED)
+  // Interest rate forecasts
+  sources.push({
+    source_class: "government",
+    source_name: "FRED Interest Rates",
+    url: "https://api.stlouisfed.org/fred/series/observations?series_id=FEDFUNDS&api_key=DEMO_KEY&file_type=json",
+    fetch_kind: "json",
+    priority: 1,
+  });
+
+  // GDP growth
+  sources.push({
+    source_class: "government",
+    source_name: "FRED GDP Growth",
+    url: "https://api.stlouisfed.org/fred/series/observations?series_id=A191RL1Q225SBEA&api_key=DEMO_KEY&file_type=json",
+    fetch_kind: "json",
+    priority: 2,
+  });
+
+  // Unemployment rate
+  sources.push({
+    source_class: "government",
+    source_name: "FRED Unemployment",
+    url: "https://api.stlouisfed.org/fred/series/observations?series_id=UNRATE&api_key=DEMO_KEY&file_type=json",
+    fetch_kind: "json",
+    priority: 3,
+  });
+
+  // 2. BLS Industry-specific data
+  if (naicsCode) {
+    const naics2 = naicsCode.slice(0, 2);
+    sources.push({
+      source_class: "government",
+      source_name: "BLS Industry Productivity",
+      url: `https://api.bls.gov/publicAPI/v2/timeseries/data/PRS${naics2}006093?startyear=2019&endyear=2024`,
+      fetch_kind: "json",
+      priority: 4,
+    });
+
+    // Producer Price Index for input cost sensitivity
+    sources.push({
+      source_class: "government",
+      source_name: "BLS Producer Price Index",
+      url: `https://api.bls.gov/publicAPI/v2/timeseries/data/PCU${naics2}?startyear=2019&endyear=2024`,
+      fetch_kind: "json",
+      priority: 5,
+    });
+  }
+
+  // 3. Census Business Formation Statistics
+  sources.push({
+    source_class: "government",
+    source_name: "Census Business Formation",
+    url: "https://api.census.gov/data/timeseries/eits/bfs?get=cell_value,data_type_code,time_slot_id&time=from+2020&seasonally_adj=yes",
+    fetch_kind: "json",
+    priority: 6,
+  });
+
+  // 4. RMA Annual Statement Studies (reference only - actual data is proprietary)
+  // We include this as a reference for industry benchmarks
+  sources.push({
+    source_class: "industry",
+    source_name: "RMA Industry Benchmarks Reference",
+    url: "https://www.rmahq.org/annual-statement-studies/",
+    fetch_kind: "html",
+    priority: 7,
+  });
+
+  // 5. Federal Reserve Senior Loan Officer Survey
+  sources.push({
+    source_class: "government",
+    source_name: "Fed Senior Loan Officer Survey",
+    url: "https://www.federalreserve.gov/data/sloos/sloos-current.htm",
+    fetch_kind: "html",
+    priority: 8,
+  });
+
+  return sources;
+}
+
+/**
  * Main discovery function.
  * Returns a deterministic list of sources to fetch for a mission.
  */
@@ -797,6 +1000,12 @@ export function discoverSources(
 
     case "management_backgrounds":
       return discoverManagementBackgroundsSources(subject);
+
+    case "lender_fit_analysis":
+      return discoverLenderFitAnalysisSources(subject);
+
+    case "scenario_stress":
+      return discoverScenarioStressSources(subject);
 
     default:
       return [];

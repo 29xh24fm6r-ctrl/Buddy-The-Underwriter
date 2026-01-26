@@ -1256,6 +1256,428 @@ function extractCorporateRegistryFacts(source: ResearchSource): ExtractedFact[] 
   return facts;
 }
 
+// ============================================================================
+// Lender Fit Fact Extractors (Phase 6)
+// ============================================================================
+
+/**
+ * Extract facts from SBA loan program data.
+ */
+function extractSbaLoanProgramFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  const sourceName = source.source_name;
+
+  // SBA 7(a) program facts
+  if (sourceName.includes("7(a)")) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "lender_program",
+      value: {
+        text: "SBA 7(a) Loan Program",
+        category: "federal_guarantee",
+      } as TextValue,
+      confidence: 0.9,
+      extracted_by: "rule",
+      extraction_path: "$.program_type",
+    });
+
+    facts.push({
+      source_id: source.id,
+      fact_type: "term_limit",
+      value: {
+        value: 25,
+        unit: "years (max, real estate)",
+      } as NumericValue,
+      confidence: 0.85,
+      extracted_by: "rule",
+      extraction_path: "$.terms.max_term",
+    });
+
+    facts.push({
+      source_id: source.id,
+      fact_type: "size_standard_threshold",
+      value: {
+        text: "Must meet SBA size standards for industry",
+        category: "eligibility",
+      } as TextValue,
+      confidence: 0.9,
+      extracted_by: "rule",
+      extraction_path: "$.eligibility.size",
+    });
+  }
+
+  // SBA 504 program facts
+  if (sourceName.includes("504")) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "lender_program",
+      value: {
+        text: "SBA 504 Loan Program",
+        category: "fixed_asset_financing",
+      } as TextValue,
+      confidence: 0.9,
+      extracted_by: "rule",
+      extraction_path: "$.program_type",
+    });
+
+    facts.push({
+      source_id: source.id,
+      fact_type: "collateral_requirement",
+      value: {
+        text: "Fixed assets (real estate, equipment) - 10% equity injection typical",
+        category: "sba_504",
+      } as TextValue,
+      confidence: 0.85,
+      extracted_by: "rule",
+      extraction_path: "$.collateral.requirements",
+    });
+  }
+
+  // SBA Surety Bond program
+  if (sourceName.includes("surety") || sourceName.includes("bond")) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "lender_program",
+      value: {
+        text: "SBA Surety Bond Guarantee Program",
+        category: "construction_bonding",
+      } as TextValue,
+      confidence: 0.85,
+      extracted_by: "rule",
+      extraction_path: "$.program_type",
+    });
+  }
+
+  return facts;
+}
+
+/**
+ * Extract facts from USDA Rural Development programs.
+ */
+function extractUsdaRuralFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+
+  if (source.source_name.includes("Business & Industry") || source.source_name.includes("B&I")) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "lender_program",
+      value: {
+        text: "USDA Business & Industry Loan Guarantee",
+        category: "rural_development",
+      } as TextValue,
+      confidence: 0.9,
+      extracted_by: "rule",
+      extraction_path: "$.program_type",
+    });
+
+    facts.push({
+      source_id: source.id,
+      fact_type: "geographic_restriction",
+      value: {
+        text: "Must be located in eligible rural area (population < 50,000)",
+        category: "usda_rural",
+      } as TextValue,
+      confidence: 0.85,
+      extracted_by: "rule",
+      extraction_path: "$.eligibility.geography",
+    });
+
+    facts.push({
+      source_id: source.id,
+      fact_type: "term_limit",
+      value: {
+        value: 30,
+        unit: "years (max, real estate)",
+      } as NumericValue,
+      confidence: 0.85,
+      extracted_by: "rule",
+      extraction_path: "$.terms.max_term",
+    });
+  }
+
+  if (source.source_name.includes("Eligibility")) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "program_eligibility",
+      value: {
+        text: "USDA rural eligibility verification available",
+        category: "geographic_check",
+      } as TextValue,
+      confidence: 0.7,
+      extracted_by: "rule",
+      extraction_path: "$.eligibility_check",
+    });
+  }
+
+  return facts;
+}
+
+/**
+ * Extract facts from CDFI Fund programs.
+ */
+function extractCdfiFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+
+  facts.push({
+    source_id: source.id,
+    fact_type: "lender_program",
+    value: {
+      text: "CDFI Fund Programs",
+      category: "community_development",
+    } as TextValue,
+    confidence: 0.85,
+    extracted_by: "rule",
+    extraction_path: "$.program_type",
+  });
+
+  facts.push({
+    source_id: source.id,
+    fact_type: "program_eligibility",
+    value: {
+      text: "Target underserved communities - low-income, rural, minority populations",
+      category: "cdfi_mission",
+    } as TextValue,
+    confidence: 0.8,
+    extracted_by: "rule",
+    extraction_path: "$.eligibility.target_markets",
+  });
+
+  return facts;
+}
+
+/**
+ * Extract facts from Treasury SSBCI program.
+ */
+function extractSsbciFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+
+  facts.push({
+    source_id: source.id,
+    fact_type: "lender_program",
+    value: {
+      text: "State Small Business Credit Initiative (SSBCI)",
+      category: "state_federal_partnership",
+    } as TextValue,
+    confidence: 0.85,
+    extracted_by: "rule",
+    extraction_path: "$.program_type",
+  });
+
+  facts.push({
+    source_id: source.id,
+    fact_type: "program_eligibility",
+    value: {
+      text: "State-administered programs - varies by state",
+      category: "ssbci_structure",
+    } as TextValue,
+    confidence: 0.75,
+    extracted_by: "rule",
+    extraction_path: "$.structure",
+  });
+
+  return facts;
+}
+
+// ============================================================================
+// Scenario Stress Fact Extractors (Phase 7)
+// ============================================================================
+
+/**
+ * Extract facts from FRED economic data.
+ */
+function extractFredEconomicFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  const content = source.raw_content as Record<string, unknown>;
+
+  const observations = content?.observations as Array<Record<string, unknown>> | undefined;
+
+  if (!observations || !Array.isArray(observations) || observations.length === 0) {
+    return facts;
+  }
+
+  // Get latest observation
+  const sorted = [...observations].sort((a, b) => {
+    const dateA = String(a.date ?? "");
+    const dateB = String(b.date ?? "");
+    return dateB.localeCompare(dateA);
+  });
+
+  const latest = sorted[0];
+  const latestValue = parseFloat(String(latest.value ?? ""));
+  const latestDate = String(latest.date ?? "");
+
+  if (isNaN(latestValue)) return facts;
+
+  // Determine what type of data this is based on source name
+  const sourceName = source.source_name.toLowerCase();
+
+  if (sourceName.includes("interest") || sourceName.includes("fed fund")) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "interest_rate_sensitivity",
+      value: {
+        value: latestValue,
+        unit: "percent",
+      } as NumericValue,
+      confidence: 0.9,
+      extracted_by: "rule",
+      extraction_path: "$.observations[0].value",
+      as_of_date: latestDate,
+    });
+
+    // Calculate 1-year change if we have enough data
+    const oneYearAgo = sorted.find((obs) => {
+      const obsDate = new Date(String(obs.date ?? ""));
+      const latDate = new Date(latestDate);
+      const diff = (latDate.getTime() - obsDate.getTime()) / (365 * 24 * 60 * 60 * 1000);
+      return diff >= 0.9 && diff <= 1.1;
+    });
+
+    if (oneYearAgo) {
+      const oldValue = parseFloat(String(oneYearAgo.value ?? ""));
+      if (!isNaN(oldValue)) {
+        const change = latestValue - oldValue;
+        facts.push({
+          source_id: source.id,
+          fact_type: "interest_rate_sensitivity",
+          value: {
+            text: `${change >= 0 ? "+" : ""}${change.toFixed(2)} bps YoY change`,
+            category: "rate_trend",
+          } as TextValue,
+          confidence: 0.85,
+          extracted_by: "rule",
+          extraction_path: "$.observations.yoy_calc",
+        });
+      }
+    }
+  }
+
+  if (sourceName.includes("gdp")) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "revenue_sensitivity",
+      value: {
+        value: latestValue,
+        unit: "percent (GDP growth)",
+      } as NumericValue,
+      confidence: 0.85,
+      extracted_by: "rule",
+      extraction_path: "$.observations[0].value",
+      as_of_date: latestDate,
+    });
+  }
+
+  if (sourceName.includes("unemployment") || sourceName.includes("unrate")) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "margin_sensitivity",
+      value: {
+        value: latestValue,
+        unit: "percent (unemployment)",
+      } as NumericValue,
+      confidence: 0.85,
+      extracted_by: "rule",
+      extraction_path: "$.observations[0].value",
+      as_of_date: latestDate,
+    });
+  }
+
+  return facts;
+}
+
+/**
+ * Extract facts from BLS industry productivity data.
+ */
+function extractBlsProductivityFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  const content = source.raw_content as Record<string, unknown>;
+
+  const results = content?.Results as Record<string, unknown> | undefined;
+  const series = results?.series as Array<Record<string, unknown>> | undefined;
+
+  if (!series || !Array.isArray(series) || series.length === 0) {
+    return facts;
+  }
+
+  const data = series[0]?.data as Array<Record<string, unknown>> | undefined;
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return facts;
+  }
+
+  // Get latest data point
+  const sorted = [...data].sort((a, b) => {
+    const yearA = parseInt(String(a.year ?? "0"), 10);
+    const yearB = parseInt(String(b.year ?? "0"), 10);
+    return yearB - yearA;
+  });
+
+  const latest = sorted[0];
+  const latestValue = parseFloat(String(latest.value ?? ""));
+  const latestYear = String(latest.year ?? "");
+
+  if (!isNaN(latestValue)) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "margin_sensitivity",
+      value: {
+        value: latestValue,
+        unit: "productivity index",
+        year: parseInt(latestYear, 10),
+      } as NumericValue,
+      confidence: 0.8,
+      extracted_by: "rule",
+      extraction_path: "$.Results.series[0].data[0]",
+      as_of_date: `${latestYear}-12-31`,
+    });
+  }
+
+  return facts;
+}
+
+/**
+ * Extract facts from Census business formation statistics.
+ */
+function extractBusinessFormationFacts(source: ResearchSource): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  const content = source.raw_content as unknown;
+
+  if (!Array.isArray(content) || content.length < 2) {
+    return facts;
+  }
+
+  const headers = content[0] as string[];
+  const rows = content.slice(1) as string[][];
+
+  // Find relevant columns
+  const valueIdx = headers.indexOf("cell_value");
+  const timeIdx = headers.indexOf("time_slot_id");
+  const typeIdx = headers.indexOf("data_type_code");
+
+  if (valueIdx < 0 || rows.length === 0) {
+    return facts;
+  }
+
+  // Get the most recent business formation data
+  const latestRow = rows[rows.length - 1];
+  const value = parseFloat(latestRow[valueIdx] ?? "");
+
+  if (!isNaN(value)) {
+    facts.push({
+      source_id: source.id,
+      fact_type: "revenue_sensitivity",
+      value: {
+        text: `Business formation index: ${value}`,
+        category: "economic_indicator",
+      } as TextValue,
+      confidence: 0.75,
+      extracted_by: "rule",
+      extraction_path: "$.cell_value",
+    });
+  }
+
+  return facts;
+}
+
 /**
  * Main fact extraction function.
  * Routes to appropriate extractor based on source characteristics.
@@ -1312,6 +1734,24 @@ export function extractFacts(source: ResearchSource): FactExtractionResult {
     facts = extractCourtRecordsFacts(source);
   } else if (sourceName.includes("corporate registry") || sourceName.includes("ucc")) {
     facts = extractCorporateRegistryFacts(source);
+  }
+  // Lender fit extractors (Phase 6)
+  else if (sourceName.includes("sba") && (sourceName.includes("7(a)") || sourceName.includes("504") || sourceName.includes("surety") || sourceName.includes("loan program"))) {
+    facts = extractSbaLoanProgramFacts(source);
+  } else if (sourceName.includes("usda") || sourceName.includes("rural")) {
+    facts = extractUsdaRuralFacts(source);
+  } else if (sourceName.includes("cdfi")) {
+    facts = extractCdfiFacts(source);
+  } else if (sourceName.includes("ssbci") || sourceName.includes("treasury") && sourceName.includes("small business")) {
+    facts = extractSsbciFacts(source);
+  }
+  // Scenario stress extractors (Phase 7)
+  else if (sourceName.includes("fred")) {
+    facts = extractFredEconomicFacts(source);
+  } else if (sourceName.includes("bls") && (sourceName.includes("productivity") || sourceName.includes("price index"))) {
+    facts = extractBlsProductivityFacts(source);
+  } else if (sourceName.includes("census") && sourceName.includes("business formation")) {
+    facts = extractBusinessFormationFacts(source);
   }
 
   return { facts };

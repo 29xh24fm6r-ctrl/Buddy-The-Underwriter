@@ -15,7 +15,9 @@ export type MissionType =
   | "market_demand"
   | "demographics"
   | "regulatory_environment"
-  | "management_backgrounds";
+  | "management_backgrounds"
+  | "lender_fit_analysis"
+  | "scenario_stress";
 
 export type MissionDepth = "overview" | "committee" | "deep_dive";
 
@@ -132,6 +134,21 @@ export type FactType =
   | "sanctions_status"
   | "bankruptcy_history"
   | "litigation_history"
+  // Lender fit facts (Phase 6)
+  | "lender_program"
+  | "program_eligibility"
+  | "size_standard_threshold"
+  | "collateral_requirement"
+  | "interest_rate_range"
+  | "term_limit"
+  | "geographic_restriction"
+  | "industry_restriction"
+  // Scenario stress facts (Phase 7)
+  | "revenue_sensitivity"
+  | "margin_sensitivity"
+  | "interest_rate_sensitivity"
+  | "dscr_baseline"
+  | "breakeven_threshold"
   // General
   | "other";
 
@@ -220,6 +237,16 @@ export type InferenceType =
   | "adverse_event_risk"
   // Demand stability
   | "demand_stability"
+  // Lender fit inferences (Phase 6)
+  | "lender_program_fit"
+  | "collateral_adequacy"
+  | "eligibility_assessment"
+  // Scenario stress inferences (Phase 7)
+  | "stress_resilience"
+  | "downside_risk"
+  | "breakeven_cushion"
+  // Institutional learning (Phase 8)
+  | "historical_performance_pattern"
   // General
   | "other";
 

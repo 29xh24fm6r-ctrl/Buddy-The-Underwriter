@@ -31,7 +31,7 @@ export type CreditCommitteePackSection = {
 };
 
 export type RiskIndicator = {
-  category: "competitive" | "regulatory" | "execution" | "market" | "geographic";
+  category: "competitive" | "regulatory" | "execution" | "market" | "geographic" | "lender_fit" | "stress";
   level: "low" | "medium" | "high";
   summary: string;
   supporting_inference_ids: string[];
@@ -108,6 +108,8 @@ function getMissionTypeOrder(): MissionType[] {
     "demographics",
     "regulatory_environment",
     "management_backgrounds",
+    "lender_fit_analysis",
+    "scenario_stress",
   ];
 }
 
@@ -122,6 +124,8 @@ function getMissionTypeTitle(missionType: MissionType): string {
     demographics: "Demographics",
     regulatory_environment: "Regulatory Environment",
     management_backgrounds: "Management Backgrounds",
+    lender_fit_analysis: "Lender Fit Analysis",
+    scenario_stress: "Scenario Stress Analysis",
   };
   return titles[missionType] ?? missionType;
 }
@@ -245,6 +249,44 @@ function extractRiskIndicators(
       level,
       summary: geoInference.conclusion,
       supporting_inference_ids: [geoInference.id],
+    });
+  }
+
+  // Lender fit indicator (Phase 6)
+  const lenderFitInference = allInferences.find(
+    (i) => i.inference_type === "lender_program_fit"
+  );
+  if (lenderFitInference) {
+    const conclusion = lenderFitInference.conclusion.toLowerCase();
+    let level: "low" | "medium" | "high" = "medium";
+    // Note: "strong" fit = low risk, "limited" fit = high risk
+    if (conclusion.includes("limited")) level = "high";
+    else if (conclusion.includes("strong")) level = "low";
+
+    indicators.push({
+      category: "lender_fit",
+      level,
+      summary: lenderFitInference.conclusion,
+      supporting_inference_ids: [lenderFitInference.id],
+    });
+  }
+
+  // Stress resilience indicator (Phase 7)
+  const stressInference = allInferences.find(
+    (i) => i.inference_type === "stress_resilience"
+  );
+  if (stressInference) {
+    const conclusion = stressInference.conclusion.toLowerCase();
+    let level: "low" | "medium" | "high" = "medium";
+    // Note: "high" resilience = low risk, "low" resilience = high risk
+    if (conclusion.includes("low") && conclusion.includes("resilience")) level = "high";
+    else if (conclusion.includes("high") && conclusion.includes("resilience")) level = "low";
+
+    indicators.push({
+      category: "stress",
+      level,
+      summary: stressInference.conclusion,
+      supporting_inference_ids: [stressInference.id],
     });
   }
 

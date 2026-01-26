@@ -845,3 +845,298 @@ describe("Credit Committee Pack (Phase 5)", () => {
     assert.ok(!result.ok, "Should fail with no facts");
   });
 });
+
+// ============================================================================
+// Phase 6: Lender Fit Analysis Tests
+// ============================================================================
+
+describe("Lender Fit Analysis (Phase 6)", () => {
+  it("should return sources for lender_fit_analysis missions", () => {
+    const subject: MissionSubject = { naics_code: "236", geography: "TX" };
+    const sources = discoverSources("lender_fit_analysis", subject);
+
+    assert.ok(sources.length > 0, "Should return sources for lender_fit_analysis");
+    const hasSba = sources.some((s) => s.source_name.includes("SBA"));
+    assert.ok(hasSba, "Should include SBA program sources");
+  });
+
+  it("should derive lender program fit from program facts", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "lender_program", { text: "SBA 7(a) Loan Program", category: "federal_guarantee" }),
+      createMockFact("f2", "lender_program", { text: "SBA 504 Loan Program", category: "fixed_asset_financing" }),
+      createMockFact("f3", "lender_program", { text: "USDA Business & Industry Loan Guarantee", category: "rural_development" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const fitInference = result.inferences.find((i) => i.inference_type === "lender_program_fit");
+    assert.ok(fitInference, "Should derive lender program fit");
+    assert.ok(fitInference!.conclusion.includes("STRONG") || fitInference!.conclusion.includes("MODERATE"),
+      "Should indicate fit level");
+  });
+
+  it("should derive collateral adequacy from collateral facts", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "collateral_requirement", { text: "Fixed assets (real estate, equipment) - 10% equity injection typical", category: "sba_504" }),
+      createMockFact("f2", "term_limit", { value: 25, unit: "years (max, real estate)" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const collateralInference = result.inferences.find((i) => i.inference_type === "collateral_adequacy");
+    assert.ok(collateralInference, "Should derive collateral adequacy");
+  });
+
+  it("should derive eligibility assessment from eligibility facts", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "size_standard_threshold", { text: "Must meet SBA size standards for industry", category: "eligibility" }),
+      createMockFact("f2", "geographic_restriction", { text: "Must be located in eligible rural area (population < 50,000)", category: "usda_rural" }),
+      createMockFact("f3", "program_eligibility", { text: "Target underserved communities", category: "cdfi_mission" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const eligibilityInference = result.inferences.find((i) => i.inference_type === "eligibility_assessment");
+    assert.ok(eligibilityInference, "Should derive eligibility assessment");
+    assert.ok(eligibilityInference!.input_fact_ids.length > 0, "Must have input fact IDs");
+  });
+
+  it("should compile lender fit narrative section", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "lender_program", { text: "SBA 7(a) Loan Program", category: "federal_guarantee" }),
+      createMockFact("f2", "term_limit", { value: 25, unit: "years (max, real estate)" }),
+      createMockFact("f3", "collateral_requirement", { text: "Fixed assets required", category: "sba" }),
+    ];
+
+    const inferences: ResearchInference[] = [
+      {
+        id: "inf-1",
+        mission_id: "mission-001",
+        inference_type: "lender_program_fit",
+        conclusion: "MODERATE lender program fit: 1 SBA program(s) potentially applicable.",
+        input_fact_ids: ["f1"],
+        confidence: 0.75,
+        reasoning: "Based on SBA program availability.",
+        created_at: "2024-01-01T00:00:00Z",
+      },
+    ];
+
+    const result = compileNarrative(facts, inferences);
+
+    assert.ok(result.ok, "Compilation should succeed");
+    const lenderSection = result.sections.find((s) => s.title === "Lender Fit Analysis");
+    assert.ok(lenderSection, "Should have Lender Fit Analysis section");
+    assert.ok(lenderSection!.sentences.length > 0, "Section should have sentences");
+  });
+});
+
+// ============================================================================
+// Phase 7: Scenario Stress Tests
+// ============================================================================
+
+describe("Scenario Stress (Phase 7)", () => {
+  it("should return sources for scenario_stress missions", () => {
+    const subject: MissionSubject = { naics_code: "236" };
+    const sources = discoverSources("scenario_stress", subject);
+
+    assert.ok(sources.length > 0, "Should return sources for scenario_stress");
+    const hasFred = sources.some((s) => s.source_name.includes("FRED"));
+    assert.ok(hasFred, "Should include FRED economic data sources");
+  });
+
+  it("should derive stress resilience from economic indicators", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "interest_rate_sensitivity", { value: 5.5, unit: "percent" }),
+      createMockFact("f2", "revenue_sensitivity", { value: 2.1, unit: "percent (GDP growth)" }),
+      createMockFact("f3", "margin_sensitivity", { value: 3.8, unit: "percent (unemployment)" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const resilienceInference = result.inferences.find((i) => i.inference_type === "stress_resilience");
+    assert.ok(resilienceInference, "Should derive stress resilience");
+    assert.ok(
+      resilienceInference!.conclusion.includes("HIGH") ||
+      resilienceInference!.conclusion.includes("MODERATE") ||
+      resilienceInference!.conclusion.includes("LOW"),
+      "Should indicate resilience level"
+    );
+  });
+
+  it("should derive downside risk from DSCR and breakeven facts", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "dscr_baseline", { value: 1.1, unit: "x" }),
+      createMockFact("f2", "breakeven_threshold", { value: 85, unit: "percent occupancy" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const downsideInference = result.inferences.find((i) => i.inference_type === "downside_risk");
+    assert.ok(downsideInference, "Should derive downside risk");
+    assert.ok(downsideInference!.conclusion.includes("thin") || downsideInference!.conclusion.includes("high"),
+      "Should indicate risk factors");
+  });
+
+  it("should derive breakeven cushion from breakeven facts", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "breakeven_threshold", { value: 60, unit: "percent capacity" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const cushionInference = result.inferences.find((i) => i.inference_type === "breakeven_cushion");
+    assert.ok(cushionInference, "Should derive breakeven cushion");
+    assert.ok(cushionInference!.conclusion.includes("COMFORTABLE"),
+      "Should indicate comfortable cushion at 60%");
+  });
+
+  it("should compile scenario stress narrative section", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "interest_rate_sensitivity", { value: 4.5, unit: "percent" }),
+      createMockFact("f2", "revenue_sensitivity", { value: 1.8, unit: "percent (GDP growth)" }),
+    ];
+
+    const inferences: ResearchInference[] = [
+      {
+        id: "inf-1",
+        mission_id: "mission-001",
+        inference_type: "stress_resilience",
+        conclusion: "MODERATE stress resilience: favorable interest rate environment.",
+        input_fact_ids: ["f1"],
+        confidence: 0.7,
+        reasoning: "Based on economic indicators.",
+        created_at: "2024-01-01T00:00:00Z",
+      },
+    ];
+
+    const result = compileNarrative(facts, inferences);
+
+    assert.ok(result.ok, "Compilation should succeed");
+    const stressSection = result.sections.find((s) => s.title === "Scenario Stress Analysis");
+    assert.ok(stressSection, "Should have Scenario Stress Analysis section");
+    assert.ok(stressSection!.sentences.length > 0, "Section should have sentences");
+  });
+});
+
+// ============================================================================
+// Phase 8: Institutional Learning Tests
+// ============================================================================
+
+describe("Institutional Learning (Phase 8)", () => {
+  it("should derive historical performance pattern from accumulated facts", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "employment_count", { count: 500000, year: 2023, geography: "US" }),
+      createMockFact("f2", "market_size", { amount: 50000000000, currency: "USD", year: 2023 }),
+      createMockFact("f3", "regulatory_burden_level", { text: "high", category: "federal" }),
+    ];
+
+    const result = deriveInferences(facts);
+
+    const patternInference = result.inferences.find((i) => i.inference_type === "historical_performance_pattern");
+    assert.ok(patternInference, "Should derive historical performance pattern");
+    assert.ok(patternInference!.conclusion.includes("pattern") || patternInference!.conclusion.includes("Institutional"),
+      "Should indicate institutional pattern");
+  });
+
+  it("should compile institutional insights section", () => {
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "employment_count", { count: 500000, year: 2023, geography: "US" }),
+      createMockFact("f2", "market_size", { amount: 50000000000, currency: "USD", year: 2023 }),
+      createMockFact("f3", "employment_count", { count: 100000, year: 2023, geography: "TX" }),
+      createMockFact("f4", "establishment_count", { value: 10000, unit: "establishments" }),
+      createMockFact("f5", "average_wage", { value: 65000, unit: "USD/year" }),
+      createMockFact("f6", "regulatory_burden_level", { text: "medium", category: "federal" }),
+      createMockFact("f7", "competitor_name", { name: "Acme Corp", cik: "0001234567" }),
+      createMockFact("f8", "competitor_name", { name: "BuildCo Inc", cik: "0007654321" }),
+      createMockFact("f9", "population", { value: 5000000, geography: "Metro Area" }),
+      createMockFact("f10", "median_income", { value: 75000, geography: "Metro Area" }),
+    ];
+
+    const inferences: ResearchInference[] = [
+      {
+        id: "inf-1",
+        mission_id: "mission-001",
+        inference_type: "historical_performance_pattern",
+        conclusion: "Institutional pattern: industry profile established; high regulatory environment typical for this sector.",
+        input_fact_ids: ["f1", "f2", "f6"],
+        confidence: 0.65,
+        reasoning: "Pattern derived from accumulated research data.",
+        created_at: "2024-01-01T00:00:00Z",
+      },
+      {
+        id: "inf-2",
+        mission_id: "mission-001",
+        inference_type: "competitive_intensity",
+        conclusion: "LOW competitive intensity in this industry.",
+        input_fact_ids: ["f7", "f8"],
+        confidence: 0.85,
+        reasoning: "Based on competitor analysis.",
+        created_at: "2024-01-01T00:00:00Z",
+      },
+    ];
+
+    const result = compileNarrative(facts, inferences);
+
+    assert.ok(result.ok, "Compilation should succeed");
+    const insightsSection = result.sections.find((s) => s.title === "Institutional Insights");
+    assert.ok(insightsSection, "Should have Institutional Insights section");
+  });
+
+  it("should include lender_fit and stress risk indicators in committee pack", () => {
+    const mockMission: ResearchMission = {
+      id: "mission-006",
+      deal_id: "deal-006",
+      mission_type: "lender_fit_analysis",
+      subject: { naics_code: "236" },
+      depth: "committee",
+      status: "complete",
+      sources_count: 5,
+      facts_count: 10,
+      inferences_count: 3,
+      created_at: "2024-01-01T00:00:00Z",
+      completed_at: "2024-01-01T00:01:00Z",
+    };
+
+    const facts: ResearchFact[] = [
+      createMockFact("f1", "lender_program", { text: "SBA 7(a) Loan Program", category: "federal_guarantee" }),
+    ];
+
+    const inferences: ResearchInference[] = [
+      {
+        id: "inf-1",
+        mission_id: "mission-006",
+        inference_type: "lender_program_fit",
+        conclusion: "LIMITED lender program fit: only 1 program(s) identified.",
+        input_fact_ids: ["f1"],
+        confidence: 0.6,
+        reasoning: "Based on program availability.",
+        created_at: "2024-01-01T00:00:00Z",
+      },
+      {
+        id: "inf-2",
+        mission_id: "mission-006",
+        inference_type: "stress_resilience",
+        conclusion: "LOW stress resilience: elevated interest rate environment.",
+        input_fact_ids: [],
+        confidence: 0.7,
+        reasoning: "Based on economic conditions.",
+        created_at: "2024-01-01T00:00:00Z",
+      },
+    ];
+
+    const result = compileCreditCommitteePack({
+      deal_id: "deal-006",
+      missions: [{ mission: mockMission, facts, inferences, sources: [] }],
+    });
+
+    assert.ok(result.ok, "Pack compilation should succeed");
+
+    const lenderRisk = result.pack!.risk_indicators.find((r) => r.category === "lender_fit");
+    assert.ok(lenderRisk, "Should have lender_fit risk indicator");
+    assert.equal(lenderRisk!.level, "high", "Limited fit should be high risk");
+
+    const stressRisk = result.pack!.risk_indicators.find((r) => r.category === "stress");
+    assert.ok(stressRisk, "Should have stress risk indicator");
+    assert.equal(stressRisk!.level, "high", "Low resilience should be high risk");
+  });
+});

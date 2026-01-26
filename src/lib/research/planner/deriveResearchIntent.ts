@@ -667,6 +667,8 @@ function formatMissionType(type: MissionType): string {
     demographics: "Demographics",
     regulatory_environment: "Regulatory Environment",
     management_backgrounds: "Management & Ownership Backgrounds",
+    lender_fit_analysis: "Lender Fit Analysis",
+    scenario_stress: "Scenario Stress Analysis",
   };
   return labels[type] ?? type;
 }

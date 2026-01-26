@@ -959,6 +959,419 @@ function deriveAdverseEventRisk(facts: ResearchFact[]): DerivedInference | null 
   };
 }
 
+// ============================================================================
+// Lender Fit Inferences (Phase 6)
+// ============================================================================
+
+/**
+ * Derive lender program fit from program and eligibility facts.
+ */
+function deriveLenderProgramFit(facts: ResearchFact[]): DerivedInference | null {
+  const programFacts = facts.filter((f) => f.fact_type === "lender_program");
+  const eligibilityFacts = facts.filter((f) => f.fact_type === "program_eligibility");
+  const geoRestrictionFacts = facts.filter((f) => f.fact_type === "geographic_restriction");
+  const industryRestrictionFacts = facts.filter((f) => f.fact_type === "industry_restriction");
+  const sizeStandardFacts = facts.filter((f) => f.fact_type === "size_standard_threshold");
+
+  const allFitFacts = [...programFacts, ...eligibilityFacts, ...geoRestrictionFacts, ...industryRestrictionFacts, ...sizeStandardFacts];
+
+  if (allFitFacts.length === 0) {
+    return null;
+  }
+
+  // Count available programs
+  const programCount = programFacts.length;
+  const reasons: string[] = [];
+
+  // Identify program types
+  const sbaPrograms = programFacts.filter((f) =>
+    ((f.value as { text?: string }).text ?? "").toLowerCase().includes("sba")
+  ).length;
+
+  const usdaPrograms = programFacts.filter((f) =>
+    ((f.value as { text?: string }).text ?? "").toLowerCase().includes("usda")
+  ).length;
+
+  const cdfiPrograms = programFacts.filter((f) =>
+    ((f.value as { text?: string }).text ?? "").toLowerCase().includes("cdfi")
+  ).length;
+
+  if (sbaPrograms > 0) {
+    reasons.push(`${sbaPrograms} SBA program(s) potentially applicable`);
+  }
+  if (usdaPrograms > 0) {
+    reasons.push(`${usdaPrograms} USDA program(s) for rural eligibility`);
+  }
+  if (cdfiPrograms > 0) {
+    reasons.push(`CDFI programs for underserved markets`);
+  }
+
+  // Check for restrictions
+  const hasGeoRestrictions = geoRestrictionFacts.length > 0;
+  const hasIndustryRestrictions = industryRestrictionFacts.length > 0;
+
+  if (hasGeoRestrictions) {
+    reasons.push("geographic eligibility requirements apply");
+  }
+  if (hasIndustryRestrictions) {
+    reasons.push("industry-specific restrictions may apply");
+  }
+
+  // Determine fit level
+  let fitLevel: "strong" | "moderate" | "limited";
+  if (programCount >= 3 && !hasGeoRestrictions && !hasIndustryRestrictions) {
+    fitLevel = "strong";
+  } else if (programCount >= 2) {
+    fitLevel = "moderate";
+  } else {
+    fitLevel = "limited";
+  }
+
+  const inputFactIds = allFitFacts.slice(0, 10).map((f) => f.id);
+
+  return {
+    inference_type: "lender_program_fit",
+    conclusion: `${fitLevel.toUpperCase()} lender program fit: ${reasons.join("; ") || `${programCount} program(s) identified`}.`,
+    input_fact_ids: inputFactIds,
+    confidence: programCount >= 2 ? 0.8 : 0.6,
+    reasoning: `Assessed ${programCount} lending programs against eligibility criteria.`,
+  };
+}
+
+/**
+ * Derive collateral adequacy from collateral requirement facts.
+ */
+function deriveCollateralAdequacy(facts: ResearchFact[]): DerivedInference | null {
+  const collateralFacts = facts.filter((f) => f.fact_type === "collateral_requirement");
+  const termFacts = facts.filter((f) => f.fact_type === "term_limit");
+
+  if (collateralFacts.length === 0 && termFacts.length === 0) {
+    return null;
+  }
+
+  const reasons: string[] = [];
+
+  // Analyze collateral requirements
+  for (const fact of collateralFacts) {
+    const text = ((fact.value as { text?: string }).text ?? "").toLowerCase();
+    if (text.includes("fixed asset") || text.includes("real estate")) {
+      reasons.push("fixed asset collateral typically required");
+    }
+    if (text.includes("equity injection") || text.includes("10%")) {
+      reasons.push("owner equity injection expected");
+    }
+  }
+
+  // Analyze term limits
+  for (const fact of termFacts) {
+    const value = fact.value as NumericValue;
+    if (value.value >= 20) {
+      reasons.push(`long-term financing available (up to ${value.value} years)`);
+    }
+  }
+
+  if (reasons.length === 0) {
+    reasons.push("standard collateral requirements apply");
+  }
+
+  const inputFactIds = [...collateralFacts, ...termFacts].slice(0, 5).map((f) => f.id);
+
+  return {
+    inference_type: "collateral_adequacy",
+    conclusion: `Collateral considerations: ${reasons.join("; ")}.`,
+    input_fact_ids: inputFactIds,
+    confidence: 0.7,
+    reasoning: "Collateral requirements derived from program specifications.",
+  };
+}
+
+/**
+ * Derive eligibility assessment from multiple program facts.
+ */
+function deriveEligibilityAssessment(facts: ResearchFact[]): DerivedInference | null {
+  const eligibilityFacts = facts.filter((f) => f.fact_type === "program_eligibility");
+  const sizeStandardFacts = facts.filter((f) => f.fact_type === "size_standard_threshold");
+  const geoRestrictionFacts = facts.filter((f) => f.fact_type === "geographic_restriction");
+
+  const allEligibilityFacts = [...eligibilityFacts, ...sizeStandardFacts, ...geoRestrictionFacts];
+
+  if (allEligibilityFacts.length === 0) {
+    return null;
+  }
+
+  const checkpoints: string[] = [];
+
+  // Size standard check
+  if (sizeStandardFacts.length > 0) {
+    checkpoints.push("SBA size standards verification required");
+  }
+
+  // Geographic eligibility
+  if (geoRestrictionFacts.length > 0) {
+    checkpoints.push("geographic eligibility must be confirmed");
+  }
+
+  // Mission-based eligibility (CDFI)
+  const cdfiEligibility = eligibilityFacts.filter((f) =>
+    ((f.value as { category?: string }).category ?? "").includes("cdfi")
+  );
+  if (cdfiEligibility.length > 0) {
+    checkpoints.push("community development criteria applicable");
+  }
+
+  const inputFactIds = allEligibilityFacts.slice(0, 8).map((f) => f.id);
+
+  return {
+    inference_type: "eligibility_assessment",
+    conclusion: `Eligibility checkpoints: ${checkpoints.join("; ") || "standard eligibility criteria"}.`,
+    input_fact_ids: inputFactIds,
+    confidence: 0.75,
+    reasoning: `${allEligibilityFacts.length} eligibility factors analyzed.`,
+  };
+}
+
+// ============================================================================
+// Scenario Stress Inferences (Phase 7)
+// ============================================================================
+
+/**
+ * Derive stress resilience from economic sensitivity facts.
+ */
+function deriveStressResilience(facts: ResearchFact[]): DerivedInference | null {
+  const revenueSensitivityFacts = facts.filter((f) => f.fact_type === "revenue_sensitivity");
+  const marginSensitivityFacts = facts.filter((f) => f.fact_type === "margin_sensitivity");
+  const interestRateFacts = facts.filter((f) => f.fact_type === "interest_rate_sensitivity");
+
+  const allSensitivityFacts = [...revenueSensitivityFacts, ...marginSensitivityFacts, ...interestRateFacts];
+
+  if (allSensitivityFacts.length === 0) {
+    return null;
+  }
+
+  const factors: string[] = [];
+  let riskScore = 0; // 0 = resilient, 1 = moderate, 2 = vulnerable
+
+  // Analyze interest rate environment
+  for (const fact of interestRateFacts) {
+    const value = fact.value as NumericValue;
+    if (value.value !== undefined) {
+      if (value.value > 5) {
+        riskScore += 1;
+        factors.push(`elevated interest rate environment (${value.value}%)`);
+      } else if (value.value < 2) {
+        factors.push(`favorable interest rate environment (${value.value}%)`);
+      }
+    }
+    // Check for rate trend
+    const textValue = fact.value as { text?: string };
+    if (textValue.text?.includes("+")) {
+      riskScore += 1;
+      factors.push("rising rate trend");
+    }
+  }
+
+  // Analyze GDP/revenue sensitivity
+  for (const fact of revenueSensitivityFacts) {
+    const value = fact.value as NumericValue;
+    if (value.value !== undefined && value.unit?.includes("GDP")) {
+      if (value.value < 0) {
+        riskScore += 2;
+        factors.push(`GDP contraction (${value.value}%)`);
+      } else if (value.value < 2) {
+        riskScore += 1;
+        factors.push(`slow GDP growth (${value.value}%)`);
+      } else {
+        factors.push(`healthy GDP growth (${value.value}%)`);
+      }
+    }
+  }
+
+  // Analyze unemployment/margin sensitivity
+  for (const fact of marginSensitivityFacts) {
+    const value = fact.value as NumericValue;
+    if (value.value !== undefined && value.unit?.includes("unemployment")) {
+      if (value.value > 6) {
+        riskScore += 1;
+        factors.push(`elevated unemployment (${value.value}%)`);
+      } else if (value.value < 4) {
+        factors.push(`tight labor market (${value.value}%)`);
+      }
+    }
+  }
+
+  let resilience: "high" | "moderate" | "low";
+  if (riskScore >= 3) {
+    resilience = "low";
+  } else if (riskScore >= 1) {
+    resilience = "moderate";
+  } else {
+    resilience = "high";
+  }
+
+  const inputFactIds = allSensitivityFacts.slice(0, 8).map((f) => f.id);
+
+  return {
+    inference_type: "stress_resilience",
+    conclusion: `${resilience.toUpperCase()} stress resilience: ${factors.join("; ") || "limited economic indicators available"}.`,
+    input_fact_ids: inputFactIds,
+    confidence: factors.length >= 2 ? 0.75 : 0.6,
+    reasoning: `Stress resilience assessed across ${allSensitivityFacts.length} economic indicators.`,
+  };
+}
+
+/**
+ * Derive downside risk from sensitivity analysis.
+ */
+function deriveDownsideRisk(facts: ResearchFact[]): DerivedInference | null {
+  const dscrFacts = facts.filter((f) => f.fact_type === "dscr_baseline");
+  const breakevenFacts = facts.filter((f) => f.fact_type === "breakeven_threshold");
+  const revenueSensitivityFacts = facts.filter((f) => f.fact_type === "revenue_sensitivity");
+
+  const allDownsideFacts = [...dscrFacts, ...breakevenFacts, ...revenueSensitivityFacts];
+
+  if (allDownsideFacts.length === 0) {
+    return null;
+  }
+
+  const riskFactors: string[] = [];
+
+  // DSCR cushion analysis
+  for (const fact of dscrFacts) {
+    const value = fact.value as NumericValue;
+    if (value.value !== undefined) {
+      if (value.value < 1.15) {
+        riskFactors.push(`thin DSCR cushion (${value.value}x)`);
+      } else if (value.value > 1.5) {
+        riskFactors.push(`strong DSCR cushion (${value.value}x)`);
+      }
+    }
+  }
+
+  // Breakeven analysis
+  for (const fact of breakevenFacts) {
+    const value = fact.value as NumericValue;
+    if (value.value !== undefined) {
+      if (value.value > 80) {
+        riskFactors.push(`high breakeven occupancy/utilization (${value.value}%)`);
+      } else if (value.value < 60) {
+        riskFactors.push(`comfortable breakeven threshold (${value.value}%)`);
+      }
+    }
+  }
+
+  if (riskFactors.length === 0) {
+    riskFactors.push("economic sensitivity indicators suggest moderate exposure");
+  }
+
+  const inputFactIds = allDownsideFacts.slice(0, 5).map((f) => f.id);
+
+  return {
+    inference_type: "downside_risk",
+    conclusion: `Downside risk factors: ${riskFactors.join("; ")}.`,
+    input_fact_ids: inputFactIds,
+    confidence: 0.7,
+    reasoning: `Downside risk derived from ${allDownsideFacts.length} sensitivity factors.`,
+  };
+}
+
+/**
+ * Derive breakeven cushion from financial facts.
+ */
+function deriveBreakevenCushion(facts: ResearchFact[]): DerivedInference | null {
+  const breakevenFacts = facts.filter((f) => f.fact_type === "breakeven_threshold");
+  const marginFacts = facts.filter((f) => f.fact_type === "margin_sensitivity");
+
+  if (breakevenFacts.length === 0) {
+    return null;
+  }
+
+  const inputFactIds = [...breakevenFacts, ...marginFacts].slice(0, 5).map((f) => f.id);
+
+  let cushionLevel: "adequate" | "thin" | "comfortable";
+  const reasons: string[] = [];
+
+  for (const fact of breakevenFacts) {
+    const value = fact.value as NumericValue;
+    if (value.value !== undefined) {
+      if (value.value > 85) {
+        cushionLevel = "thin";
+        reasons.push(`breakeven at ${value.value}% capacity`);
+      } else if (value.value < 65) {
+        cushionLevel = "comfortable";
+        reasons.push(`breakeven at ${value.value}% capacity`);
+      } else {
+        cushionLevel = "adequate";
+        reasons.push(`breakeven at ${value.value}% capacity`);
+      }
+    }
+  }
+
+  if (!cushionLevel!) {
+    cushionLevel = "adequate";
+    reasons.push("standard operating assumptions");
+  }
+
+  return {
+    inference_type: "breakeven_cushion",
+    conclusion: `${cushionLevel.toUpperCase()} breakeven cushion: ${reasons.join("; ")}.`,
+    input_fact_ids: inputFactIds,
+    confidence: 0.7,
+    reasoning: "Breakeven analysis based on sensitivity thresholds.",
+  };
+}
+
+// ============================================================================
+// Institutional Learning Inferences (Phase 8)
+// ============================================================================
+
+/**
+ * Derive historical performance patterns from accumulated facts.
+ * This inference type is used for institutional learning - patterns from past deals.
+ */
+function deriveHistoricalPerformancePattern(facts: ResearchFact[]): DerivedInference | null {
+  // This inference aggregates patterns across multiple data points
+  // In a full implementation, this would compare against historical deal outcomes
+  const employmentFacts = facts.filter((f) => f.fact_type === "employment_count");
+  const marketSizeFacts = facts.filter((f) => f.fact_type === "market_size");
+  const regulatoryFacts = facts.filter((f) => f.fact_type === "regulatory_burden_level");
+
+  // Need substantial facts for pattern recognition
+  if (employmentFacts.length + marketSizeFacts.length + regulatoryFacts.length < 3) {
+    return null;
+  }
+
+  const patterns: string[] = [];
+
+  // Industry size pattern
+  if (employmentFacts.length > 0 && marketSizeFacts.length > 0) {
+    patterns.push("industry profile established");
+  }
+
+  // Regulatory pattern
+  if (regulatoryFacts.length > 0) {
+    const highReg = regulatoryFacts.some((f) =>
+      ((f.value as { text?: string }).text ?? "").toLowerCase() === "high"
+    );
+    if (highReg) {
+      patterns.push("high regulatory environment typical for this sector");
+    }
+  }
+
+  if (patterns.length === 0) {
+    return null;
+  }
+
+  const inputFactIds = [...employmentFacts, ...marketSizeFacts, ...regulatoryFacts].slice(0, 6).map((f) => f.id);
+
+  return {
+    inference_type: "historical_performance_pattern",
+    conclusion: `Institutional pattern: ${patterns.join("; ")}.`,
+    input_fact_ids: inputFactIds,
+    confidence: 0.65,
+    reasoning: "Pattern derived from accumulated research data for institutional learning.",
+  };
+}
+
 /**
  * Main inference derivation function.
  * Takes all facts from a mission and derives inferences.
@@ -1034,6 +1447,44 @@ export function deriveInferences(facts: ResearchFact[]): InferenceDerivationResu
   const adverseEventRisk = deriveAdverseEventRisk(facts);
   if (adverseEventRisk) {
     inferences.push(adverseEventRisk);
+  }
+
+  // 10. Lender fit inferences (Phase 6)
+  const lenderFit = deriveLenderProgramFit(facts);
+  if (lenderFit) {
+    inferences.push(lenderFit);
+  }
+
+  const collateralAdequacy = deriveCollateralAdequacy(facts);
+  if (collateralAdequacy) {
+    inferences.push(collateralAdequacy);
+  }
+
+  const eligibilityAssessment = deriveEligibilityAssessment(facts);
+  if (eligibilityAssessment) {
+    inferences.push(eligibilityAssessment);
+  }
+
+  // 11. Scenario stress inferences (Phase 7)
+  const stressResilience = deriveStressResilience(facts);
+  if (stressResilience) {
+    inferences.push(stressResilience);
+  }
+
+  const downsideRisk = deriveDownsideRisk(facts);
+  if (downsideRisk) {
+    inferences.push(downsideRisk);
+  }
+
+  const breakevenCushion = deriveBreakevenCushion(facts);
+  if (breakevenCushion) {
+    inferences.push(breakevenCushion);
+  }
+
+  // 12. Institutional learning inferences (Phase 8)
+  const historicalPattern = deriveHistoricalPerformancePattern(facts);
+  if (historicalPattern) {
+    inferences.push(historicalPattern);
   }
 
   return { inferences };
