@@ -204,7 +204,7 @@ async function gatherDealContext(dealId: string, bankId: string) {
 
   const checklistStats = {
     total: checklistItems?.length ?? 0,
-    satisfied: checklistItems?.filter((i) => i.status === "satisfied").length ?? 0,
+    satisfied: checklistItems?.filter((i) => i.status === "satisfied" || i.status === "received").length ?? 0,
     missing: checklistItems?.filter((i) => i.status === "missing").length ?? 0,
     required_missing: checklistItems?.filter((i) => i.status === "missing" && i.required).length ?? 0,
   };

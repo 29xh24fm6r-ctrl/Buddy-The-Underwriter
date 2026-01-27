@@ -85,7 +85,7 @@ export async function generateLenderPackage(dealId: string): Promise<LenderPacka
     .eq("deal_id", dealId);
 
   const total = checklistItems?.length || 0;
-  const satisfied = checklistItems?.filter((i) => i.status === "satisfied").length || 0;
+  const satisfied = checklistItems?.filter((i) => i.status === "satisfied" || i.status === "received").length || 0;
   const pending = total - satisfied;
 
   // Fetch credit memo (if exists)

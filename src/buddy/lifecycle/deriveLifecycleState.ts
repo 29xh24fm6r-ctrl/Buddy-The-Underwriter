@@ -136,8 +136,8 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   const requiredItems = checklist.filter((item) => item.required);
-  const satisfiedItems = requiredItems.filter((item) => item.status === "satisfied");
-  const missingItems = requiredItems.filter((item) => item.status !== "satisfied");
+  const satisfiedItems = requiredItems.filter((item) => item.status === "satisfied" || item.status === "received");
+  const missingItems = requiredItems.filter((item) => item.status !== "satisfied" && item.status !== "received");
 
   // 3. Compute deal readiness using existing function
   let borrowerChecklistSatisfied = false;

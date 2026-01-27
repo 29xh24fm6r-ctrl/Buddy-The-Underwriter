@@ -65,7 +65,7 @@ export async function computeDealReadiness(
 
   const requiredItems = checklist.filter((item) => item.required);
   const satisfiedRequired = requiredItems.filter(
-    (item) => item.status === "satisfied"
+    (item) => item.status === "satisfied" || item.status === "received"
   );
   const missingRequired = requiredItems.length - satisfiedRequired.length;
 

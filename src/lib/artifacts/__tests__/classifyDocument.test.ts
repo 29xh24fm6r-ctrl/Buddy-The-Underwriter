@@ -4,6 +4,7 @@ import { mapDocTypeToChecklistKeys } from "../classifyDocument";
 
 test("mapDocTypeToChecklistKeys returns correct keys for IRS_BUSINESS", () => {
   const keys = mapDocTypeToChecklistKeys("IRS_BUSINESS", 2023);
+  assert.ok(keys.includes("IRS_BUSINESS_3Y"));
   assert.ok(keys.includes("IRS_BUSINESS_2Y"));
   assert.ok(keys.includes("BTR"));
   assert.ok(keys.includes("TAX_RETURNS"));
@@ -11,6 +12,7 @@ test("mapDocTypeToChecklistKeys returns correct keys for IRS_BUSINESS", () => {
 
 test("mapDocTypeToChecklistKeys returns correct keys for IRS_PERSONAL", () => {
   const keys = mapDocTypeToChecklistKeys("IRS_PERSONAL", 2023);
+  assert.ok(keys.includes("IRS_PERSONAL_3Y"));
   assert.ok(keys.includes("IRS_PERSONAL_2Y"));
   assert.ok(keys.includes("PTR"));
   assert.ok(keys.includes("TAX_RETURNS"));
@@ -18,6 +20,7 @@ test("mapDocTypeToChecklistKeys returns correct keys for IRS_PERSONAL", () => {
 
 test("mapDocTypeToChecklistKeys returns correct keys for PFS", () => {
   const keys = mapDocTypeToChecklistKeys("PFS", null);
+  assert.ok(keys.includes("PFS_CURRENT"));
   assert.ok(keys.includes("PFS"));
   assert.ok(keys.includes("PERSONAL_FINANCIAL_STATEMENT"));
 });

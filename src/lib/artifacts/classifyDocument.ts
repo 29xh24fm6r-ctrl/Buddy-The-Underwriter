@@ -201,13 +201,13 @@ export function mapDocTypeToChecklistKeys(
 
   switch (docType) {
     case "IRS_BUSINESS":
-      keys.push("IRS_BUSINESS_2Y", "BTR", "BTR_2Y", "TAX_RETURNS");
+      keys.push("IRS_BUSINESS_3Y", "IRS_BUSINESS_2Y", "BTR", "BTR_2Y", "TAX_RETURNS");
       break;
     case "IRS_PERSONAL":
-      keys.push("IRS_PERSONAL_2Y", "PTR", "PTR_2Y", "TAX_RETURNS");
+      keys.push("IRS_PERSONAL_3Y", "IRS_PERSONAL_2Y", "PTR", "PTR_2Y", "TAX_RETURNS");
       break;
     case "PFS":
-      keys.push("PFS", "PERSONAL_FINANCIAL_STATEMENT");
+      keys.push("PFS_CURRENT", "PFS", "PERSONAL_FINANCIAL_STATEMENT");
       break;
     case "RENT_ROLL":
       keys.push("RENT_ROLL", "CURRENT_RENT_ROLL");

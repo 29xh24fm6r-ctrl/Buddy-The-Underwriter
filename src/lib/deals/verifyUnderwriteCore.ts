@@ -258,15 +258,18 @@ export async function verifyUnderwriteCore(
 
   const { data: checklistRows } = await sb
     .from("deal_checklist_items")
-    .select("checklist_key, required, received_at")
+    .select("checklist_key, required, received_at, status")
     .eq("deal_id", dealId)
     .eq("required", true);
 
   const requiredItems = (checklistRows ?? []) as Array<{
     checklist_key: string | null;
     received_at: string | null;
+    status: string | null;
   }>;
-  const missingRequired = requiredItems.filter((item) => !item.received_at);
+  const missingRequired = requiredItems.filter(
+    (item) => !item.received_at && item.status !== "received" && item.status !== "satisfied"
+  );
 
   if (requiredItems.length === 0 || missingRequired.length > 0) {
     const missingChecklistKeys = missingRequired.map((item) =>
