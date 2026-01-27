@@ -29,6 +29,7 @@ import type { ResearchFact, MissionExecutionResult } from "../types";
 import { extractEntitySignals, hasMinimumSignals } from "./extractEntitySignals";
 import { deriveResearchIntent } from "./deriveResearchIntent";
 import { runMission } from "../runMission";
+import { checkMissionGovernance } from "../governance/useCaseRegistry";
 
 // ============================================================================
 // Data Gathering
@@ -260,6 +261,24 @@ async function executeApprovedMissions(
 
     // Only execute pending/approved missions
     if (mission.status !== "pending" && mission.status !== "approved") {
+      continue;
+    }
+
+    // ── Governance enforcement ──────────────────────────────
+    // Check AI Use Case Registry before execution
+    const governance = await checkMissionGovernance(mission.mission_type);
+    if (!governance.allowed) {
+      console.warn(
+        `[executeApprovedMissions] Blocked by governance: ${governance.reason}`
+      );
+      await updatePlanMissionStatus(planId, i, "rejected");
+      continue;
+    }
+    if (governance.requires_approval && mission.status !== "approved") {
+      console.info(
+        `[executeApprovedMissions] Requires approval: ${governance.reason}`
+      );
+      // Leave as pending — banker must approve before execution
       continue;
     }
 
