@@ -6,10 +6,10 @@
  */
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 
-export default function ExaminerBorrowerPage() {
+function ExaminerBorrowerPageContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const dealId = (params?.dealId as string) ?? "";
@@ -125,5 +125,13 @@ export default function ExaminerBorrowerPage() {
         ← Back to deal
       </a>
     </div>
+  );
+}
+
+export default function ExaminerBorrowerPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-gray-500 py-12 text-center">Loading...</div>}>
+      <ExaminerBorrowerPageContent />
+    </Suspense>
   );
 }

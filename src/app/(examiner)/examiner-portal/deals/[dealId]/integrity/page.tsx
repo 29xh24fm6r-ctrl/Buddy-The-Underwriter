@@ -7,7 +7,7 @@
  */
 "use client";
 
-import React, { useState } from "react";
+import React, { Suspense, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 
 type VerificationResult = {
@@ -21,7 +21,7 @@ type VerificationResult = {
   details: string;
 };
 
-export default function ExaminerIntegrityPage() {
+function ExaminerIntegrityPageContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const dealId = (params?.dealId as string) ?? "";
@@ -141,5 +141,13 @@ export default function ExaminerIntegrityPage() {
         ← Back to deal
       </a>
     </div>
+  );
+}
+
+export default function ExaminerIntegrityPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-gray-500 py-12 text-center">Loading...</div>}>
+      <ExaminerIntegrityPageContent />
+    </Suspense>
   );
 }

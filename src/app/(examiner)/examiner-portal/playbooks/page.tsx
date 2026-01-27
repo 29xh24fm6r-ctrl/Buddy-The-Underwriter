@@ -7,7 +7,7 @@
  */
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 type Playbook = {
@@ -24,7 +24,7 @@ type PlaybooksBundle = {
   playbooks: Playbook[];
 };
 
-export default function ExaminerPlaybooksPage() {
+function ExaminerPlaybooksPageContent() {
   const searchParams = useSearchParams();
   const grantId = searchParams?.get("grant_id") ?? "";
 
@@ -162,5 +162,13 @@ export default function ExaminerPlaybooksPage() {
         </a>
       )}
     </div>
+  );
+}
+
+export default function ExaminerPlaybooksPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-gray-500 py-12 text-center">Loading...</div>}>
+      <ExaminerPlaybooksPageContent />
+    </Suspense>
   );
 }

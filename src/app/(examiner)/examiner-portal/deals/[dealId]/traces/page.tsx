@@ -6,7 +6,7 @@
  */
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 
 type SignalEntry = {
@@ -17,7 +17,7 @@ type SignalEntry = {
   payload: Record<string, unknown>;
 };
 
-export default function ExaminerTracesPage() {
+function ExaminerTracesPageContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const dealId = (params?.dealId as string) ?? "";
@@ -123,5 +123,13 @@ export default function ExaminerTracesPage() {
         ← Back to deal
       </a>
     </div>
+  );
+}
+
+export default function ExaminerTracesPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-gray-500 py-12 text-center">Loading...</div>}>
+      <ExaminerTracesPageContent />
+    </Suspense>
   );
 }
