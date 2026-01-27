@@ -1,18 +1,37 @@
 import "server-only";
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import {
+  respond200,
+  createHeaders,
+  generateCorrelationId,
+  createTimestamp,
+  sanitizeError,
+  validateUuidParam,
+} from "@/lib/api/respond";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const ROUTE = "/api/deals/[dealId]/borrower/create";
+
 export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
+  const correlationId = generateCorrelationId("bcrt");
+  const ts = createTimestamp();
+  const headers = createHeaders(correlationId, ROUTE);
+
   try {
     await requireRole(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
+
+    const uuidCheck = validateUuidParam(dealId, "dealId");
+    if (!uuidCheck.ok) {
+      return respond200({ ok: false, error: { code: "invalid_deal_id", message: uuidCheck.error }, meta: { dealId: String(dealId), correlationId, ts } }, headers);
+    }
 
     const body = await req.json().catch(() => ({}));
     const legalName = String(body?.legal_name ?? "").trim();
@@ -22,21 +41,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     const ein = String(body?.ein ?? "").trim();
 
     if (!legalName) {
-      return NextResponse.json({ ok: false, error: "legal_name_required" }, { status: 400 });
+      return respond200({ ok: false, error: { code: "legal_name_required", message: "Legal name is required" }, meta: { dealId, correlationId, ts } }, headers);
     }
     if (!entityType) {
-      return NextResponse.json({ ok: false, error: "entity_type_required" }, { status: 400 });
+      return respond200({ ok: false, error: { code: "entity_type_required", message: "Entity type is required" }, meta: { dealId, correlationId, ts } }, headers);
     }
     if (!primaryContactName || !primaryContactEmail) {
-      return NextResponse.json({ ok: false, error: "primary_contact_required" }, { status: 400 });
+      return respond200({ ok: false, error: { code: "primary_contact_required", message: "Primary contact name and email are required" }, meta: { dealId, correlationId, ts } }, headers);
     }
 
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok) {
-      return NextResponse.json(
-        { ok: false, error: access.error },
-        { status: access.error === "deal_not_found" ? 404 : 403 },
-      );
+      return respond200({ ok: false, error: { code: access.error, message: `Access denied: ${access.error}` }, meta: { dealId, correlationId, ts } }, headers);
     }
 
     const sb = supabaseAdmin();
@@ -55,10 +71,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
       .single();
 
     if (createError || !borrower) {
-      return NextResponse.json(
-        { ok: false, error: createError?.message ?? "create_failed" },
-        { status: 500 },
-      );
+      return respond200({ ok: false, error: { code: "create_failed", message: createError?.message ?? "Failed to create borrower" }, meta: { dealId, correlationId, ts } }, headers);
     }
 
     const { error: attachError } = await sb
@@ -68,10 +81,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
       .eq("bank_id", access.bankId);
 
     if (attachError) {
-      return NextResponse.json(
-        { ok: false, error: attachError.message },
-        { status: 500 },
-      );
+      return respond200({ ok: false, error: { code: "attach_failed", message: attachError.message }, meta: { dealId, correlationId, ts } }, headers);
     }
 
     await logLedgerEvent({
@@ -84,12 +94,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
         deal_id: dealId,
         borrower_id: borrower.id,
         created: true,
+        correlationId,
       },
     });
 
-    return NextResponse.json({ ok: true, borrowerId: borrower.id });
-  } catch (error: any) {
-    console.error("[/api/deals/[dealId]/borrower/create]", error);
-    return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
+    return respond200({ ok: true, borrowerId: borrower.id, meta: { dealId, correlationId, ts } }, headers);
+  } catch (error: unknown) {
+    const safe = sanitizeError(error, "borrower_create_failed");
+    return respond200({ ok: false, error: safe, meta: { dealId: "unknown", correlationId, ts } }, headers);
   }
 }

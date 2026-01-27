@@ -8,8 +8,15 @@ export type BorrowerExtraction = {
   legalName: string | null;
   entityType: string | null;
   einMasked: string | null;
-  address: string | null;
+  address: string | { line1?: string; city?: string; state?: string; zip?: string } | null;
   stateOfFormation: string | null;
+  naicsCode: string | null;
+  naicsDescription: string | null;
+  owners: Array<{
+    name: string;
+    title: string | null;
+    ownership_pct: number | null;
+  }> | null;
   sourceDocId: string | null;
   confidence: number;
 };
@@ -50,6 +57,36 @@ function normalizeEntityType(value: string | null | undefined): string | null {
   if (lower.includes("sole") || lower.includes("propriet")) return "Sole Prop";
   if (lower.includes("individual") || lower.includes("person")) return "Individual";
   return v;
+}
+
+/**
+ * Validate a NAICS code: must be 2-6 digits.
+ */
+export function validateNaicsCode(code: string | null | undefined): string | null {
+  if (!code) return null;
+  const digits = String(code).replace(/\D/g, "");
+  if (digits.length < 2 || digits.length > 6) return null;
+  return digits;
+}
+
+/**
+ * Normalize an owners array from AI extraction to consistent shape.
+ */
+function normalizeOwners(raw: unknown): Array<{ name: string; title: string | null; ownership_pct: number | null }> {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((o: any) => {
+      const name = String(o?.name ?? o?.fullName ?? o?.full_name ?? "").trim();
+      if (!name) return null;
+      const pctRaw = o?.ownership_pct ?? o?.ownershipPercent ?? o?.ownership_percent ?? o?.pct ?? null;
+      const pct = pctRaw !== null && pctRaw !== undefined ? Number(pctRaw) : null;
+      return {
+        name,
+        title: o?.title ? String(o.title).trim() : null,
+        ownership_pct: pct !== null && !isNaN(pct) && pct > 0 && pct <= 100 ? pct : null,
+      };
+    })
+    .filter(Boolean) as Array<{ name: string; title: string | null; ownership_pct: number | null }>;
 }
 
 export async function extractBorrowerFromDocs(args: {
@@ -101,8 +138,11 @@ export async function extractBorrowerFromDocs(args: {
     "legalName": null,
     "entityType": null,
     "ein": null,
-    "address": null,
+    "naicsCode": null,
+    "naicsDescription": null,
+    "address": { "line1": null, "city": null, "state": null, "zip": null },
     "stateOfFormation": null,
+    "owners": [{ "name": null, "title": null, "ownership_pct": null }],
     "sourceDocId": null,
     "confidence": 70
   }`;
@@ -111,8 +151,12 @@ export async function extractBorrowerFromDocs(args: {
     scope: "intake",
     action: "extract_borrower",
     system:
-      "You extract borrower identity from OCR text. Return JSON only. " +
-      "Use null when unknown. Prefer legal name as it appears on tax forms.",
+      "You extract borrower identity from OCR text of tax returns and business documents. " +
+      "Return JSON only. Use null when unknown. Prefer legal name as it appears on tax forms. " +
+      "For NAICS: look for Business Activity Code on 1120/1120S line B, or on 1065. " +
+      "For owners: extract from K-1 schedules, officer lists, or ownership sections. " +
+      "Include ownership_pct as a number 0-100. " +
+      "For address: extract the principal business address from the return.",
     user: JSON.stringify({ dealId: args.dealId, docs: samples }, null, 2),
     jsonSchemaHint: schemaHint,
   });
@@ -123,7 +167,25 @@ export async function extractBorrowerFromDocs(args: {
   const inferredEntity = normalizeEntityType(aiResult?.entityType) ?? inferEntityTypeFromText(bestText);
   const legalName = aiResult?.legalName ? String(aiResult.legalName).trim() : null;
   const einMasked = maskEin(aiResult?.ein);
-  const address = aiResult?.address ? String(aiResult.address).trim() : null;
+  const naicsCode = validateNaicsCode(aiResult?.naicsCode);
+  const naicsDescription = aiResult?.naicsDescription ? String(aiResult.naicsDescription).trim() : null;
+  const owners = normalizeOwners(aiResult?.owners);
+
+  // Normalize address: support both object and string forms
+  let address: BorrowerExtraction["address"] = null;
+  if (aiResult?.address) {
+    if (typeof aiResult.address === "object" && aiResult.address !== null) {
+      address = {
+        line1: aiResult.address.line1 ? String(aiResult.address.line1).trim() : undefined,
+        city: aiResult.address.city ? String(aiResult.address.city).trim() : undefined,
+        state: aiResult.address.state ? String(aiResult.address.state).trim() : undefined,
+        zip: aiResult.address.zip ? String(aiResult.address.zip).trim() : undefined,
+      };
+    } else {
+      address = String(aiResult.address).trim();
+    }
+  }
+
   const stateOfFormation = aiResult?.stateOfFormation
     ? String(aiResult.stateOfFormation).trim()
     : null;
@@ -134,6 +196,9 @@ export async function extractBorrowerFromDocs(args: {
     einMasked,
     address,
     stateOfFormation,
+    naicsCode,
+    naicsDescription,
+    owners: owners.length > 0 ? owners : null,
     sourceDocId: aiResult?.sourceDocId ? String(aiResult.sourceDocId) : samples[0]?.docId ?? null,
     confidence: ai.ok ? Number(aiResult?.confidence ?? ai.confidence ?? 65) : 0,
   };
