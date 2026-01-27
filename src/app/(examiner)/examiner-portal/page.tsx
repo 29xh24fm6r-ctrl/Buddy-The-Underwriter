@@ -96,7 +96,7 @@ export default function ExaminerPortalPage() {
             {grant.scope.deal_ids.map((dealId) => (
               <a
                 key={dealId}
-                href={`/examiner/deals/${dealId}?grant_id=${grantId}`}
+                href={`/examiner-portal/deals/${dealId}?grant_id=${grantId}`}
                 className="block text-xs text-blue-600 hover:text-blue-800 font-mono bg-gray-50 rounded px-3 py-2"
               >
                 {dealId}
@@ -110,7 +110,7 @@ export default function ExaminerPortalPage() {
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <div className="text-xs text-gray-500 mb-2">Reference</div>
         <a
-          href={`/examiner/playbooks?grant_id=${grantId}`}
+          href={`/examiner-portal/playbooks?grant_id=${grantId}`}
           className="text-xs text-blue-600 hover:text-blue-800"
         >
           View Examiner Playbooks

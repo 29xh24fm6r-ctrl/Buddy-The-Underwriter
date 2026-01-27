@@ -155,7 +155,7 @@ export default function ExaminerPlaybooksPage() {
 
       {grantId && (
         <a
-          href={`/examiner?grant_id=${encodeURIComponent(grantId)}`}
+          href={`/examiner-portal?grant_id=${encodeURIComponent(grantId)}`}
           className="text-xs text-blue-600 hover:text-blue-800 inline-block"
         >
           ← Back to portal

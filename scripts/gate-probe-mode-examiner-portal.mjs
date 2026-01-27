@@ -225,27 +225,27 @@ try {
 console.log("\n4) Examiner Portal Pages");
 
 const portalPages = [
-  "src/app/(examiner)/examiner/layout.tsx",
-  "src/app/(examiner)/examiner/page.tsx",
-  "src/app/(examiner)/examiner/deals/[dealId]/page.tsx",
-  "src/app/(examiner)/examiner/deals/[dealId]/borrower/page.tsx",
-  "src/app/(examiner)/examiner/deals/[dealId]/decision/page.tsx",
-  "src/app/(examiner)/examiner/deals/[dealId]/integrity/page.tsx",
-  "src/app/(examiner)/examiner/deals/[dealId]/traces/page.tsx",
-  "src/app/(examiner)/examiner/playbooks/page.tsx",
+  "src/app/(examiner)/examiner-portal/layout.tsx",
+  "src/app/(examiner)/examiner-portal/page.tsx",
+  "src/app/(examiner)/examiner-portal/deals/[dealId]/page.tsx",
+  "src/app/(examiner)/examiner-portal/deals/[dealId]/borrower/page.tsx",
+  "src/app/(examiner)/examiner-portal/deals/[dealId]/decision/page.tsx",
+  "src/app/(examiner)/examiner-portal/deals/[dealId]/integrity/page.tsx",
+  "src/app/(examiner)/examiner-portal/deals/[dealId]/traces/page.tsx",
+  "src/app/(examiner)/examiner-portal/playbooks/page.tsx",
 ];
 
 for (const page of portalPages) {
   if (fileExists(page)) {
-    ok(`${page.replace("src/app/(examiner)/examiner/", "")} exists`);
+    ok(`${page.replace("src/app/(examiner)/examiner-portal/", "")} exists`);
   } else {
-    notOk(`${page.replace("src/app/(examiner)/examiner/", "")} does not exist`);
+    notOk(`${page.replace("src/app/(examiner)/examiner-portal/", "")} does not exist`);
   }
 }
 
 // Layout checks
 try {
-  const src = readFile("src/app/(examiner)/examiner/layout.tsx");
+  const src = readFile("src/app/(examiner)/examiner-portal/layout.tsx");
   if (src.includes("use client")) {
     ok("Examiner layout is client component");
   } else {
@@ -262,7 +262,7 @@ try {
 
 // Portal landing page checks
 try {
-  const src = readFile("src/app/(examiner)/examiner/page.tsx");
+  const src = readFile("src/app/(examiner)/examiner-portal/page.tsx");
   if (src.includes("grant_id")) {
     ok("Portal landing requires grant_id");
   } else {
@@ -274,7 +274,7 @@ try {
 
 // Integrity page checks
 try {
-  const src = readFile("src/app/(examiner)/examiner/deals/[dealId]/integrity/page.tsx");
+  const src = readFile("src/app/(examiner)/examiner-portal/deals/[dealId]/integrity/page.tsx");
   if (src.includes("verify")) {
     ok("Integrity page has verification functionality");
   } else {

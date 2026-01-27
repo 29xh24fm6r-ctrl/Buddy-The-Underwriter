@@ -117,7 +117,7 @@ export default function ExaminerTracesPage() {
       )}
 
       <a
-        href={`/examiner/deals/${dealId}?grant_id=${encodeURIComponent(grantId)}`}
+        href={`/examiner-portal/deals/${dealId}?grant_id=${encodeURIComponent(grantId)}`}
         className="text-xs text-blue-600 hover:text-blue-800 inline-block"
       >
         ← Back to deal

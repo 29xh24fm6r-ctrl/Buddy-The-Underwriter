@@ -86,10 +86,10 @@ export default function ExaminerDealPage() {
   const qs = `grant_id=${encodeURIComponent(grantId)}`;
 
   const subPages = [
-    { label: "Borrower", href: `/examiner/deals/${dealId}/borrower?${qs}` },
-    { label: "Decision", href: `/examiner/deals/${dealId}/decision?${qs}` },
-    { label: "Integrity", href: `/examiner/deals/${dealId}/integrity?${qs}` },
-    { label: "Traces", href: `/examiner/deals/${dealId}/traces?${qs}` },
+    { label: "Borrower", href: `/examiner-portal/deals/${dealId}/borrower?${qs}` },
+    { label: "Decision", href: `/examiner-portal/deals/${dealId}/decision?${qs}` },
+    { label: "Integrity", href: `/examiner-portal/deals/${dealId}/integrity?${qs}` },
+    { label: "Traces", href: `/examiner-portal/deals/${dealId}/traces?${qs}` },
   ];
 
   return (
@@ -163,7 +163,7 @@ export default function ExaminerDealPage() {
       {/* Back Link */}
       <div>
         <a
-          href={`/examiner?grant_id=${encodeURIComponent(grantId)}`}
+          href={`/examiner-portal?grant_id=${encodeURIComponent(grantId)}`}
           className="text-xs text-blue-600 hover:text-blue-800"
         >
           ← Back to portal
