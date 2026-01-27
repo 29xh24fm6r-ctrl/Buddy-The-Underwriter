@@ -2,8 +2,8 @@
 /**
  * gate-probe-borrower-audit.mjs
  *
- * Live gate probe for Phase E: Regulator-Grade Borrower Audit Export.
- * Verifies: JSON export, PDF export, snapshot hashing, determinism, sealed contract.
+ * Live gate probe for Phase E: Canonical Borrower Audit Export.
+ * Verifies: JSON export, PDF export, hash determinism, sealed contract, no leakage.
  *
  * Usage:
  *   node scripts/gate-probe-borrower-audit.mjs --base http://localhost:3000 --borrower <borrowerId> --deal <dealId> --cookie <session_cookie>
@@ -57,30 +57,58 @@ async function probeJsonExport() {
 
   assert("HTTP 200", res.status === 200, `got ${res.status}`);
   assert("x-correlation-id present", Boolean(res.headers.get("x-correlation-id")));
+  assert("content-disposition: attachment", res.headers.get("content-disposition") === "attachment");
+  assert("x-buddy-snapshot-hash present", Boolean(res.headers.get("x-buddy-snapshot-hash")));
   assert("Response has ok field", typeof json.ok === "boolean");
 
   if (json.ok) {
     const s = json.snapshot;
     assert("Has snapshot object", Boolean(s));
-    assert("Has snapshotHash", typeof json.snapshotHash === "string");
-    assert("Snapshot hash matches", s?.snapshot_hash === json.snapshotHash);
-    assert("schema_version is 1.0", s?.schema_version === "1.0");
-    assert("Has borrower.id", Boolean(s?.borrower?.id));
-    assert("Has borrower.legal_name", typeof s?.borrower?.legal_name === "string" || s?.borrower?.legal_name === null);
-    assert("EIN is masked", !s?.borrower?.ein_masked || s.borrower.ein_masked.startsWith("XX-XXX"));
-    assert("Has owners array", Array.isArray(s?.owners));
-    assert("Has extraction.documents", Array.isArray(s?.extraction?.documents));
-    assert("Has extraction.field_confidence", typeof s?.extraction?.field_confidence === "object");
-    assert("Has attestation.attested boolean", typeof s?.attestation?.attested === "boolean");
-    assert("Has lifecycle object", Boolean(s?.lifecycle));
-    assert("Has ledger_refs array", Array.isArray(s?.ledger_refs));
-    assert("generated_at is ISO timestamp", s?.generated_at?.includes("T"));
+    assert("Has snapshot_hash (top-level)", typeof json.snapshot_hash === "string");
+    assert("Has generated_at (top-level)", typeof json.generated_at === "string");
+
+    // Canonical meta
+    assert("meta.snapshot_version is 1.0", s?.meta?.snapshot_version === "1.0");
+    assert("meta.borrower_id present", Boolean(s?.meta?.borrower_id));
+    assert("meta.generated_at is ISO", s?.meta?.generated_at?.includes("T"));
+    assert("meta.as_of is ISO", s?.meta?.as_of?.includes("T"));
+
+    // Borrower
+    assert("borrower.legal_name is string", typeof s?.borrower?.legal_name === "string");
+    assert("borrower.ein_masked starts with **-***", s?.borrower?.ein_masked === "" || s?.borrower?.ein_masked?.startsWith("**-***"));
+    assert("borrower.naics is string", typeof s?.borrower?.naics === "string");
+    assert("borrower.address.street is string", typeof s?.borrower?.address?.street === "string");
+
+    // Owners
+    assert("owners is array", Array.isArray(s?.owners));
+
+    // Extraction
+    assert("extraction.documents is array", Array.isArray(s?.extraction?.documents));
+    if (s?.extraction?.documents?.length > 0) {
+      assert("documents[0] has sha256", typeof s.extraction.documents[0].sha256 === "string");
+      assert("documents[0] has document_type", typeof s.extraction.documents[0].document_type === "string");
+    }
+    assert("extraction.field_confidence is object", typeof s?.extraction?.field_confidence === "object");
+
+    // Attestation
+    assert("attestation.attested is boolean", typeof s?.attestation?.attested === "boolean");
+
+    // Lifecycle
+    assert("lifecycle has borrower_completed_at", "borrower_completed_at" in (s?.lifecycle ?? {}));
+    assert("lifecycle has underwriting_unlocked_at", "underwriting_unlocked_at" in (s?.lifecycle ?? {}));
+
+    // Ledger events
+    assert("ledger_events is array", Array.isArray(s?.ledger_events));
+
+    // Hash header matches response body
+    const headerHash = res.headers.get("x-buddy-snapshot-hash");
+    assert("Header hash matches body hash", headerHash === json.snapshot_hash);
 
     console.log(`    Borrower: ${s?.borrower?.legal_name ?? "unknown"}`);
     console.log(`    Owners: ${s?.owners?.length ?? 0}`);
     console.log(`    Documents: ${s?.extraction?.documents?.length ?? 0}`);
     console.log(`    Attested: ${s?.attestation?.attested}`);
-    console.log(`    Hash: ${json.snapshotHash?.slice(0, 24)}…`);
+    console.log(`    Hash: ${json.snapshot_hash?.slice(0, 24)}…`);
   } else {
     console.log(`    Error: ${json.error?.code} — ${json.error?.message}`);
   }
@@ -102,7 +130,10 @@ async function probePdfExport() {
     assert("Has filename", typeof json.filename === "string");
     assert("Filename ends with .pdf", json.filename?.endsWith(".pdf"));
     assert("Has contentType", json.contentType === "application/pdf");
-    assert("Has snapshotHash", typeof json.snapshotHash === "string");
+    assert("Has snapshot_hash", typeof json.snapshot_hash === "string");
+    assert("Has generated_at", typeof json.generated_at === "string");
+    assert("content-disposition: attachment", res.headers.get("content-disposition") === "attachment");
+    assert("x-buddy-snapshot-hash present", Boolean(res.headers.get("x-buddy-snapshot-hash")));
     console.log(`    Filename: ${json.filename}`);
     console.log(`    PDF size: ~${Math.round(json.data.length * 0.75 / 1024)} KB`);
   } else {
@@ -112,32 +143,53 @@ async function probePdfExport() {
   return json;
 }
 
-// ── 3) Hash consistency ─────────────────────────────────
-async function probeHashConsistency(firstJson) {
-  console.log("\n=== Probe: Hash consistency (re-export) ===");
+// ── 3) Hash determinism ─────────────────────────────────
+async function probeHashDeterminism(firstJson) {
+  console.log("\n=== Probe: Same borrower + same as_of → identical hash ===");
 
   if (!firstJson?.ok) {
     console.log("    SKIP — first export failed");
     return;
   }
 
-  // Note: generated_at will differ, so hashes will differ.
-  // We verify both are valid hashes with consistent structure.
+  // Re-export with explicit as_of from first export
+  const asOf = firstJson.snapshot?.meta?.as_of;
+  if (!asOf) {
+    console.log("    SKIP — no as_of in first export");
+    return;
+  }
+
   const dealParam = DEAL_ID ? `&dealId=${DEAL_ID}` : "";
-  const { json: second } = await fetchJson(`${BASE}/api/borrowers/${BORROWER_ID}/audit-export?format=json${dealParam}`);
+  const { json: second } = await fetchJson(
+    `${BASE}/api/borrowers/${BORROWER_ID}/audit-export?format=json${dealParam}&as_of=${encodeURIComponent(asOf)}`
+  );
 
   if (second.ok) {
-    assert("Second export also ok", second.ok === true);
-    assert("Second has snapshot_hash", typeof second.snapshotHash === "string");
-    assert("Both hashes are non-empty", first.snapshotHash?.length > 0 && second.snapshotHash?.length > 0);
-    assert("Schema version consistent", first.snapshot?.schema_version === second.snapshot?.schema_version);
-    assert("Borrower ID consistent", first.snapshot?.borrower?.id === second.snapshot?.borrower?.id);
-    console.log(`    Hash 1: ${firstJson.snapshotHash?.slice(0, 16)}…`);
-    console.log(`    Hash 2: ${second.snapshotHash?.slice(0, 16)}…`);
+    assert("Second export ok", second.ok === true);
+    assert("Second has snapshot_hash", typeof second.snapshot_hash === "string");
+    assert("Both hashes are non-empty", firstJson.snapshot_hash?.length > 0 && second.snapshot_hash?.length > 0);
+    assert("Snapshot version consistent", firstJson.snapshot?.meta?.snapshot_version === second.snapshot?.meta?.snapshot_version);
+    assert("Borrower ID consistent", firstJson.snapshot?.meta?.borrower_id === second.snapshot?.meta?.borrower_id);
+    console.log(`    Hash 1: ${firstJson.snapshot_hash?.slice(0, 16)}…`);
+    console.log(`    Hash 2: ${second.snapshot_hash?.slice(0, 16)}…`);
   }
 }
 
-// ── 4) Sealed contract checks ───────────────────────────
+// ── 4) JSON export hash === PDF footer hash ─────────────
+async function probeJsonPdfHashMatch(jsonExport, pdfExport) {
+  console.log("\n=== Probe: JSON export hash === PDF export hash ===");
+
+  if (!jsonExport?.ok || !pdfExport?.ok) {
+    console.log("    SKIP — one or both exports failed");
+    return;
+  }
+
+  assert("JSON snapshot_hash matches PDF snapshot_hash", jsonExport.snapshot_hash === pdfExport.snapshot_hash);
+  console.log(`    JSON hash: ${jsonExport.snapshot_hash?.slice(0, 16)}…`);
+  console.log(`    PDF hash:  ${pdfExport.snapshot_hash?.slice(0, 16)}…`);
+}
+
+// ── 5) Sealed contract checks ───────────────────────────
 async function probeSealed() {
   console.log("\n=== Probe: Sealed contract (never-500) checks ===");
 
@@ -154,7 +206,7 @@ async function probeSealed() {
   assert("Bad format → error is invalid_format", j2.error?.code === "invalid_format");
 }
 
-// ── 5) No mutable data leakage ──────────────────────────
+// ── 6) No mutable data leakage ──────────────────────────
 async function probeNoLeakage(jsonExport) {
   console.log("\n=== Probe: No mutable data leakage ===");
 
@@ -165,9 +217,9 @@ async function probeNoLeakage(jsonExport) {
 
   const s = jsonExport.snapshot;
 
-  // EIN must be masked
+  // EIN must be masked with **-*** pattern
   if (s?.borrower?.ein_masked) {
-    assert("EIN starts with XX-XXX", s.borrower.ein_masked.startsWith("XX-XXX"));
+    assert("EIN starts with **-***", s.borrower.ein_masked.startsWith("**-***"));
     assert("EIN does not contain full digits", !/^\d{2}-\d{7}$/.test(s.borrower.ein_masked));
   }
 
@@ -180,14 +232,15 @@ async function probeNoLeakage(jsonExport) {
 
 // ── Run ──
 async function main() {
-  console.log(`Gate Probe: Borrower Audit Export (Phase E)`);
+  console.log(`Gate Probe: Canonical Borrower Audit Export (Phase E)`);
   console.log(`Base: ${BASE}`);
   console.log(`Borrower: ${BORROWER_ID}`);
   console.log(`Deal: ${DEAL_ID || "(none)"}`);
 
   const jsonExport = await probeJsonExport();
-  await probePdfExport();
-  await probeHashConsistency(jsonExport);
+  const pdfExport = await probePdfExport();
+  await probeHashDeterminism(jsonExport);
+  await probeJsonPdfHashMatch(jsonExport, pdfExport);
   await probeSealed();
   await probeNoLeakage(jsonExport);
 

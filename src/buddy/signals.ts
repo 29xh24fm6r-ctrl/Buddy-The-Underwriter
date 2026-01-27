@@ -19,7 +19,7 @@ export type BuddySignalType =
   | "api.degraded"
   | "borrower.completed"
   | "borrower.owners.attested"
-  | "borrower.audit.exported";
+  | "borrower.audit.snapshot.created";
 
 export interface BuddySignalBase {
   type: BuddySignalType;

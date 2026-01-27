@@ -74,6 +74,7 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
   const [showAttestModal, setShowAttestModal] = useState(false);
   const [attesting, setAttesting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   const entityTypeOptions = [
     "LLC",
@@ -316,6 +317,7 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
   async function exportAudit(format: "json" | "pdf") {
     const borrowerId = summary?.borrower?.id;
     if (!borrowerId) return;
+    setShowExportModal(false);
     setExporting(true);
     setActionError(null);
     try {
@@ -473,7 +475,7 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => exportAudit("pdf")}
+                  onClick={() => setShowExportModal(true)}
                   disabled={exporting}
                   className="rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-100 disabled:opacity-60"
                 >
@@ -570,6 +572,40 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
                     Attest Ownership
                   </button>
                 )}
+              </div>
+            )}
+
+            {/* ── Export Confirmation Modal ── */}
+            {showExportModal && (
+              <div className="rounded-xl border border-slate-300 bg-white p-4 shadow-lg space-y-3">
+                <div className="text-sm font-semibold text-slate-900">Export Regulatory Audit Artifact</div>
+                <div className="text-xs text-slate-600">
+                  This export is a regulatory artifact reflecting borrower state as of generation time.
+                  No preview. Download only.
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => exportAudit("pdf")}
+                    className="rounded-xl border border-purple-300 bg-purple-600 px-4 py-2 text-xs font-semibold text-white"
+                  >
+                    Download PDF
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => exportAudit("json")}
+                    className="rounded-xl border border-slate-300 bg-slate-700 px-4 py-2 text-xs font-semibold text-white"
+                  >
+                    Download JSON
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowExportModal(false)}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
 
