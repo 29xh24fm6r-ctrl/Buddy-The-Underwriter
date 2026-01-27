@@ -1,0 +1,753 @@
+[2026-01-26T21:59:27+00:00] ▲ Next.js 16.1.1 (webpack)
+[2026-01-26T21:59:27+00:00] - Environments: .env.local
+[2026-01-26T21:59:27+00:00] - Experiments (use with caution):
+[2026-01-26T21:59:27+00:00]   · cpus: 1
+[2026-01-26T21:59:27+00:00]   · serverActions
+[2026-01-26T21:59:27+00:00] 
+[2026-01-26T21:59:27+00:00]   Creating an optimized production build ...
+[2026-01-26T22:01:32+00:00] ⚠ Compiled with warnings in 2.0min
+[2026-01-26T22:01:32+00:00] 
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/require-in-the-middle@8.0.1/node_modules/require-in-the-middle/index.js
+[2026-01-26T22:01:32+00:00] Critical dependency: require function is used in a way in which dependencies cannot be statically extracted
+[2026-01-26T22:01:32+00:00] 
+[2026-01-26T22:01:32+00:00] Import trace for requested module:
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/require-in-the-middle@8.0.1/node_modules/require-in-the-middle/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.208.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/node/instrumentation.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.208.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/node/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.208.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.208.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@sentry+node@10.32.1/node_modules/@sentry/node/build/cjs/integrations/tracing/postgresjs.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@sentry+node@10.32.1/node_modules/@sentry/node/build/cjs/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@sentry+nextjs@10.32.1_@opentelemetry+context-async-hooks@2.2.0_@opentelemetry+api@1.9._47e4a3cea57187e7f9de6fd0c1e35c4f/node_modules/@sentry/nextjs/build/cjs/index.server.js
+[2026-01-26T22:01:32+00:00] ./src/app/global-error.tsx
+[2026-01-26T22:01:32+00:00] 
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.206.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/node/instrumentation.js
+[2026-01-26T22:01:32+00:00] Critical dependency: the request of a dependency is an expression
+[2026-01-26T22:01:32+00:00] 
+[2026-01-26T22:01:32+00:00] Import trace for requested module:
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.206.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/node/instrumentation.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.206.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/node/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.206.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.206.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+sdk-node@0.206.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/sdk-node/build/src/sdk.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+sdk-node@0.206.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/sdk-node/build/src/index.js
+[2026-01-26T22:01:32+00:00] 
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/require-in-the-middle@7.5.2/node_modules/require-in-the-middle/index.js
+[2026-01-26T22:01:32+00:00] Critical dependency: require function is used in a way in which dependencies cannot be statically extracted
+[2026-01-26T22:01:32+00:00] 
+[2026-01-26T22:01:32+00:00] Import trace for requested module:
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/require-in-the-middle@7.5.2/node_modules/require-in-the-middle/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.205.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/node/instrumentation.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.205.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/node/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.205.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.205.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation-amqplib@0.52.3_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation-amqplib/build/src/amqplib.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation-amqplib@0.52.3_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation-amqplib/build/src/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+auto-instrumentations-node@0.64.6_@opentelemetry+api@1.9.0_@opentelemetr_334a77f24fbd1c470665880b71f79310/node_modules/@opentelemetry/auto-instrumentations-node/build/src/utils.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+auto-instrumentations-node@0.64.6_@opentelemetry+api@1.9.0_@opentelemetr_334a77f24fbd1c470665880b71f79310/node_modules/@opentelemetry/auto-instrumentations-node/build/src/index.js
+[2026-01-26T22:01:32+00:00] 
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/require-in-the-middle@8.0.1/node_modules/require-in-the-middle/index.js
+[2026-01-26T22:01:32+00:00] Critical dependency: require function is used in a way in which dependencies cannot be statically extracted
+[2026-01-26T22:01:32+00:00] 
+[2026-01-26T22:01:32+00:00] Import trace for requested module:
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/require-in-the-middle@8.0.1/node_modules/require-in-the-middle/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.206.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/node/instrumentation.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.206.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/node/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.206.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.206.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+sdk-node@0.206.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/sdk-node/build/src/sdk.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+sdk-node@0.206.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/sdk-node/build/src/index.js
+[2026-01-26T22:01:32+00:00] 
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/require-in-the-middle@8.0.1/node_modules/require-in-the-middle/index.js
+[2026-01-26T22:01:32+00:00] Critical dependency: require function is used in a way in which dependencies cannot be statically extracted
+[2026-01-26T22:01:32+00:00] 
+[2026-01-26T22:01:32+00:00] Import trace for requested module:
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/require-in-the-middle@8.0.1/node_modules/require-in-the-middle/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.208.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/node/instrumentation.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.208.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/node/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.208.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/platform/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@opentelemetry+instrumentation@0.208.0_@opentelemetry+api@1.9.0/node_modules/@opentelemetry/instrumentation/build/esm/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@sentry+node@10.32.1/node_modules/@sentry/node/build/cjs/integrations/tracing/postgresjs.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@sentry+node@10.32.1/node_modules/@sentry/node/build/cjs/index.js
+[2026-01-26T22:01:32+00:00] ./node_modules/.pnpm/@sentry+nextjs@10.32.1_@opentelemetry+context-async-hooks@2.2.0_@opentelemetry+api@1.9._47e4a3cea57187e7f9de6fd0c1e35c4f/node_modules/@sentry/nextjs/build/cjs/index.server.js
+[2026-01-26T22:01:32+00:00] ./src/app/api/deals/[dealId]/auto-seed/route.ts
+[2026-01-26T22:01:32+00:00] 
+[2026-01-26T22:01:32+00:00]   Skipping validation of types
+[2026-01-26T22:01:32+00:00]   Collecting page data using 1 worker ...
+[2026-01-26T22:01:33+00:00] ⚠ Using edge runtime on a page currently disables static generation for that page
+[2026-01-26T22:01:50+00:00]   Generating static pages using 1 worker (0/62) ...
+[2026-01-26T22:01:53+00:00]   Generating static pages using 1 worker (15/62) 
+[2026-01-26T22:01:53+00:00]   Generating static pages using 1 worker (30/62) 
+[2026-01-26T22:01:53+00:00]   Generating static pages using 1 worker (46/62) 
+[2026-01-26T22:01:53+00:00] ✓ Generating static pages using 1 worker (62/62) in 2.4s
+[2026-01-26T22:02:02+00:00]   Finalizing page optimization ...
+[2026-01-26T22:02:02+00:00]   Collecting build traces ...
+[2026-01-26T22:03:14+00:00] 
+[2026-01-26T22:03:14+00:00] Route (app)
+[2026-01-26T22:03:14+00:00] ┌ ○ /
+[2026-01-26T22:03:14+00:00] ├ ƒ /_not-found
+[2026-01-26T22:03:15+00:00] ├ ƒ /admin
+[2026-01-26T22:03:15+00:00] ├ ƒ /admin/audit
+[2026-01-26T22:03:15+00:00] ├ ƒ /admin/demo-access
+[2026-01-26T22:03:15+00:00] ├ ƒ /admin/demo-hygiene
+[2026-01-26T22:03:15+00:00] ├ ƒ /admin/diagnostics
+[2026-01-26T22:03:15+00:00] ├ ƒ /admin/email-routing
+[2026-01-26T22:03:15+00:00] ├ ƒ /admin/fields
+[2026-01-26T22:03:15+00:00] ├ ƒ /admin/merge-fields
+[2026-01-26T22:03:15+00:00] ├ ƒ /admin/metrics
+[2026-01-26T22:03:15+00:00] ├ ƒ /admin/permissions
+[2026-01-26T22:03:15+00:00] ├ ƒ /admin/roles
+[2026-01-26T22:03:15+00:00] ├ ƒ /admin/templates
+[2026-01-26T22:03:15+00:00] ├ ○ /ai-lab
+[2026-01-26T22:03:15+00:00] ├ ƒ /analytics
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/audit/list
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/banks/[bankId]/email-routing
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/banks/[bankId]/policies/upload
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/banks/[bankId]/template-fields
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/banks/[bankId]/templates
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/banks/[bankId]/templates/upload
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/board-pack/generate
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/canonical-fields/stats
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/deals/[dealId]/assign-underwriter
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/deals/[dealId]/auto-seed-lite/debug
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/deals/[dealId]/checklist/backfill-years
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/deals/[dealId]/checklist/debug
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/deals/[dealId]/checklist/list
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/deals/[dealId]/set-bank
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/deals/bulk-reassign
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/demo/access/list
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/demo/access/remove
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/demo/access/upsert
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/demo/hygiene/archive-old
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/demo/hygiene/purge-archived
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/demo/hygiene/reset
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/health/gemini
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/notifications/process
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/notifications/stats
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/nudges/batch
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/orphans/latest
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/orphans/run
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/outbound/tick
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/outreach/owners/tick
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/pipeline/diagnostics
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/pipeline/replay
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/portfolio/aggregate
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/pricing/policies
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/incidents/ack
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/incidents/action
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/incidents/assign
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/incidents/escalate/tick
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/incidents/meta
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/incidents/notes
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/incidents/postmortem
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/incidents/sync
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/runs
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/stats
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/subscription/[id]/mute
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/subscription/[id]/tick
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/subscriptions/[subscriptionId]
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/subscriptions/[subscriptionId]/mute
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/tick
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/reminders/tick-one
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/roles/set
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/sba/status
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/sba/sync
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/scheduler/sba-sync/tick
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/schema/activate-doc-text
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/schema/discover
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/stress-test/run
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/stress-test/scenarios
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/templates/[templateId]/fields/set-required
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/templates/[templateId]/mapping-audit
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/templates/[templateId]/maps
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/tenant/email-routing
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/underwriters/workload
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/admin/users/list
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/ai/command
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/ai/credit-memo
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/ai/execute
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/ai/underwrite
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/artifacts/process
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/auth/debug
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/auth/supabase-jwt
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/auth/whoami
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/automation/borrower-nudges/run
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/banker/deals/[dealId]/loan-products
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/banker/deals/[dealId]/next-actions
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/banker/deals/[dealId]/nudges
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/banker/deals/[dealId]/owners
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/banker/deals/[dealId]/portal-chat
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/banker/deals/[dealId]/portal-checklist
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/banker/deals/[dealId]/portal-status
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/banker/deals/[dealId]/pricing/compute
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/banker/deals/[dealId]/pricing/quote
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/banker/deals/[dealId]/timeline
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/banker/deals/[dealId]/underwrite/guard
+[2026-01-26T22:03:15+00:00] ├ ƒ /api/banker/deals/[dealId]/underwrite/inputs
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banker/eta-templates
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banker/messages/inbox
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banker/messages/mark-read
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banker/pricing/policies/seed
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banks
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banks/[bankId]/policy/extract-rules
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banks/[bankId]/policy/query
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banks/[bankId]/templates
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banks/[bankId]/templates/[templateId]
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banks/assets/disable
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banks/assets/list
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banks/assets/upload
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banks/policy/chunks
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banks/policy/extract-defaults
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banks/policy/form-defaults
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banks/policy/ingest
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/banks/select
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/agents/run
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/answer
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/answer/upsert
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/attachment/classification
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/comms/send
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/eligibility
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/eligibility/recompute
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/etran/check
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/forms/pdf/generate
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/forms/recompute
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/load
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/memo/generate
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/narrative/generate
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/package/build
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/preflight/run
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/requirements/recompute
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/submit
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/[token]/upload-event
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/active-deal
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/admin/create
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/concierge
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/portal/[token]/files/sign
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/portal/[token]/requests
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/portal/[token]/upload
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrower/resolve
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/borrowers/search
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/buddy/degraded
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/buddy/shadow-brain/enqueue
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/buddy/shadow-brain/latest
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/buddy/signals/latest
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/buddy/signals/record
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/build-meta
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/builder/deals/[dealId]/decision/latest
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/builder/deals/[dealId]/documents/upload
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/builder/deals/[dealId]/financial-snapshot/decision
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/builder/deals/[dealId]/seed-intake
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/builder/deals/[dealId]/verify-ledger
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/builder/deals/latest
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/builder/deals/make-ready
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/builder/deals/mint
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/builder/meta
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/builder/stitch/audit
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/builder/token/status
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/builder/verify/underwrite
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/contact
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/cron/borrower-reminders
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/cron/nightly
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/dashboard/overview
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/dashboard/predictions/refresh
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/actions
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/agents/execute
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/agents/findings
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/agents/status
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/ai-events
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/arbitration/ingest
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/arbitration/materialize
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/arbitration/reconcile
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/arbitration/status
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/artifacts
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/artifacts/backfill
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/artifacts/matches/[matchId]/confirm
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/artifacts/matches/[matchId]/reject
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/artifacts/process
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/ask
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/auto-match
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/auto-seed
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/auto-seed-lite
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/autopilot/run
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/autopilot/status
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/bank
+[2026-01-26T22:03:16+00:00] ├ ƒ /api/deals/[dealId]/bank-docs/generate
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/bank-docs/list
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower-connect
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower-link
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower-nudge
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower-request
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower-request/send
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower/attach
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower/create
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower/inbox
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower/inbox/attach
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower/inbox/auto-attach
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower/inbox/auto-attach/undo
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower/inbox/preview
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower/readiness-score
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/borrower/summary
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/buddy/explain
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/chat
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/checklist
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/checklist/doc-summary
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/checklist/list
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/checklist/reconcile
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/checklist/seed
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/checklist/set-required
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/checklist/set-status
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/checklist/status
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/checklist/upsert
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/command
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/command/latest
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/committee
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/committee/blended
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/committee/evaluate
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/committee/packet/generate
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/conditions
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/conditions/generate-from-mitigants
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/conditions/list
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/conditions/messages/plan
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/conditions/messages/send
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/conditions/pdf
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/conditions/recompute
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/conditions/reconcile
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/conditions/set-status
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/context
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/copilot
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/credit-discovery/answer
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/credit-discovery/start
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/credit-discovery/status
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/credit-memo/[memoId]/citations
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/credit-memo/[memoId]/geometry
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/credit-memo/canonical/missing
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/credit-memo/canonical/pdf
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/credit-memo/generate
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/credit-memo/pdf
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/credit-memo/pricing/insert
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/decision
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/decision/[snapshotId]
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/decision/[snapshotId]/attest
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/decision/[snapshotId]/committee-status
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/decision/[snapshotId]/committee/dissent
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/decision/[snapshotId]/committee/minutes
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/decision/[snapshotId]/committee/status
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/decision/[snapshotId]/committee/vote
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/decision/[snapshotId]/counterfactual
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/decision/[snapshotId]/diff
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/decision/[snapshotId]/pdf
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/decision/[snapshotId]/regulator-zip
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/decision/latest
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/delight
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/doc-intel/results
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/docs/intel
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/documents
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/documents/[attachmentId]/checklist-key
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/documents/[attachmentId]/page-map
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/documents/[attachmentId]/pdf-spans
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/documents/[attachmentId]/text
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/documents/auto-request
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/documents/evidence
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/documents/intel/run
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/drafts
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/drafts/[draftId]/approve
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/drafts/[draftId]/reject
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/drafts/[draftId]/send
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/drafts/generate
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/eligibility/check
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/entities
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/entities/[entityId]
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/etran/populate
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/etran/submit
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/events
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/evidence-graph
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/examiner
+[2026-01-26T22:03:17+00:00] ├ ƒ /api/deals/[dealId]/examiner/simulate
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/explain
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/facts/backfill
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/files/[documentId]/download
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/files/auto-match-checklist
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/files/gcs/sign-upload
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/files/list
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/files/record
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/files/sign
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/files/signed-url
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/financial-snapshot
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/financial-snapshot/compare
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/financial-snapshot/decision
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/financial-snapshot/history
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/financial-snapshot/recompute
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/forms/generate
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/forms/prepare
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/forms/templates
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/ignite
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/ingest
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/intake/get
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/intake/init
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/intake/run
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/intake/set
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/intake/status
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/intel/run
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/interview/sessions
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/interview/sessions/[sessionId]/facts
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/interview/sessions/[sessionId]/facts/[factId]/confirm
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/interview/sessions/[sessionId]/facts/confirm-batch
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/interview/sessions/[sessionId]/qa
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/interview/sessions/[sessionId]/question-plan/ask-next
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/interview/sessions/[sessionId]/question-plan/next
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/interview/sessions/[sessionId]/summary
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/interview/sessions/[sessionId]/turns
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/interview/sessions/[sessionId]/turns/voice
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/lenders/match
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/lifecycle
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/lifecycle/advance
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/live-version
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/mappings
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/memo/build
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/memo/generate
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/memo/research
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/memo/section
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/memos/[docId]/render-pdf
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/memos/[docId]/signed-url
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/memos/generate
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/messages
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/messages/[messageId]/send
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/missing-docs
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/name
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/next-actions
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/next-step
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/nudge
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/ocr/enqueue
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/ocr/jobs
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/ocr/run
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/offers/run
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/outbound/missing-docs/send
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/outbound/settings
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/overrides
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/ownership/compute
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/packs
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/packs/apply
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/packs/items/[jobId]/assign-entity
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/packs/items/[jobId]/suggest-entity
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/packs/override
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/packs/recommend
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/participants
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/pipeline/latest
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/pipeline/reconcile
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/pipeline/timeline
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/policy/evaluate
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/policy/mitigants/list
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/policy/mitigants/set-status
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/policy/mitigants/sync
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/autopilot/tick
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/invite
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/messages/send
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/notifications
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/requests
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/requests/create-from-upload
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/revoke
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/seed-requests
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/templates/apply
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/uploads/assign
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/uploads/preview-url
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/uploads/suggest
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/uploads/suggest-ranked
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/portal/uploads/unassigned
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/preapproval/run
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/preapproval/status
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/pricing-memo/state
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/pricing-quotes/[quoteId]
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/pricing-quotes/create
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/pricing/inputs
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/pricing/quote
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/pricing/quote/[quoteId]/explain
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/pricing/quote/[quoteId]/lock
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/pricing/quote/[quoteId]/memo-block
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/pricing/quote/[quoteId]/memo-pdf
+[2026-01-26T22:03:18+00:00] ├ ƒ /api/deals/[dealId]/pricing/quotes
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/process
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/progress
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/readiness
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/recompute
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/replay
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/risk-facts/generate
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/risk/explain
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/sba/difficulty
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/sba/eligibility
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/sba/forms/1919
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/sba/forms/1920
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/sba/package/[packageRunId]/generate
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/sba/package/[packageRunId]/items
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/sba/package/prepare
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/sba/servicing/recompute
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/signals
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/snapshot/generate
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/snapshots
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/spreads
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/spreads/combined/generate
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/spreads/recompute
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/status
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/submit
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/summary
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/summary/buddy
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/timeline
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/underwrite/start
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/underwriting/score
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/underwriting/score/recompute
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/upload
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/upload-links/create
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/upload-links/list
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/upload-links/revoke
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/uploads
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/uploads/audit
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/uploads/inbox
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/uploads/ocr-all
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/uploads/readiness
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/uploads/reconcile
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/uploads/status
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/uw/copilot
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/voice/token
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/[dealId]/voice/turn
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/bootstrap
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/deals/[dealId]/etran/submit
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/new/upload-session
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/deals/seed
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/debug/clerk
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/debug/client-telemetry
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/debug/edge-auth
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/debug/edge-ping
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/debug/me
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/debug/pdf-worker
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/debug/storage-probe
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/debug/supabase
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/debug/supabase-raw
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/debug/upload-health
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/debug/version
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/debug/vertex-probe
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/dev/gemini-ocr-test
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/dev/storage/health
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/docs/extract
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/docs/ocr
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/docs/upload
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/files/local
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/files/signed-url
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/generate
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/health
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/health/gemini
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/health/supabase
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/home/command-bridge
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/jobs/worker/tick
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/lender/deals/[dealId]
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/meta/build
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/packs/auto-apply
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/packs/override
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/packs/rankings
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/pdfs/[pdfId]
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/ping
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/[token]/checklist
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/[token]/context
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/[token]/docs
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/[token]/docs/[uploadId]/field-confirm
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/[token]/docs/[uploadId]/fields
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/[token]/docs/[uploadId]/submit
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/[token]/files/record
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/[token]/files/sign
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/[token]/guided/confirm
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/[token]/guided/context
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/[token]/status
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/create-link
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/deals/[dealId]/buddy
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/deals/[dealId]/buddy/missing-doc
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/deals/[dealId]/chat
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/deals/[dealId]/documents/[attachmentId]/snippet
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/deals/[dealId]/evidence
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/deals/[dealId]/financial-summary
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/deals/[dealId]/guided
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/deals/[dealId]/loan-requests
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/deals/[dealId]/ownership/confirm
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/deals/[dealId]/ownership/findings
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/deals/[dealId]/ownership/refresh
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/deals/[dealId]/share-links
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/deals/[dealId]/timeline
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/messages/send
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/owner/guided
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/send-link
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/session
+[2026-01-26T22:03:19+00:00] ├ ƒ /api/portal/share/view
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/portal/upload/commit
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/portal/upload/prepare
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/portfolio/risk
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/portfolio/summary
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/profile/bank
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/public/upload
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/public/upload-link/meta
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/qa/clicks
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/rates/latest
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/rates/snapshot
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/realtime/sdp
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/realtime/session
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/research/[missionId]
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/research/planner/[dealId]
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/research/planner/approve
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/research/planner/evaluate
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/research/start
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/rules/sba/active
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/rules/sba/sync
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/sandbox/seed
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/screens/[id]
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/screens/[id]/claim
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/screens/[id]/continue
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/storage/signed-url
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/storage/upload
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/stripe/checkout
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/tenant/select
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/underwriting/poll
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/uploads/[uploadId]/intel
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/uploads/sessions
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/usage
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/verify/[hash]
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/voice/borrower-upload/next
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/webhooks/twilio/inbound
+[2026-01-26T22:03:20+00:00] ├ ƒ /api/webhooks/twilio/status
+[2026-01-26T22:03:20+00:00] ├ ƒ /auth
+[2026-01-26T22:03:20+00:00] ├ ƒ /banker/dashboard
+[2026-01-26T22:03:20+00:00] ├ ƒ /banker/deals/[dealId]/discovery
+[2026-01-26T22:03:20+00:00] ├ ƒ /banker/deals/[dealId]/memo/[memoId]
+[2026-01-26T22:03:20+00:00] ├ ƒ /banks/[bankId]/documents
+[2026-01-26T22:03:20+00:00] ├ ƒ /banks/[bankId]/templates
+[2026-01-26T22:03:20+00:00] ├ ○ /banks/settings/documents
+[2026-01-26T22:03:20+00:00] ├ ○ /banks/settings/policy-chunks
+[2026-01-26T22:03:20+00:00] ├ ○ /banks/settings/policy-ingestion
+[2026-01-26T22:03:20+00:00] ├ ƒ /borrower
+[2026-01-26T22:03:20+00:00] ├ ○ /borrower-portal
+[2026-01-26T22:03:20+00:00] ├ ƒ /borrower/[token]
+[2026-01-26T22:03:20+00:00] ├ ƒ /borrower/portal
+[2026-01-26T22:03:20+00:00] ├ ƒ /borrower/portal/[token]
+[2026-01-26T22:03:20+00:00] ├ ƒ /borrower/portal/guided
+[2026-01-26T22:03:20+00:00] ├ ƒ /borrowers
+[2026-01-26T22:03:20+00:00] ├ ƒ /borrowers/[id]
+[2026-01-26T22:03:20+00:00] ├ ○ /borrowers/control-record
+[2026-01-26T22:03:20+00:00] ├ ƒ /clerk-test
+[2026-01-26T22:03:20+00:00] ├ ƒ /command
+[2026-01-26T22:03:20+00:00] ├ ƒ /committee
+[2026-01-26T22:03:20+00:00] ├ ƒ /compliance/audit-ledger
+[2026-01-26T22:03:20+00:00] ├ ○ /contact
+[2026-01-26T22:03:20+00:00] ├ ƒ /credit-memo
+[2026-01-26T22:03:20+00:00] ├ ƒ /credit-memo/[dealId]/canonical
+[2026-01-26T22:03:20+00:00] ├ ƒ /credit-memo/[dealId]/canonical/print
+[2026-01-26T22:03:20+00:00] ├ ƒ /credit-memo/[dealId]/draft
+[2026-01-26T22:03:20+00:00] ├ ƒ /credit/committee
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/borrower
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/borrower-inbox
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/cockpit
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/cockpit/seed
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/command
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/committee
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/conditions
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/decision
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/decision/[snapshotId]/attest
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/decision/overrides
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/decision/replay
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/documents/[documentId]
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/interview
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/loan-terms
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/memo-template
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/memos/[docId]/preview
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/memos/new
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/portal-inbox
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/pricing
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/pricing-memo
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/readiness
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/sba
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/underwrite
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/[dealId]/underwriter
+[2026-01-26T22:03:20+00:00] ├ ƒ /deals/new
+[2026-01-26T22:03:20+00:00] ├ ○ /debug/pdf-worker
+[2026-01-26T22:03:20+00:00] ├ ƒ /demo
+[2026-01-26T22:03:20+00:00] ├ ƒ /documents
+[2026-01-26T22:03:20+00:00] ├ ƒ /evidence
+[2026-01-26T22:03:20+00:00] ├ ƒ /evidence/inbox
+[2026-01-26T22:03:20+00:00] ├ ƒ /examiner
+[2026-01-26T22:03:20+00:00] ├ ƒ /exceptions
+[2026-01-26T22:03:20+00:00] ├ ƒ /generate
+[2026-01-26T22:03:20+00:00] ├ ƒ /governance
+[2026-01-26T22:03:20+00:00] ├ ○ /health
+[2026-01-26T22:03:20+00:00] ├ ƒ /home
+[2026-01-26T22:03:20+00:00] ├ ƒ /intake
+[2026-01-26T22:03:20+00:00] ├ ƒ /lender/deals/[dealId]
+[2026-01-26T22:03:20+00:00] ├ ○ /login
+[2026-01-26T22:03:20+00:00] ├ ƒ /ocr-review
+[2026-01-26T22:03:20+00:00] ├ ƒ /ocr/review
+[2026-01-26T22:03:20+00:00] ├ ƒ /ops
+[2026-01-26T22:03:20+00:00] ├ ƒ /ops/orphans
+[2026-01-26T22:03:20+00:00] ├ ƒ /ops/reminders/subscriptions/[subscriptionId]
+[2026-01-26T22:03:20+00:00] ├ ƒ /ops/reminders/war-room
+[2026-01-26T22:03:21+00:00] ├ ƒ /ops/schema-console
+[2026-01-26T22:03:21+00:00] ├ ƒ /output
+[2026-01-26T22:03:21+00:00] ├ ƒ /policy
+[2026-01-26T22:03:21+00:00] ├ ○ /portal
+[2026-01-26T22:03:21+00:00] ├ ƒ /portal/[token]
+[2026-01-26T22:03:21+00:00] ├ ƒ /portal/deals/[dealId]/credit-discovery
+[2026-01-26T22:03:21+00:00] ├ ƒ /portal/deals/[dealId]/financial-summary
+[2026-01-26T22:03:21+00:00] ├ ƒ /portal/deals/[dealId]/guided
+[2026-01-26T22:03:21+00:00] ├ ƒ /portal/deals/[dealId]/owners
+[2026-01-26T22:03:21+00:00] ├ ƒ /portal/documents
+[2026-01-26T22:03:21+00:00] ├ ƒ /portal/owner/[token]
+[2026-01-26T22:03:21+00:00] ├ ƒ /portal/share/[token]
+[2026-01-26T22:03:21+00:00] ├ ƒ /portfolio
+[2026-01-26T22:03:21+00:00] ├ ƒ /pricing
+[2026-01-26T22:03:21+00:00] ├ ƒ /recovery
+[2026-01-26T22:03:21+00:00] ├ ƒ /reo
+[2026-01-26T22:03:21+00:00] ├ ƒ /risk
+[2026-01-26T22:03:21+00:00] ├ ○ /robots.txt
+[2026-01-26T22:03:21+00:00] ├ ƒ /roles
+[2026-01-26T22:03:21+00:00] ├ ƒ /rules
+[2026-01-26T22:03:21+00:00] ├ ƒ /s/[id]
+[2026-01-26T22:03:21+00:00] ├ ○ /security
+[2026-01-26T22:03:21+00:00] ├ ○ /select-bank
+[2026-01-26T22:03:21+00:00] ├ ƒ /servicing
+[2026-01-26T22:03:21+00:00] ├ ○ /settings
+[2026-01-26T22:03:21+00:00] ├ ƒ /share/[artifactId]
+[2026-01-26T22:03:21+00:00] ├ ƒ /sign-in/[[...sign-in]]
+[2026-01-26T22:03:21+00:00] ├ ƒ /sign-up/[[...sign-up]]
+[2026-01-26T22:03:21+00:00] ├ ○ /signup
+[2026-01-26T22:03:21+00:00] ├ ○ /sitemap.xml
+[2026-01-26T22:03:21+00:00] ├ ○ /stitch-generate
+[2026-01-26T22:03:21+00:00] ├ ○ /stitch-login
+[2026-01-26T22:03:21+00:00] ├ ○ /stitch-results
+[2026-01-26T22:03:21+00:00] ├ ƒ /stitch-share/[artifactId]
+[2026-01-26T22:03:21+00:00] ├ ƒ /stitch/[slug]
+[2026-01-26T22:03:21+00:00] ├ ○ /stitch/command-center-latest
+[2026-01-26T22:03:21+00:00] ├ ƒ /templates/vault
+[2026-01-26T22:03:21+00:00] ├ ƒ /tenant/select
+[2026-01-26T22:03:21+00:00] ├ ƒ /underwrite
+[2026-01-26T22:03:21+00:00] ├ ƒ /underwrite/[dealId]
+[2026-01-26T22:03:21+00:00] ├ ƒ /underwriting/results
+[2026-01-26T22:03:21+00:00] ├ ○ /upgrade
+[2026-01-26T22:03:21+00:00] ├ ƒ /upload
+[2026-01-26T22:03:21+00:00] ├ ƒ /upload/[token]
+[2026-01-26T22:03:21+00:00] ├ ○ /voice
+[2026-01-26T22:03:21+00:00] ├ ○ /workload
+[2026-01-26T22:03:21+00:00] ├ ƒ /workout
+[2026-01-26T22:03:21+00:00] ├ ƒ /workout-committee
+[2026-01-26T22:03:21+00:00] ├ ƒ /workout/case
+[2026-01-26T22:03:21+00:00] ├ ƒ /workout/case-file
+[2026-01-26T22:03:21+00:00] ├ ƒ /workout/chargeoff
+[2026-01-26T22:03:21+00:00] ├ ƒ /workout/committee-packet
+[2026-01-26T22:03:21+00:00] ├ ƒ /workout/legal
+[2026-01-26T22:03:21+00:00] └ ƒ /workout/reo
+[2026-01-26T22:03:21+00:00] 
+[2026-01-26T22:03:21+00:00] Route (pages)
+[2026-01-26T22:03:21+00:00] ┌ ƒ /api/_builder/deals/latest
+[2026-01-26T22:03:21+00:00] ├ ƒ /api/_builder/verify/google
+[2026-01-26T22:03:21+00:00] └ ƒ /api/_builder/verify/underwrite
+[2026-01-26T22:03:21+00:00] 
+[2026-01-26T22:03:21+00:00] ƒ Proxy (Middleware)
+[2026-01-26T22:03:21+00:00] 
+[2026-01-26T22:03:21+00:00] ○  (Static)   prerendered as static content
+[2026-01-26T22:03:21+00:00] ƒ  (Dynamic)  server-rendered on demand
+[2026-01-26T22:03:21+00:00] 

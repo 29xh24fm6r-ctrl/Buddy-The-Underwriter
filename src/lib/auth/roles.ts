@@ -1,6 +1,6 @@
 import "server-only";
 
-export const BUDDY_ROLES = ["super_admin", "bank_admin", "underwriter", "borrower"] as const;
+export const BUDDY_ROLES = ["super_admin", "bank_admin", "underwriter", "borrower", "regulator_sandbox", "examiner"] as const;
 export type BuddyRole = (typeof BUDDY_ROLES)[number];
 
 export function isBuddyRole(x: any): x is BuddyRole {

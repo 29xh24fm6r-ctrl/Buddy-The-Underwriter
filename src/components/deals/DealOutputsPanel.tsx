@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { Icon } from "@/components/ui/Icon";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
+import { DealAuditExportButtons } from "./DealAuditExportButtons";
 
 export function DealOutputsPanel({
   dealId,
   verify,
+  decisionSnapshotId,
 }: {
   dealId: string;
   verify: VerifyUnderwriteResult;
+  decisionSnapshotId?: string | null;
 }) {
   const disabled = !verify.ok;
   const tooltip = "Complete intake before this action is available";
@@ -51,6 +54,7 @@ export function DealOutputsPanel({
           <Icon name="event" className="h-4 w-4" />
           Readiness / SBA Cert
         </Link>
+        <DealAuditExportButtons dealId={dealId} decisionSnapshotId={decisionSnapshotId} />
       </div>
     </div>
   );

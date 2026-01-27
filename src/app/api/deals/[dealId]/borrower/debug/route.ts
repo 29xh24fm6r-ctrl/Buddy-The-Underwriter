@@ -124,6 +124,26 @@ async function buildPayload(dealId: string, correlationId: string) {
 
   const autofillAvailable = taxReturnDocs.length > 0 && ocrCoverage > 0;
 
+  // --- Omega belief augmentation (read-only, non-blocking) ---
+  let omegaState: unknown = null;
+  let omegaAvailable = false;
+  if (deal.borrower_id) {
+    try {
+      const { readOmegaState } = await import("@/lib/omega/readOmegaState");
+      const omegaResult = await readOmegaState({
+        stateType: "borrower",
+        id: deal.borrower_id,
+        correlationId,
+      });
+      if (omegaResult.ok) {
+        omegaState = omegaResult.data;
+        omegaAvailable = true;
+      }
+    } catch {
+      // Omega unavailable — no change to debug output
+    }
+  }
+
   return {
     ok: true,
     debug: {
@@ -145,6 +165,8 @@ async function buildPayload(dealId: string, correlationId: string) {
         missing_fields: missingFields,
         has_borrower: Boolean(deal.borrower_id),
       },
+      omega_state: omegaState,
+      omega_available: omegaAvailable,
     },
   };
 }

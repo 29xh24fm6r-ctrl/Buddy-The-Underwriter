@@ -1,0 +1,28 @@
+node=v20.20.0 pnpm=10.27.0
+uname=Linux codespaces-b47678 6.8.0-1030-azure #35~22.04.1-Ubuntu SMP Mon May 26 18:08:30 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux
+nproc=4
+mem:
+               total        used        free      shared  buff/cache   available
+Mem:            15Gi       7.2Gi       2.0Gi        63Mi       6.8Gi       8.4Gi
+Swap:             0B          0B          0B
+ulimit:
+real-time non-blocking time  (microseconds, -R) unlimited
+core file size              (blocks, -c) unlimited
+data seg size               (kbytes, -d) unlimited
+scheduling priority                 (-e) 0
+file size                   (blocks, -f) unlimited
+pending signals                     (-i) 63954
+max locked memory           (kbytes, -l) 8192
+max memory size             (kbytes, -m) unlimited
+open files                          (-n) 1048576
+pipe size                (512 bytes, -p) 8
+POSIX message queues         (bytes, -q) 819200
+real-time priority                  (-r) 0
+stack size                  (kbytes, -s) 8192
+cpu time                   (seconds, -t) unlimited
+max user processes                  (-u) unlimited
+virtual memory              (kbytes, -v) unlimited
+file locks                          (-x) unlimited
+----
+EXIT_CODE 0 2026-01-26T22:03:21+00:00
+LAST_PHASE PHASE generating_static_pages 2026-01-26T22:01:53+00:00

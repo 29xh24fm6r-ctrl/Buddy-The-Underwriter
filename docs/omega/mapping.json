@@ -1,0 +1,439 @@
+{
+  "version": "1.0",
+  "ownership": {
+    "source_of_truth": "omega",
+    "operational_store": "buddy_db",
+    "event_bus": "omega_events",
+    "audit_artifacts": "buddy_exports"
+  },
+  "entities": [
+    {
+      "entity_type": "deal",
+      "omega_uri_template": "omega://entity/deal/{dealId}",
+      "buddy_primary_key": "deals.id",
+      "buddy_sources": [
+        "deals",
+        "deal_events",
+        "deal_pipeline_ledger"
+      ],
+      "pii_rules": [],
+      "notes": "Top-level underwriting case container. Buddy stores operational deal state; Omega holds belief."
+    },
+    {
+      "entity_type": "borrower",
+      "omega_uri_template": "omega://entity/borrower/{borrowerId}",
+      "buddy_primary_key": "borrowers.id",
+      "buddy_sources": [
+        "borrowers",
+        "borrower_owners",
+        "borrower_owner_attestations"
+      ],
+      "pii_rules": ["mask_ein", "no_ssn"],
+      "notes": "Borrower truth is Omega belief; Buddy stores operational copies and exports. EIN masked as **-***NNNN."
+    },
+    {
+      "entity_type": "borrower_owner",
+      "omega_uri_template": "omega://entity/borrower_owner/{ownerId}",
+      "buddy_primary_key": "borrower_owners.id",
+      "buddy_sources": [
+        "borrower_owners",
+        "borrower_owner_attestations"
+      ],
+      "pii_rules": ["no_ssn", "ssn_last4_only"],
+      "notes": "20%+ owners for regulatory purposes. SSN stored as last-4 only. Ownership sourced from attested snapshots."
+    },
+    {
+      "entity_type": "document",
+      "omega_uri_template": "omega://entity/document/{documentId}",
+      "buddy_primary_key": "deal_documents.id",
+      "buddy_sources": [
+        "deal_documents"
+      ],
+      "pii_rules": ["no_raw_bytes"],
+      "notes": "Document metadata only. Raw bytes never transit to Omega. SHA-256 hash used for integrity."
+    },
+    {
+      "entity_type": "underwriting_case",
+      "omega_uri_template": "omega://entity/underwriting_case/{dealId}",
+      "buddy_primary_key": "deals.id",
+      "buddy_sources": [
+        "deals",
+        "deal_events",
+        "deal_pipeline_ledger",
+        "financial_snapshots",
+        "decision_snapshots"
+      ],
+      "pii_rules": [],
+      "notes": "Composite view of a deal as an underwriting case. Alias of deal with full lifecycle context."
+    },
+    {
+      "entity_type": "financial_snapshot",
+      "omega_uri_template": "omega://entity/financial_snapshot/{snapshotId}",
+      "buddy_primary_key": "financial_snapshots.id",
+      "buddy_sources": [
+        "financial_snapshots",
+        "financial_snapshot_decisions"
+      ],
+      "pii_rules": [],
+      "notes": "Immutable versioned financial data. Trigger-enforced immutability after insert."
+    },
+    {
+      "entity_type": "credit_decision",
+      "omega_uri_template": "omega://entity/credit_decision/{snapshotId}",
+      "buddy_primary_key": "decision_snapshots.id",
+      "buddy_sources": [
+        "decision_snapshots",
+        "decision_overrides",
+        "decision_attestations",
+        "credit_committee_votes",
+        "credit_committee_minutes",
+        "credit_committee_dissent"
+      ],
+      "pii_rules": [],
+      "notes": "Full credit decision with committee votes, attestations, overrides, and minutes. Immutable when status=final."
+    },
+    {
+      "entity_type": "policy_context",
+      "omega_uri_template": "omega://entity/policy_context/{bankId}/{policyVersion}",
+      "buddy_primary_key": "bank_policy_packs.id",
+      "buddy_sources": [
+        "bank_policy_packs",
+        "policy_extracted_rules"
+      ],
+      "pii_rules": [],
+      "notes": "Versioned bank policy rules. Buddy publishes constraints; Omega enforces."
+    },
+    {
+      "entity_type": "examiner_drop",
+      "omega_uri_template": "omega://entity/examiner_drop/{dealId}/{snapshotId}",
+      "buddy_primary_key": "decision_snapshots.id",
+      "buddy_sources": [
+        "decision_snapshots",
+        "financial_snapshots",
+        "borrowers",
+        "borrower_owners",
+        "borrower_owner_attestations",
+        "bank_policy_packs"
+      ],
+      "pii_rules": ["mask_ein", "no_ssn", "no_raw_bytes"],
+      "notes": "Regulator-grade self-contained audit ZIP. Built from Phases E/F/H/I artifacts."
+    }
+  ],
+  "events": [
+    {
+      "buddy_event_type": "deal.document.uploaded",
+      "omega_event_type": "buddy.document.uploaded",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId" },
+        { "entity_type": "document", "id_path": "payload.documentId", "optional": true }
+      ],
+      "payload_contract": "deal_events.payload",
+      "redaction_profile": "audit_safe"
+    },
+    {
+      "buddy_event_type": "deal.underwriting.started",
+      "omega_event_type": "buddy.underwriting.started",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId" }
+      ],
+      "payload_contract": "deal_events.payload",
+      "redaction_profile": "audit_safe"
+    },
+    {
+      "buddy_event_type": "borrower.completed",
+      "omega_event_type": "buddy.borrower.completed",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "borrower", "id_path": "payload.borrowerId" },
+        { "entity_type": "deal", "id_path": "payload.dealId", "optional": true }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "audit_safe"
+    },
+    {
+      "buddy_event_type": "borrower.owners.attested",
+      "omega_event_type": "buddy.borrower.owners.attested",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "borrower", "id_path": "payload.borrowerId" },
+        { "entity_type": "deal", "id_path": "payload.dealId", "optional": true }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "audit_safe"
+    },
+    {
+      "buddy_event_type": "borrower.audit.snapshot.created",
+      "omega_event_type": "buddy.borrower.audit.snapshot.created",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "borrower", "id_path": "payload.borrowerId" },
+        { "entity_type": "deal", "id_path": "payload.dealId", "optional": true }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "examiner_safe"
+    },
+    {
+      "buddy_event_type": "decision.audit.snapshot.created",
+      "omega_event_type": "buddy.credit.decision.audit.snapshot.created",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId" },
+        { "entity_type": "credit_decision", "id_path": "payload.snapshotId" }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "examiner_safe"
+    },
+    {
+      "buddy_event_type": "examiner.drop.created",
+      "omega_event_type": "buddy.examiner.drop.generated",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId" },
+        { "entity_type": "examiner_drop", "id_path": "payload.dealId" }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "examiner_safe"
+    },
+    {
+      "buddy_event_type": "model.governance.exported",
+      "omega_event_type": "buddy.model.governance.exported",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId", "optional": true }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "audit_safe"
+    },
+    {
+      "buddy_event_type": "examiner.playbooks.exported",
+      "omega_event_type": "buddy.examiner.playbooks.exported",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId", "optional": true }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "audit_safe"
+    },
+    {
+      "buddy_event_type": "policy.pack.created",
+      "omega_event_type": "buddy.policy.pack.created",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "policy_context", "id_path": "payload.bankId" }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "audit_safe"
+    },
+    {
+      "buddy_event_type": "policy.pack.resolved",
+      "omega_event_type": "buddy.policy.pack.resolved",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId" },
+        { "entity_type": "policy_context", "id_path": "payload.bankId" }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "audit_safe"
+    },
+    {
+      "buddy_event_type": "policy.frozen.validated",
+      "omega_event_type": "buddy.policy.frozen.validated",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId" },
+        { "entity_type": "policy_context", "id_path": "payload.bankId" }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "audit_safe"
+    },
+    {
+      "buddy_event_type": "bank.decision.compared",
+      "omega_event_type": "buddy.bank.decision.compared",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId" }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "audit_safe"
+    },
+    {
+      "buddy_event_type": "api.degraded",
+      "omega_event_type": "buddy.api.degraded",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "internal_debug"
+    },
+    {
+      "buddy_event_type": "deal.ignited",
+      "omega_event_type": "buddy.deal.ignited",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId" }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "audit_safe"
+    },
+    {
+      "buddy_event_type": "deal.lifecycle",
+      "omega_event_type": "buddy.deal.lifecycle",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId" }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "audit_safe"
+    },
+    {
+      "buddy_event_type": "examiner.access.granted",
+      "omega_event_type": "buddy.examiner.access.granted",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId", "optional": true }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "examiner_safe"
+    },
+    {
+      "buddy_event_type": "examiner.access.revoked",
+      "omega_event_type": "buddy.examiner.access.revoked",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId", "optional": true }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "examiner_safe"
+    },
+    {
+      "buddy_event_type": "examiner.verified.integrity",
+      "omega_event_type": "buddy.examiner.verified.integrity",
+      "omega_write_resource": "omega://events/write",
+      "entity_links": [
+        { "entity_type": "deal", "id_path": "payload.dealId", "optional": true }
+      ],
+      "payload_contract": "buddy_signal_ledger.payload",
+      "redaction_profile": "examiner_safe"
+    }
+  ],
+  "state_views": [
+    {
+      "omega_state_uri_template": "omega://state/underwriting_case/{dealId}",
+      "driven_by_events": [
+        "buddy.deal.ignited",
+        "buddy.deal.lifecycle",
+        "buddy.underwriting.started",
+        "buddy.document.uploaded",
+        "buddy.borrower.completed",
+        "buddy.borrower.owners.attested",
+        "buddy.credit.decision.audit.snapshot.created",
+        "buddy.examiner.drop.generated"
+      ],
+      "must_match_buddy_exports": [
+        "buildCreditDecisionAuditSnapshot",
+        "buildExaminerDropZip"
+      ],
+      "notes": "Composite case view. Omega belief must align with Phase F snapshot + examiner drop manifest."
+    },
+    {
+      "omega_state_uri_template": "omega://state/borrower/{borrowerId}",
+      "driven_by_events": [
+        "buddy.borrower.completed",
+        "buddy.borrower.owners.attested",
+        "buddy.borrower.audit.snapshot.created",
+        "buddy.document.uploaded"
+      ],
+      "must_match_buddy_exports": [
+        "buildBorrowerAuditSnapshot"
+      ],
+      "notes": "Omega belief must align with Phase E snapshot inputs. EIN always masked."
+    },
+    {
+      "omega_state_uri_template": "omega://state/credit_decision/{dealId}",
+      "driven_by_events": [
+        "buddy.credit.decision.audit.snapshot.created",
+        "buddy.policy.pack.resolved",
+        "buddy.policy.frozen.validated",
+        "buddy.bank.decision.compared"
+      ],
+      "must_match_buddy_exports": [
+        "buildCreditDecisionAuditSnapshot"
+      ],
+      "notes": "Decision belief includes committee votes, attestations, policy eval. Only final snapshots are canonical."
+    },
+    {
+      "omega_state_uri_template": "omega://state/examiner_drop/{dealId}",
+      "driven_by_events": [
+        "buddy.examiner.drop.generated",
+        "buddy.examiner.access.granted",
+        "buddy.examiner.access.revoked",
+        "buddy.examiner.verified.integrity"
+      ],
+      "must_match_buddy_exports": [
+        "buildExaminerDropZip"
+      ],
+      "notes": "Examiner drop state includes manifest, artifact checksums, and access grant status."
+    },
+    {
+      "omega_state_uri_template": "omega://state/policy_context/{bankId}",
+      "driven_by_events": [
+        "buddy.policy.pack.created",
+        "buddy.policy.pack.resolved",
+        "buddy.policy.frozen.validated"
+      ],
+      "must_match_buddy_exports": [],
+      "notes": "Active policy pack for a bank. Versioned and supersession-tracked."
+    }
+  ],
+  "constraints": [
+    {
+      "namespace": "buddy/underwriting",
+      "omega_constraints_resource": "omega://constraints/buddy/underwriting",
+      "applies_to": ["underwriting_case"],
+      "source_files": [
+        "src/lib/policy/types.ts",
+        "src/lib/policy/bankPolicyRegistry.ts",
+        "src/lib/policy/resolvePolicyContext.ts",
+        "src/lib/underwrite/*"
+      ],
+      "notes": "Constraints are rules-as-data. Buddy publishes policy rules; Omega enforces. Severity levels: hard, soft, info."
+    },
+    {
+      "namespace": "buddy/model_governance",
+      "omega_constraints_resource": "omega://constraints/buddy/model_governance",
+      "applies_to": ["underwriting_case", "borrower"],
+      "source_files": [
+        "src/lib/modelGovernance/modelRegistry.ts",
+        "src/lib/modelGovernance/explainModelOutput.ts"
+      ],
+      "notes": "Model governance constraints: all models assistive-only, human override required. Enforced via registry invariant checks."
+    }
+  ],
+  "redaction": [
+    {
+      "profile_name": "audit_safe",
+      "description": "No PII. Hashed IDs permitted. Masked EIN permitted (**-***NNNN). No SSN. No raw document bytes.",
+      "deny_fields": ["ssn", "ssn_full", "ein_raw", "document_bytes", "raw_tax_return"],
+      "mask_fields": ["ein"],
+      "hash_fields": [],
+      "notes": "Default profile for most Omega events."
+    },
+    {
+      "profile_name": "examiner_safe",
+      "description": "Same as audit_safe plus snapshot hashes included. Used for regulator-facing artifacts.",
+      "deny_fields": ["ssn", "ssn_full", "ein_raw", "document_bytes", "raw_tax_return"],
+      "mask_fields": ["ein"],
+      "hash_fields": ["snapshot_hash", "drop_hash", "manifest_hash"],
+      "notes": "Used for examiner drop events and borrower/decision audit snapshot events."
+    },
+    {
+      "profile_name": "internal_debug",
+      "description": "Still no SSN/EIN raw. Allows more diagnostic fields like stack traces, timing data.",
+      "deny_fields": ["ssn", "ssn_full", "ein_raw", "document_bytes", "raw_tax_return"],
+      "mask_fields": ["ein"],
+      "hash_fields": [],
+      "notes": "Used for api.degraded and internal diagnostic events only."
+    }
+  ]
+}

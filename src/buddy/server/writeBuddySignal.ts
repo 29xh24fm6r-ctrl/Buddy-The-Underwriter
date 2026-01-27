@@ -16,4 +16,27 @@ export async function writeBuddySignal(signal: BuddySignalBase) {
     source: signal.source,
     payload: signal.payload ?? null,
   });
+
+  // --- Omega mirror (fire-and-forget, never blocks, never throws) ---
+  // This is the SINGLE hook point for all Buddy → Omega event mirroring.
+  // No other call sites are permitted.
+  mirrorToOmega(signal).catch(() => {});
+}
+
+/** @internal Fire-and-forget omega mirror. Isolated to prevent import failures from breaking signals. */
+async function mirrorToOmega(signal: BuddySignalBase): Promise<void> {
+  try {
+    const { mirrorEventToOmega } = await import("@/lib/omega/mirrorEventToOmega");
+    const correlationId = `omega-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    await mirrorEventToOmega({
+      buddyEventType: signal.type,
+      payload: {
+        ...(signal.payload ?? {}),
+        dealId: signal.dealId ?? undefined,
+      },
+      correlationId,
+    });
+  } catch {
+    // Never surface omega failures to signal callers
+  }
 }
