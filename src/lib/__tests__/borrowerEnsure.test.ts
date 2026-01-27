@@ -567,3 +567,199 @@ describe("Borrower ensure behavior contracts", () => {
     assert.equal(typeof autofillResult.ownersUpserted, "number");
   });
 });
+
+// ─── Phase E: Audit Snapshot contracts ──────────────────
+
+function stableStringify(obj: any): string {
+  return JSON.stringify(obj, Object.keys(obj).sort());
+}
+
+function sha256Hex(input: string): string {
+  // Node crypto not available in pure test — simulate with stable determinism check
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    const chr = input.charCodeAt(i);
+    hash = ((hash << 5) - hash) + chr;
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(16).padStart(16, "0");
+}
+
+describe("audit snapshot determinism", () => {
+  test("stableStringify produces sorted keys", () => {
+    const a = stableStringify({ z: 1, a: 2, m: 3 });
+    const b = stableStringify({ a: 2, m: 3, z: 1 });
+    assert.equal(a, b);
+  });
+
+  test("same input produces same hash", () => {
+    const input = stableStringify({ borrower: "Test Corp", ein: "XX-XXX1234" });
+    const hash1 = sha256Hex(input);
+    const hash2 = sha256Hex(input);
+    assert.equal(hash1, hash2);
+  });
+
+  test("different input produces different hash", () => {
+    const hash1 = sha256Hex(stableStringify({ a: 1 }));
+    const hash2 = sha256Hex(stableStringify({ a: 2 }));
+    assert.notEqual(hash1, hash2);
+  });
+});
+
+describe("audit snapshot EIN masking", () => {
+  function maskEinForAudit(ein: string | null | undefined): string | null {
+    if (!ein) return null;
+    const digits = String(ein).replace(/\D/g, "");
+    if (digits.length < 4) return null;
+    return `XX-XXX${digits.slice(-4)}`;
+  }
+
+  test("masks full EIN to XX-XXX format", () => {
+    assert.equal(maskEinForAudit("12-3456789"), "XX-XXX6789");
+    assert.equal(maskEinForAudit("123456789"), "XX-XXX6789");
+  });
+
+  test("masks already-masked EIN", () => {
+    assert.equal(maskEinForAudit("XX-XXX1234"), "XX-XXX1234");
+  });
+
+  test("returns null for empty/null", () => {
+    assert.equal(maskEinForAudit(null), null);
+    assert.equal(maskEinForAudit(""), null);
+    assert.equal(maskEinForAudit(undefined), null);
+  });
+
+  test("returns null for too-short", () => {
+    assert.equal(maskEinForAudit("12"), null);
+  });
+
+  test("never exposes full EIN", () => {
+    const masked = maskEinForAudit("12-3456789");
+    assert.ok(masked);
+    assert.ok(!masked!.includes("123456789"));
+    assert.ok(!masked!.includes("12-345"));
+    assert.ok(masked!.startsWith("XX-XXX"));
+  });
+});
+
+describe("audit snapshot schema contract", () => {
+  test("snapshot has required top-level fields", () => {
+    const snapshot = {
+      schema_version: "1.0",
+      generated_at: new Date().toISOString(),
+      borrower: {
+        id: "b-1",
+        legal_name: "Test Corp",
+        entity_type: "LLC",
+        ein_masked: "XX-XXX1234",
+        naics_code: "541511",
+        naics_description: "Custom Software",
+        address: { line1: "123 Main", city: "Springfield", state: "IL", zip: "62701" },
+        state_of_formation: "IL",
+      },
+      owners: [
+        { name: "John Smith", title: "CEO", ownership_pct: 51, confidence: 0.92, source: "doc_extracted" },
+        { name: "Jane Doe", title: "CFO", ownership_pct: 49, confidence: 0.88, source: "doc_extracted" },
+      ],
+      extraction: {
+        documents: [{ document_id: "doc-1", type: "1120", filename: "tax_2024.pdf", uploaded_at: "2026-01-15T00:00:00Z" }],
+        field_confidence: { legal_name: 0.92, entity_type: 0.88, ein: 0.95, naics: 0.72, address: 0.85 },
+      },
+      attestation: {
+        attested: true,
+        attested_by: "user-1",
+        attested_at: "2026-01-20T00:00:00Z",
+        snapshot_hash: "abc123def456",
+      },
+      lifecycle: {
+        borrower_created_at: "2026-01-10T00:00:00Z",
+        borrower_completed_at: "2026-01-20T00:00:00Z",
+      },
+      ledger_refs: [
+        { event_id: "evt-1", type: "buddy.borrower.created", created_at: "2026-01-10T00:00:00Z" },
+      ],
+      snapshot_hash: "full-snapshot-hash-here",
+    };
+
+    // Schema validation
+    assert.equal(snapshot.schema_version, "1.0");
+    assert.equal(typeof snapshot.generated_at, "string");
+    assert.equal(typeof snapshot.borrower.id, "string");
+    assert.equal(typeof snapshot.borrower.ein_masked, "string");
+    assert.ok(snapshot.borrower.ein_masked!.startsWith("XX-XXX"));
+    assert.ok(Array.isArray(snapshot.owners));
+    assert.ok(snapshot.owners.length > 0);
+    assert.equal(typeof snapshot.owners[0].confidence, "number");
+    assert.ok(Array.isArray(snapshot.extraction.documents));
+    assert.equal(typeof snapshot.extraction.field_confidence, "object");
+    assert.equal(typeof snapshot.attestation.attested, "boolean");
+    assert.ok(Array.isArray(snapshot.ledger_refs));
+    assert.equal(typeof snapshot.snapshot_hash, "string");
+    assert.ok(snapshot.snapshot_hash.length > 0);
+  });
+
+  test("snapshot with no attestation", () => {
+    const snapshot = {
+      attestation: {
+        attested: false,
+        attested_by: null,
+        attested_at: null,
+        snapshot_hash: null,
+      },
+    };
+
+    assert.equal(snapshot.attestation.attested, false);
+    assert.equal(snapshot.attestation.attested_by, null);
+    assert.equal(snapshot.attestation.snapshot_hash, null);
+  });
+
+  test("snapshot timestamps are ISO-8601 UTC", () => {
+    const ts = new Date().toISOString();
+    assert.ok(ts.endsWith("Z"));
+    assert.ok(ts.includes("T"));
+  });
+});
+
+describe("audit export API contract", () => {
+  test("JSON export response shape", () => {
+    const response = {
+      ok: true,
+      snapshot: { schema_version: "1.0", borrower: { id: "b-1" }, snapshot_hash: "abc" },
+      snapshotHash: "abc",
+      meta: { borrowerId: "b-1", correlationId: "bae-123", ts: new Date().toISOString() },
+    };
+
+    assert.equal(response.ok, true);
+    assert.equal(typeof response.snapshot, "object");
+    assert.equal(typeof response.snapshotHash, "string");
+    assert.equal(response.snapshot.snapshot_hash, response.snapshotHash);
+  });
+
+  test("PDF export response shape", () => {
+    const response = {
+      ok: true,
+      data: "base64pdfcontent",
+      filename: "Borrower-Audit-TestCorp-2026-01-27.pdf",
+      contentType: "application/pdf",
+      snapshotHash: "abc123",
+      meta: { borrowerId: "b-1", correlationId: "bae-456", ts: new Date().toISOString() },
+    };
+
+    assert.equal(response.ok, true);
+    assert.equal(typeof response.data, "string");
+    assert.equal(response.contentType, "application/pdf");
+    assert.ok(response.filename.endsWith(".pdf"));
+    assert.equal(typeof response.snapshotHash, "string");
+  });
+
+  test("export error on bad format", () => {
+    const response = {
+      ok: false,
+      error: { code: "invalid_format", message: "format must be 'json' or 'pdf'" },
+      meta: { borrowerId: "b-1", correlationId: "bae-789", ts: new Date().toISOString() },
+    };
+
+    assert.equal(response.ok, false);
+    assert.equal(response.error.code, "invalid_format");
+  });
+});

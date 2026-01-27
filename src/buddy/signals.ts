@@ -18,7 +18,8 @@ export type BuddySignalType =
   | "error"
   | "api.degraded"
   | "borrower.completed"
-  | "borrower.owners.attested";
+  | "borrower.owners.attested"
+  | "borrower.audit.exported";
 
 export interface BuddySignalBase {
   type: BuddySignalType;

@@ -73,6 +73,7 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
   const [lastFieldStatuses, setLastFieldStatuses] = useState<FieldConfidence[]>([]);
   const [showAttestModal, setShowAttestModal] = useState(false);
   const [attesting, setAttesting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const entityTypeOptions = [
     "LLC",
@@ -312,6 +313,50 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
     }
   }
 
+  async function exportAudit(format: "json" | "pdf") {
+    const borrowerId = summary?.borrower?.id;
+    if (!borrowerId) return;
+    setExporting(true);
+    setActionError(null);
+    try {
+      const res = await fetch(
+        `/api/borrowers/${borrowerId}/audit-export?format=${format}&dealId=${dealId}`,
+        { cache: "no-store" },
+      );
+      const json = await res.json();
+      if (!json?.ok) {
+        handleActionError(json);
+        return;
+      }
+      if (format === "pdf" && json.data) {
+        const blob = new Blob(
+          [Uint8Array.from(atob(json.data), (c) => c.charCodeAt(0))],
+          { type: "application/pdf" },
+        );
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = json.filename ?? "borrower-audit.pdf";
+        a.click();
+        URL.revokeObjectURL(url);
+        setToast("Audit PDF downloaded.");
+      } else {
+        const blob = new Blob([JSON.stringify(json.snapshot, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `borrower-audit-${borrowerId.slice(0, 8)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setToast("Audit JSON downloaded.");
+      }
+    } catch (e: any) {
+      setActionError({ code: "network_error", message: e?.message || "Export failed", correlationId: "—" });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function confidenceBadge(conf: number) {
     if (conf >= 0.85) return <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" title={`${(conf * 100).toFixed(0)}% confidence`} />;
     if (conf >= 0.60) return <span className="inline-block w-2 h-2 rounded-full bg-amber-500" title={`${(conf * 100).toFixed(0)}% — needs review`} />;
@@ -425,6 +470,14 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
                   className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   Replace
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportAudit("pdf")}
+                  disabled={exporting}
+                  className="rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-100 disabled:opacity-60"
+                >
+                  {exporting ? "Exporting…" : "Export Audit"}
                 </button>
               </div>
             </div>
