@@ -39,7 +39,9 @@ export type BuddySignalType =
   | "omega.succeeded"
   | "omega.failed"
   | "omega.timed_out"
-  | "omega.killed";
+  | "omega.killed"
+  | "pulse.mcp.tool.called"
+  | "pulse.mcp.tool.failed";
 
 export interface BuddySignalBase {
   type: BuddySignalType;
