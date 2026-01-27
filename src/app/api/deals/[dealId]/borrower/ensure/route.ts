@@ -114,6 +114,8 @@ async function buildPayload(
         attached: true,
         updatedFromDocs: autofill.ok,
         fields_autofilled: autofill.fieldsAutofilled,
+        field_statuses: autofill.fieldStatuses,
+        extracted_confidence: autofill.extractedConfidence,
         owners_created: autofill.ownersUpserted,
         warnings: [...warnings, ...autofill.warnings],
       };
@@ -273,6 +275,8 @@ async function buildPayload(
   let updatedFromDocs = false;
   let fieldsAutofilled: string[] = [];
   let ownersCreated = 0;
+  let fieldStatuses: unknown[] = [];
+  let extractedConfidence: Record<string, number> = {};
 
   if (source === "autofill") {
     const autofill = await autofillBorrowerFromDocs({
@@ -285,6 +289,8 @@ async function buildPayload(
     updatedFromDocs = autofill.ok;
     fieldsAutofilled = autofill.fieldsAutofilled;
     ownersCreated = autofill.ownersUpserted;
+    fieldStatuses = autofill.fieldStatuses;
+    extractedConfidence = autofill.extractedConfidence;
     warnings.push(...autofill.warnings);
 
     if (autofill.ok) {
@@ -312,6 +318,8 @@ async function buildPayload(
           attached: true,
           updatedFromDocs: true,
           fields_autofilled: fieldsAutofilled,
+          field_statuses: fieldStatuses,
+          extracted_confidence: extractedConfidence,
           owners_created: ownersCreated,
           warnings,
         };

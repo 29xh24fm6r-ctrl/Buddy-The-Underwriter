@@ -1,5 +1,6 @@
 // src/lib/underwrite/guard.ts
 import type { UnderwriteGuardResult, GuardIssue } from "@/lib/underwrite/guardTypes";
+import type { BorrowerCompleteness } from "@/lib/borrower/borrowerCompleteness";
 
 function isPosNumber(n: any) {
   return typeof n === "number" && Number.isFinite(n) && n > 0;
@@ -118,6 +119,44 @@ export function underwriteConsistencyGuard(input: {
       title: "DSCR target looks invalid",
       detail: "DSCR target should be a number (or blank).",
       fix: { label: "Fix DSCR target", target: { kind: "banker_loan_products", dealId } as any },
+    });
+  }
+
+  // Borrower completeness gate: block if borrower profile is incomplete
+  const borrowerCompleteness = u?.borrowerCompleteness as BorrowerCompleteness | undefined;
+  if (borrowerCompleteness && !borrowerCompleteness.complete) {
+    const missingLabels: Record<string, string> = {
+      legal_name: "legal name",
+      entity_type: "entity type",
+      ein: "EIN",
+      naics_code: "NAICS code",
+      address_line1: "street address",
+      state: "state",
+      owner_gte_20pct: "owner with >= 20% ownership",
+      total_ownership_gte_80pct: "total ownership >= 80%",
+      owner_attestation: "ownership attestation",
+      borrower_not_found: "borrower record",
+    };
+    const missingStr = borrowerCompleteness.missing
+      .map((m) => missingLabels[m] ?? m)
+      .join(", ");
+
+    issues.push({
+      code: "UW_BORROWER_INCOMPLETE",
+      severity: "BLOCKED",
+      title: "Borrower profile incomplete",
+      detail: `Missing: ${missingStr}. Complete the borrower profile and attest ownership before underwriting.`,
+      fix: { label: "Complete Borrower", target: { kind: "borrower_attachment", dealId } },
+    });
+  }
+
+  if (borrowerCompleteness && borrowerCompleteness.confidence_warnings.length > 0) {
+    issues.push({
+      code: "UW_BORROWER_CONFIDENCE_REVIEW",
+      severity: "WARN",
+      title: "Borrower fields need review",
+      detail: `${borrowerCompleteness.confidence_warnings.length} autofilled field(s) have moderate confidence and should be verified.`,
+      fix: { label: "Review Borrower", target: { kind: "borrower_attachment", dealId } },
     });
   }
 

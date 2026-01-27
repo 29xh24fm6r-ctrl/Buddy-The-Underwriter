@@ -16,7 +16,9 @@ export type BuddySignalType =
   | "user.mark"
   | "ui.toast"
   | "error"
-  | "api.degraded";
+  | "api.degraded"
+  | "borrower.completed"
+  | "borrower.owners.attested";
 
 export interface BuddySignalBase {
   type: BuddySignalType;

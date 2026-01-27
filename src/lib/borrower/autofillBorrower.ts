@@ -3,13 +3,29 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { extractBorrowerFromDocs } from "./extractBorrowerFromDocs";
 
+export type ConfidenceLevel = "high" | "review" | "low";
+
+export type FieldAutofillStatus = {
+  field: string;
+  confidence: number;
+  level: ConfidenceLevel;
+  applied: boolean;
+};
+
 export type AutofillResult = {
   ok: boolean;
   borrowerPatch: Record<string, unknown>;
   ownersUpserted: number;
   fieldsAutofilled: string[];
+  fieldStatuses: FieldAutofillStatus[];
+  extractedConfidence: Record<string, number>;
   warnings: string[];
 };
+
+// Confidence thresholds
+const CONFIDENCE_AUTO_APPLY = 0.85; // >= 0.85 → apply automatically
+const CONFIDENCE_REVIEW = 0.60;     // 0.60–0.84 → apply but mark needs_review
+                                     // < 0.60 → do not apply
 
 /**
  * Extract borrower data from uploaded documents (tax returns, OCR)
@@ -41,63 +57,76 @@ export async function autofillBorrowerFromDocs(args: {
 
   if (!extraction) {
     warnings.push("No borrower data could be extracted from uploaded documents.");
-    return { ok: false, borrowerPatch, ownersUpserted: 0, fieldsAutofilled, warnings };
+    return { ok: false, borrowerPatch, ownersUpserted: 0, fieldsAutofilled, fieldStatuses: [], extractedConfidence: {}, warnings };
   }
 
-  // 2) Build patch from extraction
+  // 2) Build patch from extraction using confidence-gated application
   const provenance: Record<string, string> = {};
+  const fc = extraction.fieldConfidence;
+  const fieldStatuses: FieldAutofillStatus[] = [];
 
-  if (extraction.legalName) {
-    borrowerPatch.legal_name = extraction.legalName;
-    fieldsAutofilled.push("legal_name");
-    if (extraction.sourceDocId) provenance.legal_name = extraction.sourceDocId;
+  function classifyConfidence(conf: number): ConfidenceLevel {
+    if (conf >= CONFIDENCE_AUTO_APPLY) return "high";
+    if (conf >= CONFIDENCE_REVIEW) return "review";
+    return "low";
   }
 
-  if (extraction.entityType) {
-    borrowerPatch.entity_type = extraction.entityType;
-    fieldsAutofilled.push("entity_type");
-    if (extraction.sourceDocId) provenance.entity_type = extraction.sourceDocId;
+  function tryApply(field: string, value: unknown, conf: number, sourceDocId: string | null) {
+    const level = classifyConfidence(conf);
+    const applied = conf >= CONFIDENCE_REVIEW; // Apply if >= 0.60
+    fieldStatuses.push({ field, confidence: conf, level, applied });
+
+    if (applied && value !== null && value !== undefined) {
+      borrowerPatch[field] = value;
+      fieldsAutofilled.push(field);
+      if (sourceDocId) provenance[field] = sourceDocId;
+      if (level === "review") {
+        warnings.push(`${field}: confidence ${(conf * 100).toFixed(0)}% — needs review`);
+      }
+    } else if (!applied && value !== null) {
+      warnings.push(`${field}: skipped (confidence ${(conf * 100).toFixed(0)}% below threshold)`);
+    }
   }
 
-  if (extraction.einMasked) {
-    borrowerPatch.ein = extraction.einMasked;
-    fieldsAutofilled.push("ein");
-    if (extraction.sourceDocId) provenance.ein = extraction.sourceDocId;
-  }
-
-  if (extraction.naicsCode) {
-    borrowerPatch.naics_code = extraction.naicsCode;
-    fieldsAutofilled.push("naics_code");
-    if (extraction.sourceDocId) provenance.naics_code = extraction.sourceDocId;
-  }
-
-  if (extraction.naicsDescription) {
+  if (extraction.legalName) tryApply("legal_name", extraction.legalName, fc.legal_name, extraction.sourceDocId);
+  if (extraction.entityType) tryApply("entity_type", extraction.entityType, fc.entity_type, extraction.sourceDocId);
+  if (extraction.einMasked) tryApply("ein", extraction.einMasked, fc.ein, extraction.sourceDocId);
+  if (extraction.naicsCode) tryApply("naics_code", extraction.naicsCode, fc.naics, extraction.sourceDocId);
+  if (extraction.naicsDescription && fc.naics >= CONFIDENCE_REVIEW) {
     borrowerPatch.naics_description = extraction.naicsDescription;
   }
-
-  if (extraction.stateOfFormation) {
-    borrowerPatch.state_of_formation = extraction.stateOfFormation;
-    fieldsAutofilled.push("state_of_formation");
-    if (extraction.sourceDocId) provenance.state_of_formation = extraction.sourceDocId;
-  }
+  if (extraction.stateOfFormation) tryApply("state_of_formation", extraction.stateOfFormation, fc.state_of_formation, extraction.sourceDocId);
 
   if (extraction.address) {
     const addr = extraction.address;
+    const addrConf = fc.address;
     if (typeof addr === "object" && addr !== null) {
-      if ((addr as any).line1) { borrowerPatch.address_line1 = (addr as any).line1; fieldsAutofilled.push("address_line1"); }
-      if ((addr as any).city) { borrowerPatch.city = (addr as any).city; fieldsAutofilled.push("city"); }
-      if ((addr as any).state) { borrowerPatch.state = (addr as any).state; fieldsAutofilled.push("state"); }
-      if ((addr as any).zip) { borrowerPatch.zip = (addr as any).zip; fieldsAutofilled.push("zip"); }
+      if ((addr as any).line1) tryApply("address_line1", (addr as any).line1, addrConf, extraction.sourceDocId);
+      if ((addr as any).city) tryApply("city", (addr as any).city, addrConf, extraction.sourceDocId);
+      if ((addr as any).state) tryApply("state", (addr as any).state, addrConf, extraction.sourceDocId);
+      if ((addr as any).zip) tryApply("zip", (addr as any).zip, addrConf, extraction.sourceDocId);
     } else if (typeof addr === "string" && addr.trim()) {
-      // Legacy: address was a single string. Store in address_line1 for now.
-      borrowerPatch.address_line1 = addr;
-      fieldsAutofilled.push("address_line1");
+      tryApply("address_line1", addr, addrConf, extraction.sourceDocId);
     }
   }
+
+  // Build extracted_confidence map for persistence
+  const extractedConfidence: Record<string, number> = {
+    legal_name: fc.legal_name,
+    entity_type: fc.entity_type,
+    ein: fc.ein,
+    naics: fc.naics,
+    address: fc.address,
+    state_of_formation: fc.state_of_formation,
+    ...Object.fromEntries(
+      Object.entries(fc.owners).map(([k, v]) => [`owner.${k}`, v])
+    ),
+  };
 
   // 3) Apply patch to borrower record
   if (Object.keys(borrowerPatch).length > 0) {
     borrowerPatch.profile_provenance = provenance;
+    borrowerPatch.extracted_confidence = extractedConfidence;
     borrowerPatch.updated_at = new Date().toISOString();
 
     const { error } = await sb
@@ -128,14 +157,21 @@ export async function autofillBorrowerFromDocs(args: {
   // 4) Upsert owners (>= 20% threshold) if requested
   let ownersUpserted = 0;
   if (args.includeOwners && extraction.owners && extraction.owners.length > 0) {
-    const significantOwners = extraction.owners.filter((o: any) => {
-      const pct = Number(o.ownership_pct ?? o.ownershipPercent ?? 0);
-      return pct >= 20 || extraction.owners!.length <= 3; // If ≤3 owners listed, include all
+    const significantOwners = extraction.owners.filter((o) => {
+      const pct = Number(o.ownership_pct ?? 0);
+      return pct >= 20 || extraction.owners!.length <= 3;
     });
 
     for (const owner of significantOwners) {
       const name = String(owner.name ?? "").trim();
       if (!name) continue;
+
+      const ownerKey = name.toLowerCase().replace(/\s+/g, "_");
+      const ownerConf = fc.owners[ownerKey] ?? 0;
+      if (ownerConf < CONFIDENCE_REVIEW) {
+        warnings.push(`owner_skipped: ${name} (confidence ${(ownerConf * 100).toFixed(0)}% below threshold)`);
+        continue;
+      }
 
       const pct = Number(owner.ownership_pct ?? 0) || null;
       const ownerRow = {
@@ -156,7 +192,6 @@ export async function autofillBorrowerFromDocs(args: {
         .maybeSingle();
 
       if (error) {
-        // Fallback: try plain insert if upsert conflict key doesn't exist
         const insertResult = await sb.from("borrower_owners").insert(ownerRow as any);
         if (!insertResult.error) {
           ownersUpserted++;
@@ -180,6 +215,8 @@ export async function autofillBorrowerFromDocs(args: {
     borrowerPatch,
     ownersUpserted,
     fieldsAutofilled,
+    fieldStatuses,
+    extractedConfidence,
     warnings,
   };
 }

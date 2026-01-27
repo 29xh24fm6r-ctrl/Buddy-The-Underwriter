@@ -4,6 +4,22 @@ import { assertServerOnly } from "@/lib/serverOnly";
 
 assertServerOnly();
 
+export type ExtractedField<T> = {
+  value: T | null;
+  confidence: number; // 0–1
+  source: "1120" | "1065" | "k1" | "1040" | "inferred" | "manual";
+};
+
+export type FieldConfidenceMap = {
+  legal_name: number;
+  entity_type: number;
+  ein: number;
+  naics: number;
+  address: number;
+  state_of_formation: number;
+  owners: Record<string, number>;
+};
+
 export type BorrowerExtraction = {
   legalName: string | null;
   entityType: string | null;
@@ -19,6 +35,7 @@ export type BorrowerExtraction = {
   }> | null;
   sourceDocId: string | null;
   confidence: number;
+  fieldConfidence: FieldConfidenceMap;
 };
 
 export function maskEin(raw: string | null | undefined): string | null {
@@ -190,6 +207,34 @@ export async function extractBorrowerFromDocs(args: {
     ? String(aiResult.stateOfFormation).trim()
     : null;
 
+  // ── Per-field confidence scoring ──────────────────────
+  // Base confidence from AI (0–100 scale → normalize to 0–1)
+  const baseConf = ai.ok ? Math.min(1, Number(aiResult?.confidence ?? ai.confidence ?? 65) / 100) : 0;
+
+  // Detect document source type from best text
+  const docSource = detectDocSource(bestText);
+
+  // Per-field: AI-extracted fields from tax forms get higher confidence
+  // Inferred fields (e.g., entity type from form number) get lower
+  const fieldConfidence: FieldConfidenceMap = {
+    legal_name: legalName ? clampConf(baseConf + (docSource !== "inferred" ? 0.05 : 0)) : 0,
+    entity_type: inferredEntity
+      ? (aiResult?.entityType ? clampConf(baseConf + 0.03) : clampConf(baseConf * 0.85)) // inferred from form type gets slightly lower
+      : 0,
+    ein: einMasked ? clampConf(baseConf + 0.05) : 0, // EIN is highly structured
+    naics: naicsCode ? clampConf(baseConf - 0.02) : 0, // NAICS is sometimes approximate
+    address: address ? clampConf(baseConf) : 0,
+    state_of_formation: stateOfFormation ? clampConf(baseConf - 0.05) : 0,
+    owners: {},
+  };
+
+  // Per-owner confidence
+  for (const owner of owners) {
+    const ownerKey = owner.name.toLowerCase().replace(/\s+/g, "_");
+    const hasPct = owner.ownership_pct !== null;
+    fieldConfidence.owners[ownerKey] = clampConf(baseConf + (hasPct ? 0.02 : -0.10));
+  }
+
   return {
     legalName: legalName || null,
     entityType: inferredEntity || null,
@@ -201,5 +246,21 @@ export async function extractBorrowerFromDocs(args: {
     owners: owners.length > 0 ? owners : null,
     sourceDocId: aiResult?.sourceDocId ? String(aiResult.sourceDocId) : samples[0]?.docId ?? null,
     confidence: ai.ok ? Number(aiResult?.confidence ?? ai.confidence ?? 65) : 0,
+    fieldConfidence,
   };
+}
+
+/** Clamp confidence to 0–1 range. */
+function clampConf(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
+/** Detect source document type from OCR text. */
+function detectDocSource(text: string): "1120" | "1065" | "k1" | "1040" | "inferred" {
+  const t = text.toLowerCase();
+  if (t.includes("form 1120s") || t.includes("form 1120")) return "1120";
+  if (t.includes("form 1065")) return "1065";
+  if (t.includes("schedule k-1") || t.includes("schedule k1")) return "k1";
+  if (t.includes("form 1040")) return "1040";
+  return "inferred";
 }

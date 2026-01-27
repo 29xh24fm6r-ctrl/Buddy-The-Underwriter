@@ -41,12 +41,25 @@ export async function GET(_req: Request, ctx: { params: Promise<{ dealId: string
     if (deal.borrower_id) {
       const { data: b, error: bErr } = await sb
         .from("borrowers")
-        .select("id, legal_name, entity_type, ein, primary_contact_name, primary_contact_email")
+        .select("id, legal_name, entity_type, ein, primary_contact_name, primary_contact_email, extracted_confidence")
         .eq("id", deal.borrower_id)
         .eq("bank_id", access.bankId)
         .maybeSingle();
 
       if (!bErr) borrower = b ?? null;
+    }
+
+    // Check for owner attestation
+    let hasAttestation = false;
+    if (deal.borrower_id) {
+      const { data: att } = await sb
+        .from("borrower_owner_attestations")
+        .select("id")
+        .eq("borrower_id", deal.borrower_id)
+        .order("attested_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      hasAttestation = Boolean(att);
     }
 
     const { data: principals } = await sb
@@ -85,6 +98,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ dealId: string
       borrower,
       principals: principals ?? [],
       dealBorrowerName: (deal as any)?.borrower_name ?? null,
+      hasAttestation,
       suggestedBorrower,
     });
   } catch (error: any) {

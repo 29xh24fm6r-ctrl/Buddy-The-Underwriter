@@ -3,6 +3,13 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 
+type FieldConfidence = {
+  field: string;
+  confidence: number;
+  level: "high" | "review" | "low";
+  applied: boolean;
+};
+
 type BorrowerSummary = {
   ok: boolean;
   borrower: {
@@ -12,9 +19,11 @@ type BorrowerSummary = {
     ein: string | null;
     primary_contact_name: string | null;
     primary_contact_email: string | null;
+    extracted_confidence?: Record<string, number> | null;
   } | null;
   principals: Array<{ id: string; name: string | null }>;
   dealBorrowerName: string | null;
+  hasAttestation?: boolean;
   suggestedBorrower?: {
     legal_name: string | null;
     entity_type: string | null;
@@ -61,6 +70,9 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
   const [creating, setCreating] = useState(false);
   const [autofilling, setAutofilling] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [lastFieldStatuses, setLastFieldStatuses] = useState<FieldConfidence[]>([]);
+  const [showAttestModal, setShowAttestModal] = useState(false);
+  const [attesting, setAttesting] = useState(false);
 
   const entityTypeOptions = [
     "LLC",
@@ -255,6 +267,10 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
       const fieldsCount = json.fields_autofilled?.length ?? 0;
       const ownersCount = json.owners_created ?? 0;
       const warnings = json.warnings ?? [];
+      // Capture field-level confidence statuses from response
+      if (json.field_statuses) {
+        setLastFieldStatuses(json.field_statuses);
+      }
       let msg = json.action === "created"
         ? "Borrower created from documents."
         : `Autofilled ${fieldsCount} field${fieldsCount !== 1 ? "s" : ""}`;
@@ -270,8 +286,54 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
     }
   }
 
+  async function attestOwners() {
+    setAttesting(true);
+    setActionError(null);
+    try {
+      const borrowerId = summary?.borrower?.id;
+      if (!borrowerId) return;
+      const res = await fetch(`/api/borrowers/${borrowerId}/owners/attest`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dealId }),
+      });
+      const json = await res.json();
+      if (!json?.ok) {
+        handleActionError(json);
+        return;
+      }
+      setToast("Ownership attested successfully.");
+      setShowAttestModal(false);
+      await loadSummary();
+    } catch (e: any) {
+      setActionError({ code: "network_error", message: e?.message || "Attestation failed", correlationId: "—" });
+    } finally {
+      setAttesting(false);
+    }
+  }
+
+  function confidenceBadge(conf: number) {
+    if (conf >= 0.85) return <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" title={`${(conf * 100).toFixed(0)}% confidence`} />;
+    if (conf >= 0.60) return <span className="inline-block w-2 h-2 rounded-full bg-amber-500" title={`${(conf * 100).toFixed(0)}% — needs review`} />;
+    return <span className="inline-block w-2 h-2 rounded-full bg-red-500" title={`${(conf * 100).toFixed(0)}% — low confidence`} />;
+  }
+
   const hasBorrower = Boolean(summary?.borrower);
   const suggestion = summary?.suggestedBorrower ?? null;
+  const extractedConf = summary?.borrower?.extracted_confidence ?? null;
+  const hasAttestation = summary?.hasAttestation ?? false;
+
+  // Determine if all required fields have high confidence
+  const allHighConfidence = extractedConf
+    ? ["legal_name", "entity_type", "ein", "naics", "address"].every(
+        (f) => (extractedConf[f] ?? 0) >= 0.85
+      )
+    : false;
+  const anyNeedsReview = extractedConf
+    ? Object.entries(extractedConf).some(
+        ([k, v]) => !k.startsWith("owner.") && v >= 0.60 && v < 0.85
+      )
+    : false;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -394,6 +456,104 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
                 <div className="text-xs text-slate-500">No principals recorded yet.</div>
               )}
             </div>
+
+            {/* ── Confidence Panel ── */}
+            {extractedConf && Object.keys(extractedConf).length > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <div className="text-xs font-semibold text-slate-700 flex items-center gap-2">
+                  Autofill Confidence
+                  <span className="text-slate-400 font-normal">(derived from uploaded tax documents)</span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  {Object.entries(extractedConf)
+                    .filter(([k]) => !k.startsWith("owner."))
+                    .map(([field, conf]) => (
+                      <div key={field} className="flex items-center gap-1.5">
+                        {confidenceBadge(conf)}
+                        <span className="text-slate-600">{field.replace(/_/g, " ")}</span>
+                        <span className="text-slate-400 ml-auto">{(conf * 100).toFixed(0)}%</span>
+                      </div>
+                    ))}
+                </div>
+                {Object.entries(extractedConf).some(([k]) => k.startsWith("owner.")) && (
+                  <div className="pt-1 border-t border-slate-200">
+                    <div className="text-xs font-semibold text-slate-600 mb-1">Owner Confidence</div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                      {Object.entries(extractedConf)
+                        .filter(([k]) => k.startsWith("owner."))
+                        .map(([field, conf]) => (
+                          <div key={field} className="flex items-center gap-1.5">
+                            {confidenceBadge(conf)}
+                            <span className="text-slate-600">{field.replace("owner.", "").replace(/_/g, " ")}</span>
+                            <span className="text-slate-400 ml-auto">{(conf * 100).toFixed(0)}%</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+                <div className="pt-2 flex items-center gap-2">
+                  {allHighConfidence && !anyNeedsReview ? (
+                    <span className="text-xs text-emerald-600 font-semibold">All fields high confidence</span>
+                  ) : anyNeedsReview ? (
+                    <span className="text-xs text-amber-600 font-semibold">Some fields need review</span>
+                  ) : null}
+                </div>
+              </div>
+            )}
+
+            {/* ── Attestation Status ── */}
+            {summary.principals?.length > 0 && (
+              <div className="flex items-center gap-2">
+                {hasAttestation ? (
+                  <span className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                    Ownership Attested
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowAttestModal(true)}
+                    className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+                  >
+                    Attest Ownership
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* ── Attestation Confirmation Modal ── */}
+            {showAttestModal && (
+              <div className="rounded-xl border border-slate-300 bg-white p-4 shadow-lg space-y-3">
+                <div className="text-sm font-semibold text-slate-900">Confirm Ownership Attestation</div>
+                <div className="text-xs text-slate-600">
+                  By attesting, you confirm that the ownership information shown above is accurate and complete.
+                  This creates an immutable audit record.
+                </div>
+                {summary.principals?.length ? (
+                  <ul className="text-xs text-slate-700 space-y-1 pl-4 list-disc">
+                    {summary.principals.map((p) => (
+                      <li key={p.id}>{p.name || "Unnamed"}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={attestOwners}
+                    disabled={attesting}
+                    className="rounded-xl border border-emerald-300 bg-emerald-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                  >
+                    {attesting ? "Attesting..." : "Attest Ownership"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAttestModal(false)}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : null}
 
