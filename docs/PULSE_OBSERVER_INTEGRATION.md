@@ -232,6 +232,61 @@ export async function searchBuddyEvents({ query }) {
 | `error` | Errors that need attention |
 | `fatal` | Critical failures |
 
+### 4. Fingerprint Summary RPC
+
+Migration: `supabase/migrations/20260128_buddy_error_fingerprint_summary.sql`
+
+Groups recent errors by fingerprint for fast cluster analysis. Called by Pulse MCP via `supabaseAdmin.rpc()`.
+
+```sql
+-- Returns top N error clusters in the last M minutes
+select * from buddy_error_fingerprint_summary('prod', 60, 10);
+```
+
+Returns per fingerprint: count, first/last seen, stages, types, sample messages, sample deal_ids, sample releases.
+
+### 5. MCP Fingerprint Tools
+
+```typescript
+// buddy.error_fingerprint_summary
+export async function buddy_error_fingerprint_summary(args: {
+  env?: string;   // default: "prod"
+  minutes?: number; // default: 60
+  limit?: number;   // default: 10
+}) {
+  return await supabaseAdmin.rpc("buddy_error_fingerprint_summary", {
+    p_env: args.env ?? "prod",
+    p_minutes: args.minutes ?? 60,
+    p_limit: args.limit ?? 10,
+  });
+}
+
+// buddy.get_fingerprint_samples — fetch raw events for a specific cluster
+export async function buddy_get_fingerprint_samples(args: {
+  fingerprint: string;
+  env?: string;     // default: "prod"
+  minutes?: number; // default: 120
+  limit?: number;   // default: 50
+}) {
+  const since = new Date(Date.now() - (args.minutes ?? 120) * 60_000).toISOString();
+  return await supabaseAdmin
+    .from("buddy_observer_events")
+    .select("*")
+    .eq("env", args.env ?? "prod")
+    .eq("fingerprint", args.fingerprint)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(args.limit ?? 50);
+}
+```
+
+### Claude Incident Response Loop
+
+1. **Cluster scan:** `buddy.error_fingerprint_summary({ env:"prod", minutes:60, limit:10 })`
+2. **Drill into cluster:** `buddy.get_fingerprint_samples({ fingerprint:"...", minutes:240, limit:50 })`
+3. **Deal timeline:** `buddy.get_deal_timeline({ deal_id:"..." })` (from sample deal_ids)
+4. **Propose fix** with evidence (stack traces, context, affected deals, release correlation)
+
 ---
 
 ## What This Enables
@@ -247,4 +302,6 @@ Claude can now:
 **MVP Complete When:**
 - Buddy emits events ✅
 - Pulse ingests them (TODO)
+- Fingerprint summary RPC created ✅
 - Claude can answer: "Why did Deal X fail and what changed right before?"
+- Claude can answer: "Top 10 error clusters in the last hour and which deals are affected?"
