@@ -2,7 +2,10 @@
  * POST /api/artifacts/process
  *
  * Process queued document artifacts.
- * This endpoint can be called by a cron job or manually triggered.
+ * This endpoint can be called by:
+ *   - Internal server-to-server (x-buddy-internal header)
+ *   - Vercel cron (WORKER_SECRET via header/query/bearer)
+ *   - Super admins (via UI)
  *
  * Query params:
  * - max: Maximum number of artifacts to process (default: 10, max: 50)
@@ -15,7 +18,32 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes max for processing
 
+/** Check if the request is authorized via internal header or worker secret. */
+function isAuthorized(req: NextRequest): boolean {
+  // Internal server-to-server call (same-origin, injected by upload route)
+  if (req.headers.get("x-buddy-internal") === "1") return true;
+
+  // Worker secret (cron / external worker)
+  const secret = process.env.WORKER_SECRET;
+  if (secret) {
+    const auth = req.headers.get("authorization") ?? "";
+    if (auth === `Bearer ${secret}`) return true;
+    if (req.headers.get("x-worker-secret") === secret) return true;
+    const url = new URL(req.url);
+    if (url.searchParams.get("token") === secret) return true;
+  }
+
+  return false;
+}
+
 export async function POST(req: NextRequest) {
+  if (!isAuthorized(req)) {
+    return NextResponse.json(
+      { ok: false, error: "Unauthorized" },
+      { status: 401 },
+    );
+  }
+
   try {
     // Parse max from query or body
     const url = new URL(req.url);
@@ -65,12 +93,18 @@ export async function POST(req: NextRequest) {
     console.error("[artifacts/process] error", error);
     return NextResponse.json(
       { ok: false, error: error?.message || "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
-// Also allow GET for easy testing
+// GET for dev testing only
 export async function GET(req: NextRequest) {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json(
+      { ok: false, error: "GET not allowed in production" },
+      { status: 405 },
+    );
+  }
   return POST(req);
 }

@@ -213,6 +213,35 @@ export async function processArtifact(
       });
     }
 
+    // 6.5. Stamp the source document with classification metadata
+    if (source_table === "deal_documents") {
+      const { matchAndStampDealDocument } = await import(
+        "@/lib/checklist/engine"
+      );
+      await matchAndStampDealDocument({
+        sb,
+        dealId,
+        documentId: source_id,
+        originalFilename: filename,
+        mimeType,
+        metadata: {
+          skip_filename_match: true, // AI classification is authoritative
+          doc_type: classification.docType,
+          doc_year: classification.taxYear,
+        },
+      });
+    }
+
+    // 6.6. Reconcile checklist (flips required items to received)
+    const { reconcileChecklistForDeal } = await import(
+      "@/lib/checklist/engine"
+    );
+    await reconcileChecklistForDeal({ sb, dealId });
+
+    // 6.7. Recompute deal readiness
+    const { recomputeDealReady } = await import("@/lib/deals/readiness");
+    await recomputeDealReady(dealId);
+
     // 7. Log success
     await logLedgerEvent({
       dealId,
@@ -226,6 +255,7 @@ export async function processArtifact(
         confidence: classification.confidence,
         tax_year: classification.taxYear,
         matched_keys: matchedKeys,
+        stamped: source_table === "deal_documents",
       },
     });
 

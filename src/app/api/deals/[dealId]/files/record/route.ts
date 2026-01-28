@@ -25,6 +25,7 @@ import { igniteDeal } from "@/lib/deals/igniteDeal";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { canTransitionIntakeState, type DealIntakeState } from "@/lib/deals/intakeState";
 import { queueArtifact } from "@/lib/artifacts/queueArtifact";
+import { getBaseUrl } from "@/lib/net/getBaseUrl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -683,6 +684,15 @@ export async function POST(req: NextRequest, ctx: Context) {
           error: err?.message,
         });
       });
+
+      // Fire-and-forget: nudge artifact processor to drain queue
+      const base = getBaseUrl();
+      if (base) {
+        fetch(`${base}/api/artifacts/process?max=3`, {
+          method: "POST",
+          headers: { "x-buddy-internal": "1" },
+        }).catch(() => {});
+      }
     }
 
     // ✅ 3) Pipeline ledger audit trail

@@ -7,6 +7,10 @@
     {
       "path": "/api/jobs/worker/tick?type=SPREADS&token=__SET_WORKER_SECRET__",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/artifacts/process?max=20&token=__SET_WORKER_SECRET__",
+      "schedule": "*/1 * * * *"
     }
   ]
 }

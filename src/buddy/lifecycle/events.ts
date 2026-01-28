@@ -71,6 +71,11 @@ export const LedgerEventType = {
   // Document stamping
   doc_stamped: "deal.doc.stamped",
   doc_stamp_failed: "deal.doc.stamp_failed",
+
+  // Artifact processing pipeline
+  artifact_process_started: "artifact.process.started",
+  artifact_process_completed: "artifact.process.completed",
+  artifact_process_failed: "artifact.process.failed",
 } as const;
 
 export type LedgerEventTypeValue = (typeof LedgerEventType)[keyof typeof LedgerEventType];
