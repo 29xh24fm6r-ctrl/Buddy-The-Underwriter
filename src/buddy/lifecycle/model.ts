@@ -133,7 +133,7 @@ export type ActorContext = {
 export type AdvanceLifecycleResult =
   | { ok: true; advanced: true; state: LifecycleState }
   | { ok: true; advanced: false; state: LifecycleState; reason: string }
-  | { ok: false; error: "blocked"; blockers: LifecycleBlocker[]; state: LifecycleState }
+  | { ok: false; error: "blocked"; blockers: LifecycleBlocker[]; allBlockers?: LifecycleBlocker[]; state: LifecycleState }
   | { ok: false; error: "deal_not_found" };
 
 /**

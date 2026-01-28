@@ -1,4 +1,5 @@
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycleCore";
+import { LedgerEventType } from "@/buddy/lifecycle/events";
 
 export type IgniteSource = "banker_invite" | "banker_upload";
 
@@ -93,34 +94,8 @@ export async function igniteDeal(params: {
 
   const loanType = String(intake?.loan_type || "CRE") || "CRE";
 
-  const { error: updErr } = await sb
-    .from("deals")
-    .update({ lifecycle_stage: "intake" })
-    .eq("id", dealId);
-
-  if (updErr) {
-    return { ok: false, error: "Failed to update deal lifecycle" } as const;
-  }
-
-  await ledgerWrite({
-    dealId,
-    kind: "deal.ignited",
-    actorUserId: triggeredByUserId,
-    input: { source, triggered_by_user_id: triggeredByUserId },
-  });
-
-  await pipelineLog({
-    dealId,
-    bankId,
-    eventKey: "deal.ignited",
-    uiState: "done",
-    uiMessage:
-      source === "banker_invite"
-        ? "Deal intake started — borrower invited"
-        : "Deal intake started — banker uploaded documents",
-    meta: { source, triggered_by_user_id: triggeredByUserId },
-  });
-
+  // ── Step 1: Seed checklist BEFORE lifecycle advance ────────────
+  // If seed fails the deal stays in "created" — never orphaned in "intake" without a checklist.
   const checklistRows = (buildChecklistForLoanType?.(loanType) ?? []).map((row) => ({
     deal_id: dealId,
     bank_id: bankId,
@@ -148,37 +123,76 @@ export async function igniteDeal(params: {
     }
   }
 
-  if (seededOk) {
+  if (!seededOk) {
     await ledgerWrite({
       dealId,
-      kind: "deal.checklist.seeded",
+      kind: LedgerEventType.checklist_seed_failed,
       actorUserId: triggeredByUserId,
-      input: {
-        source: source === "banker_invite" ? "ignite" : "banker_upload",
-        item_count: checklistRows.length,
-      },
+      input: { loanType, source },
     });
-
-    await pipelineLog({
-      dealId,
-      bankId,
-      eventKey: "deal.checklist.seeded",
-      uiState: "done",
-      uiMessage: `Checklist seeded (${checklistRows.length} items)`,
-      meta: {
-        source: source === "banker_invite" ? "ignite" : "banker_upload",
-        item_count: checklistRows.length,
-      },
-    });
-
-    await advanceLifecycle({
-      dealId,
-      toStage: "collecting",
-      reason: "checklist_seeded",
-      source,
-      actor: { userId: triggeredByUserId, type: "user" },
-    });
+    return { ok: false, error: "checklist_seed_failed" } as const;
   }
+
+  // ── Step 2: Advance lifecycle to "intake" (checklist is guaranteed) ──
+  const { error: updErr } = await sb
+    .from("deals")
+    .update({ lifecycle_stage: "intake" })
+    .eq("id", dealId);
+
+  if (updErr) {
+    return { ok: false, error: "Failed to update deal lifecycle" } as const;
+  }
+
+  // ── Step 3: Write ledger events ────────────────────────────────
+  await ledgerWrite({
+    dealId,
+    kind: "deal.ignited",
+    actorUserId: triggeredByUserId,
+    input: { source, triggered_by_user_id: triggeredByUserId },
+  });
+
+  await pipelineLog({
+    dealId,
+    bankId,
+    eventKey: "deal.ignited",
+    uiState: "done",
+    uiMessage:
+      source === "banker_invite"
+        ? "Deal intake started — borrower invited"
+        : "Deal intake started — banker uploaded documents",
+    meta: { source, triggered_by_user_id: triggeredByUserId },
+  });
+
+  await ledgerWrite({
+    dealId,
+    kind: LedgerEventType.checklist_seeded,
+    actorUserId: triggeredByUserId,
+    input: {
+      source: source === "banker_invite" ? "ignite" : "banker_upload",
+      item_count: checklistRows.length,
+    },
+  });
+
+  await pipelineLog({
+    dealId,
+    bankId,
+    eventKey: LedgerEventType.checklist_seeded,
+    uiState: "done",
+    uiMessage: `Checklist seeded (${checklistRows.length} items)`,
+    meta: {
+      source: source === "banker_invite" ? "ignite" : "banker_upload",
+      item_count: checklistRows.length,
+    },
+  });
+
+  // ── Step 4: Advance to "collecting" ────────────────────────────
+  await advanceLifecycle({
+    dealId,
+    toStage: "collecting",
+    reason: "checklist_seeded",
+    source,
+    actor: { userId: triggeredByUserId, type: "user" },
+  });
 
   await ensurePortal(dealId);
 

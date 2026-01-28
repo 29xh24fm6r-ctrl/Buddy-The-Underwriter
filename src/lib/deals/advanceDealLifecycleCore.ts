@@ -1,3 +1,5 @@
+import { LedgerEventType } from "@/buddy/lifecycle/events";
+
 type SupabaseAdminFn = () => any;
 type WriteEventFn = (args: any) => Promise<{ ok: boolean; error?: string }>;
 type LogLedgerEventFn = (args: any) => Promise<void>;
@@ -99,7 +101,7 @@ export async function advanceDealLifecycle(params: {
 
   await ledgerWrite({
     dealId,
-    kind: "deal.lifecycle_advanced",
+    kind: LedgerEventType.lifecycle_advanced,
     actorUserId: actor.userId ?? null,
     input: {
       from: current,
@@ -113,7 +115,7 @@ export async function advanceDealLifecycle(params: {
   await pipelineLog({
     dealId,
     bankId: deal.bank_id,
-    eventKey: "deal.lifecycle_advanced",
+    eventKey: LedgerEventType.lifecycle_advanced,
     uiState: "done",
     uiMessage: `Lifecycle advanced: ${current} → ${toStage}`,
     meta: {

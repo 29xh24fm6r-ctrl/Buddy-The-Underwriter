@@ -2,6 +2,8 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
 import { fireWebhook } from "@/lib/webhooks/fireWebhook";
+import { LedgerEventType } from "@/buddy/lifecycle/events";
+import { getSatisfiedRequired, getMissingRequired } from "@/lib/deals/checklistSatisfaction";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
@@ -63,11 +65,8 @@ export async function computeDealReadiness(
     };
   }
 
-  const requiredItems = checklist.filter((item) => item.required);
-  const satisfiedRequired = requiredItems.filter(
-    (item) => item.status === "satisfied" || item.status === "received"
-  );
-  const missingRequired = requiredItems.length - satisfiedRequired.length;
+  const satisfiedRequired = getSatisfiedRequired(checklist);
+  const missingRequired = getMissingRequired(checklist).length;
 
   if (missingRequired > 0) {
     return {
@@ -117,14 +116,18 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
   const result = await computeDealReadiness(dealId);
 
   if (result.ready) {
-    // Deal is ready - set timestamp + reason
-    await sb
+    // Atomic conditional update — only set ready_at if currently null.
+    // This prevents duplicate webhooks when concurrent calls both see wasReady=false.
+    const { data: updated } = await sb
       .from("deals")
       .update({
         ready_at: new Date().toISOString(),
         ready_reason: result.reason,
       })
-      .eq("id", dealId);
+      .eq("id", dealId)
+      .is("ready_at", null)
+      .select("id")
+      .maybeSingle();
 
     // Log to pipeline ledger
     await sb.from("deal_pipeline_ledger").insert({
@@ -138,8 +141,8 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
       },
     });
 
-    // 🔔 WEBHOOK: Fire on transition from not-ready → ready
-    if (!wasReady && currentDeal?.bank_id) {
+    // Fire ONLY if we actually transitioned (atomic guard won the race)
+    if (updated && currentDeal?.bank_id) {
       await fireWebhook("deal.ready", {
         deal_id: dealId,
         bank_id: currentDeal.bank_id,
@@ -168,6 +171,17 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
         ready_reason: result.reason,
       })
       .eq("id", dealId);
+
+    // Write reverted event if deal was previously ready
+    if (wasReady) {
+      const { writeEvent } = await import("@/lib/ledger/writeEvent");
+      await writeEvent({
+        dealId,
+        kind: LedgerEventType.ready_reverted,
+        actorUserId: null,
+        input: { reason: result.reason },
+      });
+    }
   }
 }
 

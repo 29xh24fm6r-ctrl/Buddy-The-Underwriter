@@ -6,6 +6,7 @@ import {
   type UnderwriteVerifyDetails,
   type UnderwriteVerifySource,
 } from "@/lib/deals/underwriteVerifyLedger";
+import { getMissingRequired } from "@/lib/deals/checklistSatisfaction";
 
 export type VerifyUnderwriteRecommendedNextAction =
   | "complete_intake"
@@ -264,12 +265,11 @@ export async function verifyUnderwriteCore(
 
   const requiredItems = (checklistRows ?? []) as Array<{
     checklist_key: string | null;
+    required: boolean;
     received_at: string | null;
     status: string | null;
   }>;
-  const missingRequired = requiredItems.filter(
-    (item) => !item.received_at && item.status !== "received" && item.status !== "satisfied"
-  );
+  const missingRequired = getMissingRequired(requiredItems);
 
   if (requiredItems.length === 0 || missingRequired.length > 0) {
     const missingChecklistKeys = missingRequired.map((item) =>

@@ -744,6 +744,19 @@ export async function matchAndStampDealDocument(opts: {
 
   if (updErr) {
     console.error("[matchAndStampDealDocument] update failed:", updErr);
+    // Fire-and-forget stamp failure event
+    import("@/lib/ledger/writeEvent").then(({ writeEvent }) =>
+      writeEvent({
+        dealId: opts.dealId,
+        kind: "deal.doc.stamp_failed",
+        actorUserId: null,
+        input: {
+          document_id: documentId,
+          error: updErr.message,
+          checklist_key: hasConfidentKey ? m.matchedKey : null,
+        },
+      }).catch(() => {})
+    ).catch(() => {});
     return { matched: false, error: updErr.message };
   }
 
@@ -755,6 +768,22 @@ export async function matchAndStampDealDocument(opts: {
       confidence: matchConfidence,
     } as any;
   }
+
+  // Fire-and-forget stamp success event
+  import("@/lib/ledger/writeEvent").then(({ writeEvent }) =>
+    writeEvent({
+      dealId: opts.dealId,
+      kind: "deal.doc.stamped",
+      actorUserId: null,
+      input: {
+        document_id: documentId,
+        checklist_key: m.matchedKey,
+        doc_year: docYear,
+        confidence: matchConfidence,
+        match_source: skipFilename ? "content_pending" : m.source || "filename",
+      },
+    }).catch(() => {})
+  ).catch(() => {});
 
   return {
     matched: true,

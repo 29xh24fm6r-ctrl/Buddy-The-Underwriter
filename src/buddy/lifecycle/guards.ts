@@ -43,8 +43,69 @@ export function requireStageOrBlock(
 }
 
 /**
- * Check if deal has passed a minimum stage (linear progression).
- * Useful for "deal must be at least at X stage" checks.
+ * Stages reachable from each stage (inclusive of the stage itself and all stages beyond it).
+ * Handles the workout branch naturally — workout is reachable from committee_decisioned
+ * and earlier, but NOT from closing_in_progress or closed.
+ */
+export const STAGES_AT_OR_BEYOND: Record<LifecycleStage, Set<LifecycleStage>> = {
+  intake_created: new Set([
+    "intake_created", "docs_requested", "docs_in_progress", "docs_satisfied",
+    "underwrite_ready", "underwrite_in_progress", "committee_ready",
+    "committee_decisioned", "closing_in_progress", "closed", "workout",
+  ]),
+  docs_requested: new Set([
+    "docs_requested", "docs_in_progress", "docs_satisfied",
+    "underwrite_ready", "underwrite_in_progress", "committee_ready",
+    "committee_decisioned", "closing_in_progress", "closed", "workout",
+  ]),
+  docs_in_progress: new Set([
+    "docs_in_progress", "docs_satisfied",
+    "underwrite_ready", "underwrite_in_progress", "committee_ready",
+    "committee_decisioned", "closing_in_progress", "closed", "workout",
+  ]),
+  docs_satisfied: new Set([
+    "docs_satisfied", "underwrite_ready", "underwrite_in_progress",
+    "committee_ready", "committee_decisioned", "closing_in_progress",
+    "closed", "workout",
+  ]),
+  underwrite_ready: new Set([
+    "underwrite_ready", "underwrite_in_progress", "committee_ready",
+    "committee_decisioned", "closing_in_progress", "closed", "workout",
+  ]),
+  underwrite_in_progress: new Set([
+    "underwrite_in_progress", "committee_ready", "committee_decisioned",
+    "closing_in_progress", "closed", "workout",
+  ]),
+  committee_ready: new Set([
+    "committee_ready", "committee_decisioned", "closing_in_progress",
+    "closed", "workout",
+  ]),
+  committee_decisioned: new Set([
+    "committee_decisioned", "closing_in_progress", "closed", "workout",
+  ]),
+  closing_in_progress: new Set(["closing_in_progress", "closed"]),
+  closed: new Set(["closed"]),
+  workout: new Set(["workout"]),
+};
+
+/**
+ * Check if `stage` is at or before `ceiling` in the lifecycle.
+ * Returns true if advancing from `stage` could reach `ceiling`.
+ * Used for stage-cap validation (e.g. force-advance max stage).
+ */
+export function isStageAtOrBefore(
+  stage: LifecycleStage,
+  ceiling: LifecycleStage
+): boolean {
+  if (stage === ceiling) return true;
+  const reachable = STAGES_AT_OR_BEYOND[stage];
+  return reachable?.has(ceiling) ?? false;
+}
+
+/**
+ * Check if deal has passed a minimum stage.
+ * Uses explicit reachability sets instead of linear indexOf —
+ * handles the workout branch and any future branches without special-casing.
  *
  * @example
  * const result = requireMinimumStage(state, "underwrite_in_progress", "/deals/123/cockpit");
@@ -54,31 +115,8 @@ export function requireMinimumStage(
   minimumStage: LifecycleStage,
   fallbackRoute: string
 ): GuardResult {
-  const stageOrder: LifecycleStage[] = [
-    "intake_created",
-    "docs_requested",
-    "docs_in_progress",
-    "docs_satisfied",
-    "underwrite_ready",
-    "underwrite_in_progress",
-    "committee_ready",
-    "committee_decisioned",
-    "closing_in_progress",
-    "closed",
-  ];
-
-  const currentIndex = stageOrder.indexOf(state.stage);
-  const minimumIndex = stageOrder.indexOf(minimumStage);
-
-  // Handle workout separately (it's a branch, not in linear order)
-  if (state.stage === "workout") {
-    // Workout is accessible from committee_decisioned onwards
-    if (minimumIndex <= stageOrder.indexOf("committee_decisioned")) {
-      return { ok: true };
-    }
-  }
-
-  if (currentIndex >= minimumIndex) {
+  const reachable = STAGES_AT_OR_BEYOND[minimumStage];
+  if (reachable?.has(state.stage)) {
     return { ok: true };
   }
 

@@ -29,6 +29,9 @@ import { cn } from "@/lib/utils";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 // Import from client-safe module to avoid server-only code in client components
 import type { LifecycleState } from "@/buddy/lifecycle/client";
+import { getStageBadge } from "@/lib/lifecycle/stageBadge";
+import { ForceAdvancePanel } from "@/components/deals/ForceAdvancePanel";
+import { PreviewUnderwritePanel } from "@/components/deals/PreviewUnderwritePanel";
 
 // Glass panel style for Stitch-like design
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
@@ -162,14 +165,8 @@ export default function DealCockpitClient({
   const resolvedDealTitle = dealName?.displayName?.trim() || dealName?.nickname?.trim() || effectiveBorrowerName || "Untitled deal";
   const isUntitled = resolvedDealTitle === "Untitled deal";
 
-  // Stage badge styling
-  const stageBadge = (() => {
-    if (!stage || stage === "created") return { label: "New", className: "bg-slate-500/20 text-slate-300 border-slate-400/30" };
-    if (stage === "intake" || stage === "ignited") return { label: "Intake", className: "bg-sky-500/20 text-sky-300 border-sky-400/30" };
-    if (stage === "underwriting") return { label: "Underwriting", className: "bg-amber-500/20 text-amber-300 border-amber-400/30" };
-    if (stage === "approved" || stage === "funded") return { label: stage, className: "bg-emerald-500/20 text-emerald-300 border-emerald-400/30" };
-    return { label: stage, className: "bg-white/10 text-white/70 border-white/20" };
-  })();
+  // Stage badge styling (extracted to shared utility)
+  const stageBadge = getStageBadge(stage);
 
   return (
     <CockpitDataProvider dealId={dealId}>
@@ -177,7 +174,7 @@ export default function DealCockpitClient({
     <DegradedBanner dealId={dealId} />
     <div className="min-h-screen text-white">
       {/* Cockpit Container */}
-      <div className="mx-auto max-w-7xl px-6 py-6 space-y-6">
+      <div className="mx-auto max-w-7xl px-3 py-4 space-y-4 sm:px-6 sm:py-6 sm:space-y-6">
 
         {/* Hero Header - Strong hierarchy with deal title prominence */}
         <div className={cn(glassPanel, "overflow-hidden")}>
@@ -255,7 +252,7 @@ export default function DealCockpitClient({
         </SafeBoundary>
 
         {/* Two Column Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
 
           {/* Left Column - Intake & Setup */}
           <div className="space-y-6">
@@ -354,6 +351,21 @@ export default function DealCockpitClient({
                 <SafeBoundary>
                   <DealOutputsPanel dealId={dealId} verify={verify} />
                 </SafeBoundary>
+
+                {/* Preview Underwrite — runs policy engine without lifecycle mutation */}
+                <SafeBoundary>
+                  <PreviewUnderwritePanel dealId={dealId} />
+                </SafeBoundary>
+
+                {/* Force Advance — admin only, gated by env */}
+                {isAdmin && (
+                  <SafeBoundary>
+                    <ForceAdvancePanel
+                      dealId={dealId}
+                      currentStage={unifiedLifecycleState?.stage ?? stage}
+                    />
+                  </SafeBoundary>
+                )}
               </div>
             </div>
 

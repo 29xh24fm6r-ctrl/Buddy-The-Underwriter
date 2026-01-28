@@ -53,6 +53,24 @@ export const LedgerEventType = {
 
   // Workout
   workout_entered: "deal.workout.entered",
+
+  // Telemetry / hardening events
+  checklist_seed_failed: "deal.checklist.seed_failed",
+  lifecycle_blocked: "deal.lifecycle.blocked",
+  status_synced: "deal.status.synced",
+  ready_reverted: "deal.ready.reverted",
+
+  // Force-advance audit
+  lifecycle_force_advanced: "deal.lifecycle.force_advanced",
+
+  // Preview underwrite
+  underwrite_preview_requested: "deal.underwrite.preview_requested",
+  underwrite_preview_completed: "deal.underwrite.preview_completed",
+  underwrite_preview_failed: "deal.underwrite.preview_failed",
+
+  // Document stamping
+  doc_stamped: "deal.doc.stamped",
+  doc_stamp_failed: "deal.doc.stamp_failed",
 } as const;
 
 export type LedgerEventTypeValue = (typeof LedgerEventType)[keyof typeof LedgerEventType];

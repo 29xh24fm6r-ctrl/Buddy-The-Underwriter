@@ -37,6 +37,7 @@ import {
   safeSupabaseCount,
   type SafeFetchContext,
 } from "./safeFetch";
+import { getSatisfiedRequired, getMissingRequired } from "@/lib/deals/checklistSatisfaction";
 
 // Type for the internal lifecycle stage from deals table
 type DealLifecycleStage = "created" | "intake" | "collecting" | "underwriting" | "ready";
@@ -136,8 +137,8 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   const requiredItems = checklist.filter((item) => item.required);
-  const satisfiedItems = requiredItems.filter((item) => item.status === "satisfied" || item.status === "received");
-  const missingItems = requiredItems.filter((item) => item.status !== "satisfied" && item.status !== "received");
+  const satisfiedItems = getSatisfiedRequired(checklist);
+  const missingItems = getMissingRequired(checklist);
 
   // 3. Compute deal readiness using existing function
   let borrowerChecklistSatisfied = false;
@@ -154,53 +155,83 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     borrowerChecklistSatisfied = requiredItems.length > 0 && missingItems.length === 0;
   }
 
-  // 4. Check for financial snapshot
-  let financialSnapshotExists = false;
-  const snapshotResult = await safeSupabaseCount(
-    "snapshot",
-    () =>
-      sb
-        .from("deal_truth_snapshots")
-        .select("id", { count: "exact", head: true })
-        .eq("deal_id", dealId),
-    ctx
-  );
+  // 4–8. Parallel independent queries (snapshot, decision, packet, advancement)
+  const [snapshotResult, decisionResult, packetResult, advancementResult] = await Promise.all([
+    safeSupabaseCount(
+      "snapshot",
+      () =>
+        sb
+          .from("deal_truth_snapshots")
+          .select("id", { count: "exact", head: true })
+          .eq("deal_id", dealId),
+      ctx
+    ),
+    safeSupabaseQuery<{
+      id: string;
+      status: string;
+      committee_required: boolean;
+    }>(
+      "decision",
+      () =>
+        sb
+          .from("decision_snapshots")
+          .select("id, status, committee_required")
+          .eq("deal_id", dealId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ctx
+    ),
+    safeSupabaseCount(
+      "packet",
+      () =>
+        sb
+          .from("deal_events")
+          .select("id", { count: "exact", head: true })
+          .eq("deal_id", dealId)
+          .eq("kind", "deal.committee.packet.generated"),
+      ctx
+    ),
+    safeSupabaseQuery<{ created_at: string }>(
+      "advancement",
+      () =>
+        sb
+          .from("deal_events")
+          .select("created_at")
+          .eq("deal_id", dealId)
+          .in("kind", ["deal.lifecycle.advanced", "deal.lifecycle_advanced"])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ctx
+    ),
+  ]);
 
+  let financialSnapshotExists = false;
   if (snapshotResult.ok) {
     financialSnapshotExists = snapshotResult.data > 0;
   }
-  // Note: snapshot fetch failure is silent - we default to false (conservative)
 
-  // 5. Check for decision snapshot
   let decisionPresent = false;
   let committeeRequired = false;
   let latestDecisionId: string | null = null;
-
-  const decisionResult = await safeSupabaseQuery<{
-    id: string;
-    status: string;
-    committee_required: boolean;
-  }>(
-    "decision",
-    () =>
-      sb
-        .from("decision_snapshots")
-        .select("id, status, committee_required")
-        .eq("deal_id", dealId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ctx
-  );
-
   if (decisionResult.ok && decisionResult.data) {
     decisionPresent = decisionResult.data.status === "final";
     committeeRequired = decisionResult.data.committee_required ?? false;
     latestDecisionId = decisionResult.data.id;
   }
-  // Note: decision fetch failure is silent - we default to no decision (conservative)
 
-  // 6. Check attestation status if decision exists
+  let committeePacketReady = false;
+  if (packetResult.ok) {
+    committeePacketReady = packetResult.data > 0;
+  }
+
+  let lastAdvancedAt: string | null = null;
+  if (advancementResult.ok && advancementResult.data) {
+    lastAdvancedAt = advancementResult.data.created_at;
+  }
+
+  // Attestation check depends on decision result — runs after parallel batch
   let attestationSatisfied = true;
   if (latestDecisionId && deal.bank_id) {
     const attestationResult = await safeFetch(
@@ -215,47 +246,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     if (attestationResult.ok) {
       attestationSatisfied = attestationResult.data.satisfied;
     }
-    // Note: attestation fetch failure defaults to satisfied (don't block on fetch failure)
   }
-
-  // 7. Check for committee packet
-  let committeePacketReady = false;
-  const packetResult = await safeSupabaseCount(
-    "packet",
-    () =>
-      sb
-        .from("deal_events")
-        .select("id", { count: "exact", head: true })
-        .eq("deal_id", dealId)
-        .eq("kind", "deal.committee.packet.generated"),
-    ctx
-  );
-
-  if (packetResult.ok) {
-    committeePacketReady = packetResult.data > 0;
-  }
-  // Note: packet fetch failure is silent - defaults to false (conservative)
-
-  // 8. Fetch last lifecycle advancement event
-  let lastAdvancedAt: string | null = null;
-  const advancementResult = await safeSupabaseQuery<{ created_at: string }>(
-    "advancement",
-    () =>
-      sb
-        .from("deal_events")
-        .select("created_at")
-        .eq("deal_id", dealId)
-        .eq("kind", "deal.lifecycle_advanced")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ctx
-  );
-
-  if (advancementResult.ok && advancementResult.data) {
-    lastAdvancedAt = advancementResult.data.created_at;
-  }
-  // Note: advancement fetch failure is silent - cosmetic only
 
   // Build derived state (safe math - guard against divide by zero)
   const requiredDocsReceivedPct =

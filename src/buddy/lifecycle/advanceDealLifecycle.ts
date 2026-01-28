@@ -18,6 +18,7 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 import { advanceDealLifecycle as advanceDealLifecycleCore } from "@/lib/deals/advanceDealLifecycleCore";
 import { deriveLifecycleState } from "./deriveLifecycleState";
 import { LedgerEventType } from "./events";
+import { upsertDealStatusAndLog, type DealStage } from "@/lib/deals/status";
 import type {
   LifecycleStage,
   LifecycleState,
@@ -66,10 +67,23 @@ export async function advanceDealLifecycle(
   const blockingBlockers = getBlockersForTransition(state, nextStage);
 
   if (blockingBlockers.length > 0) {
+    // Emit blocked telemetry event (fire-and-forget)
+    writeEvent({
+      dealId,
+      kind: LedgerEventType.lifecycle_blocked,
+      actorUserId: actor.id,
+      input: {
+        stage: state.stage,
+        targetStage: nextStage,
+        blockers: blockingBlockers.map((b) => b.code),
+      },
+    }).catch(() => {});
+
     return {
       ok: false,
       error: "blocked",
       blockers: blockingBlockers,
+      allBlockers: state.blockers,
       state,
     };
   }
@@ -114,7 +128,10 @@ export async function advanceDealLifecycle(
     }
   }
 
-  // 6. Re-derive state to return current truth
+  // 6. Sync borrower-facing deal_status (fail-soft)
+  await syncBorrowerStatus(dealId, nextStage, actor);
+
+  // 7. Re-derive state to return current truth
   const newState = await deriveLifecycleState(dealId);
 
   return {
@@ -122,6 +139,65 @@ export async function advanceDealLifecycle(
     advanced: true,
     state: newState,
   };
+}
+
+/**
+ * Map unified lifecycle stage to borrower-facing deal status stage.
+ * Returns null if no borrower status change is needed for this stage.
+ */
+function mapToBorrowerStage(stage: LifecycleStage): DealStage | null {
+  switch (stage) {
+    case "docs_requested":
+    case "docs_in_progress":
+      return "docs_in_progress";
+    case "docs_satisfied":
+    case "underwrite_ready":
+      return "analysis";
+    case "underwrite_in_progress":
+      return "underwriting";
+    case "committee_ready":
+    case "committee_decisioned":
+      return "conditional_approval";
+    case "closing_in_progress":
+      return "closing";
+    case "closed":
+      return "funded";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Sync borrower-facing deal_status after a lifecycle advancement.
+ * Fail-soft: never throws, never blocks the lifecycle advance.
+ */
+async function syncBorrowerStatus(
+  dealId: string,
+  stage: LifecycleStage,
+  actor: ActorContext
+): Promise<void> {
+  const borrowerStage = mapToBorrowerStage(stage);
+  if (!borrowerStage) return;
+
+  try {
+    await upsertDealStatusAndLog({
+      dealId,
+      stage: borrowerStage,
+      actorUserId: actor.id,
+    });
+
+    await writeEvent({
+      dealId,
+      kind: LedgerEventType.status_synced,
+      actorUserId: actor.id,
+      input: {
+        unifiedStage: stage,
+        borrowerStage,
+      },
+    });
+  } catch (err) {
+    console.warn("[advanceDealLifecycle] Borrower status sync failed (non-fatal):", err);
+  }
 }
 
 /**
@@ -208,6 +284,15 @@ function mapToUnderlyingStage(
 }
 
 /**
+ * Audit metadata captured at the request boundary for force-advance events.
+ */
+export type ForceAdvanceAuditMeta = {
+  client_ip?: string;
+  user_agent?: string;
+  correlation_id?: string;
+};
+
+/**
  * Force advance to a specific stage (admin use only).
  * Bypasses some blocker checks but still logs events.
  */
@@ -215,7 +300,8 @@ export async function forceAdvanceLifecycle(
   dealId: string,
   targetStage: LifecycleStage,
   actor: ActorContext,
-  reason: string
+  reason: string,
+  auditMeta?: ForceAdvanceAuditMeta
 ): Promise<AdvanceLifecycleResult> {
   const state = await deriveLifecycleState(dealId);
 
@@ -223,10 +309,10 @@ export async function forceAdvanceLifecycle(
     return { ok: false, error: "deal_not_found" };
   }
 
-  // Log the force advancement
+  // Log the force advancement with dedicated event type + audit trail
   await writeEvent({
     dealId,
-    kind: LedgerEventType.lifecycle_advanced,
+    kind: LedgerEventType.lifecycle_force_advanced,
     actorUserId: actor.id,
     input: {
       from: state.stage,
@@ -237,6 +323,7 @@ export async function forceAdvanceLifecycle(
         type: actor.type,
         id: actor.id,
       },
+      ...(auditMeta && { audit: auditMeta }),
     },
   });
 
@@ -255,6 +342,9 @@ export async function forceAdvanceLifecycle(
       },
     });
   }
+
+  // Sync borrower-facing deal_status (fail-soft)
+  await syncBorrowerStatus(dealId, targetStage, actor);
 
   const newState = await deriveLifecycleState(dealId);
   return {

@@ -31,6 +31,7 @@ export type {
 // Core functions
 export { deriveLifecycleState } from "./deriveLifecycleState";
 export { advanceDealLifecycle, forceAdvanceLifecycle } from "./advanceDealLifecycle";
+export type { ForceAdvanceAuditMeta } from "./advanceDealLifecycle";
 
 // Guards
 export {
@@ -39,5 +40,7 @@ export {
   requireNoBlockers,
   PageGuards,
   getBlockerExplanation,
+  STAGES_AT_OR_BEYOND,
+  isStageAtOrBefore,
 } from "./guards";
 export type { GuardResult } from "./guards";

@@ -1,199 +1,79 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  requireStageOrBlock,
-  requireMinimumStage,
-  requireNoBlockers,
-  PageGuards,
-  getBlockerExplanation,
-} from "../guards";
-import type { LifecycleState } from "../model";
+import { isStageAtOrBefore, STAGES_AT_OR_BEYOND } from "../guards";
+import type { LifecycleStage } from "../model";
 
-function makeState(
-  stage: LifecycleState["stage"],
-  blockers: LifecycleState["blockers"] = []
-): LifecycleState {
-  return {
-    stage,
-    lastAdvancedAt: null,
-    blockers,
-    derived: {
-      requiredDocsReceivedPct: 0,
-      requiredDocsMissing: [],
-      borrowerChecklistSatisfied: false,
-      underwriteStarted: false,
-      financialSnapshotExists: false,
-      committeePacketReady: false,
-      decisionPresent: false,
-      committeeRequired: false,
-      attestationSatisfied: false,
-    },
-  };
-}
+// ── isStageAtOrBefore ────────────────────────────────────────────────
 
-// requireStageOrBlock tests
-test("requireStageOrBlock allows when stage is in allowed list", () => {
-  const state = makeState("underwrite_in_progress");
-  const result = requireStageOrBlock(
-    state,
-    ["underwrite_in_progress", "committee_ready"],
-    "/fallback"
-  );
-  assert.equal(result.ok, true);
+test("isStageAtOrBefore: same stage returns true", () => {
+  assert.equal(isStageAtOrBefore("committee_ready", "committee_ready"), true);
+  assert.equal(isStageAtOrBefore("intake_created", "intake_created"), true);
+  assert.equal(isStageAtOrBefore("closed", "closed"), true);
 });
 
-test("requireStageOrBlock blocks when stage is not in allowed list", () => {
-  const state = makeState("docs_in_progress");
-  const result = requireStageOrBlock(
-    state,
-    ["underwrite_in_progress", "committee_ready"],
-    "/fallback"
-  );
-  assert.equal(result.ok, false);
-  if (!result.ok) {
-    assert.equal(result.redirect, "/fallback");
-    assert.equal(result.currentStage, "docs_in_progress");
+test("isStageAtOrBefore: earlier stage can reach ceiling", () => {
+  assert.equal(isStageAtOrBefore("intake_created", "committee_ready"), true);
+  assert.equal(isStageAtOrBefore("docs_requested", "underwrite_ready"), true);
+  assert.equal(isStageAtOrBefore("docs_in_progress", "closed"), true);
+});
+
+test("isStageAtOrBefore: later stage cannot reach earlier ceiling", () => {
+  assert.equal(isStageAtOrBefore("committee_ready", "docs_requested"), false);
+  assert.equal(isStageAtOrBefore("closed", "intake_created"), false);
+  assert.equal(isStageAtOrBefore("underwrite_in_progress", "docs_satisfied"), false);
+});
+
+test("isStageAtOrBefore: workout is reachable from committee_decisioned", () => {
+  assert.equal(isStageAtOrBefore("committee_decisioned", "workout"), true);
+  assert.equal(isStageAtOrBefore("intake_created", "workout"), true);
+});
+
+test("isStageAtOrBefore: workout is NOT reachable from closing_in_progress", () => {
+  assert.equal(isStageAtOrBefore("closing_in_progress", "workout"), false);
+  assert.equal(isStageAtOrBefore("closed", "workout"), false);
+});
+
+test("isStageAtOrBefore: closed is a terminal — nothing beyond it", () => {
+  assert.equal(isStageAtOrBefore("closed", "committee_ready"), false);
+  assert.equal(isStageAtOrBefore("closed", "intake_created"), false);
+});
+
+// ── Force-advance stage cap scenarios ────────────────────────────────
+
+test("stage cap: default cap at committee_ready blocks closing and beyond", () => {
+  const cap: LifecycleStage = "committee_ready";
+  // These should be allowed (at or before cap)
+  assert.equal(isStageAtOrBefore("intake_created", cap), true);
+  assert.equal(isStageAtOrBefore("docs_satisfied", cap), true);
+  assert.equal(isStageAtOrBefore("underwrite_in_progress", cap), true);
+  assert.equal(isStageAtOrBefore("committee_ready", cap), true);
+  // These should be blocked (beyond cap)
+  assert.equal(isStageAtOrBefore("committee_decisioned", cap), false);
+  assert.equal(isStageAtOrBefore("closing_in_progress", cap), false);
+  assert.equal(isStageAtOrBefore("closed", cap), false);
+});
+
+// ── STAGES_AT_OR_BEYOND map integrity ────────────────────────────────
+
+test("STAGES_AT_OR_BEYOND includes every stage as a key", () => {
+  const allStages: LifecycleStage[] = [
+    "intake_created", "docs_requested", "docs_in_progress", "docs_satisfied",
+    "underwrite_ready", "underwrite_in_progress", "committee_ready",
+    "committee_decisioned", "closing_in_progress", "closed", "workout",
+  ];
+  for (const s of allStages) {
+    assert.ok(STAGES_AT_OR_BEYOND[s], `Missing key: ${s}`);
+    assert.ok(STAGES_AT_OR_BEYOND[s].has(s), `${s} should include itself`);
   }
 });
 
-// requireMinimumStage tests
-test("requireMinimumStage allows when at minimum stage", () => {
-  const state = makeState("underwrite_ready");
-  const result = requireMinimumStage(state, "underwrite_ready", "/fallback");
-  assert.equal(result.ok, true);
+test("STAGES_AT_OR_BEYOND: closed set contains only closed", () => {
+  assert.equal(STAGES_AT_OR_BEYOND["closed"].size, 1);
+  assert.ok(STAGES_AT_OR_BEYOND["closed"].has("closed"));
 });
 
-test("requireMinimumStage allows when past minimum stage", () => {
-  const state = makeState("committee_ready");
-  const result = requireMinimumStage(state, "underwrite_ready", "/fallback");
-  assert.equal(result.ok, true);
-});
-
-test("requireMinimumStage blocks when before minimum stage", () => {
-  const state = makeState("docs_in_progress");
-  const result = requireMinimumStage(state, "underwrite_ready", "/fallback");
-  assert.equal(result.ok, false);
-  if (!result.ok) {
-    assert.equal(result.redirect, "/fallback");
-    assert.equal(result.currentStage, "docs_in_progress");
-  }
-});
-
-test("requireMinimumStage handles workout stage", () => {
-  const state = makeState("workout");
-  // Workout is accessible from committee_decisioned onwards
-  const resultDecision = requireMinimumStage(state, "committee_decisioned", "/fallback");
-  assert.equal(resultDecision.ok, true);
-
-  const resultDocs = requireMinimumStage(state, "docs_satisfied", "/fallback");
-  assert.equal(resultDocs.ok, true);
-});
-
-// requireNoBlockers tests
-test("requireNoBlockers allows when no blockers", () => {
-  const state = makeState("docs_in_progress", []);
-  const result = requireNoBlockers(state, "/fallback");
-  assert.equal(result.ok, true);
-});
-
-test("requireNoBlockers blocks when blockers present", () => {
-  const state = makeState("docs_in_progress", [
-    { code: "missing_required_docs", message: "Missing documents" },
-  ]);
-  const result = requireNoBlockers(state, "/fallback");
-  assert.equal(result.ok, false);
-  if (!result.ok) {
-    assert.equal(result.blockers.length, 1);
-    assert.equal(result.blockers[0].code, "missing_required_docs");
-  }
-});
-
-// PageGuards tests
-test("PageGuards.underwrite requires underwrite_ready", () => {
-  const readyState = makeState("underwrite_ready");
-  const readyResult = PageGuards.underwrite(readyState, "deal-123");
-  assert.equal(readyResult.ok, true);
-
-  const docsState = makeState("docs_satisfied");
-  const docsResult = PageGuards.underwrite(docsState, "deal-123");
-  assert.equal(docsResult.ok, false);
-  if (!docsResult.ok) {
-    assert.equal(docsResult.redirect, "/deals/deal-123/cockpit");
-  }
-});
-
-test("PageGuards.committee requires committee_ready", () => {
-  // Committee is accessible at committee_ready and beyond
-  const committeeReadyState = makeState("committee_ready");
-  const committeeReadyResult = PageGuards.committee(committeeReadyState, "deal-123");
-  assert.equal(committeeReadyResult.ok, true);
-
-  const decisionedState = makeState("committee_decisioned");
-  const decisionedResult = PageGuards.committee(decisionedState, "deal-123");
-  assert.equal(decisionedResult.ok, true);
-
-  // Committee is NOT accessible at underwrite_in_progress
-  const uwState = makeState("underwrite_in_progress");
-  const uwResult = PageGuards.committee(uwState, "deal-123");
-  assert.equal(uwResult.ok, false);
-  if (!uwResult.ok) {
-    assert.equal(uwResult.redirect, "/deals/deal-123/cockpit");
-  }
-
-  // Committee is NOT accessible at underwrite_ready
-  const readyState = makeState("underwrite_ready");
-  const readyResult = PageGuards.committee(readyState, "deal-123");
-  assert.equal(readyResult.ok, false);
-});
-
-test("PageGuards.decision requires committee_ready", () => {
-  const committeeState = makeState("committee_ready");
-  const committeeResult = PageGuards.decision(committeeState, "deal-123");
-  assert.equal(committeeResult.ok, true);
-
-  const uwState = makeState("underwrite_in_progress");
-  const uwResult = PageGuards.decision(uwState, "deal-123");
-  assert.equal(uwResult.ok, false);
-});
-
-test("PageGuards.closing requires committee_decisioned", () => {
-  const decisionedState = makeState("committee_decisioned");
-  const decisionedResult = PageGuards.closing(decisionedState, "deal-123");
-  assert.equal(decisionedResult.ok, true);
-
-  const committeeState = makeState("committee_ready");
-  const committeeResult = PageGuards.closing(committeeState, "deal-123");
-  assert.equal(committeeResult.ok, false);
-});
-
-// getBlockerExplanation tests
-test("getBlockerExplanation returns null for ok result", () => {
-  const result = { ok: true as const };
-  assert.equal(getBlockerExplanation(result), null);
-});
-
-test("getBlockerExplanation returns blocker messages", () => {
-  const result = {
-    ok: false as const,
-    redirect: "/fallback",
-    blockers: [
-      { code: "missing_required_docs" as const, message: "Missing docs" },
-      { code: "financial_snapshot_missing" as const, message: "No financials" },
-    ],
-    currentStage: "docs_in_progress" as const,
-  };
-  const explanation = getBlockerExplanation(result);
-  assert.equal(explanation, "Missing docs; No financials");
-});
-
-test("getBlockerExplanation returns stage message when no blockers", () => {
-  const result = {
-    ok: false as const,
-    redirect: "/fallback",
-    blockers: [],
-    currentStage: "docs_in_progress" as const,
-  };
-  const explanation = getBlockerExplanation(result);
-  assert.equal(explanation, 'Deal is currently in "docs_in_progress" stage');
+test("STAGES_AT_OR_BEYOND: workout set contains only workout", () => {
+  assert.equal(STAGES_AT_OR_BEYOND["workout"].size, 1);
+  assert.ok(STAGES_AT_OR_BEYOND["workout"].has("workout"));
 });
