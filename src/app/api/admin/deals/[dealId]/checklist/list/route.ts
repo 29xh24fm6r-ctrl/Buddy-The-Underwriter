@@ -60,7 +60,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
   const counts = {
     total: safeItems.length,
-    received: safeItems.filter((i: any) => i.status === "received" || i.status === "satisfied").length,
+    received: safeItems.filter((i: any) => i.status === "received" || i.status === "satisfied" || i.status === "waived").length,
     pending: safeItems.filter((i: any) => i.status === "pending" || i.status === "missing" || !i.status).length,
     optional: safeItems.filter((i: any) => i.required === false).length,
   };

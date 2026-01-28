@@ -14,7 +14,9 @@ type Props = {
 
 function getButtonStyles(cta: PrimaryCTA) {
   switch (cta.intent) {
-    case "recognize":
+    case "upload":
+      return "bg-gradient-to-r from-sky-500 to-blue-500 text-white hover:from-sky-400 hover:to-blue-400 shadow-lg shadow-sky-500/20";
+    case "recognize_retry":
       return "bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-400 hover:to-orange-400 shadow-lg shadow-amber-500/20";
     case "processing":
       return "bg-gradient-to-r from-amber-500/50 to-orange-500/50 text-white/80 animate-pulse";
@@ -42,7 +44,13 @@ export function PrimaryCTAButton({ dealId, onServerAction, onAdvance }: Props) {
     if (cta.disabled) return;
 
     switch (cta.intent) {
-      case "recognize":
+      case "upload":
+      case "navigate":
+        if (cta.href) {
+          router.push(cta.href);
+        }
+        break;
+      case "recognize_retry":
         await triggerRecognize();
         break;
       case "runnable":
@@ -56,11 +64,6 @@ export function PrimaryCTAButton({ dealId, onServerAction, onAdvance }: Props) {
         if (cta.shouldAdvance && onAdvance) {
           onAdvance();
         } else if (cta.href) {
-          router.push(cta.href);
-        }
-        break;
-      case "navigate":
-        if (cta.href) {
           router.push(cta.href);
         }
         break;

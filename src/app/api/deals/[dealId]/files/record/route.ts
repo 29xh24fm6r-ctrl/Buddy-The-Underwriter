@@ -17,9 +17,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { writeEvent } from "@/lib/ledger/writeEvent";
-import { recomputeDealReady } from "@/lib/deals/readiness";
+
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
+
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { igniteDeal } from "@/lib/deals/igniteDeal";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
@@ -668,10 +668,11 @@ export async function POST(req: NextRequest, ctx: Context) {
       }
     }
 
-    // ✅ 2) Reconcile checklist immediately (THIS flips received/pending)
-    await reconcileChecklistForDeal({ sb, dealId });
+    // ❌ NO reconcile here — classification must happen FIRST.
+    // The artifact processor (processArtifact.ts) handles:
+    //   OCR → classify → stamp deal_documents → reconcile → recomputeReadiness
 
-    // ✅ 2.5) Queue for Magic Intake classification (non-blocking)
+    // ✅ 2) Queue for Magic Intake classification
     if (documentId) {
       queueArtifact({
         dealId,
@@ -685,13 +686,19 @@ export async function POST(req: NextRequest, ctx: Context) {
         });
       });
 
-      // Fire-and-forget: nudge artifact processor to drain queue
+      // Nudge artifact processor to drain queue (observable — log failures)
       const base = getBaseUrl();
       if (base) {
         fetch(`${base}/api/artifacts/process?max=3`, {
           method: "POST",
           headers: { "x-buddy-internal": "1" },
-        }).catch(() => {});
+        }).catch((nudgeErr) => {
+          console.error("[files/record] artifact processor nudge FAILED", {
+            dealId,
+            documentId,
+            error: nudgeErr?.message ?? String(nudgeErr),
+          });
+        });
       }
     }
 
@@ -729,8 +736,8 @@ export async function POST(req: NextRequest, ctx: Context) {
       },
     });
 
-    // 🧠 CONVERGENCE: Recompute deal readiness
-    await recomputeDealReady(dealId);
+    // ❌ NO premature readiness recompute — artifact processor does this AFTER classification.
+    // recomputeDealReady is called in processArtifact.ts step 6.7
 
     // Emit ledger event (legacy - can be removed after ledger consolidation)
     await writeEvent({

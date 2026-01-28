@@ -7,6 +7,9 @@ import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 import { sendSmsWithConsent } from "@/lib/sms/send";
 
+/** @deprecated Filename matching fallback — disable with FILENAME_MATCH_ENABLED=false */
+const FILENAME_MATCH_ENABLED = process.env.FILENAME_MATCH_ENABLED !== "false";
+
 type CanonicalDocTypeBucket =
   | "business_tax_return"
   | "personal_tax_return"
@@ -29,23 +32,8 @@ function acceptableDocTypesForChecklistKey(checklistKeyRaw: string): CanonicalDo
   return null;
 }
 
-function inferChecklistKeyFromDocumentType(documentTypeRaw: unknown): string | null {
-  const dt = String(documentTypeRaw || "").trim();
-  if (!dt) return null;
-
-  // Map canonical inferred types to stable checklist keys.
-  // This is intentionally conservative; it only covers the core keys that exist across rulesets.
-  if (dt === "business_tax_return") return "IRS_BUSINESS_3Y";
-  if (dt === "personal_tax_return") return "IRS_PERSONAL_3Y";
-  if (dt === "income_statement") return "FIN_STMT_PL_YTD";
-  if (dt === "balance_sheet") return "FIN_STMT_BS_YTD";
-
-  // A combined financial statement could satisfy either; prefer P&L key for stamping.
-  // Checklist satisfaction later can still use document_type when available.
-  if (dt === "financial_statement") return "FIN_STMT_PL_YTD";
-
-  return null;
-}
+// inferChecklistKeyFromDocumentType removed — checklist_key is set only by AI classification
+// in processArtifact.ts step 6.5. Filename/heuristic matching must not satisfy checklist items.
 
 function computeDefaultRequiredYearsFromChecklistKey(checklistKeyRaw: string): number[] | null {
   const key = String(checklistKeyRaw || "").toUpperCase();
@@ -337,7 +325,9 @@ export async function reconcileDealChecklist(dealId: string) {
     const needsType = !(d as any)?.document_type;
     if (!needsKey && !needsYear && !needsYears && !needsType) continue;
 
-    const m = matchChecklistKeyFromFilename(d.original_filename || "");
+    const m = FILENAME_MATCH_ENABLED
+      ? matchChecklistKeyFromFilename(d.original_filename || "")
+      : { matchedKey: null, confidence: 0, reason: "filename_match_disabled", yearsFound: [], docYear: null, source: "filename" as const };
     const extractedText = ocrTextByDocId.get(String(d.id)) ?? null;
     const intel = docIntelByDocId.get(String(d.id)) ?? null;
     const meta = inferDocumentMetadata({
@@ -362,7 +352,7 @@ export async function reconcileDealChecklist(dealId: string) {
           ? intel.docType
           : null;
 
-    const inferredChecklistKey = inferChecklistKeyFromDocumentType(documentType);
+    // inferredChecklistKey no longer used — checklist_key set only by AI classification
     const matchConfidence = Math.max(
       Number(m.confidence ?? 0) || 0,
       Number(meta.confidence ?? 0) || 0,
@@ -375,12 +365,11 @@ export async function reconcileDealChecklist(dealId: string) {
     const hasConfidentKey = Boolean(m.matchedKey) && Number(m.confidence ?? 0) >= 0.6;
     if (!hasConfidentKey && !hasYearOrType) continue;
 
-    // Best-effort update: tolerate schema drift (doc_years/document_type may not exist).
+    // Best-effort update: stamp metadata only. checklist_key only from AI classification.
     const attempt1 = await sb
       .from("deal_documents")
       .update({
-        // Prefer existing checklist_key, else use confident filename match, else use OCR-derived inferred type.
-        checklist_key: d.checklist_key || (hasConfidentKey ? m.matchedKey : inferredChecklistKey),
+        // ❌ NO checklist_key from filename/heuristics — only AI classification sets this
         doc_year: d.doc_year || docYear,
         doc_years: (d as any)?.doc_years || docYears,
         document_type: (d as any)?.document_type || documentType,
@@ -397,7 +386,6 @@ export async function reconcileDealChecklist(dealId: string) {
         const attempt2 = await sb
           .from("deal_documents")
           .update({
-            checklist_key: d.checklist_key || m.matchedKey,
             doc_year: d.doc_year || docYear,
             match_confidence: matchConfidence,
             match_reason: matchReason,
@@ -693,8 +681,10 @@ export async function matchAndStampDealDocument(opts: {
   const skipFilename = Boolean(opts?.metadata?.skip_filename_match);
   const filenameForMatch = skipFilename ? "" : (originalFilename || "");
 
-  // Run filename matcher + metadata inference (best-effort)
-  const m = matchChecklistKeyFromFilename(filenameForMatch);
+  // Run filename matcher + metadata inference (best-effort, deprecated — prefer AI classification)
+  const m = FILENAME_MATCH_ENABLED
+    ? matchChecklistKeyFromFilename(filenameForMatch)
+    : { matchedKey: null, confidence: 0, reason: "filename_match_disabled", yearsFound: [] as number[], docYear: null, source: "filename" as const };
   const meta = inferDocumentMetadata({ originalFilename: skipFilename ? null : (originalFilename || null) });
 
   const docYears = meta.doc_years ?? (Array.isArray(m.yearsFound) && m.yearsFound.length ? m.yearsFound : null);
@@ -710,11 +700,12 @@ export async function matchAndStampDealDocument(opts: {
     return { matched: false, reason: skipFilename ? "content_pending" : "low_confidence" };
   }
 
-  // Stamp the document with checklist_key + year metadata. Tolerate schema drift.
+  // Stamp metadata only (year, type). checklist_key is set ONLY by AI classification
+  // in processArtifact.ts step 6.5. Filename matching must NOT satisfy checklist items.
   const attempt1 = await sb
     .from("deal_documents")
     .update({
-      checklist_key: hasConfidentKey ? m.matchedKey : undefined,
+      // ❌ NO checklist_key from filename — only AI classification sets this
       doc_year: docYear,
       doc_years: docYears,
       document_type: documentType,
@@ -731,7 +722,6 @@ export async function matchAndStampDealDocument(opts: {
       const attempt2 = await sb
         .from("deal_documents")
         .update({
-          checklist_key: hasConfidentKey ? m.matchedKey : undefined,
           doc_year: docYear,
           match_confidence: matchConfidence,
           match_reason: matchReason,
@@ -809,16 +799,16 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
       .eq("deal_id", dealId);
 
     if (rows) {
-      const received = rows.filter((r: any) => r.status === "received" || r.status === "satisfied").length;
+      const received = rows.filter((r: any) => r.status === "received" || r.status === "satisfied" || r.status === "waived").length;
       const missing = rows.filter(
         (r: any) => r.status === "missing" || r.status === "pending" || r.status === "needs_review"
       ).length;
       const requiredRows = rows.filter((r: any) => r.required);
       const requiredSatisfied = requiredRows.filter(
-        (r: any) => r.status === "received" || r.status === "satisfied"
+        (r: any) => r.status === "received" || r.status === "satisfied" || r.status === "waived"
       ).length;
       const satisfiedKeys = rows
-        .filter((r: any) => r.status === "received" || r.status === "satisfied")
+        .filter((r: any) => r.status === "received" || r.status === "satisfied" || r.status === "waived")
         .map((r: any) => r.checklist_key)
         .filter(Boolean);
 

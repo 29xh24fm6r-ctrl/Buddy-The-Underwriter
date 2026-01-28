@@ -12,14 +12,15 @@ type Filter = "all" | "pending" | "satisfied" | "optional";
 
 function statusBadge(status: string) {
   const s = status.toLowerCase();
-  if (s === "received" || s === "satisfied") {
-    return { label: s.toUpperCase(), className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" };
+  if (s === "received" || s === "satisfied" || s === "waived") {
+    const label = s === "waived" ? "WAIVED" : s.toUpperCase();
+    const cls = s === "waived"
+      ? "border-white/20 bg-white/5 text-white/50"
+      : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+    return { label, className: cls };
   }
   if (s === "needs_review") {
     return { label: "REVIEW", className: "border-yellow-500/30 bg-yellow-500/10 text-yellow-300" };
-  }
-  if (s === "waived") {
-    return { label: "WAIVED", className: "border-white/20 bg-white/5 text-white/50" };
   }
   if (s === "pending") {
     return { label: "PENDING", className: "border-sky-500/30 bg-sky-500/10 text-sky-300" };
@@ -146,25 +147,36 @@ export function YearAwareChecklistPanel({ dealId }: Props) {
     return (
       <div className={cn(glassPanel, "overflow-hidden")}>
         <div className={glassHeader}>
-          <span className="text-xs font-bold uppercase tracking-widest text-white/50">Checklist</span>
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-sky-400/30 text-[18px] animate-pulse">checklist</span>
+            <span className="text-xs font-bold uppercase tracking-widest text-white/50">Checklist</span>
+          </div>
         </div>
-        <div className="p-4 text-white/40 text-sm flex items-center gap-2">
-          <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
-          Loading checklist...
+        <div className="p-4 space-y-3">
+          <div className="h-2 rounded-full bg-white/5 animate-pulse" />
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="flex items-center gap-3">
+              <div className="w-14 h-5 rounded bg-white/5 animate-pulse" />
+              <div className="flex-1 h-4 rounded bg-white/5 animate-pulse" />
+            </div>
+          ))}
         </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error && items.length === 0) {
     return (
       <div className={cn(glassPanel, "overflow-hidden")}>
         <div className={glassHeader}>
-          <span className="text-xs font-bold uppercase tracking-widest text-white/50">Checklist</span>
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-amber-400 text-[18px]">cloud_off</span>
+            <span className="text-xs font-bold uppercase tracking-widest text-white/50">Checklist</span>
+          </div>
         </div>
-        <div className="p-4">
-          <div className="text-amber-300 text-sm">{error}</div>
-          <button onClick={mutate} className="mt-2 text-xs text-white/60 hover:text-white/80 underline">
+        <div className="p-4 text-center space-y-2">
+          <p className="text-xs text-white/40">Unable to load checklist</p>
+          <button onClick={mutate} className="text-xs text-sky-400/70 hover:text-sky-300 underline">
             Retry
           </button>
         </div>

@@ -12,9 +12,9 @@ export type ChecklistItem = {
   checklist_key?: string | null;
 };
 
-/** A checklist item is satisfied if its status is "satisfied" or "received". */
+/** A checklist item is satisfied if its status is "satisfied", "received", or "waived". */
 export function isChecklistItemSatisfied(item: ChecklistItem): boolean {
-  return item.status === "satisfied" || item.status === "received";
+  return item.status === "satisfied" || item.status === "received" || item.status === "waived";
 }
 
 /** Filter to only required items that ARE satisfied. */

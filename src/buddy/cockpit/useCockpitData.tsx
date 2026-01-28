@@ -68,7 +68,7 @@ export type CockpitData = {
   artifactSummary: ArtifactsSummary | null;
   /** Last fetch timestamp */
   lastFetchedAt: string | null;
-  /** Any error from the last fetch */
+  /** Any error from the last fetch (suppressed for first 3 consecutive failures) */
   error: string | null;
   /** Manually trigger a refresh */
   refresh: () => Promise<void>;
@@ -84,6 +84,8 @@ export type CockpitData = {
   markUserAction: () => void;
   /** Whether user has acted recently (within 30s) */
   userRecentlyActive: boolean;
+  /** True until the first successful fetch completes */
+  isInitialLoading: boolean;
 };
 
 async function fetchChecklistSummary(dealId: string): Promise<ChecklistSummary | null> {
@@ -212,11 +214,15 @@ export function useCockpitData(dealId: string | null): CockpitData {
   const [lifecycleState, setLifecycleState] = useState<LifecycleState | null>(null);
   const [toasts, setToasts] = useState<CockpitToast[]>([]);
   const [lastUserActionAt, setLastUserActionAt] = useState<number | null>(null);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inflightRef = useRef(false);
   const prevLifecycleRef = useRef<LifecycleState | null>(null);
   const prevArtifactMatchedRef = useRef<number>(0);
+  /** Consecutive fetch failures — suppress error UI until 3+ failures */
+  const consecutiveErrorsRef = useRef(0);
+  const TRANSIENT_ERROR_THRESHOLD = 3;
 
   // Check if user has acted recently (within 30s)
   const userRecentlyActive = lastUserActionAt !== null && Date.now() - lastUserActionAt < USER_ACTION_TIMEOUT_MS;
@@ -257,6 +263,8 @@ export function useCockpitData(dealId: string | null): CockpitData {
       setArtifactSummary(artifacts);
       setLastFetchedAt(new Date().toISOString());
       setError(null);
+      setIsInitialLoading(false);
+      consecutiveErrorsRef.current = 0;
 
       // Emit toast when new docs get classified
       if (artifacts) {
@@ -284,7 +292,11 @@ export function useCockpitData(dealId: string | null): CockpitData {
         setLifecycleState(lifecycle);
       }
     } catch (e: any) {
-      setError(e?.message || "Failed to fetch cockpit data");
+      consecutiveErrorsRef.current += 1;
+      // Suppress transient errors — only surface after TRANSIENT_ERROR_THRESHOLD consecutive failures
+      if (consecutiveErrorsRef.current >= TRANSIENT_ERROR_THRESHOLD) {
+        setError(e?.message || "Failed to fetch cockpit data");
+      }
     } finally {
       inflightRef.current = false;
     }
@@ -370,6 +382,7 @@ export function useCockpitData(dealId: string | null): CockpitData {
     dismissToast,
     markUserAction,
     userRecentlyActive,
+    isInitialLoading,
   };
 }
 

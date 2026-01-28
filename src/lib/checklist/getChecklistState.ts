@@ -151,7 +151,7 @@ export async function getChecklistState(args: {
 
     const items = rows ?? [];
     const totalItems = items.length;
-    const received = items.filter((r: any) => r.status === "received" || r.status === "satisfied").length;
+    const received = items.filter((r: any) => r.status === "received" || r.status === "satisfied" || r.status === "waived").length;
     const pending = items.filter(
       (r: any) => r.status === "pending" || r.status === "missing" || r.status === "needs_review",
     ).length;

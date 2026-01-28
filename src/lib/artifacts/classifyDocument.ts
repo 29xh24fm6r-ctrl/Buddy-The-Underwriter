@@ -207,16 +207,16 @@ export function mapDocTypeToChecklistKeys(
       keys.push("IRS_PERSONAL_3Y", "IRS_PERSONAL_2Y", "PTR", "PTR_2Y", "TAX_RETURNS");
       break;
     case "PFS":
-      keys.push("PFS_CURRENT", "PFS", "PERSONAL_FINANCIAL_STATEMENT");
+      keys.push("PFS_CURRENT", "SBA_413", "PFS", "PERSONAL_FINANCIAL_STATEMENT");
       break;
     case "RENT_ROLL":
-      keys.push("RENT_ROLL", "CURRENT_RENT_ROLL");
+      keys.push("RENT_ROLL");
       break;
     case "T12":
-      keys.push("T12", "OPERATING_STATEMENT", "P&L");
+      keys.push("PROPERTY_T12", "FIN_STMT_PL_YTD", "T12", "OPERATING_STATEMENT");
       break;
     case "BANK_STATEMENT":
-      keys.push("BANK_STATEMENTS", "BANK_STATEMENT_3MO");
+      keys.push("BANK_STMT_3M", "BANK_STATEMENTS", "BANK_STATEMENT_3MO");
       break;
     case "ARTICLES":
       keys.push("ARTICLES", "FORMATION_DOCS", "ENTITY_DOCS");
@@ -231,13 +231,13 @@ export function mapDocTypeToChecklistKeys(
       keys.push("BUSINESS_LICENSE", "LICENSE");
       break;
     case "LEASE":
-      keys.push("LEASE", "COMMERCIAL_LEASE");
+      keys.push("LEASES_TOP", "LEASE", "COMMERCIAL_LEASE");
       break;
     case "INSURANCE":
-      keys.push("INSURANCE", "INSURANCE_CERT", "COI");
+      keys.push("PROPERTY_INSURANCE", "INSURANCE", "INSURANCE_CERT", "COI");
       break;
     case "APPRAISAL":
-      keys.push("APPRAISAL");
+      keys.push("APPRAISAL_IF_AVAILABLE", "APPRAISAL");
       break;
     case "ENVIRONMENTAL":
       keys.push("ENVIRONMENTAL", "PHASE_1", "ESA");

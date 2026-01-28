@@ -278,7 +278,7 @@ export async function GET(
 
     const counts = {
       total: items.length,
-      received: items.filter((i: any) => i.status === "received" || i.status === "satisfied").length,
+      received: items.filter((i: any) => i.status === "received" || i.status === "satisfied" || i.status === "waived").length,
       pending: items.filter((i: any) => i.status === "pending" || i.status === "missing" || i.status === "needs_review" || !i.status).length,
       optional: items.filter((i: any) => i.required === false).length,
     };

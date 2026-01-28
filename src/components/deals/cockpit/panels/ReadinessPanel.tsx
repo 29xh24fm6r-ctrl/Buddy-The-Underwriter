@@ -38,7 +38,7 @@ type Props = {
 };
 
 export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: Props) {
-  const { lifecycleState } = useCockpitDataContext();
+  const { lifecycleState, isInitialLoading, error } = useCockpitDataContext();
   const [bankerExplainerOpen, setBankerExplainerOpen] = useState(false);
 
   const handleServerAction = useCallback(
@@ -71,6 +71,47 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
 
   // Docs readiness
   const docsPct = derived?.requiredDocsReceivedPct ?? 0;
+
+  // Skeleton state while initial data loads
+  if (isInitialLoading) {
+    return (
+      <div className={cn(glassPanel, "overflow-hidden")}>
+        <div className={glassHeader}>
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-white/20 text-[18px] animate-pulse">hourglass_empty</span>
+            <span className="text-xs font-bold uppercase tracking-widest text-white/50">Readiness</span>
+          </div>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="h-10 rounded-xl bg-white/5 animate-pulse" />
+          <div className="h-2 rounded-full bg-white/5 animate-pulse" />
+          <div className="grid grid-cols-2 gap-2">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-4 rounded bg-white/5 animate-pulse" />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Persistent error after retries — show error with retry
+  if (error && !lifecycleState) {
+    return (
+      <div className={cn(glassPanel, "overflow-hidden")}>
+        <div className={glassHeader}>
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-amber-400 text-[18px]">cloud_off</span>
+            <span className="text-xs font-bold uppercase tracking-widest text-white/50">Readiness</span>
+          </div>
+        </div>
+        <div className="p-4 text-center space-y-2">
+          <p className="text-xs text-white/40">Unable to load deal data</p>
+          <p className="text-[10px] text-white/30">Retrying automatically...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn(glassPanel, "overflow-hidden")}>
