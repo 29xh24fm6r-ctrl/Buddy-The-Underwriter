@@ -7,7 +7,7 @@ This document describes the Buddy → Pulse observability integration that enabl
 ```
 Buddy (telemetry + errors)
    └─► Pulse Ingestion Endpoint (Cloud Run)
-         └─► Pulse Supabase (buddy_observer_events)
+         └─► Pulse Supabase (buddy_observer_events + buddy_deal_state)
                └─► Pulse MCP (read-only tools)
                      └─► Claude (analysis + proposals only)
 ```
@@ -86,7 +86,7 @@ await emitServiceError({
 });
 ```
 
-### Environment Variables
+### Buddy Environment Variables
 
 ```bash
 # Required for observer events
@@ -100,112 +100,65 @@ BUDDY_RELEASE=
 
 ---
 
-## Pulse Side (TODO)
+## Pulse Side (Implemented)
 
-### 1. Supabase Migration
+All Pulse-side code lives in `services/pulse-mcp/src/`.
 
-```sql
-create table if not exists public.buddy_observer_events (
-  id uuid primary key default gen_random_uuid(),
-  created_at timestamptz not null default now(),
+### 1. Supabase Migrations
 
-  product text not null default 'buddy',
-  env text not null, -- prod | preview | dev
+| Migration | Description |
+|-----------|-------------|
+| `202601280001_buddy_observability.sql` | Tables: `buddy_observer_events`, `buddy_deal_state`, `buddy_incidents` + indexes + RLS |
+| `202601280002_buddy_error_fingerprint_summary.sql` | RPC: `buddy_error_fingerprint_summary(p_env, p_minutes, p_limit)` |
 
-  severity text not null, -- debug | info | warn | error | fatal
-  type text not null,     -- deal.transition | deal.error | service.error | etc
+### 2. Secure Ingestion Endpoint
 
-  deal_id text null,
-  stage text null,
+Location: `services/pulse-mcp/src/routes/ingestBuddy.ts`
 
-  message text not null,
-  fingerprint text not null,
-
-  context jsonb not null default '{}'::jsonb,
-  error jsonb null,
-
-  trace_id text null,
-  request_id text null,
-  release text null
-);
-
-create index on public.buddy_observer_events (created_at desc);
-create index on public.buddy_observer_events (deal_id, created_at desc);
-create index on public.buddy_observer_events (severity, created_at desc);
-create index on public.buddy_observer_events (fingerprint);
-
--- RLS: service role only
-alter table public.buddy_observer_events enable row level security;
-create policy "pulse_service_only" on public.buddy_observer_events for all using (false);
-```
-
-### 2. Ingestion Endpoint
-
-Add to Pulse MCP server:
-
-```typescript
-// services/pulse-mcp/src/ingest/buddy.ts
-import crypto from "crypto";
-import { supabaseAdmin } from "../supabase";
-
-export async function ingestBuddyEvent(req, res) {
-  const raw = JSON.stringify(req.body);
-  const expected = crypto
-    .createHmac("sha256", process.env.PULSE_INGEST_SECRET!)
-    .update(raw)
-    .digest("hex");
-
-  if (req.headers["x-pulse-signature"] !== expected) {
-    return res.status(401).json({ error: "invalid signature" });
-  }
-
-  const { error } = await supabaseAdmin
-    .from("buddy_observer_events")
-    .insert(req.body);
-
-  if (error) {
-    return res.status(500).json({ error: error.message });
-  }
-
-  res.status(202).json({ ok: true });
-}
-
-// Wire into MCP server
-app.post("/ingest/buddy", ingestBuddyEvent);
-```
+- `POST /ingest/buddy` — accepts signed Buddy events
+- Captures raw body via `express.json({ verify })` middleware for HMAC verification
+- Uses `crypto.timingSafeEqual` on hex-decoded signature buffers
+- Validates payload structure (product, env, type, severity, message, fingerprint)
+- Inserts into `buddy_observer_events` (append-only)
+- Upserts `buddy_deal_state` on deal-scoped events (fail-soft)
 
 ### 3. MCP Read-Only Tools
 
-```typescript
-// buddy.list_recent_errors
-export async function listRecentBuddyErrors({ minutes = 60 }) {
-  const since = new Date(Date.now() - minutes * 60_000).toISOString();
-  return supabaseAdmin
-    .from("buddy_observer_events")
-    .select("*")
-    .gte("created_at", since)
-    .in("severity", ["error", "fatal"])
-    .order("created_at", { ascending: false });
-}
+Location: `services/pulse-mcp/src/tools/buddy_observability.ts`
 
-// buddy.get_deal_timeline
-export async function getDealTimeline({ deal_id }) {
-  return supabaseAdmin
-    .from("buddy_observer_events")
-    .select("*")
-    .eq("deal_id", deal_id)
-    .order("created_at", { ascending: true });
-}
+| Tool | Description |
+|------|-------------|
+| `buddy.list_recent_errors` | Recent error/fatal events (filterable by env, minutes) |
+| `buddy.get_deal_timeline` | Full event history for a deal_id (chronological) |
+| `buddy.get_deal_state` | Current state snapshot for a deal_id |
+| `buddy.list_stuck_deals` | Deals with no events in N minutes (idle detection) |
+| `buddy.list_incidents` | Open/ack/resolved incidents from automatic detection |
+| `buddy.error_fingerprint_summary` | Top N error clusters grouped by fingerprint (RPC) |
+| `buddy.get_fingerprint_samples` | Raw events for a specific fingerprint cluster |
 
-// buddy.search_events
-export async function searchBuddyEvents({ query }) {
-  return supabaseAdmin
-    .from("buddy_observer_events")
-    .select("*")
-    .textSearch("message", query)
-    .order("created_at", { ascending: false })
-    .limit(100);
-}
+All tools are registered in `services/pulse-mcp/src/tools/index.ts` and allowlisted as read-only in `services/pulse-mcp/src/allowlist.ts`.
+
+### 4. Incident Detector
+
+Location: `services/pulse-mcp/src/incidents/buddyDetector.ts`
+
+- Runs on `/tick` (fail-soft, never throws)
+- Groups recent errors by `env::fingerprint`
+- Creates incident records when count >= threshold within window
+- Respects cooldown to avoid duplicate notifications
+- Controlled by env vars: `BUDDY_INCIDENTS_ENABLED`, `BUDDY_INCIDENT_THRESHOLD`, `BUDDY_INCIDENT_WINDOW_MIN`, `BUDDY_INCIDENT_COOLDOWN_MIN`
+
+### Pulse Environment Variables
+
+```bash
+# Required
+PULSE_BUDDY_INGEST_SECRET=<same value as Buddy's PULSE_BUDDY_INGEST_SECRET>
+
+# Optional (incidents)
+BUDDY_INCIDENTS_ENABLED=true
+BUDDY_INCIDENT_THRESHOLD=10
+BUDDY_INCIDENT_WINDOW_MIN=10
+BUDDY_INCIDENT_COOLDOWN_MIN=60
 ```
 
 ---
@@ -232,60 +185,16 @@ export async function searchBuddyEvents({ query }) {
 | `error` | Errors that need attention |
 | `fatal` | Critical failures |
 
-### 4. Fingerprint Summary RPC
+---
 
-Migration: `supabase/migrations/20260128_buddy_error_fingerprint_summary.sql`
-
-Groups recent errors by fingerprint for fast cluster analysis. Called by Pulse MCP via `supabaseAdmin.rpc()`.
-
-```sql
--- Returns top N error clusters in the last M minutes
-select * from buddy_error_fingerprint_summary('prod', 60, 10);
-```
-
-Returns per fingerprint: count, first/last seen, stages, types, sample messages, sample deal_ids, sample releases.
-
-### 5. MCP Fingerprint Tools
-
-```typescript
-// buddy.error_fingerprint_summary
-export async function buddy_error_fingerprint_summary(args: {
-  env?: string;   // default: "prod"
-  minutes?: number; // default: 60
-  limit?: number;   // default: 10
-}) {
-  return await supabaseAdmin.rpc("buddy_error_fingerprint_summary", {
-    p_env: args.env ?? "prod",
-    p_minutes: args.minutes ?? 60,
-    p_limit: args.limit ?? 10,
-  });
-}
-
-// buddy.get_fingerprint_samples — fetch raw events for a specific cluster
-export async function buddy_get_fingerprint_samples(args: {
-  fingerprint: string;
-  env?: string;     // default: "prod"
-  minutes?: number; // default: 120
-  limit?: number;   // default: 50
-}) {
-  const since = new Date(Date.now() - (args.minutes ?? 120) * 60_000).toISOString();
-  return await supabaseAdmin
-    .from("buddy_observer_events")
-    .select("*")
-    .eq("env", args.env ?? "prod")
-    .eq("fingerprint", args.fingerprint)
-    .gte("created_at", since)
-    .order("created_at", { ascending: false })
-    .limit(args.limit ?? 50);
-}
-```
-
-### Claude Incident Response Loop
+## Claude Incident Response Loop
 
 1. **Cluster scan:** `buddy.error_fingerprint_summary({ env:"prod", minutes:60, limit:10 })`
 2. **Drill into cluster:** `buddy.get_fingerprint_samples({ fingerprint:"...", minutes:240, limit:50 })`
 3. **Deal timeline:** `buddy.get_deal_timeline({ deal_id:"..." })` (from sample deal_ids)
-4. **Propose fix** with evidence (stack traces, context, affected deals, release correlation)
+4. **Current state:** `buddy.get_deal_state({ deal_id:"..." })`
+5. **Stuck deals:** `buddy.list_stuck_deals({ env:"prod", stage:"underwriting", idleMinutes:1440 })`
+6. **Propose fix** with evidence (stack traces, context, affected deals, release correlation)
 
 ---
 
@@ -295,13 +204,24 @@ Claude can now:
 - Detect new Buddy failures every tick
 - Group errors by fingerprint
 - Reconstruct deal timelines
+- Query current deal state
+- Detect stuck/idle deals
 - Correlate failures with releases
+- Auto-detect incident spikes
 - Propose fixes as Omega Gate proposals
 - Never silently mutate production
 
-**MVP Complete When:**
+**Status:**
 - Buddy emits events ✅
-- Pulse ingests them (TODO)
-- Fingerprint summary RPC created ✅
-- Claude can answer: "Why did Deal X fail and what changed right before?"
-- Claude can answer: "Top 10 error clusters in the last hour and which deals are affected?"
+- Pulse ingestion endpoint ✅
+- Deal state upsert on ingest ✅
+- Fingerprint summary RPC ✅
+- Read-only MCP tools (7 tools) ✅
+- Incident detector ✅
+- Claude can answer: "Why did Deal X fail and what changed right before?" ✅
+- Claude can answer: "Top 10 error clusters in the last hour and which deals are affected?" ✅
+
+**Remaining:**
+- Apply Supabase migrations to Pulse DB
+- Deploy Pulse MCP to Cloud Run with env vars
+- Wire Buddy deal flow code to call telemetry helpers
