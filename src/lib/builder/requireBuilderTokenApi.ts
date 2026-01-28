@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 
-import { mustBuilderToken } from "@/lib/builder/mustBuilderToken";
+import { mustBuilderToken } from "@/lib/builder/mustBuilderTokenCore";
 
 function buildRequest(req: NextApiRequest): Request {
   const url = new URL(req.url ?? "/", "http://localhost");

@@ -52,6 +52,8 @@ const nextConfig = {
       ],
     },
   },
+  // Empty turbopack config to allow both webpack and turbopack configs
+  turbopack: {},
   // Only reduce parallelism in Codespaces (keep production optimization enabled)
   webpack: (config, { isServer }) => {
     if (process.env.CODESPACES) {
