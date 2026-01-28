@@ -90,8 +90,12 @@ await emitServiceError({
 
 ```bash
 # Required for observer events
-PULSE_INGEST_URL=https://pulse-mcp-651478110010.us-central1.run.app/ingest/buddy
-PULSE_INGEST_SECRET=<shared-secret>
+PULSE_BUDDY_INGEST_URL=https://pulse-mcp-651478110010.us-central1.run.app/ingest/buddy
+PULSE_BUDDY_INGEST_SECRET=<shared-secret>
+
+# Optional (auto-detected from Vercel env if not set)
+BUDDY_ENV=dev
+BUDDY_RELEASE=
 ```
 
 ---

@@ -7,18 +7,32 @@ export type EventType =
   | "deal.error"
   | "service.error"
   | "guard.fail"
-  | "integration.fail"
-  | "workflow.step"
-  | "workflow.error";
+  | "integration.fail";
 
 export interface ObserverEvent {
+  schema_version: number;
+  product: string;
   env: string;
+  severity: Severity;
+  type: EventType | string;
+  deal_id: string | null;
+  stage: string | null;
+  message: string;
+  fingerprint: string;
+  context: Record<string, unknown>;
+  error: { name?: string; message?: string; stack?: string; cause?: unknown } | null;
+  trace_id: string | null;
+  request_id: string | null;
+  release: string | null;
+}
+
+export interface ObserverEventInput {
+  env?: string;
   severity: Severity;
   type: EventType | string;
   deal_id?: string;
   stage?: string;
   message: string;
-  fingerprint: string;
   context?: Record<string, unknown>;
   error?: {
     name?: string;
@@ -31,139 +45,97 @@ export interface ObserverEvent {
   release?: string;
 }
 
-type ObserverEventInput = Omit<ObserverEvent, "env" | "release"> & {
-  env?: string;
-  release?: string;
-};
-
 function getEnv(): string {
-  return process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development";
+  return process.env.BUDDY_ENV ?? process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development";
 }
 
-function getRelease(): string | undefined {
-  return process.env.VERCEL_GIT_COMMIT_SHA ?? undefined;
+function getRelease(): string | null {
+  return process.env.BUDDY_RELEASE ?? process.env.VERCEL_GIT_COMMIT_SHA ?? null;
 }
 
-function sign(body: string, secret: string): string {
-  return crypto.createHmac("sha256", secret).update(body).digest("hex");
+/**
+ * Canonical fingerprint: SHA-256 of type + stage + error name + message prefix.
+ * Produces consistent grouping keys across all Buddy events.
+ */
+export function computeFingerprint(e: ObserverEventInput): string {
+  const errName = e.error?.name ?? "";
+  const msgPrefix = (e.error?.message ?? e.message ?? "").slice(0, 80);
+  const base = ["v1", e.type, e.stage ?? "unknown", errName, msgPrefix].join("|");
+  return crypto.createHash("sha256").update(base).digest("hex");
+}
+
+function signRawBody(rawBody: string, secret: string): string {
+  return crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
 }
 
 /**
  * Emit an observer event to Pulse for Claude debugging visibility.
  *
- * This is fire-and-forget — never blocks Buddy, never throws.
- * If ingestion fails, it's silently logged (no user impact).
+ * Fire-and-forget. Never blocks Buddy. Never throws.
  */
 export async function emitObserverEvent(event: ObserverEventInput): Promise<void> {
-  const url = process.env.PULSE_INGEST_URL;
-  const secret = process.env.PULSE_INGEST_SECRET;
+  const url = process.env.PULSE_BUDDY_INGEST_URL;
+  const secret = process.env.PULSE_BUDDY_INGEST_SECRET;
 
-  // Silently skip if not configured
-  if (!url || !secret) {
-    if (process.env.NODE_ENV === "development") {
-      console.debug("[observer] PULSE_INGEST_URL or PULSE_INGEST_SECRET not set, skipping event:", event.type);
-    }
-    return;
-  }
+  if (!url || !secret) return;
 
-  const payload = {
+  const payload: ObserverEvent = {
+    schema_version: 1,
     product: "buddy",
     env: event.env ?? getEnv(),
-    release: event.release ?? getRelease(),
     severity: event.severity,
     type: event.type,
-    deal_id: event.deal_id,
-    stage: event.stage,
+    deal_id: event.deal_id ?? null,
+    stage: event.stage ?? null,
     message: event.message,
-    fingerprint: event.fingerprint,
+    fingerprint: computeFingerprint(event),
     context: event.context ?? {},
-    error: event.error,
-    trace_id: event.trace_id,
-    request_id: event.request_id,
+    error: event.error ?? null,
+    trace_id: event.trace_id ?? null,
+    request_id: event.request_id ?? null,
+    release: event.release ?? getRelease(),
   };
 
-  const body = JSON.stringify(payload);
-  const signature = sign(body, secret);
+  const rawBody = JSON.stringify(payload);
+  const sig = signRawBody(rawBody, secret);
 
   try {
-    const res = await fetch(url, {
+    await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-pulse-signature": signature,
+        "x-pulse-signature": sig,
       },
-      body,
+      body: rawBody,
       signal: AbortSignal.timeout(3000),
     });
-
-    if (!res.ok && process.env.NODE_ENV === "development") {
-      console.warn("[observer] Pulse ingestion failed:", res.status);
-    }
-  } catch (err) {
-    // Never throw — observability should never break Buddy
-    if (process.env.NODE_ENV === "development") {
-      console.warn("[observer] Pulse ingestion error:", err);
-    }
+  } catch {
+    // swallow — telemetry must never take down deal flow
   }
 }
 
 /**
  * Capture an exception and emit it as an error event.
- *
- * Usage:
- * ```ts
- * try {
- *   await riskyOperation();
- * } catch (err) {
- *   await captureException(err, {
- *     type: "deal.error",
- *     deal_id,
- *     stage: "underwriting",
- *     context: { borrower_id },
- *   });
- *   throw err;
- * }
- * ```
  */
 export async function captureException(
   err: unknown,
-  base: Omit<ObserverEventInput, "severity" | "message" | "fingerprint" | "error"> & {
-    fingerprint?: string;
-  }
+  base: Omit<ObserverEventInput, "severity" | "message" | "error">
 ): Promise<void> {
   const error =
     err instanceof Error
-      ? {
-          name: err.name,
-          message: err.message,
-          stack: err.stack,
-          cause: err.cause,
-        }
-      : { message: String(err) };
-
-  const message = error.message ?? "Unknown error";
-  const fingerprint = base.fingerprint ?? `${base.type}:${base.stage ?? "unknown"}`;
+      ? { name: err.name, message: err.message, stack: err.stack, cause: err.cause }
+      : { name: "NonError", message: String(err) };
 
   return emitObserverEvent({
     ...base,
     severity: "error",
-    message,
-    fingerprint,
+    message: error.message ?? "Unknown error",
     error,
   });
 }
 
 /**
- * Emit a deal transition event.
- *
- * Usage:
- * ```ts
- * await emitDealTransition({
- *   deal_id,
- *   from_stage: "intake",
- *   to_stage: "underwriting",
- * });
- * ```
+ * Emit a deal stage transition event.
  */
 export async function emitDealTransition(args: {
   deal_id: string;
@@ -179,28 +151,14 @@ export async function emitDealTransition(args: {
     deal_id: args.deal_id,
     stage: args.to_stage,
     message: `Deal transitioned to ${args.to_stage}`,
-    fingerprint: `deal:${args.deal_id}:${args.to_stage}`,
-    context: {
-      previous_stage: args.from_stage,
-      ...args.context,
-    },
+    context: { previous_stage: args.from_stage, ...args.context },
     trace_id: args.trace_id,
     request_id: args.request_id,
   });
 }
 
 /**
- * Emit a deal error event.
- *
- * Usage:
- * ```ts
- * await emitDealError({
- *   deal_id,
- *   stage: "underwriting",
- *   error: err,
- *   context: { operation: "generateCreditMemo" },
- * });
- * ```
+ * Emit a deal-specific error event.
  */
 export async function emitDealError(args: {
   deal_id: string;
@@ -233,7 +191,6 @@ export async function emitServiceError(args: {
   return captureException(args.error, {
     type: "service.error",
     stage: args.service,
-    fingerprint: `service:${args.service}`,
     context: args.context,
     trace_id: args.trace_id,
     request_id: args.request_id,
