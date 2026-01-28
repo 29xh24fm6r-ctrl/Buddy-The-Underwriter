@@ -35,6 +35,18 @@ export type ChecklistSummary = {
   optional: number;
 };
 
+export type ArtifactsSummary = {
+  total_files: number;
+  queued: number;
+  processing: number;
+  classified: number;
+  matched: number;
+  failed: number;
+  proposed_matches: number;
+  auto_applied_matches: number;
+  confirmed_matches: number;
+};
+
 export type CockpitToast = {
   id: string;
   type: "stage_advanced" | "blockers_cleared" | "doc_classified" | "upload_complete" | "info";
@@ -52,6 +64,8 @@ export type CockpitData = {
   checklistSummary: ChecklistSummary | null;
   /** Number of uploads currently processing */
   processingUploads: number;
+  /** Artifact processing summary */
+  artifactSummary: ArtifactsSummary | null;
   /** Last fetch timestamp */
   lastFetchedAt: string | null;
   /** Any error from the last fetch */
@@ -98,6 +112,18 @@ async function fetchUploadsStatus(dealId: string): Promise<number> {
     return json.processing || 0;
   } catch {
     return 0;
+  }
+}
+
+async function fetchArtifactSummary(dealId: string): Promise<ArtifactsSummary | null> {
+  try {
+    const res = await fetch(`/api/deals/${dealId}/artifacts`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (!json.ok) return null;
+    return json.summary ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -179,6 +205,7 @@ export function useCockpitData(dealId: string | null): CockpitData {
 
   const [checklistSummary, setChecklistSummary] = useState<ChecklistSummary | null>(null);
   const [processingUploads, setProcessingUploads] = useState(0);
+  const [artifactSummary, setArtifactSummary] = useState<ArtifactsSummary | null>(null);
   const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(true);
@@ -189,12 +216,14 @@ export function useCockpitData(dealId: string | null): CockpitData {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inflightRef = useRef(false);
   const prevLifecycleRef = useRef<LifecycleState | null>(null);
+  const prevArtifactMatchedRef = useRef<number>(0);
 
   // Check if user has acted recently (within 30s)
   const userRecentlyActive = lastUserActionAt !== null && Date.now() - lastUserActionAt < USER_ACTION_TIMEOUT_MS;
 
-  // Derive isBusy from pipeline state and processing uploads
-  const isBusy = pipeline.isWorking || processingUploads > 0 || checklistSummary?.state === "processing";
+  // Derive isBusy from pipeline state, processing uploads, and artifact processing
+  const isBusy = pipeline.isWorking || processingUploads > 0 || checklistSummary?.state === "processing" ||
+    (artifactSummary?.processing ?? 0) > 0 || (artifactSummary?.queued ?? 0) > 0;
 
   // Determine polling interval based on busy state, visibility, and user activity
   // Live when: isBusy OR user recently acted
@@ -216,16 +245,34 @@ export function useCockpitData(dealId: string | null): CockpitData {
 
     inflightRef.current = true;
     try {
-      const [checklist, uploads, lifecycle] = await Promise.all([
+      const [checklist, uploads, lifecycle, artifacts] = await Promise.all([
         fetchChecklistSummary(dealId),
         fetchUploadsStatus(dealId),
         fetchLifecycleState(dealId),
+        fetchArtifactSummary(dealId),
       ]);
 
       setChecklistSummary(checklist);
       setProcessingUploads(uploads);
+      setArtifactSummary(artifacts);
       setLastFetchedAt(new Date().toISOString());
       setError(null);
+
+      // Emit toast when new docs get classified
+      if (artifacts) {
+        const prevMatched = prevArtifactMatchedRef.current;
+        const newMatched = artifacts.matched ?? 0;
+        if (prevMatched > 0 && newMatched > prevMatched) {
+          const delta = newMatched - prevMatched;
+          setToasts((prev) => [...prev, {
+            id: `artifact_matched_${Date.now()}`,
+            type: "doc_classified" as const,
+            title: `${delta} document${delta > 1 ? "s" : ""} classified`,
+            ts: Date.now(),
+          }].slice(-5));
+        }
+        prevArtifactMatchedRef.current = newMatched;
+      }
 
       // Compute lifecycle diffs and emit toasts
       if (lifecycle) {
@@ -313,6 +360,7 @@ export function useCockpitData(dealId: string | null): CockpitData {
     isPolling,
     checklistSummary,
     processingUploads,
+    artifactSummary,
     lastFetchedAt,
     error,
     refresh,

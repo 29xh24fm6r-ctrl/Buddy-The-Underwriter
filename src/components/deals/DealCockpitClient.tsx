@@ -2,36 +2,23 @@
 
 import { useState } from "react";
 import React from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import DealIntakeCard from "@/components/deals/DealIntakeCard";
-import BorrowerRequestComposerCard from "@/components/deals/BorrowerRequestComposerCard";
-import DealFilesCard from "@/components/deals/DealFilesCard";
-import BorrowerUploadLinksCard from "@/components/deals/BorrowerUploadLinksCard";
-import UploadAuditCard from "@/components/deals/UploadAuditCard";
-import { DealProgressWidget } from "@/components/deals/DealProgressWidget";
-import { UnderwritingControlPanel } from "@/components/deals/UnderwritingControlPanel";
 import { SafeBoundary } from "@/components/SafeBoundary";
-import { PipelineIndicator } from "@/components/deals/PipelineStatus";
-import { DealCockpitNarrator } from "@/components/deals/DealCockpitNarrator";
-import { DealCockpitInsights } from "@/components/deals/DealCockpitInsights";
-import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
-import BorrowerAttachmentCard from "./BorrowerAttachmentCard";
-import { DocumentClassificationInbox } from "@/components/deals/DocumentClassificationInbox";
-import { LifecycleStatusPanel } from "@/components/deals/LifecycleStatusPanel";
-import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
 import { LiveIndicator, ProcessingIndicator, CockpitToastStack } from "@/components/deals/LiveIndicator";
 import { CockpitDataProvider } from "@/buddy/cockpit";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
 import { DegradedBanner } from "@/buddy/ui/DegradedBanner";
-import { useAnchorAutofocus } from "@/lib/deepLinks/useAnchorAutofocus";
 import { cn } from "@/lib/utils";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
-// Import from client-safe module to avoid server-only code in client components
 import type { LifecycleState } from "@/buddy/lifecycle/client";
 import { getStageBadge } from "@/lib/lifecycle/stageBadge";
-import { ForceAdvancePanel } from "@/components/deals/ForceAdvancePanel";
-import { PreviewUnderwritePanel } from "@/components/deals/PreviewUnderwritePanel";
+
+// Keystone Cockpit: 3-column layout
+import { LeftColumn } from "@/components/deals/cockpit/columns/LeftColumn";
+import { CenterColumn } from "@/components/deals/cockpit/columns/CenterColumn";
+import { RightColumn } from "@/components/deals/cockpit/columns/RightColumn";
+import { SecondaryTabsPanel } from "@/components/deals/cockpit/panels/SecondaryTabsPanel";
+import { PipelineIndicator } from "@/components/deals/PipelineStatus";
 
 // Glass panel style for Stitch-like design
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
@@ -55,9 +42,14 @@ type UnderwriteVerifyLedgerEvent = {
 };
 
 /**
- * Client wrapper for Deal Cockpit.
- * - Shows live status bar to prove backend is responding during load
- * - Lifecycle panel is the single source of truth for deal progress
+ * Keystone Cockpit — 3-column flow controller.
+ *
+ * Layout:
+ * - Left:   Documents + processing pipeline
+ * - Center: Checklist (year-aware)
+ * - Right:  Readiness, blockers, primary CTA
+ *
+ * Below: Secondary tabs for Setup, Portal, Underwriting, Timeline, Admin
  */
 export default function DealCockpitClient({
   dealId,
@@ -89,7 +81,6 @@ export default function DealCockpitClient({
   verify: VerifyUnderwriteResult;
   verifyLedger?: UnderwriteVerifyLedgerEvent | null;
   unifiedLifecycleState?: LifecycleState | null;
-  /** Whether lifecycle data is available/reliable. If false, shows degraded UI. */
   lifecycleAvailable?: boolean;
 }) {
   const [stage, setStage] = useState<string | null>(lifecycleStage ?? null);
@@ -98,23 +89,12 @@ export default function DealCockpitClient({
   const [borrowerName, setBorrowerName] = useState<string | null>(
     dealName?.borrowerName ?? (optimisticName || null),
   );
-  const ignitedLabel = React.useMemo(() => {
-    const source = ignitedEvent?.source ?? null;
-    if (!source) return null;
-    if (source === "banker_invite" || source === "ignite") return "Intake started (Borrower invited)";
-    if (source === "banker_upload") return "Intake started (Banker upload)";
-    return "Intake started";
-  }, [ignitedEvent?.source]);
-
-  const highlightIntake = useAnchorAutofocus("intake");
-  const highlightBorrower = useAnchorAutofocus("borrower-attach");
 
   React.useEffect(() => {
     setBorrowerName(dealName?.borrowerName ?? (optimisticName || null));
     setStage(lifecycleStage ?? null);
   }, [dealName?.borrowerName, optimisticName, lifecycleStage]);
 
-  // Invariant: deal display name should persist across create -> cockpit without flashing "NEEDS NAME".
   const effectiveBorrowerName = borrowerName || optimisticName || null;
 
   React.useEffect(() => {
@@ -127,280 +107,94 @@ export default function DealCockpitClient({
     });
   }, [dealId, effectiveBorrowerName]);
 
-  const readinessItems = [
-    {
-      key: "name",
-      label: "Deal named",
-      ok: readiness?.named ?? false,
-      href: `/deals/${dealId}/cockpit?anchor=deal-name`,
-      detail: null,
-    },
-    {
-      key: "borrower",
-      label: "Borrower attached",
-      ok: readiness?.borrowerAttached ?? false,
-      href: `/deals/${dealId}/cockpit?anchor=borrower-attach`,
-      detail: null,
-    },
-    {
-      key: "documents",
-      label: "Required documents received",
-      ok: readiness?.documentsReady ?? false,
-      href: `/deals/${dealId}/cockpit?anchor=documents`,
-      detail:
-        readiness && readiness.requiredDocsCount > 0
-          ? `${readiness.requiredDocsCount - readiness.missingDocsCount}/${readiness.requiredDocsCount}`
-          : null,
-    },
-    {
-      key: "financials",
-      label: "Financial snapshot ready",
-      ok: readiness?.financialSnapshotReady ?? false,
-      href: `/deals/${dealId}/pricing`,
-      detail: null,
-    },
-  ];
-
-  // Resolve deal title: display_name > nickname > borrowerName > "Untitled deal"
+  // Resolve deal title
   const resolvedDealTitle = dealName?.displayName?.trim() || dealName?.nickname?.trim() || effectiveBorrowerName || "Untitled deal";
   const isUntitled = resolvedDealTitle === "Untitled deal";
-
-  // Stage badge styling (extracted to shared utility)
   const stageBadge = getStageBadge(stage);
 
   return (
     <CockpitDataProvider dealId={dealId}>
-    {/* Builder Observer: Show degraded API responses */}
-    <DegradedBanner dealId={dealId} />
-    <div className="min-h-screen text-white">
-      {/* Cockpit Container */}
-      <div className="mx-auto max-w-7xl px-3 py-4 space-y-4 sm:px-6 sm:py-6 sm:space-y-6">
+      {/* Builder Observer: Show degraded API responses */}
+      <DegradedBanner dealId={dealId} />
+      <div className="min-h-screen text-white">
+        <div className="mx-auto max-w-[1600px] px-3 py-4 space-y-4 sm:px-6 sm:py-6 sm:space-y-6">
 
-        {/* Hero Header - Strong hierarchy with deal title prominence */}
-        <div className={cn(glassPanel, "overflow-hidden")}>
-          <div className={glassHeader}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/60">
-                  <span className="material-symbols-outlined text-white text-[18px]">analytics</span>
+          {/* Hero Header — compact, focused */}
+          <div className={cn(glassPanel, "overflow-hidden")}>
+            <div className="px-5 py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/60">
+                    <span className="material-symbols-outlined text-white text-[18px]">analytics</span>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-white/50">Deal Cockpit</div>
+                    <h1
+                      id="deal-name"
+                      className={cn(
+                        "text-xl font-bold tracking-tight",
+                        isUntitled ? "text-amber-300/80 italic" : "text-white",
+                      )}
+                    >
+                      {resolvedDealTitle}
+                    </h1>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-widest text-white/50">Deal Cockpit</div>
-                  <h1 id="deal-name" className={cn(
-                    "text-xl font-bold tracking-tight scroll-mt-24",
-                    isUntitled ? "text-amber-300/80 italic" : "text-white"
-                  )}>
-                    {resolvedDealTitle}
-                  </h1>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <LiveIndicator />
-                <span className={cn(
-                  "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold capitalize",
-                  stageBadge.className
-                )}>
-                  {stageBadge.label}
-                </span>
-                <PipelineIndicator dealId={dealId} />
-              </div>
-            </div>
-          </div>
-
-          {/* Readiness Status Bar */}
-          <div className="px-5 py-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold uppercase tracking-wider text-white/50">Readiness</span>
-              {ignitedLabel && lifecycleStage !== "created" ? (
-                <span className="text-xs text-white/40">{ignitedLabel}</span>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {readinessItems.map((item) => (
-                <Link
-                  key={item.key}
-                  href={item.href}
-                  className={cn(
-                    "group inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:scale-[1.02]",
-                    item.ok
-                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20"
-                      : "border-amber-500/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
-                  )}
-                >
-                  <span className={cn(
-                    "flex h-4 w-4 items-center justify-center rounded-full text-[10px]",
-                    item.ok ? "bg-emerald-500/30" : "bg-amber-500/30"
-                  )}>
-                    {item.ok ? "✓" : "!"}
+                <div className="flex items-center gap-3">
+                  <LiveIndicator />
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold capitalize",
+                      stageBadge.className,
+                    )}
+                  >
+                    {stageBadge.label}
                   </span>
-                  <span>{item.label}</span>
-                  {item.detail ? (
-                    <span className="text-[10px] opacity-70 font-mono">{item.detail}</span>
-                  ) : null}
-                </Link>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* System Narrator */}
-        <DealCockpitNarrator dealId={dealId} />
-
-        {/* Deal Health Insights */}
-        <SafeBoundary>
-          <DealCockpitInsights dealId={dealId} />
-        </SafeBoundary>
-
-        {/* Two Column Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-
-          {/* Left Column - Intake & Setup */}
-          <div className="space-y-6">
-            <div className={cn(glassPanel, "overflow-hidden")}>
-              <div className={glassHeader}>
-                <span className="text-xs font-bold uppercase tracking-widest text-white/50">Intake & Setup</span>
-              </div>
-              <div className="p-4 space-y-4">
-                <SafeBoundary>
-                  <div
-                    id="intake"
-                    className={cn(
-                      "scroll-mt-24 rounded-xl transition",
-                      highlightIntake && "ring-2 ring-sky-400/60 bg-sky-500/5",
-                    )}
-                  >
-                    <DealIntakeCard
-                      dealId={dealId}
-                      isAdmin={isAdmin}
-                      lifecycleStage={stage}
-                      onLifecycleStageChange={setStage}
-                    />
-                  </div>
-                </SafeBoundary>
-
-                <SafeBoundary>
-                  <div
-                    id="borrower-attach"
-                    className={cn(
-                      "scroll-mt-24 rounded-xl transition",
-                      highlightBorrower && "ring-2 ring-sky-400/60 bg-sky-500/5",
-                    )}
-                  >
-                    <BorrowerAttachmentCard dealId={dealId} />
-                  </div>
-                </SafeBoundary>
-
-                <SafeBoundary>
-                  <div id="borrower-request" className="scroll-mt-24">
-                    <BorrowerRequestComposerCard dealId={dealId} />
-                  </div>
-                </SafeBoundary>
-              </div>
-            </div>
-
-            <div className={cn(glassPanel, "overflow-hidden")}>
-              <div className={glassHeader}>
-                <span className="text-xs font-bold uppercase tracking-widest text-white/50">Files & Documents</span>
-              </div>
-              <div className="p-4">
-                <SafeBoundary>
-                  <DealFilesCard dealId={dealId} />
-                </SafeBoundary>
-              </div>
-            </div>
-
-            {/* Document Classification - Magic Intake */}
-            <SafeBoundary>
-              <DocumentClassificationInbox dealId={dealId} />
-            </SafeBoundary>
-          </div>
-
-          {/* Right Column - Underwriting & Progress */}
-          <div className="space-y-6">
-            {/* Processing Micro-State */}
-            <ProcessingIndicator />
-
-            {/* Unified Lifecycle Status */}
-            <SafeBoundary>
-              <LifecycleStatusPanel
-                dealId={dealId}
-                initialState={unifiedLifecycleState ?? null}
-                available={lifecycleAvailable}
-              />
-            </SafeBoundary>
-
-            {/* Deal Story Timeline */}
-            <SafeBoundary>
-              <DealStoryTimeline dealId={dealId} />
-            </SafeBoundary>
-
-            <div className={cn(glassPanel, "overflow-hidden")}>
-              <div className={glassHeader}>
-                <span className="text-xs font-bold uppercase tracking-widest text-white/50">Underwriting</span>
-              </div>
-              <div className="p-4 space-y-4">
-                <SafeBoundary>
-                  <UnderwritingControlPanel
-                    dealId={dealId}
-                    lifecycleStage={stage}
-                    intakeInitialized={intakeInitialized}
-                    verifyLedger={verifyLedger ?? null}
-                  />
-                </SafeBoundary>
-
-                <SafeBoundary>
-                  <DealOutputsPanel dealId={dealId} verify={verify} />
-                </SafeBoundary>
-
-                {/* Preview Underwrite — runs policy engine without lifecycle mutation */}
-                <SafeBoundary>
-                  <PreviewUnderwritePanel dealId={dealId} />
-                </SafeBoundary>
-
-                {/* Force Advance — admin only, gated by env */}
-                {isAdmin && (
-                  <SafeBoundary>
-                    <ForceAdvancePanel
-                      dealId={dealId}
-                      currentStage={unifiedLifecycleState?.stage ?? stage}
-                    />
-                  </SafeBoundary>
-                )}
-              </div>
-            </div>
-
-            <div className={cn(glassPanel, "overflow-hidden")}>
-              <div className={glassHeader}>
-                <span className="text-xs font-bold uppercase tracking-widest text-white/50">Progress</span>
-              </div>
-              <div className="p-4">
-                <SafeBoundary>
-                  <DealProgressWidget dealId={dealId} />
-                </SafeBoundary>
-              </div>
-            </div>
-
-            <div className={cn(glassPanel, "overflow-hidden")}>
-              <div className={glassHeader}>
-                <span className="text-xs font-bold uppercase tracking-widest text-white/50">Borrower Portal</span>
-              </div>
-              <div className="p-4 space-y-4">
-                <SafeBoundary>
-                  <BorrowerUploadLinksCard dealId={dealId} lifecycleStage={stage} />
-                </SafeBoundary>
-
-                <SafeBoundary>
-                  <UploadAuditCard dealId={dealId} />
-                </SafeBoundary>
+                  <PipelineIndicator dealId={dealId} />
+                </div>
               </div>
             </div>
           </div>
+
+          {/* Processing Micro-State */}
+          <ProcessingIndicator />
+
+          {/* === KEYSTONE 3-COLUMN LAYOUT === */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
+            {/* Left Column: Documents + Pipeline (mobile: 3rd) */}
+            <div className="lg:col-span-4 order-3 lg:order-1">
+              <LeftColumn dealId={dealId} />
+            </div>
+
+            {/* Center Column: Year-Aware Checklist (mobile: 2nd) */}
+            <div className="lg:col-span-4 order-2 lg:order-2">
+              <CenterColumn dealId={dealId} />
+            </div>
+
+            {/* Right Column: Readiness + Primary CTA (mobile: 1st) */}
+            <div className="lg:col-span-4 order-1 lg:order-3">
+              <RightColumn dealId={dealId} isAdmin={isAdmin} />
+            </div>
+          </div>
+
+          {/* === SECONDARY TABS === */}
+          <SafeBoundary>
+            <SecondaryTabsPanel
+              dealId={dealId}
+              isAdmin={isAdmin}
+              lifecycleStage={stage}
+              intakeInitialized={intakeInitialized}
+              verify={verify}
+              verifyLedger={verifyLedger}
+              unifiedLifecycleState={unifiedLifecycleState}
+              onLifecycleStageChange={setStage}
+            />
+          </SafeBoundary>
         </div>
       </div>
-    </div>
 
-    {/* Toast Stack for "What Changed" notifications */}
-    <CockpitToastStack />
+      {/* Toast Stack for "What Changed" notifications */}
+      <CockpitToastStack />
     </CockpitDataProvider>
   );
 }
