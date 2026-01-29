@@ -27,6 +27,8 @@ export type ProcessArtifactResult = {
   matchedKeys?: string[];
   error?: string;
   ocrTriggered?: boolean;
+  skipped?: boolean;
+  skipReason?: string;
 };
 
 type ArtifactRow = {
@@ -341,6 +343,40 @@ async function findMatchingChecklistItems(
 }
 
 /**
+ * Check if a document has been manually classified by a banker.
+ * If match_source = "manual", AI must NEVER overwrite.
+ */
+async function checkManualOverride(
+  sb: ReturnType<typeof supabaseAdmin>,
+  sourceTable: string,
+  sourceId: string,
+): Promise<{
+  isManual: boolean;
+  checklistKey: string | null;
+  documentType: string | null;
+}> {
+  if (sourceTable !== "deal_documents") {
+    return { isManual: false, checklistKey: null, documentType: null };
+  }
+
+  const { data } = await sb
+    .from("deal_documents")
+    .select("match_source, checklist_key, document_type")
+    .eq("id", sourceId)
+    .maybeSingle();
+
+  if (data?.match_source === "manual") {
+    return {
+      isManual: true,
+      checklistKey: data.checklist_key,
+      documentType: data.document_type,
+    };
+  }
+
+  return { isManual: false, checklistKey: null, documentType: null };
+}
+
+/**
  * Process a single artifact through the classification pipeline.
  */
 export async function processArtifact(
@@ -350,6 +386,50 @@ export async function processArtifact(
   const { id: artifactId, deal_id: dealId, bank_id: bankId, source_table, source_id } = artifact;
 
   try {
+    // STEP 0: Check for manual override — banker's word is final
+    const manualCheck = await checkManualOverride(sb, source_table, source_id);
+
+    if (manualCheck.isManual) {
+      console.log("[processArtifact] MANUAL OVERRIDE - Skipping AI classification", {
+        artifactId,
+        sourceId: source_id,
+        checklistKey: manualCheck.checklistKey,
+      });
+
+      // Update artifact status to reflect it's been handled
+      await sb
+        .from("document_artifacts")
+        .update({
+          status: "matched",
+          doc_type_confidence: 1.0,
+          doc_type_reason: "Manual classification by banker (preserved)",
+          match_confidence: 1.0,
+          match_reason: "Manual override - AI classification skipped",
+        } as any)
+        .eq("id", artifactId);
+
+      await logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "artifact.skipped_manual",
+        uiState: "done",
+        uiMessage: "Skipped AI classification (banker override)",
+        meta: {
+          artifact_id: artifactId,
+          source_id,
+          manual_checklist_key: manualCheck.checklistKey,
+          reason: "match_source=manual",
+        },
+      });
+
+      return {
+        ok: true,
+        artifactId,
+        skipped: true,
+        skipReason: "manual_override",
+      };
+    }
+
     // 1. Get document text (triggers OCR if needed)
     const { text, filename, mimeType, ocrTriggered } = await getDocumentText(
       sb,
@@ -414,22 +494,35 @@ export async function processArtifact(
       });
     }
 
-    // 6.5. STAMP deal_documents with authoritative classification (AI is single source of truth)
+    // 6.5. STAMP deal_documents with authoritative classification
+    // Double-check manual status first (race condition protection)
     const canonicalType = normalizeToCanonical(classification.docType);
     if (source_table === "deal_documents") {
-      const docYears = classification.taxYear ? [classification.taxYear] : null;
-
-      await sb
+      const recheckManual = await sb
         .from("deal_documents")
-        .update({
-          document_type: canonicalType,
-          doc_year: classification.taxYear,
-          doc_years: docYears,
-          entity_name: classification.entityName,
-          checklist_key: mapDocTypeToChecklistKeys(classification.docType, classification.taxYear)[0] ?? null,
-          match_source: "ai_classification",
-        } as any)
-        .eq("id", source_id);
+        .select("match_source")
+        .eq("id", source_id)
+        .maybeSingle();
+
+      if (recheckManual.data?.match_source === "manual") {
+        console.log("[processArtifact] Manual override detected during stamp - skipping", {
+          source_id,
+        });
+      } else {
+        const docYears = classification.taxYear ? [classification.taxYear] : null;
+
+        await sb
+          .from("deal_documents")
+          .update({
+            document_type: canonicalType,
+            doc_year: classification.taxYear,
+            doc_years: docYears,
+            entity_name: classification.entityName,
+            checklist_key: mapDocTypeToChecklistKeys(classification.docType, classification.taxYear)[0] ?? null,
+            match_source: "ai_classification",
+          } as any)
+          .eq("id", source_id);
+      }
     }
 
     // 6.6. Reconcile checklist (flips required items to received)
