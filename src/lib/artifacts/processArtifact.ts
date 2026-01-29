@@ -19,6 +19,7 @@ import {
 } from "./classifyDocument";
 import { normalizeToCanonical } from "@/lib/documents/normalizeType";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 
 export type ProcessArtifactResult = {
   ok: boolean;
@@ -665,6 +666,19 @@ export async function processArtifact(
         matched_keys: matchedKeys,
         stamped: source_table === "deal_documents",
         ocr_triggered: ocrTriggered,
+      },
+    });
+
+    // Pulse: artifact processed
+    void emitPipelineEvent({
+      kind: "artifact_processed",
+      deal_id: dealId,
+      bank_id: bankId,
+      payload: {
+        artifact_id: artifactId,
+        document_type: classification.docType,
+        confidence: classification.confidence,
+        checklist_key: matchedKeys?.[0] ?? null,
       },
     });
 

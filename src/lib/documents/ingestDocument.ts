@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import {
   matchAndStampDealDocument,
   reconcileChecklistForDeal,
@@ -152,6 +153,14 @@ export async function ingestDocument(input: IngestDocumentInput) {
       document_id: doc.id,
       source: payload.source,
     },
+  });
+
+  // Pulse: document uploaded
+  void emitPipelineEvent({
+    kind: "document_uploaded",
+    deal_id: input.dealId,
+    bank_id: input.bankId,
+    payload: { document_type: payload.source },
   });
 
   // Checklist match + stamp

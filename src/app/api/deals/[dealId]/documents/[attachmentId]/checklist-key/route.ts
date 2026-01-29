@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -199,6 +200,18 @@ export async function PATCH(
   } catch (e) {
     console.warn("[checklist-key] ledger event failed (non-fatal)", e);
   }
+
+  // Pulse: manual override applied
+  void emitPipelineEvent({
+    kind: "manual_override",
+    deal_id: dealId,
+    bank_id: bankId,
+    payload: {
+      checklist_key: checklistKey,
+      document_type: documentType,
+      match_source: "manual",
+    },
+  });
 
   // 4. Reconcile checklist
   try {

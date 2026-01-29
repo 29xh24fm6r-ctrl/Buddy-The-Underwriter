@@ -5,6 +5,7 @@ import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { reconcileDealChecklist } from "@/lib/checklist/engine";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { normalizeGoogleError } from "@/lib/google/errors";
 
 export const runtime = "nodejs";
@@ -52,6 +53,13 @@ export async function POST(
         uiState: "done",
         uiMessage: "Checklist reconciled",
         meta: { updated: (r as any)?.updated ?? null },
+      });
+
+      // Pulse: checklist reconciled
+      void emitPipelineEvent({
+        kind: "checklist_reconciled",
+        deal_id: dealId,
+        bank_id: ensured.bankId,
       });
 
       span.setStatus({ code: SpanStatusCode.OK });

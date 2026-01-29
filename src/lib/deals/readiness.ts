@@ -2,6 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
 import { fireWebhook } from "@/lib/webhooks/fireWebhook";
+import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { LedgerEventType } from "@/buddy/lifecycle/events";
 import { getSatisfiedRequired, getMissingRequired } from "@/lib/deals/checklistSatisfaction";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -138,6 +139,18 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
       payload: {
         ready_at: new Date().toISOString(),
         ...result.details,
+      },
+    });
+
+    // Pulse: readiness recomputed
+    void emitPipelineEvent({
+      kind: "readiness_recomputed",
+      deal_id: dealId,
+      bank_id: currentDeal?.bank_id ?? undefined,
+      payload: {
+        ready: true,
+        ready_reason: result.reason,
+        status: "completed",
       },
     });
 
