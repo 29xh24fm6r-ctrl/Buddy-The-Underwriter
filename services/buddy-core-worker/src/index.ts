@@ -333,8 +333,9 @@ function startHttpServer(): http.Server {
   const port = Number(process.env.PORT ?? "8080");
 
   const server = http.createServer((req, res) => {
-    const url = req.url ?? "/";
-    if (url === "/" || url === "/healthz") {
+    const raw = req.url ?? "/";
+    const path = raw.split("?")[0];
+    if (path === "/" || path === "/healthz") {
       res.writeHead(200, { "content-type": "text/plain" });
       res.end("ok");
       return;
