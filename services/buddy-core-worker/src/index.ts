@@ -23,6 +23,7 @@
  */
 
 import pg from "pg";
+import http from "node:http";
 
 const { Pool } = pg;
 
@@ -265,6 +266,9 @@ async function outboxLoop(): Promise<never> {
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  // Start HTTP listener first so Cloud Run marks the revision as ready
+  _httpServer = startHttpServer();
+
   if (!WORKER_ENABLED) {
     console.log("[buddy-core-worker] WORKER_ENABLED=false, exiting");
     process.exit(0);
@@ -319,12 +323,46 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ─── Cloud Run HTTP listener ─────────────────────────────────────────────────
+
+/**
+ * Cloud Run services MUST listen on PORT. Even for a worker, we expose a tiny
+ * health endpoint so the revision becomes ready.
+ */
+function startHttpServer(): http.Server {
+  const port = Number(process.env.PORT ?? "8080");
+
+  const server = http.createServer((req, res) => {
+    const url = req.url ?? "/";
+    if (url === "/" || url === "/healthz") {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("ok");
+      return;
+    }
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end("not_found");
+  });
+
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`[http] listening on :${port}`);
+  });
+
+  return server;
+}
+
 // ─── Graceful shutdown ───────────────────────────────────────────────────────
 
+let _httpServer: http.Server | undefined;
+
 function shutdown(signal: string): void {
-  console.log(`[buddy-core-worker] received ${signal}, shutting down`);
+  console.log(`[shutdown] ${signal} received`);
   pool.end().catch(() => {});
-  process.exit(0);
+  if (_httpServer) {
+    _httpServer.close(() => process.exit(0));
+    setTimeout(() => process.exit(1), 10_000).unref();
+  } else {
+    process.exit(0);
+  }
 }
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));

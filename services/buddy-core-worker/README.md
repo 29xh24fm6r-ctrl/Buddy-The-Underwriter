@@ -94,6 +94,12 @@ Checks last build status (if available), verifies the service exists, tails rece
 [outbox] started { pollMs: 2000, batchSize: 25, claimTtlSeconds: 120 }
 ```
 
+### Tail logs
+
+```bash
+gcloud run services logs read buddy-core-worker --region us-central1 --limit 200 --freshness=5m
+```
+
 ### Check undelivered backlog
 
 ```sql
