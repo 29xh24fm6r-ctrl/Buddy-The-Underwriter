@@ -67,6 +67,41 @@ The `postgres` superuser bypasses RLS entirely, which works but violates least-p
 
 ## Deploy (DO NOT RUN IN CI)
 
+### One-command deploy (recommended)
+
+```bash
+./scripts/gcp/worker-deploy.sh
+```
+
+Runs preflight checks (APIs, service account, secrets), then deploys via `gcloud run deploy --source`.
+
+Override defaults with env vars: `PROJECT`, `REGION`, `SERVICE`, `SA`.
+
+### Verify
+
+```bash
+./scripts/gcp/worker-verify.sh
+```
+
+Checks the service exists, tails recent logs, and fails if DB auth/RLS errors are detected.
+
+### Expected log patterns
+
+```
+[buddy-core-worker] starting { workerId, pulseUrl, ... }
+[buddy-core-worker] database connected
+[heartbeat] started { intervalMs: 15000 }
+[outbox] started { pollMs: 2000, batchSize: 25, claimTtlSeconds: 120 }
+```
+
+### Check undelivered backlog
+
+```sql
+select count(*) as undelivered from buddy_outbox_events where delivered_at is null;
+```
+
+### Raw deploy command (reference only)
+
 ```bash
 gcloud run deploy buddy-core-worker \
   --source services/buddy-core-worker \
@@ -75,38 +110,10 @@ gcloud run deploy buddy-core-worker \
   --max-instances 2 \
   --cpu 1 \
   --memory 512Mi \
-  --set-secrets \
-    BUDDY_DB_URL=BUDDY_DB_URL:latest,\
-    BUDDY_DB_SERVICE_KEY=BUDDY_DB_SERVICE_KEY:latest,\
-    PULSE_MCP_URL=PULSE_MCP_URL:latest,\
-    PULSE_MCP_KEY=PULSE_MCP_KEY:latest \
-  --set-env-vars \
-    NODE_ENV=production,\
-    WORKER_ENABLED=true,\
-    POLL_INTERVAL_MS=2000,\
-    HEARTBEAT_INTERVAL_MS=15000,\
-    BATCH_SIZE=25,\
-    HTTP_TIMEOUT_MS=2000,\
-    CLAIM_TTL_SECONDS=120 \
-  --no-allow-unauthenticated
-```
-
-## Verify
-
-```bash
-# Tail logs
-gcloud run services logs read buddy-core-worker --limit 200
-
-# Expected log patterns:
-#   [buddy-core-worker] starting { workerId, pulseUrl, ... }
-#   [buddy-core-worker] database connected
-#   [heartbeat] started { intervalMs: 15000 }
-#   [outbox] started { pollMs: 2000, batchSize: 25, claimTtlSeconds: 120 }
-#   [heartbeat] recovered after N failures  (on reconnection)
-#   [outbox] forward error: <id> <msg>       (on Pulse failure)
-
-# Check undelivered backlog
-psql "$BUDDY_DB_URL" -c "select count(*) as undelivered from buddy_outbox_events where delivered_at is null;"
+  --no-allow-unauthenticated \
+  --set-secrets BUDDY_DB_URL=BUDDY_DB_URL:latest \
+  --set-secrets PULSE_MCP_URL=PULSE_MCP_URL:latest \
+  --set-secrets PULSE_MCP_KEY=PULSE_MCP_KEY:latest
 ```
 
 ## Local dev
