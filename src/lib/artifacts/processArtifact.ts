@@ -510,18 +510,43 @@ export async function processArtifact(
         });
       } else {
         const docYears = classification.taxYear ? [classification.taxYear] : null;
+        const checklistKey = mapDocTypeToChecklistKeys(classification.docType, classification.taxYear)[0] ?? null;
 
-        await sb
+        const stampResult = await sb
           .from("deal_documents")
           .update({
             document_type: canonicalType,
             doc_year: classification.taxYear,
             doc_years: docYears,
             entity_name: classification.entityName,
-            checklist_key: mapDocTypeToChecklistKeys(classification.docType, classification.taxYear)[0] ?? null,
+            checklist_key: checklistKey,
             match_source: "ai_classification",
+            match_confidence: classification.confidence,
+            match_reason: classification.reason,
           } as any)
-          .eq("id", source_id);
+          .eq("id", source_id)
+          .select("id, checklist_key, match_source");
+
+        if (stampResult.error) {
+          console.error("[processArtifact] STAMP FAILED", {
+            source_id,
+            error: stampResult.error.message,
+            code: stampResult.error.code,
+            details: stampResult.error.details,
+          });
+        } else if (!stampResult.data || stampResult.data.length === 0) {
+          console.error("[processArtifact] STAMP NO ROWS UPDATED", {
+            source_id,
+            canonicalType,
+            checklistKey,
+          });
+        } else {
+          console.log("[processArtifact] Stamp successful", {
+            source_id,
+            checklist_key: stampResult.data[0]?.checklist_key,
+            match_source: stampResult.data[0]?.match_source,
+          });
+        }
       }
     }
 

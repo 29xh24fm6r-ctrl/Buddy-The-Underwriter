@@ -48,12 +48,6 @@ const UNIVERSAL_ITEMS = [
     required: true,
     description: "Most recent balance sheet",
   },
-  {
-    checklist_key: "BANK_STMT_3M",
-    title: "Bank Statements (3 months)",
-    required: false,
-    description: "Most recent 3 months of business bank statements",
-  },
 ];
 
 export const RULESETS: ChecklistRuleSet[] = [
@@ -109,12 +103,6 @@ export const RULESETS: ChecklistRuleSet[] = [
         title: "Top Tenant Leases",
         required: false,
         description: "Copies of leases for top tenants",
-      },
-      {
-        checklist_key: "PROPERTY_INSURANCE",
-        title: "Property Insurance",
-        required: false,
-        description: "Current insurance declarations page",
       },
     ],
   },
