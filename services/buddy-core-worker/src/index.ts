@@ -52,7 +52,20 @@ const WORKER_ID =
 
 // ─── Postgres pool ───────────────────────────────────────────────────────────
 
-const pool = new Pool({ connectionString: BUDDY_DB_URL, max: 4 });
+const caBundle = process.env.BUDDY_DB_CA_BUNDLE ?? "";
+
+const pool = new Pool({
+  connectionString: BUDDY_DB_URL,
+  max: 4,
+  ...(caBundle
+    ? {
+        ssl: {
+          ca: caBundle,
+          rejectUnauthorized: true,
+        },
+      }
+    : {}),
+});
 
 // ─── Pulse adapter ───────────────────────────────────────────────────────────
 

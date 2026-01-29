@@ -39,13 +39,13 @@ gcloud iam service-accounts describe "$SA" >/dev/null
 
 # Validate secrets exist (names only)
 echo "[preflight] checking secrets exist"
-for s in BUDDY_DB_URL PULSE_MCP_URL PULSE_MCP_KEY; do
+for s in BUDDY_DB_URL PULSE_MCP_URL PULSE_MCP_KEY buddy-db-ca-bundle; do
   gcloud secrets describe "$s" >/dev/null
 done
 
 # Validate SA can access secrets (IAM binding may take time; best-effort check)
 echo "[preflight] checking secret access bindings (best-effort)"
-for s in BUDDY_DB_URL PULSE_MCP_URL PULSE_MCP_KEY; do
+for s in BUDDY_DB_URL PULSE_MCP_URL PULSE_MCP_KEY buddy-db-ca-bundle; do
   if ! gcloud secrets get-iam-policy "$s" \
     --format="json(bindings)" | grep -q "$SA"; then
     echo "[preflight][warn] SA not found in IAM policy for secret $s (may still work if bound at project-level)."

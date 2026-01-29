@@ -19,6 +19,7 @@ Always-on Cloud Run service that bridges Buddy's durable outbox to Pulse MCP.
 
 | Variable | Default | Description |
 |---|---|---|
+| `BUDDY_DB_CA_BUNDLE` | — | PEM CA chain for Supabase TLS verification (from Secret Manager) |
 | `BUDDY_DB_SERVICE_KEY` | — | Plumbed for future use (not required for pg) |
 | `WORKER_ENABLED` | `true` | Master kill-switch |
 | `HEARTBEAT_INTERVAL_MS` | `15000` | Base heartbeat interval |
@@ -123,7 +124,7 @@ gcloud run deploy buddy-core-worker \
   --cpu 1 \
   --memory 512Mi \
   --set-env-vars "NODE_ENV=production,WORKER_ENABLED=true,POLL_INTERVAL_MS=2000,BATCH_SIZE=25,HEARTBEAT_INTERVAL_MS=15000,HTTP_TIMEOUT_MS=2000" \
-  --set-secrets "BUDDY_DB_URL=BUDDY_DB_URL:latest,PULSE_MCP_URL=PULSE_MCP_URL:latest,PULSE_MCP_KEY=PULSE_MCP_KEY:latest" \
+  --set-secrets "BUDDY_DB_URL=BUDDY_DB_URL:latest,PULSE_MCP_URL=PULSE_MCP_URL:latest,PULSE_MCP_KEY=PULSE_MCP_KEY:latest,BUDDY_DB_CA_BUNDLE=buddy-db-ca-bundle:latest" \
   --no-allow-unauthenticated
 ```
 

@@ -52,7 +52,7 @@ gcloud run deploy "$SERVICE" \
   --cpu 1 \
   --memory 512Mi \
   --set-env-vars "NODE_ENV=production,WORKER_ENABLED=true,POLL_INTERVAL_MS=2000,BATCH_SIZE=25,HEARTBEAT_INTERVAL_MS=15000,HTTP_TIMEOUT_MS=2000" \
-  --set-secrets "BUDDY_DB_URL=BUDDY_DB_URL:latest,PULSE_MCP_URL=PULSE_MCP_URL:latest,PULSE_MCP_KEY=PULSE_MCP_KEY:latest" \
+  --set-secrets "BUDDY_DB_URL=BUDDY_DB_URL:latest,PULSE_MCP_URL=PULSE_MCP_URL:latest,PULSE_MCP_KEY=PULSE_MCP_KEY:latest,BUDDY_DB_CA_BUNDLE=buddy-db-ca-bundle:latest" \
   --no-allow-unauthenticated
 
 echo "[deploy] done"
