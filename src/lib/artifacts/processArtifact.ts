@@ -3,10 +3,12 @@
  *
  * Steps:
  * 1. Fetch document metadata from source table
- * 2. Get document text (from OCR results or fetch fresh)
+ * 2. Get document text (from OCR results OR trigger OCR if missing)
  * 3. Classify document type using AI
  * 4. Match to checklist items
  * 5. Update artifact and create matches
+ * 6. Stamp deal_documents with classification
+ * 7. Reconcile checklist and recompute readiness
  */
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -24,6 +26,7 @@ export type ProcessArtifactResult = {
   classification?: ClassificationResult;
   matchedKeys?: string[];
   error?: string;
+  ocrTriggered?: boolean;
 };
 
 type ArtifactRow = {
@@ -36,33 +39,154 @@ type ArtifactRow = {
 };
 
 /**
+ * Run OCR directly on a document (bypasses document_jobs lookup).
+ * This is a streamlined version for the artifact processor.
+ */
+async function runOcrForDocument(
+  sb: ReturnType<typeof supabaseAdmin>,
+  dealId: string,
+  documentId: string,
+  storageBucket: string,
+  storagePath: string,
+  originalFilename: string,
+  mimeType: string | null,
+): Promise<string | null> {
+  // Check if Gemini OCR is enabled
+  if (process.env.USE_GEMINI_OCR !== "true") {
+    console.warn("[processArtifact] Gemini OCR not enabled, skipping OCR");
+    return null;
+  }
+
+  try {
+    // 1. Download file from storage
+    const dl = await sb.storage.from(storageBucket).download(storagePath);
+    if (dl.error) {
+      console.error("[processArtifact] Failed to download file for OCR", {
+        storageBucket,
+        storagePath,
+        error: dl.error.message,
+      });
+      return null;
+    }
+
+    const fileBytes = Buffer.from(await dl.data.arrayBuffer());
+
+    // 2. Infer mime type if not provided
+    const inferredMimeType = mimeType || inferMimeTypeFromFilename(originalFilename);
+
+    // 3. Call Gemini OCR
+    const { runGeminiOcrJob } = await import("@/lib/ocr/runGeminiOcrJob");
+
+    console.log("[processArtifact] Running Gemini OCR", {
+      dealId,
+      documentId,
+      filename: originalFilename,
+      mimeType: inferredMimeType,
+      fileSize: fileBytes.length,
+    });
+
+    const ocrResult = await runGeminiOcrJob({
+      fileBytes,
+      mimeType: inferredMimeType,
+      fileName: originalFilename,
+    });
+
+    // 4. Save OCR results to database
+    const nowIso = new Date().toISOString();
+    const { error: upsertError } = await sb.from("document_ocr_results").upsert(
+      {
+        deal_id: dealId,
+        attachment_id: documentId,
+        provider: "gemini_google",
+        status: "SUCCEEDED",
+        raw_json: {
+          model: ocrResult.model,
+          pageCount: ocrResult.pageCount,
+        },
+        extracted_text: ocrResult.text,
+        tables_json: null,
+        error: null,
+        updated_at: nowIso,
+      },
+      { onConflict: "attachment_id" },
+    );
+
+    if (upsertError) {
+      console.error("[processArtifact] Failed to save OCR results", {
+        documentId,
+        error: upsertError.message,
+      });
+      // Non-fatal - we still have the text
+    }
+
+    console.log("[processArtifact] OCR completed successfully", {
+      documentId,
+      textLength: ocrResult.text.length,
+      pageCount: ocrResult.pageCount,
+      model: ocrResult.model,
+    });
+
+    return ocrResult.text;
+
+  } catch (err: any) {
+    console.error("[processArtifact] OCR failed", {
+      documentId,
+      error: err?.message,
+    });
+    return null;
+  }
+}
+
+/**
+ * Infer MIME type from filename extension.
+ */
+function inferMimeTypeFromFilename(filename: string): string {
+  const ext = (filename || "").toLowerCase().split(".").pop() || "";
+  switch (ext) {
+    case "pdf": return "application/pdf";
+    case "png": return "image/png";
+    case "jpg":
+    case "jpeg": return "image/jpeg";
+    case "gif": return "image/gif";
+    case "webp": return "image/webp";
+    case "tif":
+    case "tiff": return "image/tiff";
+    default: return "application/pdf";
+  }
+}
+
+/**
  * Get document text for classification.
- * First tries OCR results, then falls back to filename-based heuristics.
+ * 1. First tries existing OCR results
+ * 2. If none, triggers Gemini OCR inline
+ * 3. Falls back to filename-only as last resort
  */
 async function getDocumentText(
   sb: ReturnType<typeof supabaseAdmin>,
   sourceTable: string,
   sourceId: string,
   dealId: string,
-): Promise<{ text: string; filename: string; mimeType: string | null }> {
+  bankId: string,
+): Promise<{ text: string; filename: string; mimeType: string | null; ocrTriggered: boolean }> {
   // Get the source document metadata
   let doc: {
     original_filename: string;
     mime_type: string | null;
     storage_path: string;
+    storage_bucket: string | null;
   } | null = null;
 
   if (sourceTable === "deal_documents") {
     const { data } = await sb
       .from("deal_documents")
-      .select("original_filename, mime_type, storage_path")
+      .select("original_filename, mime_type, storage_path, storage_bucket")
       .eq("id", sourceId)
       .maybeSingle();
     doc = data;
   } else if (sourceTable === "borrower_uploads") {
     const { data } = await sb
       .from("borrower_uploads")
-      .select("original_filename, mime_type, storage_path")
+      .select("original_filename, mime_type, storage_path, storage_bucket")
       .eq("id", sourceId)
       .maybeSingle();
     doc = data;
@@ -72,7 +196,7 @@ async function getDocumentText(
     throw new Error(`Document not found: ${sourceTable}/${sourceId}`);
   }
 
-  // Try to get OCR text from document_ocr_results (join by attachment_id = document ID)
+  // Try to get existing OCR text from document_ocr_results
   const { data: ocrData } = await sb
     .from("document_ocr_results")
     .select("extracted_text")
@@ -83,14 +207,19 @@ async function getDocumentText(
     .maybeSingle();
 
   if (ocrData?.extracted_text) {
+    console.log("[processArtifact] Found existing OCR text", {
+      sourceId,
+      textLength: ocrData.extracted_text.length,
+    });
     return {
       text: ocrData.extracted_text,
       filename: doc.original_filename,
       mimeType: doc.mime_type,
+      ocrTriggered: false,
     };
   }
 
-  // Try deal_doc_chunks
+  // Try deal_doc_chunks (legacy)
   const { data: chunks } = await sb
     .from("deal_doc_chunks")
     .select("content")
@@ -105,11 +234,80 @@ async function getDocumentText(
       text: combinedText,
       filename: doc.original_filename,
       mimeType: doc.mime_type,
+      ocrTriggered: false,
     };
   }
 
-  // Fall back to filename-only classification
-  console.warn("[processArtifact] No OCR text found, using filename only", {
+  // =========================================================================
+  // NO OCR EXISTS - TRIGGER GEMINI OCR INLINE
+  // =========================================================================
+  console.log("[processArtifact] No OCR text found, triggering Gemini OCR", {
+    sourceTable,
+    sourceId,
+    filename: doc.original_filename,
+    storagePath: doc.storage_path,
+  });
+
+  // Log OCR start
+  await logLedgerEvent({
+    dealId,
+    bankId,
+    eventKey: "ocr.triggered",
+    uiState: "working",
+    uiMessage: `Running OCR on ${doc.original_filename}`,
+    meta: {
+      source_id: sourceId,
+      source_table: sourceTable,
+      filename: doc.original_filename,
+    },
+  });
+
+  const storageBucket = doc.storage_bucket || "deal-files";
+  const ocrText = await runOcrForDocument(
+    sb,
+    dealId,
+    sourceId,
+    storageBucket,
+    doc.storage_path,
+    doc.original_filename,
+    doc.mime_type,
+  );
+
+  if (ocrText) {
+    await logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "ocr.completed",
+      uiState: "done",
+      uiMessage: `OCR completed for ${doc.original_filename}`,
+      meta: {
+        source_id: sourceId,
+        text_length: ocrText.length,
+      },
+    });
+
+    return {
+      text: ocrText,
+      filename: doc.original_filename,
+      mimeType: doc.mime_type,
+      ocrTriggered: true,
+    };
+  }
+
+  // OCR failed or not enabled - fall back to filename-only
+  await logLedgerEvent({
+    dealId,
+    bankId,
+    eventKey: "ocr.skipped",
+    uiState: "done",
+    uiMessage: `OCR skipped for ${doc.original_filename} (using filename only)`,
+    meta: {
+      source_id: sourceId,
+      reason: process.env.USE_GEMINI_OCR !== "true" ? "ocr_disabled" : "ocr_failed",
+    },
+  });
+
+  console.warn("[processArtifact] Using filename-only classification (low confidence)", {
     sourceTable,
     sourceId,
     filename: doc.original_filename,
@@ -119,6 +317,7 @@ async function getDocumentText(
     text: `[No OCR text available. Classify based on filename: ${doc.original_filename}]`,
     filename: doc.original_filename,
     mimeType: doc.mime_type,
+    ocrTriggered: false,
   };
 }
 
@@ -151,12 +350,13 @@ export async function processArtifact(
   const { id: artifactId, deal_id: dealId, bank_id: bankId, source_table, source_id } = artifact;
 
   try {
-    // 1. Get document text
-    const { text, filename, mimeType } = await getDocumentText(
+    // 1. Get document text (triggers OCR if needed)
+    const { text, filename, mimeType, ocrTriggered } = await getDocumentText(
       sb,
       source_table,
       source_id,
-      dealId
+      dealId,
+      bankId
     );
 
     // 2. Classify the document
@@ -225,12 +425,8 @@ export async function processArtifact(
           document_type: canonicalType,
           doc_year: classification.taxYear,
           doc_years: docYears,
-          classification_confidence: classification.confidence,
-          classification_reason: classification.reason,
           entity_name: classification.entityName,
           checklist_key: mapDocTypeToChecklistKeys(classification.docType, classification.taxYear)[0] ?? null,
-          match_confidence: classification.confidence,
-          match_reason: classification.reason,
           match_source: "ai_classification",
         } as any)
         .eq("id", source_id);
@@ -297,7 +493,7 @@ export async function processArtifact(
       bankId,
       eventKey: "artifact.processed",
       uiState: "done",
-      uiMessage: `Document classified as ${classification.docType}`,
+      uiMessage: `Document classified as ${classification.docType}${ocrTriggered ? " (OCR triggered)" : ""}`,
       meta: {
         artifact_id: artifactId,
         doc_type: classification.docType,
@@ -305,6 +501,7 @@ export async function processArtifact(
         tax_year: classification.taxYear,
         matched_keys: matchedKeys,
         stamped: source_table === "deal_documents",
+        ocr_triggered: ocrTriggered,
       },
     });
 
@@ -313,6 +510,7 @@ export async function processArtifact(
       artifactId,
       classification,
       matchedKeys,
+      ocrTriggered,
     };
   } catch (error: any) {
     console.error("[processArtifact] failed", {
