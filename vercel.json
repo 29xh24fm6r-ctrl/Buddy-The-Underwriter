@@ -11,6 +11,10 @@
     {
       "path": "/api/artifacts/process?max=20&token=__SET_WORKER_SECRET__",
       "schedule": "*/1 * * * *"
+    },
+    {
+      "path": "/api/pulse/cron-forward-ledger?max=50",
+      "schedule": "*/2 * * * *"
     }
   ]
 }

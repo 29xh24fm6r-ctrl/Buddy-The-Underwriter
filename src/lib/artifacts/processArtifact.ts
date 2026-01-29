@@ -512,20 +512,30 @@ export async function processArtifact(
         const docYears = classification.taxYear ? [classification.taxYear] : null;
         const checklistKey = mapDocTypeToChecklistKeys(classification.docType, classification.taxYear)[0] ?? null;
 
+        // Route entity name to schema-real columns based on canonical type.
+        // Do NOT write entity_name — use ai_business_name / ai_borrower_name only.
+        const entityName = classification.entityName ?? null;
+        const entityPatch: Record<string, any> = {};
+        if (entityName) {
+          if (canonicalType === "BUSINESS_TAX_RETURN") entityPatch.ai_business_name = entityName;
+          if (canonicalType === "PERSONAL_TAX_RETURN" || canonicalType === "PFS") entityPatch.ai_borrower_name = entityName;
+        }
+
         const stampResult = await sb
           .from("deal_documents")
           .update({
             document_type: canonicalType,
-            doc_year: classification.taxYear,
+            doc_year: classification.taxYear ?? null,
             doc_years: docYears,
-            entity_name: classification.entityName,
             checklist_key: checklistKey,
             match_source: "ai_classification",
             match_confidence: classification.confidence,
             match_reason: classification.reason,
+            ...entityPatch,
           } as any)
           .eq("id", source_id)
-          .select("id, checklist_key, match_source");
+          .select("id, checklist_key, match_source, document_type, doc_year, ai_business_name, ai_borrower_name")
+          .maybeSingle();
 
         if (stampResult.error) {
           console.error("[processArtifact] STAMP FAILED", {
@@ -534,7 +544,42 @@ export async function processArtifact(
             code: stampResult.error.code,
             details: stampResult.error.details,
           });
-        } else if (!stampResult.data || stampResult.data.length === 0) {
+
+          // Mark artifact as failed — stamp failure is NOT recoverable silently
+          await sb
+            .from("document_artifacts")
+            .update({
+              status: "failed",
+              match_reason: `stamp_failed: ${stampResult.error.message}`,
+            } as any)
+            .eq("id", artifactId);
+
+          // Loud ledger event for observability
+          await logLedgerEvent({
+            dealId,
+            bankId,
+            eventKey: "artifact.stamp_failed",
+            uiState: "error",
+            uiMessage: "Failed to stamp deal_documents (schema mismatch or RLS)",
+            meta: {
+              artifact_id: artifactId,
+              source_id,
+              error: {
+                message: stampResult.error.message,
+                code: stampResult.error.code,
+                details: stampResult.error.details,
+              },
+              attempted: {
+                canonicalType,
+                checklistKey,
+                taxYear: classification.taxYear ?? null,
+                entityPatch,
+              },
+            },
+          });
+
+          return { ok: false, artifactId, error: "stamp_failed" };
+        } else if (!stampResult.data) {
           console.error("[processArtifact] STAMP NO ROWS UPDATED", {
             source_id,
             canonicalType,
@@ -543,8 +588,8 @@ export async function processArtifact(
         } else {
           console.log("[processArtifact] Stamp successful", {
             source_id,
-            checklist_key: stampResult.data[0]?.checklist_key,
-            match_source: stampResult.data[0]?.match_source,
+            checklist_key: stampResult.data.checklist_key,
+            match_source: stampResult.data.match_source,
           });
         }
       }

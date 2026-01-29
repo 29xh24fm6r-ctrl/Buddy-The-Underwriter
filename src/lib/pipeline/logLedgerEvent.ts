@@ -6,7 +6,7 @@ interface LogLedgerEventInput {
   dealId: string;
   bankId: string;
   eventKey: string;
-  uiState: "working" | "done" | "waiting";
+  uiState: "working" | "done" | "waiting" | "error";
   uiMessage: string;
   meta?: Record<string, unknown>;
 }
@@ -26,7 +26,9 @@ export async function logLedgerEvent(input: LogLedgerEventInput) {
           ? "ok"
           : input.uiState === "working"
             ? "working"
-            : "waiting",
+            : input.uiState === "error"
+              ? "error"
+              : "waiting",
       ui_state: input.uiState,
       ui_message: input.uiMessage,
       meta: input.meta ?? {},
