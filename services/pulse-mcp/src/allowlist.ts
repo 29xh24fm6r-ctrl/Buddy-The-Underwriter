@@ -10,6 +10,8 @@ export const READ_TOOLS: readonly string[] = [
   "buddy.list_incidents",
   "buddy.error_fingerprint_summary",
   "buddy.get_fingerprint_samples",
+  "buddy_list_ledger_events",
+  "buddy_get_deal_ledger",
 ] as const;
 
 export function isReadTool(tool: string): boolean {

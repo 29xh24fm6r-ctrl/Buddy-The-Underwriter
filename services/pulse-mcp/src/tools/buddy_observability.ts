@@ -107,3 +107,4 @@ export async function buddy_get_fingerprint_samples(args: {
     .order("created_at", { ascending: false })
     .limit(limit);
 }
+

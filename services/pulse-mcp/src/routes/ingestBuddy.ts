@@ -17,35 +17,53 @@ function hmac(rawBody: string, secret: string) {
   return crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
 }
 
-function isValidPayload(body: any) {
+// ─── Observer event validation (product === "buddy") ─────────────────────────
+
+function isValidObserverPayload(body: any) {
   if (!body || typeof body !== "object") return false;
   if (body.product !== "buddy") return false;
   if (!body.env || !body.type || !body.severity || !body.message || !body.fingerprint) return false;
   if (typeof body.message !== "string") return false;
   if (typeof body.fingerprint !== "string") return false;
-  // schema_version optional on wire but Buddy sends it; accept if missing and default in DB
   return true;
 }
 
-export async function ingestBuddy(req: Request, res: Response) {
-  const secret = process.env.PULSE_BUDDY_INGEST_SECRET;
-  if (!secret) return res.status(500).json({ error: "missing PULSE_BUDDY_INGEST_SECRET" });
+// ─── Ledger event validation (source === "buddy") ───────────────────────────
 
+function isValidLedgerPayload(body: any) {
+  if (!body || typeof body !== "object") return false;
+  if (body.source !== "buddy") return false;
+  if (!body.env || typeof body.env !== "string") return false;
+  if (!body.deal_id || typeof body.deal_id !== "string") return false;
+  if (!body.event_key || typeof body.event_key !== "string") return false;
+  if (!body.created_at || typeof body.created_at !== "string") return false;
+  if (!body.trace_id || typeof body.trace_id !== "string") return false;
+  return true;
+}
+
+// ─── Shared HMAC verification ───────────────────────────────────────────────
+
+function verifySignature(req: Request, res: Response, secret: string): string | null {
   const sig = String(req.header("x-pulse-signature") ?? "");
   const rawBody = (req as any).rawBody as string | undefined;
 
-  if (!rawBody) return res.status(400).json({ error: "rawBody missing" });
+  if (!rawBody) {
+    res.status(400).json({ error: "rawBody missing" });
+    return null;
+  }
 
   const expected = hmac(rawBody, secret);
   if (!sig || !timingSafeEqualHex(sig, expected)) {
-    return res.status(401).json({ error: "invalid signature" });
+    res.status(401).json({ error: "invalid signature" });
+    return null;
   }
 
-  const body = req.body ?? {};
-  if (!isValidPayload(body)) {
-    return res.status(400).json({ error: "invalid payload" });
-  }
+  return rawBody;
+}
 
+// ─── Observer event handler ─────────────────────────────────────────────────
+
+async function handleObserverEvent(body: any, res: Response) {
   // 1) Insert event (append-only)
   const ins = await supabaseAdmin
     .from("buddy_observer_events")
@@ -87,4 +105,53 @@ export async function ingestBuddy(req: Request, res: Response) {
   }
 
   return res.status(202).json({ ok: true });
+}
+
+// ─── Ledger event handler ───────────────────────────────────────────────────
+
+async function handleLedgerEvent(body: any, res: Response) {
+  // Idempotent upsert keyed on trace_id (ledger row ID)
+  const row = {
+    source: "buddy",
+    env: body.env,
+    deal_id: body.deal_id,
+    bank_id: body.bank_id ?? null,
+    event_key: body.event_key,
+    event_created_at: body.created_at,
+    trace_id: body.trace_id,
+    payload: body.payload ?? {},
+  };
+
+  const ins = await supabaseAdmin
+    .from("buddy_ledger_events")
+    .upsert(row, { onConflict: "trace_id", ignoreDuplicates: true })
+    .select("trace_id")
+    .maybeSingle();
+
+  if (ins.error) return res.status(500).json({ error: ins.error.message });
+
+  return res.status(202).json({ ok: true });
+}
+
+// ─── Main handler ───────────────────────────────────────────────────────────
+
+export async function ingestBuddy(req: Request, res: Response) {
+  const secret = process.env.PULSE_BUDDY_INGEST_SECRET;
+  if (!secret) return res.status(500).json({ error: "missing PULSE_BUDDY_INGEST_SECRET" });
+
+  const verified = verifySignature(req, res, secret);
+  if (verified === null) return; // response already sent
+
+  const body = req.body ?? {};
+
+  // Route based on envelope type
+  if (isValidLedgerPayload(body)) {
+    return handleLedgerEvent(body, res);
+  }
+
+  if (isValidObserverPayload(body)) {
+    return handleObserverEvent(body, res);
+  }
+
+  return res.status(400).json({ error: "invalid payload" });
 }
