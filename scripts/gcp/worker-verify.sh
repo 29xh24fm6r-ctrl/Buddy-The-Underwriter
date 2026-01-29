@@ -11,6 +11,19 @@ need gcloud
 gcloud config set project "$PROJECT" >/dev/null
 gcloud config set run/region "$REGION" >/dev/null
 
+# ─── Check last build (optional) ─────────────────────────────────────────────
+
+if [[ -f /tmp/buddy-worker-last-build-id ]]; then
+  BUILD_ID="$(cat /tmp/buddy-worker-last-build-id)"
+  echo "[verify] last build: $BUILD_ID"
+  BUILD_STATUS="$(gcloud builds describe "$BUILD_ID" --region "$REGION" --format="value(status)" 2>/dev/null || echo "UNKNOWN")"
+  echo "[verify] build status: $BUILD_STATUS"
+else
+  echo "[verify] no previous build ID found (skipping build check)"
+fi
+
+# ─── Check Cloud Run service ─────────────────────────────────────────────────
+
 echo "[verify] checking service exists"
 gcloud run services describe "$SERVICE" >/dev/null
 

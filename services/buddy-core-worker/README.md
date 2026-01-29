@@ -73,9 +73,9 @@ The `postgres` superuser bypasses RLS entirely, which works but violates least-p
 ./scripts/gcp/worker-deploy.sh
 ```
 
-Runs preflight checks (APIs, service account, secrets), then deploys via `gcloud run deploy --source`.
+Builds the image via Cloud Build, pushes to Artifact Registry (`us-central1-docker.pkg.dev/buddy-the-underwriter/buddy-workers/buddy-core-worker:<git-sha>`), then deploys the image to Cloud Run. Build logs are always accessible via `gcloud builds list`.
 
-Override defaults with env vars: `PROJECT`, `REGION`, `SERVICE`, `SA`.
+Override defaults with env vars: `PROJECT`, `REGION`, `SERVICE`, `SA`, `AR_REPO`.
 
 ### Verify
 
@@ -83,7 +83,7 @@ Override defaults with env vars: `PROJECT`, `REGION`, `SERVICE`, `SA`.
 ./scripts/gcp/worker-verify.sh
 ```
 
-Checks the service exists, tails recent logs, and fails if DB auth/RLS errors are detected.
+Checks last build status (if available), verifies the service exists, tails recent logs, and fails if DB auth/RLS errors are detected.
 
 ### Expected log patterns
 
@@ -100,20 +100,25 @@ Checks the service exists, tails recent logs, and fails if DB auth/RLS errors ar
 select count(*) as undelivered from buddy_outbox_events where delivered_at is null;
 ```
 
-### Raw deploy command (reference only)
+### Raw deploy commands (reference only)
 
 ```bash
+# Build image
+IMAGE="us-central1-docker.pkg.dev/buddy-the-underwriter/buddy-workers/buddy-core-worker:$(git rev-parse --short HEAD)"
+gcloud builds submit services/buddy-core-worker --tag "$IMAGE" --region us-central1
+
+# Deploy from image
 gcloud run deploy buddy-core-worker \
-  --source services/buddy-core-worker \
+  --image "$IMAGE" \
+  --region us-central1 \
   --service-account buddy-core-worker@buddy-the-underwriter.iam.gserviceaccount.com \
   --min-instances 1 \
   --max-instances 2 \
   --cpu 1 \
   --memory 512Mi \
-  --no-allow-unauthenticated \
-  --set-secrets BUDDY_DB_URL=BUDDY_DB_URL:latest \
-  --set-secrets PULSE_MCP_URL=PULSE_MCP_URL:latest \
-  --set-secrets PULSE_MCP_KEY=PULSE_MCP_KEY:latest
+  --set-env-vars "NODE_ENV=production,WORKER_ENABLED=true,POLL_INTERVAL_MS=2000,BATCH_SIZE=25,HEARTBEAT_INTERVAL_MS=15000,HTTP_TIMEOUT_MS=2000" \
+  --set-secrets "BUDDY_DB_URL=BUDDY_DB_URL:latest,PULSE_MCP_URL=PULSE_MCP_URL:latest,PULSE_MCP_KEY=PULSE_MCP_KEY:latest" \
+  --no-allow-unauthenticated
 ```
 
 ## Local dev

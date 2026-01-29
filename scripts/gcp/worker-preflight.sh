@@ -5,6 +5,7 @@ PROJECT="${PROJECT:-buddy-the-underwriter}"
 REGION="${REGION:-us-central1}"
 SERVICE="${SERVICE:-buddy-core-worker}"
 SA="${SA:-buddy-core-worker@buddy-the-underwriter.iam.gserviceaccount.com}"
+AR_REPO="${AR_REPO:-buddy-workers}"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing dependency: $1" >&2; exit 1; }; }
 need gcloud
@@ -15,9 +16,22 @@ echo "[preflight] project=$PROJECT region=$REGION service=$SERVICE sa=$SA"
 gcloud config set project "$PROJECT" >/dev/null
 gcloud config set run/region "$REGION" >/dev/null
 
-# APIs required for source deploy
+# APIs required for image-based deploy
 echo "[preflight] ensuring required APIs enabled"
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com >/dev/null
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com \
+  secretmanager.googleapis.com \
+  >/dev/null
+
+# Ensure Artifact Registry repo exists
+echo "[preflight] ensuring Artifact Registry repo '$AR_REPO' exists"
+gcloud artifacts repositories describe "$AR_REPO" --location "$REGION" >/dev/null 2>&1 \
+  || gcloud artifacts repositories create "$AR_REPO" \
+      --repository-format=docker \
+      --location "$REGION" \
+      --description="Buddy worker images"
 
 # Validate service account exists
 echo "[preflight] checking service account exists"
