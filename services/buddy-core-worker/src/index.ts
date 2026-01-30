@@ -27,11 +27,23 @@ import http from "node:http";
 
 const { Pool } = pg;
 
+function sanitizeDbUrl(raw: string) {
+  try {
+    const u = new URL(raw);
+    // Do not allow connection-string ssl params to override our explicit ssl config.
+    ["sslmode","sslrootcert","sslcert","sslkey","sslpassword","ssl"].forEach((k) => u.searchParams.delete(k));
+    return u.toString();
+  } catch {
+    return raw;
+  }
+}
+
+
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 const BUDDY_DB_URL = requireEnv("BUDDY_DB_URL");
-const PULSE_MCP_URL = requireEnv("PULSE_MCP_URL").replace(/\/sse\/?$/, "");
-const PULSE_MCP_KEY = process.env.PULSE_MCP_KEY ?? "";
+const PULSE_MCP_URL = requireEnv("PULSE_MCP_URL").trim().replace(/\/sse\/?$/, "");
+const PULSE_MCP_KEY = (process.env.PULSE_MCP_KEY ?? "").trim();
 
 // Plumbed but not required for pg connections
 const _BUDDY_DB_SERVICE_KEY = process.env.BUDDY_DB_SERVICE_KEY ?? "";
@@ -55,7 +67,7 @@ const WORKER_ID =
 const caBundle = (process.env.BUDDY_DB_CA_BUNDLE ?? "").trim();
 
 const pool = new Pool({
-  connectionString: BUDDY_DB_URL,
+  connectionString: sanitizeDbUrl(BUDDY_DB_URL),
   max: 4,
   ssl: caBundle
     ? { ca: caBundle, rejectUnauthorized: true }
@@ -73,7 +85,7 @@ async function pulseCall(
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(PULSE_MCP_KEY ? { "x-pulse-mcp-key": PULSE_MCP_KEY } : {}),
+        ...(PULSE_MCP_KEY ? { "Authorization": `Bearer ${PULSE_MCP_KEY}`, "x-pulse-mcp-key": PULSE_MCP_KEY } : {}),
       },
       body: JSON.stringify({ tool, input }),
       signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
