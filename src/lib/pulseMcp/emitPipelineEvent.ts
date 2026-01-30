@@ -1,13 +1,19 @@
 /**
  * Fire-and-forget emission of Buddy pipeline events.
  *
- * Writes to the durable outbox (buddy_outbox_events).
- * The buddy-core-worker forwards events to Pulse MCP.
+ * 1. Generate stable event_id (UUID v7)
+ * 2. Write to durable outbox (buddy_outbox_events) — ALWAYS happens first
+ * 3. Fire-and-forget fast-lane delivery to Pulse — best-effort only
  *
- * DOES NOT call Pulse directly. Never throws. Never blocks the request path.
+ * The outbox is the SYSTEM OF RECORD. Pulse delivery is eventually consistent.
+ * The buddy-core-worker is the canonical forwarder with retry/backoff.
+ * The fast lane provides immediate visibility when Pulse is available.
+ *
+ * NEVER throws. NEVER blocks the request path.
  */
 
 import { insertOutboxEvent } from "@/lib/outbox/insertOutboxEvent";
+import { uuidv7 } from "@/lib/uuid/v7";
 
 // ─── Allowed payload keys (no PII, no document content) ────────────────────
 
@@ -58,15 +64,40 @@ export async function emitPipelineEvent(args: {
   payload?: Record<string, unknown>;
 }): Promise<void> {
   try {
+    const eventId = uuidv7();
     const safePayload = args.payload ? filterPayload(args.payload) : {};
 
+    // Step 1: ALWAYS write to outbox first (system of record)
     await insertOutboxEvent({
+      id: eventId,
       kind: args.kind,
       dealId: args.deal_id,
       bankId: args.bank_id ?? null,
       payload: safePayload,
     });
+
+    // Step 2: Fire-and-forget fast-lane delivery to Pulse (never awaited)
+    void tryFastLane(eventId, args.kind, args.deal_id, args.bank_id ?? null, safePayload);
   } catch {
     // swallow — never block workflows
+  }
+}
+
+/**
+ * Fast-lane: attempt immediate delivery to Pulse.
+ * Dynamic import avoids circular deps and keeps the fast lane optional.
+ */
+async function tryFastLane(
+  eventId: string,
+  kind: string,
+  dealId: string,
+  bankId: string | null,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const { tryForwardToPulse } = await import("@/lib/outbox/tryForwardToPulse");
+    await tryForwardToPulse({ eventId, kind, dealId, bankId, payload });
+  } catch {
+    // swallow — fast lane must never block
   }
 }

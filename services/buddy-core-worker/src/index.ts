@@ -58,6 +58,9 @@ const CLAIM_TTL_SECONDS = intEnv("CLAIM_TTL_SECONDS", 120);
 
 const BACKOFF_MAX_MS = 60_000;
 const PER_ROW_BACKOFF_CAP_MS = 30_000;
+const DEAD_LETTER_THRESHOLD = 10;
+const SPEC_BACKOFF_BASE_SECONDS = 30;
+const SPEC_BACKOFF_CAP_SECONDS = 3600; // 1 hour
 const WORKER_ID =
   process.env.WORKER_ID ??
   `${process.env.HOSTNAME ?? "worker"}-${process.pid}`;
@@ -157,6 +160,7 @@ interface OutboxRow {
   bank_id: string | null;
   payload: Record<string, unknown>;
   attempts: number;
+  dead_lettered_at: string | null;
 }
 
 async function claimBatch(): Promise<OutboxRow[]> {
@@ -166,10 +170,12 @@ async function claimBatch(): Promise<OutboxRow[]> {
     await client.query("BEGIN");
 
     const { rows } = await client.query<OutboxRow>(
-      `SELECT id, kind, deal_id, bank_id, payload, attempts
+      `SELECT id, kind, deal_id, bank_id, payload, attempts, dead_lettered_at
        FROM buddy_outbox_events
        WHERE delivered_at IS NULL
+         AND dead_lettered_at IS NULL
          AND (claimed_at IS NULL OR claimed_at < now() - interval '1 second' * $1)
+         AND (next_attempt_at IS NULL OR next_attempt_at <= now())
        ORDER BY created_at ASC
        LIMIT $2
        FOR UPDATE SKIP LOCKED`,
@@ -199,19 +205,52 @@ async function claimBatch(): Promise<OutboxRow[]> {
 async function markDelivered(id: string): Promise<void> {
   await pool.query(
     `UPDATE buddy_outbox_events
-     SET delivered_at = now(), last_error = null
+     SET delivered_at = now(),
+         delivered_to = 'pulse',
+         last_error = null
      WHERE id = $1`,
     [id],
   );
 }
 
-async function markFailed(id: string, error: string): Promise<void> {
+/**
+ * Spec backoff: min(2^attempts * 30 seconds, 1 hour)
+ * Returns seconds.
+ */
+function specBackoffSeconds(attempts: number): number {
+  return Math.min(
+    Math.pow(2, attempts) * SPEC_BACKOFF_BASE_SECONDS,
+    SPEC_BACKOFF_CAP_SECONDS,
+  );
+}
+
+async function markFailed(id: string, error: string, currentAttempts: number): Promise<void> {
+  const newAttempts = currentAttempts + 1;
+
+  if (newAttempts >= DEAD_LETTER_THRESHOLD) {
+    // Dead-letter: stop retrying
+    await pool.query(
+      `UPDATE buddy_outbox_events
+       SET attempts = $2,
+           last_error = $3,
+           dead_lettered_at = now(),
+           next_attempt_at = null
+       WHERE id = $1`,
+      [id, newAttempts, error.slice(0, 500)],
+    );
+
+    console.error("[outbox] DEAD-LETTERED", { id, attempts: newAttempts, error: error.slice(0, 200) });
+    return;
+  }
+
+  const delaySec = specBackoffSeconds(newAttempts);
   await pool.query(
     `UPDATE buddy_outbox_events
-     SET attempts = attempts + 1,
-         last_error = $2
+     SET attempts = $2,
+         last_error = $3,
+         next_attempt_at = now() + interval '1 second' * $4
      WHERE id = $1`,
-    [id, error.slice(0, 500)],
+    [id, newAttempts, error.slice(0, 500), delaySec],
   );
 }
 
@@ -221,6 +260,10 @@ function perRowBackoff(attempts: number): number {
   const jitter = Math.floor(Math.random() * 500);
   return base + jitter;
 }
+
+// ─── Forwarding state tracking (for recovery signals) ───────────────────────
+
+let _consecutiveForwardFailures = 0;
 
 async function forwardEvent(row: OutboxRow): Promise<void> {
   const result = await pulseCall("buddy_event_ingest", {
@@ -234,9 +277,16 @@ async function forwardEvent(row: OutboxRow): Promise<void> {
 
   if (result.ok) {
     await markDelivered(row.id);
+
+    // Recovery signal: if we had consecutive failures but now succeeded
+    if (_consecutiveForwardFailures > 0) {
+      console.log("[outbox] forwarding recovered after", _consecutiveForwardFailures, "consecutive failures");
+      _consecutiveForwardFailures = 0;
+    }
   } else {
-    await markFailed(row.id, result.error ?? "unknown");
-    // Per-row backoff: exponential with cap 30s
+    _consecutiveForwardFailures += 1;
+    await markFailed(row.id, result.error ?? "unknown", row.attempts);
+    // Per-row backoff: exponential with cap 30s (in-process delay before next row)
     await sleep(perRowBackoff(row.attempts));
   }
 }
@@ -253,7 +303,7 @@ async function outboxTick(): Promise<number> {
       const msg = err instanceof Error ? err.message : "unknown";
       console.error("[outbox] forward error:", row.id, msg);
       try {
-        await markFailed(row.id, msg);
+        await markFailed(row.id, msg, row.attempts);
       } catch {
         // swallow — row stays claimed, will expire via CLAIM_TTL_SECONDS
       }
