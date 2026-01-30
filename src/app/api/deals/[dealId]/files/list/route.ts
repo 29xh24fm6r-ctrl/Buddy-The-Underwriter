@@ -57,10 +57,15 @@ export async function GET(
     }
 
     // Back-compat: return the fields old UI expects from deal_files
+    // Plus new naming fields from two-phase naming
     const files = (data ?? []).map((d: any) => ({
       file_id: d.id,
       stored_name: d.storage_path,
       original_name: d.original_filename,
+      display_name: d.display_name ?? d.original_filename,
+      document_type: d.document_type ?? null,
+      doc_year: d.doc_year ?? null,
+      naming_method: d.naming_method ?? null,
       mime_type: d.mime_type,
       created_at: d.created_at,
       deal_id: d.deal_id,

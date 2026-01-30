@@ -30,6 +30,11 @@ const ALLOWED_PAYLOAD_KEYS = new Set([
   "duration_ms",
   "updated",
   "count",
+  // Two-phase naming (no PII — entity names excluded)
+  "naming_method",
+  "naming_source",
+  "fallback_reason",
+  "anchor_doc_type",
 ]);
 
 function filterPayload(raw: Record<string, unknown>): Record<string, unknown> {

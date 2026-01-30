@@ -37,7 +37,7 @@ export async function GET(
   const { data, error } = await sb
     .from("deal_documents")
     .select(
-      "id, deal_id, bank_id, original_filename, mime_type, size_bytes, checklist_key, created_at, storage_bucket, storage_path, source",
+      "id, deal_id, bank_id, original_filename, display_name, naming_method, document_type, doc_year, mime_type, size_bytes, checklist_key, created_at, storage_bucket, storage_path, source",
     )
     .eq("deal_id", dealId)
     .eq("bank_id", access.bankId)
@@ -55,9 +55,12 @@ export async function GET(
     id: String(d.id),
     deal_id: d.deal_id,
     bank_id: d.bank_id,
-    name: d.original_filename,
-    display_name: d.original_filename,
+    name: d.display_name ?? d.original_filename,
+    display_name: d.display_name ?? d.original_filename,
     original_filename: d.original_filename,
+    document_type: d.document_type ?? null,
+    doc_year: d.doc_year ?? null,
+    naming_method: d.naming_method ?? null,
     mime_type: d.mime_type,
     size_bytes: d.size_bytes,
     checklist_key: d.checklist_key,

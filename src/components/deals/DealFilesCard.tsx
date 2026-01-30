@@ -9,6 +9,10 @@ type DealFile = {
   file_id: string;
   deal_id: string;
   original_name: string;
+  display_name: string | null;
+  document_type: string | null;
+  doc_year: number | null;
+  naming_method: string | null;
   stored_name?: string;
   storage_path: string;
   size_bytes: number;
@@ -291,14 +295,35 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-neutral-100 truncate">
+                    <div className="text-sm font-medium text-neutral-100 truncate flex items-center gap-1.5">
                       <Link
                         href={`/deals/${dealId}/documents/${file.file_id}`}
-                        className="hover:underline"
+                        className="hover:underline truncate"
                       >
-                        {file.original_name}
+                        {file.display_name || file.original_name}
                       </Link>
+                      {file.naming_method === "provisional" && (
+                        <span
+                          className="inline-flex shrink-0 items-center rounded-md bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-400 ring-1 ring-inset ring-amber-800/40"
+                          title="Awaiting classification — name will update automatically"
+                        >
+                          Pending
+                        </span>
+                      )}
+                      {file.naming_method === "derived" && (
+                        <span
+                          className="inline-flex shrink-0 items-center rounded-md bg-emerald-900/40 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 ring-1 ring-inset ring-emerald-800/40"
+                          title="Name derived from document classification"
+                        >
+                          Classified
+                        </span>
+                      )}
                     </div>
+                    {file.display_name && file.display_name !== file.original_name && (
+                      <div className="text-[11px] text-neutral-600 truncate" title={file.original_name}>
+                        {file.original_name}
+                      </div>
+                    )}
                     <div className="text-xs text-neutral-500">
                       {file.checklist_key
                         ? `🔗 ${file.checklist_key}`
@@ -374,7 +399,7 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
           >
             <div className="sticky top-0 z-10 flex items-center justify-between p-4 bg-neutral-900 border-b border-neutral-800">
               <div className="text-base font-semibold text-neutral-50 truncate">
-                {previewFile!.original_name}
+                {previewFile!.display_name || previewFile!.original_name}
               </div>
               <button
                 type="button"
