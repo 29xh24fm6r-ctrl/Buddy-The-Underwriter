@@ -33,9 +33,16 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ dealId: s
     }
 
     const sb = supabaseAdmin();
+    const nowIso = new Date().toISOString();
     const { data, error } = await sb
       .from("deals")
-      .update({ display_name: displayName })
+      .update({
+        display_name: displayName,
+        name_locked: true,
+        naming_method: "manual",
+        naming_source: "user",
+        named_at: nowIso,
+      } as any)
       .eq("id", dealId)
       .eq("bank_id", access.bankId)
       .select("id, display_name")

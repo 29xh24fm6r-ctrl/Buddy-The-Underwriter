@@ -606,25 +606,15 @@ export async function processArtifact(
     const { recomputeDealReady } = await import("@/lib/deals/readiness");
     await recomputeDealReady(dealId);
 
-    // 6.8. Two-phase naming: derive document display name + deal name
+    // 6.8. Two-phase naming: single entry point for document + deal naming
     try {
-      const { applyDocumentDerivedNaming } = await import("@/lib/naming/applyDocumentDerivedNaming");
-      await applyDocumentDerivedNaming({ documentId: source_id, dealId, bankId });
-    } catch (docNameErr: any) {
-      console.warn("[processArtifact] document derived naming failed (non-fatal)", {
+      const { runNamingDerivation } = await import("@/lib/naming/runNamingDerivation");
+      await runNamingDerivation({ dealId, bankId, documentId: source_id });
+    } catch (namingErr: any) {
+      console.warn("[processArtifact] naming derivation failed (non-fatal)", {
         dealId,
         source_id,
-        error: docNameErr?.message,
-      });
-    }
-
-    try {
-      const { applyDealDerivedNaming } = await import("@/lib/naming/applyDealDerivedNaming");
-      await applyDealDerivedNaming({ dealId, bankId });
-    } catch (dealNameErr: any) {
-      console.warn("[processArtifact] deal derived naming failed (non-fatal)", {
-        dealId,
-        error: dealNameErr?.message,
+        error: namingErr?.message,
       });
     }
 

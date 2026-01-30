@@ -4,14 +4,21 @@
  * Reads the document's classification data, computes the display name,
  * and updates the row. Idempotent: same inputs produce the same name.
  *
- * Emits ledger events for every naming decision.
+ * Guards:
+ *   - name_locked = true  → never overwrite
+ *   - naming_method = 'manual' → never overwrite
+ *   - confidence < 0.80  → keep provisional
+ *
+ * Emits canonical `artifact.name.derived` ledger events via writeEvent.
  */
 
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { deriveDocumentDisplayName } from "./deriveDocumentDisplayName";
-import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { writeEvent } from "@/lib/ledger/writeEvent";
+
+const MIN_CONFIDENCE = 0.80;
 
 export type ApplyDocumentDerivedNamingResult = {
   ok: boolean;
@@ -33,7 +40,7 @@ export async function applyDocumentDerivedNaming(opts: {
   const { data: doc, error: readErr } = await sb
     .from("deal_documents")
     .select(
-      "id, original_filename, display_name, naming_method, document_type, doc_year, entity_name, ai_business_name, ai_borrower_name, classification_confidence",
+      "id, original_filename, display_name, naming_method, name_locked, document_type, doc_year, entity_name, ai_business_name, ai_borrower_name, classification_confidence",
     )
     .eq("id", documentId)
     .maybeSingle();
@@ -42,9 +49,53 @@ export async function applyDocumentDerivedNaming(opts: {
     return { ok: false, displayName: null, method: null, changed: false, error: readErr?.message ?? "not_found" };
   }
 
-  // Don't overwrite manual naming
-  if (doc.naming_method === "manual") {
+  const previousName = doc.display_name ?? doc.original_filename ?? null;
+  const locked = Boolean((doc as any).name_locked);
+
+  // Guard: name_locked
+  if (locked) {
+    await emitArtifactNameDerived(dealId, {
+      artifact_id: documentId,
+      previous_name: previousName,
+      derived_name: null,
+      changed: false,
+      source: "fallback",
+      confidence: null,
+      fallback_reason: "locked",
+      locked: true,
+    });
     return { ok: true, displayName: doc.display_name, method: "manual" as any, changed: false };
+  }
+
+  // Guard: naming_method = manual
+  if (doc.naming_method === "manual") {
+    await emitArtifactNameDerived(dealId, {
+      artifact_id: documentId,
+      previous_name: previousName,
+      derived_name: null,
+      changed: false,
+      source: "fallback",
+      confidence: null,
+      fallback_reason: "locked",
+      locked: false,
+    });
+    return { ok: true, displayName: doc.display_name, method: "manual" as any, changed: false };
+  }
+
+  // Guard: confidence threshold
+  const confidence = doc.classification_confidence;
+  if (typeof confidence === "number" && confidence < MIN_CONFIDENCE) {
+    await emitArtifactNameDerived(dealId, {
+      artifact_id: documentId,
+      previous_name: previousName,
+      derived_name: null,
+      changed: false,
+      source: "fallback",
+      confidence,
+      fallback_reason: "low_confidence",
+      locked: false,
+    });
+    return { ok: true, displayName: doc.display_name, method: "provisional", changed: false };
   }
 
   // Pick the best entity name: ai_business_name > ai_borrower_name > entity_name
@@ -65,6 +116,15 @@ export async function applyDocumentDerivedNaming(opts: {
 
   // 3. Check if name actually changed (idempotency)
   if (doc.display_name === result.displayName && doc.naming_method === result.method) {
+    await emitArtifactNameDerived(dealId, {
+      artifact_id: documentId,
+      previous_name: previousName,
+      derived_name: result.displayName,
+      changed: false,
+      source: result.source === "classification" ? "classification" : "fallback",
+      confidence: result.confidence,
+      locked: false,
+    });
     return { ok: true, displayName: result.displayName, method: result.method, changed: false };
   }
 
@@ -83,45 +143,28 @@ export async function applyDocumentDerivedNaming(opts: {
     .eq("id", documentId);
 
   if (updateErr) {
-    // Emit failure event
-    await logLedgerEvent({
-      dealId,
-      bankId,
-      eventKey: "doc.name.derive_failed",
-      uiState: "error",
-      uiMessage: `Failed to set display name for document`,
-      meta: {
-        doc_id: documentId,
-        method: result.method,
-        source: result.source,
-        error: updateErr.message,
-      },
+    await emitArtifactNameDerived(dealId, {
+      artifact_id: documentId,
+      previous_name: previousName,
+      derived_name: null,
+      changed: false,
+      source: "fallback",
+      confidence: null,
+      fallback_reason: "low_confidence",
+      locked: false,
     });
-
     return { ok: false, displayName: null, method: null, changed: false, error: updateErr.message };
   }
 
-  // 5. Emit ledger event
-  const eventKey = result.method === "derived"
-    ? "doc.name.derived_set"
-    : "doc.name.provisional_set";
-
-  await logLedgerEvent({
-    dealId,
-    bankId,
-    eventKey,
-    uiState: "done",
-    uiMessage: `Document named: "${result.displayName}"`,
-    meta: {
-      doc_id: documentId,
-      method: result.method,
-      source: result.source,
-      confidence: result.confidence,
-      fallback_reason: result.fallbackReason,
-      document_type: doc.document_type,
-      doc_year: doc.doc_year,
-      // entity_name intentionally omitted (PII)
-    },
+  // 5. Emit canonical ledger event
+  await emitArtifactNameDerived(dealId, {
+    artifact_id: documentId,
+    previous_name: previousName,
+    derived_name: result.displayName,
+    changed: true,
+    source: result.source === "classification" ? "classification" : "fallback",
+    confidence: result.confidence,
+    locked: false,
   });
 
   return {
@@ -130,4 +173,38 @@ export async function applyDocumentDerivedNaming(opts: {
     method: result.method,
     changed: true,
   };
+}
+
+// ─── Canonical ledger helper ────────────────────────────────────────────────
+
+type ArtifactNameDerivedPayload = {
+  artifact_id: string;
+  previous_name: string | null;
+  derived_name: string | null;
+  changed: boolean;
+  source: "classification" | "fallback";
+  confidence: number | null;
+  fallback_reason?: string;
+  locked: boolean;
+};
+
+async function emitArtifactNameDerived(
+  dealId: string,
+  payload: ArtifactNameDerivedPayload,
+): Promise<void> {
+  await writeEvent({
+    dealId,
+    kind: "artifact.name.derived",
+    scope: "naming",
+    action: "derive_artifact_name",
+    output: payload,
+    confidence: payload.confidence,
+    meta: {
+      artifact_id: payload.artifact_id,
+      changed: payload.changed,
+      source: payload.source,
+      locked: payload.locked,
+      fallback_reason: payload.fallback_reason ?? null,
+    },
+  });
 }
