@@ -54,6 +54,32 @@ export interface MissingDocsEmailResult {
   emailDraft: string;
 }
 
+export interface WriteSignalInput {
+  signalType: string;
+  severity?: "debug" | "info" | "warning" | "error" | "critical";
+  dealId?: string;
+  payload?: Record<string, unknown>;
+  traceId?: string;
+}
+
+export interface WriteSignalResult {
+  id: string;
+  signalType: string;
+  severity: string;
+  createdAt: string;
+}
+
+export interface AnomalyDetectionResult {
+  windowMinutes: number;
+  eventsScanned: number;
+  signalsWritten: number;
+  anomalies: Array<{
+    type: string;
+    severity: string;
+    detail: string;
+  }>;
+}
+
 // ---------------------------------------------------------------------------
 // buddy_replay_case
 // ---------------------------------------------------------------------------
@@ -351,5 +377,266 @@ export async function handleGenerateMissingDocsEmail(
     };
   } catch (err: unknown) {
     return { ok: false, error: err instanceof Error ? err.message : "email_gen_failed" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// buddy_write_signal
+// ---------------------------------------------------------------------------
+
+const ALLOWED_SIGNAL_TYPES = new Set([
+  "error_spike",
+  "mismatch_detected",
+  "stale_deal",
+  "anomaly",
+  "health_check",
+  "intake_stalled",
+  "document_gap",
+  "custom",
+]);
+
+const MAX_SIGNAL_PAYLOAD_BYTES = 8_000;
+
+/**
+ * Write a Pulse signal into the canonical ledger.
+ *
+ * Inserts a row with source='pulse', event_category='signal'.
+ * Signal types are allowlisted. Payload is clamped at 8 KB.
+ *
+ * Does NOT require a caseId — some signals are bank-wide.
+ */
+export async function handleWriteSignal(
+  bankId: string,
+  input: WriteSignalInput,
+): Promise<McpToolResult<WriteSignalResult>> {
+  try {
+    if (!input.signalType || !ALLOWED_SIGNAL_TYPES.has(input.signalType)) {
+      return {
+        ok: false,
+        error: `Invalid signalType. Allowed: ${[...ALLOWED_SIGNAL_TYPES].join(", ")}`,
+      };
+    }
+
+    const severity = input.severity ?? "info";
+    const payloadStr = JSON.stringify(input.payload ?? {});
+    const payload =
+      payloadStr.length <= MAX_SIGNAL_PAYLOAD_BYTES
+        ? (input.payload ?? {})
+        : { truncated: true, bytes: payloadStr.length };
+
+    const env =
+      process.env.VERCEL_ENV === "production"
+        ? "production"
+        : process.env.VERCEL_ENV === "preview"
+          ? "preview"
+          : "development";
+
+    const row = {
+      source: "pulse",
+      event_type: input.signalType,
+      event_category: "signal" as const,
+      severity,
+      deal_id: input.dealId ?? null,
+      bank_id: bankId,
+      payload,
+      trace_id: input.traceId ?? null,
+      env,
+      release: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
+    };
+
+    const sb = supabaseAdmin();
+    const { data, error } = await sb
+      .from("buddy_ledger_events")
+      .insert(row)
+      .select("id, created_at")
+      .single();
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    return {
+      ok: true,
+      data: {
+        id: String(data.id),
+        signalType: input.signalType,
+        severity,
+        createdAt: String(data.created_at),
+      },
+    };
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : "write_signal_failed" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// buddy_detect_anomalies
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan recent ledger events and detect anomalies.
+ *
+ * Checks performed (last N minutes, default 15):
+ *   1. Error spike — more than `errorThreshold` error/critical events
+ *   2. Mismatch spike — more than `mismatchThreshold` mismatches
+ *   3. Stale deals — deals with events but no activity in `staleDealHours` hours
+ *
+ * Each detected anomaly is written as a signal (source='pulse', event_category='signal')
+ * into the same ledger. Returns the list of anomalies found.
+ *
+ * Safe: read-heavy, writes only signals. No side-effects beyond the ledger.
+ */
+export async function handleDetectAnomalies(
+  bankId: string,
+  opts?: {
+    windowMinutes?: number;
+    errorThreshold?: number;
+    mismatchThreshold?: number;
+    staleDealHours?: number;
+  },
+): Promise<McpToolResult<AnomalyDetectionResult>> {
+  try {
+    const sb = supabaseAdmin();
+
+    const windowMinutes = Math.min(opts?.windowMinutes ?? 15, 60);
+    const errorThreshold = opts?.errorThreshold ?? 10;
+    const mismatchThreshold = opts?.mismatchThreshold ?? 5;
+    const staleDealHours = opts?.staleDealHours ?? 48;
+
+    const windowStart = new Date(
+      Date.now() - windowMinutes * 60 * 1000,
+    ).toISOString();
+
+    // Fetch recent events for this bank
+    const { data: events, error } = await sb
+      .from("buddy_ledger_events")
+      .select("id, event_type, event_category, severity, deal_id, is_mismatch, created_at")
+      .eq("bank_id", bankId)
+      .gte("created_at", windowStart)
+      .order("created_at", { ascending: false })
+      .limit(1000);
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    const rows = (events ?? []) as Array<Record<string, unknown>>;
+    const anomalies: AnomalyDetectionResult["anomalies"] = [];
+
+    // --- Check 1: Error spike ---
+    const errorEvents = rows.filter(
+      (e) => e.severity === "error" || e.severity === "critical",
+    );
+    if (errorEvents.length >= errorThreshold) {
+      anomalies.push({
+        type: "error_spike",
+        severity: "warning",
+        detail: `${errorEvents.length} error/critical events in the last ${windowMinutes} minutes (threshold: ${errorThreshold})`,
+      });
+    }
+
+    // --- Check 2: Mismatch spike ---
+    const mismatchEvents = rows.filter((e) => e.is_mismatch === true);
+    if (mismatchEvents.length >= mismatchThreshold) {
+      anomalies.push({
+        type: "mismatch_detected",
+        severity: "warning",
+        detail: `${mismatchEvents.length} mismatches in the last ${windowMinutes} minutes (threshold: ${mismatchThreshold})`,
+      });
+    }
+
+    // --- Check 3: Stale deals ---
+    // Find deals that had events but nothing in the stale window
+    const staleWindowStart = new Date(
+      Date.now() - staleDealHours * 60 * 60 * 1000,
+    ).toISOString();
+
+    const { data: recentDealEvents } = await sb
+      .from("buddy_ledger_events")
+      .select("deal_id")
+      .eq("bank_id", bankId)
+      .not("deal_id", "is", null)
+      .gte("created_at", staleWindowStart)
+      .limit(500);
+
+    const recentDealIds = new Set(
+      (recentDealEvents ?? []).map(
+        (e: Record<string, unknown>) => e.deal_id as string,
+      ),
+    );
+
+    // Get deals that had events before the stale window but not during it
+    const { data: olderDealEvents } = await sb
+      .from("buddy_ledger_events")
+      .select("deal_id")
+      .eq("bank_id", bankId)
+      .not("deal_id", "is", null)
+      .lt("created_at", staleWindowStart)
+      .limit(500);
+
+    const staleDeals = new Set<string>();
+    for (const e of olderDealEvents ?? []) {
+      const dealId = (e as Record<string, unknown>).deal_id as string;
+      if (dealId && !recentDealIds.has(dealId)) {
+        staleDeals.add(dealId);
+      }
+    }
+
+    if (staleDeals.size > 0) {
+      anomalies.push({
+        type: "stale_deal",
+        severity: "info",
+        detail: `${staleDeals.size} deal(s) with no activity in the last ${staleDealHours} hours`,
+      });
+    }
+
+    // --- Write anomaly signals into the ledger ---
+    const env =
+      process.env.VERCEL_ENV === "production"
+        ? "production"
+        : process.env.VERCEL_ENV === "preview"
+          ? "preview"
+          : "development";
+
+    const release = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null;
+
+    let signalsWritten = 0;
+    for (const anomaly of anomalies) {
+      const signalRow = {
+        source: "pulse",
+        event_type: anomaly.type,
+        event_category: "signal" as const,
+        severity: anomaly.severity,
+        bank_id: bankId,
+        payload: {
+          detail: anomaly.detail,
+          windowMinutes,
+          detectedAt: new Date().toISOString(),
+          ...(anomaly.type === "stale_deal"
+            ? { staleDealIds: [...staleDeals].slice(0, 20) }
+            : {}),
+        },
+        env,
+        release,
+      };
+
+      const { error: insertErr } = await sb
+        .from("buddy_ledger_events")
+        .insert(signalRow);
+
+      if (!insertErr) signalsWritten++;
+    }
+
+    return {
+      ok: true,
+      data: {
+        windowMinutes,
+        eventsScanned: rows.length,
+        signalsWritten,
+        anomalies,
+      },
+    };
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : "detect_anomalies_failed" };
   }
 }

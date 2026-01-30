@@ -114,6 +114,7 @@ describe("Buddy MCP server (source-level)", () => {
     assert.ok(src.includes("handleCaseResource"));
     assert.ok(src.includes("handleCaseDocumentsResource"));
     assert.ok(src.includes("handleCaseSignalsResource"));
+    assert.ok(src.includes("handleCaseLedgerResource"));
   });
 
   test("routes buddy://workflows/recent", () => {
@@ -121,11 +122,20 @@ describe("Buddy MCP server (source-level)", () => {
     assert.ok(src.includes("handleWorkflowsRecentResource"));
   });
 
+  test("routes buddy://ledger/* resources", () => {
+    assert.ok(src.includes("buddy://ledger/summary"));
+    assert.ok(src.includes("buddy://ledger/query"));
+    assert.ok(src.includes("handleLedgerSummaryResource"));
+    assert.ok(src.includes("handleLedgerQueryResource"));
+  });
+
   test("routes buddy://tools/*", () => {
     assert.ok(src.includes("buddy://tools/"));
     assert.ok(src.includes("handleReplayCase"));
     assert.ok(src.includes("handleValidateCase"));
     assert.ok(src.includes("handleGenerateMissingDocsEmail"));
+    assert.ok(src.includes("handleWriteSignal"));
+    assert.ok(src.includes("handleDetectAnomalies"));
   });
 
   test("imports from resources and tools modules", () => {
@@ -182,12 +192,15 @@ describe("Buddy MCP API route (source-level)", () => {
 describe("Buddy MCP resource handlers (source-level)", () => {
   const src = readFileSync(resolve(ROOT, "src/lib/mcp/resources.ts"), "utf-8");
 
-  test("exports all 4 resource handlers", () => {
+  test("exports all 7 resource handlers", () => {
     const handlers = [
       "handleCaseResource",
       "handleCaseDocumentsResource",
       "handleCaseSignalsResource",
       "handleWorkflowsRecentResource",
+      "handleLedgerSummaryResource",
+      "handleLedgerQueryResource",
+      "handleCaseLedgerResource",
     ];
     for (const h of handlers) {
       assert.ok(
@@ -217,6 +230,10 @@ describe("Buddy MCP resource handlers (source-level)", () => {
     assert.ok(src.includes("buddy_signal_ledger"));
   });
 
+  test("queries buddy_ledger_events table for ledger resources", () => {
+    assert.ok(src.includes("buddy_ledger_events"));
+  });
+
   test("queries deals table", () => {
     assert.ok(src.includes("deals"));
   });
@@ -235,11 +252,13 @@ describe("Buddy MCP resource handlers (source-level)", () => {
 describe("Buddy MCP tool handlers (source-level)", () => {
   const src = readFileSync(resolve(ROOT, "src/lib/mcp/tools.ts"), "utf-8");
 
-  test("exports all 3 tool handlers", () => {
+  test("exports all 5 tool handlers", () => {
     const tools = [
       "handleReplayCase",
       "handleValidateCase",
       "handleGenerateMissingDocsEmail",
+      "handleWriteSignal",
+      "handleDetectAnomalies",
     ];
     for (const t of tools) {
       assert.ok(
@@ -251,6 +270,29 @@ describe("Buddy MCP tool handlers (source-level)", () => {
 
   test("replay tool uses mirrorEventToOmega", () => {
     assert.ok(src.includes("mirrorEventToOmega"));
+  });
+
+  test("write_signal tool has allowlisted signal types", () => {
+    assert.ok(src.includes("ALLOWED_SIGNAL_TYPES"));
+    assert.ok(src.includes("error_spike"));
+    assert.ok(src.includes("mismatch_detected"));
+    assert.ok(src.includes("stale_deal"));
+    assert.ok(src.includes("anomaly"));
+  });
+
+  test("write_signal writes with source=pulse, event_category=signal", () => {
+    assert.ok(src.includes('source: "pulse"'));
+    assert.ok(src.includes('event_category: "signal"'));
+  });
+
+  test("detect_anomalies checks error spikes, mismatches, and stale deals", () => {
+    assert.ok(src.includes("error_spike"), "Detects error spikes");
+    assert.ok(src.includes("mismatch_detected"), "Detects mismatches");
+    assert.ok(src.includes("stale_deal"), "Detects stale deals");
+  });
+
+  test("detect_anomalies writes signals into buddy_ledger_events", () => {
+    assert.ok(src.includes("buddy_ledger_events"));
   });
 
   test("validate tool checks multiple validation conditions", () => {
@@ -293,7 +335,7 @@ describe("parseMethod (local replica)", () => {
       return { kind: "resource", resource: "case", caseId: caseMatch[1] };
     }
 
-    const caseSubMatch = method.match(/^buddy:\/\/case\/([^/]+)\/(documents|signals)$/);
+    const caseSubMatch = method.match(/^buddy:\/\/case\/([^/]+)\/(documents|signals|ledger)$/);
     if (caseSubMatch) {
       return {
         kind: "resource",
@@ -305,6 +347,14 @@ describe("parseMethod (local replica)", () => {
 
     if (method === "buddy://workflows/recent") {
       return { kind: "resource", resource: "workflows_recent" };
+    }
+
+    if (method === "buddy://ledger/summary") {
+      return { kind: "resource", resource: "ledger_summary" };
+    }
+
+    if (method === "buddy://ledger/query") {
+      return { kind: "resource", resource: "ledger_query" };
     }
 
     const toolMatch = method.match(/^buddy:\/\/tools\/(\w+)$/);
@@ -360,6 +410,38 @@ describe("parseMethod (local replica)", () => {
     const r = parseMethod("buddy://tools/generate_missing_docs_email");
     assert.equal(r.kind, "tool");
     assert.equal(r.resource, "generate_missing_docs_email");
+  });
+
+  test("parses buddy://case/{id}/ledger", () => {
+    const r = parseMethod("buddy://case/abc-123/ledger");
+    assert.equal(r.kind, "resource");
+    assert.equal(r.resource, "case_sub");
+    assert.equal(r.caseId, "abc-123");
+    assert.equal(r.sub, "ledger");
+  });
+
+  test("parses buddy://ledger/summary", () => {
+    const r = parseMethod("buddy://ledger/summary");
+    assert.equal(r.kind, "resource");
+    assert.equal(r.resource, "ledger_summary");
+  });
+
+  test("parses buddy://ledger/query", () => {
+    const r = parseMethod("buddy://ledger/query");
+    assert.equal(r.kind, "resource");
+    assert.equal(r.resource, "ledger_query");
+  });
+
+  test("parses buddy://tools/write_signal", () => {
+    const r = parseMethod("buddy://tools/write_signal");
+    assert.equal(r.kind, "tool");
+    assert.equal(r.resource, "write_signal");
+  });
+
+  test("parses buddy://tools/detect_anomalies", () => {
+    const r = parseMethod("buddy://tools/detect_anomalies");
+    assert.equal(r.kind, "tool");
+    assert.equal(r.resource, "detect_anomalies");
   });
 
   test("returns unknown for invalid methods", () => {

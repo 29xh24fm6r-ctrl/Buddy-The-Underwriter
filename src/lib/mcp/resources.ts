@@ -67,6 +67,42 @@ export interface BuddyWorkflowEntry {
   lastSignalAt: string | null;
 }
 
+export interface LedgerSummary {
+  totalEvents: number;
+  byCategory: Record<string, number>;
+  bySeverity: Record<string, number>;
+  errorCount24h: number;
+  mismatchCount24h: number;
+  windowStart: string;
+  windowEnd: string;
+}
+
+export interface LedgerEventEntry {
+  id: string;
+  source: string;
+  eventType: string;
+  eventCategory: string;
+  severity: string;
+  dealId: string | null;
+  actorUserId: string | null;
+  actorRole: string | null;
+  payload: Record<string, unknown>;
+  traceId: string | null;
+  isMismatch: boolean;
+  createdAt: string;
+}
+
+export interface LedgerQueryOpts {
+  limit?: number;
+  since?: string;
+  until?: string;
+  eventCategory?: string;
+  severity?: string;
+  eventType?: string;
+  dealId?: string;
+  source?: string;
+}
+
 // ---------------------------------------------------------------------------
 // buddy://case/{caseId}
 // ---------------------------------------------------------------------------
@@ -282,5 +318,198 @@ export async function handleWorkflowsRecentResource(
     return { ok: true, data: workflows };
   } catch (err: unknown) {
     return { ok: false, error: err instanceof Error ? err.message : "workflows_resource_failed" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// buddy://ledger/summary
+// ---------------------------------------------------------------------------
+
+const MAX_LEDGER_LIMIT = 200;
+
+/**
+ * Aggregate stats from the canonical observability ledger.
+ * Defaults to a 24-hour window, clamped to 7 days max.
+ */
+export async function handleLedgerSummaryResource(
+  bankId: string,
+  opts?: { since?: string; until?: string },
+): Promise<McpResourceResult<LedgerSummary>> {
+  try {
+    const sb = supabaseAdmin();
+
+    const now = new Date();
+    const windowEnd = opts?.until ?? now.toISOString();
+
+    const defaultSince = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    const minSince = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    let windowStart = opts?.since ?? defaultSince;
+    if (windowStart < minSince) windowStart = minSince;
+
+    const { data, error } = await sb
+      .from("buddy_ledger_events")
+      .select("event_category, severity, is_mismatch")
+      .eq("bank_id", bankId)
+      .gte("created_at", windowStart)
+      .lte("created_at", windowEnd);
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    const rows = data ?? [];
+    const byCategory: Record<string, number> = {};
+    const bySeverity: Record<string, number> = {};
+    let errorCount = 0;
+    let mismatchCount = 0;
+
+    for (const r of rows) {
+      const cat = (r as Record<string, unknown>).event_category as string;
+      const sev = (r as Record<string, unknown>).severity as string;
+      byCategory[cat] = (byCategory[cat] ?? 0) + 1;
+      bySeverity[sev] = (bySeverity[sev] ?? 0) + 1;
+      if (sev === "error" || sev === "critical") errorCount++;
+      if ((r as Record<string, unknown>).is_mismatch) mismatchCount++;
+    }
+
+    return {
+      ok: true,
+      data: {
+        totalEvents: rows.length,
+        byCategory,
+        bySeverity,
+        errorCount24h: errorCount,
+        mismatchCount24h: mismatchCount,
+        windowStart,
+        windowEnd,
+      },
+    };
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : "ledger_summary_failed" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// buddy://ledger/query
+// ---------------------------------------------------------------------------
+
+/**
+ * Filtered query into the canonical ledger.
+ * Supports time window, category, severity, event_type, source, and deal_id filters.
+ * Default window: last 24 hours. Max limit: 200.
+ */
+export async function handleLedgerQueryResource(
+  bankId: string,
+  opts?: LedgerQueryOpts,
+): Promise<McpResourceResult<LedgerEventEntry[]>> {
+  try {
+    const sb = supabaseAdmin();
+
+    const limit = Math.min(opts?.limit ?? 50, MAX_LEDGER_LIMIT);
+    const now = new Date();
+    const since = opts?.since ?? new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+
+    let q = sb
+      .from("buddy_ledger_events")
+      .select(
+        "id, source, event_type, event_category, severity, " +
+        "deal_id, actor_user_id, actor_role, payload, trace_id, " +
+        "is_mismatch, created_at",
+      )
+      .eq("bank_id", bankId)
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (opts?.until) q = q.lte("created_at", opts.until);
+    if (opts?.eventCategory) q = q.eq("event_category", opts.eventCategory);
+    if (opts?.severity) q = q.eq("severity", opts.severity);
+    if (opts?.eventType) q = q.eq("event_type", opts.eventType);
+    if (opts?.dealId) q = q.eq("deal_id", opts.dealId);
+    if (opts?.source) q = q.eq("source", opts.source);
+
+    const { data, error } = await q;
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    const events: LedgerEventEntry[] = (data ?? []).map((e: any) => ({
+      id: String(e.id ?? ""),
+      source: String(e.source ?? ""),
+      eventType: String(e.event_type ?? ""),
+      eventCategory: String(e.event_category ?? ""),
+      severity: String(e.severity ?? ""),
+      dealId: (e.deal_id as string) ?? null,
+      actorUserId: (e.actor_user_id as string) ?? null,
+      actorRole: (e.actor_role as string) ?? null,
+      payload: (e.payload as Record<string, unknown>) ?? {},
+      traceId: (e.trace_id as string) ?? null,
+      isMismatch: Boolean(e.is_mismatch),
+      createdAt: String(e.created_at ?? ""),
+    }));
+
+    return { ok: true, data: events };
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : "ledger_query_failed" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// buddy://case/{caseId}/ledger
+// ---------------------------------------------------------------------------
+
+/**
+ * Deal-specific timeline from the canonical ledger.
+ * Returns all events for a specific deal, newest first.
+ */
+export async function handleCaseLedgerResource(
+  caseId: string,
+  bankId: string,
+  opts?: { limit?: number; since?: string },
+): Promise<McpResourceResult<LedgerEventEntry[]>> {
+  try {
+    const sb = supabaseAdmin();
+
+    const limit = Math.min(opts?.limit ?? 100, MAX_LEDGER_LIMIT);
+
+    let q = sb
+      .from("buddy_ledger_events")
+      .select(
+        "id, source, event_type, event_category, severity, " +
+        "deal_id, actor_user_id, actor_role, payload, trace_id, " +
+        "is_mismatch, created_at",
+      )
+      .eq("deal_id", caseId)
+      .eq("bank_id", bankId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (opts?.since) q = q.gte("created_at", opts.since);
+
+    const { data, error } = await q;
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    const events: LedgerEventEntry[] = (data ?? []).map((e: any) => ({
+      id: String(e.id ?? ""),
+      source: String(e.source ?? ""),
+      eventType: String(e.event_type ?? ""),
+      eventCategory: String(e.event_category ?? ""),
+      severity: String(e.severity ?? ""),
+      dealId: (e.deal_id as string) ?? null,
+      actorUserId: (e.actor_user_id as string) ?? null,
+      actorRole: (e.actor_role as string) ?? null,
+      payload: (e.payload as Record<string, unknown>) ?? {},
+      traceId: (e.trace_id as string) ?? null,
+      isMismatch: Boolean(e.is_mismatch),
+      createdAt: String(e.created_at ?? ""),
+    }));
+
+    return { ok: true, data: events };
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : "case_ledger_failed" };
   }
 }

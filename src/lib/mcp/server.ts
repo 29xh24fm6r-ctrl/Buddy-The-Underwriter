@@ -17,12 +17,17 @@
  *   buddy://case/{caseId}
  *   buddy://case/{caseId}/documents
  *   buddy://case/{caseId}/signals
+ *   buddy://case/{caseId}/ledger
  *   buddy://workflows/recent
+ *   buddy://ledger/summary
+ *   buddy://ledger/query
  *
  * Tools (side-effects):
  *   buddy://tools/replay_case
  *   buddy://tools/validate_case
  *   buddy://tools/generate_missing_docs_email
+ *   buddy://tools/write_signal
+ *   buddy://tools/detect_anomalies
  */
 import "server-only";
 
@@ -30,14 +35,21 @@ import {
   handleCaseResource,
   handleCaseDocumentsResource,
   handleCaseSignalsResource,
+  handleCaseLedgerResource,
   handleWorkflowsRecentResource,
+  handleLedgerSummaryResource,
+  handleLedgerQueryResource,
 } from "./resources";
 
 import {
   handleReplayCase,
   handleValidateCase,
   handleGenerateMissingDocsEmail,
+  handleWriteSignal,
+  handleDetectAnomalies,
 } from "./tools";
+
+import type { WriteSignalInput } from "./tools";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -104,7 +116,7 @@ function parseMethod(method: string): {
     return { kind: "resource", resource: "case", caseId: caseMatch[1] };
   }
 
-  const caseSubMatch = method.match(/^buddy:\/\/case\/([^/]+)\/(documents|signals)$/);
+  const caseSubMatch = method.match(/^buddy:\/\/case\/([^/]+)\/(documents|signals|ledger)$/);
   if (caseSubMatch) {
     return {
       kind: "resource",
@@ -116,6 +128,14 @@ function parseMethod(method: string): {
 
   if (method === "buddy://workflows/recent") {
     return { kind: "resource", resource: "workflows_recent" };
+  }
+
+  if (method === "buddy://ledger/summary") {
+    return { kind: "resource", resource: "ledger_summary" };
+  }
+
+  if (method === "buddy://ledger/query") {
+    return { kind: "resource", resource: "ledger_query" };
   }
 
   // Tools
@@ -179,6 +199,42 @@ export async function dispatchMcpRequest(
           : { jsonrpc: "2.0", id, error: { code: ERR_INTERNAL, message: result.error } };
       }
 
+      if (parsed.resource === "case_sub" && parsed.caseId && parsed.sub === "ledger") {
+        const result = await handleCaseLedgerResource(parsed.caseId, bankId, {
+          limit: typeof params.limit === "number" ? params.limit : undefined,
+          since: typeof params.since === "string" ? params.since : undefined,
+        });
+        return result.ok
+          ? { jsonrpc: "2.0", id, result: result.data }
+          : { jsonrpc: "2.0", id, error: { code: ERR_INTERNAL, message: result.error } };
+      }
+
+      if (parsed.resource === "ledger_summary") {
+        const result = await handleLedgerSummaryResource(bankId, {
+          since: typeof params.since === "string" ? params.since : undefined,
+          until: typeof params.until === "string" ? params.until : undefined,
+        });
+        return result.ok
+          ? { jsonrpc: "2.0", id, result: result.data }
+          : { jsonrpc: "2.0", id, error: { code: ERR_INTERNAL, message: result.error } };
+      }
+
+      if (parsed.resource === "ledger_query") {
+        const result = await handleLedgerQueryResource(bankId, {
+          limit: typeof params.limit === "number" ? params.limit : undefined,
+          since: typeof params.since === "string" ? params.since : undefined,
+          until: typeof params.until === "string" ? params.until : undefined,
+          eventCategory: typeof params.eventCategory === "string" ? params.eventCategory : undefined,
+          severity: typeof params.severity === "string" ? params.severity : undefined,
+          eventType: typeof params.eventType === "string" ? params.eventType : undefined,
+          dealId: typeof params.dealId === "string" ? params.dealId : undefined,
+          source: typeof params.source === "string" ? params.source : undefined,
+        });
+        return result.ok
+          ? { jsonrpc: "2.0", id, result: result.data }
+          : { jsonrpc: "2.0", id, error: { code: ERR_INTERNAL, message: result.error } };
+      }
+
       if (parsed.resource === "workflows_recent") {
         const result = await handleWorkflowsRecentResource(bankId, {
           limit: typeof params.limit === "number" ? params.limit : undefined,
@@ -218,6 +274,36 @@ export async function dispatchMcpRequest(
           return { jsonrpc: "2.0", id, error: { code: ERR_INVALID_PARAMS, message: "caseId required" } };
         }
         const result = await handleGenerateMissingDocsEmail(caseId, bankId);
+        return result.ok
+          ? { jsonrpc: "2.0", id, result: result.data }
+          : { jsonrpc: "2.0", id, error: { code: ERR_INTERNAL, message: result.error } };
+      }
+
+      if (parsed.resource === "write_signal") {
+        const input: WriteSignalInput = {
+          signalType: typeof params.signalType === "string" ? params.signalType : "",
+          severity: typeof params.severity === "string"
+            ? params.severity as WriteSignalInput["severity"]
+            : undefined,
+          dealId: typeof params.dealId === "string" ? params.dealId : undefined,
+          payload: typeof params.payload === "object" && params.payload !== null
+            ? params.payload as Record<string, unknown>
+            : undefined,
+          traceId: typeof params.traceId === "string" ? params.traceId : undefined,
+        };
+        const result = await handleWriteSignal(bankId, input);
+        return result.ok
+          ? { jsonrpc: "2.0", id, result: result.data }
+          : { jsonrpc: "2.0", id, error: { code: ERR_INTERNAL, message: result.error } };
+      }
+
+      if (parsed.resource === "detect_anomalies") {
+        const result = await handleDetectAnomalies(bankId, {
+          windowMinutes: typeof params.windowMinutes === "number" ? params.windowMinutes : undefined,
+          errorThreshold: typeof params.errorThreshold === "number" ? params.errorThreshold : undefined,
+          mismatchThreshold: typeof params.mismatchThreshold === "number" ? params.mismatchThreshold : undefined,
+          staleDealHours: typeof params.staleDealHours === "number" ? params.staleDealHours : undefined,
+        });
         return result.ok
           ? { jsonrpc: "2.0", id, result: result.data }
           : { jsonrpc: "2.0", id, error: { code: ERR_INTERNAL, message: result.error } };
