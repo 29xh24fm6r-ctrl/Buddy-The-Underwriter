@@ -82,6 +82,21 @@ export async function applyDocumentDerivedNaming(opts: {
     return { ok: true, displayName: doc.display_name, method: "manual" as any, changed: false };
   }
 
+  // Guard: one auto-upgrade max — if already derived, never auto-rename again
+  if (doc.naming_method === "derived") {
+    await emitArtifactNameDerived(dealId, {
+      artifact_id: documentId,
+      previous_name: previousName,
+      derived_name: null,
+      changed: false,
+      source: "fallback",
+      confidence: null,
+      fallback_reason: "already_derived",
+      locked: false,
+    });
+    return { ok: true, displayName: doc.display_name, method: "derived", changed: false };
+  }
+
   // Guard: confidence threshold
   const confidence = doc.classification_confidence;
   if (typeof confidence === "number" && confidence < MIN_CONFIDENCE) {

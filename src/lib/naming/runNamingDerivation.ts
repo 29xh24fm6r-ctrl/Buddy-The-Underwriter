@@ -8,7 +8,7 @@
  *
  * Hard guards:
  *   - Deal must exist (else ledger event + bail)
- *   - Max once per deal per 30 s (throttle)
+ *   - DB-backed throttle: max once per deal per 30 s  (serverless-safe)
  *   - Fully idempotent
  */
 
@@ -19,29 +19,7 @@ import { applyDocumentDerivedNaming } from "./applyDocumentDerivedNaming";
 import { applyDealDerivedNaming } from "./applyDealDerivedNaming";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 
-// ─── Per-deal throttle (in-memory, 30 s) ────────────────────────────────────
-
-const THROTTLE_MS = 30_000;
-const lastRun = new Map<string, number>();
-
-function isThrottled(dealId: string): boolean {
-  const prev = lastRun.get(dealId);
-  if (!prev) return false;
-  return Date.now() - prev < THROTTLE_MS;
-}
-
-function markRun(dealId: string): void {
-  lastRun.set(dealId, Date.now());
-
-  // Prevent memory leak: cap map size
-  if (lastRun.size > 5000) {
-    const oldest = [...lastRun.entries()]
-      .sort((a, b) => a[1] - b[1])
-      .slice(0, 2500);
-    lastRun.clear();
-    for (const [k, v] of oldest) lastRun.set(k, v);
-  }
-}
+const THROTTLE_SECONDS = 30;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -69,19 +47,12 @@ export async function runNamingDerivation(opts: {
   documentId?: string;
 }): Promise<RunNamingDerivationResult> {
   const { dealId, bankId, documentId } = opts;
-
-  // ── Throttle ──────────────────────────────────────────────────────────────
-  if (isThrottled(dealId)) {
-    return { ok: true, throttled: true };
-  }
-  markRun(dealId);
-
   const sb = supabaseAdmin();
 
-  // ── Guard: deal must exist ────────────────────────────────────────────────
+  // ── 1. Read deal + check throttle ─────────────────────────────────────────
   const { data: deal, error: dealErr } = await sb
     .from("deals")
-    .select("id")
+    .select("id, last_naming_derivation_at")
     .eq("id", dealId)
     .maybeSingle();
 
@@ -98,7 +69,22 @@ export async function runNamingDerivation(opts: {
     return { ok: false, throttled: false, error: "deal_not_found" };
   }
 
-  // ── Document naming ───────────────────────────────────────────────────────
+  // ── 2. DB-backed throttle: skip if last run < 30 s ago ────────────────────
+  const lastAt = (deal as any).last_naming_derivation_at;
+  if (lastAt) {
+    const elapsed = Date.now() - new Date(lastAt).getTime();
+    if (elapsed < THROTTLE_SECONDS * 1000) {
+      return { ok: true, throttled: true };
+    }
+  }
+
+  // ── 3. Stamp throttle BEFORE running (prevents stampede) ──────────────────
+  await sb
+    .from("deals")
+    .update({ last_naming_derivation_at: new Date().toISOString() } as any)
+    .eq("id", dealId);
+
+  // ── 4. Document naming ────────────────────────────────────────────────────
   const docResults: RunNamingDerivationResult["documentNaming"] = [];
 
   if (documentId) {
@@ -132,7 +118,7 @@ export async function runNamingDerivation(opts: {
     }
   }
 
-  // ── Deal naming ───────────────────────────────────────────────────────────
+  // ── 5. Deal naming ────────────────────────────────────────────────────────
   const dealResult = await applyDealDerivedNaming({ dealId, bankId });
 
   return {
