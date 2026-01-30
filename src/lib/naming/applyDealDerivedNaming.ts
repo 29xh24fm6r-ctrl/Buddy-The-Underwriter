@@ -125,7 +125,7 @@ export async function applyDealDerivedNaming(opts: {
   // 2. Get all classified documents for this deal (anchor candidates)
   const { data: docs, error: docsErr } = await sb
     .from("deal_documents")
-    .select("document_type, doc_year, entity_name, ai_business_name, ai_borrower_name, classification_confidence")
+    .select("document_type, doc_year, entity_name, ai_business_name, ai_borrower_name, match_confidence")
     .eq("deal_id", dealId)
     .not("document_type", "is", null);
 
@@ -151,7 +151,7 @@ export async function applyDealDerivedNaming(opts: {
 
   // Filter by confidence threshold (spec: >= 0.80)
   const confidentDocs = docs.filter(
-    (d: any) => typeof d.classification_confidence === "number" && d.classification_confidence >= MIN_CONFIDENCE,
+    (d: any) => typeof d.match_confidence === "number" && d.match_confidence >= MIN_CONFIDENCE,
   );
 
   if (confidentDocs.length === 0) {
@@ -173,7 +173,7 @@ export async function applyDealDerivedNaming(opts: {
     documentType: d.document_type,
     docYear: d.doc_year,
     entityName: d.ai_business_name || d.ai_borrower_name || d.entity_name || null,
-    confidence: d.classification_confidence,
+    confidence: d.match_confidence,
   }));
 
   // 3. Derive deal name
