@@ -111,12 +111,37 @@ export async function GET(req: Request, ctx: Ctx) {
     }
 
     if (!data) {
-      // No pipeline events yet - deal just created
+      // No pipeline events yet — check if artifacts are queued/processing
+      // so the UI doesn't show "done" while work is pending.
+      let computedPipeline: { ui_state: string; ui_message: string } | undefined;
+
+      try {
+        const { count: busyCount } = await withTimeout(
+          sb
+            .from("document_artifacts")
+            .select("id", { count: "exact", head: true })
+            .eq("deal_id", dealId)
+            .in("status", ["queued", "processing"]),
+          5_000,
+          "artifactBusyCount",
+        );
+
+        if (busyCount && busyCount > 0) {
+          computedPipeline = {
+            ui_state: "working",
+            ui_message: `Processing ${busyCount} document(s)...`,
+          };
+        }
+      } catch {
+        // Non-fatal: if artifact query fails, return null state as before
+      }
+
       return NextResponse.json({
         ok: true,
         __version: VERSION_MARKER,
         latestEvent: null,
-        state: null,
+        state: computedPipeline ? "computed_busy" : null,
+        ...(computedPipeline ? { computedPipeline } : {}),
         ...(wantDebug ? { debug } : {}),
       });
     }

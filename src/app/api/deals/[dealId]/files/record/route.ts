@@ -39,6 +39,52 @@ function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T
   ]);
 }
 
+/**
+ * Nudge the artifact processor with retries.
+ * Fire-and-forget: never throws, never blocks the upload response.
+ * The 1-minute cron is the ultimate safety net if all retries fail.
+ */
+async function nudgeArtifactProcessor(
+  base: string,
+  dealId: string,
+  documentId: string | null,
+): Promise<void> {
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 500;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(`${base}/api/artifacts/process?max=3`, {
+        method: "POST",
+        headers: { "x-buddy-internal": "1" },
+      });
+      if (res.ok) return; // Success
+      console.warn("[files/record] nudge non-ok response", {
+        attempt,
+        status: res.status,
+        dealId,
+        documentId,
+      });
+    } catch (err: any) {
+      console.warn("[files/record] nudge attempt failed", {
+        attempt,
+        maxRetries: MAX_RETRIES,
+        dealId,
+        documentId,
+        error: err?.message ?? String(err),
+      });
+    }
+    if (attempt < MAX_RETRIES) {
+      await new Promise((r) => setTimeout(r, BASE_DELAY_MS * Math.pow(2, attempt - 1)));
+    }
+  }
+  console.error("[files/record] nudge FAILED after all retries (cron will recover)", {
+    dealId,
+    documentId,
+    maxRetries: MAX_RETRIES,
+  });
+}
+
 type Context = {
   params: Promise<{ dealId: string }>;
 };
@@ -686,19 +732,10 @@ export async function POST(req: NextRequest, ctx: Context) {
         });
       });
 
-      // Nudge artifact processor to drain queue (observable — log failures)
+      // Nudge artifact processor to drain queue (with retries; cron is safety net)
       const base = getBaseUrl();
       if (base) {
-        fetch(`${base}/api/artifacts/process?max=3`, {
-          method: "POST",
-          headers: { "x-buddy-internal": "1" },
-        }).catch((nudgeErr) => {
-          console.error("[files/record] artifact processor nudge FAILED", {
-            dealId,
-            documentId,
-            error: nudgeErr?.message ?? String(nudgeErr),
-          });
-        });
+        void nudgeArtifactProcessor(base, dealId, documentId);
       }
     }
 

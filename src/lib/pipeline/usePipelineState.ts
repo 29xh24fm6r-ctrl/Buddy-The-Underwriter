@@ -14,6 +14,10 @@ export interface PipelineLatestResponse {
   ok: true;
   latestEvent: LatestEvent | null;
   state: any | null; // kept for backwards compatibility
+  computedPipeline?: {
+    ui_state: PipelineUiState;
+    ui_message: string;
+  };
 }
 
 export interface PipelineState {
@@ -113,18 +117,21 @@ export function usePipelineState(dealId: string | null) {
         if (cancelled) return;
 
         const ev = json.latestEvent;
+        const computed = json.computedPipeline;
 
         const uiState: PipelineUiState =
-          (ev?.ui_state as PipelineUiState) ?? "done";
+          (ev?.ui_state as PipelineUiState) ??
+          (computed?.ui_state as PipelineUiState) ??
+          "done";
 
         const isWorking = uiState === "working";
 
         setPipeline({
           uiState,
           isWorking,
-          lastMessage: ev?.ui_message ?? null,
+          lastMessage: ev?.ui_message ?? computed?.ui_message ?? null,
           lastUpdatedAt: ev?.created_at ?? null,
-          eventKey: ev?.event_key ?? null,
+          eventKey: ev?.event_key ?? (computed ? "computed_busy" : null),
           meta: (ev?.meta as Record<string, unknown>) ?? null,
           source: "ledger",
         });

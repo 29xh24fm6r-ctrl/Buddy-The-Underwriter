@@ -20,6 +20,7 @@ import {
 import { normalizeToCanonical } from "@/lib/documents/normalizeType";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export type ProcessArtifactResult = {
   ok: boolean;
@@ -41,9 +42,14 @@ type ArtifactRow = {
   retry_count: number;
 };
 
+type OcrResult =
+  | { ok: true; text: string }
+  | { ok: false; code: "ocr_disabled" | "download_failed" | "ocr_error"; message: string };
+
 /**
  * Run OCR directly on a document (bypasses document_jobs lookup).
  * This is a streamlined version for the artifact processor.
+ * Returns a structured result — never bare null.
  */
 async function runOcrForDocument(
   sb: ReturnType<typeof supabaseAdmin>,
@@ -53,11 +59,10 @@ async function runOcrForDocument(
   storagePath: string,
   originalFilename: string,
   mimeType: string | null,
-): Promise<string | null> {
+): Promise<OcrResult> {
   // Check if Gemini OCR is enabled
   if (process.env.USE_GEMINI_OCR !== "true") {
-    console.warn("[processArtifact] Gemini OCR not enabled, skipping OCR");
-    return null;
+    return { ok: false, code: "ocr_disabled", message: "USE_GEMINI_OCR is not enabled" };
   }
 
   try {
@@ -69,7 +74,7 @@ async function runOcrForDocument(
         storagePath,
         error: dl.error.message,
       });
-      return null;
+      return { ok: false, code: "download_failed", message: dl.error.message };
     }
 
     const fileBytes = Buffer.from(await dl.data.arrayBuffer());
@@ -129,14 +134,14 @@ async function runOcrForDocument(
       model: ocrResult.model,
     });
 
-    return ocrResult.text;
+    return { ok: true, text: ocrResult.text };
 
   } catch (err: any) {
     console.error("[processArtifact] OCR failed", {
       documentId,
       error: err?.message,
     });
-    return null;
+    return { ok: false, code: "ocr_error", message: err?.message || "Unknown OCR error" };
   }
 }
 
@@ -266,7 +271,7 @@ async function getDocumentText(
   });
 
   const storageBucket = doc.storage_bucket || "deal-files";
-  const ocrText = await runOcrForDocument(
+  const ocrResult = await runOcrForDocument(
     sb,
     dealId,
     sourceId,
@@ -276,7 +281,7 @@ async function getDocumentText(
     doc.mime_type,
   );
 
-  if (ocrText) {
+  if (ocrResult.ok) {
     await logLedgerEvent({
       dealId,
       bankId,
@@ -285,12 +290,12 @@ async function getDocumentText(
       uiMessage: `OCR completed for ${doc.original_filename}`,
       meta: {
         source_id: sourceId,
-        text_length: ocrText.length,
+        text_length: ocrResult.text.length,
       },
     });
 
     return {
-      text: ocrText,
+      text: ocrResult.text,
       filename: doc.original_filename,
       mimeType: doc.mime_type,
       ocrTriggered: true,
@@ -298,6 +303,8 @@ async function getDocumentText(
   }
 
   // OCR failed or not enabled - fall back to filename-only
+  const ocrSkipReason = ocrResult.code;
+
   await logLedgerEvent({
     dealId,
     bankId,
@@ -306,7 +313,22 @@ async function getDocumentText(
     uiMessage: `OCR skipped for ${doc.original_filename} (using filename only)`,
     meta: {
       source_id: sourceId,
-      reason: process.env.USE_GEMINI_OCR !== "true" ? "ocr_disabled" : "ocr_failed",
+      reason: ocrSkipReason,
+    },
+  });
+
+  // Canonical deal_events ledger (Section A: dual-ledger visibility)
+  void writeEvent({
+    dealId,
+    kind: "ocr.skipped",
+    scope: "artifact",
+    action: "ocr_skip",
+    meta: {
+      source_id: sourceId,
+      source_table: sourceTable,
+      filename: doc.original_filename,
+      reason: ocrSkipReason,
+      ocr_message: ocrResult.message,
     },
   });
 
@@ -314,6 +336,7 @@ async function getDocumentText(
     sourceTable,
     sourceId,
     filename: doc.original_filename,
+    reason: ocrSkipReason,
   });
 
   return {
@@ -387,6 +410,23 @@ export async function processArtifact(
   const { id: artifactId, deal_id: dealId, bank_id: bankId, source_table, source_id } = artifact;
 
   try {
+    const startedAt = Date.now();
+
+    // Lifecycle: artifact processing started
+    await logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "artifact.processing.started",
+      uiState: "working",
+      uiMessage: "Processing document...",
+      meta: {
+        artifact_id: artifactId,
+        source_table,
+        source_id,
+        retry_count: artifact.retry_count,
+      },
+    });
+
     // STEP 0: Check for manual override — banker's word is final
     const manualCheck = await checkManualOverride(sb, source_table, source_id);
 
@@ -636,6 +676,22 @@ export async function processArtifact(
       },
     });
 
+    // Lifecycle: artifact processing completed
+    await logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "artifact.processing.completed",
+      uiState: "done",
+      uiMessage: `Document processing completed (${classification.docType})`,
+      meta: {
+        artifact_id: artifactId,
+        doc_type: classification.docType,
+        confidence: classification.confidence,
+        matched_keys: matchedKeys,
+        duration_ms: Date.now() - startedAt,
+      },
+    });
+
     // Pulse: artifact processed
     void emitPipelineEvent({
       kind: "artifact_processed",
@@ -677,6 +733,20 @@ export async function processArtifact(
       meta: {
         artifact_id: artifactId,
         error: error?.message,
+      },
+    });
+
+    // Lifecycle: artifact processing failed
+    await logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "artifact.processing.failed",
+      uiState: "done",
+      uiMessage: "Document processing failed",
+      meta: {
+        artifact_id: artifactId,
+        error: error?.message,
+        retry_count: artifact.retry_count,
       },
     });
 
