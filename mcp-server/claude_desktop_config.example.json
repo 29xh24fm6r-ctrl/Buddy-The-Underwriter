@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "buddy-underwriter": {
+      "command": "node",
+      "args": [
+        "/ABSOLUTE/PATH/TO/Buddy-The-Underwriter/mcp-server/dist/index.js"
+      ],
+      "env": {
+        "BUDDY_MCP_API_KEY": "your_secret_api_key_here",
+        "BUDDY_MCP_BANK_ID": "your_bank_id_from_supabase",
+        "BUDDY_MCP_URL": "http://localhost:3000"
+      }
+    }
+  }
+}
