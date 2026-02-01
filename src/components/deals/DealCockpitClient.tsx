@@ -97,15 +97,18 @@ export default function DealCockpitClient({
 
   const effectiveBorrowerName = borrowerName || optimisticName || null;
 
+  // Signal must be DB-authoritative: only treat name as "present" if it
+  // comes from the persisted deal record, NOT from the optimistic URL ?n= param.
+  const dbBorrowerName = dealName?.borrowerName ?? null;
   React.useEffect(() => {
-    const action = effectiveBorrowerName ? "deal.name.present" : "deal.name.missing";
+    const action = dbBorrowerName ? "deal.name.present" : "deal.name.missing";
     emitBuddySignal({
       type: "user.action",
       source: "components/deals/DealCockpitClient.tsx",
       dealId,
       payload: { action },
     });
-  }, [dealId, effectiveBorrowerName]);
+  }, [dealId, dbBorrowerName]);
 
   // Resolve deal title — suppress UUID-derived garbage names
   const rawTitle = dealName?.displayName?.trim() || dealName?.nickname?.trim() || effectiveBorrowerName || null;
