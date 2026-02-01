@@ -181,6 +181,10 @@ describe("maybeTriggerDealNaming guard logic", () => {
   /**
    * Mirrors pre-flight guard logic from maybeTriggerDealNaming.ts.
    * Tests the conditions under which naming should/shouldn't fire.
+   *
+   * IMPORTANT: Evidence docs only have ai_business_name and ai_borrower_name.
+   * The non-existent entity_name column was removed — it caused PostgREST 400
+   * errors that were silently swallowed as "no_classified_docs".
    */
   type Deal = {
     name_locked: boolean;
@@ -191,12 +195,12 @@ describe("maybeTriggerDealNaming guard logic", () => {
   type EvidenceDoc = {
     ai_business_name: string | null;
     ai_borrower_name: string | null;
-    entity_name: string | null;
   };
 
   function shouldTriggerNaming(
     deal: Deal,
     docs: EvidenceDoc[],
+    queryError?: string,
   ): { triggered: boolean; reason: string } {
     if (deal.name_locked) return { triggered: false, reason: "name_locked" };
     if (deal.naming_method === "derived" && deal.display_name) {
@@ -206,10 +210,13 @@ describe("maybeTriggerDealNaming guard logic", () => {
       return { triggered: false, reason: "manual_override" };
     }
 
+    // Query failure must NOT be masked as "no_classified_docs"
+    if (queryError) return { triggered: false, reason: "evidence_query_failed" };
+
     if (docs.length === 0) return { triggered: false, reason: "no_classified_docs" };
 
     const hasEntityName = docs.some(
-      (d) => d.ai_business_name || d.ai_borrower_name || d.entity_name,
+      (d) => d.ai_business_name || d.ai_borrower_name,
     );
     if (!hasEntityName) return { triggered: false, reason: "no_entity_names" };
 
@@ -219,7 +226,7 @@ describe("maybeTriggerDealNaming guard logic", () => {
   test("locked deal → does not trigger", () => {
     const result = shouldTriggerNaming(
       { name_locked: true, naming_method: null, display_name: null },
-      [{ ai_business_name: "Acme Corp", ai_borrower_name: null, entity_name: null }],
+      [{ ai_business_name: "Acme Corp", ai_borrower_name: null }],
     );
     assert.equal(result.triggered, false);
     assert.equal(result.reason, "name_locked");
@@ -228,7 +235,7 @@ describe("maybeTriggerDealNaming guard logic", () => {
   test("already derived → does not trigger", () => {
     const result = shouldTriggerNaming(
       { name_locked: false, naming_method: "derived", display_name: "Acme Corp" },
-      [{ ai_business_name: "Acme Corp", ai_borrower_name: null, entity_name: null }],
+      [{ ai_business_name: "Acme Corp", ai_borrower_name: null }],
     );
     assert.equal(result.triggered, false);
     assert.equal(result.reason, "already_derived");
@@ -237,7 +244,7 @@ describe("maybeTriggerDealNaming guard logic", () => {
   test("manual override → does not trigger", () => {
     const result = shouldTriggerNaming(
       { name_locked: false, naming_method: "manual", display_name: "My Deal" },
-      [{ ai_business_name: "Acme", ai_borrower_name: null, entity_name: null }],
+      [{ ai_business_name: "Acme", ai_borrower_name: null }],
     );
     assert.equal(result.triggered, false);
     assert.equal(result.reason, "manual_override");
@@ -256,39 +263,44 @@ describe("maybeTriggerDealNaming guard logic", () => {
     const result = shouldTriggerNaming(
       { name_locked: false, naming_method: null, display_name: null },
       [
-        { ai_business_name: null, ai_borrower_name: null, entity_name: null },
-        { ai_business_name: null, ai_borrower_name: null, entity_name: null },
+        { ai_business_name: null, ai_borrower_name: null },
+        { ai_business_name: null, ai_borrower_name: null },
       ],
     );
     assert.equal(result.triggered, false);
     assert.equal(result.reason, "no_entity_names");
   });
 
-  test("classified docs with entity name → TRIGGERS", () => {
+  test("classified docs with ai_business_name → TRIGGERS", () => {
     const result = shouldTriggerNaming(
       { name_locked: false, naming_method: null, display_name: null },
-      [
-        { ai_business_name: "Acme Corp", ai_borrower_name: null, entity_name: null },
-      ],
+      [{ ai_business_name: "Acme Corp", ai_borrower_name: null }],
     );
     assert.equal(result.triggered, true);
     assert.equal(result.reason, "evidence_present");
   });
 
-  test("entity_name field triggers naming", () => {
+  test("ai_borrower_name field triggers naming", () => {
     const result = shouldTriggerNaming(
       { name_locked: false, naming_method: null, display_name: null },
-      [{ ai_business_name: null, ai_borrower_name: null, entity_name: "Acme LLC" }],
+      [{ ai_business_name: null, ai_borrower_name: "John Doe" }],
     );
     assert.equal(result.triggered, true);
   });
 
-  test("ai_borrower_name field triggers naming", () => {
+  test("query error → evidence_query_failed (NOT no_classified_docs)", () => {
+    // This is the regression test for the entity_name column bug:
+    // a PostgREST 400 from selecting a non-existent column was silently
+    // swallowed as "no_classified_docs", preventing naming from ever firing.
     const result = shouldTriggerNaming(
       { name_locked: false, naming_method: null, display_name: null },
-      [{ ai_business_name: null, ai_borrower_name: "John Doe", entity_name: null }],
+      [],
+      "column deal_documents.entity_name does not exist",
     );
-    assert.equal(result.triggered, true);
+    assert.equal(result.triggered, false);
+    assert.equal(result.reason, "evidence_query_failed");
+    // MUST NOT be "no_classified_docs" — that masks the real error
+    assert.notEqual(result.reason, "no_classified_docs");
   });
 });
 

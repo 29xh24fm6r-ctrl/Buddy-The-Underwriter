@@ -40,7 +40,7 @@ export async function applyDocumentDerivedNaming(opts: {
   const { data: doc, error: readErr } = await sb
     .from("deal_documents")
     .select(
-      "id, original_filename, display_name, naming_method, name_locked, document_type, doc_year, entity_name, ai_business_name, ai_borrower_name, classification_confidence",
+      "id, original_filename, display_name, naming_method, name_locked, document_type, doc_year, ai_business_name, ai_borrower_name, classification_confidence",
     )
     .eq("id", documentId)
     .maybeSingle();
@@ -113,11 +113,10 @@ export async function applyDocumentDerivedNaming(opts: {
     return { ok: true, displayName: doc.display_name, method: "provisional", changed: false };
   }
 
-  // Pick the best entity name: ai_business_name > ai_borrower_name > entity_name
+  // Pick the best entity name: ai_business_name > ai_borrower_name
   const entityName =
     (doc as any).ai_business_name ||
     (doc as any).ai_borrower_name ||
-    doc.entity_name ||
     null;
 
   // 2. Compute derived name

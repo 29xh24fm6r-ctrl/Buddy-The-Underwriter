@@ -125,11 +125,15 @@ export async function applyDealDerivedNaming(opts: {
   // 2. Get all classified documents for this deal (anchor candidates)
   const { data: docs, error: docsErr } = await sb
     .from("deal_documents")
-    .select("document_type, doc_year, entity_name, ai_business_name, ai_borrower_name, match_confidence")
+    .select("document_type, doc_year, ai_business_name, ai_borrower_name, match_confidence")
     .eq("deal_id", dealId)
     .not("document_type", "is", null);
 
   if (docsErr) {
+    console.warn("[applyDealDerivedNaming] docs query failed", {
+      dealId,
+      error: docsErr.message,
+    });
     return { ok: false, dealName: null, method: null, changed: false, error: docsErr.message };
   }
 
@@ -172,7 +176,7 @@ export async function applyDealDerivedNaming(opts: {
   const candidates: AnchorDocCandidate[] = confidentDocs.map((d: any) => ({
     documentType: d.document_type,
     docYear: d.doc_year,
-    entityName: d.ai_business_name || d.ai_borrower_name || d.entity_name || null,
+    entityName: d.ai_business_name || d.ai_borrower_name || null,
     confidence: d.match_confidence,
   }));
 

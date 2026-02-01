@@ -71,12 +71,30 @@ export async function maybeTriggerDealNaming(
     // ── 2. Evidence check: at least one entity name in classified docs ───
     const { data: evidenceDocs, error: evidenceErr } = await sb
       .from("deal_documents")
-      .select("ai_business_name, ai_borrower_name, entity_name, match_confidence")
+      .select("ai_business_name, ai_borrower_name, match_confidence")
       .eq("deal_id", dealId)
       .not("document_type", "is", null)
       .limit(10);
 
-    if (evidenceErr || !evidenceDocs || evidenceDocs.length === 0) {
+    // Distinguish query failure from genuinely no docs
+    if (evidenceErr) {
+      console.warn("[maybeTriggerDealNaming] evidence query failed", {
+        dealId,
+        reason,
+        error: evidenceErr.message,
+      });
+      await logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "naming.trigger.skipped",
+        uiState: "error",
+        uiMessage: `Naming skipped: evidence query failed (trigger: ${reason})`,
+        meta: { reason, trigger: reason, error: evidenceErr.message, fallback_reason: "evidence_query_failed" },
+      });
+      return { triggered: false, reason: "evidence_query_failed" };
+    }
+
+    if (!evidenceDocs || evidenceDocs.length === 0) {
       await logLedgerEvent({
         dealId,
         bankId,
@@ -90,7 +108,7 @@ export async function maybeTriggerDealNaming(
 
     // Check for any entity name evidence
     const hasEntityName = evidenceDocs.some(
-      (d: any) => d.ai_business_name || d.ai_borrower_name || d.entity_name,
+      (d: any) => d.ai_business_name || d.ai_borrower_name,
     );
 
     if (!hasEntityName) {
