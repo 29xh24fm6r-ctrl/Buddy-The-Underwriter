@@ -65,7 +65,7 @@ export async function getChecklistState(args: {
     // Fetch checklist rows.
     // IMPORTANT: Be schema-tolerant: try selecting v2 fields, then fall back.
     const baseSel = includeItems
-      ? "id,deal_id,checklist_key,status,required,title,description,created_at,received_at,satisfied_at,satisfaction_json,required_years,satisfied_years"
+      ? "id,deal_id,checklist_key,status,required,title,description,created_at,received_at,satisfied_at,required_years,satisfied_years"
       : "id,status,required";
 
     let rows: any[] | null = null;
@@ -86,8 +86,7 @@ export async function getChecklistState(args: {
           (msg.includes("required_years") ||
             msg.includes("satisfied_years") ||
             msg.includes("received_at") ||
-            msg.includes("satisfied_at") ||
-            msg.includes("satisfaction_json"))
+            msg.includes("satisfied_at"))
         ) {
           const fallback = await sb
             .from("deal_checklist_items")

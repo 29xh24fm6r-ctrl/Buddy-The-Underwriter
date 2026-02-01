@@ -102,8 +102,8 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           bank_id,
           lifecycle_stage,
           ready_at,
-          deal_status!inner(stage)
-        `
+          deal_status(stage)
+`
         )
         .eq("id", dealId)
         .maybeSingle(),

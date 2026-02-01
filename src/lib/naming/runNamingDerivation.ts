@@ -9,6 +9,9 @@
  * Hard guards:
  *   - Deal must exist (else ledger event + bail)
  *   - DB-backed throttle: max once per deal per 30 s  (serverless-safe)
+ *   - Throttle only stamped for terminal results (derived/manual/locked),
+ *     NOT for "no_docs" / "low_confidence" so classification completion
+ *     can re-trigger naming.
  *   - Fully idempotent
  */
 
@@ -78,13 +81,7 @@ export async function runNamingDerivation(opts: {
     }
   }
 
-  // ── 3. Stamp throttle BEFORE running (prevents stampede) ──────────────────
-  await sb
-    .from("deals")
-    .update({ last_naming_derivation_at: new Date().toISOString() } as any)
-    .eq("id", dealId);
-
-  // ── 4. Document naming ────────────────────────────────────────────────────
+  // ── 3. Document naming ────────────────────────────────────────────────────
   const docResults: RunNamingDerivationResult["documentNaming"] = [];
 
   if (documentId) {
@@ -118,8 +115,22 @@ export async function runNamingDerivation(opts: {
     }
   }
 
-  // ── 5. Deal naming ────────────────────────────────────────────────────────
+  // ── 4. Deal naming ────────────────────────────────────────────────────────
   const dealResult = await applyDealDerivedNaming({ dealId, bankId });
+
+  // ── 5. Stamp throttle AFTER running ─────────────────────────────────────
+  // Only stamp for terminal results (derived/manual/locked).
+  // Do NOT stamp if derivation found "no_docs" or "low_confidence" —
+  // a later classification completion must be able to re-trigger.
+  const isTerminal =
+    dealResult.ok && dealResult.method !== "provisional";
+
+  if (isTerminal) {
+    await sb
+      .from("deals")
+      .update({ last_naming_derivation_at: new Date().toISOString() } as any)
+      .eq("id", dealId);
+  }
 
   return {
     ok: true,

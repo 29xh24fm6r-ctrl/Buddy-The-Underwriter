@@ -74,7 +74,6 @@ type ChecklistResponse = {
     required_years: number | null;
     satisfied_years: number | null;
     satisfied_at: string | null;
-    satisfaction_json: unknown | null;
     created_at: string | null;
   }>;
   counts?: { total: number; received: number; pending: number; optional: number };
@@ -266,7 +265,6 @@ export async function GET(
       required_years: (row as any).required_years ?? null,
       satisfied_years: (row as any).satisfied_years ?? null,
       satisfied_at: (row as any).satisfied_at ?? null,
-      satisfaction_json: (row as any).satisfaction_json ?? null,
       created_at: row.created_at ?? null,
     }));
 

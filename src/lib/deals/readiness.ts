@@ -109,7 +109,7 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
   // Fetch current state (for transition detection)
   const { data: currentDeal } = await sb
     .from("deals")
-    .select("ready_at, bank_id, lifecycle_stage")
+    .select("ready_at, bank_id")
     .eq("id", dealId)
     .single();
 
@@ -166,7 +166,11 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
       });
     }
 
-    if (currentDeal?.lifecycle_stage === "underwriting") {
+    // Best-effort lifecycle advancement — advanceDealLifecycle has its own
+    // internal stage guard (ALLOWED_TRANSITIONS), so this is safe to call
+    // unconditionally. Wrapped in try/catch because lifecycle_stage column
+    // may not exist in all environments and this must not break readiness.
+    try {
       await advanceDealLifecycle({
         dealId,
         toStage: "ready",
@@ -174,6 +178,8 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
         source: "readiness",
         actor: { userId: null, type: "system", label: "readiness" },
       });
+    } catch {
+      // Non-fatal: lifecycle advancement is best-effort
     }
   } else {
     // Deal not ready - clear timestamp, update reason
