@@ -110,7 +110,8 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   const deal = dealResult.data;
   const lifecycleStage = (deal.lifecycle_stage as DealLifecycleStage) || "created";
 
-  // Fetch deal_status separately — missing row or missing table is NOT a blocker
+  // Fetch deal_status separately — missing row or missing table is NOT a blocker.
+  // If missing but deal exists, bootstrap it defensively (self-heal).
   let dealStatusStage: DealStatusStage | null = null;
   try {
     const { data: statusRow } = await sb
@@ -119,6 +120,21 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
       .eq("deal_id", dealId)
       .maybeSingle();
     dealStatusStage = (statusRow?.stage as DealStatusStage) || null;
+
+    // Self-heal: if deal exists but deal_status is missing, bootstrap it
+    if (!statusRow) {
+      try {
+        const { bootstrapDealLifecycle } = await import(
+          "@/lib/lifecycle/bootstrapDealLifecycle"
+        );
+        const bootstrap = await bootstrapDealLifecycle(dealId);
+        if (bootstrap.created) {
+          dealStatusStage = "intake";
+        }
+      } catch {
+        // Bootstrap failure is non-fatal — lifecycle still works without deal_status
+      }
+    }
   } catch {
     // deal_status table missing or query failed — not a blocker
   }

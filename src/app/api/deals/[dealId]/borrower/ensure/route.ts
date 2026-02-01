@@ -362,6 +362,26 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
     const body = await req.json().catch(() => ({} as EnsureBody));
     const result = await buildPayload(dealId, access.bankId, body, correlationId);
 
+    // After successful borrower attach/create, trigger lifecycle recompute + naming
+    // (fire-and-forget — must not delay the response)
+    if (result.ok && result.attached) {
+      void (async () => {
+        try {
+          const { recomputeDealReady } = await import("@/lib/deals/readiness");
+          await recomputeDealReady(dealId);
+        } catch {}
+        try {
+          const { maybeTriggerDealNaming } = await import(
+            "@/lib/naming/maybeTriggerDealNaming"
+          );
+          await maybeTriggerDealNaming(dealId, {
+            bankId: access.bankId,
+            reason: "borrower_attached",
+          });
+        } catch {}
+      })();
+    }
+
     return respond200({ ...result, meta: { dealId, correlationId, ts } } as any, headers);
   } catch (err) {
     const safe = sanitizeError(err, "borrower_ensure_failed");
