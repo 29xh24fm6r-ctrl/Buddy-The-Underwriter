@@ -642,9 +642,17 @@ export async function processArtifact(
     );
     await reconcileChecklistForDeal({ sb, dealId });
 
-    // 6.7. Recompute deal readiness
-    const { recomputeDealReady } = await import("@/lib/deals/readiness");
-    await recomputeDealReady(dealId);
+    // 6.7. Recompute deal readiness (non-fatal: must not block naming derivation)
+    try {
+      const { recomputeDealReady } = await import("@/lib/deals/readiness");
+      await recomputeDealReady(dealId);
+    } catch (readinessErr: any) {
+      console.warn("[processArtifact] readiness recompute failed (non-fatal)", {
+        dealId,
+        source_id,
+        error: readinessErr?.message,
+      });
+    }
 
     // 6.8. Two-phase naming: single entry point for document + deal naming
     try {

@@ -549,32 +549,39 @@ export async function reconcileDealChecklist(dealId: string) {
       (hasRequiredYearsColumn ? requiredYearsFromDb : null) ??
       computeDefaultRequiredYearsFromChecklistKey(itemKey);
 
-    const satisfiedYearsSet = new Set<number>();
-    for (const d of docsForItem) {
-      const ys = (d as any)?.doc_years;
-      if (Array.isArray(ys)) {
-        for (const y of ys) {
-          const n = Number(y);
-          if (Number.isFinite(n)) satisfiedYearsSet.add(n);
-        }
-      }
-      const y1 = Number((d as any)?.doc_year);
-      if (Number.isFinite(y1)) satisfiedYearsSet.add(y1);
-    }
-
-    // Add AI mapping evidence years (high-confidence only)
-    const mappedYears = mappingYearsByKey.get(itemKey);
-    if (mappedYears && mappedYears.size) {
-      for (const y of mappedYears) satisfiedYearsSet.add(y);
-    }
-    const satisfiedYears = Array.from(satisfiedYearsSet).sort((a, b) => b - a);
-
     // For tax return requirements (IRS_*_nY), satisfy by DISTINCT YEAR COUNT.
     // This matches real-world intake (any 3 years, not necessarily a precomputed set).
     const requiredDistinctYearCount =
       itemKey.toUpperCase().startsWith("IRS_BUSINESS") || itemKey.toUpperCase().startsWith("IRS_PERSONAL")
         ? parseRequiredDistinctYearCountFromChecklistKey(itemKey)
         : null;
+
+    // Only accumulate year data for items that actually use year-based satisfaction.
+    // Non-year items (PFS_CURRENT, AR_AP_AGING, etc.) are satisfied by document
+    // presence alone — spurious years from filename regex must not leak into UI.
+    const isYearBasedItem = !!(requiredYears && requiredYears.length) || !!requiredDistinctYearCount;
+
+    const satisfiedYearsSet = new Set<number>();
+    if (isYearBasedItem) {
+      for (const d of docsForItem) {
+        const ys = (d as any)?.doc_years;
+        if (Array.isArray(ys)) {
+          for (const y of ys) {
+            const n = Number(y);
+            if (Number.isFinite(n)) satisfiedYearsSet.add(n);
+          }
+        }
+        const y1 = Number((d as any)?.doc_year);
+        if (Number.isFinite(y1)) satisfiedYearsSet.add(y1);
+      }
+
+      // Add AI mapping evidence years (high-confidence only)
+      const mappedYears = mappingYearsByKey.get(itemKey);
+      if (mappedYears && mappedYears.size) {
+        for (const y of mappedYears) satisfiedYearsSet.add(y);
+      }
+    }
+    const satisfiedYears = Array.from(satisfiedYearsSet).sort((a, b) => b - a);
 
     const isSatisfied = requiredDistinctYearCount
       ? satisfiedYearsSet.size >= requiredDistinctYearCount

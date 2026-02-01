@@ -34,9 +34,14 @@ export type PrimaryCTA = {
  * Derive the cockpit phase from available data.
  *
  * - UPLOADING: no docs yet
- * - PROCESSING: docs exist, unclassified/pending artifacts remain
+ * - PROCESSING: artifacts are actively queued or being classified
  * - READY: all required checklist items satisfied
  * - BLOCKED: classified but missing required items
+ *
+ * Invariants:
+ * - PROCESSING only when artifacts are genuinely in-flight (queued/processing > 0)
+ * - Blockers and spinner must NEVER coexist — blockers take priority
+ * - "classified but not matched" is NOT processing (it's a terminal state for that artifact)
  */
 export function deriveCockpitPhase(
   artifactSummary: ArtifactsSummary | null,
@@ -45,11 +50,17 @@ export function deriveCockpitPhase(
   const totalFiles = artifactSummary?.total_files ?? 0;
   if (totalFiles === 0) return "UPLOADING";
 
+  // Only genuinely in-flight artifacts count as processing.
+  // `totalFiles > matched` is NOT used — classified-but-unmatched is a terminal state.
   const queued = artifactSummary?.queued ?? 0;
   const processing = artifactSummary?.processing ?? 0;
-  const matched = artifactSummary?.matched ?? 0;
-  const hasUnclassified = queued > 0 || processing > 0 || totalFiles > matched;
-  if (hasUnclassified) return "PROCESSING";
+  const activelyProcessing = queued > 0 || processing > 0;
+
+  // Blockers take absolute priority — never show spinner alongside blockers
+  const hasBlockers = (lifecycleState?.blockers?.length ?? 0) > 0;
+  if (hasBlockers) return "BLOCKED";
+
+  if (activelyProcessing) return "PROCESSING";
 
   const allSatisfied = lifecycleState?.derived?.borrowerChecklistSatisfied ?? false;
   return allSatisfied ? "READY" : "BLOCKED";
@@ -77,7 +88,8 @@ export function usePrimaryCTA(
     }
 
     // PROCESSING — automatic recognition in progress
-    if (phase === "PROCESSING" || isProcessing) {
+    // Never show spinner when blockers exist (phase would be BLOCKED)
+    if (phase === "PROCESSING" || (isProcessing && phase !== "BLOCKED")) {
       const queued = (artifactSummary?.queued ?? 0) + (artifactSummary?.processing ?? 0);
       return {
         label: "Recognizing Documents...",
