@@ -21,6 +21,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { applyDocumentDerivedNaming } from "./applyDocumentDerivedNaming";
 import { applyDealDerivedNaming } from "./applyDealDerivedNaming";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
 const THROTTLE_SECONDS = 30;
 
@@ -66,6 +67,16 @@ export async function runNamingDerivation(opts: {
   const { dealId, bankId, documentId } = opts;
   const sb = supabaseAdmin();
 
+  // ── 0. Pipeline ledger: naming requested ────────────────────────────────
+  await logLedgerEvent({
+    dealId,
+    bankId,
+    eventKey: "naming.derivation.requested",
+    uiState: "working",
+    uiMessage: "Naming derivation started",
+    meta: { documentId: documentId ?? null },
+  });
+
   // ── 1. Read deal + check throttle ─────────────────────────────────────────
   const { data: deal, error: dealErr } = await sb
     .from("deals")
@@ -83,6 +94,14 @@ export async function runNamingDerivation(opts: {
         error: dealErr?.message ?? "deal_not_found",
       },
     });
+    await logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "naming.derivation.completed",
+      uiState: "error",
+      uiMessage: "Naming blocked: deal not found",
+      meta: { outcome: "deal_not_found", error: dealErr?.message ?? "deal_not_found" },
+    });
     return { ok: false, throttled: false, error: "deal_not_found" };
   }
 
@@ -91,6 +110,14 @@ export async function runNamingDerivation(opts: {
   if (lastAt) {
     const elapsed = Date.now() - new Date(lastAt).getTime();
     if (elapsed < THROTTLE_SECONDS * 1000) {
+      await logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "naming.derivation.completed",
+        uiState: "done",
+        uiMessage: "Naming derivation throttled",
+        meta: { outcome: "throttled", elapsed_ms: elapsed },
+      });
       return { ok: true, throttled: true };
     }
   }
@@ -158,6 +185,24 @@ export async function runNamingDerivation(opts: {
       .update({ last_naming_derivation_at: new Date().toISOString() } as any)
       .eq("id", dealId);
   }
+
+  // ── Pipeline ledger: naming completed ──────────────────────────────────
+  await logLedgerEvent({
+    dealId,
+    bankId,
+    eventKey: "naming.derivation.completed",
+    uiState: isTerminal ? "done" : "waiting",
+    uiMessage: `Naming derivation completed: ${outcome}`,
+    meta: {
+      outcome,
+      is_terminal: isTerminal,
+      deal_changed: dealResult.changed,
+      deal_name: dealResult.dealName,
+      deal_method: dealResult.method,
+      fallback_reason: dealResult.error ?? null,
+      docs_processed: docResults.length,
+    },
+  });
 
   return {
     ok: true,

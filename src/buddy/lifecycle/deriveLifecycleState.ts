@@ -53,13 +53,12 @@ type DealStatusStage =
   | "funded"
   | "declined";
 
-// Type for deal data from query
+// Type for deal data from query (deal_status fetched separately)
 type DealData = {
   id: string;
   bank_id: string | null;
   lifecycle_stage: string | null;
   ready_at: string | null;
-  deal_status: { stage: string } | null;
 };
 
 /**
@@ -91,20 +90,14 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   const runtimeBlockers: LifecycleBlocker[] = [];
 
   // 1. Fetch core deal data (critical - no deal = not found state)
+  // NOTE: deal_status is fetched separately to avoid PostgREST join failures
+  // when the FK doesn't exist or deal_status has no row for this deal.
   const dealResult = await safeSupabaseQuery<DealData>(
     "deal",
     () =>
       sb
         .from("deals")
-        .select(
-          `
-          id,
-          bank_id,
-          lifecycle_stage,
-          ready_at,
-          deal_status(stage)
-`
-        )
+        .select("id, bank_id, lifecycle_stage, ready_at")
         .eq("id", dealId)
         .maybeSingle(),
     ctx
@@ -116,7 +109,19 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
 
   const deal = dealResult.data;
   const lifecycleStage = (deal.lifecycle_stage as DealLifecycleStage) || "created";
-  const dealStatusStage = ((deal.deal_status as any)?.stage as DealStatusStage) || null;
+
+  // Fetch deal_status separately — missing row or missing table is NOT a blocker
+  let dealStatusStage: DealStatusStage | null = null;
+  try {
+    const { data: statusRow } = await sb
+      .from("deal_status")
+      .select("stage")
+      .eq("deal_id", dealId)
+      .maybeSingle();
+    dealStatusStage = (statusRow?.stage as DealStatusStage) || null;
+  } catch {
+    // deal_status table missing or query failed — not a blocker
+  }
 
   // 2. Fetch checklist data
   let checklist: Array<{ checklist_key: string; required: boolean; status: string }> = [];

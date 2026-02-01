@@ -593,8 +593,10 @@ export async function reconcileDealChecklist(dealId: string) {
     const hasHighConfidenceMapping = (mappingBestByKey.get(itemKey) ?? 0) >= 0.9;
     const satisfiedByMappingOnly = docsForItem.length === 0 && hasHighConfidenceMapping;
 
-    // Always attempt to persist satisfied_years (even when partial), when column exists.
-    if (hasSatisfiedYearsColumn) {
+    // Persist satisfied_years ONLY for year-based items. Non-year items
+    // (PFS_CURRENT, AR_AP_AGING, etc.) must never have satisfied_years populated —
+    // spurious years from filename regex leak into the UI as phantom "Received" counts.
+    if (hasSatisfiedYearsColumn && isYearBasedItem) {
       const upd = await sb
         .from("deal_checklist_items")
         .update({ satisfied_years: satisfiedYears } as any)
