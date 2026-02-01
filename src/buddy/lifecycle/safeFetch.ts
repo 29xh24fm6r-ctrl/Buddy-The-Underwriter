@@ -50,6 +50,22 @@ function getBlockerCode(source: string): LifecycleBlockerCode {
 }
 
 /**
+ * Detect PostgREST schema mismatch errors.
+ * These occur when selecting a non-existent column, type mismatch, etc.
+ * MUST NOT be treated as "no data" — they indicate a code/schema bug.
+ */
+function isSchemaMismatchError(errorMsg: string): boolean {
+  const msg = (errorMsg ?? "").toLowerCase();
+  return (
+    msg.includes("does not exist") ||
+    msg.includes("column") && msg.includes("not found") ||
+    msg.includes("pgrst") && msg.includes("400") ||
+    msg.includes("could not find") && msg.includes("column") ||
+    msg.includes("relation") && msg.includes("does not exist")
+  );
+}
+
+/**
  * Sanitize error for evidence - remove sensitive info, limit size.
  */
 function sanitizeError(err: unknown): string {
@@ -145,26 +161,33 @@ export async function safeSupabaseQuery<T>(
     const { data, error } = result;
 
     if (error) {
-      const blockerCode = getBlockerCode(source);
       const sanitizedErr = error.message?.slice(0, 200) ?? "Query error";
+      const isSchema = isSchemaMismatchError(error.message ?? "");
+      const blockerCode = isSchema ? ("schema_mismatch" as LifecycleBlockerCode) : getBlockerCode(source);
 
-      console.warn(
-        `[deriveLifecycleState] ${source} query error`,
+      // Schema mismatches are CRITICAL — they indicate a code bug, not missing data
+      const logLevel = isSchema ? "error" : "warn";
+      console[logLevel](
+        `[deriveLifecycleState] ${source} ${isSchema ? "SCHEMA MISMATCH" : "query error"}`,
         JSON.stringify({
           dealId: ctx.dealId,
           correlationId: ctx.correlationId,
           source,
           error: sanitizedErr,
+          schema_mismatch: isSchema,
         })
       );
 
       const blocker: LifecycleBlocker = {
         code: blockerCode,
-        message: `Could not load ${source} data`,
+        message: isSchema
+          ? `Schema mismatch in ${source} query (code bug, not missing data)`
+          : `Could not load ${source} data`,
         evidence: {
           source,
           error: sanitizedErr,
           dealId: ctx.dealId,
+          schema_mismatch: isSchema,
         },
       };
 
@@ -192,22 +215,27 @@ export async function safeSupabaseCount(
     const { count, error } = result;
 
     if (error) {
-      const blockerCode = getBlockerCode(source);
       const sanitizedErr = error.message?.slice(0, 200) ?? "Count query error";
+      const isSchema = isSchemaMismatchError(error.message ?? "");
+      const blockerCode = isSchema ? ("schema_mismatch" as LifecycleBlockerCode) : getBlockerCode(source);
 
-      console.warn(
-        `[deriveLifecycleState] ${source} count error`,
+      const logLevel = isSchema ? "error" : "warn";
+      console[logLevel](
+        `[deriveLifecycleState] ${source} ${isSchema ? "SCHEMA MISMATCH" : "count error"}`,
         JSON.stringify({
           dealId: ctx.dealId,
           source,
           error: sanitizedErr,
+          schema_mismatch: isSchema,
         })
       );
 
       const blocker: LifecycleBlocker = {
         code: blockerCode,
-        message: `Could not count ${source} data`,
-        evidence: { source, error: sanitizedErr, dealId: ctx.dealId },
+        message: isSchema
+          ? `Schema mismatch in ${source} count (code bug, not missing data)`
+          : `Could not count ${source} data`,
+        evidence: { source, error: sanitizedErr, dealId: ctx.dealId, schema_mismatch: isSchema },
       };
 
       return { ok: false, err: error, blocker };

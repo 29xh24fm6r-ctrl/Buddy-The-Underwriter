@@ -63,6 +63,8 @@ export type LifecycleBlockerCode =
   | "packet_fetch_failed"
   | "advancement_fetch_failed"
   | "readiness_fetch_failed"
+  // Schema / infrastructure errors
+  | "schema_mismatch"
   // Generic fallbacks (use specific codes above when possible)
   | "data_fetch_failed"
   | "internal_error";
