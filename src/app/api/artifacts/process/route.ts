@@ -80,6 +80,50 @@ export async function POST(req: NextRequest) {
 
     console.log("[artifacts/process] batch complete", summary);
 
+    // === Belt-and-suspenders: trigger naming for all affected deals ===
+    // processArtifact already calls runNamingDerivation per artifact, but if
+    // any path returned early (stamp failed, manual override, etc.), naming
+    // was missed. This catch-up triggers naming for every deal that had at
+    // least one artifact processed in this batch.
+    if (results.length > 0) {
+      try {
+        const sb = supabaseAdmin();
+        const artifactIds = results
+          .filter((r) => r.ok)
+          .map((r) => r.artifactId);
+
+        if (artifactIds.length > 0) {
+          const { data: affectedDeals } = await sb
+            .from("document_artifacts")
+            .select("deal_id, bank_id")
+            .in("id", artifactIds);
+
+          // Deduplicate by deal_id
+          const seen = new Set<string>();
+          const uniqueDeals = (affectedDeals ?? []).filter((d: any) => {
+            if (seen.has(d.deal_id)) return false;
+            seen.add(d.deal_id);
+            return true;
+          });
+
+          const { maybeTriggerDealNaming } = await import(
+            "@/lib/naming/maybeTriggerDealNaming"
+          );
+
+          for (const d of uniqueDeals) {
+            void maybeTriggerDealNaming(d.deal_id, {
+              bankId: d.bank_id,
+              reason: "artifact_batch_completed",
+            }).catch(() => {});
+          }
+        }
+      } catch (namingErr: any) {
+        console.warn("[artifacts/process] post-batch naming trigger failed (non-fatal)", {
+          error: namingErr?.message,
+        });
+      }
+    }
+
     // === Stuck artifact detection (Section E) ===
     // Runs after every batch invocation (~1 min via cron). Non-fatal.
     let stuck: { queued: number; processing: number } | undefined;

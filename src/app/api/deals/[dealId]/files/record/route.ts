@@ -561,6 +561,16 @@ export async function POST(req: NextRequest, ctx: Context) {
             .update({ intake_state: nextState })
             .eq("id", dealId);
         }
+
+        // Belt-and-suspenders: try naming when all files are uploaded.
+        // No-op if docs aren't classified yet; catches the case where
+        // earlier docs in the session are already classified with entity names.
+        void import("@/lib/naming/maybeTriggerDealNaming").then(({ maybeTriggerDealNaming }) =>
+          maybeTriggerDealNaming(dealId, {
+            bankId,
+            reason: "upload_session_completed",
+          }),
+        ).catch(() => {});
       } else {
         const nextState: DealIntakeState = "UPLOADING";
         if (canTransitionIntakeState((deal as any).intake_state || "CREATED", nextState)) {
