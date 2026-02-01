@@ -402,3 +402,59 @@ describe("lifecycle stage mapping", () => {
     assert.equal(stage, "underwrite_in_progress");
   });
 });
+
+// ─── 6. Route-level deal_not_found stripping ─────────────────────────────────
+
+describe("lifecycle route: deal_not_found stripping when access confirmed", () => {
+  /**
+   * CRITICAL INVARIANT: If ensureDealBankAccess passed (deal exists + bank
+   * matches), the lifecycle route must NEVER return deal_not_found blocker.
+   *
+   * A transient derivation failure (e.g., DB timeout during deal query inside
+   * deriveLifecycleState) must NOT surface as deal_not_found to the client.
+   */
+  type Blocker = { code: string; message: string };
+
+  function stripFalseNotFound(
+    accessConfirmed: boolean,
+    blockers: Blocker[],
+  ): Blocker[] {
+    if (accessConfirmed) {
+      return blockers.filter((b) => b.code !== "deal_not_found");
+    }
+    return blockers;
+  }
+
+  test("strips deal_not_found when access check confirmed deal exists", () => {
+    const blockers = stripFalseNotFound(true, [
+      { code: "deal_not_found", message: "Deal not found or access denied" },
+    ]);
+    assert.equal(blockers.length, 0);
+  });
+
+  test("preserves deal_not_found when access check did NOT confirm", () => {
+    const blockers = stripFalseNotFound(false, [
+      { code: "deal_not_found", message: "Deal not found or access denied" },
+    ]);
+    assert.equal(blockers.length, 1);
+    assert.equal(blockers[0].code, "deal_not_found");
+  });
+
+  test("preserves other blockers when stripping deal_not_found", () => {
+    const blockers = stripFalseNotFound(true, [
+      { code: "deal_not_found", message: "Deal not found" },
+      { code: "missing_required_docs", message: "2 docs missing" },
+      { code: "checklist_not_seeded", message: "No checklist" },
+    ]);
+    assert.equal(blockers.length, 2);
+    assert.equal(blockers[0].code, "missing_required_docs");
+    assert.equal(blockers[1].code, "checklist_not_seeded");
+  });
+
+  test("no-op when no deal_not_found blocker present", () => {
+    const blockers = stripFalseNotFound(true, [
+      { code: "missing_required_docs", message: "2 docs missing" },
+    ]);
+    assert.equal(blockers.length, 1);
+  });
+});

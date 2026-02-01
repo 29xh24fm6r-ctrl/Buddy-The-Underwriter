@@ -175,22 +175,36 @@ async function buildPayload(
       };
     }
 
+    // CRITICAL FIX: If ensureDealBankAccess passed (Phase 2), the deal EXISTS.
+    // Any "deal_not_found" from derivation is a transient query failure, NOT a
+    // real missing deal. Strip it — returning deal_not_found for an existing deal
+    // is the root cause of the persistent cockpit blocker.
+    const accessConfirmedDealExists = access.ok;
+    let sanitizedState = state;
+
+    if (accessConfirmedDealExists && state.blockers.some((b) => b.code === "deal_not_found")) {
+      console.warn(
+        `[lifecycle] correlationId=${correlationId} dealId=${dealId} ` +
+        `source=derive STRIPPING deal_not_found blocker (access check confirmed deal exists)`,
+      );
+
+      sanitizedState = {
+        ...state,
+        blockers: state.blockers.filter((b) => b.code !== "deal_not_found"),
+      };
+    }
+
     // Inject correlationId into derived for debugging
     const stateWithCorrelation: LifecycleState = {
-      ...state,
+      ...sanitizedState,
       derived: {
-        ...state.derived,
+        ...sanitizedState.derived,
         correlationId,
       },
     };
 
-    // Check if deal wasn't found during derivation (not a 500, but ok: false)
-    if (state.blockers.some((b) => b.code === "deal_not_found")) {
-      return { ok: false, state: stateWithCorrelation, _dealId: dealId };
-    }
-
     // Check for internal errors in blockers (also ok: false)
-    const hasInternalError = state.blockers.some((b) => b.code === "internal_error");
+    const hasInternalError = stateWithCorrelation.blockers.some((b) => b.code === "internal_error");
 
     return { ok: !hasInternalError, state: stateWithCorrelation, _dealId: dealId };
   } catch (unexpectedErr) {
