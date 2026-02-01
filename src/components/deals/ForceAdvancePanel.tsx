@@ -56,9 +56,6 @@ export function ForceAdvancePanel({ dealId, currentStage, onAdvanced }: Props) {
   const [result, setResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  if (!FORCE_ADVANCE_ENABLED) return null;
-
-  const currentIndex = ALL_STAGES.findIndex((s) => s.value === currentStage);
   const allowedValues = getAllowedStageValues();
   const reasonValid = reason.trim().length >= 10;
 
@@ -105,6 +102,8 @@ export function ForceAdvancePanel({ dealId, currentStage, onAdvanced }: Props) {
       setBusy(false);
     }
   }, [dealId, selectedStage, reason, reasonValid, onAdvanced]);
+
+  if (!FORCE_ADVANCE_ENABLED) return null;
 
   return (
     <div className={cn(glassPanel, "overflow-hidden")}>
