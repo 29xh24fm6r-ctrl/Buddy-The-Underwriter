@@ -9,6 +9,9 @@
  * Hard guards:
  *   - Deal must exist (else ledger event + bail)
  *   - DB-backed throttle: max once per deal per 30 s  (serverless-safe)
+ *   - Throttle only stamped for terminal results (derived/manual/locked),
+ *     NOT for "no_docs" / "low_confidence" so classification completion
+ *     can re-trigger naming.
  *   - Fully idempotent
  */
 
@@ -23,9 +26,23 @@ const THROTTLE_SECONDS = 30;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+/**
+ * Outcome codes for naming derivation:
+ *   - no_classified_docs: no docs with classification yet — NOT throttled, will retry
+ *   - derived: name was successfully derived and persisted
+ *   - locked: deal name is locked or manually set — throttled, no retry
+ *   - noop_with_docs: docs exist, already derived or idempotent — throttled
+ */
+export type NamingOutcome =
+  | "no_classified_docs"
+  | "derived"
+  | "locked"
+  | "noop_with_docs";
+
 export type RunNamingDerivationResult = {
   ok: boolean;
   throttled: boolean;
+  outcome?: NamingOutcome;
   dealNaming?: {
     changed: boolean;
     dealName: string | null;
@@ -78,13 +95,7 @@ export async function runNamingDerivation(opts: {
     }
   }
 
-  // ── 3. Stamp throttle BEFORE running (prevents stampede) ──────────────────
-  await sb
-    .from("deals")
-    .update({ last_naming_derivation_at: new Date().toISOString() } as any)
-    .eq("id", dealId);
-
-  // ── 4. Document naming ────────────────────────────────────────────────────
+  // ── 3. Document naming ────────────────────────────────────────────────────
   const docResults: RunNamingDerivationResult["documentNaming"] = [];
 
   if (documentId) {
@@ -118,12 +129,40 @@ export async function runNamingDerivation(opts: {
     }
   }
 
-  // ── 5. Deal naming ────────────────────────────────────────────────────────
+  // ── 4. Deal naming ────────────────────────────────────────────────────────
   const dealResult = await applyDealDerivedNaming({ dealId, bankId });
+
+  // ── 5. Derive outcome code + stamp throttle ─────────────────────────────
+  let outcome: NamingOutcome;
+  if (!dealResult.ok) {
+    outcome = "no_classified_docs";
+  } else if (dealResult.method === "manual") {
+    outcome = "locked";
+  } else if (dealResult.method === "derived" && dealResult.changed) {
+    outcome = "derived";
+  } else if (dealResult.method === "derived" && !dealResult.changed) {
+    outcome = "noop_with_docs";
+  } else {
+    // method === "provisional" — no docs / low confidence / not ready
+    outcome = "no_classified_docs";
+  }
+
+  // Only stamp throttle for terminal results (derived/locked/noop_with_docs).
+  // Do NOT stamp for "no_classified_docs" — a later classification
+  // completion must be able to re-trigger naming.
+  const isTerminal = outcome !== "no_classified_docs";
+
+  if (isTerminal) {
+    await sb
+      .from("deals")
+      .update({ last_naming_derivation_at: new Date().toISOString() } as any)
+      .eq("id", dealId);
+  }
 
   return {
     ok: true,
     throttled: false,
+    outcome,
     dealNaming: {
       changed: dealResult.changed,
       dealName: dealResult.dealName,

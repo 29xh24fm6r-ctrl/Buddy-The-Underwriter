@@ -166,6 +166,6 @@ export function useDealCommand() {
         }
       }
     },
-    [params, pathname, router]
+    [params, safePathname, router]
   );
 }
