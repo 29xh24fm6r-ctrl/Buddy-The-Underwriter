@@ -642,6 +642,16 @@ export async function processArtifact(
     );
     await reconcileChecklistForDeal({ sb, dealId });
 
+    // 6.6b. Ensure deal_status exists (self-heal before readiness/naming)
+    try {
+      const { bootstrapDealLifecycle } = await import(
+        "@/lib/lifecycle/bootstrapDealLifecycle"
+      );
+      await bootstrapDealLifecycle(dealId);
+    } catch {
+      // Non-fatal
+    }
+
     // 6.7. Recompute deal readiness (non-fatal: must not block naming derivation)
     try {
       const { recomputeDealReady } = await import("@/lib/deals/readiness");

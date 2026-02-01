@@ -16,6 +16,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
 export type BootstrapResult = {
   ok: boolean;
@@ -25,7 +26,7 @@ export type BootstrapResult = {
 
 export async function bootstrapDealLifecycle(
   dealId: string,
-  opts?: { stage?: string },
+  opts?: { stage?: string; bankId?: string },
 ): Promise<BootstrapResult> {
   try {
     const sb = supabaseAdmin();
@@ -58,6 +59,16 @@ export async function bootstrapDealLifecycle(
 
     if (created) {
       console.log("[bootstrapDealLifecycle] created deal_status row", { dealId, stage });
+
+      // Emit ledger event for traceability (fire-and-forget)
+      void logLedgerEvent({
+        dealId,
+        bankId: opts?.bankId ?? "unknown",
+        eventKey: "deal.lifecycle.bootstrapped",
+        uiState: "done",
+        uiMessage: "Lifecycle status row auto-created (self-heal)",
+        meta: { stage, source: "bootstrapDealLifecycle" },
+      }).catch(() => {});
     }
 
     return { ok: true, created };

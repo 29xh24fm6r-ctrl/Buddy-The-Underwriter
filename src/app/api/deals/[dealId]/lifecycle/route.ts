@@ -135,6 +135,32 @@ async function buildPayload(
       };
     }
 
+    // === Phase 2.5: Ensure deal_status row exists (self-heal) ===
+    // Belt-and-suspenders: DB trigger handles new deals, this catches legacy ones.
+    // Must run BEFORE derivation so deriveLifecycleState always finds deal_status.
+    try {
+      const { bootstrapDealLifecycle } = await import(
+        "@/lib/lifecycle/bootstrapDealLifecycle"
+      );
+      const bootstrap = await bootstrapDealLifecycle(dealId);
+      if (bootstrap.created) {
+        console.log(`[lifecycle] correlationId=${correlationId} dealId=${dealId} source=bootstrap created=true`);
+        // Fire-and-forget ledger event for traceability
+        import("@/lib/pipeline/logLedgerEvent").then(({ logLedgerEvent }) =>
+          logLedgerEvent({
+            dealId,
+            bankId: access.bankId ?? "unknown",
+            eventKey: "deal.lifecycle.ensure",
+            uiState: "done",
+            uiMessage: "Lifecycle status row auto-created",
+            meta: { correlationId, hadToCreateStatusRow: true },
+          }),
+        ).catch(() => {});
+      }
+    } catch {
+      // Non-fatal: derivation will still work without deal_status
+    }
+
     // === Phase 3: Derive lifecycle state ===
     let state: LifecycleState;
     try {
