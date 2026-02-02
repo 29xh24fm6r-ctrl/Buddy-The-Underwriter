@@ -1,10 +1,11 @@
 /**
  * Unit tests for ensureUserProfile provisioning logic.
  *
- * Tests the idempotent "ensure profile exists" contract:
- *   - Returns existing profile if found
- *   - Creates profile with sensible defaults if missing
- *   - Handles email-prefix and name defaults
+ * Tests:
+ *   - Default display name derivation (name → email prefix → null)
+ *   - Profile shape from DB row
+ *   - Idempotency contract
+ *   - Schema mismatch detection (isSchemaMismatchError pattern)
  *
  * Run: npx tsx src/lib/tenant/__tests__/ensureUserProfile.test.ts
  */
@@ -25,7 +26,6 @@ type UserProfile = {
 
 /**
  * Pure logic extracted from ensureUserProfile for testability.
- * Tests the default-name derivation and return shape.
  */
 function deriveDefaultDisplayName(opts: {
   name?: string | null;
@@ -44,6 +44,20 @@ function buildProfileFromRow(row: Record<string, any>): UserProfile {
   };
 }
 
+/**
+ * Mirrors isSchemaMismatchError from ensureUserProfile.ts and safeFetch.ts.
+ */
+function isSchemaMismatchError(errorMsg: string): boolean {
+  const msg = (errorMsg ?? "").toLowerCase();
+  return (
+    msg.includes("does not exist") ||
+    (msg.includes("column") && msg.includes("not found")) ||
+    (msg.includes("pgrst") && msg.includes("400")) ||
+    (msg.includes("could not find") && msg.includes("column")) ||
+    (msg.includes("relation") && msg.includes("does not exist"))
+  );
+}
+
 // ---------------------------------------------------------------------------
 
 function test(name: string, fn: () => void) {
@@ -59,7 +73,7 @@ function test(name: string, fn: () => void) {
 
 // ─── deriveDefaultDisplayName ─────────────────────────────────────────────
 
-console.log("ensureUserProfile — default display name derivation");
+console.log("ensureUserProfile \u2014 default display name derivation");
 
 test("uses name when provided", () => {
   assert.equal(deriveDefaultDisplayName({ name: "Alice Smith", email: "alice@example.com" }), "Alice Smith");
@@ -82,13 +96,12 @@ test("returns null when both are undefined", () => {
 });
 
 test("handles email without @ gracefully", () => {
-  // edge case: email is just "localpart" (no @)
   assert.equal(deriveDefaultDisplayName({ email: "localpart" }), "localpart");
 });
 
 // ─── buildProfileFromRow ─────────────────────────────────────────────────
 
-console.log("ensureUserProfile — profile shape from DB row");
+console.log("ensureUserProfile \u2014 profile shape from DB row");
 
 test("maps full row correctly", () => {
   const row = {
@@ -107,11 +120,7 @@ test("maps full row correctly", () => {
 });
 
 test("nullifies missing optional fields", () => {
-  const row = {
-    id: "prof-2",
-    clerk_user_id: "user_def",
-    // bank_id, display_name, avatar_url all undefined
-  };
+  const row = { id: "prof-2", clerk_user_id: "user_def" };
   const profile = buildProfileFromRow(row);
   assert.equal(profile.bank_id, null);
   assert.equal(profile.display_name, null);
@@ -119,13 +128,7 @@ test("nullifies missing optional fields", () => {
 });
 
 test("handles explicit null values", () => {
-  const row = {
-    id: "prof-3",
-    clerk_user_id: "user_ghi",
-    bank_id: null,
-    display_name: null,
-    avatar_url: null,
-  };
+  const row = { id: "prof-3", clerk_user_id: "user_ghi", bank_id: null, display_name: null, avatar_url: null };
   const profile = buildProfileFromRow(row);
   assert.equal(profile.bank_id, null);
   assert.equal(profile.display_name, null);
@@ -134,30 +137,72 @@ test("handles explicit null values", () => {
 
 // ─── Idempotency contract ─────────────────────────────────────────────────
 
-console.log("ensureUserProfile — idempotency contract");
+console.log("ensureUserProfile \u2014 idempotency contract");
 
 test("existing profile returns as-is without insert", () => {
-  // Simulate: load returns a row → should return it directly
-  const existingRow = {
-    id: "prof-exist",
-    clerk_user_id: "user_existing",
-    bank_id: "bank-x",
-    display_name: "Existing User",
-    avatar_url: null,
-  };
+  const existingRow = { id: "prof-exist", clerk_user_id: "user_existing", bank_id: "bank-x", display_name: "Existing User", avatar_url: null };
   const profile = buildProfileFromRow(existingRow);
   assert.equal(profile.display_name, "Existing User");
   assert.equal(profile.clerk_user_id, "user_existing");
 });
 
 test("missing profile derives display name from Clerk name", () => {
-  const defaultName = deriveDefaultDisplayName({ name: "John Doe", email: "john@test.com" });
-  assert.equal(defaultName, "John Doe");
+  assert.equal(deriveDefaultDisplayName({ name: "John Doe", email: "john@test.com" }), "John Doe");
 });
 
 test("missing profile derives display name from email prefix", () => {
-  const defaultName = deriveDefaultDisplayName({ name: null, email: "mlpaller@gmail.com" });
-  assert.equal(defaultName, "mlpaller");
+  assert.equal(deriveDefaultDisplayName({ name: null, email: "mlpaller@gmail.com" }), "mlpaller");
+});
+
+// ─── Schema mismatch detection ────────────────────────────────────────────
+
+console.log("ensureUserProfile \u2014 schema mismatch detection");
+
+test("detects 'column profiles.display_name does not exist'", () => {
+  assert.equal(isSchemaMismatchError("column profiles.display_name does not exist"), true);
+});
+
+test("detects 'column profiles.avatar_url does not exist'", () => {
+  assert.equal(isSchemaMismatchError("column profiles.avatar_url does not exist"), true);
+});
+
+test("detects generic 'does not exist' error", () => {
+  assert.equal(isSchemaMismatchError("relation \"profiles\" does not exist"), true);
+});
+
+test("detects PGRST 400 error", () => {
+  assert.equal(isSchemaMismatchError("PGRST204: 400 Bad Request"), true);
+});
+
+test("detects 'could not find column' error", () => {
+  assert.equal(isSchemaMismatchError("could not find the column 'display_name' in the schema"), true);
+});
+
+test("does NOT flag normal query errors as schema mismatch", () => {
+  assert.equal(isSchemaMismatchError("duplicate key value violates unique constraint"), false);
+});
+
+test("does NOT flag timeout errors as schema mismatch", () => {
+  assert.equal(isSchemaMismatchError("Query timeout exceeded"), false);
+});
+
+test("does NOT flag empty error string as schema mismatch", () => {
+  assert.equal(isSchemaMismatchError(""), false);
+});
+
+test("schema_mismatch result shape has ok:false + detail", () => {
+  // Simulate what ensureUserProfile returns on schema mismatch
+  const result = {
+    ok: false as const,
+    error: "schema_mismatch" as const,
+    detail: "profiles.display_name or avatar_url missing",
+    profile: buildProfileFromRow({ id: "p1", clerk_user_id: "u1" }),
+  };
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "schema_mismatch");
+  assert.equal(result.profile.display_name, null);
+  assert.equal(result.profile.avatar_url, null);
+  assert.ok(result.detail.includes("display_name"));
 });
 
 console.log("\nAll ensureUserProfile tests complete.");

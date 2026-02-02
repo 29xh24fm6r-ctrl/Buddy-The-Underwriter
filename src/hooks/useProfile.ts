@@ -10,25 +10,41 @@ export type ProfileData = {
   avatar_url: string | null;
 };
 
+export type ProfileState = {
+  profile: ProfileData | null;
+  schemaMismatch: boolean;
+};
+
 /**
  * Client-side hook to fetch the current user's profile for avatar/display in nav.
- * Fails silently — returns null if profile unavailable.
+ * Fails silently — returns null profile if unavailable.
+ * Surfaces schema_mismatch flag so UI can show a degraded hint.
  */
-export function useProfile() {
-  const [profile, setProfile] = useState<ProfileData | null>(null);
+export function useProfile(): ProfileState {
+  const [state, setState] = useState<ProfileState>({
+    profile: null,
+    schemaMismatch: false,
+  });
 
   useEffect(() => {
     fetch("/api/profile")
       .then((r) => r.json())
       .then((json) => {
         if (json.ok && json.profile) {
-          setProfile(json.profile);
+          setState({ profile: json.profile, schemaMismatch: false });
+        } else if (json.error === "schema_mismatch") {
+          // Schema not migrated yet — show degraded profile (no avatar/display_name)
+          setState({
+            profile: json.profile ?? null,
+            schemaMismatch: true,
+          });
         }
+        // Other errors: silently degrade — avatar just won't show
       })
       .catch(() => {
-        // Silently degrade — avatar just won't show
+        // Network error — silently degrade
       });
   }, []);
 
-  return profile;
+  return state;
 }

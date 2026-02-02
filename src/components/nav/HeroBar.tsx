@@ -25,7 +25,7 @@ function cls(active: boolean) {
 export function HeroBar() {
   const pathname = usePathname();
   const safePathname = pathname ?? "";
-  const profile = useProfile();
+  const { profile, schemaMismatch } = useProfile();
 
   const initials = profile?.display_name
     ? profile.display_name
@@ -66,7 +66,7 @@ export function HeroBar() {
           >
             Settings
           </Link>
-          <Link href="/profile" className="shrink-0" aria-label="Profile">
+          <Link href="/profile" className="relative shrink-0 group" aria-label="Profile">
             {profile?.avatar_url ? (
               <img
                 src={profile.avatar_url}
@@ -77,6 +77,12 @@ export function HeroBar() {
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 border border-white/20 text-xs font-bold text-white/80">
                 {initials ?? "?"}
               </div>
+            )}
+            {schemaMismatch && (
+              <span
+                className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-amber-400 border border-black"
+                title="Profile schema pending migration"
+              />
             )}
           </Link>
         </div>

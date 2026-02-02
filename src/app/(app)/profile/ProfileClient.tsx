@@ -14,6 +14,7 @@ export default function ProfileClient() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [schemaMismatch, setSchemaMismatch] = useState(false);
 
   // Form state
   const [displayName, setDisplayName] = useState("");
@@ -30,6 +31,11 @@ export default function ProfileClient() {
           setProfile(json.profile);
           setDisplayName(json.profile.display_name ?? "");
           setAvatarUrl(json.profile.avatar_url ?? "");
+        } else if (json.error === "schema_mismatch") {
+          setSchemaMismatch(true);
+          if (json.profile) {
+            setProfile(json.profile);
+          }
         } else {
           setError(json.error ?? "Failed to load profile");
         }
@@ -94,6 +100,14 @@ export default function ProfileClient() {
 
   return (
     <div className="space-y-6">
+      {schemaMismatch && (
+        <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+          <strong>Profile schema pending migration.</strong>{" "}
+          Display name and avatar fields are not yet available in production.
+          Run migration <code className="text-amber-300">20260202_profiles_avatar.sql</code> in Supabase.
+        </div>
+      )}
+
       {/* Avatar preview */}
       <div className="flex items-center gap-4">
         {avatarUrl ? (

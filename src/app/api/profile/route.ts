@@ -9,9 +9,26 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
+ * Detect PostgREST schema mismatch errors.
+ * Same pattern as buddy/lifecycle/safeFetch.ts.
+ */
+function isSchemaMismatchError(errorMsg: string): boolean {
+  const msg = (errorMsg ?? "").toLowerCase();
+  return (
+    msg.includes("does not exist") ||
+    (msg.includes("column") && msg.includes("not found")) ||
+    (msg.includes("pgrst") && msg.includes("400")) ||
+    (msg.includes("could not find") && msg.includes("column")) ||
+    (msg.includes("relation") && msg.includes("does not exist"))
+  );
+}
+
+/**
  * GET /api/profile
  *
  * Returns the current user's profile (auto-created if missing).
+ * Schema-safe: returns { ok:false, error:"schema_mismatch" } (200) if
+ * avatar columns don't exist yet, instead of a 500.
  */
 export async function GET() {
   const { userId } = await clerkAuth();
@@ -20,10 +37,33 @@ export async function GET() {
   }
 
   try {
-    const profile = await ensureUserProfile({ userId });
-    return NextResponse.json({ ok: true, profile });
+    const result = await ensureUserProfile({ userId });
+
+    if (!result.ok) {
+      // Schema mismatch — return 200 with degraded profile + error flag
+      console.warn(`[GET /api/profile] schema_mismatch: ${result.detail}`);
+      return NextResponse.json({
+        ok: false,
+        error: "schema_mismatch",
+        detail: result.detail,
+        profile: result.profile,
+      });
+    }
+
+    return NextResponse.json({ ok: true, profile: result.profile });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "profile_load_failed";
+
+    // Final safety net: catch any schema errors that slipped through
+    if (isSchemaMismatchError(msg)) {
+      console.warn(`[GET /api/profile] schema_mismatch (catch): ${msg}`);
+      return NextResponse.json({
+        ok: false,
+        error: "schema_mismatch",
+        detail: msg,
+      });
+    }
+
     console.error("[GET /api/profile]", msg);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
@@ -33,6 +73,7 @@ export async function GET() {
  * PATCH /api/profile
  *
  * Update display_name and/or avatar_url for the current user.
+ * Schema-safe: returns { ok:false, error:"schema_mismatch" } if columns missing.
  */
 export async function PATCH(req: NextRequest) {
   const { userId } = await clerkAuth();
@@ -69,10 +110,24 @@ export async function PATCH(req: NextRequest) {
     .select("id, clerk_user_id, bank_id, display_name, avatar_url")
     .single();
 
-  if (error || !data) {
-    const msg = error?.message ?? "update_failed";
+  if (error) {
+    const msg = error.message ?? "update_failed";
+
+    if (isSchemaMismatchError(msg)) {
+      console.warn(`[PATCH /api/profile] schema_mismatch: ${msg}`);
+      return NextResponse.json({
+        ok: false,
+        error: "schema_mismatch",
+        detail: `Cannot update profile: ${msg}. Run migration 20260202_profiles_avatar.sql in prod.`,
+      });
+    }
+
     console.error("[PATCH /api/profile]", msg);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
+
+  if (!data) {
+    return NextResponse.json({ ok: false, error: "profile_not_found" }, { status: 404 });
   }
 
   return NextResponse.json({
