@@ -1,9 +1,10 @@
 // src/lib/tenant/getCurrentBankId.ts
 import "server-only";
 
-import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
+import { clerkAuth, isClerkConfigured, clerkCurrentUser } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureSandboxGate, ensureSandboxMembership } from "@/lib/tenant/sandbox";
+import { ensureUserProfile } from "@/lib/tenant/ensureUserProfile";
 
 type BankPick =
   | { ok: true; bankId: string }
@@ -20,9 +21,26 @@ export async function getCurrentBankId(): Promise<string> {
     throw new Error("Auth not configured (Clerk keys missing/placeholder).");
   }
   const { userId } = await clerkAuth();
-  
+
   if (!userId) {
     throw new Error("not_authenticated");
+  }
+
+  // Ensure profile row exists before any bank resolution.
+  // Fire-and-forget style: we don't block on the result since bank resolution
+  // will query profiles anyway, but this guarantees the row exists.
+  try {
+    const user = await clerkCurrentUser();
+    const email = user?.emailAddresses?.find(
+      (e: any) => e.id === user.primaryEmailAddressId,
+    )?.emailAddress ?? null;
+    const name = user?.firstName
+      ? `${user.firstName}${user.lastName ? ` ${user.lastName}` : ""}`
+      : null;
+    await ensureUserProfile({ userId, email, name });
+  } catch (e) {
+    // Log but don't block bank resolution — degraded is better than broken
+    console.warn("[getCurrentBankId] ensureUserProfile failed:", e);
   }
 
   const sb = supabaseAdmin();

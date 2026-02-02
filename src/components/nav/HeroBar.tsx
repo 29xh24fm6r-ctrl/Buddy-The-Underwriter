@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useProfile } from "@/hooks/useProfile";
 
 const NAV = [
   { href: "/deals", label: "Deals" },
@@ -24,6 +25,16 @@ function cls(active: boolean) {
 export function HeroBar() {
   const pathname = usePathname();
   const safePathname = pathname ?? "";
+  const profile = useProfile();
+
+  const initials = profile?.display_name
+    ? profile.display_name
+        .split(/\s+/)
+        .map((w) => w[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase()
+    : null;
 
   return (
     <div className="sticky top-0 z-50 w-full border-b border-white/10 bg-black/70 backdrop-blur">
@@ -54,6 +65,19 @@ export function HeroBar() {
             className="rounded-full border border-white/15 px-3 py-1.5 text-sm text-white/80 hover:text-white hover:border-white/30"
           >
             Settings
+          </Link>
+          <Link href="/profile" className="shrink-0" aria-label="Profile">
+            {profile?.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt=""
+                className="h-8 w-8 rounded-full object-cover border border-white/20"
+              />
+            ) : (
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 border border-white/20 text-xs font-bold text-white/80">
+                {initials ?? "?"}
+              </div>
+            )}
           </Link>
         </div>
       </div>
