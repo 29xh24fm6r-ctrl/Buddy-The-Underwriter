@@ -33,7 +33,8 @@
     "e2e:ui": "playwright test --ui --config=playwright.config.ts",
     "e2e:smoke:public": "playwright test --project=smoke-public",
     "e2e:smoke:authed": "playwright test --project=smoke-authed",
-    "omega:validate": "node scripts/omega/validate-mapping.mjs"
+    "omega:validate": "node scripts/omega/validate-mapping.mjs",
+    "gate:schema-select": "node scripts/schema/gate-select-columns.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

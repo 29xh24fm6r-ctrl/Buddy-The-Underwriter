@@ -30,6 +30,8 @@ jobs:
         run: bash scripts/check-cockpit-polling.sh
       - name: Check Never-500 API invariant
         run: bash scripts/check-never-500.sh
+      - name: Schema select gate
+        run: pnpm -s gate:schema-select
       - name: Build
         run: pnpm -s build:ci
         env:

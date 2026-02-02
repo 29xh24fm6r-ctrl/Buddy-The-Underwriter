@@ -1,0 +1,111 @@
+{
+  "_comment": "Base columns for tables created outside tracked migrations. The schema gate merges this with ALTER TABLE ADD COLUMN columns parsed from supabase/migrations/. Update this file when adding columns directly to the DB.",
+  "deals": [
+    "id", "bank_id", "name", "display_name", "nickname", "borrower_name",
+    "borrower_email", "borrower_id", "borrower_phone",
+    "entity_type", "legal_name", "ein", "naics_code", "naics_description",
+    "state", "state_of_formation",
+    "deal_type", "loan_type", "geography", "sba_program",
+    "amount", "requested_loan_amount", "project_cost", "property_value",
+    "noi", "dscr", "ltv", "risk_score",
+    "stage", "status", "is_demo", "archived_at",
+    "lender_package_id", "lender_package_generated_at",
+    "submission_block_reason",
+    "loan_amount", "loan_purpose", "deal_name", "company_name",
+    "business_name", "business_ein", "pack_template_id",
+    "next_action_json", "ready_reason",
+    "anticipated_close_date", "closed_at",
+    "assigned_to_user_id", "last_activity_at",
+    "missing_docs_count", "underwriter_assigned",
+    "loan_program", "purpose", "meta",
+    "created_at", "updated_at"
+  ],
+  "deal_documents": [
+    "id", "deal_id", "bank_id",
+    "storage_bucket", "storage_path", "original_filename",
+    "mime_type", "size_bytes", "sha256",
+    "uploader_user_id", "uploaded_via_link_id",
+    "source", "checklist_key", "document_key", "metadata",
+    "match_source", "match_reason", "document_type",
+    "doc_years", "status",
+    "classification", "extracted_fields",
+    "virus_scanned_at", "virus_engine", "virus_signature",
+    "uploaded_at", "created_at", "updated_at"
+  ],
+  "deal_checklist_items": [
+    "id", "deal_id", "checklist_key", "title", "label", "description",
+    "category", "document_category", "document_label",
+    "required", "status",
+    "requested_at", "received_at", "waived_at",
+    "received_file_id", "received_document_id", "notes",
+    "required_years", "satisfied_years",
+    "created_at", "updated_at"
+  ],
+  "deal_status": [
+    "deal_id", "stage", "eta_date", "eta_note",
+    "updated_by", "updated_at", "created_at"
+  ],
+  "deal_intake": [
+    "id", "deal_id", "loan_type", "sba_program",
+    "borrower_name", "borrower_email", "borrower_phone",
+    "created_at", "updated_at"
+  ],
+  "deal_pipeline_ledger": [
+    "id", "deal_id", "bank_id", "stage", "status",
+    "payload", "error", "created_at",
+    "event_key", "event_type", "ui_state", "ui_message", "message", "meta",
+    "pulse_forward_attempts"
+  ],
+  "deal_events": [
+    "id", "deal_id", "bank_id", "kind", "scope", "action",
+    "title", "detail", "input", "output",
+    "confidence", "meta",
+    "actor_user_id", "actor_type",
+    "visible_to_borrower", "created_by", "created_at"
+  ],
+  "deal_timeline_events": [
+    "id", "deal_id", "kind", "title", "detail",
+    "visible_to_borrower", "created_by", "created_at",
+    "status", "level", "event_type", "meta"
+  ],
+  "document_artifacts": [
+    "id", "deal_id", "bank_id", "source_table", "source_id",
+    "status", "doc_type", "doc_type_confidence", "doc_type_reason",
+    "tax_year", "entity_name", "entity_type",
+    "extraction_json", "proposed_deal_name", "proposed_deal_name_source",
+    "matched_checklist_key", "match_confidence", "match_reason",
+    "retry_count", "classified_at", "matched_at",
+    "created_at", "updated_at"
+  ],
+  "document_ocr_results": [
+    "id", "deal_id", "attachment_id", "provider", "status",
+    "raw", "raw_json", "extracted_text", "tables_json", "error",
+    "ocr_metadata",
+    "created_at", "updated_at"
+  ],
+  "borrower_uploads": [
+    "id", "deal_id", "bank_id",
+    "original_filename", "mime_type", "storage_path", "storage_bucket",
+    "size_bytes", "uploaded_by", "checklist_key", "request_id",
+    "file_key", "classified_doc_type", "extracted_year", "ocr_text",
+    "created", "created_at", "updated_at"
+  ],
+  "decision_snapshots": [
+    "id", "deal_id", "bank_id", "status", "version",
+    "payload", "committee_required",
+    "decision_json", "inputs_json", "confidence",
+    "policy_eval_json", "exceptions_json",
+    "created_at", "created_by"
+  ],
+  "conditions_to_close": [
+    "id", "deal_id", "bank_id", "application_id",
+    "condition_type", "title", "description",
+    "status", "severity", "satisfied", "satisfied_at", "satisfied_by",
+    "evidence", "priority", "ai_explanation", "last_evaluated_at",
+    "created_at", "updated_at"
+  ],
+  "banks": [
+    "id", "name", "slug", "domain", "logo_url",
+    "settings", "created_at", "updated_at"
+  ]
+}
