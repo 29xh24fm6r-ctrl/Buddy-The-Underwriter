@@ -15,9 +15,16 @@ type BankDocument = {
   created_at: string;
 };
 
-const CATEGORIES = ["general", "policy", "guideline", "template", "compliance"];
+const CATEGORIES = [
+  { value: "credit_policy", label: "Credit Policy" },
+  { value: "required_forms", label: "Required Forms" },
+  { value: "templates", label: "Templates" },
+  { value: "sba", label: "SBA" },
+  { value: "compliance", label: "Compliance" },
+  { value: "other", label: "Other" },
+];
 
-export default function BankDocumentsClient({ bankId }: { bankId: string }) {
+export default function BankDocumentsClient({ bankId, bankName }: { bankId: string; bankName: string }) {
   const [documents, setDocuments] = useState<BankDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +33,7 @@ export default function BankDocumentsClient({ bankId }: { bankId: string }) {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("general");
+  const [category, setCategory] = useState("credit_policy");
   const [filename, setFilename] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
@@ -72,7 +79,7 @@ export default function BankDocumentsClient({ bankId }: { bankId: string }) {
         setDocuments((prev) => [json.document, ...prev]);
         setTitle("");
         setDescription("");
-        setCategory("general");
+        setCategory("credit_policy");
         setFilename("");
         setShowForm(false);
         setUploadMsg("Document added");
@@ -96,8 +103,15 @@ export default function BankDocumentsClient({ bankId }: { bankId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-white/50">{documents.length} document(s)</div>
+      <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 flex items-center justify-between">
+        <div>
+          <div className="text-sm font-medium text-white">{bankName}</div>
+          <div className="text-xs text-white/40 font-mono select-all">{bankId}</div>
+        </div>
+        <div className="text-xs text-white/50">{documents.length} document(s)</div>
+      </div>
+
+      <div className="flex items-center justify-end">
         <button
           type="button"
           onClick={() => setShowForm(!showForm)}
@@ -143,8 +157,8 @@ export default function BankDocumentsClient({ bankId }: { bankId: string }) {
               className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
             >
               {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
+                <option key={c.value} value={c.value}>
+                  {c.label}
                 </option>
               ))}
             </select>

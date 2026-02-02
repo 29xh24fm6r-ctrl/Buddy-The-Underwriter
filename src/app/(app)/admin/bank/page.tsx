@@ -1,4 +1,5 @@
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   GlassShell,
   GlassPageHeader,
@@ -12,6 +13,17 @@ export default async function BankAdminPage() {
   const bankPick = await tryGetCurrentBankId();
   const bankId = bankPick.ok ? bankPick.bankId : null;
 
+  let bankName: string | null = null;
+  if (bankId) {
+    const sb = supabaseAdmin();
+    const { data } = await sb
+      .from("banks")
+      .select("name")
+      .eq("id", bankId)
+      .maybeSingle();
+    bankName = data?.name ?? null;
+  }
+
   return (
     <GlassShell>
       <GlassPageHeader
@@ -19,17 +31,18 @@ export default async function BankAdminPage() {
         subtitle="Upload and manage bank-level policies, guidelines, and templates"
         badge={
           <span className="text-xs font-mono text-white/50">
-            Bank: {bankId ?? "(none)"}
+            {bankName ?? "No bank"}{bankId ? ` (${bankId.slice(0, 8)})` : ""}
           </span>
         }
       />
 
       {!bankId ? (
         <GlassInfoBox variant="warning">
-          No bank context available. Select a bank from your profile to use this page.
+          No bank context available. Select a bank on{" "}
+          <a href="/profile" className="underline">your profile</a> first.
         </GlassInfoBox>
       ) : (
-        <BankDocumentsClient bankId={bankId} />
+        <BankDocumentsClient bankId={bankId} bankName={bankName ?? bankId} />
       )}
     </GlassShell>
   );

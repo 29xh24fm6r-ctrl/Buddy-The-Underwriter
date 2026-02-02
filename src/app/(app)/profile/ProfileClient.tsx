@@ -39,6 +39,12 @@ export default function ProfileClient() {
   const [switchingBank, setSwitchingBank] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Create bank form
+  const [showCreateBank, setShowCreateBank] = useState(false);
+  const [newBankName, setNewBankName] = useState("");
+  const [newBankDomain, setNewBankDomain] = useState("");
+  const [creatingBank, setCreatingBank] = useState(false);
+
   // Dirty tracking: last-saved values
   const [savedDisplayName, setSavedDisplayName] = useState("");
   const [savedAvatarUrl, setSavedAvatarUrl] = useState("");
@@ -140,6 +146,33 @@ export default function ProfileClient() {
     } catch {
       setSaveMsg("Network error");
       setSwitchingBank(false);
+    }
+  }
+
+  async function handleCreateBank() {
+    if (!newBankName.trim()) return;
+    setCreatingBank(true);
+    setSaveMsg(null);
+    try {
+      const res = await fetch("/api/banks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newBankName.trim(),
+          domain: newBankDomain.trim() || null,
+        }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        // Bank created + set as current — reload to propagate
+        window.location.reload();
+      } else {
+        setSaveMsg(json.error ?? "Bank creation failed");
+      }
+    } catch {
+      setSaveMsg("Network error");
+    } finally {
+      setCreatingBank(false);
     }
   }
 
@@ -258,39 +291,102 @@ export default function ProfileClient() {
       </div>
 
       {/* Bank context */}
-      {(currentBank || memberships.length > 0) && (
-        <div className="border-t border-white/10 pt-4 space-y-3">
-          {currentBank && memberships.length <= 1 && (
-            <div className="text-sm text-white/80">
-              <span className="text-white/50">Current Bank:</span>{" "}
-              <span className="font-medium">{currentBank.name}</span>
-            </div>
-          )}
-          {memberships.length > 1 && (
+      <div className="border-t border-white/10 pt-4 space-y-3">
+        <div className="text-xs text-white/40">
+          Bank-scoped docs and deal tenancy use your Current Bank.
+        </div>
+
+        {currentBank && memberships.length <= 1 && (
+          <div className="text-sm text-white/80">
+            <span className="text-white/50">Current Bank:</span>{" "}
+            <span className="font-medium">{currentBank.name}</span>
+          </div>
+        )}
+
+        {memberships.length > 1 && (
+          <div>
+            <label className="block text-sm font-medium text-white/70 mb-1">
+              Active Bank
+            </label>
+            <select
+              value={currentBank?.id ?? ""}
+              onChange={(e) => handleBankSwitch(e.target.value)}
+              disabled={switchingBank}
+              className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white disabled:opacity-50"
+            >
+              {!currentBank && <option value="">Select a bank...</option>}
+              {memberships.map((m) => (
+                <option key={m.bank_id} value={m.bank_id}>
+                  {m.bank_name} ({m.role})
+                </option>
+              ))}
+            </select>
+            {switchingBank && (
+              <div className="mt-1 text-xs text-white/50">Switching bank...</div>
+            )}
+          </div>
+        )}
+
+        {!currentBank && memberships.length === 0 && !showCreateBank && (
+          <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+            No bank configured. Create one to start working with deals and documents.
+          </div>
+        )}
+
+        {/* Create Bank */}
+        {showCreateBank ? (
+          <div className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-3">
+            <div className="text-sm font-medium text-white/80">Create a New Bank</div>
             <div>
               <label className="block text-sm font-medium text-white/70 mb-1">
-                Active Bank
+                Bank Name
               </label>
-              <select
-                value={currentBank?.id ?? ""}
-                onChange={(e) => handleBankSwitch(e.target.value)}
-                disabled={switchingBank}
-                className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white disabled:opacity-50"
-              >
-                {!currentBank && <option value="">Select a bank...</option>}
-                {memberships.map((m) => (
-                  <option key={m.bank_id} value={m.bank_id}>
-                    {m.bank_name} ({m.role})
-                  </option>
-                ))}
-              </select>
-              {switchingBank && (
-                <div className="mt-1 text-xs text-white/50">Switching bank...</div>
-              )}
+              <input
+                value={newBankName}
+                onChange={(e) => setNewBankName(e.target.value)}
+                placeholder="e.g. Paller Bank"
+                className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-white/30"
+              />
             </div>
-          )}
-        </div>
-      )}
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-1">
+                Domain (optional)
+              </label>
+              <input
+                value={newBankDomain}
+                onChange={(e) => setNewBankDomain(e.target.value)}
+                placeholder="pallerbank.com"
+                className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-white/30"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCreateBank}
+                disabled={creatingBank || !newBankName.trim()}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
+              >
+                {creatingBank ? "Creating..." : "Create & Switch"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreateBank(false)}
+                className="text-sm text-white/50 hover:text-white/80"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowCreateBank(true)}
+            className="text-sm text-primary hover:text-primary/80"
+          >
+            + Create new bank
+          </button>
+        )}
+      </div>
 
       {/* Meta info */}
       <div className="border-t border-white/10 pt-4 text-xs text-white/40 space-y-1">
