@@ -24,6 +24,7 @@ export default async function AdminHome() {
           <span className="text-xs font-mono text-white/50">
             Bank: {bankId ?? "(none)"}
             {!bankPick.ok ? ` (${bankPick.reason})` : ""}
+            {process.env.NEXT_PUBLIC_GIT_SHA ? ` · Build: ${process.env.NEXT_PUBLIC_GIT_SHA.slice(0, 7)}` : ""}
           </span>
         }
       />

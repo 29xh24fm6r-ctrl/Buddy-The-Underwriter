@@ -1,7 +1,21 @@
+import { execSync } from "node:child_process";
 import { withSentryConfig } from "@sentry/nextjs";
+
+function getGitSha() {
+  // Vercel sets this automatically; fall back to git for local/CI builds
+  if (process.env.VERCEL_GIT_COMMIT_SHA) return process.env.VERCEL_GIT_COMMIT_SHA;
+  try {
+    return execSync("git rev-parse HEAD", { encoding: "utf-8" }).trim();
+  } catch {
+    return "unknown";
+  }
+}
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  env: {
+    NEXT_PUBLIC_GIT_SHA: getGitSha(),
+  },
   // Force dynamic rendering to skip static page generation during build
   // NOTE: `output: 'standalone'` is for self-hosting. On Vercel it can break
   // serverless function bundling/behavior, so we disable it there.

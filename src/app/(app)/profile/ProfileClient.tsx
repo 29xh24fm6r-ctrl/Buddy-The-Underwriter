@@ -191,110 +191,140 @@ export default function ProfileClient() {
     .slice(0, 2)
     .toUpperCase();
 
+  // Shared input classes — visible borders, clear focus ring, readable placeholders
+  const inputCls =
+    "w-full rounded-lg border border-white/20 bg-white/[0.04] px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary/60 focus:border-primary/50 transition-colors";
+  const disabledInputCls = `${inputCls} disabled:opacity-50 disabled:cursor-not-allowed`;
+
   return (
     <div className="space-y-6">
       {schemaMismatch && (
-        <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+        <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
           <strong>Profile schema pending migration.</strong>{" "}
           Display name and avatar fields are not yet available in production.
           Run migration <code className="text-amber-300">20260202_profiles_avatar.sql</code> in Supabase.
         </div>
       )}
 
-      {/* Avatar preview */}
-      <div className="flex items-center gap-4">
-        {avatarUrl ? (
-          <img
-            src={avatarUrl}
-            alt="Avatar"
-            className="h-16 w-16 rounded-full object-cover border-2 border-white/10"
-          />
-        ) : (
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/20 border-2 border-white/10 text-lg font-bold text-white">
-            {initials}
-          </div>
-        )}
-        <div>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/10"
-          >
-            Upload avatar
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFileUpload(file);
-            }}
-          />
-          {avatarUrl && (
+      {/* Section: Avatar & Identity */}
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-5">
+        <h2 className="text-xs font-bold uppercase tracking-widest text-white/50">
+          Avatar &amp; Identity
+        </h2>
+
+        {/* Avatar preview */}
+        <div className="flex items-center gap-4">
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt="Avatar"
+              className="h-16 w-16 rounded-full object-cover border-2 border-white/20 shadow-lg"
+            />
+          ) : (
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/20 border-2 border-white/20 text-lg font-bold text-white shadow-lg">
+              {initials}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setAvatarUrl("")}
-              className="ml-2 text-xs text-white/50 hover:text-white/80"
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-lg border border-white/20 bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white hover:bg-white/10 transition-colors"
             >
-              Remove
+              Upload avatar
             </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleFileUpload(file);
+              }}
+            />
+            {avatarUrl && (
+              <button
+                type="button"
+                onClick={() => setAvatarUrl("")}
+                className="text-xs text-white/50 hover:text-white/80 transition-colors"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Display name */}
+        <div>
+          <label className="block text-sm font-medium text-white/80 mb-1.5">
+            Display name
+          </label>
+          <input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Your name"
+            className={inputCls}
+          />
+        </div>
+
+        {/* Avatar URL (manual) */}
+        <div>
+          <label className="block text-sm font-medium text-white/80 mb-1.5">
+            Avatar URL
+          </label>
+          <input
+            value={avatarUrl.startsWith("data:") ? "(uploaded file)" : avatarUrl}
+            onChange={(e) => setAvatarUrl(e.target.value)}
+            placeholder="https://..."
+            disabled={avatarUrl.startsWith("data:")}
+            className={disabledInputCls}
+          />
+        </div>
+
+        {/* Save */}
+        <div className="flex items-center gap-3 pt-1">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !isDirty}
+            className={`rounded-lg px-5 py-2 text-sm font-semibold transition-all ${
+              saving
+                ? "bg-primary/60 text-white/70 cursor-wait"
+                : isDirty
+                  ? "bg-primary text-white hover:bg-primary/90 active:scale-[0.97] shadow-md shadow-primary/20"
+                  : "bg-white/[0.06] text-white/30 border border-white/10 cursor-not-allowed"
+            }`}
+          >
+            {saving ? "Saving..." : "Save changes"}
+          </button>
+          {saveMsg && (
+            <span
+              className={`inline-flex items-center gap-1.5 text-sm font-semibold ${
+                saveMsg === "Saved"
+                  ? "text-emerald-400"
+                  : "text-rose-400"
+              }`}
+            >
+              {saveMsg === "Saved" && (
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+              {saveMsg}
+            </span>
           )}
         </div>
       </div>
 
-      {/* Display name */}
-      <div>
-        <label className="block text-sm font-medium text-white/70 mb-1">
-          Display name
-        </label>
-        <input
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          placeholder="Your name"
-          className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-white/30"
-        />
-      </div>
-
-      {/* Avatar URL (manual) */}
-      <div>
-        <label className="block text-sm font-medium text-white/70 mb-1">
-          Avatar URL
-        </label>
-        <input
-          value={avatarUrl.startsWith("data:") ? "(uploaded file)" : avatarUrl}
-          onChange={(e) => setAvatarUrl(e.target.value)}
-          placeholder="https://..."
-          disabled={avatarUrl.startsWith("data:")}
-          className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-white/30 disabled:opacity-50"
-        />
-      </div>
-
-      {/* Save */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving || !isDirty}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
-        >
-          {saving ? "Saving..." : "Save changes"}
-        </button>
-        {saveMsg && (
-          <span
-            className={`text-sm ${saveMsg === "Saved" ? "text-emerald-400" : "text-rose-400"}`}
-          >
-            {saveMsg}
-          </span>
-        )}
-      </div>
-
-      {/* Bank context */}
-      <div className="border-t border-white/10 pt-4 space-y-3">
-        <div className="text-xs text-white/40">
+      {/* Section: Bank Context */}
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-4">
+        <h2 className="text-xs font-bold uppercase tracking-widest text-white/50">
+          Bank Context
+        </h2>
+        <p className="text-xs text-white/40">
           Bank-scoped docs and deal tenancy use your Current Bank.
-        </div>
+        </p>
 
         {currentBank && memberships.length <= 1 && (
           <div className="text-sm text-white/80">
@@ -305,14 +335,14 @@ export default function ProfileClient() {
 
         {memberships.length > 1 && (
           <div>
-            <label className="block text-sm font-medium text-white/70 mb-1">
+            <label className="block text-sm font-medium text-white/80 mb-1.5">
               Active Bank
             </label>
             <select
               value={currentBank?.id ?? ""}
               onChange={(e) => handleBankSwitch(e.target.value)}
               disabled={switchingBank}
-              className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white disabled:opacity-50"
+              className={disabledInputCls}
             >
               {!currentBank && <option value="">Select a bank...</option>}
               {memberships.map((m) => (
@@ -328,35 +358,35 @@ export default function ProfileClient() {
         )}
 
         {!currentBank && memberships.length === 0 && !showCreateBank && (
-          <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+          <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
             No bank configured. Create one to start working with deals and documents.
           </div>
         )}
 
         {/* Create Bank */}
         {showCreateBank ? (
-          <div className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-3">
-            <div className="text-sm font-medium text-white/80">Create a New Bank</div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4 space-y-3">
+            <div className="text-sm font-semibold text-white/80">Create a New Bank</div>
             <div>
-              <label className="block text-sm font-medium text-white/70 mb-1">
+              <label className="block text-sm font-medium text-white/80 mb-1.5">
                 Bank Name
               </label>
               <input
                 value={newBankName}
                 onChange={(e) => setNewBankName(e.target.value)}
                 placeholder="e.g. Paller Bank"
-                className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-white/30"
+                className={inputCls}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-white/70 mb-1">
+              <label className="block text-sm font-medium text-white/80 mb-1.5">
                 Domain (optional)
               </label>
               <input
                 value={newBankDomain}
                 onChange={(e) => setNewBankDomain(e.target.value)}
                 placeholder="pallerbank.com"
-                className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-white/30"
+                className={inputCls}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -364,14 +394,20 @@ export default function ProfileClient() {
                 type="button"
                 onClick={handleCreateBank}
                 disabled={creatingBank || !newBankName.trim()}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
+                className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
+                  creatingBank
+                    ? "bg-primary/60 text-white/70 cursor-wait"
+                    : newBankName.trim()
+                      ? "bg-primary text-white hover:bg-primary/90 active:scale-[0.97] shadow-md shadow-primary/20"
+                      : "bg-white/[0.06] text-white/30 border border-white/10 cursor-not-allowed"
+                }`}
               >
                 {creatingBank ? "Creating..." : "Create & Switch"}
               </button>
               <button
                 type="button"
                 onClick={() => setShowCreateBank(false)}
-                className="text-sm text-white/50 hover:text-white/80"
+                className="text-sm text-white/50 hover:text-white/80 transition-colors"
               >
                 Cancel
               </button>
@@ -381,7 +417,7 @@ export default function ProfileClient() {
           <button
             type="button"
             onClick={() => setShowCreateBank(true)}
-            className="text-sm text-primary hover:text-primary/80"
+            className="text-sm font-medium text-primary hover:text-primary/80 transition-colors"
           >
             + Create new bank
           </button>
@@ -389,9 +425,12 @@ export default function ProfileClient() {
       </div>
 
       {/* Meta info */}
-      <div className="border-t border-white/10 pt-4 text-xs text-white/40 space-y-1">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-3 text-xs text-white/40 space-y-1">
         <div>User ID: {profile?.clerk_user_id}</div>
         {profile?.bank_id && <div>Bank ID: {profile.bank_id}</div>}
+        {process.env.NEXT_PUBLIC_GIT_SHA && (
+          <div>Build: {process.env.NEXT_PUBLIC_GIT_SHA.slice(0, 7)}</div>
+        )}
       </div>
     </div>
   );
