@@ -304,6 +304,129 @@ describe("maybeTriggerDealNaming guard logic", () => {
   });
 });
 
+// ─── 3b. Document finalization pipeline ──────────────────────────────────────
+
+describe("document finalization pipeline", () => {
+  /**
+   * Mirrors the finalization logic added to processArtifact and ingestDocument.
+   *
+   * Invariants:
+   *   - Classification complete (document_type set) → finalized_at must be set
+   *   - Manual override (match_source = "manual") → finalized_at must be set
+   *   - Borrower task (match_source = "borrower_task") → finalized_at at ingest
+   *   - Setting finalized_at is idempotent (only if currently null)
+   *   - readiness: uploadsPending = count(finalized_at IS NULL)
+   */
+  type DocRow = {
+    id: string;
+    document_type: string | null;
+    match_source: string | null;
+    finalized_at: string | null;
+    checklist_key: string | null;
+  };
+
+  /** Simulate the stamp + finalize in processArtifact */
+  function stampAndFinalize(doc: DocRow, classification: { docType: string; confidence: number }): DocRow {
+    // Manual override → skip AI, still finalize
+    if (doc.match_source === "manual") {
+      return {
+        ...doc,
+        finalized_at: doc.finalized_at ?? new Date().toISOString(),
+      };
+    }
+
+    // AI classification stamp
+    return {
+      ...doc,
+      document_type: classification.docType,
+      match_source: "ai_classification",
+      finalized_at: new Date().toISOString(),
+    };
+  }
+
+  /** Simulate ingestDocument with borrower task */
+  function ingestWithChecklistKey(checklistKey: string): DocRow {
+    return {
+      id: "doc-1",
+      document_type: null,
+      match_source: "borrower_task",
+      finalized_at: new Date().toISOString(), // finalized at ingest
+      checklist_key: checklistKey,
+    };
+  }
+
+  /** Simulate readiness uploads-pending check */
+  function countUploadsPending(docs: DocRow[]): number {
+    return docs.filter((d) => d.finalized_at === null).length;
+  }
+
+  test("classification stamp sets finalized_at", () => {
+    const doc: DocRow = {
+      id: "doc-1",
+      document_type: null,
+      match_source: null,
+      finalized_at: null,
+      checklist_key: null,
+    };
+    const result = stampAndFinalize(doc, { docType: "BUSINESS_TAX_RETURN", confidence: 0.95 });
+    assert.notEqual(result.finalized_at, null);
+    assert.equal(result.document_type, "BUSINESS_TAX_RETURN");
+  });
+
+  test("manual override sets finalized_at", () => {
+    const doc: DocRow = {
+      id: "doc-1",
+      document_type: "PFS",
+      match_source: "manual",
+      finalized_at: null,
+      checklist_key: "PFS_CURRENT",
+    };
+    const result = stampAndFinalize(doc, { docType: "PFS", confidence: 1.0 });
+    assert.notEqual(result.finalized_at, null);
+  });
+
+  test("idempotent: manual override does not overwrite existing finalized_at", () => {
+    const original = "2024-01-15T00:00:00.000Z";
+    const doc: DocRow = {
+      id: "doc-1",
+      document_type: "PFS",
+      match_source: "manual",
+      finalized_at: original,
+      checklist_key: "PFS_CURRENT",
+    };
+    const result = stampAndFinalize(doc, { docType: "PFS", confidence: 1.0 });
+    assert.equal(result.finalized_at, original);
+  });
+
+  test("borrower task ingest → finalized immediately", () => {
+    const doc = ingestWithChecklistKey("IRS_1040_3Y");
+    assert.notEqual(doc.finalized_at, null);
+    assert.equal(doc.match_source, "borrower_task");
+    assert.equal(doc.checklist_key, "IRS_1040_3Y");
+  });
+
+  test("readiness: unfinalized docs block readiness", () => {
+    const docs: DocRow[] = [
+      { id: "1", document_type: "PFS", match_source: "ai", finalized_at: "2024-01-01T00:00:00Z", checklist_key: null },
+      { id: "2", document_type: null, match_source: null, finalized_at: null, checklist_key: null },
+      { id: "3", document_type: "RENT_ROLL", match_source: "ai", finalized_at: "2024-01-01T00:00:00Z", checklist_key: null },
+    ];
+    assert.equal(countUploadsPending(docs), 1);
+  });
+
+  test("readiness: all finalized → 0 pending", () => {
+    const docs: DocRow[] = [
+      { id: "1", document_type: "PFS", match_source: "ai", finalized_at: "2024-01-01T00:00:00Z", checklist_key: null },
+      { id: "2", document_type: "RENT_ROLL", match_source: "ai", finalized_at: "2024-01-02T00:00:00Z", checklist_key: null },
+    ];
+    assert.equal(countUploadsPending(docs), 0);
+  });
+
+  test("readiness: empty docs → 0 pending (not blocking)", () => {
+    assert.equal(countUploadsPending([]), 0);
+  });
+});
+
 // ─── 4. Year-based item guard for checklist ──────────────────────────────────
 
 describe("year-based checklist item guard", () => {
@@ -412,6 +535,54 @@ describe("lifecycle stage mapping", () => {
     // Non-terminal deal_status stages don't override
     const stage = mapToUnifiedStage("underwriting", "intake", false);
     assert.equal(stage, "underwrite_in_progress");
+  });
+});
+
+// ─── 5b. Schema mismatch detection ──────────────────────────────────────────
+
+describe("schema mismatch detection (safeFetch)", () => {
+  /**
+   * Mirrors isSchemaMismatchError from safeFetch.ts.
+   * PostgREST errors from non-existent columns must be detected and
+   * classified as schema_mismatch, NOT silently treated as "no data".
+   */
+  function isSchemaMismatchError(errorMsg: string): boolean {
+    const msg = (errorMsg ?? "").toLowerCase();
+    return (
+      msg.includes("does not exist") ||
+      (msg.includes("column") && msg.includes("not found")) ||
+      (msg.includes("pgrst") && msg.includes("400")) ||
+      (msg.includes("could not find") && msg.includes("column")) ||
+      (msg.includes("relation") && msg.includes("does not exist"))
+    );
+  }
+
+  test("detects 'column X does not exist'", () => {
+    assert.equal(isSchemaMismatchError('column "entity_name" does not exist'), true);
+  });
+
+  test("detects PostgREST 400 error", () => {
+    assert.equal(isSchemaMismatchError("PGRST: 400 Bad Request"), true);
+  });
+
+  test("detects 'could not find column'", () => {
+    assert.equal(isSchemaMismatchError("Could not find column 'entity_name' in table"), true);
+  });
+
+  test("detects 'relation does not exist'", () => {
+    assert.equal(isSchemaMismatchError('relation "deal_foo" does not exist'), true);
+  });
+
+  test("does NOT flag normal timeout errors", () => {
+    assert.equal(isSchemaMismatchError("connection timed out"), false);
+  });
+
+  test("does NOT flag permission denied", () => {
+    assert.equal(isSchemaMismatchError("permission denied for table deal_documents"), false);
+  });
+
+  test("does NOT flag empty string", () => {
+    assert.equal(isSchemaMismatchError(""), false);
   });
 });
 

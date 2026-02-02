@@ -449,6 +449,15 @@ export async function processArtifact(
         } as any)
         .eq("id", artifactId);
 
+      // Finalize the deal_document — manual override means "done"
+      if (source_table === "deal_documents") {
+        await sb
+          .from("deal_documents")
+          .update({ finalized_at: new Date().toISOString() } as any)
+          .eq("id", source_id)
+          .is("finalized_at", null);
+      }
+
       await logLedgerEvent({
         dealId,
         bankId,
@@ -572,6 +581,7 @@ export async function processArtifact(
             match_source: "ai_classification",
             match_confidence: classification.confidence,
             match_reason: classification.reason,
+            finalized_at: new Date().toISOString(),
             ...entityPatch,
           } as any)
           .eq("id", source_id)

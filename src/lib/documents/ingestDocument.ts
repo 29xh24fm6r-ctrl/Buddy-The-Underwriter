@@ -99,6 +99,8 @@ export async function ingestDocument(input: IngestDocumentInput) {
     payload.match_source = "borrower_task";
     payload.match_reason = "task_selected";
     payload.match_confidence = 1.0;
+    // Borrower task selection = fully matched, no AI needed → finalize immediately
+    payload.finalized_at = new Date().toISOString();
   }
 
   /**
@@ -122,6 +124,7 @@ export async function ingestDocument(input: IngestDocumentInput) {
     "match_source",
     "match_reason",
     "match_confidence",
+    "finalized_at",
   ]);
 
   for (const key of Object.keys(payload)) {
