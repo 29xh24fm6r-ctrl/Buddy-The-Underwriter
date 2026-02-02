@@ -43,7 +43,7 @@ export async function GET() {
     } catch (e: any) {
       const msg = String(e?.message || "unknown_error");
       // If auto-provision is disabled (e.g. prod), keep endpoint useful as an inspector.
-      if (msg !== "no_memberships" && msg !== "multiple_memberships") {
+      if (msg !== "no_memberships" && msg !== "multiple_memberships" && msg !== "bank_selection_required") {
         return NextResponse.json(
           { ok: false, error: msg, userId },
           { status: 500 },

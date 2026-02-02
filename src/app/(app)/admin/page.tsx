@@ -101,6 +101,24 @@ export default async function AdminHome() {
           )}
         </div>
 
+        <div className="relative">
+          <GlassActionCard
+            icon="folder_shared"
+            iconColor="text-sky-400"
+            title="Bank Documents"
+            description="Bank-level policies, guidelines, and templates."
+            href={`/admin/bank${bankSuffix}`}
+            actionLabel="Manage Documents"
+          />
+          {!bankId && (
+            <div className="absolute bottom-3 left-5 right-5">
+              <div className="text-xs text-amber-400">
+                Add a bank selection to use this page.
+              </div>
+            </div>
+          )}
+        </div>
+
         <GlassActionCard
           icon="bug_report"
           iconColor="text-red-400"

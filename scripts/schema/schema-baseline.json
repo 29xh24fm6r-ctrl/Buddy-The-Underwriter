@@ -108,6 +108,15 @@
     "id", "name", "slug", "domain", "logo_url",
     "settings", "created_at", "updated_at"
   ],
+  "bank_memberships": [
+    "bank_id", "clerk_user_id", "role"
+  ],
+  "bank_documents": [
+    "id", "bank_id", "title", "description", "category",
+    "storage_bucket", "storage_path", "original_filename",
+    "mime_type", "size_bytes", "uploaded_by",
+    "created_at", "updated_at"
+  ],
   "profiles": [
     "id", "clerk_user_id", "bank_id", "last_bank_id",
     "bank_selected_at", "updated_at"

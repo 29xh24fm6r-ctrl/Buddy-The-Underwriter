@@ -24,9 +24,69 @@ function isSchemaMismatchError(errorMsg: string): boolean {
 }
 
 /**
+ * Load the user's bank memberships and current bank name.
+ * Returns { memberships, current_bank } or empty defaults on error.
+ */
+async function loadBankContext(userId: string, bankId: string | null) {
+  const sb = supabaseAdmin();
+
+  // Fetch memberships (join bank name)
+  const { data: memRows } = await sb
+    .from("bank_memberships")
+    .select("bank_id, role")
+    .eq("clerk_user_id", userId);
+
+  type Membership = { bank_id: string; bank_name: string; role: string };
+  const memberships: Membership[] = [];
+
+  if (memRows && memRows.length > 0) {
+    const bankIds = memRows.map((m: any) => m.bank_id);
+    const { data: bankRows } = await sb
+      .from("banks")
+      .select("id, name")
+      .in("id", bankIds);
+
+    const bankMap = new Map<string, string>();
+    for (const b of bankRows ?? []) {
+      bankMap.set(b.id, b.name);
+    }
+
+    for (const m of memRows) {
+      memberships.push({
+        bank_id: m.bank_id,
+        bank_name: bankMap.get(m.bank_id) ?? m.bank_id,
+        role: (m as any).role ?? "member",
+      });
+    }
+  }
+
+  // Current bank
+  let current_bank: { id: string; name: string } | null = null;
+  if (bankId) {
+    const existing = memberships.find((m) => m.bank_id === bankId);
+    if (existing) {
+      current_bank = { id: bankId, name: existing.bank_name };
+    } else {
+      // bank_id set but not in memberships — fetch directly
+      const { data: bk } = await sb
+        .from("banks")
+        .select("id, name")
+        .eq("id", bankId)
+        .maybeSingle();
+      if (bk) {
+        current_bank = { id: bk.id, name: bk.name };
+      }
+    }
+  }
+
+  return { memberships, current_bank };
+}
+
+/**
  * GET /api/profile
  *
- * Returns the current user's profile (auto-created if missing).
+ * Returns the current user's profile (auto-created if missing),
+ * plus bank memberships and current bank context.
  * Schema-safe: returns { ok:false, error:"schema_mismatch" } (200) if
  * avatar columns don't exist yet, instead of a 500.
  */
@@ -38,6 +98,7 @@ export async function GET() {
 
   try {
     const result = await ensureUserProfile({ userId });
+    const bankCtx = await loadBankContext(userId, result.profile.bank_id);
 
     if (!result.ok) {
       // Schema mismatch — return 200 with degraded profile + error flag
@@ -47,10 +108,15 @@ export async function GET() {
         error: "schema_mismatch",
         detail: result.detail,
         profile: result.profile,
+        ...bankCtx,
       });
     }
 
-    return NextResponse.json({ ok: true, profile: result.profile });
+    return NextResponse.json({
+      ok: true,
+      profile: result.profile,
+      ...bankCtx,
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "profile_load_failed";
 

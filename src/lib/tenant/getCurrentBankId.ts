@@ -8,7 +8,7 @@ import { ensureUserProfile } from "@/lib/tenant/ensureUserProfile";
 
 type BankPick =
   | { ok: true; bankId: string }
-  | { ok: false; reason: "not_authenticated" | "no_memberships" | "multiple_memberships" | "profile_lookup_failed" | "sandbox_forbidden"; detail?: string };
+  | { ok: false; reason: "not_authenticated" | "no_memberships" | "multiple_memberships" | "bank_selection_required" | "profile_lookup_failed" | "sandbox_forbidden"; detail?: string };
 
 /**
  * Get current bank ID using Clerk userId
@@ -158,7 +158,7 @@ export async function getCurrentBankId(): Promise<string> {
   }
   
   if (bankIds.length > 1) {
-    throw new Error("multiple_memberships");
+    throw new Error("bank_selection_required");
   }
 
   // 3) Auto-select the only bank and save to profile
@@ -192,6 +192,7 @@ export async function tryGetCurrentBankId(): Promise<BankPick> {
     if (msg === "not_authenticated") return { ok: false, reason: "not_authenticated" };
     if (msg === "no_memberships") return { ok: false, reason: "no_memberships" };
     if (msg === "multiple_memberships") return { ok: false, reason: "multiple_memberships" };
+    if (msg === "bank_selection_required") return { ok: false, reason: "bank_selection_required" };
     if (msg === "sandbox_forbidden") return { ok: false, reason: "sandbox_forbidden" };
     if (msg.startsWith("profile_lookup_failed")) return { ok: false, reason: "profile_lookup_failed", detail: msg };
     return { ok: false, reason: "profile_lookup_failed", detail: msg };

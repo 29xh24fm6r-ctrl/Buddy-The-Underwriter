@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 export type ProfileData = {
   id: string;
@@ -19,6 +19,7 @@ export type ProfileState = {
  * Client-side hook to fetch the current user's profile for avatar/display in nav.
  * Fails silently — returns null profile if unavailable.
  * Surfaces schema_mismatch flag so UI can show a degraded hint.
+ * Re-fetches when a "profile-updated" custom event fires (e.g. after profile save).
  */
 export function useProfile(): ProfileState {
   const [state, setState] = useState<ProfileState>({
@@ -26,25 +27,32 @@ export function useProfile(): ProfileState {
     schemaMismatch: false,
   });
 
-  useEffect(() => {
+  const fetchProfile = useCallback(() => {
     fetch("/api/profile")
       .then((r) => r.json())
       .then((json) => {
         if (json.ok && json.profile) {
           setState({ profile: json.profile, schemaMismatch: false });
         } else if (json.error === "schema_mismatch") {
-          // Schema not migrated yet — show degraded profile (no avatar/display_name)
           setState({
             profile: json.profile ?? null,
             schemaMismatch: true,
           });
         }
-        // Other errors: silently degrade — avatar just won't show
       })
       .catch(() => {
         // Network error — silently degrade
       });
   }, []);
+
+  useEffect(() => {
+    fetchProfile();
+
+    // Re-fetch when profile is updated elsewhere (e.g. ProfileClient save)
+    const handler = () => fetchProfile();
+    window.addEventListener("profile-updated", handler);
+    return () => window.removeEventListener("profile-updated", handler);
+  }, [fetchProfile]);
 
   return state;
 }
