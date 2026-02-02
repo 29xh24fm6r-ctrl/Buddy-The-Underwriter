@@ -72,7 +72,7 @@ export default async function DealCockpitPage({ params }: Props) {
     );
   }
 
-  let dealName: { displayName?: string | null; nickname?: string | null; borrowerName?: string | null } | undefined;
+  let dealName: { displayName?: string | null; nickname?: string | null; borrowerName?: string | null; name?: string | null } | undefined;
   let readiness: {
     named: boolean;
     borrowerAttached: boolean;
@@ -115,7 +115,7 @@ export default async function DealCockpitPage({ params }: Props) {
     // Fetch deal metadata (name, borrower info)
     const { data: deal } = await sb
       .from("deals")
-      .select("display_name, nickname, borrower_name, borrower_id, lifecycle_stage")
+      .select("display_name, nickname, borrower_name, borrower_id, lifecycle_stage, name")
       .eq("id", dealId)
       .eq("bank_id", access.bankId)
       .maybeSingle();
@@ -124,6 +124,7 @@ export default async function DealCockpitPage({ params }: Props) {
       displayName: (deal as any)?.display_name ?? null,
       nickname: (deal as any)?.nickname ?? null,
       borrowerName: (deal as any)?.borrower_name ?? null,
+      name: (deal as any)?.name ?? null,
     };
     lifecycleStage = (deal as any)?.lifecycle_stage ?? null;
 
