@@ -39,21 +39,21 @@ export type SafeAuth = {
 };
 
 export async function clerkAuth(_req?: NextRequest): Promise<SafeAuth> {
-  if (!isClerkConfigured()) {
+  const nullAuth: SafeAuth = { userId: null, sessionId: null, getToken: async () => null };
+  if (!isClerkConfigured()) return nullAuth;
+  try {
+    const mod = await import("@clerk/nextjs/server");
+    // auth() signature does not require req in App Router; keep param for flexibility.
+    const a = await mod.auth();
     return {
-      userId: null,
-      sessionId: null,
-      getToken: async () => null,
+      userId: a.userId ?? null,
+      sessionId: a.sessionId ?? null,
+      getToken: a.getToken,
     };
+  } catch (e) {
+    console.error("[clerkAuth] failed:", e);
+    return nullAuth;
   }
-  const mod = await import("@clerk/nextjs/server");
-  // auth() signature does not require req in App Router; keep param for flexibility.
-  const a = await mod.auth();
-  return {
-    userId: a.userId ?? null,
-    sessionId: a.sessionId ?? null,
-    getToken: a.getToken,
-  };
 }
 
 export async function clerkCurrentUser() {

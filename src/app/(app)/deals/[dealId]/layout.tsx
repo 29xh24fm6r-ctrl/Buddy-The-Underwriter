@@ -7,48 +7,53 @@ import { dealLabel } from "@/lib/deals/dealLabel";
 import { getCanonicalMemoStatusForDeals } from "@/lib/creditMemo/canonical/getCanonicalMemoStatusForDeals";
 
 const getDealShellContext = cache(async (dealId: string) => {
-  const access = await ensureDealBankAccess(dealId);
-  if (!access.ok) return null;
+  try {
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) return null;
 
-  const sb = supabaseAdmin();
-  const { data } = await sb
-    .from("deals")
-    .select("id, display_name, nickname, borrower_name, name, legal_name, amount, stage, risk_score")
-    .eq("id", dealId)
-    .eq("bank_id", access.bankId)
-    .maybeSingle();
-
-  if (!data) return null;
-
-  let intakeBorrowerName: string | null = null;
-  if (!data.borrower_name) {
-    const { data: intake } = await sb
-      .from("deal_intake")
-      .select("borrower_name")
-      .eq("deal_id", dealId)
+    const sb = supabaseAdmin();
+    const { data } = await sb
+      .from("deals")
+      .select("id, display_name, nickname, borrower_name, name, legal_name, amount, stage, risk_score")
+      .eq("id", dealId)
+      .eq("bank_id", access.bankId)
       .maybeSingle();
-    intakeBorrowerName = intake?.borrower_name ?? null;
+
+    if (!data) return null;
+
+    let intakeBorrowerName: string | null = null;
+    if (!data.borrower_name) {
+      const { data: intake } = await sb
+        .from("deal_intake")
+        .select("borrower_name")
+        .eq("deal_id", dealId)
+        .maybeSingle();
+      intakeBorrowerName = intake?.borrower_name ?? null;
+    }
+
+    const statusByDeal = await getCanonicalMemoStatusForDeals({
+      bankId: access.bankId,
+      dealIds: [dealId],
+    });
+
+    return {
+      deal: {
+        id: String(data.id),
+        display_name: (data as any).display_name ?? null,
+        nickname: (data as any).nickname ?? null,
+        borrower_name: (data as any).borrower_name ?? intakeBorrowerName ?? null,
+        name: (data as any).name ?? null,
+        legal_name: (data as any).legal_name ?? null,
+        amount: typeof (data as any).amount === "number" ? (data as any).amount : (data as any).amount ? Number((data as any).amount) : null,
+        stage: (data as any).stage ?? null,
+        risk_score: (data as any).risk_score ?? null,
+      },
+      canonicalMemoStatus: statusByDeal[dealId] ?? null,
+    };
+  } catch (e) {
+    console.error("[getDealShellContext] failed:", e);
+    return null;
   }
-
-  const statusByDeal = await getCanonicalMemoStatusForDeals({
-    bankId: access.bankId,
-    dealIds: [dealId],
-  });
-
-  return {
-    deal: {
-      id: String(data.id),
-      display_name: (data as any).display_name ?? null,
-      nickname: (data as any).nickname ?? null,
-      borrower_name: (data as any).borrower_name ?? intakeBorrowerName ?? null,
-      name: (data as any).name ?? null,
-      legal_name: (data as any).legal_name ?? null,
-      amount: typeof (data as any).amount === "number" ? (data as any).amount : (data as any).amount ? Number((data as any).amount) : null,
-      stage: (data as any).stage ?? null,
-      risk_score: (data as any).risk_score ?? null,
-    },
-    canonicalMemoStatus: statusByDeal[dealId] ?? null,
-  };
 });
 
 export async function generateMetadata(

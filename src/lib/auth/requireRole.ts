@@ -21,12 +21,16 @@ export async function getCurrentRole(): Promise<{ userId: string; role: BuddyRol
   if (superAdminAllowlist(userId)) return { userId, role: "super_admin" };
 
   // Read user metadata from Clerk (authoritative)
-  const client = await clerkClient();
-  if (!client) return { userId, role: null };
-  const user = await client.users.getUser(userId);
-  const roleRaw = (user.publicMetadata as any)?.role;
-
-  return { userId, role: isBuddyRole(roleRaw) ? roleRaw : null };
+  try {
+    const client = await clerkClient();
+    if (!client) return { userId, role: null };
+    const user = await client.users.getUser(userId);
+    const roleRaw = (user.publicMetadata as any)?.role;
+    return { userId, role: isBuddyRole(roleRaw) ? roleRaw : null };
+  } catch (e) {
+    console.error("[getCurrentRole] Clerk API failed:", e);
+    return { userId, role: null };
+  }
 }
 
 export async function requireRole(allowed: BuddyRole[]) {
