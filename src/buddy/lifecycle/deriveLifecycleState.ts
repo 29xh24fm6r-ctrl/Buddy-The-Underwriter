@@ -2,7 +2,7 @@
  * Derive Lifecycle State
  *
  * Computes unified lifecycle state by reading from:
- * - deals.lifecycle_stage (internal 5-stage model)
+ * - deals.stage (internal 5-stage model)
  * - deal_status.stage (borrower-facing 8-stage model)
  * - deal_checklist_items (document satisfaction)
  * - decision_snapshots (decision presence)
@@ -57,7 +57,7 @@ type DealStatusStage =
 type DealData = {
   id: string;
   bank_id: string | null;
-  lifecycle_stage: string | null;
+  stage: string | null;
   ready_at: string | null;
 };
 
@@ -97,7 +97,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     () =>
       sb
         .from("deals")
-        .select("id, bank_id, lifecycle_stage, ready_at")
+        .select("id, bank_id, stage, ready_at")
         .eq("id", dealId)
         .maybeSingle(),
     ctx
@@ -108,7 +108,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   const deal = dealResult.data;
-  const lifecycleStage = (deal.lifecycle_stage as DealLifecycleStage) || "created";
+  const lifecycleStage = (deal.stage as DealLifecycleStage) || "created";
 
   // Fetch deal_status separately — missing row or missing table is NOT a blocker.
   // If missing but deal exists, bootstrap it defensively (self-heal).

@@ -12,12 +12,12 @@
  * Unified lifecycle stages - maps from both existing models.
  *
  * Mapping from existing infrastructure:
- * - intake_created: deals.lifecycle_stage = "created"
- * - docs_requested: deals.lifecycle_stage = "intake" + checklist seeded
- * - docs_in_progress: deals.lifecycle_stage = "collecting" + checklist incomplete
- * - docs_satisfied: deals.lifecycle_stage = "collecting" + checklist complete
+ * - intake_created: deals.stage = "created"
+ * - docs_requested: deals.stage = "intake" + checklist seeded
+ * - docs_in_progress: deals.stage = "collecting" + checklist incomplete
+ * - docs_satisfied: deals.stage = "collecting" + checklist complete
  * - underwrite_ready: docs_satisfied + financial snapshot exists
- * - underwrite_in_progress: deals.lifecycle_stage = "underwriting"
+ * - underwrite_in_progress: deals.stage = "underwriting"
  * - committee_ready: underwrite complete + committee packet exists
  * - committee_decisioned: decision_snapshots.status = "final"
  * - closing_in_progress: deal_status.stage = "closing"

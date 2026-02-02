@@ -70,7 +70,7 @@ export async function igniteDeal(params: {
 
   const { data: deal, error: dealErr } = await sb
     .from("deals")
-    .select("id, bank_id, lifecycle_stage")
+    .select("id, bank_id, stage")
     .eq("id", dealId)
     .maybeSingle();
 
@@ -82,8 +82,8 @@ export async function igniteDeal(params: {
     return { ok: false, error: "Deal not found" } as const;
   }
 
-  if (deal.lifecycle_stage && deal.lifecycle_stage !== "created") {
-    return { ok: true, already: true, stage: deal.lifecycle_stage } as const;
+  if (deal.stage && deal.stage !== "created") {
+    return { ok: true, already: true, stage: deal.stage } as const;
   }
 
   const { data: intake } = await sb
@@ -136,7 +136,7 @@ export async function igniteDeal(params: {
   // ── Step 2: Advance lifecycle to "intake" (checklist is guaranteed) ──
   const { error: updErr } = await sb
     .from("deals")
-    .update({ lifecycle_stage: "intake" })
+    .update({ stage: "intake" })
     .eq("id", dealId);
 
   if (updErr) {

@@ -54,7 +54,7 @@ export async function ensureUnderwritingActivatedCore(
   try {
     const { data: deal } = await sb
       .from("deals")
-      .select("id, bank_id, lifecycle_stage")
+      .select("id, bank_id, stage")
       .eq("id", dealId)
       .maybeSingle();
 
@@ -66,7 +66,7 @@ export async function ensureUnderwritingActivatedCore(
 
     await logLedger("underwriting.entry.hit", "Underwriting entry hit", resolvedBankId);
 
-    if (deal.lifecycle_stage === "underwriting" || deal.lifecycle_stage === "ready") {
+    if (deal.stage === "underwriting" || deal.stage === "ready") {
       await logLedger(
         "underwriting.already_activated",
         "Underwriting already activated",

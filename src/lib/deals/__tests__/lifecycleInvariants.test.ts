@@ -100,7 +100,7 @@ function createDeps(fakeSb: ReturnType<typeof createFakeSupabase>, events: any[]
 
 test("banker upload ignites deal", async () => {
   const fake = createFakeSupabase({
-    deals: [{ id: "deal-1", bank_id: "bank-1", lifecycle_stage: "created" }],
+    deals: [{ id: "deal-1", bank_id: "bank-1", stage: "created" }],
     deal_intake: [{ deal_id: "deal-1", loan_type: "CRE" }],
     deal_checklist_items: [],
   });
@@ -120,7 +120,7 @@ test("banker upload ignites deal", async () => {
   });
 
   const updated = fake.tables.deals.find((d) => d.id === "deal-1");
-  assert.equal(updated?.lifecycle_stage, "collecting");
+  assert.equal(updated?.stage, "collecting");
   assert.ok(events.some((e) => e.kind === "deal.ignited"));
 });
 
@@ -131,7 +131,7 @@ test("borrower upload blocked pre-ignite", () => {
 
 test("invite ignites deal", async () => {
   const fake = createFakeSupabase({
-    deals: [{ id: "deal-2", bank_id: "bank-1", lifecycle_stage: "created" }],
+    deals: [{ id: "deal-2", bank_id: "bank-1", stage: "created" }],
     deal_intake: [{ deal_id: "deal-2", loan_type: "CRE" }],
     deal_checklist_items: [],
   });

@@ -36,7 +36,6 @@ export type VerifyUnderwriteBlocked = {
     dbError?: string | null;
     missing?: string[];
     lifecycleSource?:
-      | "lifecycle_stage"
       | "deal_state"
       | "pipeline_state"
       | "status"
@@ -91,7 +90,6 @@ async function fetchDeal(
         display_name?: string | null;
         name?: string | null;
         borrower_id?: string | null;
-        lifecycle_stage?: string | null;
         deal_state?: string | null;
         pipeline_state?: string | null;
         status?: string | null;
@@ -100,7 +98,6 @@ async function fetchDeal(
     | null;
   error: { message?: string } | null;
   lifecycleSource:
-    | "lifecycle_stage"
     | "deal_state"
     | "pipeline_state"
     | "status"
@@ -122,14 +119,10 @@ async function fetchDeal(
   }
 
   const row = base.data as Record<string, any>;
-  const candidate = row.lifecycle_stage ?? row.stage ?? null;
+  const candidate = row.stage ?? null;
   const stageValue = candidate ? String(candidate) : null;
   const lifecycleFromRow = stageValue && KNOWN_LIFECYCLE_STAGES.has(stageValue) ? stageValue : null;
-  const lifecycleSource = row.lifecycle_stage
-    ? "lifecycle_stage"
-    : row.stage
-      ? "stage"
-      : null;
+  const lifecycleSource = row.stage ? "stage" : null;
 
   return {
     deal: base.data,

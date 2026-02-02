@@ -331,13 +331,13 @@ export async function orchestrateIntake(args: {
   await step("advance_lifecycle", async () => {
     const { data: deal } = await sb
       .from("deals")
-      .select("lifecycle_stage")
+      .select("stage")
       .eq("id", args.dealId)
       .eq("bank_id", args.bankId)
       .maybeSingle();
 
     if (!deal) return "deal_not_found";
-    if (deal.lifecycle_stage === "collecting") return "already_collecting";
+    if (deal.stage === "collecting") return "already_collecting";
 
     await advanceDealLifecycle({
       dealId: args.dealId,

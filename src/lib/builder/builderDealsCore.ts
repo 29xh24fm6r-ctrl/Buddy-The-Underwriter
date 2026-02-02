@@ -25,7 +25,6 @@ export async function mintBuilderDealCore(deps: BuilderDealCoreDeps): Promise<{
     name: "NEEDS NAME",
     borrower_name: "NEEDS NAME",
     stage: "intake",
-    lifecycle_stage: "intake",
     entity_type: "Unknown",
     risk_score: 0,
     created_at: now,
@@ -53,7 +52,6 @@ export async function makeBuilderDealReadyCore(deps: BuilderDealCoreDeps & { dea
     display_name: "Builder Ready Deal",
     borrower_name: "Builder Ready Deal",
     borrower_id: borrowerId,
-    lifecycle_stage: "collecting",
     stage: "collecting",
     updated_at: now,
   };

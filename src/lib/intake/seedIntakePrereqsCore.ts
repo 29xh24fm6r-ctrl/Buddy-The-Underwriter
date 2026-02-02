@@ -253,7 +253,7 @@ export async function seedIntakePrereqsCore(
     await step("ensure_lifecycle_collecting", async () => {
       const res = await sb
         .from("deals")
-        .update({ lifecycle_stage: "collecting", stage: "collecting", updated_at: now() })
+        .update({ stage: "collecting", updated_at: now() })
         .eq("id", dealId);
 
       if (!res.error) {
@@ -261,19 +261,6 @@ export async function seedIntakePrereqsCore(
       }
 
       const msg = String(res.error?.message ?? "");
-      if (msg.includes("lifecycle_stage")) {
-        const stageOnly = await sb
-          .from("deals")
-          .update({ stage: "collecting", updated_at: now() })
-          .eq("id", dealId);
-
-        if (!stageOnly.error) {
-          return "set_collecting_stage_only";
-        }
-
-        return "column_missing";
-      }
-
       if (msg.includes("stage")) {
         return "column_missing";
       }

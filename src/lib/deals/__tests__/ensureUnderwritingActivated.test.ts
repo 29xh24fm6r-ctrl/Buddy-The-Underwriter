@@ -44,7 +44,7 @@ function createFakeSupabase(seed: FakeTables) {
 
 test("ensureUnderwritingActivated is idempotent when already underwriting", async () => {
   const fake = createFakeSupabase({
-    deals: [{ id: "deal-1", bank_id: "bank-1", lifecycle_stage: "underwriting" }],
+    deals: [{ id: "deal-1", bank_id: "bank-1", stage: "underwriting" }],
     deal_checklist_items: [],
   });
   const ledger: any[] = [];
@@ -69,7 +69,7 @@ test("ensureUnderwritingActivated is idempotent when already underwriting", asyn
 
 test("ensureUnderwritingActivated blocks when required items missing", async () => {
   const fake = createFakeSupabase({
-    deals: [{ id: "deal-2", bank_id: "bank-2", lifecycle_stage: "collecting" }],
+    deals: [{ id: "deal-2", bank_id: "bank-2", stage: "collecting" }],
     deal_checklist_items: [
       { deal_id: "deal-2", checklist_key: "PFS", required: true, received_at: null },
     ],

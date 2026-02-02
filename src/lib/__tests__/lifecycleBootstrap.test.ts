@@ -481,7 +481,7 @@ describe("year-based checklist item guard", () => {
 describe("lifecycle stage mapping", () => {
   /**
    * Tests that lifecycle stage mapping handles missing deal_status gracefully.
-   * When deal_status is null, the stage should be derived from lifecycle_stage alone.
+   * When deal_status is null, the stage should be derived from stage alone.
    */
   type DealLifecycleStage = "created" | "intake" | "collecting" | "underwriting" | "ready";
   type DealStatusStage = "intake" | "docs_in_progress" | "analysis" | "underwriting" | "conditional_approval" | "closing" | "funded" | "declined";
@@ -521,17 +521,17 @@ describe("lifecycle stage mapping", () => {
     assert.equal(stage, "docs_in_progress");
   });
 
-  test("deal_status='funded' overrides lifecycle_stage", () => {
+  test("deal_status='funded' overrides stage", () => {
     const stage = mapToUnifiedStage("collecting", "funded", false);
     assert.equal(stage, "closed");
   });
 
-  test("deal_status='closing' overrides lifecycle_stage", () => {
+  test("deal_status='closing' overrides stage", () => {
     const stage = mapToUnifiedStage("underwriting", "closing", false);
     assert.equal(stage, "closing_in_progress");
   });
 
-  test("deal_status='intake' does not override lifecycle_stage", () => {
+  test("deal_status='intake' does not override stage", () => {
     // Non-terminal deal_status stages don't override
     const stage = mapToUnifiedStage("underwriting", "intake", false);
     assert.equal(stage, "underwrite_in_progress");

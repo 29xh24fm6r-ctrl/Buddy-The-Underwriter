@@ -168,7 +168,7 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
 
     // Best-effort lifecycle advancement — advanceDealLifecycle has its own
     // internal stage guard (ALLOWED_TRANSITIONS), so this is safe to call
-    // unconditionally. Wrapped in try/catch because lifecycle_stage column
+    // unconditionally. Wrapped in try/catch because stage column
     // may not exist in all environments and this must not break readiness.
     try {
       await advanceDealLifecycle({

@@ -67,7 +67,7 @@ export async function advanceDealLifecycle(params: {
 
   const { data: deal, error: dealErr } = await sb
     .from("deals")
-    .select("id, bank_id, lifecycle_stage")
+    .select("id, bank_id, stage")
     .eq("id", dealId)
     .maybeSingle();
 
@@ -75,7 +75,7 @@ export async function advanceDealLifecycle(params: {
     return { ok: false, error: "Deal not found" } as const;
   }
 
-  const current = (deal.lifecycle_stage as DealLifecycleStage) || "created";
+  const current = (deal.stage as DealLifecycleStage) || "created";
   if (current === toStage) {
     return { ok: true, already: true, stage: current } as const;
   }
@@ -92,7 +92,7 @@ export async function advanceDealLifecycle(params: {
 
   const { error: updateErr } = await sb
     .from("deals")
-    .update({ lifecycle_stage: toStage })
+    .update({ stage: toStage })
     .eq("id", dealId);
 
   if (updateErr) {

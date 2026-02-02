@@ -33,7 +33,7 @@ export async function initializeIntake(
   try {
     const { data: deal } = await sb
       .from("deals")
-      .select("id, bank_id, lifecycle_stage")
+      .select("id, bank_id, stage")
       .eq("id", dealId)
       .maybeSingle();
 
@@ -102,9 +102,9 @@ export async function initializeIntake(
       intakeInitialized = true;
     }
 
-    const shouldInitLifecycle = !deal.lifecycle_stage || deal.lifecycle_stage === "created";
+    const shouldInitLifecycle = !deal.stage || deal.stage === "created";
     if (shouldInitLifecycle && intakeInitialized) {
-      await sb.from("deals").update({ lifecycle_stage: "intake" }).eq("id", dealId);
+      await sb.from("deals").update({ stage: "intake" }).eq("id", dealId);
     }
 
     if (!alreadyInitialized && intakeInitialized) {
@@ -204,7 +204,7 @@ export async function initializeIntake(
       }
     }
 
-    if (checklistSeeded && (deal.lifecycle_stage === "intake" || shouldInitLifecycle)) {
+    if (checklistSeeded && (deal.stage === "intake" || shouldInitLifecycle)) {
       await advanceDealLifecycle({
         dealId,
         toStage: "collecting",
