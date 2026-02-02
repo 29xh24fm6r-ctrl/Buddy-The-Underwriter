@@ -13,8 +13,9 @@
  */
 import "server-only";
 
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import {
   respond200,
   createHeaders,
@@ -162,6 +163,31 @@ export async function GET(
   const correlationId = generateCorrelationId("deal");
   const ts = createTimestamp();
   const headers = createHeaders(correlationId, ROUTE);
+
+  // === Tenant gate: require authenticated user with bank access ===
+  let rawDealId: string | undefined;
+  try {
+    rawDealId = (await ctx.params).dealId;
+  } catch {
+    // params extraction failed — fall through to buildPayload which handles this
+  }
+
+  if (rawDealId) {
+    const access = await ensureDealBankAccess(rawDealId);
+    if (!access.ok) {
+      // Return 404 for both not_found and tenant_mismatch (don't leak existence)
+      const status = access.error === "unauthorized" ? 401 : 404;
+      return NextResponse.json(
+        {
+          ok: false,
+          deal: createFallbackDeal(rawDealId),
+          error: { code: access.error, message: access.error === "unauthorized" ? "Authentication required" : "Deal not found" },
+          meta: { dealId: rawDealId, correlationId, ts },
+        },
+        { status, headers: Object.fromEntries(Object.entries(headers)) },
+      );
+    }
+  }
 
   // Build payload (all business logic)
   const payload = await buildPayload(ctx, correlationId, ts);

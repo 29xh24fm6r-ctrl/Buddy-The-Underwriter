@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { getChecklistState } from "@/lib/checklist/getChecklistState";
 import { jsonSafe, sanitizeErrorForEvidence } from "@/buddy/lifecycle/jsonSafe";
 
@@ -193,6 +194,21 @@ export async function GET(
           correlationId,
         },
         correlationId
+      );
+    }
+
+    // === Phase 2b: Tenant gate ===
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          items: [],
+          error: { code: access.error, message: "Deal not found", correlationId },
+          timestamp: ts,
+          correlationId,
+        },
+        { status: access.error === "unauthorized" ? 401 : 404 },
       );
     }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import type { ChecklistItem } from "@/types/db";
 import { isDemoMode, demoState } from "@/lib/demo/demoMode";
 import { mockChecklistData } from "@/lib/demo/mocks";
@@ -53,7 +54,16 @@ export async function GET(req: NextRequest, ctx: Context) {
     }
 
     const { dealId } = await ctx.params;
-    
+
+    // Tenant gate
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      return NextResponse.json(
+        { ok: false, error: access.error === "unauthorized" ? "Unauthorized" : "Deal not found" },
+        { status: access.error === "unauthorized" ? 401 : 404 },
+      );
+    }
+
     // Use convergence-safe helper
     const checklistState = await getChecklistState({ dealId, includeItems: true });
     
