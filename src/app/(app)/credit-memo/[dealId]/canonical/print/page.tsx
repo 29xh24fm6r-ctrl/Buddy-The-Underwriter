@@ -3,7 +3,8 @@ import "server-only";
 import CanonicalMemoTemplate from "@/components/creditMemo/CanonicalMemoTemplate";
 import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
 import { requireRole } from "@/lib/auth/requireRole";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { redirect } from "next/navigation";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { headers } from "next/headers";
 
 export const runtime = "nodejs";
@@ -29,7 +30,12 @@ export default async function CanonicalCreditMemoPrintPage(props: {
     await requireRole(["super_admin", "bank_admin", "underwriter"]);
   }
 
-  const bankId = token && secret && token === secret ? undefined : await getCurrentBankId();
+  let bankId: string | undefined;
+  if (!(token && secret && token === secret)) {
+    const bankPick = await tryGetCurrentBankId();
+    if (!bankPick.ok) redirect("/select-bank");
+    bankId = bankPick.bankId;
+  }
   const res = await buildCanonicalCreditMemo({ dealId, bankId });
 
   if (!res.ok) {

@@ -1,6 +1,7 @@
 import StitchSurface from "@/stitch/StitchSurface";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { redirect } from "next/navigation";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildPortfolioSummary } from "@/lib/portfolio/portfolioAnalytics";
 import type { DealFinancialSnapshotV1 } from "@/lib/deals/financialSnapshotCore";
 import {
@@ -19,7 +20,9 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function Page() {
-  const bankId = await getCurrentBankId();
+  const bankPick = await tryGetCurrentBankId();
+  if (!bankPick.ok) redirect("/select-bank");
+  const bankId = bankPick.bankId;
   const sb = supabaseAdmin();
 
   const [snapshotsRes, decisionsRes, scoresRes, dealsRes] = await Promise.all([

@@ -6,7 +6,8 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { redirect } from "next/navigation";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import {
   GlassShell,
   GlassPageHeader,
@@ -15,7 +16,9 @@ import {
 } from "@/components/layout";
 
 export default async function PolicyPage() {
-  const bankId = await getCurrentBankId();
+  const bankPick = await tryGetCurrentBankId();
+  if (!bankPick.ok) redirect("/select-bank");
+  const bankId = bankPick.bankId;
   const sb = supabaseAdmin();
 
   // Fetch extracted policy rules

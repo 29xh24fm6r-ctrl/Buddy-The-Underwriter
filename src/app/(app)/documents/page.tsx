@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { clerkAuth } from "@/lib/auth/clerkServer";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import Link from "next/link";
 import {
@@ -43,7 +43,9 @@ export default async function DocumentsPage() {
   const { userId } = await clerkAuth();
   if (!userId) redirect("/sign-in");
 
-  const bankId = await getCurrentBankId();
+  const bankPick = await tryGetCurrentBankId();
+  if (!bankPick.ok) redirect("/select-bank");
+  const bankId = bankPick.bankId;
   const sb = supabaseAdmin();
 
   const recentRes = await sb

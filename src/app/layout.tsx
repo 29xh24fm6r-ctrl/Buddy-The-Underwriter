@@ -3,6 +3,7 @@ import ClerkGate from "./ClerkGate";
 import { Inter } from "next/font/google";
 import { ConditionalHeroBar } from "@/components/nav/ConditionalHeroBar";
 import FrameGuard from "@/components/dev/FrameGuard";
+import BuildBootLog from "@/components/dev/BuildBootLog";
 import { PHProvider } from "@/components/analytics/PostHogProvider";
 import { QaModeProvider } from "@/components/qa/QaModeProvider";
 import { BuddyProvider } from "@/buddy/core/BuddyProvider";
@@ -85,6 +86,7 @@ export default function RootLayout({
             <PHProvider>
               <QaModeProvider>
                 <FrameGuard />
+                <BuildBootLog />
                 <ConditionalHeroBar />
                 <main>{children}</main>
               </QaModeProvider>

@@ -12,6 +12,7 @@ export type ProfileData = {
 
 export type ProfileState = {
   profile: ProfileData | null;
+  currentBank: { id: string; name: string } | null;
   schemaMismatch: boolean;
 };
 
@@ -24,6 +25,7 @@ export type ProfileState = {
 export function useProfile(): ProfileState {
   const [state, setState] = useState<ProfileState>({
     profile: null,
+    currentBank: null,
     schemaMismatch: false,
   });
 
@@ -32,10 +34,11 @@ export function useProfile(): ProfileState {
       .then((r) => r.json())
       .then((json) => {
         if (json.ok && json.profile) {
-          setState({ profile: json.profile, schemaMismatch: false });
+          setState({ profile: json.profile, currentBank: json.current_bank ?? null, schemaMismatch: false });
         } else if (json.error === "schema_mismatch") {
           setState({
             profile: json.profile ?? null,
+            currentBank: json.current_bank ?? null,
             schemaMismatch: true,
           });
         }

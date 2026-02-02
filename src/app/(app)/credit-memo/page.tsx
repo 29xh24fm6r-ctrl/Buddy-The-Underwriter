@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { listDealsForBank } from "@/lib/deals/listDeals";
 import { requireRole } from "@/lib/auth/requireRole";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { redirect } from "next/navigation";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { getCanonicalMemoStatusForDeals } from "@/lib/creditMemo/canonical/getCanonicalMemoStatusForDeals";
 import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonicalMemoPdfButton";
 import {
@@ -20,7 +21,9 @@ import {
 export default async function CreditMemoHome() {
   await requireRole(["super_admin", "bank_admin", "underwriter"]);
   const deals = await listDealsForBank(100);
-  const bankId = await getCurrentBankId();
+  const bankPick = await tryGetCurrentBankId();
+  if (!bankPick.ok) redirect("/select-bank");
+  const bankId = bankPick.bankId;
   const statusByDeal = await getCanonicalMemoStatusForDeals({
     bankId,
     dealIds: deals.map((d) => d.id),

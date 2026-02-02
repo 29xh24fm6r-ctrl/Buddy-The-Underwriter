@@ -2,7 +2,8 @@ import "server-only";
 
 import Link from "next/link";
 import { requireRole } from "@/lib/auth/requireRole";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { redirect } from "next/navigation";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
 import CanonicalMemoTemplate from "@/components/creditMemo/CanonicalMemoTemplate";
 import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonicalMemoPdfButton";
@@ -20,7 +21,9 @@ export default async function CanonicalCreditMemoPage(props: {
 }) {
   await requireRole(["super_admin", "bank_admin", "underwriter"]);
   const { dealId } = await props.params;
-  const bankId = await getCurrentBankId();
+  const bankPick = await tryGetCurrentBankId();
+  if (!bankPick.ok) redirect("/select-bank");
+  const bankId = bankPick.bankId;
 
   const sb = supabaseAdmin();
   const { data: decision } = await sb

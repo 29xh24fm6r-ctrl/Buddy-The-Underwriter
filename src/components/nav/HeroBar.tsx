@@ -25,7 +25,7 @@ function cls(active: boolean) {
 export function HeroBar() {
   const pathname = usePathname();
   const safePathname = pathname ?? "";
-  const { profile, schemaMismatch } = useProfile();
+  const { profile, currentBank, schemaMismatch } = useProfile();
 
   const initials = profile?.display_name
     ? profile.display_name
@@ -43,6 +43,11 @@ export function HeroBar() {
           <Link href="/deals" className="text-white font-semibold tracking-tight">
             Buddy <span className="text-white/60">The Underwriter</span>
           </Link>
+          {currentBank && (
+            <span className="hidden sm:inline text-xs text-white/50 border-l border-white/10 pl-3">
+              {currentBank.name}
+            </span>
+          )}
 
           <div className="hidden md:flex items-center gap-1">
             {NAV.map((n) => (
@@ -66,6 +71,9 @@ export function HeroBar() {
           >
             Settings
           </Link>
+          <span className="hidden sm:inline text-[10px] text-white/30 font-mono">
+            {process.env.NEXT_PUBLIC_GIT_SHA?.slice(0, 7) ?? "dev"}
+          </span>
           <Link href="/profile" className="relative shrink-0 group" aria-label="Profile">
             {profile?.avatar_url ? (
               <img

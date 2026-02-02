@@ -11,8 +11,9 @@
  * 4. Audit Appendix — Ledger events + correlation IDs
  */
 
+import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import Link from "next/link";
 import {
   GlassShell,
@@ -26,7 +27,9 @@ import { GovernanceExportButton } from "@/components/governance/GovernanceExport
 import { GovernanceViewTracker } from "@/components/governance/GovernanceViewTracker";
 
 export default async function GovernancePage() {
-  const bankId = await getCurrentBankId();
+  const bankPick = await tryGetCurrentBankId();
+  if (!bankPick.ok) redirect("/select-bank");
+  const bankId = bankPick.bankId;
   const sb = supabaseAdmin();
 
   // ── Existing governance metrics ───────────────────────────

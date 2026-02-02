@@ -2,13 +2,15 @@
  * /deals/[dealId]/decision/overrides - Override management UI
  */
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { redirect } from "next/navigation";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 type Props = { params: Promise<{ dealId: string }> };
 
 export default async function OverridesPage({ params }: Props) {
   const { dealId } = await params;
-  await getCurrentBankId();
+  const bankPick = await tryGetCurrentBankId();
+  if (!bankPick.ok) redirect("/select-bank");
   const sb = supabaseAdmin();
 
   const { data: overrides } = await sb

@@ -4,7 +4,8 @@ import DealPricingClient from "./DealPricingClient";
 import { headers } from "next/headers";
 import { runDealRiskPricing } from "@/lib/pricing/runDealRiskPricing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { redirect } from "next/navigation";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 type PricingInputs = {
   index_code: "SOFR" | "UST_5Y" | "PRIME";
@@ -75,7 +76,9 @@ export default async function Page(
 ) {
   const { dealId } = await props.params;
 
-  const bankId = await getCurrentBankId();
+  const bankPick = await tryGetCurrentBankId();
+  if (!bankPick.ok) redirect("/select-bank");
+  const bankId = bankPick.bankId;
   const sb = supabaseAdmin();
 
   const { data: deal, error } = await sb

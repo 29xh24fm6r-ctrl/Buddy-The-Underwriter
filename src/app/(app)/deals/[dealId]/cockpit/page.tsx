@@ -96,8 +96,43 @@ export default async function DealCockpitPage({ params }: Props) {
   let unifiedLifecycleState: LifecycleState | null = null;
   let lifecycleAvailable = true; // Track whether lifecycle data is reliable
   const access = await ensureDealBankAccess(dealId);
-  if (access.ok) {
+  if (!access.ok) {
+    const err = access.error;
+    const title =
+      err === "deal_not_found" ? "Deal Not Found" :
+      err === "tenant_mismatch" ? "Access Denied" :
+      "Unauthorized";
+    const detail =
+      err === "deal_not_found" ? "This deal does not exist or has been deleted." :
+      err === "tenant_mismatch" ? "This deal belongs to a different bank." :
+      "You do not have permission to view this deal.";
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center" data-testid="deal-cockpit">
+        <div className="max-w-md text-center space-y-4">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-500/10 border border-red-500/20">
+            <span className="material-symbols-outlined text-red-400 text-2xl">error</span>
+          </div>
+          <h1 className="text-xl font-bold text-white">{title}</h1>
+          <p className="text-sm text-white/60">{detail}</p>
+          <a href="/deals" className="inline-flex items-center rounded-lg bg-white/10 border border-white/15 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15">
+            Back to Deals
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  let bankName: string | null = null;
+  {
     const sb = supabaseAdmin();
+
+    // Fetch bank name for cockpit header
+    const { data: bankRow } = await sb
+      .from("banks")
+      .select("name")
+      .eq("id", access.bankId)
+      .maybeSingle();
+    bankName = bankRow?.name ?? null;
 
     // Derive unified lifecycle state FIRST - this is the single source of truth
     try {
@@ -217,6 +252,7 @@ export default async function DealCockpitPage({ params }: Props) {
         dealId={dealId}
         isAdmin={isAdmin}
         dealName={dealName}
+        bankName={bankName}
         readiness={readiness}
         lifecycleStage={lifecycleStage}
         ignitedEvent={ignitedEvent}

@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { HeroBar } from "@/components/nav/HeroBar";
+import { ProfileCompletionBanner } from "@/components/nav/ProfileCompletionBanner";
 
 export function ConditionalHeroBar() {
   const pathname = usePathname() || "";
@@ -19,6 +20,7 @@ export function ConditionalHeroBar() {
     <>
       <div className="sticky top-0 z-[2000] bg-black/40 backdrop-blur-xl border-b border-white/10">
         <HeroBar />
+        <ProfileCompletionBanner />
       </div>
       <div className="h-16" />
     </>

@@ -5,8 +5,9 @@
  * Provides searchable decisions, regulator ZIP downloads, minutes, attestations.
  */
 
+import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import Link from "next/link";
 import {
   GlassShell,
@@ -17,7 +18,9 @@ import {
 } from "@/components/layout";
 
 export default async function ExaminerPage() {
-  const bankId = await getCurrentBankId();
+  const bankPick = await tryGetCurrentBankId();
+  if (!bankPick.ok) redirect("/select-bank");
+  const bankId = bankPick.bankId;
   const sb = supabaseAdmin();
 
   // Fetch final decisions

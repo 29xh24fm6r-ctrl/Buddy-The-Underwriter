@@ -55,6 +55,7 @@ export default function DealCockpitClient({
   dealId,
   isAdmin = false,
   dealName,
+  bankName,
   readiness: _readiness,
   lifecycleStage,
   ignitedEvent: _ignitedEvent,
@@ -67,6 +68,7 @@ export default function DealCockpitClient({
   dealId: string;
   isAdmin?: boolean;
   dealName?: { displayName?: string | null; nickname?: string | null; borrowerName?: string | null; name?: string | null };
+  bankName?: string | null;
   readiness?: {
     named: boolean;
     borrowerAttached: boolean;
@@ -166,7 +168,9 @@ export default function DealCockpitClient({
                     <span className="material-symbols-outlined text-white text-[18px]">analytics</span>
                   </div>
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-white/50">Deal Cockpit</div>
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-white/50">
+                      Deal Cockpit{bankName ? <span className="normal-case tracking-normal font-medium"> · {bankName}</span> : null}
+                    </div>
                     {!renaming ? (
                       <div className="flex items-center gap-2">
                         <h1

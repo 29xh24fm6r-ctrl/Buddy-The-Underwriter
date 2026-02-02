@@ -5,8 +5,9 @@
  * "this will be criticized" flags, silent risk accumulation alerts.
  */
 
+import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import {
   GlassShell,
   GlassPageHeader,
@@ -16,7 +17,9 @@ import {
 } from "@/components/layout";
 
 export default async function RiskPage() {
-  const bankId = await getCurrentBankId();
+  const bankPick = await tryGetCurrentBankId();
+  if (!bankPick.ok) redirect("/select-bank");
+  const bankId = bankPick.bankId;
   const sb = supabaseAdmin();
 
   // Fetch decisions with exceptions

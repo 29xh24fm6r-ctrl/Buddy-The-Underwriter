@@ -15,6 +15,8 @@ function getGitSha() {
 const nextConfig = {
   env: {
     NEXT_PUBLIC_GIT_SHA: getGitSha(),
+    NEXT_PUBLIC_BUILD_TIME: new Date().toISOString(),
+    NEXT_PUBLIC_BUILD_ENV: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "unknown",
   },
   // Force dynamic rendering to skip static page generation during build
   // NOTE: `output: 'standalone'` is for self-hosting. On Vercel it can break

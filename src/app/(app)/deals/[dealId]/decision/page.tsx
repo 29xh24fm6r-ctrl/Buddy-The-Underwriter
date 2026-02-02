@@ -2,7 +2,7 @@
  * /deals/[dealId]/decision - Decision one-pager view
  */
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { DecisionOnePager } from "@/components/decision/DecisionOnePager";
 import { getAttestationStatus } from "@/lib/decision/attestation";
 import { requiresCreditCommittee } from "@/lib/decision/creditCommittee";
@@ -19,7 +19,9 @@ export default async function DecisionPage({ params, searchParams }: Props) {
   const { examiner } = await searchParams;
   const isExaminerMode = examiner === "true";
   
-  const bankId = await getCurrentBankId(); // Tenant check
+  const bankPick = await tryGetCurrentBankId();
+  if (!bankPick.ok) redirect("/select-bank");
+  const bankId = bankPick.bankId;
   const sb = supabaseAdmin();
 
   // Get latest snapshot
