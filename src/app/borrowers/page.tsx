@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { listDealsForBank } from "@/lib/deals/listDeals";
 
+export const dynamic = "force-dynamic";
+
 export default async function BorrowersPage() {
   const deals = await listDealsForBank(200);
 
