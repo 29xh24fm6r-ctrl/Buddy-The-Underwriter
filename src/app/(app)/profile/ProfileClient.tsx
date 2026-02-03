@@ -41,17 +41,21 @@ export default function ProfileClient() {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [currentBank, setCurrentBank] = useState<CurrentBank | null>(null);
 
-  // Form state
+  // Form state - Identity
   const [displayName, setDisplayName] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
-  const [switchingBank, setSwitchingBank] = useState(false);
+  const [profileSaveMsg, setProfileSaveMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Form state - Bank context
+  const [switchingBank, setSwitchingBank] = useState(false);
+  const [bankActionMsg, setBankActionMsg] = useState<string | null>(null);
 
   // Create bank form
   const [showCreateBank, setShowCreateBank] = useState(false);
   const [newBankName, setNewBankName] = useState("");
+  const [newBankWebsite, setNewBankWebsite] = useState("");
   const [creatingBank, setCreatingBank] = useState(false);
 
   // Diagnostics state
@@ -95,7 +99,7 @@ export default function ProfileClient() {
 
   async function handleSave() {
     setSaving(true);
-    setSaveMsg(null);
+    setProfileSaveMsg(null);
     try {
       const res = await fetch("/api/profile", {
         method: "PATCH",
@@ -114,13 +118,13 @@ export default function ProfileClient() {
         setAvatarUrl(au);
         setSavedDisplayName(dn);
         setSavedAvatarUrl(au);
-        setSaveMsg("Saved");
+        setProfileSaveMsg("Saved");
         window.dispatchEvent(new Event("profile-updated"));
       } else {
-        setSaveMsg(json.error ?? "Save failed");
+        setProfileSaveMsg(json.error ?? "Save failed");
       }
     } catch {
-      setSaveMsg("Network error");
+      setProfileSaveMsg("Network error");
     } finally {
       setSaving(false);
     }
@@ -136,6 +140,7 @@ export default function ProfileClient() {
   async function handleBankSwitch(bankId: string) {
     if (bankId === currentBank?.id) return;
     setSwitchingBank(true);
+    setBankActionMsg(null);
     try {
       const res = await fetch("/api/profile/bank", {
         method: "POST",
@@ -146,11 +151,11 @@ export default function ProfileClient() {
       if (json.ok) {
         window.location.reload();
       } else {
-        setSaveMsg(json.error ?? "Bank switch failed");
+        setBankActionMsg(json.error ?? "Bank switch failed");
         setSwitchingBank(false);
       }
     } catch {
-      setSaveMsg("Network error");
+      setBankActionMsg("Network error");
       setSwitchingBank(false);
     }
   }
@@ -158,12 +163,15 @@ export default function ProfileClient() {
   async function handleCreateBank() {
     if (!newBankName.trim()) return;
     setCreatingBank(true);
-    setSaveMsg(null);
+    setBankActionMsg(null);
     try {
       const res = await fetch("/api/banks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newBankName.trim() }),
+        body: JSON.stringify({
+          name: newBankName.trim(),
+          website_url: newBankWebsite.trim() || null,
+        }),
       });
       const json = await res.json();
       if (json.ok) {
@@ -171,10 +179,10 @@ export default function ProfileClient() {
       } else {
         // Show user-friendly message, prefer detail over raw error
         const msg = json.detail ?? json.error ?? "Bank creation failed";
-        setSaveMsg(msg.length > 60 ? "Couldn't create bank — please refresh and try again." : msg);
+        setBankActionMsg(msg.length > 60 ? "Couldn't create bank — please refresh and try again." : msg);
       }
     } catch {
-      setSaveMsg("Couldn't create bank — please check your connection.");
+      setBankActionMsg("Couldn't create bank — please check your connection.");
     } finally {
       setCreatingBank(false);
     }
@@ -263,14 +271,14 @@ export default function ProfileClient() {
                 <p className="mt-1 text-sm text-white/60">Your display name and avatar.</p>
               </div>
               <div className="flex items-center gap-3">
-                {saveMsg && (
+                {profileSaveMsg && (
                   <span
                     className={`text-sm font-medium ${
-                      saveMsg === "Saved" ? "text-emerald-400" : "text-rose-400"
+                      profileSaveMsg === "Saved" ? "text-emerald-400" : "text-rose-400"
                     }`}
                   >
-                    {saveMsg === "Saved" && "✓ "}
-                    {saveMsg}
+                    {profileSaveMsg === "Saved" && "✓ "}
+                    {profileSaveMsg}
                   </span>
                 )}
                 <button
@@ -378,10 +386,19 @@ export default function ProfileClient() {
 
           {/* Bank Context Card */}
           <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-            <h2 className="text-sm font-semibold tracking-wide text-white/90 uppercase">Bank Context</h2>
-            <p className="mt-1 text-sm text-white/60">
-              Bank-scoped docs and deal tenancy use your active bank.
-            </p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-sm font-semibold tracking-wide text-white/90 uppercase">Bank Context</h2>
+                <p className="mt-1 text-sm text-white/60">
+                  Bank-scoped docs and deal tenancy use your active bank.
+                </p>
+              </div>
+              {bankActionMsg && (
+                <span className="text-sm font-medium text-rose-400">
+                  {bankActionMsg}
+                </span>
+              )}
+            </div>
 
             <div className="mt-5 space-y-4">
               {/* Active bank info */}
@@ -453,6 +470,20 @@ export default function ProfileClient() {
                       className={INPUT_CLS}
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-white/90 mb-1.5">
+                      Website URL <span className="text-white/40">(optional)</span>
+                    </label>
+                    <input
+                      value={newBankWebsite}
+                      onChange={(e) => setNewBankWebsite(e.target.value)}
+                      placeholder="https://yourbank.com"
+                      className={INPUT_CLS}
+                    />
+                    <p className="mt-1 text-xs text-white/40">
+                      Auto-generates bank logo from favicon.
+                    </p>
+                  </div>
                   <p className="text-xs text-white/50">
                     Creates a new bank and sets it as your active bank.
                   </p>
@@ -473,7 +504,12 @@ export default function ProfileClient() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setShowCreateBank(false)}
+                      onClick={() => {
+                        setShowCreateBank(false);
+                        setNewBankName("");
+                        setNewBankWebsite("");
+                        setBankActionMsg(null);
+                      }}
                       className="text-sm text-white/50 hover:text-white/80 transition-colors"
                     >
                       Cancel

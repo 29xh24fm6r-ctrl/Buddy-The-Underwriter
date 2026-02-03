@@ -59,10 +59,19 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
   const name = typeof body.name === "string" ? body.name.trim() : "";
+  const websiteUrl = typeof body.website_url === "string" ? body.website_url.trim() : null;
 
   if (!name) {
     return NextResponse.json(
       { ok: false, error: "name is required" },
+      { status: 400 },
+    );
+  }
+
+  // Validate website_url if provided
+  if (websiteUrl && !websiteUrl.startsWith("http://") && !websiteUrl.startsWith("https://")) {
+    return NextResponse.json(
+      { ok: false, error: "website_url must start with http:// or https://" },
       { status: 400 },
     );
   }
@@ -127,10 +136,21 @@ export async function POST(req: NextRequest) {
     .toUpperCase() || "BNK";
   const code = `${baseCode}_${Date.now().toString(36).slice(-4).toUpperCase()}`;
 
+  // Auto-generate logo URL from favicon if website provided
+  let logoUrl: string | null = null;
+  if (websiteUrl) {
+    try {
+      const hostname = new URL(websiteUrl).hostname;
+      logoUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=128`;
+    } catch {
+      // Invalid URL, skip logo generation
+    }
+  }
+
   const { data: newBank, error: bankErr } = await sb
     .from("banks")
-    .insert({ name, code })
-    .select("id, name")
+    .insert({ name, code, website_url: websiteUrl, logo_url: logoUrl })
+    .select("id, name, website_url, logo_url")
     .single();
 
   if (bankErr) {
