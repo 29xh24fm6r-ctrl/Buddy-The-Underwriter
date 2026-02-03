@@ -20,15 +20,15 @@ import type { ChecklistRuleSet } from "./types";
 const UNIVERSAL_ITEMS = [
   {
     checklist_key: "IRS_BUSINESS_3Y",
-    title: "Business Tax Returns (3 years)",
+    title: "Business Tax Returns (3 consecutive years)",
     required: true,
-    description: "Most recent 3 years of business tax returns (1120, 1120S, or 1065)",
+    description: "Most recent 3 consecutive years of business tax returns (1120, 1120S, or 1065)",
   },
   {
     checklist_key: "IRS_PERSONAL_3Y",
-    title: "Personal Tax Returns (3 years)",
+    title: "Personal Tax Returns (3 consecutive years)",
     required: true,
-    description: "Most recent 3 years of personal tax returns (1040) for all owners ≥20%",
+    description: "Most recent 3 consecutive years of personal tax returns (1040) for all owners ≥20%",
   },
   {
     checklist_key: "PFS_CURRENT",

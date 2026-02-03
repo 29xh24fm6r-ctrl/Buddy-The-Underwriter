@@ -39,7 +39,7 @@ export default function OwnersPortalPage({ params }: { params: Promise<{ dealId:
         <div className="text-2xl font-semibold mt-1">Personal items required (if applicable)</div>
         <div className="text-white/60 mt-2">
           If you own <span className="text-white/90 font-medium">20% or more</span>, we may need a Personal Financial Statement,
-          3 years of personal tax returns, and a personal guaranty.
+          3 consecutive years of personal tax returns, and a personal guaranty.
         </div>
 
         {err && (

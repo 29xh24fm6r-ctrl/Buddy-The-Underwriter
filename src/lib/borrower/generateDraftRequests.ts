@@ -127,8 +127,8 @@ function generateMessage(
 To continue processing your loan application, we need your business and personal tax returns.
 
 Required Documents:
-• Last 3 years of business tax returns (complete with all schedules)
-• Last 3 years of personal tax returns (complete with all schedules)
+• Last 3 consecutive years of business tax returns (complete with all schedules)
+• Last 3 consecutive years of personal tax returns (complete with all schedules)
 
 Why we need this:
 ${condition.item_description || 'Tax returns verify income and business performance required for SBA loan approval.'}

@@ -7,9 +7,9 @@ export type ChecklistKeyOption = {
 
 export const CHECKLIST_KEY_OPTIONS: ChecklistKeyOption[] = [
   // Tax Documents
-  { key: "IRS_PERSONAL_3Y", title: "Personal Tax Returns (3 years)", category: "tax", docType: "PERSONAL_TAX_RETURN" },
+  { key: "IRS_PERSONAL_3Y", title: "Personal Tax Returns (3 consecutive years)", category: "tax", docType: "PERSONAL_TAX_RETURN" },
   { key: "IRS_PERSONAL_2Y", title: "Personal Tax Returns (2 years)", category: "tax", docType: "PERSONAL_TAX_RETURN" },
-  { key: "IRS_BUSINESS_3Y", title: "Business Tax Returns (3 years)", category: "tax", docType: "BUSINESS_TAX_RETURN" },
+  { key: "IRS_BUSINESS_3Y", title: "Business Tax Returns (3 consecutive years)", category: "tax", docType: "BUSINESS_TAX_RETURN" },
   { key: "IRS_BUSINESS_2Y", title: "Business Tax Returns (2 years)", category: "tax", docType: "BUSINESS_TAX_RETURN" },
   { key: "K1", title: "Schedule K-1", category: "tax", docType: "K1" },
   { key: "W2", title: "W-2 Wage Statement", category: "tax", docType: "W2" },

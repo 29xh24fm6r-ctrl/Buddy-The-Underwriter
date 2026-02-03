@@ -83,8 +83,8 @@ Generate a prioritized document checklist. For each document:
 Return JSON array:
 [
   {
-    "doc_name": "Business Tax Returns (3 years)",
-    "why_needed": "SBA requires 3 years of returns to verify business income stability",
+    "doc_name": "Business Tax Returns (3 consecutive years)",
+    "why_needed": "SBA requires 3 consecutive years of returns to verify business income stability",
     "priority": "HIGH",
     "sop_citation": "[1]"
   }
