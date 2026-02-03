@@ -4,8 +4,8 @@ import ProfileClient from "./ProfileClient";
 
 export default function ProfilePage() {
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-10">
-      <div className="rounded-2xl border border-white/10 bg-black/30 p-6 text-white shadow-sm">
+    <div className="min-h-screen bg-gradient-to-b from-black/20 to-transparent">
+      <div className="mx-auto w-full max-w-5xl px-6 py-10">
         <ProfileClient />
       </div>
     </div>
