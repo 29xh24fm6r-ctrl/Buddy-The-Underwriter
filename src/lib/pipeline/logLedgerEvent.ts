@@ -2,6 +2,16 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+interface ProviderMetrics {
+  provider: string;
+  route?: string;
+  processorType?: string;
+  model?: string;
+  pages?: number;
+  unit_count?: number;
+  estimated_cost_usd?: number;
+}
+
 interface LogLedgerEventInput {
   dealId: string;
   bankId: string;
@@ -9,6 +19,7 @@ interface LogLedgerEventInput {
   uiState: "working" | "done" | "waiting" | "error";
   uiMessage: string;
   meta?: Record<string, unknown>;
+  provider_metrics?: ProviderMetrics;
 }
 
 export async function logLedgerEvent(input: LogLedgerEventInput) {
@@ -16,6 +27,11 @@ export async function logLedgerEvent(input: LogLedgerEventInput) {
 
   // Ledger writes should never block business logic.
   try {
+    // Extract provider_metrics from meta if present (for backwards compat)
+    const providerMetrics =
+      input.provider_metrics ??
+      (input.meta?.provider_metrics as ProviderMetrics | undefined);
+
     await sb.from("deal_pipeline_ledger").insert({
       deal_id: input.dealId,
       bank_id: input.bankId,
@@ -32,6 +48,7 @@ export async function logLedgerEvent(input: LogLedgerEventInput) {
       ui_state: input.uiState,
       ui_message: input.uiMessage,
       meta: input.meta ?? {},
+      provider_metrics: providerMetrics ?? null,
     } as any);
   } catch (e) {
     console.warn("[logLedgerEvent] insert failed (non-fatal)", {

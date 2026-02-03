@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import { processNextOcrJob } from "@/lib/jobs/processors/ocrProcessor";
 import { processNextClassifyJob } from "@/lib/jobs/processors/classifyProcessor";
+import { processNextExtractJob } from "@/lib/jobs/processors/extractProcessor";
 import { runSpreadsWorkerTick } from "@/lib/jobs/workers/spreadsWorker";
 
 export const runtime = "nodejs";
@@ -32,7 +33,7 @@ function hasValidWorkerSecret(req: NextRequest): boolean {
  * Call this from scheduler (cron, polling, etc.)
  *
  * Query params:
- * - type: OCR | CLASSIFY | SPREADS | ALL (default ALL)
+ * - type: OCR | CLASSIFY | EXTRACT | SPREADS | ALL (default ALL)
  * - batch_size: number of jobs to process (default 1, max 10)
  *
  * Returns: { ok: true, processed: number, results: [] }
@@ -76,6 +77,14 @@ export async function POST(req: NextRequest) {
         const classifyResult = await processNextClassifyJob(leaseOwner);
         if (classifyResult.ok) {
           results.push({ type: "CLASSIFY", ...classifyResult });
+          continue;
+        }
+      }
+
+      if (type === "EXTRACT" || type === "ALL") {
+        const extractResult = await processNextExtractJob(leaseOwner);
+        if (extractResult.ok) {
+          results.push({ type: "EXTRACT", ...extractResult });
           continue;
         }
       }
