@@ -76,10 +76,27 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Ensure profile row exists
-  await ensureUserProfile({ userId }).catch(() => {});
+  // Ensure profile row exists and get the profile ID
+  // We need profile.id for bank_memberships.user_id (may be required if migration not run)
+  let profileId: string | null = null;
+  try {
+    const profileResult = await ensureUserProfile({ userId });
+    profileId = profileResult.profile.id;
+  } catch (e) {
+    console.warn("[POST /api/banks] ensureUserProfile failed:", e);
+  }
 
   const sb = supabaseAdmin();
+
+  // If we couldn't get profile ID, try to look it up directly
+  if (!profileId) {
+    const { data: prof } = await sb
+      .from("profiles")
+      .select("id")
+      .eq("clerk_user_id", userId)
+      .maybeSingle();
+    profileId = prof?.id ?? null;
+  }
 
   // Idempotency: check if user already admins a bank with this name
   const { data: existingMems } = await sb
@@ -162,13 +179,19 @@ export async function POST(req: NextRequest) {
   }
 
   // Create admin membership
+  // Include both user_id (profile UUID) and clerk_user_id for compatibility
+  // user_id may be required if migration 20260203_fix_bank_memberships_user_id hasn't been run
+  const membershipData: Record<string, unknown> = {
+    bank_id: newBank.id,
+    clerk_user_id: userId,
+    role: "admin",
+  };
+  if (profileId) {
+    membershipData.user_id = profileId;
+  }
   const { error: memErr } = await sb
     .from("bank_memberships")
-    .insert({
-      bank_id: newBank.id,
-      clerk_user_id: userId,
-      role: "admin",
-    });
+    .insert(membershipData);
 
   if (memErr) {
     console.error("[POST /api/banks] membership insert:", memErr.message);
