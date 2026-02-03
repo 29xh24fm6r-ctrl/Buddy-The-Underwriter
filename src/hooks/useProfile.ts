@@ -51,10 +51,14 @@ export function useProfile(): ProfileState {
   useEffect(() => {
     fetchProfile();
 
-    // Re-fetch when profile is updated elsewhere (e.g. ProfileClient save)
+    // Re-fetch when profile or bank context is updated elsewhere
     const handler = () => fetchProfile();
     window.addEventListener("profile-updated", handler);
-    return () => window.removeEventListener("profile-updated", handler);
+    window.addEventListener("bank-context-updated", handler);
+    return () => {
+      window.removeEventListener("profile-updated", handler);
+      window.removeEventListener("bank-context-updated", handler);
+    };
   }, [fetchProfile]);
 
   return state;
