@@ -49,6 +49,7 @@ export async function ensureUserProfile(opts: {
   userId: string;
   email?: string | null;
   name?: string | null;
+  avatarUrl?: string | null;
 }): Promise<EnsureProfileResult> {
   const sb = supabaseAdmin();
 
@@ -127,6 +128,36 @@ export async function ensureUserProfile(opts: {
   }
 
   if (existing) {
+    const existingAvatarUrl = (existing as any).avatar_url ?? null;
+
+    // Backfill avatar_url if empty and opts.avatarUrl is provided
+    // Do NOT overwrite a non-empty avatar_url (user may have set a custom one)
+    if (!existingAvatarUrl && opts.avatarUrl) {
+      const { error: updateErr } = await sb
+        .from("profiles")
+        .update({
+          avatar_url: opts.avatarUrl,
+          updated_at: new Date().toISOString(),
+        } as any)
+        .eq("clerk_user_id", opts.userId);
+
+      if (updateErr) {
+        // Log but don't fail — avatar backfill is best-effort
+        console.warn(`[ensureUserProfile] avatar backfill failed: ${updateErr.message}`);
+      } else {
+        return {
+          ok: true,
+          profile: {
+            id: existing.id,
+            clerk_user_id: existing.clerk_user_id,
+            bank_id: existing.bank_id ?? null,
+            display_name: (existing as any).display_name ?? null,
+            avatar_url: opts.avatarUrl,
+          },
+        };
+      }
+    }
+
     return {
       ok: true,
       profile: {
@@ -134,7 +165,7 @@ export async function ensureUserProfile(opts: {
         clerk_user_id: existing.clerk_user_id,
         bank_id: existing.bank_id ?? null,
         display_name: (existing as any).display_name ?? null,
-        avatar_url: (existing as any).avatar_url ?? null,
+        avatar_url: existingAvatarUrl,
       },
     };
   }
@@ -151,6 +182,7 @@ export async function ensureUserProfile(opts: {
       {
         clerk_user_id: opts.userId,
         display_name: defaultDisplayName,
+        avatar_url: opts.avatarUrl ?? null,
         updated_at: new Date().toISOString(),
       } as any,
       { onConflict: "clerk_user_id" },

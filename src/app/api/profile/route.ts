@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { clerkAuth, clerkCurrentUser } from "@/lib/auth/clerkServer";
 import { ensureUserProfile } from "@/lib/tenant/ensureUserProfile";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -96,8 +96,21 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
+  // Fetch Clerk user for email/name/avatar — best-effort, don't fail on error
+  let clerkUser: Awaited<ReturnType<typeof clerkCurrentUser>> = null;
   try {
-    const result = await ensureUserProfile({ userId });
+    clerkUser = await clerkCurrentUser();
+  } catch (e) {
+    console.warn("[GET /api/profile] clerkCurrentUser failed:", e);
+  }
+
+  try {
+    const result = await ensureUserProfile({
+      userId,
+      email: clerkUser?.primaryEmailAddress?.emailAddress,
+      name: clerkUser?.fullName,
+      avatarUrl: clerkUser?.imageUrl,
+    });
     const bankCtx = await loadBankContext(userId, result.profile.bank_id);
 
     if (!result.ok) {
