@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
   const name = typeof body.name === "string" ? body.name.trim() : "";
-  const websiteUrl = typeof body.website_url === "string" ? body.website_url.trim() : null;
+  let websiteUrl = typeof body.website_url === "string" ? body.website_url.trim() : null;
 
   if (!name) {
     return NextResponse.json(
@@ -68,13 +68,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Validate website_url if provided
-  if (websiteUrl && !websiteUrl.startsWith("http://") && !websiteUrl.startsWith("https://")) {
-    return NextResponse.json(
-      { ok: false, error: "website_url must start with http:// or https://" },
-      { status: 400 },
-    );
+  // Normalize website_url: auto-prepend https:// if missing
+  if (websiteUrl) {
+    // If URL starts with www., prepend https://
+    if (websiteUrl.startsWith("www.")) {
+      websiteUrl = `https://${websiteUrl}`;
+    }
+    // If URL doesn't have a protocol, prepend https://
+    else if (!websiteUrl.startsWith("http://") && !websiteUrl.startsWith("https://")) {
+      websiteUrl = `https://${websiteUrl}`;
+    }
   }
+
+  const sb = supabaseAdmin();
 
   // Ensure profile row exists and get the profile ID
   // We need profile.id for bank_memberships.user_id (may be required if migration not run)
@@ -82,20 +88,41 @@ export async function POST(req: NextRequest) {
   try {
     const profileResult = await ensureUserProfile({ userId });
     profileId = profileResult.profile.id;
-  } catch (e) {
-    console.warn("[POST /api/banks] ensureUserProfile failed:", e);
+    console.log("[POST /api/banks] ensureUserProfile success, profileId:", profileId);
+  } catch (e: any) {
+    console.warn("[POST /api/banks] ensureUserProfile failed:", e?.message ?? e);
   }
-
-  const sb = supabaseAdmin();
 
   // If we couldn't get profile ID, try to look it up directly
   if (!profileId) {
-    const { data: prof } = await sb
+    const { data: prof, error: profErr } = await sb
       .from("profiles")
       .select("id")
       .eq("clerk_user_id", userId)
       .maybeSingle();
+
+    if (profErr) {
+      console.warn("[POST /api/banks] profile lookup failed:", profErr.message);
+    }
     profileId = prof?.id ?? null;
+    console.log("[POST /api/banks] profile lookup result:", profileId);
+  }
+
+  // Last resort: create a minimal profile if none exists
+  if (!profileId) {
+    console.log("[POST /api/banks] No profile found, creating minimal profile...");
+    const { data: newProf, error: createErr } = await sb
+      .from("profiles")
+      .insert({ clerk_user_id: userId, updated_at: new Date().toISOString() })
+      .select("id")
+      .single();
+
+    if (createErr) {
+      console.error("[POST /api/banks] profile creation failed:", createErr.message);
+    } else {
+      profileId = newProf?.id ?? null;
+      console.log("[POST /api/banks] created profile:", profileId);
+    }
   }
 
   // Idempotency: check if user already admins a bank with this name
@@ -194,18 +221,28 @@ export async function POST(req: NextRequest) {
     .insert(membershipData);
 
   if (memErr) {
-    console.error("[POST /api/banks] membership insert:", memErr.message);
+    console.error("[POST /api/banks] membership insert failed:", {
+      error: memErr.message,
+      code: memErr.code,
+      profileId,
+      userId,
+      bankId: newBank.id,
+    });
     // Rollback: delete the orphaned bank (best-effort)
     const { error: rollbackErr } = await sb.from("banks").delete().eq("id", newBank.id);
     if (rollbackErr) {
       console.error("[POST /api/banks] rollback failed:", rollbackErr.message);
     }
-    // Return user-friendly error
+    // Return error with details for debugging
+    // Check if it's the user_id null constraint error
+    const isUserIdConstraint = memErr.message?.includes("user_id") || memErr.code === "23502";
     return NextResponse.json(
       {
         ok: false,
         error: "bank_creation_failed",
-        detail: "Could not create bank membership. Please try again.",
+        detail: isUserIdConstraint
+          ? "Database migration required. Please run migration 20260203_fix_bank_memberships_user_id.sql"
+          : `Could not create bank membership: ${memErr.message}`,
       },
       { status: 500 },
     );
