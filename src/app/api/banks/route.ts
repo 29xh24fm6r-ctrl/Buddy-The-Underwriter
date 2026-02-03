@@ -120,14 +120,16 @@ export async function POST(req: NextRequest) {
   }
 
   // Create new bank
-  const domain = typeof body.domain === "string" ? body.domain.trim() || null : null;
+  // Generate a unique code from the name (first 3 chars + random suffix)
+  const baseCode = name
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 3)
+    .toUpperCase() || "BNK";
+  const code = `${baseCode}_${Date.now().toString(36).slice(-4).toUpperCase()}`;
 
   const { data: newBank, error: bankErr } = await sb
     .from("banks")
-    .insert({
-      name,
-      domain,
-    })
+    .insert({ name, code })
     .select("id, name")
     .single();
 

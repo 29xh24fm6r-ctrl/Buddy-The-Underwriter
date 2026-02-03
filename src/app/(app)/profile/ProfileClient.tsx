@@ -52,7 +52,6 @@ export default function ProfileClient() {
   // Create bank form
   const [showCreateBank, setShowCreateBank] = useState(false);
   const [newBankName, setNewBankName] = useState("");
-  const [newBankDomain, setNewBankDomain] = useState("");
   const [creatingBank, setCreatingBank] = useState(false);
 
   // Copy diagnostics state
@@ -172,10 +171,7 @@ export default function ProfileClient() {
       const res = await fetch("/api/banks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newBankName.trim(),
-          domain: newBankDomain.trim() || null,
-        }),
+        body: JSON.stringify({ name: newBankName.trim() }),
       });
       const json = await res.json();
       if (json.ok) {
@@ -461,17 +457,6 @@ export default function ProfileClient() {
                 value={newBankName}
                 onChange={(e) => setNewBankName(e.target.value)}
                 placeholder="e.g. Paller Bank"
-                className={INPUT_CLS}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-white/90 mb-1.5">
-                Domain (optional)
-              </label>
-              <input
-                value={newBankDomain}
-                onChange={(e) => setNewBankDomain(e.target.value)}
-                placeholder="pallerbank.com"
                 className={INPUT_CLS}
               />
             </div>
