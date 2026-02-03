@@ -10,9 +10,16 @@ export type ProfileData = {
   avatar_url: string | null;
 };
 
+export type CurrentBank = {
+  id: string;
+  name: string;
+  logo_url?: string | null;
+  website_url?: string | null;
+};
+
 export type ProfileState = {
   profile: ProfileData | null;
-  currentBank: { id: string; name: string } | null;
+  currentBank: CurrentBank | null;
   schemaMismatch: boolean;
 };
 

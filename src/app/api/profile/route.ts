@@ -36,45 +36,58 @@ async function loadBankContext(userId: string, bankId: string | null) {
     .select("bank_id, role")
     .eq("clerk_user_id", userId);
 
+  type BankInfo = { id: string; name: string; logo_url: string | null; website_url: string | null };
   type Membership = { bank_id: string; bank_name: string; role: string };
   const memberships: Membership[] = [];
+  const bankInfoMap = new Map<string, BankInfo>();
 
   if (memRows && memRows.length > 0) {
     const bankIds = memRows.map((m: any) => m.bank_id);
+    // Fetch bank details including logo_url and website_url
     const { data: bankRows } = await sb
       .from("banks")
-      .select("id, name")
+      .select("id, name, logo_url, website_url")
       .in("id", bankIds);
 
-    const bankMap = new Map<string, string>();
     for (const b of bankRows ?? []) {
-      bankMap.set(b.id, b.name);
+      bankInfoMap.set(b.id, {
+        id: b.id,
+        name: b.name,
+        logo_url: (b as any).logo_url ?? null,
+        website_url: (b as any).website_url ?? null,
+      });
     }
 
     for (const m of memRows) {
+      const bank = bankInfoMap.get(m.bank_id);
       memberships.push({
         bank_id: m.bank_id,
-        bank_name: bankMap.get(m.bank_id) ?? m.bank_id,
+        bank_name: bank?.name ?? m.bank_id,
         role: (m as any).role ?? "member",
       });
     }
   }
 
-  // Current bank
-  let current_bank: { id: string; name: string } | null = null;
+  // Current bank with full details
+  let current_bank: BankInfo | null = null;
   if (bankId) {
-    const existing = memberships.find((m) => m.bank_id === bankId);
-    if (existing) {
-      current_bank = { id: bankId, name: existing.bank_name };
+    const cached = bankInfoMap.get(bankId);
+    if (cached) {
+      current_bank = cached;
     } else {
       // bank_id set but not in memberships — fetch directly
       const { data: bk } = await sb
         .from("banks")
-        .select("id, name")
+        .select("id, name, logo_url, website_url")
         .eq("id", bankId)
         .maybeSingle();
       if (bk) {
-        current_bank = { id: bk.id, name: bk.name };
+        current_bank = {
+          id: bk.id,
+          name: bk.name,
+          logo_url: (bk as any).logo_url ?? null,
+          website_url: (bk as any).website_url ?? null,
+        };
       }
     }
   }

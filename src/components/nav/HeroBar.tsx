@@ -44,9 +44,20 @@ export function HeroBar() {
             Buddy <span className="text-white/60">The Underwriter</span>
           </Link>
           {currentBank && (
-            <span className="hidden sm:inline text-xs text-white/50 border-l border-white/10 pl-3">
-              {currentBank.name}
-            </span>
+            <div className="hidden sm:flex items-center gap-2 border-l border-white/10 pl-3">
+              {currentBank.logo_url && (
+                <img
+                  src={currentBank.logo_url}
+                  alt=""
+                  className="h-5 w-5 rounded object-contain bg-white/10"
+                  onError={(e) => {
+                    // Hide broken images
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              )}
+              <span className="text-xs text-white/50">{currentBank.name}</span>
+            </div>
           )}
 
           <div className="hidden md:flex items-center gap-1">
