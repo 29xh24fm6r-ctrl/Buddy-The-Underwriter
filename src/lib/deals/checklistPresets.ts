@@ -13,12 +13,37 @@ export type ChecklistSeedRow = {
   description?: string | null;
 };
 
+/**
+ * Calculate the 3 most recent tax years based on filing season.
+ * Before April 16: most recent filed year is 2 years back (e.g., Jan 2026 → 2024, 2023, 2022)
+ * After April 16: most recent filed year is 1 year back (e.g., May 2026 → 2025, 2024, 2023)
+ */
+function getTaxYears(): [number, number, number] {
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const utcMonth = now.getUTCMonth(); // 0=Jan
+  const utcDay = now.getUTCDate();
+  const beforeFilingDeadline = utcMonth < 3 || (utcMonth === 3 && utcDay < 16); // before Apr 16
+  const mostRecentYear = beforeFilingDeadline ? currentYear - 2 : currentYear - 1;
+  return [mostRecentYear, mostRecentYear - 1, mostRecentYear - 2];
+}
+
 export function buildChecklistForLoanType(loanType: LoanType): ChecklistSeedRow[] {
   // Deterministic. No LLM. Bulletproof defaults.
+  const [year1, year2, year3] = getTaxYears();
+
+  // Core required documents - individual tax year items for better tracking
   const CORE: ChecklistSeedRow[] = [
     { checklist_key: "PFS_CURRENT", title: "Personal Financial Statement (current)", required: true },
-    { checklist_key: "IRS_PERSONAL_3Y", title: "Personal tax returns (3 years)", required: true },
-    { checklist_key: "IRS_BUSINESS_3Y", title: "Business tax returns (3 years)", required: true },
+    // Personal tax returns - individual years
+    { checklist_key: `IRS_PERSONAL_${year1}`, title: `${year1} Personal Tax Return`, required: true },
+    { checklist_key: `IRS_PERSONAL_${year2}`, title: `${year2} Personal Tax Return`, required: true },
+    { checklist_key: `IRS_PERSONAL_${year3}`, title: `${year3} Personal Tax Return`, required: true },
+    // Business tax returns - individual years
+    { checklist_key: `IRS_BUSINESS_${year1}`, title: `${year1} Business Tax Return`, required: true },
+    { checklist_key: `IRS_BUSINESS_${year2}`, title: `${year2} Business Tax Return`, required: true },
+    { checklist_key: `IRS_BUSINESS_${year3}`, title: `${year3} Business Tax Return`, required: true },
+    // Financial statements
     { checklist_key: "FIN_STMT_PL_YTD", title: "Income statement / Profit & Loss (YTD)", required: true },
     { checklist_key: "FIN_STMT_BS_YTD", title: "Balance sheet (current)", required: true },
     { checklist_key: "BANK_STMT_3M", title: "Bank statements (last 3 months)", required: false },

@@ -201,9 +201,19 @@ export function mapDocTypeToChecklistKeys(
 
   switch (docType) {
     case "IRS_BUSINESS":
+      // Add year-specific key first if taxYear is known (e.g., IRS_BUSINESS_2024)
+      if (taxYear && taxYear >= 2000 && taxYear <= 2100) {
+        keys.push(`IRS_BUSINESS_${taxYear}`);
+      }
+      // Also add legacy keys for backward compatibility
       keys.push("IRS_BUSINESS_3Y", "IRS_BUSINESS_2Y", "BTR", "BTR_2Y", "TAX_RETURNS");
       break;
     case "IRS_PERSONAL":
+      // Add year-specific key first if taxYear is known (e.g., IRS_PERSONAL_2024)
+      if (taxYear && taxYear >= 2000 && taxYear <= 2100) {
+        keys.push(`IRS_PERSONAL_${taxYear}`);
+      }
+      // Also add legacy keys for backward compatibility
       keys.push("IRS_PERSONAL_3Y", "IRS_PERSONAL_2Y", "PTR", "PTR_2Y", "TAX_RETURNS");
       break;
     case "PFS":
