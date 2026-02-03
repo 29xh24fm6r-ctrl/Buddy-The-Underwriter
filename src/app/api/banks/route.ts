@@ -152,8 +152,18 @@ export async function POST(req: NextRequest) {
 
   if (memErr) {
     console.error("[POST /api/banks] membership insert:", memErr.message);
+    // Rollback: delete the orphaned bank (best-effort)
+    const { error: rollbackErr } = await sb.from("banks").delete().eq("id", newBank.id);
+    if (rollbackErr) {
+      console.error("[POST /api/banks] rollback failed:", rollbackErr.message);
+    }
+    // Return user-friendly error
     return NextResponse.json(
-      { ok: false, error: memErr.message },
+      {
+        ok: false,
+        error: "bank_creation_failed",
+        detail: "Could not create bank membership. Please try again.",
+      },
       { status: 500 },
     );
   }
