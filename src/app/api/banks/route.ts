@@ -130,23 +130,33 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Idempotency: check if user already admins a bank with this name
+  // Idempotency: check if user already has ANY membership to a bank with this name
+  // (not just admin - catches edge cases from failed previous attempts)
   const { data: existingMems } = await sb
     .from("bank_memberships")
-    .select("bank_id")
-    .eq("clerk_user_id", userId)
-    .eq("role", "admin");
+    .select("bank_id, role")
+    .eq("clerk_user_id", userId);
 
   if (existingMems && existingMems.length > 0) {
     const memBankIds = existingMems.map((m: any) => m.bank_id);
     const { data: matchingBank } = await sb
       .from("banks")
-      .select("id, name")
+      .select("id, name, logo_url, website_url")
       .in("id", memBankIds)
       .ilike("name", name)
       .maybeSingle();
 
     if (matchingBank) {
+      // Ensure user has admin role (upgrade if needed)
+      const existingRole = existingMems.find((m: any) => m.bank_id === matchingBank.id)?.role;
+      if (existingRole !== "admin") {
+        await sb
+          .from("bank_memberships")
+          .update({ role: "admin" })
+          .eq("bank_id", matchingBank.id)
+          .eq("clerk_user_id", userId);
+      }
+
       // Set as current bank
       await sb
         .from("profiles")
@@ -161,7 +171,12 @@ export async function POST(req: NextRequest) {
       const res = NextResponse.json({
         ok: true,
         bank: { id: matchingBank.id, name: matchingBank.name },
-        current_bank: { id: matchingBank.id, name: matchingBank.name },
+        current_bank: {
+          id: matchingBank.id,
+          name: matchingBank.name,
+          logo_url: matchingBank.logo_url,
+          website_url: matchingBank.website_url,
+        },
         existing: true,
       });
       res.cookies.set({
