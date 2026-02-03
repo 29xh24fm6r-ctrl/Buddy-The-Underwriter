@@ -10,6 +10,8 @@ import { buildGeminiScanResultFromExtractedText } from "@/lib/ai-docs/mapToCheck
 import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
 import type { SpreadType } from "@/lib/financialSpreads/types";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { enqueueExtractJob } from "@/lib/jobs/processors/extractProcessor";
+import { resolveDocTypeRouting } from "@/lib/documents/docTypeRouting";
 
 /**
  * Classification Job Processor
@@ -114,25 +116,30 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
         });
       }
 
+      // Resolve canonical_type + routing_class from the best available type.
+      const resolvedType = (docRes.data as any)?.document_type ?? nextType;
+      const { canonical_type, routing_class } = resolveDocTypeRouting(
+        String(args.classifierDocType || resolvedType || ""),
+      );
+
       const attempt1 = await (supabase as any)
         .from("deal_documents")
         .update({
-          document_type: (docRes.data as any)?.document_type ?? nextType,
+          document_type: resolvedType,
           doc_year: (docRes.data as any)?.doc_year ?? inferred.doc_year,
           doc_years: (docRes.data as any)?.doc_years ?? inferred.doc_years,
           match_confidence: inferred.confidence,
           match_reason: `ocr_infer:${inferred.reason}`,
           match_source: "ocr",
+          canonical_type,
+          routing_class,
         })
         .eq("id", args.attachmentId);
 
       if (attempt1.error) {
         const msg = String(attempt1.error.message || "");
-        // Schema drift tolerance: environments missing v2 columns.
-        if (
-          msg.toLowerCase().includes("does not exist") &&
-          (msg.includes("doc_years") || msg.includes("document_type"))
-        ) {
+        // Schema drift tolerance: environments missing v2/v3 columns.
+        if (msg.toLowerCase().includes("does not exist")) {
           await (supabase as any)
             .from("deal_documents")
             .update({
@@ -263,7 +270,7 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
         { auth: { persistSession: false } }
       );
-      
+
       await reconcileConditionsFromOcrResult({
         sb,
         dealId: job.deal_id,
@@ -281,6 +288,14 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
     } catch (reconErr) {
       // Non-fatal - log but don't fail job
       console.error("Condition reconciliation failed (non-fatal):", reconErr);
+    }
+
+    // Enqueue extraction job (Smart Router will route to DocAI or Gemini OCR)
+    try {
+      await enqueueExtractJob(String(job.deal_id), String(job.attachment_id));
+    } catch (extractErr) {
+      // Non-fatal - extraction is optional enhancement
+      console.error("Enqueue extract job failed (non-fatal):", extractErr);
     }
 
     // Mark job succeeded
