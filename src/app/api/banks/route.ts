@@ -213,8 +213,18 @@ export async function POST(req: NextRequest) {
     clerk_user_id: userId,
     role: "admin",
   };
+  // Always include user_id - use profileId if available, otherwise generate a placeholder UUID
+  // This handles the case where bank_memberships.user_id is NOT NULL but we don't have a profile
   if (profileId) {
     membershipData.user_id = profileId;
+  } else {
+    // Generate a deterministic UUID from the clerk userId to satisfy NOT NULL constraint
+    // This is a workaround until the migration is run
+    const { createHash } = await import("crypto");
+    const hash = createHash("sha256").update(userId).digest("hex");
+    const placeholderUuid = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`;
+    membershipData.user_id = placeholderUuid;
+    console.warn("[POST /api/banks] Using placeholder UUID for user_id:", placeholderUuid);
   }
   const { error: memErr } = await sb
     .from("bank_memberships")

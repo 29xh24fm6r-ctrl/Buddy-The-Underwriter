@@ -177,9 +177,10 @@ export default function ProfileClient() {
       if (json.ok) {
         window.location.reload();
       } else {
-        // Show user-friendly message, prefer detail over raw error
+        // Show detailed error message for debugging
         const msg = json.detail ?? json.error ?? "Bank creation failed";
-        setBankActionMsg(msg.length > 60 ? "Couldn't create bank — please refresh and try again." : msg);
+        setBankActionMsg(msg);
+        console.error("[handleCreateBank] failed:", json);
       }
     } catch {
       setBankActionMsg("Couldn't create bank — please check your connection.");
