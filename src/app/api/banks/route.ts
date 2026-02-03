@@ -236,17 +236,58 @@ export async function POST(req: NextRequest) {
     // Rollback: delete the orphaned bank (best-effort)
     await sb.from("banks").delete().eq("id", newBank.id);
 
-    // Check for duplicate membership (user already in this bank)
+    // Check for duplicate membership - if user already has this bank, switch to it silently
     const isDuplicate = memErr.code === "23505" || memErr.message?.includes("duplicate");
+    if (isDuplicate) {
+      // User likely already has a bank with this name - find and switch to it
+      const { data: userBanks } = await sb
+        .from("bank_memberships")
+        .select("bank_id, banks(id, name, logo_url, website_url)")
+        .eq("clerk_user_id", userId);
+
+      const existingBank = userBanks?.find((m: any) =>
+        m.banks?.name?.toLowerCase() === name.toLowerCase()
+      );
+
+      if (existingBank?.banks) {
+        // Switch to existing bank silently
+        await sb
+          .from("profiles")
+          .update({
+            bank_id: existingBank.bank_id,
+            last_bank_id: existingBank.bank_id,
+            bank_selected_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("clerk_user_id", userId);
+
+        const res = NextResponse.json({
+          ok: true,
+          bank: { id: existingBank.banks.id, name: existingBank.banks.name },
+          current_bank: existingBank.banks,
+          existing: true,
+        });
+        res.cookies.set({
+          name: "bank_id",
+          value: existingBank.bank_id,
+          httpOnly: true,
+          sameSite: "lax",
+          secure: process.env.NODE_ENV === "production",
+          path: "/",
+          maxAge: 60 * 60 * 24 * 30,
+        });
+        return res;
+      }
+    }
+
+    // Generic error - don't expose internal details
     return NextResponse.json(
       {
         ok: false,
-        error: isDuplicate ? "already_member" : "bank_creation_failed",
-        detail: isDuplicate
-          ? "You are already a member of this bank."
-          : `Could not create bank membership: ${memErr.message}`,
+        error: "bank_creation_failed",
+        detail: "Could not create bank. Please try a different name or contact support.",
       },
-      { status: isDuplicate ? 409 : 500 },
+      { status: 500 },
     );
   }
 
