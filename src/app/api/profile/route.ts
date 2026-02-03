@@ -113,6 +113,14 @@ export async function GET() {
     });
     const bankCtx = await loadBankContext(userId, result.profile.bank_id);
 
+    // Extract email from Clerk user
+    const email = clerkUser?.primaryEmailAddress?.emailAddress ?? null;
+
+    // Find role for current bank
+    const currentBankRole = bankCtx.current_bank
+      ? bankCtx.memberships.find((m) => m.bank_id === bankCtx.current_bank?.id)?.role ?? null
+      : null;
+
     if (!result.ok) {
       // Schema mismatch — return 200 with degraded profile + error flag
       console.warn(`[GET /api/profile] schema_mismatch: ${result.detail}`);
@@ -121,6 +129,8 @@ export async function GET() {
         error: "schema_mismatch",
         detail: result.detail,
         profile: result.profile,
+        email,
+        current_bank_role: currentBankRole,
         ...bankCtx,
       });
     }
@@ -128,6 +138,8 @@ export async function GET() {
     return NextResponse.json({
       ok: true,
       profile: result.profile,
+      email,
+      current_bank_role: currentBankRole,
       ...bankCtx,
     });
   } catch (err: unknown) {

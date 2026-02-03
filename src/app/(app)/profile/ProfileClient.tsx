@@ -21,11 +21,21 @@ type CurrentBank = {
   name: string;
 };
 
+// Input styling constants
+const INPUT_CLS =
+  "w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-white " +
+  "placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20";
+const DISABLED_INPUT_CLS = `${INPUT_CLS} disabled:opacity-50 disabled:cursor-not-allowed`;
+
 export default function ProfileClient() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [schemaMismatch, setSchemaMismatch] = useState(false);
+
+  // Additional context from API
+  const [email, setEmail] = useState<string | null>(null);
+  const [currentBankRole, setCurrentBankRole] = useState<string | null>(null);
 
   // Bank context
   const [memberships, setMemberships] = useState<Membership[]>([]);
@@ -45,6 +55,9 @@ export default function ProfileClient() {
   const [newBankDomain, setNewBankDomain] = useState("");
   const [creatingBank, setCreatingBank] = useState(false);
 
+  // Copy diagnostics state
+  const [copied, setCopied] = useState(false);
+
   // Dirty tracking: last-saved values
   const [savedDisplayName, setSavedDisplayName] = useState("");
   const [savedAvatarUrl, setSavedAvatarUrl] = useState("");
@@ -59,6 +72,8 @@ export default function ProfileClient() {
         // Bank context (returned for both ok and schema_mismatch)
         if (json.memberships) setMemberships(json.memberships);
         if (json.current_bank) setCurrentBank(json.current_bank);
+        if (json.email) setEmail(json.email);
+        if (json.current_bank_role) setCurrentBankRole(json.current_bank_role);
 
         if (json.ok && json.profile) {
           setProfile(json.profile);
@@ -176,6 +191,32 @@ export default function ProfileClient() {
     }
   }
 
+  function handleCopyDiagnostics() {
+    const diagnostics = {
+      url: typeof window !== "undefined" ? window.location.href : "",
+      build: {
+        sha: process.env.NEXT_PUBLIC_GIT_SHA ?? "unknown",
+        env: process.env.NEXT_PUBLIC_VERCEL_ENV ?? process.env.NODE_ENV ?? "unknown",
+        time: process.env.NEXT_PUBLIC_BUILD_TIME ?? "unknown",
+      },
+      user: {
+        clerkUserId: profile?.clerk_user_id ?? "unknown",
+        email: email ?? "unknown",
+        profileId: profile?.id ?? "unknown",
+      },
+      bank: {
+        id: currentBank?.id ?? "none",
+        name: currentBank?.name ?? "none",
+        role: currentBankRole ?? "none",
+      },
+    };
+
+    navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
   if (loading) {
     return <div className="text-white/60 text-sm">Loading profile...</div>;
   }
@@ -191,13 +232,14 @@ export default function ProfileClient() {
     .slice(0, 2)
     .toUpperCase();
 
-  // Shared input classes — visible borders, clear focus ring, readable placeholders
-  const inputCls =
-    "w-full rounded-lg border border-white/20 bg-white/[0.04] px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary/60 focus:border-primary/50 transition-colors";
-  const disabledInputCls = `${inputCls} disabled:opacity-50 disabled:cursor-not-allowed`;
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Header */}
+      <header>
+        <h1 className="text-2xl font-semibold text-white">Profile</h1>
+        <p className="mt-1 text-white/60">Update your identity and confirm your bank context.</p>
+      </header>
+
       {schemaMismatch && (
         <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
           <strong>Profile schema pending migration.</strong>{" "}
@@ -206,10 +248,10 @@ export default function ProfileClient() {
         </div>
       )}
 
-      {/* Section: Avatar & Identity */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-5">
+      {/* Section 1: Identity (editable) */}
+      <section className="rounded-xl border border-white/10 bg-white/[0.03] p-5 space-y-5">
         <h2 className="text-xs font-bold uppercase tracking-widest text-white/50">
-          Avatar &amp; Identity
+          Identity
         </h2>
 
         {/* Avatar preview */}
@@ -229,7 +271,7 @@ export default function ProfileClient() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="rounded-lg border border-white/20 bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white hover:bg-white/10 transition-colors"
+              className="rounded-lg border border-white/15 bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white hover:bg-white/10 transition-colors"
             >
               Upload avatar
             </button>
@@ -257,20 +299,20 @@ export default function ProfileClient() {
 
         {/* Display name */}
         <div>
-          <label className="block text-sm font-medium text-white/80 mb-1.5">
+          <label className="block text-sm font-medium text-white/90 mb-1.5">
             Display name
           </label>
           <input
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder="Your name"
-            className={inputCls}
+            className={INPUT_CLS}
           />
         </div>
 
         {/* Avatar URL (manual) */}
         <div>
-          <label className="block text-sm font-medium text-white/80 mb-1.5">
+          <label className="block text-sm font-medium text-white/90 mb-1.5">
             Avatar URL
           </label>
           <input
@@ -278,8 +320,22 @@ export default function ProfileClient() {
             onChange={(e) => setAvatarUrl(e.target.value)}
             placeholder="https://..."
             disabled={avatarUrl.startsWith("data:")}
-            className={disabledInputCls}
+            className={DISABLED_INPUT_CLS}
           />
+          <p className="mt-1 text-sm text-white/60">Direct URL to your avatar image, or upload above.</p>
+        </div>
+
+        {/* Email (read-only) */}
+        <div>
+          <label className="block text-sm font-medium text-white/90 mb-1.5">
+            Email
+          </label>
+          <input
+            value={email ?? "Not available"}
+            disabled
+            className={DISABLED_INPUT_CLS}
+          />
+          <p className="mt-1 text-sm text-white/60">Managed by Clerk authentication.</p>
         </div>
 
         {/* Save */}
@@ -290,10 +346,10 @@ export default function ProfileClient() {
             disabled={saving || !isDirty}
             className={`rounded-lg px-5 py-2 text-sm font-semibold transition-all ${
               saving
-                ? "bg-primary/60 text-white/70 cursor-wait"
+                ? "bg-white/60 text-black/70 cursor-wait"
                 : isDirty
-                  ? "bg-primary text-white hover:bg-primary/90 active:scale-[0.97] shadow-md shadow-primary/20"
-                  : "bg-white/[0.06] text-white/30 border border-white/10 cursor-not-allowed"
+                  ? "bg-white text-black hover:bg-white/90 active:scale-[0.97] shadow-md"
+                  : "border border-white/15 text-white/30 cursor-not-allowed"
             }`}
           >
             {saving ? "Saving..." : "Save changes"}
@@ -315,34 +371,70 @@ export default function ProfileClient() {
             </span>
           )}
         </div>
-      </div>
+      </section>
 
-      {/* Section: Bank Context */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-4">
+      {/* Section 2: Bank Context (read-only + actions) */}
+      <section className="rounded-xl border border-white/10 bg-white/[0.03] p-5 space-y-4">
         <h2 className="text-xs font-bold uppercase tracking-widest text-white/50">
           Bank Context
         </h2>
-        <p className="text-xs text-white/40">
-          Bank-scoped docs and deal tenancy use your Current Bank.
+        <p className="text-sm text-white/60">
+          Bank-scoped docs and deal tenancy use your active bank.
         </p>
 
-        {currentBank && memberships.length <= 1 && (
-          <div className="text-sm text-white/80">
-            <span className="text-white/50">Current Bank:</span>{" "}
-            <span className="font-medium">{currentBank.name}</span>
+        {/* Active bank info */}
+        {currentBank ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-white/90 mb-1.5">
+                Active Bank
+              </label>
+              <input
+                value={currentBank.name}
+                disabled
+                className={DISABLED_INPUT_CLS}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-white/90 mb-1.5">
+                Bank ID
+              </label>
+              <input
+                value={currentBank.id}
+                disabled
+                className={`${DISABLED_INPUT_CLS} font-mono text-xs`}
+              />
+            </div>
+            {currentBankRole && (
+              <div>
+                <label className="block text-sm font-medium text-white/90 mb-1.5">
+                  Membership Role
+                </label>
+                <input
+                  value={currentBankRole}
+                  disabled
+                  className={DISABLED_INPUT_CLS}
+                />
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+            No bank configured. Create one to start working with deals and documents.
           </div>
         )}
 
+        {/* Bank switcher (if multiple memberships) */}
         {memberships.length > 1 && (
           <div>
-            <label className="block text-sm font-medium text-white/80 mb-1.5">
-              Active Bank
+            <label className="block text-sm font-medium text-white/90 mb-1.5">
+              Switch Bank
             </label>
             <select
               value={currentBank?.id ?? ""}
               onChange={(e) => handleBankSwitch(e.target.value)}
               disabled={switchingBank}
-              className={disabledInputCls}
+              className={DISABLED_INPUT_CLS}
             >
               {!currentBank && <option value="">Select a bank...</option>}
               {memberships.map((m) => (
@@ -357,36 +449,30 @@ export default function ProfileClient() {
           </div>
         )}
 
-        {!currentBank && memberships.length === 0 && !showCreateBank && (
-          <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
-            No bank configured. Create one to start working with deals and documents.
-          </div>
-        )}
-
         {/* Create Bank */}
         {showCreateBank ? (
           <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4 space-y-3">
             <div className="text-sm font-semibold text-white/80">Create a New Bank</div>
             <div>
-              <label className="block text-sm font-medium text-white/80 mb-1.5">
+              <label className="block text-sm font-medium text-white/90 mb-1.5">
                 Bank Name
               </label>
               <input
                 value={newBankName}
                 onChange={(e) => setNewBankName(e.target.value)}
                 placeholder="e.g. Paller Bank"
-                className={inputCls}
+                className={INPUT_CLS}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-white/80 mb-1.5">
+              <label className="block text-sm font-medium text-white/90 mb-1.5">
                 Domain (optional)
               </label>
               <input
                 value={newBankDomain}
                 onChange={(e) => setNewBankDomain(e.target.value)}
                 placeholder="pallerbank.com"
-                className={inputCls}
+                className={INPUT_CLS}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -396,10 +482,10 @@ export default function ProfileClient() {
                 disabled={creatingBank || !newBankName.trim()}
                 className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
                   creatingBank
-                    ? "bg-primary/60 text-white/70 cursor-wait"
+                    ? "bg-white/60 text-black/70 cursor-wait"
                     : newBankName.trim()
-                      ? "bg-primary text-white hover:bg-primary/90 active:scale-[0.97] shadow-md shadow-primary/20"
-                      : "bg-white/[0.06] text-white/30 border border-white/10 cursor-not-allowed"
+                      ? "bg-white text-black hover:bg-white/90 active:scale-[0.97] shadow-md"
+                      : "border border-white/15 text-white/30 cursor-not-allowed"
                 }`}
               >
                 {creatingBank ? "Creating..." : "Create & Switch"}
@@ -417,21 +503,61 @@ export default function ProfileClient() {
           <button
             type="button"
             onClick={() => setShowCreateBank(true)}
-            className="text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+            className="text-sm font-medium text-white hover:text-white/80 transition-colors border border-white/15 rounded-lg px-3 py-1.5 hover:bg-white/5"
           >
             + Create new bank
           </button>
         )}
-      </div>
+      </section>
 
-      {/* Meta info */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-3 text-xs text-white/40 space-y-1">
-        <div>User ID: {profile?.clerk_user_id}</div>
-        {profile?.bank_id && <div>Bank ID: {profile.bank_id}</div>}
-        {process.env.NEXT_PUBLIC_GIT_SHA && (
-          <div>Build: {process.env.NEXT_PUBLIC_GIT_SHA.slice(0, 7)}</div>
-        )}
-      </div>
+      {/* Section 3: Diagnostics (read-only + copy) */}
+      <section className="rounded-xl border border-white/10 bg-white/[0.03] p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-white/50">
+            Diagnostics
+          </h2>
+          <button
+            type="button"
+            onClick={handleCopyDiagnostics}
+            className="text-xs font-medium text-white/70 hover:text-white transition-colors border border-white/15 rounded-lg px-2.5 py-1 hover:bg-white/5"
+          >
+            {copied ? "Copied!" : "Copy diagnostics"}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          <div>
+            <span className="text-white/50">Clerk User ID:</span>{" "}
+            <span className="font-mono text-xs text-white/80">{profile?.clerk_user_id ?? "—"}</span>
+          </div>
+          <div>
+            <span className="text-white/50">Profile ID:</span>{" "}
+            <span className="font-mono text-xs text-white/80">{profile?.id ?? "—"}</span>
+          </div>
+          <div>
+            <span className="text-white/50">Email:</span>{" "}
+            <span className="text-white/80">{email ?? "—"}</span>
+          </div>
+          <div>
+            <span className="text-white/50">Bank ID:</span>{" "}
+            <span className="font-mono text-xs text-white/80">{currentBank?.id ?? "—"}</span>
+          </div>
+          {process.env.NEXT_PUBLIC_GIT_SHA && (
+            <div>
+              <span className="text-white/50">Build:</span>{" "}
+              <span className="font-mono text-xs text-white/80">
+                {process.env.NEXT_PUBLIC_GIT_SHA.slice(0, 7)}
+              </span>
+            </div>
+          )}
+          {process.env.NEXT_PUBLIC_VERCEL_ENV && (
+            <div>
+              <span className="text-white/50">Environment:</span>{" "}
+              <span className="text-white/80">{process.env.NEXT_PUBLIC_VERCEL_ENV}</span>
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
