@@ -22,10 +22,15 @@ export type ChecklistGrouped = {
   counts: { total: number; received: number; pending: number; optional: number };
 };
 
-const PROTECTED_REQUIRED_KEYS = new Set(["IRS_BUSINESS_3Y", "IRS_PERSONAL_3Y"]);
+// Core tax return keys that should always remain required
+// Includes both legacy grouped keys and new individual year keys
+const PROTECTED_REQUIRED_KEY_PREFIXES = ["IRS_BUSINESS_", "IRS_PERSONAL_"];
+const PROTECTED_REQUIRED_KEYS = new Set(["IRS_BUSINESS_3Y", "IRS_PERSONAL_3Y", "PFS_CURRENT"]);
 
 export function isProtectedKey(key: string): boolean {
-  return PROTECTED_REQUIRED_KEYS.has(key);
+  if (PROTECTED_REQUIRED_KEYS.has(key)) return true;
+  // Protect individual year tax return keys (IRS_PERSONAL_2024, IRS_BUSINESS_2023, etc.)
+  return PROTECTED_REQUIRED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
 function normStatus(s: unknown): string {

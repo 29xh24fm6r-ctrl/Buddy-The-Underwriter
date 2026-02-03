@@ -287,8 +287,18 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
             </div>
           </div>
         ) : (
-          <div className="mt-4 space-y-2 max-h-96 overflow-y-auto">
-            {files.map((file) => (
+          <div className="mt-4 space-y-2 max-h-[60vh] overflow-y-auto">
+            {/* Sort: unclassified (no checklist_key) first, then by created_at desc */}
+            {[...files]
+              .sort((a, b) => {
+                // Unclassified first
+                const aUnclassified = !a.checklist_key ? 0 : 1;
+                const bUnclassified = !b.checklist_key ? 0 : 1;
+                if (aUnclassified !== bUnclassified) return aUnclassified - bUnclassified;
+                // Then by date descending
+                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+              })
+              .map((file) => (
               <div
                 key={file.file_id}
                 className="rounded-xl border border-neutral-800 bg-neutral-950/30 p-3 space-y-2"

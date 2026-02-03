@@ -16,6 +16,28 @@ const STAGE_ORDER: LifecycleStage[] = [
   "committee_decisioned", "closing_in_progress", "closed",
 ];
 
+/** Convert checklist key to human-readable label */
+function formatMissingDocKey(key: string): string {
+  // Individual year tax returns: IRS_PERSONAL_2024 → "2024 Personal"
+  const personalYearMatch = key.match(/^IRS_PERSONAL_(\d{4})$/);
+  if (personalYearMatch) return `${personalYearMatch[1]} Personal`;
+
+  const businessYearMatch = key.match(/^IRS_BUSINESS_(\d{4})$/);
+  if (businessYearMatch) return `${businessYearMatch[1]} Business`;
+
+  // Legacy grouped keys
+  if (key === "IRS_PERSONAL_3Y") return "Personal 3Y";
+  if (key === "IRS_BUSINESS_3Y") return "Business 3Y";
+  if (key === "PFS_CURRENT") return "PFS";
+
+  // Abbreviate common keys
+  if (key === "FIN_STMT_PL_YTD") return "P&L YTD";
+  if (key === "FIN_STMT_BS_YTD") return "Balance Sheet";
+
+  // Default: abbreviate
+  return key.replace(/_/g, " ").slice(0, 15);
+}
+
 function DerivedFactDot({ label, ok }: { label: string; ok: boolean }) {
   return (
     <div className="flex items-center gap-1.5">
@@ -198,11 +220,30 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
                 <div className="rounded-lg bg-white/[0.02] border border-white/5 p-3 space-y-2">
                   <div className="font-semibold text-white/70">What Buddy has done</div>
                   <ul className="space-y-1">
-                    <li className="flex items-center gap-2">
-                      <span className={cn("w-1.5 h-1.5 rounded-full", derived.borrowerChecklistSatisfied ? "bg-emerald-400" : "bg-amber-400/50")} />
-                      {derived.borrowerChecklistSatisfied
-                        ? "All required documents received and matched"
-                        : `${Math.round(docsPct)}% of required documents received (${derived.requiredDocsMissing.length} missing)`}
+                    <li className="flex items-start gap-2">
+                      <span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", derived.borrowerChecklistSatisfied ? "bg-emerald-400" : "bg-amber-400/50")} />
+                      <div>
+                        {derived.borrowerChecklistSatisfied
+                          ? "All required documents received and matched"
+                          : `${Math.round(docsPct)}% of required documents received (${derived.requiredDocsMissing.length} missing)`}
+                        {!derived.borrowerChecklistSatisfied && derived.requiredDocsMissing.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {derived.requiredDocsMissing.slice(0, 4).map((key: string) => (
+                              <span
+                                key={key}
+                                className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/10 text-[9px] text-amber-300/70"
+                              >
+                                {formatMissingDocKey(key)}
+                              </span>
+                            ))}
+                            {derived.requiredDocsMissing.length > 4 && (
+                              <span className="text-[9px] text-white/30">
+                                +{derived.requiredDocsMissing.length - 4} more
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </li>
                     <li className="flex items-center gap-2">
                       <span className={cn("w-1.5 h-1.5 rounded-full", derived.financialSnapshotExists ? "bg-emerald-400" : "bg-amber-400/50")} />

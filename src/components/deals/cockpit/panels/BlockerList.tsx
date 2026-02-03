@@ -17,6 +17,23 @@ const BLOCKER_ICONS: Record<string, string> = {
   internal_error: "warning",
 };
 
+/** Convert checklist key to human-readable label */
+function formatChecklistKey(key: string): string {
+  // Individual year tax returns: IRS_PERSONAL_2024 → "2024 Personal Tax Return"
+  const personalYearMatch = key.match(/^IRS_PERSONAL_(\d{4})$/);
+  if (personalYearMatch) return `${personalYearMatch[1]} Personal Tax Return`;
+
+  const businessYearMatch = key.match(/^IRS_BUSINESS_(\d{4})$/);
+  if (businessYearMatch) return `${businessYearMatch[1]} Business Tax Return`;
+
+  // Legacy grouped keys
+  if (key === "IRS_PERSONAL_3Y") return "Personal Tax Returns (3 years)";
+  if (key === "IRS_BUSINESS_3Y") return "Business Tax Returns (3 years)";
+
+  // Default: replace underscores with spaces
+  return key.replace(/_/g, " ");
+}
+
 type Props = {
   blockers: LifecycleBlocker[];
   dealId: string;
@@ -66,9 +83,9 @@ export function BlockerList({ blockers, dealId, onServerAction }: Props) {
                     {(blocker.evidence!.missing as string[]).slice(0, 5).map((key: string) => (
                       <span
                         key={key}
-                        className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/10 text-[10px] text-amber-300/70 font-mono"
+                        className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/10 text-[10px] text-amber-300/70"
                       >
-                        {key.replace(/_/g, " ")}
+                        {formatChecklistKey(key)}
                       </span>
                     ))}
                     {(blocker.evidence!.missing as string[]).length > 5 && (
