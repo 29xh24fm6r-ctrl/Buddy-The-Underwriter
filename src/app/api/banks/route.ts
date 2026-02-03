@@ -82,35 +82,30 @@ export async function POST(req: NextRequest) {
 
   const sb = supabaseAdmin();
 
-  // Ensure profile row exists and get the profile ID
-  // We need profile.id for bank_memberships.user_id (may be required if migration not run)
+  // SECURITY: Profile must exist before creating bank membership.
+  // This ensures user_id references a real profiles.id (no placeholders).
   let profileId: string | null = null;
+
+  // Step 1: Try ensureUserProfile (creates if missing)
   try {
     const profileResult = await ensureUserProfile({ userId });
     profileId = profileResult.profile.id;
-    console.log("[POST /api/banks] ensureUserProfile success, profileId:", profileId);
   } catch (e: any) {
     console.warn("[POST /api/banks] ensureUserProfile failed:", e?.message ?? e);
   }
 
-  // If we couldn't get profile ID, try to look it up directly
+  // Step 2: Direct lookup fallback
   if (!profileId) {
-    const { data: prof, error: profErr } = await sb
+    const { data: prof } = await sb
       .from("profiles")
       .select("id")
       .eq("clerk_user_id", userId)
       .maybeSingle();
-
-    if (profErr) {
-      console.warn("[POST /api/banks] profile lookup failed:", profErr.message);
-    }
     profileId = prof?.id ?? null;
-    console.log("[POST /api/banks] profile lookup result:", profileId);
   }
 
-  // Last resort: create a minimal profile if none exists
+  // Step 3: Create minimal profile if still missing
   if (!profileId) {
-    console.log("[POST /api/banks] No profile found, creating minimal profile...");
     const { data: newProf, error: createErr } = await sb
       .from("profiles")
       .insert({ clerk_user_id: userId, updated_at: new Date().toISOString() })
@@ -119,10 +114,20 @@ export async function POST(req: NextRequest) {
 
     if (createErr) {
       console.error("[POST /api/banks] profile creation failed:", createErr.message);
-    } else {
-      profileId = newProf?.id ?? null;
-      console.log("[POST /api/banks] created profile:", profileId);
+      return NextResponse.json(
+        { ok: false, error: "profile_required", detail: "Could not create user profile. Please try again." },
+        { status: 500 },
+      );
     }
+    profileId = newProf?.id ?? null;
+  }
+
+  // Hard-fail if we still don't have a profile (should never happen)
+  if (!profileId) {
+    return NextResponse.json(
+      { ok: false, error: "profile_required", detail: "User profile is required to create a bank." },
+      { status: 400 },
+    );
   }
 
   // Idempotency: check if user already admins a bank with this name
@@ -205,30 +210,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Create admin membership
-  // Include both user_id (profile UUID) and clerk_user_id for compatibility
-  // user_id may be required if migration 20260203_fix_bank_memberships_user_id hasn't been run
-  const membershipData: Record<string, unknown> = {
-    bank_id: newBank.id,
-    clerk_user_id: userId,
-    role: "admin",
-  };
-  // Always include user_id - use profileId if available, otherwise generate a placeholder UUID
-  // This handles the case where bank_memberships.user_id is NOT NULL but we don't have a profile
-  if (profileId) {
-    membershipData.user_id = profileId;
-  } else {
-    // Generate a deterministic UUID from the clerk userId to satisfy NOT NULL constraint
-    // This is a workaround until the migration is run
-    const { createHash } = await import("crypto");
-    const hash = createHash("sha256").update(userId).digest("hex");
-    const placeholderUuid = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`;
-    membershipData.user_id = placeholderUuid;
-    console.warn("[POST /api/banks] Using placeholder UUID for user_id:", placeholderUuid);
-  }
+  // Create admin membership with real profile.id (no placeholders)
+  // The DB trigger will also resolve user_id from clerk_user_id as a safety net
   const { error: memErr } = await sb
     .from("bank_memberships")
-    .insert(membershipData);
+    .insert({
+      bank_id: newBank.id,
+      user_id: profileId,
+      clerk_user_id: userId,
+      role: "admin",
+    });
 
   if (memErr) {
     console.error("[POST /api/banks] membership insert failed:", {
@@ -239,22 +230,19 @@ export async function POST(req: NextRequest) {
       bankId: newBank.id,
     });
     // Rollback: delete the orphaned bank (best-effort)
-    const { error: rollbackErr } = await sb.from("banks").delete().eq("id", newBank.id);
-    if (rollbackErr) {
-      console.error("[POST /api/banks] rollback failed:", rollbackErr.message);
-    }
-    // Return error with details for debugging
-    // Check if it's the user_id null constraint error
-    const isUserIdConstraint = memErr.message?.includes("user_id") || memErr.code === "23502";
+    await sb.from("banks").delete().eq("id", newBank.id);
+
+    // Check for duplicate membership (user already in this bank)
+    const isDuplicate = memErr.code === "23505" || memErr.message?.includes("duplicate");
     return NextResponse.json(
       {
         ok: false,
-        error: "bank_creation_failed",
-        detail: isUserIdConstraint
-          ? "Database migration required. Please run migration 20260203_fix_bank_memberships_user_id.sql"
+        error: isDuplicate ? "already_member" : "bank_creation_failed",
+        detail: isDuplicate
+          ? "You are already a member of this bank."
           : `Could not create bank membership: ${memErr.message}`,
       },
-      { status: 500 },
+      { status: isDuplicate ? 409 : 500 },
     );
   }
 
