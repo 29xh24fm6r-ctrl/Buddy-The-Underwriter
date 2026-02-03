@@ -211,15 +211,19 @@ export async function POST(req: NextRequest) {
   }
 
   // Create admin membership with real profile.id (no placeholders)
+  // Uses upsert for idempotency (retries/double-clicks won't fail)
   // The DB trigger will also resolve user_id from clerk_user_id as a safety net
   const { error: memErr } = await sb
     .from("bank_memberships")
-    .insert({
-      bank_id: newBank.id,
-      user_id: profileId,
-      clerk_user_id: userId,
-      role: "admin",
-    });
+    .upsert(
+      {
+        bank_id: newBank.id,
+        user_id: profileId,
+        clerk_user_id: userId,
+        role: "admin",
+      },
+      { onConflict: "bank_id,user_id" }
+    );
 
   if (memErr) {
     console.error("[POST /api/banks] membership insert failed:", {
