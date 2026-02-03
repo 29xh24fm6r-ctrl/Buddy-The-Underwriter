@@ -42,12 +42,12 @@ const PRESETS: Record<
     },
     {
       checklist_key: "IRS_BUSINESS_3Y",
-      title: "Business tax returns (3 years)",
+      title: "Business tax returns (3 consecutive years)",
       required: true,
     },
     {
       checklist_key: "IRS_PERSONAL_3Y",
-      title: "Personal tax returns (3 years)",
+      title: "Personal tax returns (3 consecutive years)",
       required: true,
     },
     {

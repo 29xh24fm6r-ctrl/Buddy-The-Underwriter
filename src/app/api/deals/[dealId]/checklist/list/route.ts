@@ -42,8 +42,8 @@ async function safeWithTimeout<T>(
 
 const CHECKLIST_DEFINITIONS: Record<string, { title: string; required: boolean }> = {
   PFS_CURRENT: { title: "Personal Financial Statement (current)", required: true },
-  IRS_BUSINESS_3Y: { title: "Business tax returns (3 years)", required: true },
-  IRS_PERSONAL_3Y: { title: "Personal tax returns (3 years)", required: true },
+  IRS_BUSINESS_3Y: { title: "Business tax returns (3 consecutive years)", required: true },
+  IRS_PERSONAL_3Y: { title: "Personal tax returns (3 consecutive years)", required: true },
   // Back-compat for older deals
   IRS_BUSINESS_2Y: { title: "Business tax returns", required: true },
   IRS_PERSONAL_2Y: { title: "Personal tax returns", required: true },

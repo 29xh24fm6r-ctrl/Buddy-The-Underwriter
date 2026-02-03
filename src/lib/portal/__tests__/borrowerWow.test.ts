@@ -11,7 +11,7 @@ test("borrower upload satisfies multiple checklist items", () => {
     {
       id: "1",
       checklist_key: "IRS_BUSINESS_3Y",
-      title: "Business tax returns (3 years)",
+      title: "Business tax returns (3 consecutive years)",
       required: true,
       status: "satisfied",
       required_years: [2021, 2022, 2023],
@@ -20,7 +20,7 @@ test("borrower upload satisfies multiple checklist items", () => {
     {
       id: "2",
       checklist_key: "IRS_PERSONAL_3Y",
-      title: "Personal tax returns (3 years)",
+      title: "Personal tax returns (3 consecutive years)",
       required: true,
       status: "received",
     },

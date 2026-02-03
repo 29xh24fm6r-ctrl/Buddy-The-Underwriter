@@ -382,7 +382,7 @@ function generatePunchlist(
   }
 
   if (!hasIRS) {
-    borrowerActions.push("Connect IRS transcript or upload tax returns (3 years) — saves uploading 9 documents");
+    borrowerActions.push("Connect IRS transcript or upload tax returns (3 consecutive years) — saves uploading 9 documents");
   }
 
   if (!dealData.deal?.use_of_proceeds) {

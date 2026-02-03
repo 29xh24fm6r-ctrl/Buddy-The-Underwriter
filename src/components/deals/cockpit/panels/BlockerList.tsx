@@ -27,8 +27,8 @@ function formatChecklistKey(key: string): string {
   if (businessYearMatch) return `${businessYearMatch[1]} Business Tax Return`;
 
   // Legacy grouped keys
-  if (key === "IRS_PERSONAL_3Y") return "Personal Tax Returns (3 years)";
-  if (key === "IRS_BUSINESS_3Y") return "Business Tax Returns (3 years)";
+  if (key === "IRS_PERSONAL_3Y") return "Personal Tax Returns (3 consecutive years)";
+  if (key === "IRS_BUSINESS_3Y") return "Business Tax Returns (3 consecutive years)";
 
   // Default: replace underscores with spaces
   return key.replace(/_/g, " ");
