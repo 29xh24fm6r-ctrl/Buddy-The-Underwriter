@@ -192,6 +192,95 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Check if bank with this name already exists (handles orphaned banks and name collisions)
+  const { data: existingBank } = await sb
+    .from("banks")
+    .select("id, name, logo_url, website_url")
+    .ilike("name", name)
+    .maybeSingle();
+
+  if (existingBank) {
+    // Bank exists - check if it's orphaned (no memberships) or belongs to another client
+    const { count: memberCount } = await sb
+      .from("bank_memberships")
+      .select("*", { count: "exact", head: true })
+      .eq("bank_id", existingBank.id);
+
+    if (memberCount === 0) {
+      // Orphaned bank - safe to claim it for this user
+      const { error: claimErr } = await sb
+        .from("bank_memberships")
+        .insert({
+          bank_id: existingBank.id,
+          user_id: profileId,
+          clerk_user_id: userId,
+          role: "admin",
+        });
+
+      if (!claimErr) {
+        // Update website_url and logo if provided
+        if (websiteUrl) {
+          let logoUrl: string | null = null;
+          try {
+            const hostname = new URL(websiteUrl).hostname;
+            logoUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=128`;
+          } catch {
+            // Invalid URL, skip logo
+          }
+          await sb
+            .from("banks")
+            .update({ website_url: websiteUrl, logo_url: logoUrl })
+            .eq("id", existingBank.id);
+          existingBank.website_url = websiteUrl;
+          existingBank.logo_url = logoUrl;
+        }
+
+        // Set as current bank
+        await sb
+          .from("profiles")
+          .update({
+            bank_id: existingBank.id,
+            last_bank_id: existingBank.id,
+            bank_selected_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("clerk_user_id", userId);
+
+        const res = NextResponse.json({
+          ok: true,
+          bank: { id: existingBank.id, name: existingBank.name },
+          current_bank: {
+            id: existingBank.id,
+            name: existingBank.name,
+            logo_url: existingBank.logo_url,
+            website_url: existingBank.website_url,
+          },
+          claimed: true,
+        });
+        res.cookies.set({
+          name: "bank_id",
+          value: existingBank.id,
+          httpOnly: true,
+          sameSite: "lax",
+          secure: process.env.NODE_ENV === "production",
+          path: "/",
+          maxAge: 60 * 60 * 24 * 30,
+        });
+        return res;
+      }
+    }
+
+    // Bank belongs to another client - return generic error (don't expose bank existence)
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "bank_creation_failed",
+        detail: "Could not create bank. Please try a different name or contact support.",
+      },
+      { status: 409 },
+    );
+  }
+
   // Create new bank
   // Generate a unique code from the name (first 3 chars + random suffix)
   const baseCode = name
