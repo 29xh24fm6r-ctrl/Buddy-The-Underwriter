@@ -1,13 +1,27 @@
 import "server-only";
-import { NextResponse } from "next/server";
-import { getProductTypes } from "@/lib/loanRequests/actions";
+import { NextRequest, NextResponse } from "next/server";
+import { getProductTypesForBank } from "@/lib/loanRequests/actions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const productTypes = await getProductTypes();
+    let bankId = req.nextUrl.searchParams.get("bankId") || null;
+
+    // Auto-resolve bank_id from authenticated banker context if not provided
+    if (!bankId) {
+      try {
+        const { getCurrentBankId } = await import(
+          "@/lib/tenant/getCurrentBankId"
+        );
+        bankId = await getCurrentBankId();
+      } catch {
+        // Non-fatal — caller may not be authenticated (e.g. public context)
+      }
+    }
+
+    const productTypes = await getProductTypesForBank(bankId);
     return NextResponse.json({ ok: true, productTypes });
   } catch (e: any) {
     console.error("[loan-product-types GET]", e);

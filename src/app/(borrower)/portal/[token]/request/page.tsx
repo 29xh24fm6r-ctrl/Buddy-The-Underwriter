@@ -1,6 +1,7 @@
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { PortalLoanRequestForm } from "@/components/borrower/PortalLoanRequestForm";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getProductTypesForBank } from "@/lib/loanRequests/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -27,17 +28,13 @@ export default async function PortalLoanRequestPage({
 
   const sb = supabaseAdmin();
 
-  const [{ data: deal }, { data: productTypes }] = await Promise.all([
+  const [{ data: deal }, productTypes] = await Promise.all([
     sb
       .from("deals")
       .select("id, borrower_name")
       .eq("id", ctx.dealId)
       .single(),
-    sb
-      .from("loan_product_types")
-      .select("*")
-      .eq("enabled", true)
-      .order("display_order", { ascending: true }),
+    getProductTypesForBank(ctx.bankId),
   ]);
 
   return (
@@ -54,7 +51,7 @@ export default async function PortalLoanRequestPage({
         <PortalLoanRequestForm
           token={token}
           dealId={ctx.dealId}
-          productTypes={(productTypes ?? []) as any[]}
+          productTypes={productTypes}
         />
       </div>
     </div>

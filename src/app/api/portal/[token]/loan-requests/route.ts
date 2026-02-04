@@ -113,11 +113,19 @@ export async function POST(
       );
     }
 
+    if (!body?.requested_amount || Number(body.requested_amount) <= 0) {
+      return NextResponse.json(
+        { ok: false, error: "requested_amount is required" },
+        { status: 400 },
+      );
+    }
+
     const result = await createLoanRequest(
       resolved.dealId,
       body,
       null,
       "borrower_portal",
+      "submitted",
     );
 
     if (!result.ok) {

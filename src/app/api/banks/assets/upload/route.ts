@@ -1,8 +1,8 @@
 // src/app/api/banks/assets/upload/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,23 +10,24 @@ export const dynamic = "force-dynamic";
 const BUCKET = "bank-assets";
 
 export async function POST(req: Request) {
-  const sbUser = await supabaseServer();
-  const { data: auth } = await sbUser.auth.getUser();
-  if (!auth?.user)
-    return NextResponse.json(
-      { ok: false, error: "not_authenticated" },
-      { status: 401 },
-    );
-
   let bankId: string;
   try {
     bankId = await getCurrentBankId();
   } catch (e: any) {
+    const msg = String(e?.message || "");
+    if (msg === "not_authenticated") {
+      return NextResponse.json(
+        { ok: false, error: "not_authenticated" },
+        { status: 401 },
+      );
+    }
     return NextResponse.json(
-      { ok: false, error: "tenant_missing", detail: String(e?.message || "") },
+      { ok: false, error: "tenant_missing", detail: msg },
       { status: 400 },
     );
   }
+
+  const { userId } = await clerkAuth();
 
   const form = await req.formData();
   const kind = String(form.get("kind") || "").trim();
@@ -86,7 +87,7 @@ export async function POST(req: Request) {
     size_bytes: bytes.byteLength,
     version: 1,
     active: true,
-    created_by: auth.user.id,
+    created_by: userId,
   });
 
   if (ins.error) {

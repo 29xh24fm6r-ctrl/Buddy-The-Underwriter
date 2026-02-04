@@ -1,26 +1,25 @@
 // src/app/api/banks/assets/disable/route.ts
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const sb = await supabaseServer();
-  const { data: auth } = await sb.auth.getUser();
-  if (!auth?.user)
-    return NextResponse.json(
-      { ok: false, error: "not_authenticated" },
-      { status: 401 },
-    );
-
   let bankId: string;
   try {
     bankId = await getCurrentBankId();
   } catch (e: any) {
+    const msg = String(e?.message || "");
+    if (msg === "not_authenticated") {
+      return NextResponse.json(
+        { ok: false, error: "not_authenticated" },
+        { status: 401 },
+      );
+    }
     return NextResponse.json(
-      { ok: false, error: "tenant_missing", detail: String(e?.message || "") },
+      { ok: false, error: "tenant_missing", detail: msg },
       { status: 400 },
     );
   }
@@ -33,7 +32,7 @@ export async function POST(req: Request) {
       { status: 400 },
     );
 
-  const up = await sb
+  const up = await supabaseAdmin()
     .from("bank_assets")
     .update({ active: false })
     .eq("id", id)

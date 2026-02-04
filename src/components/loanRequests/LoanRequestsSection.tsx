@@ -229,13 +229,20 @@ function LoanRequestForm({
     {} as Record<ProductCategory, ProductTypeConfig[]>,
   );
 
+  function parseNumeric(raw: string): number | null {
+    const cleaned = raw.replace(/[,\s$]/g, "");
+    if (!cleaned) return null;
+    const n = Number(cleaned);
+    return Number.isNaN(n) ? null : n;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!productType) return;
 
     const input: LoanRequestInput = {
       product_type: productType as ProductType,
-      requested_amount: amount ? Number(amount) : null,
+      requested_amount: parseNumeric(amount),
       loan_purpose: purpose || null,
       requested_term_months: termMonths ? Number(termMonths) : null,
       requested_amort_months: amortMonths ? Number(amortMonths) : null,
@@ -296,8 +303,9 @@ function LoanRequestForm({
           </label>
           <input
             className={inputCls}
-            type="number"
-            placeholder="e.g. 750000"
+            type="text"
+            inputMode="decimal"
+            placeholder="e.g. 750,000"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             disabled={saving}
@@ -305,8 +313,9 @@ function LoanRequestForm({
         </div>
         <div>
           <label className="text-xs font-medium text-slate-600">Purpose</label>
-          <input
-            className={inputCls}
+          <textarea
+            className={inputCls + " h-auto py-2 resize-none"}
+            rows={2}
             placeholder="e.g. Purchase building"
             value={purpose}
             onChange={(e) => setPurpose(e.target.value)}
@@ -599,7 +608,7 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
             What the borrower is asking for
           </div>
         </div>
-        {!showForm && !editingRequest && (
+        {!showForm && !editingRequest && productTypes.length > 0 && (
           <button
             onClick={() => {
               setEditingRequest(null);
@@ -619,8 +628,15 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
         </div>
       )}
 
+      {/* No products configured */}
+      {productTypes.length === 0 && !loading && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+          No loan products configured for this bank. Contact an administrator to set up available loan products.
+        </div>
+      )}
+
       {/* Empty state */}
-      {requests.length === 0 && !showForm && !editingRequest && (
+      {requests.length === 0 && !showForm && !editingRequest && productTypes.length > 0 && (
         <div className="mt-4 rounded-lg border-2 border-dashed border-slate-200 p-6 text-center">
           <div className="text-sm font-medium text-slate-600">
             No loan requests yet

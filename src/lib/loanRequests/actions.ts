@@ -10,6 +10,7 @@ export async function createLoanRequest(
   input: LoanRequestInput,
   createdBy?: string | null,
   source: "banker" | "borrower_portal" | "api" = "banker",
+  initialStatus: "draft" | "submitted" = "draft",
 ): Promise<{ ok: true; loanRequest: LoanRequest } | { ok: false; error: string }> {
   const sb = supabaseAdmin();
 
@@ -57,7 +58,7 @@ export async function createLoanRequest(
       injection_source: input.injection_source ?? null,
       created_by: createdBy ?? null,
       source,
-      status: "draft",
+      status: initialStatus,
     } as any)
     .select("*")
     .single();
@@ -195,8 +196,52 @@ export async function getLoanRequest(
 }
 
 export async function getProductTypes(): Promise<ProductTypeConfig[]> {
+  return getProductTypesForBank(null);
+}
+
+export async function getProductTypesForBank(
+  bankId: string | null,
+): Promise<ProductTypeConfig[]> {
   const sb = supabaseAdmin();
 
+  // If bankId provided, check for bank-specific overrides
+  if (bankId) {
+    const { data: bankOverrides } = await sb
+      .from("bank_loan_product_types")
+      .select("product_code, display_name, sort_order")
+      .eq("bank_id", bankId)
+      .eq("enabled", true);
+
+    if (bankOverrides && bankOverrides.length > 0) {
+      // Bank has overrides — fetch only those product codes from the catalog
+      const codes = bankOverrides.map((o: any) => o.product_code);
+      const { data: products } = await sb
+        .from("loan_product_types")
+        .select("*")
+        .in("code", codes)
+        .eq("enabled", true)
+        .order("display_order", { ascending: true });
+
+      if (products && products.length > 0) {
+        // Apply bank-specific display_name and sort_order overrides
+        const overrideMap = new Map(
+          bankOverrides.map((o: any) => [o.product_code, o]),
+        );
+        const result = (products as unknown as ProductTypeConfig[]).map((p) => {
+          const ov = overrideMap.get(p.code) as any;
+          return {
+            ...p,
+            label: ov?.display_name ?? p.label,
+            display_order: ov?.sort_order ?? p.display_order,
+          };
+        });
+        result.sort((a, b) => a.display_order - b.display_order);
+        return result;
+      }
+    }
+  }
+
+  // Fall back to global enabled products
   const { data } = await sb
     .from("loan_product_types")
     .select("*")

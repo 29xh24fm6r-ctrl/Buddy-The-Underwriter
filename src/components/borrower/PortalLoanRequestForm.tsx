@@ -24,6 +24,13 @@ const CATEGORY_LABELS: Record<string, string> = {
   SPECIALTY: "Specialty",
 };
 
+function parseNumeric(raw: string): number | null {
+  const cleaned = raw.replace(/[,\s$]/g, "");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isNaN(n) ? null : n;
+}
+
 export function PortalLoanRequestForm({
   token,
   dealId,
@@ -59,21 +66,27 @@ export function PortalLoanRequestForm({
     e.preventDefault();
     if (!productType) return;
 
+    const parsedAmount = parseNumeric(requestedAmount);
+    if (parsedAmount === null || parsedAmount <= 0) {
+      setError("Please enter a valid requested amount.");
+      return;
+    }
+
     setSaving(true);
     setError(null);
 
     try {
       const body: Record<string, unknown> = {
         product_type: productType,
-        requested_amount: requestedAmount ? Number(requestedAmount) : null,
+        requested_amount: parsedAmount,
         loan_purpose: loanPurpose || null,
         requested_term_months: termMonths ? Number(termMonths) : null,
       };
 
       if (showRealEstate) {
         body.property_type = propertyType || null;
-        body.property_value = propertyValue ? Number(propertyValue) : null;
-        body.purchase_price = purchasePrice ? Number(purchasePrice) : null;
+        body.property_value = propertyValue ? parseNumeric(propertyValue) : null;
+        body.purchase_price = purchasePrice ? parseNumeric(purchasePrice) : null;
       }
 
       if (showSba) {
@@ -129,6 +142,19 @@ export function PortalLoanRequestForm({
     );
   }
 
+  if (productTypes.length === 0) {
+    return (
+      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-center">
+        <div className="text-sm font-medium text-neutral-400">
+          No loan products are currently available. Please contact the bank for assistance.
+        </div>
+      </div>
+    );
+  }
+
+  const inputCls =
+    "mt-1.5 w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:border-white focus:outline-none";
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Product Type Selection */}
@@ -137,7 +163,7 @@ export function PortalLoanRequestForm({
           Loan Product Type <span className="text-red-400">*</span>
         </label>
         <select
-          className="mt-1.5 w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:border-white focus:outline-none"
+          className={inputCls}
           value={productType}
           onChange={(e) => setProductType(e.target.value)}
           required
@@ -162,15 +188,16 @@ export function PortalLoanRequestForm({
       <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 space-y-4">
         <div>
           <label className="block text-sm font-medium text-neutral-300">
-            Requested Loan Amount
+            Requested Loan Amount <span className="text-red-400">*</span>
           </label>
           <input
-            type="number"
-            step="1000"
-            className="mt-1.5 w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:border-white focus:outline-none"
-            placeholder="e.g. 500000"
+            type="text"
+            inputMode="decimal"
+            className={inputCls}
+            placeholder="e.g. 500,000"
             value={requestedAmount}
             onChange={(e) => setRequestedAmount(e.target.value)}
+            required
           />
         </div>
         <div>
@@ -178,7 +205,7 @@ export function PortalLoanRequestForm({
             Purpose of Loan
           </label>
           <textarea
-            className="mt-1.5 w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:border-white focus:outline-none resize-none"
+            className={inputCls + " resize-none"}
             rows={3}
             placeholder="Describe what you plan to use the funds for..."
             value={loanPurpose}
@@ -192,7 +219,7 @@ export function PortalLoanRequestForm({
           <input
             type="number"
             step="1"
-            className="mt-1.5 w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:border-white focus:outline-none"
+            className={inputCls}
             placeholder="e.g. 120"
             value={termMonths}
             onChange={(e) => setTermMonths(e.target.value)}
@@ -212,7 +239,7 @@ export function PortalLoanRequestForm({
             </label>
             <input
               type="text"
-              className="mt-1.5 w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:border-white focus:outline-none"
+              className={inputCls}
               placeholder="e.g. Office, Retail, Industrial, Multi-Family"
               value={propertyType}
               onChange={(e) => setPropertyType(e.target.value)}
@@ -224,10 +251,10 @@ export function PortalLoanRequestForm({
                 Property Value
               </label>
               <input
-                type="number"
-                step="1000"
-                className="mt-1.5 w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:border-white focus:outline-none"
-                placeholder="e.g. 750000"
+                type="text"
+                inputMode="decimal"
+                className={inputCls}
+                placeholder="e.g. 750,000"
                 value={propertyValue}
                 onChange={(e) => setPropertyValue(e.target.value)}
               />
@@ -237,10 +264,10 @@ export function PortalLoanRequestForm({
                 Purchase Price
               </label>
               <input
-                type="number"
-                step="1000"
-                className="mt-1.5 w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:border-white focus:outline-none"
-                placeholder="e.g. 700000"
+                type="text"
+                inputMode="decimal"
+                className={inputCls}
+                placeholder="e.g. 700,000"
                 value={purchasePrice}
                 onChange={(e) => setPurchasePrice(e.target.value)}
               />
@@ -260,7 +287,7 @@ export function PortalLoanRequestForm({
               SBA Program
             </label>
             <select
-              className="mt-1.5 w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:border-white focus:outline-none"
+              className={inputCls}
               value={sbaProgram}
               onChange={(e) => setSbaProgram(e.target.value)}
             >
