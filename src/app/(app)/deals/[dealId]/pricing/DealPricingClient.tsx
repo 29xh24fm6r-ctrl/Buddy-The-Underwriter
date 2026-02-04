@@ -108,6 +108,7 @@ export default function DealPricingClient({
   latestRates,
   inputs,
   quotes,
+  loanRequestAmount,
   computed,
 }: {
   deal: Deal;
@@ -115,10 +116,11 @@ export default function DealPricingClient({
   latestRates: Record<IndexCode, IndexRate> | null;
   inputs: PricingInputs | null;
   quotes: QuoteRow[];
+  loanRequestAmount?: number | null;
   computed: ComputedPricing;
 }) {
   const [form, setForm] = useState<PricingInputs>(() =>
-    normalizeInputs(deal, inputs),
+    normalizeInputs(deal, inputs, loanRequestAmount ?? null),
   );
   const [rates, setRates] = useState<Record<IndexCode, IndexRate> | null>(
     latestRates,
@@ -168,7 +170,7 @@ export default function DealPricingClient({
   const allInRatePct = baseRatePct + spreadBps / 100;
   const rateAsOf = effectiveRate?.asOf ?? computed.rateAsOf;
   const rateSource = effectiveRate?.source ?? computed.rateSource;
-  const principal = form.loan_amount ?? deal.requested_loan_amount ?? 0;
+  const principal = form.loan_amount ?? loanRequestAmount ?? deal.requested_loan_amount ?? 0;
   const monthlyRate = allInRatePct / 100 / 12;
   const amortMonths = Math.max(1, form.amort_months || 0);
   const paymentEstimate = calculatePayment(principal, monthlyRate, amortMonths);
@@ -1208,13 +1210,13 @@ function calculatePayment(principal: number, monthlyRate: number, n: number) {
   return (principal * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -n));
 }
 
-function normalizeInputs(deal: Deal, inputs: PricingInputs | null): PricingInputs {
+function normalizeInputs(deal: Deal, inputs: PricingInputs | null, loanRequestAmount?: number | null): PricingInputs {
   const base: PricingInputs = {
     index_code: "SOFR",
     index_tenor: null,
     base_rate_override_pct: null,
     spread_override_bps: null,
-    loan_amount: deal.requested_loan_amount ?? null,
+    loan_amount: loanRequestAmount ?? deal.requested_loan_amount ?? null,
     term_months: 120,
     amort_months: 300,
     interest_only_months: 0,

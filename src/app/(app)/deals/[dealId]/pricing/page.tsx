@@ -90,6 +90,18 @@ export default async function Page(
     .eq("bank_id", bankId)
     .single();
 
+  // Fetch primary loan request amount (first by request_number)
+  const { data: primaryLoanRequest } = await sb
+    .from("deal_loan_requests")
+    .select("requested_amount")
+    .eq("deal_id", dealId)
+    .order("request_number", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  const loanRequestAmount: number | null =
+    (primaryLoanRequest as any)?.requested_amount ?? null;
+
   if (error || !deal) {
     return (
       <main className="p-8">
@@ -146,6 +158,7 @@ export default async function Page(
         latestRates={latestRates}
         inputs={inputs}
         quotes={quotes}
+        loanRequestAmount={loanRequestAmount}
         computed={{
           baseRatePct,
           spreadBps,

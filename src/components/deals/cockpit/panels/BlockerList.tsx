@@ -13,6 +13,8 @@ const BLOCKER_ICONS: Record<string, string> = {
   decision_missing: "gavel",
   attestation_missing: "verified",
   closing_docs_missing: "folder_open",
+  loan_request_missing: "request_page",
+  loan_request_incomplete: "edit_note",
   deal_not_found: "error",
   internal_error: "warning",
 };
