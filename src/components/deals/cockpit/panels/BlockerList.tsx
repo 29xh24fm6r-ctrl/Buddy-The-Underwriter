@@ -19,16 +19,18 @@ const BLOCKER_ICONS: Record<string, string> = {
 
 /** Convert checklist key to human-readable label */
 function formatChecklistKey(key: string): string {
-  // Individual year tax returns: IRS_PERSONAL_2024 → "2024 Personal Tax Return"
+  // Grouped consecutive-year keys (canonical)
+  if (key === "IRS_PERSONAL_3Y") return "Personal Tax Returns (3 consecutive years)";
+  if (key === "IRS_BUSINESS_3Y") return "Business Tax Returns (3 consecutive years)";
+  if (key === "IRS_PERSONAL_2Y") return "Personal Tax Returns (2 years)";
+  if (key === "IRS_BUSINESS_2Y") return "Business Tax Returns (2 years)";
+
+  // Individual year tax returns (legacy): IRS_PERSONAL_2024 → "2024 Personal Tax Return"
   const personalYearMatch = key.match(/^IRS_PERSONAL_(\d{4})$/);
   if (personalYearMatch) return `${personalYearMatch[1]} Personal Tax Return`;
 
   const businessYearMatch = key.match(/^IRS_BUSINESS_(\d{4})$/);
   if (businessYearMatch) return `${businessYearMatch[1]} Business Tax Return`;
-
-  // Legacy grouped keys
-  if (key === "IRS_PERSONAL_3Y") return "Personal Tax Returns (3 consecutive years)";
-  if (key === "IRS_BUSINESS_3Y") return "Business Tax Returns (3 consecutive years)";
 
   // Default: replace underscores with spaces
   return key.replace(/_/g, " ");

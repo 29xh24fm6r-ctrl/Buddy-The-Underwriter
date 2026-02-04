@@ -4,6 +4,15 @@ import { useEffect, useCallback } from "react";
 import useSWR from "swr";
 import { onChecklistRefresh } from "@/lib/events/uiEvents";
 
+export type ConsecutiveEvalMeta = {
+  consecutive_eval: true;
+  ok: boolean;
+  run: { start: number; end: number; years: number[] } | null;
+  reason: string | null;
+  min_most_recent_year: number;
+  years_on_file: number[];
+};
+
 export type ChecklistDetailItem = {
   id: string;
   checklist_key: string;
@@ -13,6 +22,7 @@ export type ChecklistDetailItem = {
   status: string;
   required_years: number[] | null;
   satisfied_years: number[] | null;
+  satisfaction_json: ConsecutiveEvalMeta | null;
 };
 
 export type ChecklistGrouped = {
@@ -80,6 +90,7 @@ export function useChecklistDetail(dealId: string): {
     status: normStatus(item.status),
     required_years: item.required_years ? (Array.isArray(item.required_years) ? item.required_years : [item.required_years]) : null,
     satisfied_years: item.satisfied_years ? (Array.isArray(item.satisfied_years) ? item.satisfied_years : [item.satisfied_years]) : null,
+    satisfaction_json: item.satisfaction_json?.consecutive_eval ? item.satisfaction_json : null,
   }));
 
   const grouped: ChecklistGrouped = {
