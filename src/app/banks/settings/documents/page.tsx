@@ -38,7 +38,11 @@ export default function BankDocumentsPage() {
     const res = await fetch("/api/banks/assets/list", { method: "GET" });
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.ok) {
-      setErr(json?.error ? `${json.error}${json.detail ? `: ${json.detail}` : ""}` : `http_${res.status}`);
+      if (res.status === 401 || json?.error === "not_authenticated") {
+        window.location.href = "/sign-in";
+        return;
+      }
+      setErr("Failed to load documents. Please try refreshing the page.");
       return;
     }
     setItems(json.items || []);
@@ -62,7 +66,11 @@ export default function BankDocumentsPage() {
       const json = await res.json().catch(() => null);
 
       if (!res.ok || !json?.ok) {
-        setErr(json?.error ? `${json.error}${json.detail ? `: ${json.detail}` : ""}` : `http_${res.status}`);
+        if (res.status === 401 || json?.error === "not_authenticated") {
+          window.location.href = "/sign-in";
+          return;
+        }
+        setErr(json?.error === "upload_failed" ? "Upload failed. Please try again." : "Something went wrong during upload.");
         return;
       }
 

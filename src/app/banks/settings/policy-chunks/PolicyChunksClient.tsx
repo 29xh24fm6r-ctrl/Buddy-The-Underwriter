@@ -38,13 +38,17 @@ export default function PolicyChunksClient() {
       const url = assetId
         ? `/api/banks/policy/chunks?asset_id=${assetId}`
         : "/api/banks/policy/chunks";
-      
+
       const res = await fetch(url);
+      if (res.status === 401) {
+        window.location.href = "/sign-in";
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setChunks(json.chunks || []);
     } catch (err: any) {
-      setError(err.message);
+      setError("Failed to load policy chunks. Please try refreshing the page.");
     } finally {
       setLoading(false);
     }

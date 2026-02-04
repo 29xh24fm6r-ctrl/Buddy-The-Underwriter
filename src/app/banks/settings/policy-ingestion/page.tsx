@@ -32,11 +32,15 @@ export default function PolicyIngestionPage() {
     try {
       setLoading(true);
       const res = await fetch("/api/banks/assets/list");
+      if (res.status === 401) {
+        window.location.href = "/sign-in";
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      setAssets(json.assets || []);
+      setAssets(json.items || []);
     } catch (err: any) {
-      setError(err.message);
+      setError("Failed to load documents. Please try refreshing the page.");
     } finally {
       setLoading(false);
     }
@@ -45,9 +49,13 @@ export default function PolicyIngestionPage() {
   async function loadChunkStats() {
     try {
       const res = await fetch("/api/banks/policy/chunks");
+      if (res.status === 401) {
+        window.location.href = "/sign-in";
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      
+
       // Count chunks per asset
       const stats = new Map<string, number>();
       for (const chunk of json.chunks || []) {
@@ -76,17 +84,21 @@ export default function PolicyIngestionPage() {
       });
 
       if (!res.ok) {
+        if (res.status === 401) {
+          window.location.href = "/sign-in";
+          return;
+        }
         const json = await res.json();
         throw new Error(json.error || `HTTP ${res.status}`);
       }
 
       const json = await res.json();
-      alert(`✅ Created ${json.chunks_created} chunks`);
-      
+      alert(`Created ${json.chunks_created} chunks`);
+
       // Reload stats
       await loadChunkStats();
     } catch (err: any) {
-      setError(err.message);
+      setError("Ingestion failed. Please try again.");
     } finally {
       setProcessing(null);
     }
@@ -106,17 +118,21 @@ export default function PolicyIngestionPage() {
       });
 
       if (!res.ok) {
+        if (res.status === 401) {
+          window.location.href = "/sign-in";
+          return;
+        }
         const json = await res.json();
         throw new Error(json.error || `HTTP ${res.status}`);
       }
 
       const json = await res.json();
-      alert(`🗑️ Deleted ${json.deleted} chunks`);
-      
+      alert(`Deleted ${json.deleted} chunks`);
+
       // Reload stats
       await loadChunkStats();
     } catch (err: any) {
-      setError(err.message);
+      setError("Failed to delete chunks. Please try again.");
     } finally {
       setProcessing(null);
     }
