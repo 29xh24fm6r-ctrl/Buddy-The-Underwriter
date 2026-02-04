@@ -65,7 +65,7 @@ export async function getChecklistState(args: {
     // Fetch checklist rows.
     // IMPORTANT: Be schema-tolerant: try selecting v2 fields, then fall back.
     const baseSel = includeItems
-      ? "id,deal_id,checklist_key,status,required,title,description,created_at,received_at,satisfied_at,required_years,satisfied_years"
+      ? "id,deal_id,checklist_key,status,required,title,description,created_at,received_at,satisfied_at,required_years,satisfied_years,satisfaction_json"
       : "id,status,required";
 
     let rows: any[] | null = null;

@@ -280,6 +280,7 @@ export async function GET(
       received_at: (row as any).received_at ?? null,
       required_years: (row as any).required_years ?? null,
       satisfied_years: (row as any).satisfied_years ?? null,
+      satisfaction_json: (row as any).satisfaction_json ?? null,
       satisfied_at: (row as any).satisfied_at ?? null,
       created_at: row.created_at ?? null,
     }));

@@ -6,6 +6,7 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 import { sendSmsWithConsent } from "@/lib/sms/send";
+import { evaluateConsecutiveYears } from "@/lib/readiness/consecutiveYears";
 
 /** @deprecated Filename matching fallback — disable with FILENAME_MATCH_ENABLED=false */
 const FILENAME_MATCH_ENABLED = process.env.FILENAME_MATCH_ENABLED !== "false";
@@ -583,11 +584,40 @@ export async function reconcileDealChecklist(dealId: string) {
     }
     const satisfiedYears = Array.from(satisfiedYearsSet).sort((a, b) => b - a);
 
-    const isSatisfied = requiredDistinctYearCount
-      ? satisfiedYearsSet.size >= requiredDistinctYearCount
-      : requiredYears && requiredYears.length
-        ? requiredYears.every((y) => satisfiedYearsSet.has(y))
-        : docsForItem.length > 0;
+    // For _nY keys (e.g. IRS_BUSINESS_3Y): use the consecutive years evaluator
+    // which checks for a contiguous run AND recency. For other year-based items
+    // (individual year keys): check specific required years. For non-year items:
+    // satisfied by document presence.
+    let isSatisfied: boolean;
+    let satisfactionMeta: Record<string, unknown> | null = null;
+
+    if (requiredDistinctYearCount) {
+      const now = new Date();
+      const currentYear = now.getUTCFullYear();
+      const utcMonth = now.getUTCMonth();
+      const utcDay = now.getUTCDate();
+      const beforeDeadline = utcMonth < 3 || (utcMonth === 3 && utcDay < 16);
+      const minMostRecentYear = beforeDeadline ? currentYear - 2 : currentYear - 1;
+
+      const evalResult = evaluateConsecutiveYears(
+        Array.from(satisfiedYearsSet),
+        requiredDistinctYearCount,
+        minMostRecentYear,
+      );
+      isSatisfied = evalResult.ok;
+      satisfactionMeta = {
+        consecutive_eval: true,
+        ok: evalResult.ok,
+        run: evalResult.run ?? null,
+        reason: evalResult.reason ?? null,
+        min_most_recent_year: minMostRecentYear,
+        years_on_file: satisfiedYears,
+      };
+    } else if (requiredYears && requiredYears.length) {
+      isSatisfied = requiredYears.every((y) => satisfiedYearsSet.has(y));
+    } else {
+      isSatisfied = docsForItem.length > 0;
+    }
 
     // If there are no docs but we have a high-confidence mapping for this key, treat as satisfied.
     const hasHighConfidenceMapping = (mappingBestByKey.get(itemKey) ?? 0) >= 0.9;
@@ -597,9 +627,13 @@ export async function reconcileDealChecklist(dealId: string) {
     // (PFS_CURRENT, AR_AP_AGING, etc.) must never have satisfied_years populated —
     // spurious years from filename regex leak into the UI as phantom "Received" counts.
     if (hasSatisfiedYearsColumn && isYearBasedItem) {
+      const updatePayload: Record<string, unknown> = { satisfied_years: satisfiedYears };
+      if (satisfactionMeta) {
+        updatePayload.satisfaction_json = satisfactionMeta;
+      }
       const upd = await sb
         .from("deal_checklist_items")
-        .update({ satisfied_years: satisfiedYears } as any)
+        .update(updatePayload as any)
         .eq("id", (item as any).id);
       if (upd.error) {
         const msg = String(upd.error.message || "");

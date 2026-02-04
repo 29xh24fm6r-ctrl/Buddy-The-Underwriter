@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { useChecklistDetail, isProtectedKey, type ChecklistDetailItem } from "../hooks/useChecklistDetail";
-import { YearDots, YearSummary } from "./YearDots";
+import { YearDots, YearSummary, ConsecutiveYearStatus, ConsecutiveYearSummary } from "./YearDots";
 
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
 const glassHeader = "border-b border-white/10 bg-white/[0.02] px-5 py-3";
@@ -39,6 +39,7 @@ function ChecklistItemRow({
 }) {
   const badge = statusBadge(item.status);
   const isProtected = isProtectedKey(item.checklist_key);
+  const isConsecutiveItem = /_\d+Y$/.test(item.checklist_key);
 
   return (
     <div
@@ -63,13 +64,20 @@ function ChecklistItemRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm text-white/90 font-medium truncate">{item.title}</span>
-          <YearSummary requiredYears={item.required_years} satisfiedYears={item.satisfied_years} />
+          {isConsecutiveItem
+            ? <ConsecutiveYearSummary meta={item.satisfaction_json} />
+            : <YearSummary requiredYears={item.required_years} satisfiedYears={item.satisfied_years} />
+          }
         </div>
         {item.description && (
           <div className="text-xs text-white/40 mt-0.5 truncate">{item.description}</div>
         )}
-        {/* Year dots */}
-        {(item.required_years?.length || item.satisfied_years?.length) ? (
+        {/* Year display: consecutive range for _nY items, dots for individual year items */}
+        {isConsecutiveItem ? (
+          <div className="mt-1.5">
+            <ConsecutiveYearStatus meta={item.satisfaction_json} satisfiedYears={item.satisfied_years} />
+          </div>
+        ) : (item.required_years?.length || item.satisfied_years?.length) ? (
           <div className="mt-1.5">
             <YearDots requiredYears={item.required_years} satisfiedYears={item.satisfied_years} />
           </div>
