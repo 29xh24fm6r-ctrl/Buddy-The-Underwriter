@@ -637,10 +637,27 @@ export async function reconcileDealChecklist(dealId: string) {
         .eq("id", (item as any).id);
       if (upd.error) {
         const msg = String(upd.error.message || "");
-        if (!(msg.toLowerCase().includes("does not exist") && msg.includes("satisfied_years"))) {
+        const colMissing = msg.toLowerCase().includes("does not exist");
+
+        if (colMissing && msg.includes("satisfaction_json")) {
+          // satisfaction_json column not yet migrated — retry with satisfied_years only
+          const retry = await sb
+            .from("deal_checklist_items")
+            .update({ satisfied_years: satisfiedYears } as any)
+            .eq("id", (item as any).id);
+          if (retry.error) {
+            const retryMsg = String(retry.error.message || "");
+            if (retryMsg.toLowerCase().includes("does not exist") && retryMsg.includes("satisfied_years")) {
+              hasSatisfiedYearsColumn = false;
+            } else {
+              throw new Error(`checklist_update_satisfied_years_failed: ${retry.error.message}`);
+            }
+          }
+        } else if (colMissing && msg.includes("satisfied_years")) {
+          hasSatisfiedYearsColumn = false;
+        } else {
           throw new Error(`checklist_update_satisfied_years_failed: ${upd.error.message}`);
         }
-        hasSatisfiedYearsColumn = false;
       }
     }
 

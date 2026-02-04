@@ -3,7 +3,8 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { reconcileDealChecklist } from "@/lib/checklist/engine";
+import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { normalizeGoogleError } from "@/lib/google/errors";
@@ -44,7 +45,8 @@ export async function POST(
         );
       }
 
-      const r = await reconcileDealChecklist(dealId);
+      const sb = supabaseAdmin();
+      const r = await reconcileChecklistForDeal({ sb, dealId });
 
       await logLedgerEvent({
         dealId,
