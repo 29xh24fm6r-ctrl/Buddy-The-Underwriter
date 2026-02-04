@@ -216,6 +216,18 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/closing`,
       };
 
+    case "loan_request_missing":
+      return {
+        label: "Add Loan Request",
+        href: `/deals/${dealId}/cockpit#setup`,
+      };
+
+    case "loan_request_incomplete":
+      return {
+        label: "Complete Loan Request",
+        href: `/deals/${dealId}/cockpit#setup`,
+      };
+
     // Infrastructure/fetch errors - no direct fix
     case "checklist_fetch_failed":
     case "snapshot_fetch_failed":

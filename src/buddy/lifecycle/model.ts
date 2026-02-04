@@ -55,6 +55,8 @@ export type LifecycleBlockerCode =
   | "closing_docs_missing"
   | "deal_not_found"
   | "checklist_not_seeded"
+  | "loan_request_missing"
+  | "loan_request_incomplete"
   // Runtime/infrastructure blockers - specific per data source
   | "checklist_fetch_failed"
   | "snapshot_fetch_failed"

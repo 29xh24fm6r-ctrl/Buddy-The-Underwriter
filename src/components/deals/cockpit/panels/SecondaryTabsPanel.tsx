@@ -14,6 +14,7 @@ import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
 import { PreviewUnderwritePanel } from "@/components/deals/PreviewUnderwritePanel";
 import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
 import { ForceAdvancePanel } from "@/components/deals/ForceAdvancePanel";
+import { LoanRequestsSection } from "@/components/loanRequests/LoanRequestsSection";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
@@ -118,6 +119,9 @@ export function SecondaryTabsPanel({
                 lifecycleStage={lifecycleStage ?? null}
                 onLifecycleStageChange={onLifecycleStageChange}
               />
+            </SafeBoundary>
+            <SafeBoundary>
+              <LoanRequestsSection dealId={dealId} />
             </SafeBoundary>
             <SafeBoundary>
               <BorrowerAttachmentCard dealId={dealId} />

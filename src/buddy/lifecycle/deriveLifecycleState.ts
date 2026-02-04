@@ -176,8 +176,8 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     borrowerChecklistSatisfied = requiredItems.length > 0 && missingItems.length === 0;
   }
 
-  // 4–8. Parallel independent queries (snapshot, decision, packet, advancement)
-  const [snapshotResult, decisionResult, packetResult, advancementResult] = await Promise.all([
+  // 4–8. Parallel independent queries (snapshot, decision, packet, advancement, loan requests)
+  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult] = await Promise.all([
     safeSupabaseCount(
       "snapshot",
       () =>
@@ -226,6 +226,15 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .maybeSingle(),
       ctx
     ),
+    safeSupabaseQuery<Array<{ id: string; status: string; requested_amount: number | null }>>(
+      "loan_requests",
+      () =>
+        sb
+          .from("deal_loan_requests")
+          .select("id, status, requested_amount")
+          .eq("deal_id", dealId),
+      ctx
+    ),
   ]);
 
   let financialSnapshotExists = false;
@@ -250,6 +259,16 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   let lastAdvancedAt: string | null = null;
   if (advancementResult.ok && advancementResult.data) {
     lastAdvancedAt = advancementResult.data.created_at;
+  }
+
+  let loanRequestCount = 0;
+  let loanRequestHasIncomplete = false;
+  if (loanRequestResult.ok && loanRequestResult.data) {
+    const requests = loanRequestResult.data as Array<{ id: string; status: string; requested_amount: number | null }>;
+    loanRequestCount = requests.length;
+    loanRequestHasIncomplete = requests.some(
+      (r) => r.status === "draft" || !r.requested_amount,
+    );
   }
 
   // Attestation check depends on decision result — runs after parallel batch
@@ -293,7 +312,10 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   const stage = mapToUnifiedStage(lifecycleStage, dealStatusStage, derived);
 
   // Compute blockers (merge with any runtime fetch failures)
-  const blockers = [...computeBlockers(stage, derived, checklist.length), ...runtimeBlockers];
+  const blockers = [
+    ...computeBlockers(stage, derived, checklist.length, loanRequestCount, loanRequestHasIncomplete),
+    ...runtimeBlockers,
+  ];
 
   return {
     stage,
@@ -355,7 +377,9 @@ function mapToUnifiedStage(
 function computeBlockers(
   stage: LifecycleStage,
   derived: LifecycleDerived,
-  checklistCount: number
+  checklistCount: number,
+  loanRequestCount: number = 0,
+  loanRequestHasIncomplete: boolean = false,
 ): LifecycleBlocker[] {
   const blockers: LifecycleBlocker[] = [];
 
@@ -364,6 +388,30 @@ function computeBlockers(
     blockers.push({
       code: "checklist_not_seeded",
       message: "Checklist has not been created for this deal",
+    });
+  }
+
+  // Loan request blockers — check from docs_requested onward (not intake_created)
+  if (
+    stage !== "intake_created" &&
+    stage !== "closed" &&
+    stage !== "workout" &&
+    loanRequestCount === 0
+  ) {
+    blockers.push({
+      code: "loan_request_missing",
+      message: "No loan request has been created for this deal",
+    });
+  }
+
+  if (
+    loanRequestCount > 0 &&
+    loanRequestHasIncomplete &&
+    ["docs_satisfied", "underwrite_ready", "underwrite_in_progress"].includes(stage)
+  ) {
+    blockers.push({
+      code: "loan_request_incomplete",
+      message: "One or more loan requests are incomplete (missing amount or still in draft)",
     });
   }
 
