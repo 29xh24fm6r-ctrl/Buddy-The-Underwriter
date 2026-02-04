@@ -271,8 +271,8 @@ export async function GET(
       deal_id: row.deal_id,
       checklist_key: row.checklist_key,
       title:
-        row.title ??
         CHECKLIST_DEFINITIONS[row.checklist_key]?.title ??
+        row.title ??
         row.checklist_key,
       description: row.description ?? null,
       required: !!row.required,
