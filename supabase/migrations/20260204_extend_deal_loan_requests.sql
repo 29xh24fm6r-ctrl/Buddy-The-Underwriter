@@ -150,7 +150,7 @@ DO $$
 BEGIN
   ALTER TABLE public.deal_loan_requests
     ADD CONSTRAINT deal_loan_requests_deal_request_number_unique UNIQUE (deal_id, request_number);
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL;
 END $$;
 
 CREATE INDEX IF NOT EXISTS deal_loan_requests_bank_idx

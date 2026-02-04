@@ -53,6 +53,9 @@ buddy-docs-signer.json
 # supabase cli temp files
 supabase/.temp/
 
+# local scratch / temp files
+.tmp/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
