@@ -24,7 +24,7 @@ export function PolicyIngestionCard() {
       // Load assets
       const assetsRes = await fetch("/api/banks/assets/list");
       const assetsJson = await assetsRes.json();
-      const assets = assetsJson.assets || [];
+      const assets = assetsJson.items || [];
       
       // Load chunks
       const chunksRes = await fetch("/api/banks/policy/chunks");
