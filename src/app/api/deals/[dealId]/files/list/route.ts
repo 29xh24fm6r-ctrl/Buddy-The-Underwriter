@@ -37,23 +37,50 @@ export async function GET(
       return NextResponse.json({ ok: false, files: [], error: "Deal not found" }, { status: 404 });
     }
 
+    // Try RPC first
     const rpcRes: any = await withTimeout(
       sb.rpc("list_deal_documents", { p_deal_id: dealId }) as any,
       10_000,
       "list_deal_documents",
     );
-    const { data, error } = rpcRes ?? {};
+    let { data, error } = rpcRes ?? {};
 
+    // If RPC fails, log the actual error and fallback to direct SELECT
     if (error) {
-      console.error("[/api/deals/[dealId]/files/list]", error.message, {
+      console.error("[/api/deals/[dealId]/files/list] RPC failed, attempting fallback", {
+        error: error.message,
+        code: error.code,
         details: error.details,
         hint: error.hint,
+        dealId,
       });
-      return NextResponse.json({
-        ok: false,
-        files: [],
-        error: "Failed to load files",
-      });
+
+      // Fallback: direct select from deal_documents using only guaranteed columns
+      const fallbackRes = await withTimeout(
+        sb.from("deal_documents")
+          .select("id, deal_id, storage_bucket, storage_path, original_filename, display_name, document_type, doc_year, naming_method, mime_type, size_bytes, source, checklist_key, created_at")
+          .eq("deal_id", dealId)
+          .order("created_at", { ascending: false }),
+        10_000,
+        "deal_documents_fallback",
+      );
+
+      if (fallbackRes.error) {
+        console.error("[/api/deals/[dealId]/files/list] Fallback also failed", {
+          error: fallbackRes.error.message,
+          code: fallbackRes.error.code,
+          dealId,
+        });
+        return NextResponse.json({
+          ok: false,
+          files: [],
+          error: "Failed to load files",
+          errorCode: fallbackRes.error.code,
+        }, { status: 500 });
+      }
+
+      data = fallbackRes.data;
+      error = null;
     }
 
     // Back-compat: return the fields old UI expects from deal_files
