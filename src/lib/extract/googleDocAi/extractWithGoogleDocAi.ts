@@ -1,4 +1,5 @@
 import "server-only";
+import { DocumentProcessorServiceClient } from "@google-cloud/documentai";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { isGoogleDocAiEnabled } from "@/lib/flags/googleDocAi";
@@ -19,8 +20,12 @@ export type ExtractWithGoogleDocAiArgs = {
 export type ProviderMetrics = {
   provider: "google_doc_ai";
   processorType: DocAiProcessorType;
+  processorId?: string;
+  location?: string;
   pages?: number;
   model?: string;
+  latencyMs?: number;
+  textLength?: number;
   estimated_cost_usd?: number;
   unit_count?: number;
 };
@@ -59,6 +64,31 @@ function getDocAiProjectId(): string {
 
 function getDocAiLocation(): string {
   return process.env.GOOGLE_DOCAI_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || "us";
+}
+
+// ─── Client Builder ──────────────────────────────────────────────────────────
+
+let cachedClient: DocumentProcessorServiceClient | null = null;
+
+function buildDocAiClient(): DocumentProcessorServiceClient {
+  if (cachedClient) return cachedClient;
+
+  const credsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+
+  // If creds JSON exists, use it explicitly (best for Vercel)
+  if (credsJson && credsJson.trim()) {
+    try {
+      const credentials = JSON.parse(credsJson);
+      cachedClient = new DocumentProcessorServiceClient({ credentials });
+      return cachedClient;
+    } catch (e) {
+      throw new Error(`Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: ${(e as Error).message}`);
+    }
+  }
+
+  // Otherwise fall back to ADC (works on GCP runtimes with workload identity)
+  cachedClient = new DocumentProcessorServiceClient();
+  return cachedClient;
 }
 
 function getProcessorId(processorType: DocAiProcessorType): string {
@@ -120,13 +150,18 @@ async function loadDocumentBytes(args: {
 /**
  * Extract document content using Google Document AI.
  *
- * This module is designed to be thin and focused on:
- * 1. Loading document bytes from storage
- * 2. Calling Google Document AI API
- * 3. Returning structured results + provider metrics
+ * This module:
+ * 1. Loads document bytes from Supabase storage
+ * 2. Calls Google Document AI processDocument API
+ * 3. Returns extracted text, full JSON response, and provider metrics
  *
- * NOTE: The actual Document AI API call is stubbed below.
- * Wire the actual Google DocAI REST/gRPC call when ready.
+ * Requires environment variables:
+ * - GOOGLE_DOCAI_ENABLED=true
+ * - GOOGLE_CLOUD_PROJECT (or GOOGLE_PROJECT_ID)
+ * - GOOGLE_DOCAI_LOCATION (defaults to "us")
+ * - GOOGLE_DOCAI_TAX_PROCESSOR_ID (for tax returns)
+ * - GOOGLE_DOCAI_FINANCIAL_PROCESSOR_ID (for income stmt, balance sheet, PFS)
+ * - GOOGLE_APPLICATION_CREDENTIALS_JSON (service account JSON, for Vercel)
  */
 export async function extractWithGoogleDocAi(
   args: ExtractWithGoogleDocAiArgs,
@@ -156,72 +191,13 @@ export async function extractWithGoogleDocAi(
     storagePath,
   });
 
-  // ─── TODO: Wire actual Google Document AI call here ────────────────────────
-  // The Document AI client library or REST call goes here.
-  // Example structure:
-  //
-  // const { DocumentProcessorServiceClient } = await import("@google-cloud/documentai");
-  // const client = new DocumentProcessorServiceClient();
-  // const name = `projects/${getDocAiProjectId()}/locations/${getDocAiLocation()}/processors/${getProcessorId(processorType)}`;
-  // const [result] = await client.processDocument({
-  //   name,
-  //   rawDocument: { content: bytes.toString("base64"), mimeType },
-  // });
-  //
-  // For now, we return a placeholder that can be filled in once the processor IDs are configured.
-
+  // ─── Get processor config ────────────────────────────────────────────────────
   const projectId = getDocAiProjectId();
   const location = getDocAiLocation();
-  let processorId: string;
-
-  try {
-    processorId = getProcessorId(processorType);
-  } catch (e) {
-    // Processor not configured - log warning and return placeholder
-    console.warn("[DocAI] Processor not configured, returning placeholder", {
-      docId,
-      processorType,
-      error: (e as Error).message,
-    });
-
-    const provider_metrics: ProviderMetrics = {
-      provider: "google_doc_ai",
-      processorType,
-      pages: pageCount,
-      model: `doc_ai_${processorType.toLowerCase()}_placeholder`,
-      estimated_cost_usd: pageCount ? estimateDocAiCostUSD(pageCount, processorType) : undefined,
-      unit_count: pageCount ?? undefined,
-    };
-
-    // Log ledger event for routing decision (even for placeholder)
-    await logLedgerEvent({
-      dealId,
-      bankId,
-      eventKey: "extract.docai.completed",
-      uiState: "done",
-      uiMessage: `Document AI extraction completed (placeholder)`,
-      meta: {
-        docId,
-        processorType,
-        elapsed_ms: Date.now() - started,
-        placeholder: true,
-        provider_metrics,
-      },
-    });
-
-    return {
-      ok: true,
-      text: "", // Placeholder - fill from actual DocAI response
-      json: {}, // Placeholder - fill from actual DocAI response
-      provider_metrics,
-    };
-  }
-
-  // ─── Actual Document AI call would go here ─────────────────────────────────
-  // This is where you'd make the real API call once processors are configured.
-  // For now, we'll prepare the structure for when it's ready.
+  const processorId = getProcessorId(processorType);
 
   console.log("[DocAI] Calling Document AI", {
+    docId,
     projectId,
     location,
     processorId,
@@ -230,18 +206,35 @@ export async function extractWithGoogleDocAi(
     mimeType,
   });
 
-  // TODO: Implement actual Document AI call
-  // const result = await callDocumentAi({ projectId, location, processorId, bytes, mimeType });
+  // ─── Make the actual Document AI API call ───────────────────────────────────
+  const client = buildDocAiClient();
+  const processorName = `projects/${projectId}/locations/${location}/processors/${processorId}`;
+
+  const [result] = await client.processDocument({
+    name: processorName,
+    rawDocument: {
+      content: bytes.toString("base64"),
+      mimeType,
+    },
+  });
 
   const elapsedMs = Date.now() - started;
+  const doc = result.document;
+  const extractedText = doc?.text ?? "";
+  const docAiPageCount = Array.isArray(doc?.pages) ? doc!.pages!.length : undefined;
+  const finalPageCount = docAiPageCount ?? pageCount;
 
   const provider_metrics: ProviderMetrics = {
     provider: "google_doc_ai",
     processorType,
-    pages: pageCount,
+    processorId,
+    location,
+    pages: finalPageCount,
+    latencyMs: elapsedMs,
+    textLength: extractedText.length,
     model: `doc_ai_${processorType.toLowerCase()}`,
-    estimated_cost_usd: pageCount ? estimateDocAiCostUSD(pageCount, processorType) : undefined,
-    unit_count: pageCount ?? undefined,
+    estimated_cost_usd: finalPageCount ? estimateDocAiCostUSD(finalPageCount, processorType) : undefined,
+    unit_count: finalPageCount ?? undefined,
   };
 
   // Log completion to ledger
@@ -255,7 +248,8 @@ export async function extractWithGoogleDocAi(
       docId,
       processorType,
       elapsed_ms: elapsedMs,
-      pages: pageCount,
+      pages: finalPageCount,
+      text_length: extractedText.length,
       provider_metrics,
     },
   });
@@ -264,13 +258,14 @@ export async function extractWithGoogleDocAi(
     docId,
     processorType,
     elapsed_ms: elapsedMs,
-    pages: pageCount,
+    pages: finalPageCount,
+    text_length: extractedText.length,
   });
 
   return {
     ok: true,
-    text: "", // TODO: Fill from DocAI response
-    json: {}, // TODO: Fill from DocAI structured output
+    text: extractedText,
+    json: result, // Full DocAI response for audit + downstream parsing
     provider_metrics,
   };
 }
