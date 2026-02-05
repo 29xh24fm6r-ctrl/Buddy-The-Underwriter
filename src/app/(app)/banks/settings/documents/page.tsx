@@ -2,8 +2,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 // ============ Types ============
 
@@ -38,6 +36,20 @@ type BankAsset = {
 };
 
 const KINDS: BankAsset["kind"][] = ["policy", "form_template", "sop", "checklist", "rate_sheet", "other"];
+
+// Input styling constants (matches ProfileClient)
+const INPUT_CLS =
+  "w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-sm text-white " +
+  "placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20";
+
+const FILE_INPUT_CLS =
+  "w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-sm text-white " +
+  "file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white " +
+  "focus:outline-none focus:ring-2 focus:ring-white/20";
+
+const SELECT_CLS =
+  "w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-sm text-white " +
+  "focus:outline-none focus:ring-2 focus:ring-white/20";
 
 export const dynamic = "force-dynamic";
 
@@ -121,7 +133,6 @@ export default function BankDocumentsPage() {
       setCpTitle("");
       setCpDescription("");
       setCpFile(null);
-      // Reset file input
       const fileInput = document.getElementById("cp-file-input") as HTMLInputElement;
       if (fileInput) fileInput.value = "";
       await refreshCreditPolicy();
@@ -157,7 +168,7 @@ export default function BankDocumentsPage() {
     }
   }
 
-  // ============ Bank Knowledge Vault Functions (existing) ============
+  // ============ Bank Knowledge Vault Functions ============
 
   async function refreshVault() {
     setVaultErr(null);
@@ -201,6 +212,8 @@ export default function BankDocumentsPage() {
       setVaultTitle("");
       setVaultDescription("");
       setVaultFile(null);
+      const fileInput = document.getElementById("vault-file-input") as HTMLInputElement;
+      if (fileInput) fileInput.value = "";
       await refreshVault();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -220,239 +233,317 @@ export default function BankDocumentsPage() {
   // ============ Render ============
 
   return (
-    <div className="min-h-screen bg-black text-white p-6">
-      <div className="mx-auto max-w-5xl space-y-8">
-        {/* ============ Credit Policy Section ============ */}
-        <Card className="rounded-2xl border border-white/10 bg-white/5">
-          <CardHeader className="px-6 pt-6 pb-2">
-            <CardTitle className="text-2xl font-semibold text-white">Bank Credit Policy</CardTitle>
-            <CardDescription className="text-white/60 mt-1">
-              Upload your bank's credit policy so Buddy can underwrite according to your standards.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="px-6 pb-6">
+    <div className="min-h-screen bg-gradient-to-b from-black/20 to-transparent">
+      <div className="mx-auto w-full max-w-4xl px-6 py-10">
+        <div className="space-y-8">
+          {/* ============ Credit Policy Section ============ */}
+          <section className="rounded-2xl border border-white/10 bg-black/30 p-6 text-white shadow-sm">
+            <header>
+              <h1 className="text-2xl font-semibold tracking-tight">Bank Credit Policy</h1>
+              <p className="mt-1 text-sm text-white/60">
+                Upload your bank's credit policy so Buddy can underwrite according to your standards.
+              </p>
+            </header>
+
             {cpErr && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 px-4 py-3 text-sm mb-4">
+              <div className="mt-4 rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">
                 {cpErr}
               </div>
             )}
 
-            {creditPolicyDocs.length === 0 ? (
-              /* Empty state */
-              <div className="rounded-2xl border border-dashed border-white/20 p-8 text-center">
-                <div className="text-lg font-semibold text-white/70 mb-2">
-                  No credit policy uploaded yet
-                </div>
-                <p className="text-sm text-white/50 mb-6">
-                  Upload your bank's credit policy document to help Buddy make better underwriting decisions.
-                </p>
-                <div className="max-w-md mx-auto space-y-3">
-                  <input
-                    id="cp-file-input"
-                    type="file"
-                    accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
-                    onChange={(e) => setCpFile(e.target.files?.[0] ?? null)}
-                    className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-white file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1 file:text-sm file:text-white"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Title (optional, defaults to filename)"
-                    value={cpTitle}
-                    onChange={(e) => setCpTitle(e.target.value)}
-                    className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Description (optional)"
-                    value={cpDescription}
-                    onChange={(e) => setCpDescription(e.target.value)}
-                    className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40"
-                  />
-                  <Button
-                    disabled={!canUploadCp}
-                    onClick={uploadCreditPolicy}
-                    className="w-full"
-                  >
-                    {cpBusy ? "Uploading..." : "Upload Credit Policy"}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              /* List state */
-              <div className="space-y-4">
-                {/* Upload form */}
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-4">
-                  <div className="text-sm font-semibold text-white">Upload New Document</div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <input
-                      id="cp-file-input"
-                      type="file"
-                      accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
-                      onChange={(e) => setCpFile(e.target.files?.[0] ?? null)}
-                      className="rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-white file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1 file:text-sm file:text-white"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Title (optional)"
-                      value={cpTitle}
-                      onChange={(e) => setCpTitle(e.target.value)}
-                      className="rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40"
-                    />
-                    <Button
+            <div className="mt-6">
+              {creditPolicyDocs.length === 0 ? (
+                /* Empty state */
+                <div className="rounded-2xl border border-dashed border-white/20 p-8 text-center">
+                  <div className="text-lg font-semibold text-white/70 mb-2">
+                    No credit policy uploaded yet
+                  </div>
+                  <p className="text-sm text-white/50 mb-6">
+                    Upload your bank's credit policy document to help Buddy make better underwriting decisions.
+                  </p>
+                  <div className="max-w-md mx-auto space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-white/90 mb-1.5">
+                        File
+                      </label>
+                      <input
+                        id="cp-file-input"
+                        type="file"
+                        accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+                        onChange={(e) => setCpFile(e.target.files?.[0] ?? null)}
+                        className={FILE_INPUT_CLS}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-white/90 mb-1.5">
+                        Title <span className="text-white/40">(optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Defaults to filename"
+                        value={cpTitle}
+                        onChange={(e) => setCpTitle(e.target.value)}
+                        className={INPUT_CLS}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-white/90 mb-1.5">
+                        Description <span className="text-white/40">(optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Brief description"
+                        value={cpDescription}
+                        onChange={(e) => setCpDescription(e.target.value)}
+                        className={INPUT_CLS}
+                      />
+                    </div>
+                    <button
+                      type="button"
                       disabled={!canUploadCp}
                       onClick={uploadCreditPolicy}
+                      className={`w-full rounded-lg px-4 py-2.5 text-sm font-semibold transition-all ${
+                        cpBusy
+                          ? "bg-white/60 text-black/70 cursor-wait"
+                          : canUploadCp
+                            ? "bg-white text-black hover:bg-white/90 active:scale-[0.98] shadow-md"
+                            : "border border-white/15 text-white/30 cursor-not-allowed"
+                      }`}
                     >
-                      {cpBusy ? "Uploading..." : "Upload"}
-                    </Button>
+                      {cpBusy ? "Uploading..." : "Upload Credit Policy"}
+                    </button>
                   </div>
                 </div>
+              ) : (
+                /* List state with upload form */
+                <div className="space-y-6">
+                  {/* Inline upload form */}
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                    <h2 className="text-sm font-semibold tracking-wide text-white/90 uppercase mb-4">
+                      Upload New Document
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                      <div>
+                        <label className="block text-sm font-medium text-white/90 mb-1.5">File</label>
+                        <input
+                          id="cp-file-input"
+                          type="file"
+                          accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+                          onChange={(e) => setCpFile(e.target.files?.[0] ?? null)}
+                          className={FILE_INPUT_CLS}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-white/90 mb-1.5">
+                          Title <span className="text-white/40">(optional)</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Defaults to filename"
+                          value={cpTitle}
+                          onChange={(e) => setCpTitle(e.target.value)}
+                          className={INPUT_CLS}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={!canUploadCp}
+                        onClick={uploadCreditPolicy}
+                        className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
+                          cpBusy
+                            ? "bg-white/60 text-black/70 cursor-wait"
+                            : canUploadCp
+                              ? "bg-white text-black hover:bg-white/90 active:scale-[0.98] shadow-md"
+                              : "border border-white/15 text-white/30 cursor-not-allowed"
+                        }`}
+                      >
+                        {cpBusy ? "Uploading..." : "Upload"}
+                      </button>
+                    </div>
+                  </div>
 
-                {/* Documents table */}
-                <div className="rounded-2xl border border-white/10 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-white/5">
-                      <tr>
-                        <th className="text-left px-4 py-3 font-semibold text-white">Title</th>
-                        <th className="text-left px-4 py-3 font-semibold text-white">Category</th>
-                        <th className="text-left px-4 py-3 font-semibold text-white">Filename</th>
-                        <th className="text-left px-4 py-3 font-semibold text-white">Uploaded</th>
-                        <th className="text-right px-4 py-3 font-semibold text-white">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {creditPolicyDocs.map((doc) => (
-                        <tr key={doc.id} className="border-t border-white/10">
-                          <td className="px-4 py-3 font-medium text-white">{doc.title}</td>
-                          <td className="px-4 py-3 text-white/60">{doc.category}</td>
-                          <td className="px-4 py-3 text-white/60 truncate max-w-[200px]">
-                            {doc.original_filename}
-                          </td>
-                          <td className="px-4 py-3 text-white/60">
-                            {new Date(doc.created_at).toLocaleDateString()}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => downloadDocument(doc.id)}
-                              disabled={downloadingId === doc.id}
-                            >
-                              {downloadingId === doc.id ? "..." : "Download"}
-                            </Button>
-                          </td>
+                  {/* Documents table */}
+                  <div className="rounded-2xl border border-white/10 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-white/[0.05]">
+                        <tr>
+                          <th className="text-left px-4 py-3 font-semibold text-white/90">Title</th>
+                          <th className="text-left px-4 py-3 font-semibold text-white/90">Category</th>
+                          <th className="text-left px-4 py-3 font-semibold text-white/90 hidden md:table-cell">Filename</th>
+                          <th className="text-left px-4 py-3 font-semibold text-white/90">Uploaded</th>
+                          <th className="text-right px-4 py-3 font-semibold text-white/90">Action</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {creditPolicyDocs.map((doc) => (
+                          <tr key={doc.id} className="border-t border-white/10">
+                            <td className="px-4 py-3 font-medium text-white">{doc.title}</td>
+                            <td className="px-4 py-3 text-white/60">{doc.category}</td>
+                            <td className="px-4 py-3 text-white/60 truncate max-w-[200px] hidden md:table-cell">
+                              {doc.original_filename}
+                            </td>
+                            <td className="px-4 py-3 text-white/60">
+                              {new Date(doc.created_at).toLocaleDateString()}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => downloadDocument(doc.id)}
+                                disabled={downloadingId === doc.id}
+                                className="rounded-lg border border-white/15 bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {downloadingId === doc.id ? "..." : "Download"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              )}
+            </div>
+          </section>
 
-        {/* ============ Bank Knowledge Vault Section (existing) ============ */}
-        <Card className="rounded-2xl border border-white/10 bg-white/5">
-          <CardHeader className="px-6 pt-6 pb-2">
-            <CardTitle className="text-2xl font-semibold text-white">Bank Knowledge Vault</CardTitle>
-            <CardDescription className="text-white/60 mt-1">
-              Upload your bank's SOPs, fillable form templates, and other documents for RAG ingestion.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="px-6 pb-6 space-y-4">
+          {/* ============ Bank Knowledge Vault Section ============ */}
+          <section className="rounded-2xl border border-white/10 bg-black/30 p-6 text-white shadow-sm">
+            <header>
+              <h2 className="text-2xl font-semibold tracking-tight">Bank Knowledge Vault</h2>
+              <p className="mt-1 text-sm text-white/60">
+                Upload your bank's SOPs, fillable form templates, and other documents for RAG ingestion.
+              </p>
+            </header>
+
             {vaultErr && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 px-4 py-3 text-sm">
+              <div className="mt-4 rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">
                 {vaultErr}
               </div>
             )}
 
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-semibold text-white">Kind</label>
-                  <select
-                    className="mt-2 w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-white"
-                    value={vaultKind}
-                    onChange={(e) => setVaultKind(e.target.value as BankAsset["kind"])}
+            <div className="mt-6 space-y-6">
+              {/* Upload form */}
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                <h3 className="text-sm font-semibold tracking-wide text-white/90 uppercase mb-4">
+                  Upload Document
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-white/90 mb-1.5">Kind</label>
+                    <select
+                      className={SELECT_CLS}
+                      value={vaultKind}
+                      onChange={(e) => setVaultKind(e.target.value as BankAsset["kind"])}
+                    >
+                      {KINDS.map((k) => (
+                        <option key={k} value={k} className="bg-neutral-900 text-white">
+                          {k.replace(/_/g, " ")}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-white/90 mb-1.5">Title</label>
+                    <input
+                      className={INPUT_CLS}
+                      value={vaultTitle}
+                      onChange={(e) => setVaultTitle(e.target.value)}
+                      placeholder="e.g., Credit Policy 2025"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-white/90 mb-1.5">
+                      Description <span className="text-white/40">(optional)</span>
+                    </label>
+                    <input
+                      className={INPUT_CLS}
+                      value={vaultDescription}
+                      onChange={(e) => setVaultDescription(e.target.value)}
+                      placeholder="What is this document used for?"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-white/90 mb-1.5">File</label>
+                    <input
+                      id="vault-file-input"
+                      className={FILE_INPUT_CLS}
+                      type="file"
+                      onChange={(e) => setVaultFile(e.target.files?.[0] ?? null)}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    disabled={!canUploadVault}
+                    onClick={uploadVault}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
+                      vaultBusy
+                        ? "bg-white/60 text-black/70 cursor-wait"
+                        : canUploadVault
+                          ? "bg-white text-black hover:bg-white/90 active:scale-[0.98] shadow-md"
+                          : "border border-white/15 text-white/30 cursor-not-allowed"
+                    }`}
                   >
-                    {KINDS.map((k) => (
-                      <option key={k} value={k} className="bg-neutral-900 text-white">
-                        {k}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-sm font-semibold text-white">Title</label>
-                  <input
-                    className="mt-2 w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40"
-                    value={vaultTitle}
-                    onChange={(e) => setVaultTitle(e.target.value)}
-                    placeholder="e.g., Credit Policy 2025"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="text-sm font-semibold text-white">Description (optional)</label>
-                  <input
-                    className="mt-2 w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40"
-                    value={vaultDescription}
-                    onChange={(e) => setVaultDescription(e.target.value)}
-                    placeholder="What is this document used for?"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="text-sm font-semibold text-white">File</label>
-                  <input
-                    className="mt-2 w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-white file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1 file:text-sm file:text-white"
-                    type="file"
-                    onChange={(e) => setVaultFile(e.target.files?.[0] ?? null)}
-                  />
+                    {vaultBusy ? "Uploading..." : "Upload"}
+                  </button>
                 </div>
               </div>
 
-              <Button
-                disabled={!canUploadVault}
-                onClick={uploadVault}
-              >
-                {vaultBusy ? "Uploading..." : "Upload"}
-              </Button>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <div className="text-sm font-semibold text-white mb-3">Current Vault Items</div>
-              <div className="space-y-2">
-                {vaultItems.length === 0 ? (
-                  <div className="text-sm text-white/50">No documents uploaded yet.</div>
-                ) : (
-                  vaultItems.map((it) => (
-                    <div key={it.id} className="rounded-xl border border-white/10 bg-white/5 p-4 flex items-start justify-between gap-4">
-                      <div>
-                        <div className="text-sm font-semibold text-white">{it.title}</div>
-                        <div className="text-xs text-white/50 mt-1">
-                          {it.kind} · v{it.version} · {it.active ? "active" : "inactive"} ·{" "}
-                          {new Date(it.created_at).toLocaleString()}
-                        </div>
-                        {it.description && (
-                          <div className="text-sm text-white/60 mt-2">{it.description}</div>
-                        )}
-                        <div className="text-xs text-white/40 mt-2 break-words">{it.storage_path}</div>
-                      </div>
-
-                      <form action="/api/banks/assets/disable" method="post">
-                        <input type="hidden" name="id" value={it.id} />
-                        <Button variant="outline" size="sm" type="submit">
-                          Disable
-                        </Button>
-                      </form>
+              {/* Current vault items */}
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                <h3 className="text-sm font-semibold tracking-wide text-white/90 uppercase mb-4">
+                  Current Vault Items
+                </h3>
+                <div className="space-y-3">
+                  {vaultItems.length === 0 ? (
+                    <div className="text-sm text-white/50 py-4 text-center">
+                      No documents uploaded yet.
                     </div>
-                  ))
-                )}
+                  ) : (
+                    vaultItems.map((it) => (
+                      <div
+                        key={it.id}
+                        className="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex items-start justify-between gap-4"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-white">{it.title}</div>
+                          <div className="text-xs text-white/50 mt-1 flex flex-wrap gap-x-2">
+                            <span className="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-xs font-medium text-white/80">
+                              {it.kind.replace(/_/g, " ")}
+                            </span>
+                            <span>v{it.version}</span>
+                            <span>{it.active ? "active" : "inactive"}</span>
+                            <span>{new Date(it.created_at).toLocaleDateString()}</span>
+                          </div>
+                          {it.description && (
+                            <div className="text-sm text-white/60 mt-2">{it.description}</div>
+                          )}
+                          <div className="text-xs text-white/40 mt-2 break-all font-mono">
+                            {it.storage_path}
+                          </div>
+                        </div>
+
+                        <form action="/api/banks/assets/disable" method="post" className="flex-shrink-0">
+                          <input type="hidden" name="id" value={it.id} />
+                          <button
+                            type="submit"
+                            className="rounded-lg border border-white/15 bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white hover:bg-white/10 transition-colors"
+                          >
+                            Disable
+                          </button>
+                        </form>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </section>
+        </div>
       </div>
     </div>
   );
