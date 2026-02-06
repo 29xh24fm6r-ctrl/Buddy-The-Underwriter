@@ -1,22 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function FrameGuard() {
-  const isDev = useMemo(() => process.env.NODE_ENV !== "production", []);
-  
-  const framed = useMemo(() => {
-    if (!isDev || typeof window === "undefined") return false;
+  const [framed, setFramed] = useState(false);
+  const [href, setHref] = useState("/");
+  const isDev = process.env.NODE_ENV !== "production";
+
+  useEffect(() => {
+    if (!isDev) return;
+
     try {
-      return window.self !== window.top;
+      const isFramed = window.self !== window.top;
+      setFramed(isFramed);
+      setHref(window.location.href);
     } catch {
-      return true;
+      setFramed(true);
+      setHref(window.location.href);
     }
   }, [isDev]);
 
   if (!isDev || !framed) return null;
-
-  const href = typeof window !== "undefined" ? window.location.href : "/";
 
   return (
     <div className="fixed inset-0 z-[999999] grid place-items-center bg-black/80 p-6 text-white">
