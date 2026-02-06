@@ -87,6 +87,38 @@ export async function POST(_req: Request, ctx: Ctx) {
       );
     }
 
+    // Pre-flight: ensure financial facts exist before building a snapshot.
+    const sb = supabaseAdmin();
+    const { count: factsCount } = await (sb as any)
+      .from("deal_financial_facts")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .eq("bank_id", access.bankId);
+
+    if (!factsCount || factsCount === 0) {
+      const { data: pendingJobs } = await (sb as any)
+        .from("deal_spread_jobs")
+        .select("id, status")
+        .eq("deal_id", dealId)
+        .eq("bank_id", access.bankId)
+        .in("status", ["QUEUED", "RUNNING"])
+        .limit(1);
+
+      if (pendingJobs && pendingJobs.length > 0) {
+        return NextResponse.json({
+          ok: false,
+          error: "spreads_in_progress",
+          message: "Financial spreads are currently generating. Please wait and try again.",
+        }, { status: 409 });
+      }
+
+      return NextResponse.json({
+        ok: false,
+        error: "no_financial_facts",
+        message: "No financial data has been extracted yet. Upload and classify financial documents first, then run Recompute Spreads.",
+      }, { status: 422 });
+    }
+
     const [snapshot, dealMeta, loanMeta] = await Promise.all([
       buildDealFinancialSnapshotForBank({ dealId, bankId: access.bankId }),
       loadDealMeta(dealId),

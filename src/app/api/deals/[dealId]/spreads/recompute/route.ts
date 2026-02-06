@@ -5,12 +5,15 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
 import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
-import type { SpreadType } from "@/lib/financialSpreads/types";
+import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
+import { ALL_SPREAD_TYPES, type SpreadType } from "@/lib/financialSpreads/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ dealId: string }> };
+
+const VALID_SET = new Set<string>(ALL_SPREAD_TYPES);
 
 function parseTypes(raw: string | null): SpreadType[] {
   const s = (raw ?? "").trim();
@@ -19,7 +22,7 @@ function parseTypes(raw: string | null): SpreadType[] {
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean)
-    .filter((t): t is SpreadType => t === "T12" || t === "RENT_ROLL" || t === "GLOBAL_CASH_FLOW");
+    .filter((t): t is SpreadType => VALID_SET.has(t));
 }
 
 function parseTypesFromBody(body: any): SpreadType[] {
@@ -28,7 +31,7 @@ function parseTypesFromBody(body: any): SpreadType[] {
   return arr
     .map((x) => String(x ?? "").trim())
     .filter(Boolean)
-    .filter((t): t is SpreadType => t === "T12" || t === "RENT_ROLL" || t === "GLOBAL_CASH_FLOW");
+    .filter((t): t is SpreadType => VALID_SET.has(t));
 }
 
 export async function POST(req: NextRequest, ctx: Ctx) {
@@ -52,10 +55,12 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const spreadTypes = spreadTypesFromBody.length ? spreadTypesFromBody : spreadTypesFromQuery;
 
     const sourceDocumentId = typeof body?.sourceDocumentId === "string" ? body.sourceDocumentId : null;
+    const ownerType = typeof body?.ownerType === "string" ? body.ownerType : "DEAL";
+    const ownerEntityId = typeof body?.ownerEntityId === "string" ? body.ownerEntityId : null;
 
     const requestedTypes: SpreadType[] = spreadTypes.length
       ? spreadTypes
-      : (["T12", "RENT_ROLL"] as SpreadType[]);
+      : ALL_SPREAD_TYPES;
 
     // Best-effort: create placeholder spreads so UI shows "generating" immediately.
     try {
@@ -69,7 +74,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
                 deal_id: dealId,
                 bank_id: access.bankId,
                 spread_type: t,
-                spread_version: t === "T12" ? 3 : t === "RENT_ROLL" ? 3 : 1,
+                spread_version: getSpreadTemplate(t)?.version ?? 1,
+                owner_type: ownerType,
+                owner_entity_id: ownerEntityId,
                 status: "generating",
                 inputs_hash: null,
                 rendered_json: {
@@ -82,7 +89,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
                   rows: [
                     {
                       key: "status",
-                      label: "Generating…",
+                      label: "Generating\u2026",
                       values: [null, null],
                       notes: "Queued for background processing.",
                     },
@@ -97,7 +104,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
                 error: null,
                 updated_at: new Date().toISOString(),
               },
-              { onConflict: "deal_id,bank_id,spread_type,spread_version" } as any,
+              { onConflict: "deal_id,bank_id,spread_type,spread_version,owner_type,owner_entity_id" } as any,
             ),
         ),
       );
@@ -110,6 +117,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       bankId: access.bankId,
       sourceDocumentId,
       spreadTypes: requestedTypes,
+      ownerType,
+      ownerEntityId,
       meta: {
         source: "api",
         requested_at: new Date().toISOString(),

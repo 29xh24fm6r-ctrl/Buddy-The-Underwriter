@@ -1,5 +1,15 @@
 export type SpreadType = "T12" | "RENT_ROLL" | "GLOBAL_CASH_FLOW" | "BALANCE_SHEET" | "PERSONAL_INCOME" | "PERSONAL_FINANCIAL_STATEMENT";
 
+/** Runtime constant matching the SpreadType union — single source of truth for validation. */
+export const ALL_SPREAD_TYPES: SpreadType[] = [
+  "T12",
+  "BALANCE_SHEET",
+  "RENT_ROLL",
+  "PERSONAL_INCOME",
+  "PERSONAL_FINANCIAL_STATEMENT",
+  "GLOBAL_CASH_FLOW",
+];
+
 export type OwnerType = "DEAL" | "PERSONAL" | "GLOBAL";
 
 export type SpreadStatus = "ready" | "generating" | "error";

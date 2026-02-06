@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { extractFactsFromDocument } from "@/lib/financialSpreads/extractFactsFromDocument";
 import { renderSpread } from "@/lib/financialSpreads/renderSpread";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import type { SpreadType } from "@/lib/financialSpreads/types";
 
 const LEASE_MS = 3 * 60 * 1000;
@@ -10,6 +11,15 @@ const LEASE_MS = 3 * 60 * 1000;
 function uniq<T>(arr: T[]) {
   return Array.from(new Set(arr));
 }
+
+const SPREAD_EVENT_KEY: Record<string, string> = {
+  T12: "spread.business.completed",
+  BALANCE_SHEET: "spread.business.completed",
+  RENT_ROLL: "spread.rentroll.completed",
+  PERSONAL_INCOME: "spread.personal.completed",
+  PERSONAL_FINANCIAL_STATEMENT: "spread.personal.completed",
+  GLOBAL_CASH_FLOW: "spread.global.completed",
+};
 
 export async function processSpreadJob(jobId: string, leaseOwner: string) {
   const sb = supabaseAdmin();
@@ -34,9 +44,10 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     return { ok: false as const, error: "Failed to lease spread job" };
   }
 
+  const dealId = String(job.deal_id);
+  const bankId = String(job.bank_id);
+
   try {
-    const dealId = String(job.deal_id);
-    const bankId = String(job.bank_id);
     const sourceDocumentId = job.source_document_id ? String(job.source_document_id) : null;
 
     const requested = uniq((job.requested_spread_types ?? []) as string[])
@@ -47,12 +58,34 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     const ownerType = typeof jobMeta.owner_type === "string" ? jobMeta.owner_type : undefined;
     const ownerEntityId = typeof jobMeta.owner_entity_id === "string" ? jobMeta.owner_entity_id : null;
 
+    await logLedgerEvent({
+      dealId, bankId,
+      eventKey: "spread.run.started",
+      uiState: "working",
+      uiMessage: `Spread generation started: ${requested.join(", ")}`,
+      meta: { jobId, spreadTypes: requested, sourceDocumentId },
+    });
+
     if (sourceDocumentId) {
       await extractFactsFromDocument({ dealId, bankId, documentId: sourceDocumentId });
+      await logLedgerEvent({
+        dealId, bankId,
+        eventKey: "spread.inputs.collected",
+        uiState: "working",
+        uiMessage: "Financial facts extracted from source document",
+        meta: { jobId, sourceDocumentId },
+      });
     }
 
     for (const spreadType of requested) {
       await renderSpread({ dealId, bankId, spreadType, ownerType, ownerEntityId });
+      await logLedgerEvent({
+        dealId, bankId,
+        eventKey: SPREAD_EVENT_KEY[spreadType] ?? "spread.type.completed",
+        uiState: "working",
+        uiMessage: `${spreadType} spread rendered`,
+        meta: { jobId, spreadType },
+      });
     }
 
     await (sb as any)
@@ -64,6 +97,14 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         error: null,
       })
       .eq("id", jobId);
+
+    await logLedgerEvent({
+      dealId, bankId,
+      eventKey: "spread.run.succeeded",
+      uiState: "done",
+      uiMessage: `Spread generation completed: ${requested.join(", ")}`,
+      meta: { jobId, spreadTypes: requested },
+    });
 
     return { ok: true as const, jobId };
   } catch (e: any) {
@@ -103,6 +144,14 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         })
         .eq("id", jobId);
     }
+
+    await logLedgerEvent({
+      dealId, bankId,
+      eventKey: "spread.run.failed",
+      uiState: "error",
+      uiMessage: `Spread generation failed: ${errMsg.slice(0, 200)}`,
+      meta: { jobId, error: errMsg, attempt },
+    });
 
     return { ok: false as const, error: errMsg };
   }
