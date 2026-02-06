@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
+import { getVisibleFacts } from "@/lib/financialFacts/getVisibleFacts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +27,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     const sb = supabaseAdmin();
 
     // Run all three queries in parallel.
-    const [jobRes, spreadsRes, factsRes] = await Promise.all([
+    const [jobRes, spreadsRes, factsVis] = await Promise.all([
       // Latest spread job
       (sb as any)
         .from("deal_spread_jobs")
@@ -41,12 +42,8 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         .select("spread_type, status, owner_type, updated_at")
         .eq("deal_id", dealId)
         .eq("bank_id", access.bankId),
-      // Facts count
-      (sb as any)
-        .from("deal_financial_facts")
-        .select("id", { count: "exact", head: true })
-        .eq("deal_id", dealId)
-        .eq("bank_id", access.bankId),
+      // Canonical facts visibility
+      getVisibleFacts(dealId, access.bankId),
     ]);
 
     // Latest job
@@ -86,7 +83,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         types,
       },
       facts: {
-        total: factsRes.count ?? 0,
+        total: factsVis.total,
+        by_owner_type: factsVis.byOwnerType,
+        by_fact_type: factsVis.byFactType,
       },
     });
   } catch (e: any) {

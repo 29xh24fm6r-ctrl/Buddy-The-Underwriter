@@ -10,6 +10,7 @@ import { evaluateSbaEligibility } from "@/lib/sba/eligibilityEngine";
 import { buildNarrative } from "@/lib/creditMemo/narrative/buildNarrative";
 import { persistFinancialSnapshot, persistFinancialSnapshotDecision } from "@/lib/deals/financialSnapshotPersistence";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { getVisibleFacts } from "@/lib/financialFacts/getVisibleFacts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,15 +88,35 @@ export async function POST(_req: Request, ctx: Ctx) {
       );
     }
 
-    // Pre-flight: ensure financial facts exist before building a snapshot.
-    const sb = supabaseAdmin();
-    const { count: factsCount } = await (sb as any)
-      .from("deal_financial_facts")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId)
-      .eq("bank_id", access.bankId);
+    // Telemetry: snapshot run started
+    logLedgerEvent({
+      dealId,
+      bankId: access.bankId,
+      eventKey: "snapshot.run.started",
+      uiState: "working",
+      uiMessage: "Snapshot generation started",
+    }).catch(() => {});
 
-    if (!factsCount || factsCount === 0) {
+    // Pre-flight: canonical facts visibility check
+    const sb = supabaseAdmin();
+    const factsVis = await getVisibleFacts(dealId, access.bankId);
+
+    // Telemetry: facts visible count
+    logLedgerEvent({
+      dealId,
+      bankId: access.bankId,
+      eventKey: "facts.visible.count",
+      uiState: factsVis.total > 0 ? "done" : "waiting",
+      uiMessage: `${factsVis.total} financial facts visible`,
+      meta: {
+        facts_count: factsVis.total,
+        by_owner_type: factsVis.byOwnerType,
+        by_fact_type: factsVis.byFactType,
+      },
+    }).catch(() => {});
+
+    if (factsVis.total === 0) {
+      // Check for pending spread jobs
       const { data: pendingJobs } = await (sb as any)
         .from("deal_spread_jobs")
         .select("id, status")
@@ -104,18 +125,60 @@ export async function POST(_req: Request, ctx: Ctx) {
         .in("status", ["QUEUED", "RUNNING"])
         .limit(1);
 
-      if (pendingJobs && pendingJobs.length > 0) {
+      // Also check spreads summary for structured response
+      const { data: spreadRows } = await (sb as any)
+        .from("deal_spreads")
+        .select("spread_type, status")
+        .eq("deal_id", dealId)
+        .eq("bank_id", access.bankId);
+
+      const spreads = (spreadRows ?? []) as Array<{ spread_type: string; status: string }>;
+      const spreadsReady = spreads.filter((s) => s.status === "ready").length;
+      const spreadsGenerating = spreads.filter((s) => s.status === "generating").length;
+      const spreadsError = spreads.filter((s) => s.status === "error").length;
+
+      if ((pendingJobs && pendingJobs.length > 0) || spreadsGenerating > 0) {
+        logLedgerEvent({
+          dealId,
+          bankId: access.bankId,
+          eventKey: "snapshot.run.failed",
+          uiState: "error",
+          uiMessage: "Snapshot blocked: spreads still generating",
+          meta: { reason: "SPREADS_IN_PROGRESS", facts_count: 0, spreads_generating: spreadsGenerating },
+        }).catch(() => {});
+
         return NextResponse.json({
           ok: false,
+          deal_id: dealId,
+          reason: "SPREADS_IN_PROGRESS",
           error: "spreads_in_progress",
           message: "Financial spreads are currently generating. Please wait and try again.",
+          facts_count: 0,
+          spreads_ready: spreadsReady,
+          spreads_generating: spreadsGenerating,
+          spreads_error: spreadsError,
         }, { status: 409 });
       }
 
+      logLedgerEvent({
+        dealId,
+        bankId: access.bankId,
+        eventKey: "snapshot.run.failed",
+        uiState: "error",
+        uiMessage: "Snapshot blocked: no financial facts",
+        meta: { reason: "NO_FACTS", facts_count: 0, spreads_ready: spreadsReady },
+      }).catch(() => {});
+
       return NextResponse.json({
         ok: false,
+        deal_id: dealId,
+        reason: "NO_FACTS",
         error: "no_financial_facts",
         message: "No financial data has been extracted yet. Upload and classify financial documents first, then run Recompute Spreads.",
+        facts_count: 0,
+        spreads_ready: spreadsReady,
+        spreads_generating: spreadsGenerating,
+        spreads_error: spreadsError,
       }, { status: 422 });
     }
 
@@ -169,20 +232,52 @@ export async function POST(_req: Request, ctx: Ctx) {
       narrative,
     });
 
+    // Count populated metrics for completeness
+    // DealFinancialSnapshotV1 is a flat object — metrics are direct SnapshotMetricValue props.
+    const METRIC_KEYS = [
+      "total_income_ttm", "noi_ttm", "opex_ttm", "cash_flow_available",
+      "annual_debt_service", "excess_cash_flow", "dscr", "dscr_stressed_300bps",
+      "collateral_gross_value", "collateral_net_value", "collateral_discounted_value",
+      "collateral_coverage", "ltv_gross", "ltv_net",
+      "in_place_rent_mo", "occupancy_pct", "vacancy_pct", "walt_years",
+      "total_project_cost", "borrower_equity", "borrower_equity_pct", "bank_loan_total",
+      "total_assets", "total_liabilities", "net_worth",
+      "gross_receipts", "depreciation_addback", "global_cash_flow",
+      "personal_total_income", "pfs_total_assets", "pfs_total_liabilities",
+      "pfs_net_worth", "gcf_global_cash_flow", "gcf_dscr",
+    ] as const;
+    const populatedMetrics = METRIC_KEYS.filter(
+      (k) => (snapshot as any)[k]?.value != null,
+    );
+    const completeness = Math.round((populatedMetrics.length / METRIC_KEYS.length) * 100);
+    const missingKeys = METRIC_KEYS.filter(
+      (k) => (snapshot as any)[k]?.value == null,
+    );
+
+    // Telemetry: snapshot succeeded
     await logLedgerEvent({
       dealId,
       bankId: access.bankId,
-      eventKey: "financial_snapshot_recomputed",
+      eventKey: "snapshot.run.succeeded",
       uiState: "done",
-      uiMessage: "Financial snapshot recomputed",
-      meta: { snapshotId: snapRow.id, decisionId: decisionRow.id },
+      uiMessage: `Financial snapshot created (${completeness}% complete)`,
+      meta: {
+        snapshotId: snapRow.id,
+        decisionId: decisionRow.id,
+        facts_count: factsVis.total,
+        completeness,
+        missing_keys: missingKeys,
+      },
     });
 
     return NextResponse.json({
       ok: true,
-      dealId,
-      snapshotId: snapRow.id,
-      decisionId: decisionRow.id,
+      deal_id: dealId,
+      snapshot_id: snapRow.id,
+      decision_id: decisionRow.id,
+      facts_count: factsVis.total,
+      completeness,
+      missing_keys: missingKeys,
       snapshot,
       stress,
       sba,
@@ -190,6 +285,23 @@ export async function POST(_req: Request, ctx: Ctx) {
     });
   } catch (e: any) {
     console.error("[/api/deals/[dealId]/financial-snapshot/recompute]", e);
+
+    // Best-effort telemetry on unexpected error
+    try {
+      const { dealId: dId } = await (ctx.params);
+      const acc = await ensureDealBankAccess(dId).catch(() => null);
+      if (acc && (acc as any).bankId) {
+        logLedgerEvent({
+          dealId: dId,
+          bankId: (acc as any).bankId,
+          eventKey: "snapshot.run.failed",
+          uiState: "error",
+          uiMessage: `Snapshot error: ${e?.message ?? "unexpected"}`,
+          meta: { reason: "ERROR", error: e?.message },
+        }).catch(() => {});
+      }
+    } catch { /* ignore telemetry errors */ }
+
     return NextResponse.json({ ok: false, error: e?.message ?? "unexpected_error" }, { status: 500 });
   }
 }
