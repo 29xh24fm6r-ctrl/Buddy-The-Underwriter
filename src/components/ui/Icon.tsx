@@ -23,6 +23,10 @@ import {
   Play,
   Pencil,
   Handshake,
+  BarChart3,
+  User,
+  Landmark,
+  Globe,
 } from "lucide-react";
 
 export type IconName =
@@ -48,7 +52,11 @@ export type IconName =
   | "event"
   | "rocket_launch"
   | "play_arrow"
-  | "handshake";
+  | "handshake"
+  | "analytics"
+  | "person"
+  | "account_balance"
+  | "public";
 
 const MAP: Record<IconName, React.ComponentType<{ className?: string }>> = {
   cloud_upload: CloudUpload,
@@ -74,6 +82,10 @@ const MAP: Record<IconName, React.ComponentType<{ className?: string }>> = {
   rocket_launch: Rocket,
   play_arrow: Play,
   handshake: Handshake,
+  analytics: BarChart3,
+  person: User,
+  account_balance: Landmark,
+  public: Globe,
 };
 
 export function Icon({

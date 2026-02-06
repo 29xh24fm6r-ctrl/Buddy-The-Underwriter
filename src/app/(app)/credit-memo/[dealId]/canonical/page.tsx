@@ -6,7 +6,9 @@ import { redirect } from "next/navigation";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
 import CanonicalMemoTemplate from "@/components/creditMemo/CanonicalMemoTemplate";
+import SpreadsAppendix from "@/components/creditMemo/SpreadsAppendix";
 import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonicalMemoPdfButton";
+import GenerateNarrativesButton from "@/components/creditMemo/GenerateNarrativesButton";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildSbaForm1919 } from "@/lib/sba/forms/build1919";
 import { buildSbaForm1920 } from "@/lib/sba/forms/build1920";
@@ -96,6 +98,27 @@ export default async function CanonicalCreditMemoPage(props: {
     : null;
 
   const res = await buildCanonicalCreditMemo({ dealId, bankId });
+  if (res.ok) {
+    // Check for cached narratives and overlay them
+    const { data: cachedNarrative } = await sb
+      .from("canonical_memo_narratives")
+      .select("narratives")
+      .eq("deal_id", dealId)
+      .eq("bank_id", bankId)
+      .order("generated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (cachedNarrative?.narratives) {
+      const n = cachedNarrative.narratives as any;
+      if (n.executive_summary) res.memo.executive_summary.narrative = n.executive_summary;
+      if (n.income_analysis) res.memo.financial_analysis.income_analysis = n.income_analysis;
+      if (n.property_description) res.memo.collateral.property_description = n.property_description;
+      if (n.borrower_background) res.memo.borrower_sponsor.background = n.borrower_background;
+      if (n.borrower_experience) res.memo.borrower_sponsor.experience = n.borrower_experience;
+      if (n.guarantor_strength) res.memo.borrower_sponsor.guarantor_strength = n.guarantor_strength;
+    }
+  }
   if (!res.ok) {
     return (
       <div className="p-6">
@@ -120,6 +143,7 @@ export default async function CanonicalCreditMemoPage(props: {
             >
               Print View
             </Link>
+            <GenerateNarrativesButton dealId={dealId} />
             <ExportCanonicalMemoPdfButton dealId={dealId} />
           </div>
         </div>
@@ -210,6 +234,8 @@ export default async function CanonicalCreditMemoPage(props: {
         ) : null}
 
         <CanonicalMemoTemplate memo={res.memo} />
+
+        <SpreadsAppendix dealId={dealId} bankId={bankId} />
       </div>
     </div>
   );

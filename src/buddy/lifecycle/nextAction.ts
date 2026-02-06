@@ -126,10 +126,10 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
 
     case "committee_ready":
       return {
-        label: "Record Decision",
-        href: `/deals/${dealId}/decision`,
+        label: "Review Credit Memo",
+        href: `/credit-memo/${dealId}/canonical`,
         intent: "navigate",
-        description: "Submit committee decision",
+        description: "Review auto-populated credit memo, then record decision",
       };
 
     case "committee_decisioned":

@@ -6,6 +6,8 @@ import { requireRole } from "@/lib/auth/requireRole";
 import { redirect } from "next/navigation";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { headers } from "next/headers";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import SpreadsAppendix from "@/components/creditMemo/SpreadsAppendix";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +40,28 @@ export default async function CanonicalCreditMemoPrintPage(props: {
   }
   const res = await buildCanonicalCreditMemo({ dealId, bankId });
 
+  if (res.ok && bankId) {
+    const sb = supabaseAdmin();
+    const { data: cachedNarrative } = await sb
+      .from("canonical_memo_narratives")
+      .select("narratives")
+      .eq("deal_id", dealId)
+      .eq("bank_id", bankId)
+      .order("generated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (cachedNarrative?.narratives) {
+      const n = cachedNarrative.narratives as any;
+      if (n.executive_summary) res.memo.executive_summary.narrative = n.executive_summary;
+      if (n.income_analysis) res.memo.financial_analysis.income_analysis = n.income_analysis;
+      if (n.property_description) res.memo.collateral.property_description = n.property_description;
+      if (n.borrower_background) res.memo.borrower_sponsor.background = n.borrower_background;
+      if (n.borrower_experience) res.memo.borrower_sponsor.experience = n.borrower_experience;
+      if (n.guarantor_strength) res.memo.borrower_sponsor.guarantor_strength = n.guarantor_strength;
+    }
+  }
+
   if (!res.ok) {
     return (
       <html>
@@ -65,6 +89,7 @@ export default async function CanonicalCreditMemoPrintPage(props: {
       <body className="bg-white">
         <div className="mx-auto max-w-[900px] min-h-[1100px] p-[40px]">
           <CanonicalMemoTemplate memo={res.memo} />
+          {bankId && <SpreadsAppendix dealId={dealId} bankId={bankId} />}
         </div>
       </body>
     </html>

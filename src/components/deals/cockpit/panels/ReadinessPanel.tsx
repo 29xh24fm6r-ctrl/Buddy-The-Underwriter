@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useCockpitDataContext } from "@/buddy/cockpit/useCockpitData";
 import { STAGE_LABELS, type LifecycleStage } from "@/buddy/lifecycle/model";
@@ -220,6 +221,18 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
             <DerivedFactDot label="Underwriting" ok={derived.underwriteStarted} />
             <DerivedFactDot label="Decision" ok={derived.decisionPresent} />
           </div>
+        )}
+
+        {/* Credit Memo CTA — visible when financial snapshot exists */}
+        {derived?.financialSnapshotExists && (
+          <Link
+            href={`/credit-memo/${dealId}/canonical`}
+            className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-white/60 hover:bg-white/[0.05] hover:text-white/80 transition-colors"
+          >
+            <span className="material-symbols-outlined text-[16px]">description</span>
+            <span className="font-medium">View Credit Memo</span>
+            <span className="ml-auto text-[10px] text-white/30">Auto-populated</span>
+          </Link>
         )}
 
         {/* Blockers */}

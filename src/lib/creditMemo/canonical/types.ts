@@ -53,7 +53,46 @@ export type CanonicalCreditMemoV1 = {
     background: string;
     experience: string;
     guarantor_strength: string;
+    sponsors: Array<{
+      owner_entity_id: string;
+      name: string | null;
+      total_personal_income: CanonicalMetricValue;
+      wages_w2: CanonicalMetricValue;
+      sched_e_net: CanonicalMetricValue;
+      k1_ordinary_income: CanonicalMetricValue;
+      pfs_total_assets: CanonicalMetricValue;
+      pfs_total_liabilities: CanonicalMetricValue;
+      pfs_net_worth: CanonicalMetricValue;
+    }>;
   };
+
+  global_cash_flow: {
+    global_cash_flow: CanonicalMetricValue;
+    global_dscr: CanonicalMetricValue;
+    cash_available: CanonicalMetricValue;
+    personal_debt_service: CanonicalMetricValue;
+    living_expenses: CanonicalMetricValue;
+    total_obligations: CanonicalMetricValue;
+  };
+
+  business_industry_analysis: {
+    industry_overview: string;
+    market_dynamics: string;
+    competitive_positioning: string;
+    regulatory_environment: string;
+    risk_indicators: Array<{
+      category: string;
+      level: "low" | "medium" | "high";
+      summary: string;
+    }>;
+    research_coverage: {
+      missions_count: number;
+      facts_count: number;
+      inferences_count: number;
+      sources_count: number;
+      compiled_at: string | null;
+    };
+  } | null;
 
   collateral: {
     property_description: string;
@@ -117,6 +156,17 @@ export type CanonicalCreditMemoV1 = {
     ongoing: string[];
   };
 
+  recommendation: {
+    verdict: "approve" | "caution" | "decline_risk" | "pending";
+    headline: string;
+    risk_grade: string;
+    risk_score: number | null;
+    confidence: number | null;
+    rationale: string[];
+    key_drivers: string[];
+    mitigants: string[];
+  };
+
   meta: {
     notes: string[];
     readiness: {
@@ -124,6 +174,11 @@ export type CanonicalCreditMemoV1 = {
       last_generated_at: string | null;
       missing_spreads: string[];
       missing_metrics: string[];
+    };
+    data_completeness: {
+      deal: { total: number; populated: number; status: string };
+      personal: { total: number; populated: number; status: string };
+      global: { total: number; populated: number; status: string };
     };
     spreads: Array<{
       spread_type: string;
