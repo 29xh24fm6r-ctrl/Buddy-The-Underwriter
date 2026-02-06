@@ -94,3 +94,4 @@ buddy-the-underwriter-full.zip
 # buddy-core-worker build artifacts
 services/buddy-core-worker/node_modules/
 services/buddy-core-worker/dist/
+.env*.local

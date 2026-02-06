@@ -4,12 +4,16 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { extractSourcesUsesFactsFromText } from "@/lib/intel/extractors/sourcesUses";
 import { extractCollateralFactsFromText } from "@/lib/intel/extractors/collateral";
 import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
+import { extractIncomeStatement } from "@/lib/financialSpreads/extractors/incomeStatementExtractor";
+import { extractBalanceSheet } from "@/lib/financialSpreads/extractors/balanceSheetExtractor";
+import { extractTaxReturn } from "@/lib/financialSpreads/extractors/taxReturnExtractor";
+import { extractRentRoll } from "@/lib/financialSpreads/extractors/rentRollExtractor";
 
 /**
- * Placeholder extractor.
+ * Unified fact extractor.
  *
- * Once you upload the PDF templates + sample docs, we'll implement deterministic parsing rules
- * that emit normalized facts into deal_financial_facts.
+ * Routes to the appropriate AI-powered extractor based on document classification.
+ * Falls back to rule-based extractors for Sources & Uses and Collateral.
  */
 export async function extractFactsFromDocument(args: {
   dealId: string;
@@ -36,12 +40,63 @@ export async function extractFactsFromDocument(args: {
   const docType = classRes.data?.doc_type ? String(classRes.data.doc_type) : null;
 
   const normDocType = (docType ?? "").trim().toUpperCase();
-  const shouldExtractSourcesUses = ["TERM_SHEET", "LOI", "CLOSING_STATEMENT"].includes(normDocType);
-  const shouldExtractCollateral = ["APPRAISAL", "COLLATERAL_SCHEDULE"].includes(normDocType);
 
   let factsWritten = 0;
 
-  // Best-effort: extract just the minimum "ready" metrics from OCR text.
+  // ── AI-powered extractors ────────────────────────────────────────────────
+  const aiExtractorArgs = {
+    dealId: args.dealId,
+    bankId: args.bankId,
+    documentId: args.documentId,
+    ocrText: extractedText,
+  };
+
+  if (
+    extractedText &&
+    ["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT"].includes(normDocType)
+  ) {
+    try {
+      const result = await extractIncomeStatement(aiExtractorArgs);
+      factsWritten += result.factsWritten;
+    } catch (err) {
+      console.error("[extractFactsFromDocument] incomeStatementExtractor failed:", err);
+    }
+  }
+
+  if (extractedText && normDocType === "BALANCE_SHEET") {
+    try {
+      const result = await extractBalanceSheet(aiExtractorArgs);
+      factsWritten += result.factsWritten;
+    } catch (err) {
+      console.error("[extractFactsFromDocument] balanceSheetExtractor failed:", err);
+    }
+  }
+
+  if (
+    extractedText &&
+    ["IRS_1040", "IRS_1120", "IRS_1120S", "IRS_1065", "IRS_BUSINESS", "IRS_PERSONAL", "K1"].includes(normDocType)
+  ) {
+    try {
+      const result = await extractTaxReturn(aiExtractorArgs);
+      factsWritten += result.factsWritten;
+    } catch (err) {
+      console.error("[extractFactsFromDocument] taxReturnExtractor failed:", err);
+    }
+  }
+
+  if (extractedText && normDocType === "RENT_ROLL") {
+    try {
+      const result = await extractRentRoll(aiExtractorArgs);
+      factsWritten += result.factsWritten;
+    } catch (err) {
+      console.error("[extractFactsFromDocument] rentRollExtractor failed:", err);
+    }
+  }
+
+  // ── Rule-based extractors (existing) ─────────────────────────────────────
+  const shouldExtractSourcesUses = ["TERM_SHEET", "LOI", "CLOSING_STATEMENT"].includes(normDocType);
+  const shouldExtractCollateral = ["APPRAISAL", "COLLATERAL_SCHEDULE"].includes(normDocType);
+
   if (extractedText && (shouldExtractSourcesUses || shouldExtractCollateral)) {
     const sourcesUsesFacts = shouldExtractSourcesUses
       ? extractSourcesUsesFactsFromText({ extractedText, documentId: args.documentId, docType })
@@ -84,7 +139,7 @@ export async function extractFactsFromDocument(args: {
     }
   }
 
-  // Record a minimal provenance marker so we can trace that this pipeline ran.
+  // ── Extraction heartbeat ─────────────────────────────────────────────────
   const fact = {
     deal_id: args.dealId,
     bank_id: args.bankId,
@@ -98,7 +153,7 @@ export async function extractFactsFromDocument(args: {
     currency: "USD",
     confidence: classRes.data?.confidence ?? null,
     provenance: {
-      extractor: "extractFactsFromDocument:v0",
+      extractor: "extractFactsFromDocument:v2",
       doc_type: docType,
     },
   };

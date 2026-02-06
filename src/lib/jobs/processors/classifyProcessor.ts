@@ -31,13 +31,19 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
     const dt = String(docTypeRaw || "").trim().toUpperCase();
     if (!dt) return [];
 
-    if (dt === "FINANCIAL_STATEMENT") return ["T12"];
+    if (dt === "FINANCIAL_STATEMENT" || dt === "T12" || dt === "INCOME_STATEMENT") return ["T12"];
+
+    if (dt === "BALANCE_SHEET") return ["BALANCE_SHEET"];
+
+    if (dt === "RENT_ROLL") return ["RENT_ROLL"];
 
     if (
       dt === "IRS_1040" ||
       dt === "IRS_1065" ||
       dt === "IRS_1120" ||
       dt === "IRS_1120S" ||
+      dt === "IRS_BUSINESS" ||
+      dt === "IRS_PERSONAL" ||
       dt === "K1" ||
       dt === "PFS"
     ) {

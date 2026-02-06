@@ -24,7 +24,15 @@ export type SnapshotMetricName =
   | "total_project_cost"
   | "borrower_equity"
   | "borrower_equity_pct"
-  | "bank_loan_total";
+  | "bank_loan_total"
+  // Balance sheet
+  | "total_assets"
+  | "total_liabilities"
+  | "net_worth"
+  // Tax return / global cash flow
+  | "gross_receipts"
+  | "depreciation_addback"
+  | "global_cash_flow";
 
 export type SnapshotMetricValue = {
   value_num: number | null;
@@ -85,6 +93,16 @@ export type DealFinancialSnapshotV1 = {
   borrower_equity: SnapshotMetricValue;
   borrower_equity_pct: SnapshotMetricValue;
   bank_loan_total: SnapshotMetricValue;
+
+  // Balance sheet
+  total_assets: SnapshotMetricValue;
+  total_liabilities: SnapshotMetricValue;
+  net_worth: SnapshotMetricValue;
+
+  // Tax return / global cash flow
+  gross_receipts: SnapshotMetricValue;
+  depreciation_addback: SnapshotMetricValue;
+  global_cash_flow: SnapshotMetricValue;
 
   // Meta
   as_of_date: string | null;
@@ -338,6 +356,14 @@ export function buildSnapshotFromFacts(args: {
     borrower_equity: get("borrower_equity"),
     borrower_equity_pct: get("borrower_equity_pct"),
     bank_loan_total: get("bank_loan_total"),
+
+    total_assets: get("total_assets"),
+    total_liabilities: get("total_liabilities"),
+    net_worth: get("net_worth"),
+
+    gross_receipts: get("gross_receipts"),
+    depreciation_addback: get("depreciation_addback"),
+    global_cash_flow: get("global_cash_flow"),
 
     as_of_date: snapshotAsOf,
     completeness_pct: completenessPct,

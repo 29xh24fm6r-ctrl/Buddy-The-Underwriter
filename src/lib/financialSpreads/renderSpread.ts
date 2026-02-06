@@ -122,5 +122,87 @@ export async function renderSpread(args: {
 
   if (error) throw new Error(`deal_spreads_upsert_failed:${error.message}`);
 
+  // ── Write normalized line items to deal_spread_line_items (best-effort) ──
+  try {
+    await writeSpreadLineItems({
+      sb,
+      dealId: args.dealId,
+      bankId: args.bankId,
+      spreadType: args.spreadType,
+      rendered,
+    });
+  } catch (lineItemErr) {
+    // Non-fatal: spread is already persisted, line items are supplemental
+    console.error("[renderSpread] writeSpreadLineItems failed:", lineItemErr);
+  }
+
   return { ok: true as const };
+}
+
+/**
+ * Flatten a RenderedSpread into deal_spread_line_items rows.
+ * Each (row × column) pair becomes one line item.
+ */
+async function writeSpreadLineItems(args: {
+  sb: any;
+  dealId: string;
+  bankId: string;
+  spreadType: SpreadType;
+  rendered: RenderedSpread;
+}) {
+  const { sb, dealId, bankId, spreadType, rendered } = args;
+  const columns = rendered.columnsV2 ?? [];
+  if (!columns.length || !rendered.rows?.length) return;
+
+  // Delete existing line items for this spread type (idempotent re-render)
+  await sb
+    .from("deal_spread_line_items")
+    .delete()
+    .eq("deal_id", dealId)
+    .eq("bank_id", bankId)
+    .eq("spread_type", spreadType);
+
+  const lineItems: any[] = [];
+  let sortOrder = 0;
+
+  for (const row of rendered.rows) {
+    const cell = row.values?.[0];
+    const isV2Cell = cell && typeof cell === "object" && "valueByCol" in cell;
+
+    for (const col of columns) {
+      sortOrder += 1;
+      const valueNum = isV2Cell ? (cell as any).valueByCol?.[col.key] ?? null : null;
+      if (valueNum === null) continue; // skip empty cells
+
+      lineItems.push({
+        deal_id: dealId,
+        bank_id: bankId,
+        spread_type: spreadType,
+        section: row.section ?? "",
+        line_key: row.key,
+        label: row.label,
+        sort_order: sortOrder,
+        period_label: col.key,
+        value_num: typeof valueNum === "number" ? valueNum : null,
+        value_text: typeof valueNum === "string" ? valueNum : null,
+        is_formula: Boolean(row.formula),
+        formula_expr: row.formula ?? null,
+        provenance: isV2Cell ? (cell as any).provenanceByCol?.[col.key] ?? null : null,
+      });
+    }
+  }
+
+  if (!lineItems.length) return;
+
+  // Insert in batches of 500 to avoid payload limits
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < lineItems.length; i += BATCH_SIZE) {
+    const batch = lineItems.slice(i, i + BATCH_SIZE);
+    const { error: insertErr } = await sb
+      .from("deal_spread_line_items")
+      .insert(batch);
+    if (insertErr) {
+      console.error("[writeSpreadLineItems] insert batch failed:", insertErr.message);
+    }
+  }
 }

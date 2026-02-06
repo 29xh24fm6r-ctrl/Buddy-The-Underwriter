@@ -267,6 +267,30 @@ function deriveAsOfDate(facts: FinancialFact[]): string | null {
   return out;
 }
 
+/**
+ * Map INCOME_STATEMENT fact keys to T12 row keys.
+ * Used by the AI extractor to populate monthly columns.
+ */
+const INCOME_STATEMENT_TO_T12_ROW: Record<string, T12RowKey> = {
+  GROSS_RENTAL_INCOME: "GROSS_RENTAL_INCOME",
+  EFFECTIVE_GROSS_INCOME: "GROSS_RENTAL_INCOME",
+  VACANCY_CONCESSIONS: "VACANCY_CONCESSIONS",
+  OTHER_INCOME: "OTHER_INCOME",
+  REPAIRS_MAINTENANCE: "REPAIRS_MAINTENANCE",
+  UTILITIES: "UTILITIES",
+  PROPERTY_MANAGEMENT: "PROPERTY_MANAGEMENT",
+  REAL_ESTATE_TAXES: "REAL_ESTATE_TAXES",
+  INSURANCE: "INSURANCE",
+  PAYROLL: "PAYROLL",
+  MARKETING: "MARKETING",
+  PROFESSIONAL_FEES: "PROFESSIONAL_FEES",
+  OTHER_OPEX: "OTHER_OPEX",
+  TOTAL_OPERATING_EXPENSES: "TOTAL_OPEX",
+  NET_OPERATING_INCOME: "NOI",
+  CAPITAL_EXPENDITURES: "CAPEX",
+  DEBT_SERVICE: "DEBT_SERVICE",
+};
+
 function normalizeInputs(args: { facts: FinancialFact[]; columns: SpreadColumnV2[]; asOfDate: string | null }): {
   valuesByRow: RowSeries;
   provenanceByRow: RowProvenance;
@@ -274,25 +298,67 @@ function normalizeInputs(args: { facts: FinancialFact[]; columns: SpreadColumnV2
   const valuesByRow = emptySeries();
   const provenanceByRow = emptyProvenance();
 
-  // Minimal structured input for now: fallback to existing single-column totals mapped into TTM.
+  const monthCols = args.columns.filter((c) => c.kind === "month");
+
+  // ── New: populate from INCOME_STATEMENT facts with period-tagged data ────
+  const incomeStatementFacts = args.facts.filter((f) => f.fact_type === "INCOME_STATEMENT");
+
+  for (const fact of incomeStatementFacts) {
+    const rowKey = INCOME_STATEMENT_TO_T12_ROW[fact.fact_key];
+    if (!rowKey) continue;
+    if (typeof fact.fact_value_num !== "number") continue;
+
+    // Try to map this fact to a specific month column using its period_start
+    const periodStart = fact.fact_period_start;
+    if (periodStart && /^\d{4}-\d{2}/.test(periodStart)) {
+      const factMonthKey = periodStart.slice(0, 7); // "YYYY-MM"
+      const matchingCol = monthCols.find((c) => c.key === factMonthKey);
+      if (matchingCol) {
+        // Only set if not already populated (first-write-wins for same row+col)
+        if (valuesByRow[rowKey]?.[factMonthKey] === undefined || valuesByRow[rowKey]?.[factMonthKey] === null) {
+          if (!valuesByRow[rowKey]) valuesByRow[rowKey] = {};
+          valuesByRow[rowKey][factMonthKey] = fact.fact_value_num;
+          if (!provenanceByRow[rowKey]) provenanceByRow[rowKey] = {};
+          provenanceByRow[rowKey][factMonthKey] = { source: "INCOME_STATEMENT", input: factToInputRef(fact) };
+        }
+        continue;
+      }
+    }
+
+    // Fallback: if the fact has no period or doesn't match a month column, map to TTM
+    if (valuesByRow[rowKey]?.TTM === undefined || valuesByRow[rowKey]?.TTM === null) {
+      if (!valuesByRow[rowKey]) valuesByRow[rowKey] = {};
+      valuesByRow[rowKey].TTM = fact.fact_value_num;
+      if (!provenanceByRow[rowKey]) provenanceByRow[rowKey] = {};
+      provenanceByRow[rowKey].TTM = { source: "INCOME_STATEMENT", input: factToInputRef(fact) };
+    }
+  }
+
+  // ── Legacy: fallback to existing T12-type single-column totals mapped into TTM ──
   const egI = pickLatestFact({ facts: args.facts, factType: "T12", factKey: "EFFECTIVE_GROSS_INCOME" });
   const opex = pickLatestFact({ facts: args.facts, factType: "T12", factKey: "OPERATING_EXPENSES" });
   const noi = pickLatestFact({ facts: args.facts, factType: "T12", factKey: "NOI" });
 
   if (egI && typeof egI.fact_value_num === "number") {
-    valuesByRow.GROSS_RENTAL_INCOME.TTM = egI.fact_value_num;
-    provenanceByRow.GROSS_RENTAL_INCOME.TTM = { source: "Facts", input: factToInputRef(egI) };
+    if (valuesByRow.GROSS_RENTAL_INCOME.TTM === undefined || valuesByRow.GROSS_RENTAL_INCOME.TTM === null) {
+      valuesByRow.GROSS_RENTAL_INCOME.TTM = egI.fact_value_num;
+      provenanceByRow.GROSS_RENTAL_INCOME.TTM = { source: "Facts", input: factToInputRef(egI) };
+    }
   }
 
   if (opex && typeof opex.fact_value_num === "number") {
-    valuesByRow.OTHER_OPEX.TTM = opex.fact_value_num;
-    provenanceByRow.OTHER_OPEX.TTM = { source: "Facts", input: factToInputRef(opex) };
+    if (valuesByRow.OTHER_OPEX.TTM === undefined || valuesByRow.OTHER_OPEX.TTM === null) {
+      valuesByRow.OTHER_OPEX.TTM = opex.fact_value_num;
+      provenanceByRow.OTHER_OPEX.TTM = { source: "Facts", input: factToInputRef(opex) };
+    }
   }
 
   // If we only have NOI but no income/opex, preserve it on the computed row.
   if (noi && typeof noi.fact_value_num === "number") {
-    valuesByRow.NOI.TTM = noi.fact_value_num;
-    provenanceByRow.NOI.TTM = { source: "Facts", input: factToInputRef(noi) };
+    if (valuesByRow.NOI.TTM === undefined || valuesByRow.NOI.TTM === null) {
+      valuesByRow.NOI.TTM = noi.fact_value_num;
+      provenanceByRow.NOI.TTM = { source: "Facts", input: factToInputRef(noi) };
+    }
   }
 
   // Derive YTD/PY_YTD/TTM from months (if any) and fill aggregate keys.

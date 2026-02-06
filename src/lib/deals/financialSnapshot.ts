@@ -114,6 +114,16 @@ function metricSpecsV1(): MetricSpec[] {
     { metric: "borrower_equity", fact_type: CANONICAL_FACTS.BORROWER_EQUITY.fact_type, fact_key: CANONICAL_FACTS.BORROWER_EQUITY.fact_key },
     { metric: "borrower_equity_pct", fact_type: CANONICAL_FACTS.BORROWER_EQUITY_PCT.fact_type, fact_key: CANONICAL_FACTS.BORROWER_EQUITY_PCT.fact_key },
     { metric: "bank_loan_total", fact_type: CANONICAL_FACTS.BANK_LOAN_TOTAL.fact_type, fact_key: CANONICAL_FACTS.BANK_LOAN_TOTAL.fact_key },
+
+    // Balance sheet metrics
+    { metric: "total_assets", fact_type: CANONICAL_FACTS.TOTAL_ASSETS.fact_type, fact_key: CANONICAL_FACTS.TOTAL_ASSETS.fact_key },
+    { metric: "total_liabilities", fact_type: CANONICAL_FACTS.TOTAL_LIABILITIES.fact_type, fact_key: CANONICAL_FACTS.TOTAL_LIABILITIES.fact_key },
+    { metric: "net_worth", fact_type: CANONICAL_FACTS.NET_WORTH.fact_type, fact_key: CANONICAL_FACTS.NET_WORTH.fact_key },
+
+    // Tax return / global cash flow metrics
+    { metric: "gross_receipts", fact_type: CANONICAL_FACTS.GROSS_RECEIPTS.fact_type, fact_key: CANONICAL_FACTS.GROSS_RECEIPTS.fact_key },
+    { metric: "depreciation_addback", fact_type: CANONICAL_FACTS.DEPRECIATION_ADDBACK.fact_type, fact_key: CANONICAL_FACTS.DEPRECIATION_ADDBACK.fact_key },
+    { metric: "global_cash_flow", fact_type: CANONICAL_FACTS.GLOBAL_CASH_FLOW.fact_type, fact_key: CANONICAL_FACTS.GLOBAL_CASH_FLOW.fact_key },
   ];
 }
 

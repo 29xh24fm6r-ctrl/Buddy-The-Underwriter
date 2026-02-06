@@ -1,4 +1,4 @@
-export type SpreadType = "T12" | "RENT_ROLL" | "GLOBAL_CASH_FLOW";
+export type SpreadType = "T12" | "RENT_ROLL" | "GLOBAL_CASH_FLOW" | "BALANCE_SHEET";
 
 export type SpreadStatus = "ready" | "generating" | "error";
 

@@ -40,8 +40,16 @@ export type CanonicalFact = {
     | "OPEX_TTM"
     | "IN_PLACE_RENT_MO"
     | "OCCUPANCY_PCT"
-    | "VACANCY_PCT";
-  fact_type: "FINANCIAL_ANALYSIS" | "COLLATERAL" | "SOURCES_USES";
+    | "VACANCY_PCT"
+    // Balance sheet metrics
+    | "TOTAL_ASSETS"
+    | "TOTAL_LIABILITIES"
+    | "NET_WORTH"
+    // Tax return / global cash flow metrics
+    | "GROSS_RECEIPTS"
+    | "DEPRECIATION_ADDBACK"
+    | "GLOBAL_CASH_FLOW";
+  fact_type: "FINANCIAL_ANALYSIS" | "COLLATERAL" | "SOURCES_USES" | "BALANCE_SHEET" | "TAX_RETURN";
   fact_key: string;
 };
 
@@ -157,6 +165,40 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
     canonical_key: "OPEX_TTM",
     fact_type: "FINANCIAL_ANALYSIS",
     fact_key: "OPEX_TTM",
+  },
+
+  // Balance sheet metrics (derived from BALANCE_SHEET facts)
+  TOTAL_ASSETS: {
+    canonical_key: "TOTAL_ASSETS",
+    fact_type: "BALANCE_SHEET",
+    fact_key: "TOTAL_ASSETS",
+  },
+  TOTAL_LIABILITIES: {
+    canonical_key: "TOTAL_LIABILITIES",
+    fact_type: "BALANCE_SHEET",
+    fact_key: "TOTAL_LIABILITIES",
+  },
+  NET_WORTH: {
+    canonical_key: "NET_WORTH",
+    fact_type: "BALANCE_SHEET",
+    fact_key: "NET_WORTH",
+  },
+
+  // Tax return / global cash flow metrics
+  GROSS_RECEIPTS: {
+    canonical_key: "GROSS_RECEIPTS",
+    fact_type: "TAX_RETURN",
+    fact_key: "GROSS_RECEIPTS",
+  },
+  DEPRECIATION_ADDBACK: {
+    canonical_key: "DEPRECIATION_ADDBACK",
+    fact_type: "TAX_RETURN",
+    fact_key: "DEPRECIATION",
+  },
+  GLOBAL_CASH_FLOW: {
+    canonical_key: "GLOBAL_CASH_FLOW",
+    fact_type: "FINANCIAL_ANALYSIS",
+    fact_key: "GLOBAL_CASH_FLOW",
   },
 };
 
