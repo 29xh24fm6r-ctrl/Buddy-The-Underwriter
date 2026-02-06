@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useDegradedState, type DegradedEvent } from "@/buddy/hooks/useDegradedState";
 
 interface DegradedBannerProps {
@@ -13,10 +13,13 @@ interface DegradedBannerProps {
  * Only visible when BUDDY_BUILDER_MODE or BUDDY_OBSERVER_MODE is enabled.
  */
 export function DegradedBanner({ dealId, enabled = true }: DegradedBannerProps) {
-  const isBuilderMode =
-    typeof window !== "undefined" &&
-    (process.env.NEXT_PUBLIC_BUDDY_OBSERVER_MODE === "1" ||
-      process.env.NEXT_PUBLIC_BUDDY_BUILDER_MODE === "1");
+  const [isBuilderMode, setIsBuilderMode] = useState(false);
+  useEffect(() => {
+    setIsBuilderMode(
+      process.env.NEXT_PUBLIC_BUDDY_OBSERVER_MODE === "1" ||
+      process.env.NEXT_PUBLIC_BUDDY_BUILDER_MODE === "1"
+    );
+  }, []);
 
   const { degraded, items, refresh } = useDegradedState(dealId, enabled && isBuilderMode);
   const [expanded, setExpanded] = useState(false);

@@ -89,7 +89,7 @@ export default function UploadAuditCard({ dealId }: { dealId: string }) {
               <div className="min-w-0">
                 <div className="text-sm text-neutral-100 truncate">{r.original_filename}</div>
                 <div className="mt-1 text-xs text-neutral-400">
-                  {new Date(r.uploaded_at).toLocaleString()} • {r.uploader_type.toUpperCase()}
+                  {new Date(r.uploaded_at).toLocaleString("en-US")} • {r.uploader_type.toUpperCase()}
                   {r.uploader_display_name ? ` • ${r.uploader_display_name}` : ""}
                   {r.uploader_email ? ` • ${r.uploader_email}` : ""}
                   {r.size_bytes ? ` • ${prettyBytes(r.size_bytes)}` : ""}

@@ -17,7 +17,7 @@ type SpreadRow = {
 function formatTimestamp(ts: string) {
   const d = new Date(ts);
   if (!Number.isFinite(d.getTime())) return ts;
-  return d.toLocaleString();
+  return d.toLocaleString("en-US");
 }
 
 function displayCell(v: any): string {
@@ -264,7 +264,7 @@ function displaySpreadGridValue(args: { rowKey: string; cell: any; colKey: strin
                               {isRentRoll ? (
                                 shownColDefs.map((c: any, idx: number) => (
                                   <th
-                                    key={String(c?.key ?? c?.label ?? Math.random())}
+                                    key={String(c?.key ?? c?.label ?? idx)}
                                     className={
                                       idx === 0
                                         ? "sticky left-0 z-10 border-b border-neutral-200 bg-white px-2 py-1 text-left font-semibold text-neutral-700"
@@ -279,9 +279,9 @@ function displaySpreadGridValue(args: { rowKey: string; cell: any; colKey: strin
                                   <th className="sticky left-0 border-b border-neutral-200 bg-white px-2 py-1 text-left font-semibold text-neutral-700">
                                     Line Item
                                   </th>
-                                  {shownColDefs.map((c: any) => (
+                                  {shownColDefs.map((c: any, ci: number) => (
                                     <th
-                                      key={String(c?.key ?? c?.label ?? Math.random())}
+                                      key={String(c?.key ?? c?.label ?? ci)}
                                       className="border-b border-neutral-200 bg-white px-2 py-1 text-right font-semibold text-neutral-700"
                                     >
                                       {String(c?.label ?? "")}
@@ -303,15 +303,15 @@ function displaySpreadGridValue(args: { rowKey: string; cell: any; colKey: strin
                         </tr>
                       </thead>
                       <tbody>
-                        {(isRentRoll ? rrRowsForDisplay : s.rendered_json.rows).slice(0, 24).map((r: any) => (
-                          <tr key={String(r?.key ?? r?.label ?? Math.random())}>
+                        {(isRentRoll ? rrRowsForDisplay : s.rendered_json.rows).slice(0, 24).map((r: any, ri: number) => (
+                          <tr key={String(r?.key ?? r?.label ?? ri)}>
                             {shownColDefs && shownColDefs.length ? (
                               <>
                                 {isRentRoll ? (
                                   <>
                                     {shownColDefs.map((c: any, idx: number) => (
                                       <td
-                                        key={String(c?.key ?? Math.random())}
+                                        key={String(c?.key ?? idx)}
                                         className={
                                           idx === 0
                                             ? "sticky left-0 z-10 border-b border-neutral-100 bg-white px-2 py-1 font-medium text-neutral-900"
@@ -331,9 +331,9 @@ function displaySpreadGridValue(args: { rowKey: string; cell: any; colKey: strin
                                     <td className="sticky left-0 border-b border-neutral-100 bg-white px-2 py-1 font-medium text-neutral-900">
                                       {String(r?.label ?? "")}
                                     </td>
-                                    {shownColDefs.map((c: any) => (
+                                    {shownColDefs.map((c: any, ci: number) => (
                                       <td
-                                        key={String(c?.key ?? Math.random())}
+                                        key={String(c?.key ?? ci)}
                                         className="border-b border-neutral-100 px-2 py-1 text-right text-neutral-700"
                                       >
                                         {displaySpreadGridValue({

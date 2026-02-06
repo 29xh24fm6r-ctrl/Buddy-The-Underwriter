@@ -26,7 +26,7 @@ function fmt(iso?: string | null) {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString();
+  return d.toLocaleString("en-US");
 }
 
 export default function BorrowerPortalControlsCard({ dealId }: { dealId: string }) {

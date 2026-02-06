@@ -1,7 +1,7 @@
 // src/components/deals/interview/ShareUploadLinkCard.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 function cx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -33,15 +33,14 @@ export default function ShareUploadLinkCard({
   basePath?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const [origin, setOrigin] = useState("");
+  useEffect(() => { setOrigin(window.location.origin); }, []);
 
   const uploadLink = useMemo(() => {
-    // Simple, deterministic link back to the deal intake where UploadBox already exists.
-    // If you later create a dedicated delegated upload portal, swap this URL only.
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
     const path = `${basePath}/${dealId}`;
     const qs = sessionId ? `?session=${encodeURIComponent(sessionId)}&focus=upload` : `?focus=upload`;
     return `${origin}${path}${qs}`;
-  }, [dealId, sessionId, basePath]);
+  }, [dealId, sessionId, basePath, origin]);
 
   return (
     <div className="rounded-xl border bg-card p-4 shadow-sm space-y-3">

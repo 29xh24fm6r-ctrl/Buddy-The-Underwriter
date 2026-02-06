@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import DealCockpitClient from "@/components/deals/DealCockpitClient";
 import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
@@ -248,20 +249,26 @@ export default async function DealCockpitPage({ params }: Props) {
 
   return (
     <div data-testid="deal-cockpit">
-      <DealCockpitClient
-        dealId={dealId}
-        isAdmin={isAdmin}
-        dealName={dealName}
-        bankName={bankName}
-        readiness={readiness}
-        lifecycleStage={lifecycleStage}
-        ignitedEvent={ignitedEvent}
-        intakeInitialized={intakeInitialized}
-        verify={verify}
-        verifyLedger={verifyLedger}
-        unifiedLifecycleState={unifiedLifecycleState}
-        lifecycleAvailable={lifecycleAvailable}
-      />
+      <Suspense fallback={
+        <div className="min-h-screen text-white flex items-center justify-center">
+          <div className="animate-pulse text-white/30 text-sm">Loading cockpit...</div>
+        </div>
+      }>
+        <DealCockpitClient
+          dealId={dealId}
+          isAdmin={isAdmin}
+          dealName={dealName}
+          bankName={bankName}
+          readiness={readiness}
+          lifecycleStage={lifecycleStage}
+          ignitedEvent={ignitedEvent}
+          intakeInitialized={intakeInitialized}
+          verify={verify}
+          verifyLedger={verifyLedger}
+          unifiedLifecycleState={unifiedLifecycleState}
+          lifecycleAvailable={lifecycleAvailable}
+        />
+      </Suspense>
     </div>
   );
 }
