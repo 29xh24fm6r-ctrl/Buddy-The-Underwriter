@@ -218,6 +218,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
           <div className="grid grid-cols-2 gap-2">
             <DerivedFactDot label="Documents" ok={derived.borrowerChecklistSatisfied} />
             <DerivedFactDot label="Financials" ok={derived.financialSnapshotExists} />
+            <DerivedFactDot label="Pricing" ok={derived.pricingQuoteReady} />
             <DerivedFactDot label="Underwriting" ok={derived.underwriteStarted} />
             <DerivedFactDot label="Decision" ok={derived.decisionPresent} />
           </div>

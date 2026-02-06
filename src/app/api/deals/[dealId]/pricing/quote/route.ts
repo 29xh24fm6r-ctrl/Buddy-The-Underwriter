@@ -4,6 +4,7 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { getLatestIndexRates, type IndexCode } from "@/lib/rates/indexRates";
 import { runDealRiskPricing } from "@/lib/pricing/runDealRiskPricing";
 import { logPipelineLedger } from "@/lib/pipeline/logPipelineLedger";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -147,6 +148,15 @@ export async function POST(
       rate_snapshot_id: snapshot.id,
     },
   });
+
+  // Non-fatal lifecycle ledger event
+  writeEvent({
+    dealId,
+    kind: "pricing.quote.generated",
+    scope: "pricing",
+    action: "quote_generated",
+    output: { quoteId: quote.id, allInRatePct, spreadBps },
+  }).catch(() => {});
 
   return NextResponse.json({ ok: true, quote, snapshot });
 }

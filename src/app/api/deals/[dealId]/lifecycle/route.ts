@@ -69,6 +69,7 @@ function createFallbackState(
       committeePacketReady: false,
       decisionPresent: false,
       committeeRequired: false,
+      pricingQuoteReady: false,
       attestationSatisfied: true,
       correlationId,
     },

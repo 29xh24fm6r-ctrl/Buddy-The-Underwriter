@@ -214,6 +214,12 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/decision/attestations`,
       };
 
+    case "pricing_quote_missing":
+      return {
+        label: "Lock Pricing Quote",
+        href: `/deals/${dealId}/pricing`,
+      };
+
     case "closing_docs_missing":
       return {
         label: "Upload Closing Docs",

@@ -125,8 +125,8 @@ export async function buildCanonicalCreditMemo(args: {
       buildCreditMemoBindings({ dealId: args.dealId, bankId }),
     ]);
 
-    // Phase 1C/1G/3: Load loan request, pricing quote, document checklist, research in parallel
-    const [loanReqResult, pricingQuoteResult, checklistResult, researchData] = await Promise.all([
+    // Phase 1C/1G/3: Load loan request, pricing quote, document checklist, research, pricing decision in parallel
+    const [loanReqResult, pricingQuoteResult, checklistResult, researchData, pricingDecisionResult] = await Promise.all([
       (sb as any)
         .from("deal_loan_requests")
         .select("*")
@@ -148,10 +148,20 @@ export async function buildCanonicalCreditMemo(args: {
         .eq("bank_id", bankId)
         .not("checklist_key", "is", null),
       loadResearchForMemo({ dealId: args.dealId, bankId }),
+      // Institutional pricing decision system
+      (sb as any)
+        .from("pricing_decisions")
+        .select("*, pricing_scenarios(*), pricing_terms(*)")
+        .eq("deal_id", args.dealId)
+        .eq("bank_id", bankId)
+        .maybeSingle(),
     ]);
 
     const loanReq = loanReqResult.data?.[0] as any | null;
     const pricingQuote = pricingQuoteResult.data?.[0] as any | null;
+    const pricingDecision = pricingDecisionResult.data as any | null;
+    const pricingScenario = pricingDecision?.pricing_scenarios as any | null;
+    const pricingTerms = (pricingDecision?.pricing_terms as any[])?.[0] ?? null;
     const presentDocKeys = ((checklistResult.data ?? []) as any[])
       .map((r: any) => r.checklist_key)
       .filter(Boolean) as string[];
@@ -280,17 +290,76 @@ export async function buildCanonicalCreditMemo(args: {
     ];
 
     // ===== Phase 1G: Proposed terms from pricing =====
-    const proposedProduct = pricingQuote?.index_code
-      ? `${loanReq?.product_type ?? "Term Loan"} — ${pricingQuote.index_code}`
-      : loanReq?.product_type ?? "Pending";
-    const proposedRate = pricingQuote
-      ? { all_in_rate: pricingQuote.all_in_rate_pct != null ? Number(pricingQuote.all_in_rate_pct) : null, index: pricingQuote.index_code ?? "Pending", margin_bps: pricingQuote.spread_bps != null ? Number(pricingQuote.spread_bps) : null }
-      : loanReq?.requested_rate_type
-        ? { all_in_rate: null, index: loanReq.requested_rate_index ?? loanReq.requested_rate_type, margin_bps: loanReq.requested_spread_bps ?? null }
-        : { all_in_rate: null, index: "Pending", margin_bps: null };
-    const proposedRationale = pricingQuote
-      ? `Based on locked pricing quote (${pricingQuote.index_code} + ${pricingQuote.spread_bps}bps)`
-      : "Pending pricing analysis";
+    // Prefer institutional pricing decision over legacy locked quote
+    const scenarioStructure = pricingScenario?.structure as any | null;
+    let proposedProduct: string;
+    let proposedRate: { all_in_rate: number | null; index: string; margin_bps: number | null };
+    let proposedRationale: string;
+
+    if (pricingDecision && scenarioStructure) {
+      // Authoritative pricing from decision system
+      proposedProduct = `${pricingScenario.product_type ?? "Term Loan"} — ${scenarioStructure.index_code ?? ""}`;
+      proposedRate = {
+        all_in_rate: scenarioStructure.all_in_rate_pct ?? null,
+        index: scenarioStructure.index_code ?? "Pending",
+        margin_bps: scenarioStructure.spread_bps ?? null,
+      };
+      proposedRationale = `${pricingDecision.decision}: ${pricingDecision.rationale}`;
+    } else if (pricingQuote) {
+      // Fallback to legacy locked quote
+      proposedProduct = `${loanReq?.product_type ?? "Term Loan"} — ${pricingQuote.index_code}`;
+      proposedRate = {
+        all_in_rate: pricingQuote.all_in_rate_pct != null ? Number(pricingQuote.all_in_rate_pct) : null,
+        index: pricingQuote.index_code ?? "Pending",
+        margin_bps: pricingQuote.spread_bps != null ? Number(pricingQuote.spread_bps) : null,
+      };
+      proposedRationale = `Based on locked pricing quote (${pricingQuote.index_code} + ${pricingQuote.spread_bps}bps)`;
+    } else if (loanReq?.requested_rate_type) {
+      proposedProduct = loanReq.product_type ?? "Pending";
+      proposedRate = {
+        all_in_rate: null,
+        index: loanReq.requested_rate_index ?? loanReq.requested_rate_type,
+        margin_bps: loanReq.requested_spread_bps ?? null,
+      };
+      proposedRationale = "Pending pricing analysis";
+    } else {
+      proposedProduct = loanReq?.product_type ?? "Pending";
+      proposedRate = { all_in_rate: null, index: "Pending", margin_bps: null };
+      proposedRationale = "Pending pricing analysis";
+    }
+
+    // Enrich risk factors from pricing decision
+    if (pricingDecision?.risks && Array.isArray(pricingDecision.risks)) {
+      for (const r of pricingDecision.risks) {
+        if (r.risk && !riskFactors.some((existing: any) => existing.risk === r.risk)) {
+          riskFactors.push({
+            risk: r.risk,
+            severity: r.severity ?? "medium",
+            mitigants: [],
+          });
+        }
+      }
+    }
+    if (pricingDecision?.mitigants && Array.isArray(pricingDecision.mitigants)) {
+      for (const m of pricingDecision.mitigants) {
+        // Attach mitigants to the last risk factor or create a catch-all
+        if (riskFactors.length > 0) {
+          riskFactors[riskFactors.length - 1].mitigants.push(m.mitigant ?? String(m));
+        }
+      }
+    }
+
+    // Policy compliance from pricing scenario overlays
+    if (pricingScenario?.policy_overlays && Array.isArray(pricingScenario.policy_overlays)) {
+      for (const overlay of pricingScenario.policy_overlays) {
+        if (overlay.impact && !policyExceptions.some((e: any) => e.exception === overlay.rule)) {
+          policyExceptions.push({
+            exception: overlay.rule,
+            rationale: overlay.impact,
+          });
+        }
+      }
+    }
 
     // ===== Phase 1H: Stabilization status =====
     const occupancyVal = snapshot.occupancy_pct?.value_num;
@@ -306,11 +375,13 @@ export async function buildCanonicalCreditMemo(args: {
     const loanReqPurpose = loanReq?.purpose ?? "Pending";
     const loanReqProduct = loanReq?.product_type ?? "—";
     const loanReqTermMonths = loanReq?.requested_term_months ?? null;
-    const rateSummary = pricingQuote
-      ? `${pricingQuote.index_code ?? ""} + ${pricingQuote.spread_bps ?? "—"}bps = ${Number(pricingQuote.all_in_rate_pct ?? 0).toFixed(2)}%`
-      : loanReq?.requested_rate_type
-        ? `${loanReq.requested_rate_type}${loanReq.requested_rate_index ? ` (${loanReq.requested_rate_index})` : ""}${loanReq.requested_spread_bps ? ` + ${loanReq.requested_spread_bps}bps` : ""}`
-        : "—";
+    const rateSummary = scenarioStructure
+      ? `${scenarioStructure.index_code ?? ""} + ${scenarioStructure.spread_bps ?? "—"}bps = ${Number(scenarioStructure.all_in_rate_pct ?? 0).toFixed(2)}% [${pricingDecision?.decision ?? ""}]`
+      : pricingQuote
+        ? `${pricingQuote.index_code ?? ""} + ${pricingQuote.spread_bps ?? "—"}bps = ${Number(pricingQuote.all_in_rate_pct ?? 0).toFixed(2)}%`
+        : loanReq?.requested_rate_type
+          ? `${loanReq.requested_rate_type}${loanReq.requested_rate_index ? ` (${loanReq.requested_rate_index})` : ""}${loanReq.requested_spread_bps ? ` + ${loanReq.requested_spread_bps}bps` : ""}`
+          : "—";
 
     // ===== Phase 2: Recommendation & Verdict =====
     const adsVal = financial.annualDebtService.value;

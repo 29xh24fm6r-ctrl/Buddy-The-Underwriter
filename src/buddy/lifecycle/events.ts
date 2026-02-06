@@ -76,6 +76,13 @@ export const LedgerEventType = {
   artifact_process_started: "artifact.process.started",
   artifact_process_completed: "artifact.process.completed",
   artifact_process_failed: "artifact.process.failed",
+
+  // Pricing events
+  pricing_quote_generated: "pricing.quote.generated",
+  pricing_quote_locked: "pricing.quote.locked",
+  pricing_scenarios_generated: "pricing.scenarios.generated",
+  pricing_decision_made: "pricing.decision.made",
+  pricing_pipeline_cleared: "pricing.pipeline.cleared",
 } as const;
 
 export type LedgerEventTypeValue = (typeof LedgerEventType)[keyof typeof LedgerEventType];

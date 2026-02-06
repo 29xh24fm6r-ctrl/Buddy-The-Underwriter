@@ -176,8 +176,8 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     borrowerChecklistSatisfied = requiredItems.length > 0 && missingItems.length === 0;
   }
 
-  // 4–8. Parallel independent queries (snapshot, decision, packet, advancement, loan requests)
-  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult] = await Promise.all([
+  // 4–9. Parallel independent queries (snapshot, decision, packet, advancement, loan requests, pricing)
+  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult] = await Promise.all([
     safeSupabaseCount(
       "snapshot",
       () =>
@@ -235,6 +235,16 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .eq("deal_id", dealId),
       ctx
     ),
+    // Pricing decision (authoritative pipeline gate)
+    safeSupabaseCount(
+      "pricing",
+      () =>
+        sb
+          .from("pricing_decisions")
+          .select("id", { count: "exact", head: true })
+          .eq("deal_id", dealId),
+      ctx
+    ),
   ]);
 
   let financialSnapshotExists = false;
@@ -271,6 +281,11 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     );
   }
 
+  let pricingQuoteReady = false;
+  if (pricingResult.ok) {
+    pricingQuoteReady = pricingResult.data > 0;
+  }
+
   // Attestation check depends on decision result — runs after parallel batch
   let attestationSatisfied = true;
   if (latestDecisionId && deal.bank_id) {
@@ -305,6 +320,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     committeePacketReady,
     decisionPresent,
     committeeRequired,
+    pricingQuoteReady,
     attestationSatisfied,
   };
 
@@ -435,6 +451,17 @@ function computeBlockers(
     });
   }
 
+  // Pricing blocker — a locked quote is required before committee
+  if (
+    ["underwrite_in_progress", "committee_ready"].includes(stage) &&
+    !derived.pricingQuoteReady
+  ) {
+    blockers.push({
+      code: "pricing_quote_missing",
+      message: "A locked pricing quote is required before committee review",
+    });
+  }
+
   // Committee readiness blockers
   if (stage === "underwrite_in_progress" || stage === "committee_ready") {
     if (!derived.committeePacketReady && derived.committeeRequired) {
@@ -486,6 +513,7 @@ function createNotFoundState(): LifecycleState {
       committeePacketReady: false,
       decisionPresent: false,
       committeeRequired: false,
+      pricingQuoteReady: false,
       attestationSatisfied: true,
     },
   };
@@ -514,6 +542,7 @@ function createErrorState(code: string, message: string): LifecycleState {
       committeePacketReady: false,
       decisionPresent: false,
       committeeRequired: false,
+      pricingQuoteReady: false,
       attestationSatisfied: true,
     },
   };

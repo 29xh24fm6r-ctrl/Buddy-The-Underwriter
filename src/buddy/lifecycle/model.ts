@@ -53,6 +53,7 @@ export type LifecycleBlockerCode =
   | "decision_missing"
   | "attestation_missing"
   | "closing_docs_missing"
+  | "pricing_quote_missing"
   | "deal_not_found"
   | "checklist_not_seeded"
   | "loan_request_missing"
@@ -101,6 +102,8 @@ export type LifecycleDerived = {
   decisionPresent: boolean;
   /** True if committee is required for this deal */
   committeeRequired: boolean;
+  /** True if a locked pricing quote exists */
+  pricingQuoteReady: boolean;
   /** True if attestation requirements are satisfied */
   attestationSatisfied: boolean;
   /** Request correlation ID for debugging (optional, set by route) */

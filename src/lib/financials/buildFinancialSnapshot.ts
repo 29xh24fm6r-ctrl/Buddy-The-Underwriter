@@ -36,9 +36,27 @@ export async function buildFinancialSnapshot(args: {
     bankId: args.bankId,
   });
 
+  // Prefer locked pricing quote rate over hardcoded fallback
+  let stressRate = 7.5;
+  try {
+    const { data: lockedQuote } = await sb
+      .from("deal_pricing_quotes")
+      .select("all_in_rate_pct")
+      .eq("deal_id", args.dealId)
+      .eq("status", "locked")
+      .order("locked_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    if (lockedQuote?.all_in_rate_pct != null) {
+      stressRate = Number(lockedQuote.all_in_rate_pct);
+    }
+  } catch {
+    // Non-fatal — fall back to default rate
+  }
+
   const stress = computeFinancialStress({
     snapshot,
-    loanTerms: { principal: 1_000_000, amortMonths: 300, interestOnly: false, rate: 7.5 },
+    loanTerms: { principal: 1_000_000, amortMonths: 300, interestOnly: false, rate: stressRate },
     stress: { vacancyUpPct: 0.1, rentDownPct: 0.1, rateUpBps: 200 },
   });
 
@@ -75,7 +93,7 @@ export async function buildFinancialSnapshot(args: {
     bankId: args.bankId,
     inputs: {
       snapshot,
-      loanTerms: { principal: 1_000_000, amortMonths: 300, interestOnly: false, rate: 7.5 },
+      loanTerms: { principal: 1_000_000, amortMonths: 300, interestOnly: false, rate: stressRate },
       stressScenario: { vacancyUpPct: 0.1, rentDownPct: 0.1, rateUpBps: 200 },
       sbaInputs: {
         borrowerEntityType: args.borrowerEntityType ?? "Unknown",

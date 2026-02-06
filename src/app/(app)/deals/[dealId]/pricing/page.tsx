@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import DealPricingClient from "./DealPricingClient";
+import PricingScenariosPanel from "./PricingScenariosPanel";
 import { headers } from "next/headers";
 import { runDealRiskPricing } from "@/lib/pricing/runDealRiskPricing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -152,6 +153,7 @@ export default async function Page(
 
   return (
     <div data-testid="deal-pricing">
+      <PricingScenariosPanel dealId={dealId} />
       <DealPricingClient
         deal={deal}
         pricing={pricing}

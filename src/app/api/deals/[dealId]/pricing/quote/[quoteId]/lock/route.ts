@@ -9,6 +9,7 @@ import {
   computeMonthlyPI,
   type PricingInputs,
 } from "@/lib/pricing/explainability";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export const dynamic = "force-dynamic";
 
@@ -173,5 +174,15 @@ export async function POST(
   } catch (err) {
     console.warn("[pricing.lock] memo persistence failed", err);
   }
+
+  // Non-fatal lifecycle ledger event
+  writeEvent({
+    dealId,
+    kind: "pricing.quote.locked",
+    scope: "pricing",
+    action: "quote_locked",
+    output: { quoteId, lockReason },
+  }).catch(() => {});
+
   return NextResponse.json({ ok: true, quote: updated });
 }
