@@ -32,7 +32,14 @@ export type SnapshotMetricName =
   // Tax return / global cash flow
   | "gross_receipts"
   | "depreciation_addback"
-  | "global_cash_flow";
+  | "global_cash_flow"
+  // Personal income / PFS / GCF
+  | "personal_total_income"
+  | "pfs_total_assets"
+  | "pfs_total_liabilities"
+  | "pfs_net_worth"
+  | "gcf_global_cash_flow"
+  | "gcf_dscr";
 
 export type SnapshotMetricValue = {
   value_num: number | null;
@@ -103,6 +110,14 @@ export type DealFinancialSnapshotV1 = {
   gross_receipts: SnapshotMetricValue;
   depreciation_addback: SnapshotMetricValue;
   global_cash_flow: SnapshotMetricValue;
+
+  // Personal income / PFS / GCF
+  personal_total_income: SnapshotMetricValue;
+  pfs_total_assets: SnapshotMetricValue;
+  pfs_total_liabilities: SnapshotMetricValue;
+  pfs_net_worth: SnapshotMetricValue;
+  gcf_global_cash_flow: SnapshotMetricValue;
+  gcf_dscr: SnapshotMetricValue;
 
   // Meta
   as_of_date: string | null;
@@ -364,6 +379,13 @@ export function buildSnapshotFromFacts(args: {
     gross_receipts: get("gross_receipts"),
     depreciation_addback: get("depreciation_addback"),
     global_cash_flow: get("global_cash_flow"),
+
+    personal_total_income: get("personal_total_income"),
+    pfs_total_assets: get("pfs_total_assets"),
+    pfs_total_liabilities: get("pfs_total_liabilities"),
+    pfs_net_worth: get("pfs_net_worth"),
+    gcf_global_cash_flow: get("gcf_global_cash_flow"),
+    gcf_dscr: get("gcf_dscr"),
 
     as_of_date: snapshotAsOf,
     completeness_pct: completenessPct,

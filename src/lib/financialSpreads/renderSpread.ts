@@ -29,6 +29,8 @@ export async function renderSpread(args: {
   dealId: string;
   bankId: string;
   spreadType: SpreadType;
+  ownerType?: string;
+  ownerEntityId?: string | null;
 }) {
   const sb = supabaseAdmin();
 
@@ -47,6 +49,8 @@ export async function renderSpread(args: {
           bank_id: args.bankId,
           spread_type: args.spreadType,
           spread_version: 1,
+          owner_type: args.ownerType ?? "DEAL",
+          owner_entity_id: args.ownerEntityId ?? null,
           status: "error",
           inputs_hash: null,
           rendered_json: rendered,
@@ -55,7 +59,7 @@ export async function renderSpread(args: {
           error: rendered.meta?.error ?? null,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "deal_id,bank_id,spread_type,spread_version" } as any,
+        { onConflict: "deal_id,bank_id,spread_type,spread_version,owner_type,owner_entity_id" } as any,
       );
 
     if (error) throw new Error(`deal_spreads_upsert_failed:${error.message}`);
@@ -92,6 +96,7 @@ export async function renderSpread(args: {
     bankId: args.bankId,
     facts: (factsRes.data ?? []) as any,
     rentRollRows,
+    ownerEntityId: args.ownerEntityId ?? null,
   });
 
   const rendered: RenderedSpread = {
@@ -109,6 +114,8 @@ export async function renderSpread(args: {
         bank_id: args.bankId,
         spread_type: args.spreadType,
         spread_version: template.version,
+        owner_type: args.ownerType ?? "DEAL",
+        owner_entity_id: args.ownerEntityId ?? null,
         status: "ready",
         inputs_hash: null,
         rendered_json: rendered,
@@ -117,7 +124,7 @@ export async function renderSpread(args: {
         error: null,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "deal_id,bank_id,spread_type,spread_version" } as any,
+      { onConflict: "deal_id,bank_id,spread_type,spread_version,owner_type,owner_entity_id" } as any,
     );
 
   if (error) throw new Error(`deal_spreads_upsert_failed:${error.message}`);
@@ -129,6 +136,8 @@ export async function renderSpread(args: {
       dealId: args.dealId,
       bankId: args.bankId,
       spreadType: args.spreadType,
+      ownerType: args.ownerType ?? "DEAL",
+      ownerEntityId: args.ownerEntityId ?? null,
       rendered,
     });
   } catch (lineItemErr) {
@@ -148,19 +157,28 @@ async function writeSpreadLineItems(args: {
   dealId: string;
   bankId: string;
   spreadType: SpreadType;
+  ownerType: string;
+  ownerEntityId: string | null;
   rendered: RenderedSpread;
 }) {
-  const { sb, dealId, bankId, spreadType, rendered } = args;
+  const { sb, dealId, bankId, spreadType, ownerType, ownerEntityId, rendered } = args;
   const columns = rendered.columnsV2 ?? [];
   if (!columns.length || !rendered.rows?.length) return;
 
-  // Delete existing line items for this spread type (idempotent re-render)
-  await sb
+  // Delete existing line items for this spread type + owner (idempotent re-render)
+  let delQ = sb
     .from("deal_spread_line_items")
     .delete()
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
-    .eq("spread_type", spreadType);
+    .eq("spread_type", spreadType)
+    .eq("owner_type", ownerType);
+  if (ownerEntityId) {
+    delQ = delQ.eq("owner_entity_id", ownerEntityId);
+  } else {
+    delQ = delQ.is("owner_entity_id", null);
+  }
+  await delQ;
 
   const lineItems: any[] = [];
   let sortOrder = 0;
@@ -178,6 +196,8 @@ async function writeSpreadLineItems(args: {
         deal_id: dealId,
         bank_id: bankId,
         spread_type: spreadType,
+        owner_type: ownerType,
+        owner_entity_id: ownerEntityId,
         section: row.section ?? "",
         line_key: row.key,
         label: row.label,

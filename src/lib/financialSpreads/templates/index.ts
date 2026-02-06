@@ -4,6 +4,8 @@ import type { SpreadTemplate } from "@/lib/financialSpreads/templates/templateTy
 import type { SpreadType } from "@/lib/financialSpreads/types";
 import { balanceSheetTemplate } from "@/lib/financialSpreads/templates/balanceSheet";
 import { globalCashFlowTemplate } from "@/lib/financialSpreads/templates/globalCashFlow";
+import { personalFinancialStatementTemplate } from "@/lib/financialSpreads/templates/personalFinancialStatement";
+import { personalIncomeTemplate } from "@/lib/financialSpreads/templates/personalIncome";
 import { rentRollTemplate } from "@/lib/financialSpreads/templates/rentRoll";
 import { t12Template } from "@/lib/financialSpreads/templates/t12";
 
@@ -49,6 +51,8 @@ function placeholderTemplate(type: SpreadType): SpreadTemplate {
 export function getSpreadTemplate(type: SpreadType): SpreadTemplate | null {
   if (type === "BALANCE_SHEET") return balanceSheetTemplate();
   if (type === "GLOBAL_CASH_FLOW") return globalCashFlowTemplate();
+  if (type === "PERSONAL_INCOME") return personalIncomeTemplate();
+  if (type === "PERSONAL_FINANCIAL_STATEMENT") return personalFinancialStatementTemplate();
   if (type === "T12") return t12Template();
   if (type === "RENT_ROLL") return rentRollTemplate();
   return null;

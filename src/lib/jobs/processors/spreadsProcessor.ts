@@ -43,12 +43,16 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       .map((s) => String(s))
       .filter(Boolean) as SpreadType[];
 
+    const jobMeta = (job.meta && typeof job.meta === "object") ? job.meta : {};
+    const ownerType = typeof jobMeta.owner_type === "string" ? jobMeta.owner_type : undefined;
+    const ownerEntityId = typeof jobMeta.owner_entity_id === "string" ? jobMeta.owner_entity_id : null;
+
     if (sourceDocumentId) {
       await extractFactsFromDocument({ dealId, bankId, documentId: sourceDocumentId });
     }
 
     for (const spreadType of requested) {
-      await renderSpread({ dealId, bankId, spreadType });
+      await renderSpread({ dealId, bankId, spreadType, ownerType, ownerEntityId });
     }
 
     await (sb as any)

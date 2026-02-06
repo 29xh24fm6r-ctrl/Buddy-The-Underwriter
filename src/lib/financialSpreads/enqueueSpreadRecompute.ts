@@ -12,6 +12,8 @@ export async function enqueueSpreadRecompute(args: {
   bankId: string;
   sourceDocumentId?: string | null;
   spreadTypes: SpreadType[];
+  ownerType?: string;
+  ownerEntityId?: string | null;
   meta?: Record<string, any>;
 }) {
   const sb = supabaseAdmin();
@@ -32,6 +34,8 @@ export async function enqueueSpreadRecompute(args: {
               bank_id: args.bankId,
               spread_type: t,
               spread_version: 1,
+              owner_type: args.ownerType ?? "DEAL",
+              owner_entity_id: args.ownerEntityId ?? null,
               status: "generating",
               inputs_hash: null,
               rendered_json: {
@@ -59,7 +63,7 @@ export async function enqueueSpreadRecompute(args: {
               error: null,
               updated_at: new Date().toISOString(),
             },
-            { onConflict: "deal_id,bank_id,spread_type,spread_version" } as any,
+            { onConflict: "deal_id,bank_id,spread_type,spread_version,owner_type,owner_entity_id" } as any,
           ),
       ),
     );
@@ -74,7 +78,11 @@ export async function enqueueSpreadRecompute(args: {
     requested_spread_types: requested,
     status: "QUEUED",
     next_run_at: new Date().toISOString(),
-    meta: args.meta ?? {},
+    meta: {
+      ...(args.meta ?? {}),
+      owner_type: args.ownerType ?? "DEAL",
+      owner_entity_id: args.ownerEntityId ?? null,
+    },
     updated_at: new Date().toISOString(),
   };
 

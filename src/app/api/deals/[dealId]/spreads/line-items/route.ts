@@ -51,6 +51,10 @@ export async function GET(
   if (period) {
     query = query.eq("period_label", period);
   }
+  const ownerType = url.searchParams.get("owner_type");
+  if (ownerType) {
+    query = query.eq("owner_type", ownerType);
+  }
 
   const { data, error } = await query;
 

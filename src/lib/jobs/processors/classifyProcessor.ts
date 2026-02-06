@@ -38,16 +38,29 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
     if (dt === "RENT_ROLL") return ["RENT_ROLL"];
 
     if (
-      dt === "IRS_1040" ||
       dt === "IRS_1065" ||
       dt === "IRS_1120" ||
       dt === "IRS_1120S" ||
       dt === "IRS_BUSINESS" ||
-      dt === "IRS_PERSONAL" ||
-      dt === "K1" ||
-      dt === "PFS"
+      dt === "K1"
     ) {
       return ["GLOBAL_CASH_FLOW"];
+    }
+
+    if (
+      dt === "IRS_1040" ||
+      dt === "IRS_PERSONAL" ||
+      dt === "PERSONAL_TAX_RETURN"
+    ) {
+      return ["PERSONAL_INCOME", "GLOBAL_CASH_FLOW"];
+    }
+
+    if (
+      dt === "PFS" ||
+      dt === "PERSONAL_FINANCIAL_STATEMENT" ||
+      dt === "SBA_413"
+    ) {
+      return ["PERSONAL_FINANCIAL_STATEMENT", "GLOBAL_CASH_FLOW"];
     }
 
     return [];

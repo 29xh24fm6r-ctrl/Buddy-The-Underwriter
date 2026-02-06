@@ -33,12 +33,17 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     const sb = supabaseAdmin();
     let q = (sb as any)
       .from("deal_spreads")
-      .select("deal_id, bank_id, spread_type, spread_version, status, rendered_json, updated_at, error")
+      .select("deal_id, bank_id, spread_type, spread_version, status, rendered_json, updated_at, error, owner_type, owner_entity_id")
       .eq("deal_id", dealId)
       .eq("bank_id", access.bankId);
 
     if (types.length) {
       q = q.in("spread_type", types);
+    }
+
+    const ownerType = url.searchParams.get("owner_type");
+    if (ownerType) {
+      q = q.eq("owner_type", ownerType);
     }
 
     const { data, error } = await q.order("updated_at", { ascending: false });

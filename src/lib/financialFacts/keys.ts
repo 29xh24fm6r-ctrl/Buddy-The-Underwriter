@@ -48,8 +48,15 @@ export type CanonicalFact = {
     // Tax return / global cash flow metrics
     | "GROSS_RECEIPTS"
     | "DEPRECIATION_ADDBACK"
-    | "GLOBAL_CASH_FLOW";
-  fact_type: "FINANCIAL_ANALYSIS" | "COLLATERAL" | "SOURCES_USES" | "BALANCE_SHEET" | "TAX_RETURN";
+    | "GLOBAL_CASH_FLOW"
+    // Personal income / PFS / GCF metrics
+    | "PERSONAL_TOTAL_INCOME"
+    | "PFS_TOTAL_ASSETS"
+    | "PFS_TOTAL_LIABILITIES"
+    | "PFS_NET_WORTH"
+    | "GCF_GLOBAL_CASH_FLOW"
+    | "GCF_DSCR";
+  fact_type: "FINANCIAL_ANALYSIS" | "COLLATERAL" | "SOURCES_USES" | "BALANCE_SHEET" | "TAX_RETURN" | "PERSONAL_INCOME" | "PERSONAL_FINANCIAL_STATEMENT";
   fact_key: string;
 };
 
@@ -199,6 +206,38 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
     canonical_key: "GLOBAL_CASH_FLOW",
     fact_type: "FINANCIAL_ANALYSIS",
     fact_key: "GLOBAL_CASH_FLOW",
+  },
+
+  // Personal income / PFS / GCF metrics
+  PERSONAL_TOTAL_INCOME: {
+    canonical_key: "PERSONAL_TOTAL_INCOME",
+    fact_type: "PERSONAL_INCOME",
+    fact_key: "TOTAL_PERSONAL_INCOME",
+  },
+  PFS_TOTAL_ASSETS: {
+    canonical_key: "PFS_TOTAL_ASSETS",
+    fact_type: "PERSONAL_FINANCIAL_STATEMENT",
+    fact_key: "PFS_TOTAL_ASSETS",
+  },
+  PFS_TOTAL_LIABILITIES: {
+    canonical_key: "PFS_TOTAL_LIABILITIES",
+    fact_type: "PERSONAL_FINANCIAL_STATEMENT",
+    fact_key: "PFS_TOTAL_LIABILITIES",
+  },
+  PFS_NET_WORTH: {
+    canonical_key: "PFS_NET_WORTH",
+    fact_type: "PERSONAL_FINANCIAL_STATEMENT",
+    fact_key: "PFS_NET_WORTH",
+  },
+  GCF_GLOBAL_CASH_FLOW: {
+    canonical_key: "GCF_GLOBAL_CASH_FLOW",
+    fact_type: "FINANCIAL_ANALYSIS",
+    fact_key: "GCF_GLOBAL_CASH_FLOW",
+  },
+  GCF_DSCR: {
+    canonical_key: "GCF_DSCR",
+    fact_type: "FINANCIAL_ANALYSIS",
+    fact_key: "GCF_DSCR",
   },
 };
 

@@ -169,6 +169,8 @@ export async function writeFactsBatch(args: {
   sourceDocumentId: string;
   factType: string;
   items: ExtractedLineItem[];
+  ownerType?: string;
+  ownerEntityId?: string | null;
 }): Promise<ExtractionResult> {
   let factsWritten = 0;
 
@@ -184,6 +186,8 @@ export async function writeFactsBatch(args: {
       factPeriodStart: item.periodStart,
       factPeriodEnd: item.periodEnd,
       provenance: item.provenance,
+      ownerType: args.ownerType,
+      ownerEntityId: args.ownerEntityId,
     }),
   );
 

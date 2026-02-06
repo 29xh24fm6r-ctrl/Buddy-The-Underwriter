@@ -124,6 +124,14 @@ function metricSpecsV1(): MetricSpec[] {
     { metric: "gross_receipts", fact_type: CANONICAL_FACTS.GROSS_RECEIPTS.fact_type, fact_key: CANONICAL_FACTS.GROSS_RECEIPTS.fact_key },
     { metric: "depreciation_addback", fact_type: CANONICAL_FACTS.DEPRECIATION_ADDBACK.fact_type, fact_key: CANONICAL_FACTS.DEPRECIATION_ADDBACK.fact_key },
     { metric: "global_cash_flow", fact_type: CANONICAL_FACTS.GLOBAL_CASH_FLOW.fact_type, fact_key: CANONICAL_FACTS.GLOBAL_CASH_FLOW.fact_key },
+
+    // Personal income / PFS / GCF metrics
+    { metric: "personal_total_income", fact_type: CANONICAL_FACTS.PERSONAL_TOTAL_INCOME.fact_type, fact_key: CANONICAL_FACTS.PERSONAL_TOTAL_INCOME.fact_key },
+    { metric: "pfs_total_assets", fact_type: CANONICAL_FACTS.PFS_TOTAL_ASSETS.fact_type, fact_key: CANONICAL_FACTS.PFS_TOTAL_ASSETS.fact_key },
+    { metric: "pfs_total_liabilities", fact_type: CANONICAL_FACTS.PFS_TOTAL_LIABILITIES.fact_type, fact_key: CANONICAL_FACTS.PFS_TOTAL_LIABILITIES.fact_key },
+    { metric: "pfs_net_worth", fact_type: CANONICAL_FACTS.PFS_NET_WORTH.fact_type, fact_key: CANONICAL_FACTS.PFS_NET_WORTH.fact_key },
+    { metric: "gcf_global_cash_flow", fact_type: CANONICAL_FACTS.GCF_GLOBAL_CASH_FLOW.fact_type, fact_key: CANONICAL_FACTS.GCF_GLOBAL_CASH_FLOW.fact_key },
+    { metric: "gcf_dscr", fact_type: CANONICAL_FACTS.GCF_DSCR.fact_type, fact_key: CANONICAL_FACTS.GCF_DSCR.fact_key },
   ];
 }
 

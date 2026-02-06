@@ -21,6 +21,9 @@ export async function upsertDealFinancialFact(args: {
   factPeriodEnd?: string | null;
 
   provenance: FinancialFactProvenance;
+
+  ownerType?: string;
+  ownerEntityId?: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const sb = supabaseAdmin();
@@ -38,13 +41,15 @@ export async function upsertDealFinancialFact(args: {
       currency: args.currency ?? "USD",
       confidence: args.confidence,
       provenance: args.provenance,
+      owner_type: args.ownerType ?? "DEAL",
+      owner_entity_id: args.ownerEntityId ?? null,
     };
 
     const { error } = await (sb as any)
       .from("deal_financial_facts")
       .upsert(row, {
         onConflict:
-          "deal_id,bank_id,source_document_id,fact_type,fact_key,fact_period_start,fact_period_end",
+          "deal_id,bank_id,source_document_id,fact_type,fact_key,fact_period_start,fact_period_end,owner_type,owner_entity_id",
       } as any);
 
     if (error) return { ok: false, error: error.message };

@@ -1,4 +1,6 @@
-export type SpreadType = "T12" | "RENT_ROLL" | "GLOBAL_CASH_FLOW" | "BALANCE_SHEET";
+export type SpreadType = "T12" | "RENT_ROLL" | "GLOBAL_CASH_FLOW" | "BALANCE_SHEET" | "PERSONAL_INCOME" | "PERSONAL_FINANCIAL_STATEMENT";
+
+export type OwnerType = "DEAL" | "PERSONAL" | "GLOBAL";
 
 export type SpreadStatus = "ready" | "generating" | "error";
 
@@ -78,6 +80,8 @@ export type FinancialFact = {
   confidence: number | null;
   provenance: any;
   created_at: string;
+  owner_type?: string;
+  owner_entity_id?: string | null;
 };
 
 export type RentRollOccupancyStatus = "OCCUPIED" | "VACANT";

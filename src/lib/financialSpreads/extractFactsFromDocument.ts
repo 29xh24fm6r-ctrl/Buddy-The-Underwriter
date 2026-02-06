@@ -8,6 +8,8 @@ import { extractIncomeStatement } from "@/lib/financialSpreads/extractors/income
 import { extractBalanceSheet } from "@/lib/financialSpreads/extractors/balanceSheetExtractor";
 import { extractTaxReturn } from "@/lib/financialSpreads/extractors/taxReturnExtractor";
 import { extractRentRoll } from "@/lib/financialSpreads/extractors/rentRollExtractor";
+import { extractPersonalIncome } from "@/lib/financialSpreads/extractors/personalIncomeExtractor";
+import { extractPfs } from "@/lib/financialSpreads/extractors/pfsExtractor";
 
 /**
  * Unified fact extractor.
@@ -15,6 +17,15 @@ import { extractRentRoll } from "@/lib/financialSpreads/extractors/rentRollExtra
  * Routes to the appropriate AI-powered extractor based on document classification.
  * Falls back to rule-based extractors for Sources & Uses and Collateral.
  */
+async function resolveOwnerForDocument(sb: any, documentId: string): Promise<string | null> {
+  const { data } = await sb
+    .from("deal_documents")
+    .select("assigned_owner_id")
+    .eq("id", documentId)
+    .maybeSingle();
+  return data?.assigned_owner_id ? String(data.assigned_owner_id) : null;
+}
+
 export async function extractFactsFromDocument(args: {
   dealId: string;
   bankId: string;
@@ -90,6 +101,40 @@ export async function extractFactsFromDocument(args: {
       factsWritten += result.factsWritten;
     } catch (err) {
       console.error("[extractFactsFromDocument] rentRollExtractor failed:", err);
+    }
+  }
+
+  // ── Personal income extractor (1040 / personal tax returns) ────────────
+  if (
+    extractedText &&
+    ["PERSONAL_TAX_RETURN", "IRS_1040", "IRS_PERSONAL"].includes(normDocType)
+  ) {
+    try {
+      const ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
+      const result = await extractPersonalIncome({
+        ...aiExtractorArgs,
+        ownerEntityId,
+      });
+      factsWritten += result.factsWritten;
+    } catch (err) {
+      console.error("[extractFactsFromDocument] personalIncomeExtractor failed:", err);
+    }
+  }
+
+  // ── PFS extractor ─────────────────────────────────────────────────────
+  if (
+    extractedText &&
+    ["PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413"].includes(normDocType)
+  ) {
+    try {
+      const ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
+      const result = await extractPfs({
+        ...aiExtractorArgs,
+        ownerEntityId,
+      });
+      factsWritten += result.factsWritten;
+    } catch (err) {
+      console.error("[extractFactsFromDocument] pfsExtractor failed:", err);
     }
   }
 

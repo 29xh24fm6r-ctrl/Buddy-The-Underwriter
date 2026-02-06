@@ -10,5 +10,6 @@ export type SpreadTemplate = {
     bankId: string;
     facts: FinancialFact[];
     rentRollRows?: RentRollRow[];
+    ownerEntityId?: string | null;
   }) => RenderedSpread;
 };
