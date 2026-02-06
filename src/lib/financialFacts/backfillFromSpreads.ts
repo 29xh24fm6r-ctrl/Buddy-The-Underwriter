@@ -91,15 +91,23 @@ function extractAsOfDate(spread: any): string | null {
   return null;
 }
 
+type SpreadRow = {
+  spread_version: number;
+  updated_at: string | null;
+  owner_type: string;
+  owner_entity_id: string | null;
+  rendered_json: RenderedSpread | null;
+};
+
 async function getLatestSpreadRow(args: {
   dealId: string;
   bankId: string;
   spreadType: SpreadType;
-}): Promise<{ spread_version: number; updated_at: string | null; rendered_json: RenderedSpread | null } | null> {
+}): Promise<SpreadRow | null> {
   const sb = supabaseAdmin();
   const res = await (sb as any)
     .from("deal_spreads")
-    .select("spread_version, updated_at, rendered_json")
+    .select("spread_version, updated_at, owner_type, owner_entity_id, rendered_json")
     .eq("deal_id", args.dealId)
     .eq("bank_id", args.bankId)
     .eq("spread_type", args.spreadType)
@@ -112,9 +120,37 @@ async function getLatestSpreadRow(args: {
   return {
     spread_version: Number(res.data.spread_version ?? 1),
     updated_at: res.data.updated_at ?? null,
+    owner_type: res.data.owner_type ?? "DEAL",
+    owner_entity_id: res.data.owner_entity_id ?? null,
     rendered_json:
       res.data.rendered_json && typeof res.data.rendered_json === "object" ? (res.data.rendered_json as any) : null,
   };
+}
+
+async function getAllSpreadsForType(args: {
+  dealId: string;
+  bankId: string;
+  spreadType: SpreadType;
+}): Promise<SpreadRow[]> {
+  const sb = supabaseAdmin();
+  const res = await (sb as any)
+    .from("deal_spreads")
+    .select("spread_version, updated_at, owner_type, owner_entity_id, rendered_json")
+    .eq("deal_id", args.dealId)
+    .eq("bank_id", args.bankId)
+    .eq("spread_type", args.spreadType)
+    .eq("status", "ready");
+
+  if (res.error || !res.data) return [];
+
+  return (res.data as any[]).map((d: any) => ({
+    spread_version: Number(d.spread_version ?? 1),
+    updated_at: d.updated_at ?? null,
+    owner_type: d.owner_type ?? "DEAL",
+    owner_entity_id: d.owner_entity_id ?? null,
+    rendered_json:
+      d.rendered_json && typeof d.rendered_json === "object" ? (d.rendered_json as any) : null,
+  }));
 }
 
 export async function backfillCanonicalFactsFromSpreads(args: {
@@ -425,6 +461,190 @@ export async function backfillCanonicalFactsFromSpreads(args: {
             as_of_date: asOfDate,
             extractor: "backfillCanonicalFactsFromSpreads:v3",
             confidence: vacPct === null ? null : baseConfidence,
+          },
+        }),
+      );
+    }
+
+    // ── BALANCE SHEET: TOTAL_ASSETS, TOTAL_LIABILITIES, NET_WORTH ────────
+    const bs = await getLatestSpreadRow({ dealId: args.dealId, bankId: args.bankId, spreadType: "BALANCE_SHEET" });
+    if (!bs?.rendered_json) {
+      notes.push("BALANCE_SHEET spread missing.");
+    } else {
+      const asOfDate = extractAsOfDate(bs.rendered_json);
+      const sourceRef = `deal_spreads:BALANCE_SHEET:v${bs.spread_version}`;
+      // Balance sheet uses valueByCol with date-keyed columns. Use the asOf date or first column.
+      const bsColKey =
+        asOfDate ??
+        (bs.rendered_json as any)?.meta?.as_of_dates?.[0] ??
+        (bs.rendered_json as any)?.columnsV2?.[0]?.key ??
+        "VALUE";
+
+      const bsFacts: Array<{
+        canonical: keyof typeof CANONICAL_FACTS;
+        rowKey: string;
+      }> = [
+        { canonical: "TOTAL_ASSETS", rowKey: "TOTAL_ASSETS" },
+        { canonical: "TOTAL_LIABILITIES", rowKey: "TOTAL_LIABILITIES" },
+        { canonical: "NET_WORTH", rowKey: "NET_WORTH" },
+      ];
+
+      for (const bf of bsFacts) {
+        const val =
+          tryFindRowNumberForCol(bs.rendered_json, { rowKey: bf.rowKey, colKey: bsColKey }) ??
+          tryFindRowNumber(bs.rendered_json, { key: bf.rowKey });
+        writes.push(
+          upsertDealFinancialFact({
+            dealId: args.dealId,
+            bankId: args.bankId,
+            sourceDocumentId: null,
+            factType: CANONICAL_FACTS[bf.canonical].fact_type,
+            factKey: CANONICAL_FACTS[bf.canonical].fact_key,
+            factValueNum: val ?? null,
+            confidence: val === null ? null : baseConfidence,
+            provenance: {
+              source_type: "SPREAD",
+              source_ref: sourceRef,
+              as_of_date: asOfDate,
+              extractor: "backfillCanonicalFactsFromSpreads:v4",
+              confidence: val === null ? null : baseConfidence,
+            },
+            ownerType: "DEAL",
+          }),
+        );
+      }
+    }
+
+    // ── PERSONAL INCOME: TOTAL_PERSONAL_INCOME (per owner) ────────────────
+    const piSpreads = await getAllSpreadsForType({ dealId: args.dealId, bankId: args.bankId, spreadType: "PERSONAL_INCOME" });
+    if (piSpreads.length === 0) {
+      notes.push("PERSONAL_INCOME spreads missing.");
+    } else {
+      for (const pi of piSpreads) {
+        if (!pi.rendered_json) continue;
+        const asOfDate = extractAsOfDate(pi.rendered_json);
+        const sourceRef = `deal_spreads:PERSONAL_INCOME:v${pi.spread_version}:${pi.owner_entity_id ?? "default"}`;
+
+        const totalPersonalIncome =
+          tryFindRowNumber(pi.rendered_json, { key: "TOTAL_PERSONAL_INCOME" }) ??
+          tryFindRowNumber(pi.rendered_json, { key: "total_personal_income" });
+
+        writes.push(
+          upsertDealFinancialFact({
+            dealId: args.dealId,
+            bankId: args.bankId,
+            sourceDocumentId: null,
+            factType: CANONICAL_FACTS.PERSONAL_TOTAL_INCOME.fact_type,
+            factKey: CANONICAL_FACTS.PERSONAL_TOTAL_INCOME.fact_key,
+            factValueNum: totalPersonalIncome ?? null,
+            confidence: totalPersonalIncome === null ? null : baseConfidence,
+            provenance: {
+              source_type: "SPREAD",
+              source_ref: sourceRef,
+              as_of_date: asOfDate,
+              extractor: "backfillCanonicalFactsFromSpreads:v4",
+              confidence: totalPersonalIncome === null ? null : baseConfidence,
+            },
+            ownerType: pi.owner_type,
+            ownerEntityId: pi.owner_entity_id,
+          }),
+        );
+      }
+    }
+
+    // ── PFS: PFS_TOTAL_ASSETS, PFS_TOTAL_LIABILITIES, PFS_NET_WORTH (per owner)
+    const pfsSpreads = await getAllSpreadsForType({ dealId: args.dealId, bankId: args.bankId, spreadType: "PERSONAL_FINANCIAL_STATEMENT" });
+    if (pfsSpreads.length === 0) {
+      notes.push("PERSONAL_FINANCIAL_STATEMENT spreads missing.");
+    } else {
+      for (const pfs of pfsSpreads) {
+        if (!pfs.rendered_json) continue;
+        const asOfDate = extractAsOfDate(pfs.rendered_json);
+        const sourceRef = `deal_spreads:PFS:v${pfs.spread_version}:${pfs.owner_entity_id ?? "default"}`;
+
+        const pfsFacts: Array<{
+          canonical: keyof typeof CANONICAL_FACTS;
+          rowKey: string;
+        }> = [
+          { canonical: "PFS_TOTAL_ASSETS", rowKey: "PFS_TOTAL_ASSETS" },
+          { canonical: "PFS_TOTAL_LIABILITIES", rowKey: "PFS_TOTAL_LIABILITIES" },
+          { canonical: "PFS_NET_WORTH", rowKey: "PFS_NET_WORTH" },
+        ];
+
+        for (const pf of pfsFacts) {
+          const val = tryFindRowNumber(pfs.rendered_json, { key: pf.rowKey });
+          writes.push(
+            upsertDealFinancialFact({
+              dealId: args.dealId,
+              bankId: args.bankId,
+              sourceDocumentId: null,
+              factType: CANONICAL_FACTS[pf.canonical].fact_type,
+              factKey: CANONICAL_FACTS[pf.canonical].fact_key,
+              factValueNum: val ?? null,
+              confidence: val === null ? null : baseConfidence,
+              provenance: {
+                source_type: "SPREAD",
+                source_ref: sourceRef,
+                as_of_date: asOfDate,
+                extractor: "backfillCanonicalFactsFromSpreads:v4",
+                confidence: val === null ? null : baseConfidence,
+              },
+              ownerType: pfs.owner_type,
+              ownerEntityId: pfs.owner_entity_id,
+            }),
+          );
+        }
+      }
+    }
+
+    // ── GCF additions: GCF_GLOBAL_CASH_FLOW, GCF_DSCR ────────────────────
+    // These come from the same GLOBAL_CASH_FLOW spread already loaded above.
+    if (gcf?.rendered_json) {
+      const asOfDate = extractAsOfDate(gcf.rendered_json);
+      const sourceRef = `deal_spreads:GLOBAL_CASH_FLOW:v${gcf.spread_version}`;
+
+      const gcfGlobalCashFlow =
+        tryFindRowNumber(gcf.rendered_json, { key: "GCF_GLOBAL_CASH_FLOW" }) ??
+        tryFindRowNumber(gcf.rendered_json, { key: "gcf_global_cash_flow" });
+
+      const gcfDscr =
+        tryFindRowNumber(gcf.rendered_json, { key: "GCF_DSCR" }) ??
+        tryFindRowNumber(gcf.rendered_json, { key: "gcf_dscr" });
+
+      writes.push(
+        upsertDealFinancialFact({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: null,
+          factType: CANONICAL_FACTS.GCF_GLOBAL_CASH_FLOW.fact_type,
+          factKey: CANONICAL_FACTS.GCF_GLOBAL_CASH_FLOW.fact_key,
+          factValueNum: gcfGlobalCashFlow ?? null,
+          confidence: gcfGlobalCashFlow === null ? null : baseConfidence,
+          provenance: {
+            source_type: "SPREAD",
+            source_ref: sourceRef,
+            as_of_date: asOfDate,
+            extractor: "backfillCanonicalFactsFromSpreads:v4",
+            confidence: gcfGlobalCashFlow === null ? null : baseConfidence,
+          },
+        }),
+      );
+
+      writes.push(
+        upsertDealFinancialFact({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: null,
+          factType: CANONICAL_FACTS.GCF_DSCR.fact_type,
+          factKey: CANONICAL_FACTS.GCF_DSCR.fact_key,
+          factValueNum: gcfDscr ?? null,
+          confidence: gcfDscr === null ? null : baseConfidence,
+          provenance: {
+            source_type: "SPREAD",
+            source_ref: sourceRef,
+            as_of_date: asOfDate,
+            extractor: "backfillCanonicalFactsFromSpreads:v4",
+            confidence: gcfDscr === null ? null : baseConfidence,
           },
         }),
       );

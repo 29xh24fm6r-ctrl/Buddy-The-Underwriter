@@ -1,6 +1,7 @@
 import { signUploadUrl } from "@/lib/uploads/sign";
 import { getGcsBucketName } from "@/lib/storage/gcs";
-import { getVercelOidcToken } from "@/lib/google/vercelOidc";
+import { getVercelOidcToken } from "@/lib/google/getVercelOidcToken";
+import { hasWifProviderConfig } from "@/lib/google/wif/getWifProvider";
 import { exchangeOidcForFederatedAccessToken } from "@/lib/google/wifSts";
 import { generateAccessToken, signBlob } from "@/lib/google/iamCredentials";
 import { createV4SignedPutUrl } from "@/lib/google/gcsV4Signer";
@@ -87,7 +88,7 @@ export async function signDealUpload(
   const region = process.env.GCS_SIGN_REGION || "us-central1";
   const gcsBucket = process.env.GCS_BUCKET || getGcsBucketName();
   const serviceAccountEmail = process.env.GCP_SERVICE_ACCOUNT_EMAIL || "";
-  const hasGcsConfig = Boolean(gcsBucket && serviceAccountEmail && process.env.GCP_WORKLOAD_IDENTITY_PROVIDER);
+  const hasGcsConfig = Boolean(gcsBucket && serviceAccountEmail && hasWifProviderConfig());
   const strictGcs = process.env.GCS_STRICT_SIGNING === "1";
   const docStoreEffective = wantsGcs && (!hasGcsConfig && !strictGcs) ? "supabase" : docStore;
 
@@ -100,11 +101,11 @@ export async function signDealUpload(
         ok: false,
         requestId,
         error: "missing_gcp_config",
-        details: "Set GCS_BUCKET, GCP_SERVICE_ACCOUNT_EMAIL, and GCP_WORKLOAD_IDENTITY_PROVIDER.",
+        details: "Set GCS_BUCKET, GCP_SERVICE_ACCOUNT_EMAIL, and GCP_WIF_PROVIDER.",
       };
     }
 
-    const oidc = getVercelOidcToken(req);
+    const oidc = await getVercelOidcToken(req);
     if (!oidc) {
       return {
         ok: false,

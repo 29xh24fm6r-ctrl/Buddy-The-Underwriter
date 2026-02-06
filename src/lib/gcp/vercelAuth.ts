@@ -1,12 +1,18 @@
 import "server-only";
 
 import { IdentityPoolClient } from "google-auth-library";
-import { getVercelOidcToken } from "@vercel/oidc";
+import { getVercelOidcToken } from "@/lib/google/getVercelOidcToken";
 import { resolveAudience, resolveServiceAccountEmail } from "@/lib/gcp/wif";
 
 export async function getVercelWifAuthClient(): Promise<IdentityPoolClient> {
   const oidc = await getVercelOidcToken();
-  console.log("[gcs-auth] oidc-token-length", oidc?.length ?? 0);
+  if (!oidc) {
+    throw new Error(
+      "Unable to obtain Vercel OIDC token. Ensure this runs on Vercel with OIDC enabled, " +
+      "or set VERCEL_OIDC_TOKEN for local testing.",
+    );
+  }
+  console.log("[gcs-auth] oidc-token-length", oidc.length);
   const scopes = ["https://www.googleapis.com/auth/cloud-platform"];
 
   return new IdentityPoolClient({

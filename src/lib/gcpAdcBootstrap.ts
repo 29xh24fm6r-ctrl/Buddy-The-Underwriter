@@ -2,7 +2,7 @@ import "server-only";
 
 import fs from "node:fs";
 import type { GoogleAuthOptions } from "google-auth-library";
-import { getVercelOidcToken } from "@vercel/oidc";
+import { getVercelOidcToken } from "@/lib/google/getVercelOidcToken";
 import { getVercelWifAuthClient } from "@/lib/gcp/vercelAuth";
 import { resolveAudience, resolveServiceAccountEmail } from "@/lib/gcp/wif";
 
@@ -28,14 +28,12 @@ export async function getVertexAuthOptions(): Promise<GoogleAuthOptions | undefi
 }
 
 async function resolveSubjectToken(): Promise<string | null> {
-  const envToken = process.env.GCP_WIF_SUBJECT_TOKEN || process.env.VERCEL_OIDC_TOKEN;
-  if (envToken) return envToken;
-  if (!isVercelRuntime()) return null;
-  try {
-    return await getVercelOidcToken();
-  } catch {
-    return null;
-  }
+  // GCP_WIF_SUBJECT_TOKEN is a manually-set subject token for ADC bootstrap
+  const manualToken = process.env.GCP_WIF_SUBJECT_TOKEN;
+  if (manualToken) return manualToken;
+
+  // Delegate to unified OIDC resolver (handles @vercel/oidc, env vars)
+  return await getVercelOidcToken();
 }
 
 async function buildWifConfig(): Promise<Record<string, any> | null> {

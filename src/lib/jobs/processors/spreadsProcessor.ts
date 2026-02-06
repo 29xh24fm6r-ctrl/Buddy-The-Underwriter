@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { extractFactsFromDocument } from "@/lib/financialSpreads/extractFactsFromDocument";
 import { renderSpread } from "@/lib/financialSpreads/renderSpread";
+import { backfillCanonicalFactsFromSpreads } from "@/lib/financialFacts/backfillFromSpreads";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import type { SpreadType } from "@/lib/financialSpreads/types";
 
@@ -87,6 +88,20 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         meta: { jobId, spreadType },
       });
     }
+
+    // Materialize canonical facts from rendered spreads
+    const backfill = await backfillCanonicalFactsFromSpreads({ dealId, bankId });
+    await logLedgerEvent({
+      dealId, bankId,
+      eventKey: backfill.ok ? "facts.materialization.completed" : "facts.materialization.failed",
+      uiState: backfill.ok ? "done" : "error",
+      uiMessage: backfill.ok
+        ? `${backfill.factsWritten} canonical facts materialized from spreads`
+        : `Facts materialization failed: ${(backfill as any).error}`,
+      meta: backfill.ok
+        ? { jobId, factsWritten: backfill.factsWritten, notes: backfill.notes }
+        : { jobId, error: (backfill as any).error },
+    });
 
     await (sb as any)
       .from("deal_spread_jobs")

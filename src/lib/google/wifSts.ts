@@ -1,15 +1,11 @@
 import "server-only";
 
+import { getWifProvider } from "@/lib/google/wif/getWifProvider";
+
 const STS_URL = "https://sts.googleapis.com/v1/token";
 
-function envRequired(name: string) {
-  const v = process.env[name];
-  if (!v) throw new Error(`missing_env:${name}`);
-  return v;
-}
-
 export async function exchangeOidcForFederatedAccessToken(oidcJwt: string): Promise<string> {
-  const provider = envRequired("GCP_WORKLOAD_IDENTITY_PROVIDER");
+  const provider = getWifProvider();
   const audience = `//iam.googleapis.com/${provider}`;
 
   const body = {

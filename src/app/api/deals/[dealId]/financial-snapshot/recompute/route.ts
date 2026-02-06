@@ -10,7 +10,8 @@ import { evaluateSbaEligibility } from "@/lib/sba/eligibilityEngine";
 import { buildNarrative } from "@/lib/creditMemo/narrative/buildNarrative";
 import { persistFinancialSnapshot, persistFinancialSnapshotDecision } from "@/lib/deals/financialSnapshotPersistence";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
-import { getVisibleFacts } from "@/lib/financialFacts/getVisibleFacts";
+import { getVisibleFacts, type FactsVisibility } from "@/lib/financialFacts/getVisibleFacts";
+import { backfillCanonicalFactsFromSpreads } from "@/lib/financialFacts/backfillFromSpreads";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -99,7 +100,7 @@ export async function POST(_req: Request, ctx: Ctx) {
 
     // Pre-flight: canonical facts visibility check
     const sb = supabaseAdmin();
-    const factsVis = await getVisibleFacts(dealId, access.bankId);
+    let factsVis: FactsVisibility = await getVisibleFacts(dealId, access.bankId);
 
     // Telemetry: facts visible count
     logLedgerEvent({
@@ -160,26 +161,59 @@ export async function POST(_req: Request, ctx: Ctx) {
         }, { status: 409 });
       }
 
-      logLedgerEvent({
-        dealId,
-        bankId: access.bankId,
-        eventKey: "snapshot.run.failed",
-        uiState: "error",
-        uiMessage: "Snapshot blocked: no financial facts",
-        meta: { reason: "NO_FACTS", facts_count: 0, spreads_ready: spreadsReady },
-      }).catch(() => {});
+      // Auto-materialize: if spreads exist but facts were never backfilled, try now
+      if (spreadsReady > 0) {
+        logLedgerEvent({
+          dealId,
+          bankId: access.bankId,
+          eventKey: "facts.materialization.auto_triggered",
+          uiState: "working",
+          uiMessage: `Auto-materializing facts from ${spreadsReady} ready spread(s)`,
+          meta: { spreads_ready: spreadsReady },
+        }).catch(() => {});
 
-      return NextResponse.json({
-        ok: false,
-        deal_id: dealId,
-        reason: "NO_FACTS",
-        error: "no_financial_facts",
-        message: "No financial data has been extracted yet. Upload and classify financial documents first, then run Recompute Spreads.",
-        facts_count: 0,
-        spreads_ready: spreadsReady,
-        spreads_generating: spreadsGenerating,
-        spreads_error: spreadsError,
-      }, { status: 422 });
+        const backfill = await backfillCanonicalFactsFromSpreads({ dealId, bankId: access.bankId });
+
+        logLedgerEvent({
+          dealId,
+          bankId: access.bankId,
+          eventKey: backfill.ok ? "facts.materialization.completed" : "facts.materialization.failed",
+          uiState: backfill.ok ? "done" : "error",
+          uiMessage: backfill.ok
+            ? `${backfill.factsWritten} canonical facts materialized (auto)`
+            : `Auto-materialization failed: ${(backfill as any).error}`,
+          meta: backfill.ok
+            ? { factsWritten: backfill.factsWritten, notes: backfill.notes, trigger: "snapshot_recompute" }
+            : { error: (backfill as any).error, trigger: "snapshot_recompute" },
+        }).catch(() => {});
+
+        // Re-check facts after materialization
+        factsVis = await getVisibleFacts(dealId, access.bankId);
+      }
+
+      // If still no facts after materialization attempt, return error
+      if (factsVis.total === 0) {
+        logLedgerEvent({
+          dealId,
+          bankId: access.bankId,
+          eventKey: "snapshot.run.failed",
+          uiState: "error",
+          uiMessage: "Snapshot blocked: no financial facts",
+          meta: { reason: "NO_FACTS", facts_count: 0, spreads_ready: spreadsReady },
+        }).catch(() => {});
+
+        return NextResponse.json({
+          ok: false,
+          deal_id: dealId,
+          reason: "NO_FACTS",
+          error: "no_financial_facts",
+          message: "No financial data has been extracted yet. Upload and classify financial documents first, then run Recompute Spreads.",
+          facts_count: 0,
+          spreads_ready: spreadsReady,
+          spreads_generating: spreadsGenerating,
+          spreads_error: spreadsError,
+        }, { status: 422 });
+      }
     }
 
     const [snapshot, dealMeta, loanMeta] = await Promise.all([

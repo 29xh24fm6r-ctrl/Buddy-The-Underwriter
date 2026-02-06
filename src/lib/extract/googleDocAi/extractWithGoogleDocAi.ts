@@ -1,8 +1,10 @@
 import "server-only";
-import { DocumentProcessorServiceClient } from "@google-cloud/documentai";
+import type { DocumentProcessorServiceClient } from "@google-cloud/documentai";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { isGoogleDocAiEnabled } from "@/lib/flags/googleDocAi";
+import { getVercelWifAuthClient } from "@/lib/gcp/vercelAuth";
+import { hasWifProviderConfig } from "@/lib/google/wif/getWifProvider";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,26 +70,67 @@ function getDocAiLocation(): string {
 
 // ─── Client Builder ──────────────────────────────────────────────────────────
 
-let cachedClient: DocumentProcessorServiceClient | null = null;
+function isVercelRuntime(): boolean {
+  return process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);
+}
 
-function buildDocAiClient(): DocumentProcessorServiceClient {
+export type DocAiAuthMode = "vercel_wif" | "json" | "adc";
+
+/**
+ * Returns which auth mode will be used without constructing a client.
+ * Useful for tests and diagnostics.
+ */
+export function docAiAuthMode(): DocAiAuthMode {
+  if (isVercelRuntime() && hasWifProviderConfig()) return "vercel_wif";
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON?.trim()) return "json";
+  return "adc";
+}
+
+let cachedClient: DocumentProcessorServiceClient | null = null;
+let cachedAuthMode: DocAiAuthMode | null = null;
+
+async function buildDocAiClient(): Promise<DocumentProcessorServiceClient> {
   if (cachedClient) return cachedClient;
 
-  const credsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+  // Dynamic import — keeps @google-cloud/documentai out of the webpack bundle.
+  // The module is only resolved at runtime on the server when DocAI is enabled.
+  const { DocumentProcessorServiceClient: Client } = await import("@google-cloud/documentai");
 
-  // If creds JSON exists, use it explicitly (best for Vercel)
-  if (credsJson && credsJson.trim()) {
+  const mode = docAiAuthMode();
+  console.log("[DocAI] Building client", { authMode: mode });
+
+  // 1. Vercel WIF (preferred on Vercel — matches GCS & Vertex auth)
+  if (mode === "vercel_wif") {
+    try {
+      const authClient = await getVercelWifAuthClient();
+      cachedClient = new Client({ authClient: authClient as any });
+      cachedAuthMode = mode;
+      return cachedClient;
+    } catch (e: any) {
+      console.error("[DocAI] WIF auth failed, cannot fall back", {
+        error: e?.message,
+        runtime: isVercelRuntime() ? "vercel" : "local",
+      });
+      throw new Error(`DocAI WIF auth failed: ${e?.message ?? "unknown"}`);
+    }
+  }
+
+  // 2. Inline credentials JSON (legacy / local testing)
+  if (mode === "json") {
+    const credsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON!;
     try {
       const credentials = JSON.parse(credsJson);
-      cachedClient = new DocumentProcessorServiceClient({ credentials });
+      cachedClient = new Client({ credentials });
+      cachedAuthMode = mode;
       return cachedClient;
     } catch (e) {
       throw new Error(`Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: ${(e as Error).message}`);
     }
   }
 
-  // Otherwise fall back to ADC (works on GCP runtimes with workload identity)
-  cachedClient = new DocumentProcessorServiceClient();
+  // 3. ADC (local dev with gcloud auth or GOOGLE_APPLICATION_CREDENTIALS file)
+  cachedClient = new Client();
+  cachedAuthMode = mode;
   return cachedClient;
 }
 
@@ -150,10 +193,10 @@ async function loadDocumentBytes(args: {
 /**
  * Extract document content using Google Document AI.
  *
- * This module:
- * 1. Loads document bytes from Supabase storage
- * 2. Calls Google Document AI processDocument API
- * 3. Returns extracted text, full JSON response, and provider metrics
+ * Auth modes (selected by buildDocAiClient):
+ *   - vercel_wif: Vercel OIDC → WIF → SA impersonation (production)
+ *   - json: GOOGLE_APPLICATION_CREDENTIALS_JSON inline (legacy / test)
+ *   - adc: Application Default Credentials (local dev with gcloud)
  *
  * Requires environment variables:
  * - GOOGLE_DOCAI_ENABLED=true
@@ -161,7 +204,8 @@ async function loadDocumentBytes(args: {
  * - GOOGLE_DOCAI_LOCATION (defaults to "us")
  * - GOOGLE_DOCAI_TAX_PROCESSOR_ID (for tax returns)
  * - GOOGLE_DOCAI_FINANCIAL_PROCESSOR_ID (for income stmt, balance sheet, PFS)
- * - GOOGLE_APPLICATION_CREDENTIALS_JSON (service account JSON, for Vercel)
+ * - (Vercel) GCP_WIF_PROVIDER + GCP_SERVICE_ACCOUNT_EMAIL
+ * - (Local) GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_APPLICATION_CREDENTIALS_JSON
  */
 export async function extractWithGoogleDocAi(
   args: ExtractWithGoogleDocAiArgs,
@@ -207,7 +251,28 @@ export async function extractWithGoogleDocAi(
   });
 
   // ─── Make the actual Document AI API call ───────────────────────────────────
-  const client = buildDocAiClient();
+  let client: DocumentProcessorServiceClient;
+  try {
+    client = await buildDocAiClient();
+  } catch (authErr: any) {
+    logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "docai.auth.failed",
+      uiState: "error",
+      uiMessage: `DocAI auth failed: ${String(authErr?.message ?? "unknown").slice(0, 120)}`,
+      meta: {
+        docId,
+        processorType,
+        authMode: docAiAuthMode(),
+        runtime: isVercelRuntime() ? "vercel" : "local",
+        hasWif: hasWifProviderConfig(),
+        hasCredsJson: Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON?.trim()),
+        hasAdc: Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS),
+      },
+    }).catch(() => {});
+    throw authErr;
+  }
   const processorName = `projects/${projectId}/locations/${location}/processors/${processorId}`;
 
   const [result] = await client.processDocument({

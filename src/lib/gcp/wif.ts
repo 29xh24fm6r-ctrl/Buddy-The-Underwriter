@@ -1,23 +1,11 @@
-function buildMissingProviderMessage(): string {
-  return [
-    "Missing Workload Identity provider configuration.",
-    "Set GCP_WIF_PROVIDER or set GCP_PROJECT_NUMBER + GCP_WORKLOAD_IDENTITY_POOL_ID + GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID.",
-  ].join(" ");
-}
+import { getWifProvider } from "@/lib/google/wif/getWifProvider";
 
+/**
+ * Resolves the WIF provider resource path.
+ * Delegates to the canonical resolver in `@/lib/google/wif/getWifProvider`.
+ */
 export function resolveProviderResource(): string {
-  const provider = process.env.GCP_WIF_PROVIDER;
-  if (provider) return provider;
-
-  const projectNumber = process.env.GCP_PROJECT_NUMBER;
-  const poolId = process.env.GCP_WORKLOAD_IDENTITY_POOL_ID;
-  const providerId = process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID;
-
-  if (projectNumber && poolId && providerId) {
-    return `projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`;
-  }
-
-  throw new Error(buildMissingProviderMessage());
+  return getWifProvider();
 }
 
 export function resolveAudience(): string {

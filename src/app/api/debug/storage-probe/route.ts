@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { getVercelOidcToken } from "@/lib/google/vercelOidc";
+import { getVercelOidcToken } from "@/lib/google/getVercelOidcToken";
 import { exchangeOidcForFederatedAccessToken } from "@/lib/google/wifSts";
 import { generateAccessToken, signBlob } from "@/lib/google/iamCredentials";
 
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   };
 
   try {
-    const oidc = getVercelOidcToken(req);
+    const oidc = await getVercelOidcToken(req);
     result.hasOidc = Boolean(oidc);
 
     if (!oidc) {
