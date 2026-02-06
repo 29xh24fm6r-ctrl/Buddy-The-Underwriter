@@ -43,9 +43,10 @@ type Props = {
   blockers: LifecycleBlocker[];
   dealId: string;
   onServerAction?: (action: string) => void;
+  busyAction?: string | null;
 };
 
-export function BlockerList({ blockers, dealId, onServerAction }: Props) {
+export function BlockerList({ blockers, dealId, onServerAction, busyAction }: Props) {
   const router = useRouter();
 
   if (blockers.length === 0) return null;
@@ -118,14 +119,18 @@ export function BlockerList({ blockers, dealId, onServerAction }: Props) {
                   {fix.action ? (
                     <button
                       onClick={() => onServerAction?.(fix.action!)}
+                      disabled={busyAction === fix.action}
                       className={cn(
                         "px-2.5 py-1 rounded-md text-[10px] font-semibold transition-colors",
+                        busyAction === fix.action
+                          ? "opacity-60 cursor-wait"
+                          : "",
                         isFetchError
                           ? "text-white/50 hover:text-white/70 border border-white/10 hover:border-white/20"
                           : "bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 border border-amber-500/30",
                       )}
                     >
-                      {fix.label}
+                      {busyAction === fix.action ? "Generating\u2026" : fix.label}
                     </button>
                   ) : (
                     <Link

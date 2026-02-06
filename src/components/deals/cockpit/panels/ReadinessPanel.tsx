@@ -62,6 +62,8 @@ type Props = {
 export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: Props) {
   const { lifecycleState, isInitialLoading, error } = useCockpitDataContext();
   const [bankerExplainerOpen, setBankerExplainerOpen] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const handleServerAction = useCallback(
     async (action: string) => {
@@ -70,24 +72,42 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
         return;
       }
 
+      setBusyAction(action);
+      setActionError(null);
+
       try {
         // Route action-specific endpoints
         if (action === "financial_snapshot.recompute") {
-          await fetch(`/api/deals/${dealId}/financial-snapshot/recompute`, {
+          const res = await fetch(`/api/deals/${dealId}/financial-snapshot/recompute`, {
             method: "POST",
           });
+          if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            const msg = body?.error ?? `Snapshot failed (${res.status})`;
+            console.error("[ReadinessPanel] financial_snapshot.recompute failed:", res.status, body);
+            setActionError(msg);
+            return;
+          }
           onAdvance?.();
           return;
         }
 
         // Default: call the lifecycle server action endpoint
-        await fetch(`/api/deals/${dealId}/lifecycle/action`, {
+        const res = await fetch(`/api/deals/${dealId}/lifecycle/action`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ action }),
         });
-      } catch {
-        // Toast will show via cockpit polling
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          console.error("[ReadinessPanel] lifecycle/action failed:", res.status, body);
+          setActionError(body?.error ?? `Action failed (${res.status})`);
+        }
+      } catch (err) {
+        console.error("[ReadinessPanel] action error:", err);
+        setActionError("Network error — please retry");
+      } finally {
+        setBusyAction(null);
       }
     },
     [dealId, onServerAction, onAdvance],
@@ -207,7 +227,13 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
           blockers={blockers}
           dealId={dealId}
           onServerAction={handleServerAction}
+          busyAction={busyAction}
         />
+        {actionError && (
+          <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">
+            {actionError}
+          </div>
+        )}
 
         {/* Banker explainer */}
         {derived && (

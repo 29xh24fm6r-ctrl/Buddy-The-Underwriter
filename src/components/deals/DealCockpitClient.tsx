@@ -52,6 +52,8 @@ type UnderwriteVerifyLedgerEvent = {
  *
  * Below: Secondary tabs for Setup, Portal, Underwriting, Timeline, Admin
  */
+const FORCE_CLIENT_ONLY = process.env.NEXT_PUBLIC_COCKPIT_CLIENT_ONLY === "true";
+
 export default function DealCockpitClient({
   dealId,
   isAdmin = false,
@@ -88,6 +90,10 @@ export default function DealCockpitClient({
 }) {
   const [stage, setStage] = useState<string | null>(lifecycleStage ?? null);
   const { deal: dealMeta, refresh: refreshMeta, setDeal: setDealMeta } = useDealMeta(dealId);
+
+  // Hydration-safe: defer render until mounted (env-gated)
+  const [mounted, setMounted] = useState(!FORCE_CLIENT_ONLY);
+  useEffect(() => { if (FORCE_CLIENT_ONLY) setMounted(true); }, []);
 
   // Rename state
   const [renaming, setRenaming] = useState(false);
@@ -179,6 +185,15 @@ export default function DealCockpitClient({
       setRenameSaving(false);
     }
   }, [dealId, draftName, dealMeta, setDealMeta, refreshMeta]);
+
+  // Hydration-safe gate: show skeleton until client mounts
+  if (!mounted) {
+    return (
+      <div className="min-h-screen text-white flex items-center justify-center">
+        <div className="animate-pulse text-white/30 text-sm">Loading cockpit...</div>
+      </div>
+    );
+  }
 
   return (
     <CockpitDataProvider dealId={dealId} initialLifecycleState={unifiedLifecycleState}>
