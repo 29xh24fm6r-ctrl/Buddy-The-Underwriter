@@ -259,7 +259,7 @@ function LoanRequestForm({
   }
 
   const inputCls =
-    "mt-1 h-9 w-full rounded-md border border-slate-300 px-3 text-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400";
+    "mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400";
 
   return (
     <form
