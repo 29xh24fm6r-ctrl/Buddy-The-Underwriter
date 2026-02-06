@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { SafeBoundary } from "@/components/SafeBoundary";
@@ -48,6 +48,10 @@ const ADMIN_TAB = { key: "admin" as const, label: "Admin", icon: "admin_panel_se
 
 type TabKey = (typeof TABS)[number]["key"] | "admin";
 
+const VALID_TAB_KEYS = new Set<string>(TABS.map((t) => t.key));
+// Admin is conditionally valid but always recognized for URL parsing
+VALID_TAB_KEYS.add("admin");
+
 type Props = {
   dealId: string;
   isAdmin?: boolean;
@@ -74,6 +78,30 @@ export function SecondaryTabsPanel({
   const pathname = usePathname();
   const urlTab = searchParams?.get("tab") as TabKey | null;
   const [activeTab, setActiveTab] = useState<TabKey>(urlTab || "setup");
+  const panelRef = useRef<HTMLDivElement>(null);
+  const isFirstRender = useRef(true);
+
+  // Sync active tab when URL ?tab= param changes externally (e.g. CTA click)
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    if (urlTab && VALID_TAB_KEYS.has(urlTab)) {
+      setActiveTab(urlTab);
+      // Scroll the panel into view so user sees the activated tab
+      requestAnimationFrame(() => {
+        panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+    } else if (urlTab && !VALID_TAB_KEYS.has(urlTab)) {
+      if (process.env.NODE_ENV === "development") {
+        console.warn(
+          `[Cockpit] Unknown tab param: "${urlTab}". Valid tabs: ${[...VALID_TAB_KEYS].join(", ")}`,
+        );
+      }
+    }
+  }, [urlTab]);
 
   const tabs = isAdmin ? [...TABS, ADMIN_TAB] : [...TABS];
 
@@ -86,7 +114,7 @@ export function SecondaryTabsPanel({
   };
 
   return (
-    <div className={cn(glassPanel, "overflow-hidden")}>
+    <div ref={panelRef} id="secondary-tabs-panel" className={cn(glassPanel, "overflow-hidden")}>
       {/* Tab header */}
       <div className={glassHeader}>
         <div className="flex items-center gap-1 overflow-x-auto">
@@ -112,6 +140,7 @@ export function SecondaryTabsPanel({
       <div className="p-4 space-y-4">
         {activeTab === "setup" && (
           <>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider">Setup</h3>
             <SafeBoundary>
               <DealIntakeCard
                 dealId={dealId}
@@ -131,6 +160,7 @@ export function SecondaryTabsPanel({
 
         {activeTab === "portal" && (
           <>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider">Portal</h3>
             <SafeBoundary>
               <BorrowerRequestComposerCard dealId={dealId} />
             </SafeBoundary>
@@ -145,6 +175,7 @@ export function SecondaryTabsPanel({
 
         {activeTab === "underwriting" && (
           <>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider">Underwriting</h3>
             <SafeBoundary>
               <UnderwritingControlPanel
                 dealId={dealId}
@@ -163,9 +194,12 @@ export function SecondaryTabsPanel({
         )}
 
         {activeTab === "timeline" && (
-          <SafeBoundary>
-            <DealStoryTimeline dealId={dealId} />
-          </SafeBoundary>
+          <>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider">Timeline</h3>
+            <SafeBoundary>
+              <DealStoryTimeline dealId={dealId} />
+            </SafeBoundary>
+          </>
         )}
 
         {activeTab === "admin" && isAdmin && (

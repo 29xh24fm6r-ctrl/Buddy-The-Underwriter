@@ -83,7 +83,7 @@ export function usePrimaryCTA(
         disabled: false,
         icon: "upload_file",
         description: "Upload borrower documents to begin",
-        href: `/deals/${dealId}/cockpit#documents`,
+        href: `/deals/${dealId}/cockpit?focus=documents`,
       };
     }
 

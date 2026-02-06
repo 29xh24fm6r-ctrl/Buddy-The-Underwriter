@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import React from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { SafeBoundary } from "@/components/SafeBoundary";
 import { LiveIndicator, ProcessingIndicator, CockpitToastStack } from "@/components/deals/LiveIndicator";
 import { CockpitDataProvider } from "@/buddy/cockpit";
@@ -93,9 +94,36 @@ export default function DealCockpitClient({
   const [draftName, setDraftName] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
 
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   React.useEffect(() => {
     setStage(lifecycleStage ?? null);
   }, [lifecycleStage]);
+
+  // Backward compatibility: migrate old #hash anchors to ?tab= query params
+  const HASH_TO_TAB: Record<string, string> = {
+    "#setup": "setup",
+    "#intake": "setup",
+    "#borrower-request": "portal",
+  };
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash) return;
+    const tab = HASH_TO_TAB[hash];
+    if (tab && !searchParams?.get("tab")) {
+      router.replace(`/deals/${dealId}/cockpit?tab=${tab}`, { scroll: false });
+    } else if (hash === "#documents") {
+      // Scroll to document section for legacy #documents links
+      requestAnimationFrame(() => {
+        document.getElementById("cockpit-documents")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+      // Clean the hash from the URL
+      router.replace(`/deals/${dealId}/cockpit`, { scroll: false });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Resolve header from fetched metadata (falls back to server props for SSR)
   const headerInput = dealMeta
@@ -249,7 +277,7 @@ export default function DealCockpitClient({
           {/* === KEYSTONE 3-COLUMN LAYOUT === */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
             {/* Left Column: Documents + Pipeline (mobile: 3rd) */}
-            <div className="lg:col-span-4 order-3 lg:order-1">
+            <div id="cockpit-documents" className="lg:col-span-4 order-3 lg:order-1">
               <LeftColumn dealId={dealId} />
             </div>
 

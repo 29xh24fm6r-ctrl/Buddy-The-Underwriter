@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import type { LifecycleBlocker } from "@/buddy/lifecycle/model";
 import { getBlockerFixAction } from "@/buddy/lifecycle/nextAction";
@@ -45,6 +46,8 @@ type Props = {
 };
 
 export function BlockerList({ blockers, dealId, onServerAction }: Props) {
+  const router = useRouter();
+
   if (blockers.length === 0) return null;
 
   return (
@@ -114,6 +117,25 @@ export function BlockerList({ blockers, dealId, onServerAction }: Props) {
                   )}
                   <Link
                     href={fix.href}
+                    onClick={(e) => {
+                      // If targeting documents section on current page, scroll instead
+                      if (fix.href.includes("focus=documents")) {
+                        const el = document.getElementById("cockpit-documents");
+                        if (el) {
+                          e.preventDefault();
+                          el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                          return;
+                        }
+                      }
+                      // For tab-based navigation on same cockpit page, let Link handle it
+                      // but also scroll to the tabs panel after navigation
+                      if (fix.href.includes("?tab=")) {
+                        requestAnimationFrame(() => {
+                          document.getElementById("secondary-tabs-panel")
+                            ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                        });
+                      }
+                    }}
                     className={cn(
                       "px-2.5 py-1 rounded-md text-[10px] font-semibold transition-colors",
                       isFetchError

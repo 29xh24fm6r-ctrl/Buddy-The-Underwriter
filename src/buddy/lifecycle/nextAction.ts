@@ -75,7 +75,7 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
     case "intake_created":
       return {
         label: "Set Up Intake",
-        href: `/deals/${dealId}/cockpit#intake`,
+        href: `/deals/${dealId}/cockpit?tab=setup`,
         intent: "navigate",
         description: "Configure intake form and seed checklist",
       };
@@ -83,7 +83,7 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
     case "docs_requested":
       return {
         label: "Request Documents",
-        href: `/deals/${dealId}/cockpit#borrower-request`,
+        href: `/deals/${dealId}/cockpit?tab=portal`,
         intent: "navigate",
         description: "Send document request to borrower",
       };
@@ -91,7 +91,7 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
     case "docs_in_progress":
       return {
         label: "Review Documents",
-        href: `/deals/${dealId}/cockpit#documents`,
+        href: `/deals/${dealId}/cockpit?focus=documents`,
         intent: "navigate",
         description: "Check document status and follow up on missing items",
       };
@@ -173,7 +173,7 @@ export function getBlockerFixAction(
     case "missing_required_docs":
       return {
         label: "View Missing Docs",
-        href: `/deals/${dealId}/cockpit#documents`,
+        href: `/deals/${dealId}/cockpit?focus=documents`,
         secondary: {
           label: "Send Reminder",
           action: "send_reminder",
@@ -183,7 +183,7 @@ export function getBlockerFixAction(
     case "checklist_not_seeded":
       return {
         label: "Set Up Intake",
-        href: `/deals/${dealId}/cockpit#intake`,
+        href: `/deals/${dealId}/cockpit?tab=setup`,
       };
 
     case "financial_snapshot_missing":
@@ -219,13 +219,13 @@ export function getBlockerFixAction(
     case "loan_request_missing":
       return {
         label: "Add Loan Request",
-        href: `/deals/${dealId}/cockpit#setup`,
+        href: `/deals/${dealId}/cockpit?tab=setup`,
       };
 
     case "loan_request_incomplete":
       return {
         label: "Complete Loan Request",
-        href: `/deals/${dealId}/cockpit#setup`,
+        href: `/deals/${dealId}/cockpit?tab=setup`,
       };
 
     // Infrastructure/fetch errors - no direct fix
