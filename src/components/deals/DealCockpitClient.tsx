@@ -153,7 +153,7 @@ export default function DealCockpitClient({
   }, [dealId, draftName, dealMeta, setDealMeta, refreshMeta]);
 
   return (
-    <CockpitDataProvider dealId={dealId}>
+    <CockpitDataProvider dealId={dealId} initialLifecycleState={unifiedLifecycleState}>
       {/* Builder Observer: Show degraded API responses */}
       <DegradedBanner dealId={dealId} />
       <div className="min-h-screen text-white">

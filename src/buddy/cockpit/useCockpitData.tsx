@@ -201,7 +201,7 @@ function computeLifecycleDiff(
   return toasts;
 }
 
-export function useCockpitData(dealId: string | null): CockpitData {
+export function useCockpitData(dealId: string | null, initialLifecycleState?: LifecycleState | null): CockpitData {
   // Use existing pipeline state hook for working/idle detection
   const { pipeline } = usePipelineState(dealId);
 
@@ -211,14 +211,14 @@ export function useCockpitData(dealId: string | null): CockpitData {
   const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(true);
-  const [lifecycleState, setLifecycleState] = useState<LifecycleState | null>(null);
+  const [lifecycleState, setLifecycleState] = useState<LifecycleState | null>(initialLifecycleState ?? null);
   const [toasts, setToasts] = useState<CockpitToast[]>([]);
   const [lastUserActionAt, setLastUserActionAt] = useState<number | null>(null);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(!initialLifecycleState);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inflightRef = useRef(false);
-  const prevLifecycleRef = useRef<LifecycleState | null>(null);
+  const prevLifecycleRef = useRef<LifecycleState | null>(initialLifecycleState ?? null);
   const prevArtifactMatchedRef = useRef<number>(0);
   /** Consecutive fetch failures — suppress error UI until 3+ failures */
   const consecutiveErrorsRef = useRef(0);
@@ -395,12 +395,14 @@ const CockpitDataContext = createContext<CockpitData | null>(null);
 
 export function CockpitDataProvider({
   dealId,
+  initialLifecycleState,
   children,
 }: {
   dealId: string;
+  initialLifecycleState?: LifecycleState | null;
   children: ReactNode;
 }) {
-  const data = useCockpitData(dealId);
+  const data = useCockpitData(dealId, initialLifecycleState);
   return (
     <CockpitDataContext.Provider value={data}>
       {children}
