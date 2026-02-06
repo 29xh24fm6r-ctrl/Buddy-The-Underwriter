@@ -115,36 +115,50 @@ export function BlockerList({ blockers, dealId, onServerAction }: Props) {
                       {fix.secondary.label}
                     </button>
                   )}
-                  <Link
-                    href={fix.href}
-                    onClick={(e) => {
-                      // If targeting documents section on current page, scroll instead
-                      if (fix.href.includes("focus=documents")) {
-                        const el = document.getElementById("cockpit-documents");
-                        if (el) {
-                          e.preventDefault();
-                          el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                          return;
+                  {fix.action ? (
+                    <button
+                      onClick={() => onServerAction?.(fix.action!)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-md text-[10px] font-semibold transition-colors",
+                        isFetchError
+                          ? "text-white/50 hover:text-white/70 border border-white/10 hover:border-white/20"
+                          : "bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 border border-amber-500/30",
+                      )}
+                    >
+                      {fix.label}
+                    </button>
+                  ) : (
+                    <Link
+                      href={fix.href!}
+                      onClick={(e) => {
+                        // If targeting documents section on current page, scroll instead
+                        if (fix.href!.includes("focus=documents")) {
+                          const el = document.getElementById("cockpit-documents");
+                          if (el) {
+                            e.preventDefault();
+                            el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                            return;
+                          }
                         }
-                      }
-                      // For tab-based navigation on same cockpit page, let Link handle it
-                      // but also scroll to the tabs panel after navigation
-                      if (fix.href.includes("?tab=")) {
-                        requestAnimationFrame(() => {
-                          document.getElementById("secondary-tabs-panel")
-                            ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                        });
-                      }
-                    }}
-                    className={cn(
-                      "px-2.5 py-1 rounded-md text-[10px] font-semibold transition-colors",
-                      isFetchError
-                        ? "text-white/50 hover:text-white/70 border border-white/10 hover:border-white/20"
-                        : "bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 border border-amber-500/30",
-                    )}
-                  >
-                    {fix.label}
-                  </Link>
+                        // For tab-based navigation on same cockpit page, let Link handle it
+                        // but also scroll to the tabs panel after navigation
+                        if (fix.href!.includes("?tab=")) {
+                          requestAnimationFrame(() => {
+                            document.getElementById("secondary-tabs-panel")
+                              ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                          });
+                        }
+                      }}
+                      className={cn(
+                        "px-2.5 py-1 rounded-md text-[10px] font-semibold transition-colors",
+                        isFetchError
+                          ? "text-white/50 hover:text-white/70 border border-white/10 hover:border-white/20"
+                          : "bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 border border-amber-500/30",
+                      )}
+                    >
+                      {fix.label}
+                    </Link>
+                  )}
                 </div>
               )}
             </div>

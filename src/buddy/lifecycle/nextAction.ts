@@ -165,10 +165,14 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
  * @param dealId - Deal ID for generating URLs
  * @returns Object with label and href for the fix action
  */
+export type FixAction =
+  | { label: string; href: string; action?: undefined; secondary?: { label: string; action: string } }
+  | { label: string; action: string; href?: undefined; secondary?: { label: string; action: string } };
+
 export function getBlockerFixAction(
   blocker: LifecycleBlocker,
   dealId: string
-): { label: string; href: string; secondary?: { label: string; action: string } } | null {
+): FixAction | null {
   switch (blocker.code) {
     case "missing_required_docs":
       return {
@@ -189,7 +193,7 @@ export function getBlockerFixAction(
     case "financial_snapshot_missing":
       return {
         label: "Generate Snapshot",
-        href: `/deals/${dealId}/pricing`,
+        action: "financial_snapshot.recompute",
       };
 
     case "committee_packet_missing":

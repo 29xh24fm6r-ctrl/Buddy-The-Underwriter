@@ -276,13 +276,25 @@ function FixableBlockerCard({
       </div>
       {fixAction && (
         <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/5 border-t border-amber-500/10">
-          <Link
-            href={fixAction.href}
-            className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 px-2.5 py-1 text-xs font-medium text-amber-200 transition-colors"
-          >
-            <span className="material-symbols-outlined text-[14px]">open_in_new</span>
-            {fixAction.label}
-          </Link>
+          {fixAction.href ? (
+            <Link
+              href={fixAction.href}
+              className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 px-2.5 py-1 text-xs font-medium text-amber-200 transition-colors"
+            >
+              <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+              {fixAction.label}
+            </Link>
+          ) : (
+            <button
+              onClick={() => {
+                console.log("Action:", fixAction.action);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 px-2.5 py-1 text-xs font-medium text-amber-200 transition-colors"
+            >
+              <span className="material-symbols-outlined text-[14px]">bolt</span>
+              {fixAction.label}
+            </button>
+          )}
           {fixAction.secondary && (
             <button
               onClick={() => {

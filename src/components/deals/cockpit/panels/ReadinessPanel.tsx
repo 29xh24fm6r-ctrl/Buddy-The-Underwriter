@@ -69,8 +69,18 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
         onServerAction(action);
         return;
       }
-      // Default: call the lifecycle server action endpoint
+
       try {
+        // Route action-specific endpoints
+        if (action === "financial_snapshot.recompute") {
+          await fetch(`/api/deals/${dealId}/financial-snapshot/recompute`, {
+            method: "POST",
+          });
+          onAdvance?.();
+          return;
+        }
+
+        // Default: call the lifecycle server action endpoint
         await fetch(`/api/deals/${dealId}/lifecycle/action`, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -80,7 +90,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
         // Toast will show via cockpit polling
       }
     },
-    [dealId, onServerAction],
+    [dealId, onServerAction, onAdvance],
   );
 
   const derived = lifecycleState?.derived;
