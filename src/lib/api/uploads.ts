@@ -34,6 +34,10 @@ export type UploadSessionResponse = {
   redirectUrl?: string;
   requestId?: string;
   error?: string;
+  /** Structured error code (e.g. WIF_AUDIENCE_INVALID) */
+  code?: string;
+  /** Human-readable error message */
+  message?: string;
 };
 
 export async function createUploadSession(

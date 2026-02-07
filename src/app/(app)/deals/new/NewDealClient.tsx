@@ -63,7 +63,9 @@ export default function NewDealClient({
   );
   const [processing, setProcessing] = useState(false);
   const [processError, setProcessError] = useState<string | null>(null);
+  const [processErrorDetails, setProcessErrorDetails] = useState<string | null>(null);
   const [needsRestart, setNeedsRestart] = useState(false);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
 
   const handleFiles = useCallback((selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
@@ -113,6 +115,8 @@ export default function NewDealClient({
     setUploading(false);
     setProcessing(false);
     setProcessError(null);
+    setProcessErrorDetails(null);
+    setShowErrorDetails(false);
     setNeedsRestart(false);
     setUploadProgress({ current: 0, total: 0 });
     setDebugInfo({ requestId: null, stage: null });
@@ -155,8 +159,10 @@ export default function NewDealClient({
         });
 
         if (!payload?.ok) {
-          const errText = payload?.error || "Failed to bootstrap deal";
-          throw new Error(errText);
+          const errText = payload?.message || payload?.error || "Failed to bootstrap deal";
+          const err = new Error(errText);
+          (err as any).code = payload?.code ?? null;
+          throw err;
         }
 
         if (!payload?.dealId || !payload?.uploadUrls?.length || !payload?.sessionId) {
@@ -360,10 +366,17 @@ export default function NewDealClient({
 
       const { isAbort, isNetwork, msg } = classifyNetworkError(error);
       const rawMessage = error instanceof Error ? error.message : String(error);
+      const errorCode = (error as any)?.code ?? null;
       const isSessionError =
         rawMessage.includes("upload_session") ||
         rawMessage.includes("invariant_violation") ||
         rawMessage.includes("upload_session_expired_restart");
+      const isWifConfigError =
+        errorCode === "WIF_AUDIENCE_INVALID" ||
+        rawMessage.includes("Invalid WIF provider") ||
+        rawMessage.includes("Invalid value for audience") ||
+        rawMessage.includes("Missing Workload Identity");
+
       if (isAbort) {
         setProcessError(
           "Create deal timed out (20s). This is usually a cold-start/serverless stall. Retry once; if it keeps happening, share the Request ID + Stage shown during upload.",
@@ -376,6 +389,13 @@ export default function NewDealClient({
         );
         return;
       }
+      if (isWifConfigError) {
+        setProcessError(
+          "Upload session could not be created due to a server configuration issue. Please try again or contact support.",
+        );
+        setProcessErrorDetails(`Code: ${errorCode || "WIF_CONFIG"} | ${rawMessage.slice(0, 200)}`);
+        return;
+      }
       if (isSessionError) {
         setNeedsRestart(true);
         const tag = sessionRequestId ? ` (Request: ${sessionRequestId})` : "";
@@ -385,6 +405,7 @@ export default function NewDealClient({
         return;
       }
       setProcessError(msg || "Upload failed");
+      setProcessErrorDetails(rawMessage !== msg ? rawMessage.slice(0, 200) : null);
     } finally {
       setUploading(false);
       setProcessing(false);
@@ -604,15 +625,39 @@ export default function NewDealClient({
             <div className="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
               <div className="flex items-center justify-between gap-3">
                 <span>{processError}</span>
-                {needsRestart ? (
-                  <button
-                    onClick={handleRestart}
-                    className="rounded-md border border-rose-400/60 px-3 py-1 text-xs font-semibold text-rose-100 hover:border-rose-300"
-                  >
-                    Restart
-                  </button>
-                ) : null}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {needsRestart ? (
+                    <button
+                      onClick={handleRestart}
+                      className="rounded-md border border-rose-400/60 px-3 py-1 text-xs font-semibold text-rose-100 hover:border-rose-300"
+                    >
+                      Restart
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { setProcessError(null); setProcessErrorDetails(null); setShowErrorDetails(false); }}
+                      className="rounded-md border border-rose-400/60 px-3 py-1 text-xs font-semibold text-rose-100 hover:border-rose-300"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
               </div>
+              {processErrorDetails ? (
+                <div className="mt-2">
+                  <button
+                    onClick={() => setShowErrorDetails((v) => !v)}
+                    className="text-xs text-rose-300/70 hover:text-rose-200 underline"
+                  >
+                    {showErrorDetails ? "Hide details" : "Show error details"}
+                  </button>
+                  {showErrorDetails ? (
+                    <pre className="mt-1 text-xs text-rose-300/60 bg-rose-900/20 rounded px-2 py-1 overflow-x-auto select-all">
+                      {processErrorDetails}
+                    </pre>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
