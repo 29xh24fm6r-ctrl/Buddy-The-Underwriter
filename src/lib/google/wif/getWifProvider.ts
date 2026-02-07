@@ -59,3 +59,30 @@ export function hasWifProviderConfig(): boolean {
     return false;
   }
 }
+
+const IAM_PREFIX = "//iam.googleapis.com/";
+
+/**
+ * Normalizes a WIF provider string to the full audience form required by Google STS:
+ *   `//iam.googleapis.com/projects/.../workloadIdentityPools/.../providers/...`
+ *
+ * Accepts both short (`projects/...`) and full (`//iam.googleapis.com/projects/...`) forms.
+ * Throws on invalid input.
+ */
+export function normalizeWifProvider(provider: string): string {
+  if (!provider) {
+    throw new Error("Invalid WIF provider format: empty string");
+  }
+
+  if (provider.startsWith(IAM_PREFIX)) {
+    return provider;
+  }
+
+  if (provider.startsWith("projects/")) {
+    return `${IAM_PREFIX}${provider}`;
+  }
+
+  throw new Error(
+    `Invalid WIF provider format: expected "projects/..." or "//iam.googleapis.com/projects/...", got "${provider.slice(0, 60)}"`,
+  );
+}

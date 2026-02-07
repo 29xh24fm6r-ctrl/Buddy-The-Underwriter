@@ -1,4 +1,4 @@
-import { getWifProvider } from "@/lib/google/wif/getWifProvider";
+import { getWifProvider, normalizeWifProvider } from "@/lib/google/wif/getWifProvider";
 
 /**
  * Resolves the WIF provider resource path.
@@ -9,10 +9,7 @@ export function resolveProviderResource(): string {
 }
 
 export function resolveAudience(): string {
-  const providerResource = resolveProviderResource();
-  return providerResource.startsWith("//iam.googleapis.com/")
-    ? providerResource
-    : `//iam.googleapis.com/${providerResource}`;
+  return normalizeWifProvider(getWifProvider());
 }
 
 export function resolveServiceAccountEmail(): string {

@@ -255,22 +255,36 @@ export async function handleCreateUploadSession(
     });
   }
 
-  const uploads = await buildUploadSession({
-    req,
-    dealId,
-    files: normalizedFiles,
-    requestId,
-    signFile: ({ req: innerReq, dealId: innerDealId, file, requestId: innerRequestId }) =>
-      signDealUpload({
-        req: innerReq,
-        dealId: innerDealId,
-        uploadSessionId: sessionId,
-        filename: file.filename,
-        mimeType: file.contentType || null,
-        sizeBytes: file.sizeBytes,
-        requestId: innerRequestId,
-      }),
-  });
+  let uploads;
+  try {
+    uploads = await buildUploadSession({
+      req,
+      dealId,
+      files: normalizedFiles,
+      requestId,
+      signFile: ({ req: innerReq, dealId: innerDealId, file, requestId: innerRequestId }) =>
+        signDealUpload({
+          req: innerReq,
+          dealId: innerDealId,
+          uploadSessionId: sessionId,
+          filename: file.filename,
+          mimeType: file.contentType || null,
+          sizeBytes: file.sizeBytes,
+          requestId: innerRequestId,
+        }),
+    });
+  } catch (signErr: any) {
+    const errMsg = String(signErr?.message ?? signErr);
+    logLedgerEvent({
+      dealId,
+      bankId: bankId!,
+      eventKey: "upload.session.failed",
+      uiState: "error",
+      uiMessage: `Upload signing failed: ${errMsg.slice(0, 120)}`,
+      meta: { requestId, sessionId, error: errMsg.slice(0, 200) },
+    }).catch(() => {});
+    throw signErr;
+  }
 
   await Promise.all(
     uploads.map((u) =>

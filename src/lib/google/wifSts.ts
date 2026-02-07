@@ -1,12 +1,11 @@
 import "server-only";
 
-import { getWifProvider } from "@/lib/google/wif/getWifProvider";
+import { getWifProvider, normalizeWifProvider } from "@/lib/google/wif/getWifProvider";
 
 const STS_URL = "https://sts.googleapis.com/v1/token";
 
 export async function exchangeOidcForFederatedAccessToken(oidcJwt: string): Promise<string> {
-  const provider = getWifProvider();
-  const audience = `//iam.googleapis.com/${provider}`;
+  const audience = normalizeWifProvider(getWifProvider());
 
   const body = {
     audience,

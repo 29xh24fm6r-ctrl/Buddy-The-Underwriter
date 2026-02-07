@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { getWifProvider, hasWifProviderConfig } from "@/lib/google/wif/getWifProvider";
-import { resolveProviderResource } from "@/lib/gcp/wif";
+import { getWifProvider, hasWifProviderConfig, normalizeWifProvider } from "@/lib/google/wif/getWifProvider";
+import { resolveProviderResource, resolveAudience } from "@/lib/gcp/wif";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -67,5 +67,46 @@ test("resolveProviderResource delegates to getWifProvider", () => {
   assert.equal(
     result,
     "projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
+  );
+});
+
+// ─── normalizeWifProvider ───────────────────────────────────────────────────
+
+test("normalizeWifProvider prefixes short-form provider", () => {
+  const short = "projects/695233770766/locations/global/workloadIdentityPools/vercel/providers/vercel";
+  assert.equal(
+    normalizeWifProvider(short),
+    "//iam.googleapis.com/projects/695233770766/locations/global/workloadIdentityPools/vercel/providers/vercel",
+  );
+});
+
+test("normalizeWifProvider passes through full-form provider unchanged", () => {
+  const full = "//iam.googleapis.com/projects/695233770766/locations/global/workloadIdentityPools/vercel/providers/vercel";
+  assert.equal(normalizeWifProvider(full), full);
+});
+
+test("normalizeWifProvider throws on invalid input", () => {
+  assert.throws(() => normalizeWifProvider("vercel/providers/vercel"), /Invalid WIF provider format/);
+});
+
+test("normalizeWifProvider throws on empty string", () => {
+  assert.throws(() => normalizeWifProvider(""), /Invalid WIF provider format/);
+});
+
+test("resolveAudience returns full IAM audience", () => {
+  resetEnv();
+  process.env.GCP_WIF_PROVIDER = "projects/123/locations/global/workloadIdentityPools/pool/providers/prov";
+  assert.equal(
+    resolveAudience(),
+    "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/prov",
+  );
+});
+
+test("resolveAudience handles already-prefixed env var", () => {
+  resetEnv();
+  process.env.GCP_WIF_PROVIDER = "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/prov";
+  assert.equal(
+    resolveAudience(),
+    "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/prov",
   );
 });
