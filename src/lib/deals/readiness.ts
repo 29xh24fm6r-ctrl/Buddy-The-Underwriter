@@ -25,6 +25,7 @@ export type DealReadinessResult = {
   details?: {
     uploads_pending?: number;
     ai_pipeline_incomplete?: number;
+    spread_violations?: number;
     required_items_missing?: number;
     checklist_total?: number;
     checklist_satisfied?: number;
@@ -67,6 +68,28 @@ export async function computeDealReadiness(
       reason: `AI pipeline incomplete (${aiIncomplete} document(s) still processing)`,
       details: { ai_pipeline_incomplete: aiIncomplete },
     };
+  }
+
+  // 2b. Spread invariant — all classified docs should have completed spreads
+  try {
+    const { data: violations } = await (sb as any).rpc(
+      "assert_spread_invariant",
+      { p_deal_id: dealId },
+    );
+    const missing = (violations ?? []).filter(
+      (v: any) => v.reason === "missing_spread",
+    );
+    if (missing.length > 0) {
+      return {
+        ready: false,
+        reason: `Spread invariant violated: ${missing.length} missing spread(s)`,
+        details: {
+          spread_violations: missing.length,
+        },
+      };
+    }
+  } catch {
+    // assert_spread_invariant may not exist in all environments — non-fatal
   }
 
   // 3. Check checklist satisfaction

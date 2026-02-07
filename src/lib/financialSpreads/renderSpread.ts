@@ -106,7 +106,7 @@ export async function renderSpread(args: {
     generatedAt: new Date().toISOString(),
   };
 
-  const { error } = await (sb as any)
+  const { data: upsertedSpread, error } = await (sb as any)
     .from("deal_spreads")
     .upsert(
       {
@@ -125,7 +125,9 @@ export async function renderSpread(args: {
         updated_at: new Date().toISOString(),
       },
       { onConflict: "deal_id,bank_id,spread_type,spread_version,owner_type,owner_entity_id" } as any,
-    );
+    )
+    .select("id")
+    .maybeSingle();
 
   if (error) throw new Error(`deal_spreads_upsert_failed:${error.message}`);
 
@@ -139,6 +141,7 @@ export async function renderSpread(args: {
       ownerType: args.ownerType ?? "DEAL",
       ownerEntityId: args.ownerEntityId ?? null,
       rendered,
+      dealSpreadId: upsertedSpread?.id ?? null,
     });
   } catch (lineItemErr) {
     // Non-fatal: spread is already persisted, line items are supplemental
@@ -160,8 +163,9 @@ async function writeSpreadLineItems(args: {
   ownerType: string;
   ownerEntityId: string | null;
   rendered: RenderedSpread;
+  dealSpreadId: string | null;
 }) {
-  const { sb, dealId, bankId, spreadType, ownerType, ownerEntityId, rendered } = args;
+  const { sb, dealId, bankId, spreadType, ownerType, ownerEntityId, rendered, dealSpreadId } = args;
   const columns = rendered.columnsV2 ?? [];
   if (!columns.length || !rendered.rows?.length) return;
 
@@ -198,6 +202,7 @@ async function writeSpreadLineItems(args: {
         spread_type: spreadType,
         owner_type: ownerType,
         owner_entity_id: ownerEntityId,
+        deal_spread_id: dealSpreadId,
         section: row.section ?? "",
         line_key: row.key,
         label: row.label,

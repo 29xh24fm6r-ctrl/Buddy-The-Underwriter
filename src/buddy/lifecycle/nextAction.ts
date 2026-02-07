@@ -244,6 +244,12 @@ export function getBlockerFixAction(
         action: "ai_pipeline.process",
       };
 
+    case "spreads_incomplete":
+      return {
+        label: "View Spreads",
+        href: `/deals/${dealId}/cockpit?focus=documents`,
+      };
+
     // Infrastructure/fetch errors - no direct fix
     case "checklist_fetch_failed":
     case "snapshot_fetch_failed":

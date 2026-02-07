@@ -72,6 +72,7 @@ function createFallbackState(
       pricingQuoteReady: false,
       attestationSatisfied: true,
       aiPipelineComplete: true,
+      spreadsComplete: true,
       correlationId,
     },
   };

@@ -176,8 +176,8 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     borrowerChecklistSatisfied = requiredItems.length > 0 && missingItems.length === 0;
   }
 
-  // 4–10. Parallel independent queries (snapshot, decision, packet, advancement, loan requests, pricing, ai pipeline)
-  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, aiPipelineResult] = await Promise.all([
+  // 4–11. Parallel independent queries (snapshot, decision, packet, advancement, loan requests, pricing, ai pipeline, spreads)
+  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, aiPipelineResult, spreadsResult] = await Promise.all([
     safeSupabaseCount(
       "snapshot",
       () =>
@@ -256,6 +256,17 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .in("status", ["queued", "processing", "failed"]),
       ctx
     ),
+    // Spread pipeline completeness — count jobs still QUEUED/RUNNING/FAILED
+    safeSupabaseCount(
+      "spreads",
+      () =>
+        sb
+          .from("deal_spread_jobs")
+          .select("id", { count: "exact", head: true })
+          .eq("deal_id", dealId)
+          .in("status", ["QUEUED", "RUNNING", "FAILED"]),
+      ctx
+    ),
   ]);
 
   let financialSnapshotExists = false;
@@ -302,6 +313,11 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     aiPipelineComplete = aiPipelineResult.data === 0;
   }
 
+  let spreadsComplete = true;
+  if (spreadsResult.ok) {
+    spreadsComplete = spreadsResult.data === 0;
+  }
+
   // Attestation check depends on decision result — runs after parallel batch
   let attestationSatisfied = true;
   if (latestDecisionId && deal.bank_id) {
@@ -339,6 +355,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     pricingQuoteReady,
     attestationSatisfied,
     aiPipelineComplete,
+    spreadsComplete,
   };
 
   // Map to unified stage
@@ -459,6 +476,17 @@ function computeBlockers(
     });
   }
 
+  // Spread pipeline completeness blocker
+  if (
+    ["docs_satisfied", "underwrite_ready"].includes(stage) &&
+    !derived.spreadsComplete
+  ) {
+    blockers.push({
+      code: "spreads_incomplete",
+      message: "Financial spread generation has not completed for all documents",
+    });
+  }
+
   // Document collection blockers
   if (
     ["docs_requested", "docs_in_progress"].includes(stage) &&
@@ -544,6 +572,7 @@ function createNotFoundState(): LifecycleState {
       pricingQuoteReady: false,
       attestationSatisfied: true,
       aiPipelineComplete: true,
+      spreadsComplete: true,
     },
   };
 }
@@ -574,6 +603,7 @@ function createErrorState(code: string, message: string): LifecycleState {
       pricingQuoteReady: false,
       attestationSatisfied: true,
       aiPipelineComplete: true,
+      spreadsComplete: true,
     },
   };
 }

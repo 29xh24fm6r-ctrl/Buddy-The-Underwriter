@@ -113,6 +113,25 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       })
       .eq("id", jobId);
 
+    // Best-effort invariant check — log violations but never fail the job
+    try {
+      const { data: violations } = await (sb as any).rpc(
+        "assert_spread_invariant",
+        { p_deal_id: dealId },
+      );
+      if (violations && violations.length > 0) {
+        await logLedgerEvent({
+          dealId, bankId,
+          eventKey: "spread.invariant.violations",
+          uiState: "error",
+          uiMessage: `Spread invariant violations detected: ${violations.length}`,
+          meta: { jobId, violations },
+        });
+      }
+    } catch {
+      // Invariant check is diagnostic — never block the success path
+    }
+
     await logLedgerEvent({
       dealId, bankId,
       eventKey: "spread.run.succeeded",

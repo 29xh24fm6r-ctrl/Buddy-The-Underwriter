@@ -71,6 +71,48 @@ export async function enqueueSpreadRecompute(args: {
     // swallow
   }
 
+  // ── Idempotent job creation ─────────────────────────────────────────────
+  // A unique partial index (idx_spread_jobs_active_deal) enforces at most
+  // ONE active (QUEUED/RUNNING) job per deal+bank. If one already exists,
+  // merge the requested spread types into it rather than creating a new job.
+
+  const { data: existingJob } = await (sb as any)
+    .from("deal_spread_jobs")
+    .select("id, requested_spread_types")
+    .eq("deal_id", args.dealId)
+    .eq("bank_id", args.bankId)
+    .in("status", ["QUEUED", "RUNNING"])
+    .maybeSingle();
+
+  if (existingJob) {
+    const existingTypes = (existingJob.requested_spread_types ?? []) as string[];
+    const merged = uniq([...existingTypes, ...requested]);
+
+    if (merged.length > existingTypes.length) {
+      await (sb as any)
+        .from("deal_spread_jobs")
+        .update({
+          requested_spread_types: merged,
+          meta: {
+            ...(args.meta ?? {}),
+            owner_type: args.ownerType ?? "DEAL",
+            owner_entity_id: args.ownerEntityId ?? null,
+            merged_at: new Date().toISOString(),
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingJob.id);
+    }
+
+    return {
+      ok: true as const,
+      enqueued: false as const,
+      merged: true as const,
+      jobId: String(existingJob.id),
+    };
+  }
+
+  // No active job — insert a new one.
   const payload = {
     deal_id: args.dealId,
     bank_id: args.bankId,
@@ -86,7 +128,6 @@ export async function enqueueSpreadRecompute(args: {
     updated_at: new Date().toISOString(),
   };
 
-  // No strict idempotency key yet; best-effort dedupe happens in the worker by collapsing types.
   const { data, error } = await (sb as any)
     .from("deal_spread_jobs")
     .insert(payload)
@@ -94,6 +135,38 @@ export async function enqueueSpreadRecompute(args: {
     .maybeSingle();
 
   if (error) {
+    // Unique violation (23505): another job was created concurrently — merge into it.
+    if (error.code === "23505") {
+      const { data: raceJob } = await (sb as any)
+        .from("deal_spread_jobs")
+        .select("id, requested_spread_types")
+        .eq("deal_id", args.dealId)
+        .eq("bank_id", args.bankId)
+        .in("status", ["QUEUED", "RUNNING"])
+        .maybeSingle();
+
+      if (raceJob) {
+        const merged = uniq([
+          ...((raceJob.requested_spread_types ?? []) as string[]),
+          ...requested,
+        ]);
+        await (sb as any)
+          .from("deal_spread_jobs")
+          .update({
+            requested_spread_types: merged,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", raceJob.id);
+
+        return {
+          ok: true as const,
+          enqueued: false as const,
+          merged: true as const,
+          jobId: String(raceJob.id),
+        };
+      }
+    }
+
     return { ok: false as const, error: error.message };
   }
 
