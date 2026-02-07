@@ -1,7 +1,6 @@
 import { signUploadUrl } from "@/lib/uploads/sign";
 import { getGcsBucketName } from "@/lib/storage/gcs";
 import { createGcsV4SignedPutUrl } from "@/lib/storage/gcsSignedPutUrl";
-import { hasWifProviderConfig } from "@/lib/google/wif/getWifProvider";
 import type { NextRequest } from "next/server";
 
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB
@@ -92,53 +91,37 @@ export async function signDealUpload(
   const docStore = String(process.env.DOC_STORE || "").toLowerCase();
   const wantsGcs = docStore === "gcs";
 
-  // If DOC_STORE=gcs but WIF isn't configured, either fall back (default) or fail (strict).
-  const strictGcs = process.env.GCS_STRICT_SIGNING === "1";
-  const wifReady = wantsGcs && hasWifProviderConfig();
-
-  if (wantsGcs && !wifReady && strictGcs) {
-    return {
-      ok: false,
-      requestId,
-      error: "missing_gcp_config",
-      details: "DOC_STORE=gcs requires WIF provider configuration (GCP_WIF_PROVIDER + related env).",
-    };
-  }
-
-  // GCS signed PUT URL path (new): uses our internal WIF-enabled signer helper.
-  if (wantsGcs && wifReady) {
-    const gcsBucket = process.env.GCS_BUCKET || getGcsBucketName();
-    const signed = await createGcsV4SignedPutUrl({
-      bucket: gcsBucket,
-      objectKey,
-      contentType: mimeType || "application/octet-stream",
-      expiresSeconds: Number(process.env.GCS_SIGN_TTL_SECONDS || "900"),
-    });
-
-    // Support common return shapes while keeping this file stable.
-    const uploadUrl =
-      (signed as any).url ?? (signed as any).uploadUrl ?? (signed as any).signedUrl;
-    const headers =
-      (signed as any).headers ?? { "Content-Type": mimeType || "application/octet-stream" };
-
-    if (!uploadUrl) {
-      return { ok: false, requestId, error: "missing_signed_url" };
-    }
-
-    return {
-      ok: true,
-      upload: {
-        fileId,
-        objectKey,
-        uploadUrl,
-        headers,
+  // GCS signed PUT URL path — any failure falls through to Supabase.
+  if (wantsGcs) {
+    try {
+      const gcsBucket = process.env.GCS_BUCKET || getGcsBucketName();
+      const signed = await createGcsV4SignedPutUrl({
         bucket: gcsBucket,
-        checklistKey: checklistKey ?? null,
-      },
-    };
+        objectKey,
+        contentType: mimeType || "application/octet-stream",
+        expiresSeconds: Number(process.env.GCS_SIGN_TTL_SECONDS || "900"),
+      });
+
+      return {
+        ok: true,
+        upload: {
+          fileId,
+          objectKey,
+          uploadUrl: signed.url,
+          headers: signed.headers,
+          bucket: gcsBucket,
+          checklistKey: checklistKey ?? null,
+        },
+      };
+    } catch (gcsErr: any) {
+      console.error("[signDealUpload] GCS signing failed, falling back to Supabase", {
+        requestId,
+        error: gcsErr?.message ?? String(gcsErr),
+      });
+    }
   }
 
-  // Supabase (or default) signed URL path
+  // Supabase fallback (or default when DOC_STORE != gcs)
   const bucket = process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
   const signResult = await signUploadUrl({ bucket, objectPath: objectKey });
 

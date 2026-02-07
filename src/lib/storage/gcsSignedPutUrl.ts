@@ -1,11 +1,10 @@
 import "server-only";
 
 import { Storage } from "@google-cloud/storage";
-import { getVercelWifAuthClient } from "@/lib/gcp/vercelAuth";
 
 /**
  * Create a V4 signed PUT URL using the official GCS library.
- * This avoids manual IAMCredentials signBlob quirks.
+ * Auth resolves implicitly via environment / runtime (ADC, GOOGLE_APPLICATION_CREDENTIALS, etc.).
  */
 export async function createGcsV4SignedPutUrl(opts: {
   bucket: string;
@@ -15,8 +14,6 @@ export async function createGcsV4SignedPutUrl(opts: {
 }): Promise<{ url: string; headers: Record<string, string> }> {
   const { bucket, objectKey, contentType, expiresSeconds } = opts;
 
-  const authClient = await getVercelWifAuthClient();
-  // The Storage client will handle the correct signing flow internally.
   const storage = new Storage();
 
   const file = storage.bucket(bucket).file(objectKey);
