@@ -58,7 +58,7 @@ export async function GET(
       // Fallback: direct select from deal_documents including AI classification columns
       const fallbackRes = await withTimeout(
         sb.from("deal_documents")
-          .select("id, deal_id, storage_bucket, storage_path, original_filename, display_name, document_type, doc_year, naming_method, mime_type, size_bytes, source, checklist_key, created_at, ai_doc_type, canonical_type, ai_confidence, ai_form_numbers, routing_class")
+          .select("id, deal_id, storage_bucket, storage_path, original_filename, display_name, document_type, doc_year, naming_method, mime_type, size_bytes, source, checklist_key, match_source, created_at, ai_doc_type, canonical_type, ai_confidence, ai_form_numbers, routing_class")
           .eq("deal_id", dealId)
           .order("created_at", { ascending: false }),
         10_000,
@@ -93,7 +93,7 @@ export async function GET(
         // AI classification columns (supplement for RPC path; fallback already has them)
         withTimeout(
           sb.from("deal_documents")
-            .select("id, ai_doc_type, canonical_type, ai_confidence, ai_form_numbers, routing_class")
+            .select("id, ai_doc_type, canonical_type, ai_confidence, ai_form_numbers, routing_class, match_source, document_type")
             .in("id", docIds),
           8_000,
           "ai_columns",
@@ -128,7 +128,7 @@ export async function GET(
         stored_name: d.storage_path,
         original_name: d.original_filename,
         display_name: d.display_name ?? d.original_filename,
-        document_type: d.document_type ?? null,
+        document_type: d.document_type ?? ai?.document_type ?? null,
         doc_year: d.doc_year ?? null,
         naming_method: d.naming_method ?? null,
         mime_type: d.mime_type,
@@ -139,6 +139,7 @@ export async function GET(
         size_bytes: d.size_bytes,
         source: d.source,
         checklist_key: d.checklist_key,
+        match_source: d.match_source ?? ai?.match_source ?? null,
         // AI classification fields
         ai_doc_type: d.ai_doc_type ?? ai?.ai_doc_type ?? null,
         canonical_type: d.canonical_type ?? ai?.canonical_type ?? null,

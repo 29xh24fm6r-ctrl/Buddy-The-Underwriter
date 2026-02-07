@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
+import { CHECKLIST_KEY_OPTIONS, type ChecklistKeyOption } from "@/lib/checklist/checklistKeyOptions";
 import { useShouldPoll } from "@/buddy/cockpit";
 
 type DealFile = {
@@ -18,6 +18,7 @@ type DealFile = {
   size_bytes: number;
   mime_type: string | null;
   checklist_key: string | null;
+  match_source: string | null;
   source: string | null;
   created_at: string;
   // AI classification fields
@@ -30,6 +31,19 @@ type DealFile = {
   artifact_status: string | null;
   artifact_error: string | null;
 };
+
+/** Unique doc types from the checklist key options, for the manual override dropdown */
+const DOC_TYPE_OPTIONS = (() => {
+  const seen = new Set<string>();
+  const opts: Array<{ value: string; label: string }> = [];
+  for (const o of CHECKLIST_KEY_OPTIONS) {
+    if (o.docType && !seen.has(o.docType)) {
+      seen.add(o.docType);
+      opts.push({ value: o.docType, label: o.docType.replace(/_/g, " ") });
+    }
+  }
+  return opts;
+})();
 
 export default function DealFilesCard({ dealId }: { dealId: string }) {
   const { shouldPoll } = useShouldPoll();
@@ -107,16 +121,18 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
     }
   }
 
-  async function setChecklistKey(file: DealFile, checklistKey: string | null) {
+  async function setChecklistKey(file: DealFile, checklistKey: string | null, documentType?: string) {
     const id = file.file_id;
     setSavingById((prev) => ({ ...prev, [id]: true }));
     try {
+      const payload: Record<string, unknown> = { checklist_key: checklistKey };
+      if (documentType) payload.document_type = documentType;
       const res = await fetch(
         `/api/deals/${dealId}/documents/${encodeURIComponent(id)}/checklist-key`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ checklist_key: checklistKey }),
+          body: JSON.stringify(payload),
         },
       );
       const json = await res.json().catch(() => ({}));
@@ -127,7 +143,13 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
 
       setFiles((prev) =>
         prev.map((f) =>
-          f.file_id === id ? { ...f, checklist_key: json.checklist_key ?? null } : f,
+          f.file_id === id
+            ? {
+                ...f,
+                checklist_key: json.checklist_key ?? null,
+                document_type: json.document_type ?? f.document_type,
+              }
+            : f,
         ),
       );
     } finally {
@@ -433,7 +455,33 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                       {file.source || "Unknown source"} • {new Date(file.created_at).toLocaleDateString()}
                     </div>
 
-                    <div className="mt-2 flex items-center gap-2">
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <label className="text-xs text-neutral-400">Doc Type</label>
+                      <select
+                        className="rounded-lg border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-100"
+                        value={file.document_type ?? ""}
+                        onChange={(e) => {
+                          const docType = e.target.value || null;
+                          // Find matching checklist key for this doc type
+                          const match = (checklistOptions.length ? checklistOptions : CHECKLIST_KEY_OPTIONS)
+                            .find((o) => (o as ChecklistKeyOption).docType === docType);
+                          void setChecklistKey(
+                            file,
+                            match?.key ?? file.checklist_key,
+                            docType ?? undefined,
+                          );
+                        }}
+                        disabled={!!savingById[file.file_id]}
+                        title="Manually set document type (overrides AI classification)"
+                      >
+                        <option value="">None</option>
+                        {DOC_TYPE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+
                       <label className="text-xs text-neutral-400">Checklist</label>
                       <select
                         className="rounded-lg border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-100"
@@ -458,6 +506,8 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                       </select>
                       {savingById[file.file_id] ? (
                         <span className="text-xs text-neutral-500">Saving…</span>
+                      ) : file.match_source === "manual" ? (
+                        <span className="text-[10px] text-amber-400/60">Manual</span>
                       ) : null}
                     </div>
                   </div>

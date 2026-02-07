@@ -466,9 +466,12 @@ function computeBlockers(
   }
 
   // AI pipeline completeness blocker (prevents "green lies")
+  // Demoted: does NOT block when checklist is already satisfied by manual overrides.
+  // Rule: "AI must never block a human from fixing a deal."
   if (
     ["docs_in_progress", "docs_satisfied", "underwrite_ready"].includes(stage) &&
-    !derived.aiPipelineComplete
+    !derived.aiPipelineComplete &&
+    !derived.borrowerChecklistSatisfied
   ) {
     blockers.push({
       code: "ai_pipeline_incomplete",
@@ -476,16 +479,9 @@ function computeBlockers(
     });
   }
 
-  // Spread pipeline completeness blocker
-  if (
-    ["docs_satisfied", "underwrite_ready"].includes(stage) &&
-    !derived.spreadsComplete
-  ) {
-    blockers.push({
-      code: "spreads_incomplete",
-      message: "Financial spread generation has not completed for all documents",
-    });
-  }
+  // Spread pipeline completeness — informational only, NOT a lifecycle blocker.
+  // Spreads run in parallel and should never gate pricing or advancement.
+  // The derived.spreadsComplete flag is still visible in ReadinessPanel dots.
 
   // Document collection blockers
   if (
