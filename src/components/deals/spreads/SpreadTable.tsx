@@ -112,9 +112,6 @@ export function SpreadTable({
     );
   }
 
-  // Group rows by section for visual separation
-  let lastSection: string | null | undefined = undefined;
-
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
       {(title || subtitle) && (
@@ -141,9 +138,9 @@ export function SpreadTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
-              const showDivider = row.section !== lastSection && lastSection !== undefined;
-              lastSection = row.section;
+            {rows.map((row, i) => {
+              const prevSection = i > 0 ? rows[i - 1]?.section : undefined;
+              const showDivider = row.section !== prevSection && prevSection !== undefined;
 
               if (row.kind === "section_header") {
                 return (
@@ -223,8 +220,6 @@ export function MultiPeriodSpreadTable({
     );
   }
 
-  let lastSection: string | null | undefined = undefined;
-
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
       {(title || subtitle) && (
@@ -256,9 +251,9 @@ export function MultiPeriodSpreadTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
-              const showDivider = row.section !== lastSection && lastSection !== undefined;
-              lastSection = row.section;
+            {rows.map((row, i) => {
+              const prevSection = i > 0 ? rows[i - 1]?.section : undefined;
+              const showDivider = row.section !== prevSection && prevSection !== undefined;
 
               if (row.kind === "section_header") {
                 return (
