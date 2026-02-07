@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
 import { useShouldPoll } from "@/buddy/cockpit";
@@ -20,6 +20,15 @@ type DealFile = {
   checklist_key: string | null;
   source: string | null;
   created_at: string;
+  // AI classification fields
+  ai_doc_type: string | null;
+  canonical_type: string | null;
+  ai_confidence: number | null;
+  ai_form_numbers: string[] | null;
+  // Artifact processing status
+  artifact_id: string | null;
+  artifact_status: string | null;
+  artifact_error: string | null;
 };
 
 export default function DealFilesCard({ dealId }: { dealId: string }) {
@@ -36,6 +45,7 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<DealFile | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   const canPreview = (mime: string | null) => {
     if (!mime) return false;
@@ -220,6 +230,24 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
     setPreviewFile(null);
   }
 
+  const handleRetryArtifact = useCallback(
+    async (file: DealFile) => {
+      if (!file.artifact_id) return;
+      setRetryingId(file.artifact_id);
+      try {
+        await fetch(`/api/deals/${dealId}/artifacts/${file.artifact_id}/requeue`, {
+          method: "POST",
+        });
+        await loadFiles({ silent: true });
+      } catch {
+        // Non-fatal
+      } finally {
+        setRetryingId(null);
+      }
+    },
+    [dealId],
+  );
+
   if (loading) {
     return (
       <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-4 shadow-sm">
@@ -312,21 +340,81 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                       >
                         {file.display_name || file.original_name}
                       </Link>
-                      {file.naming_method === "provisional" && (
+                      {/* Smart status badges based on artifact + AI state */}
+                      {file.artifact_status === "queued" || file.artifact_status === "processing" ? (
+                        <span
+                          className="inline-flex shrink-0 items-center rounded-md bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-400 ring-1 ring-inset ring-amber-800/40 animate-pulse"
+                          title={`AI ${file.artifact_status === "queued" ? "queued" : "processing"}…`}
+                        >
+                          AI Processing
+                        </span>
+                      ) : file.artifact_status === "failed" ? (
+                        <span className="inline-flex shrink-0 items-center gap-1">
+                          <span
+                            className="inline-flex items-center rounded-md bg-red-900/40 px-1.5 py-0.5 text-[10px] font-medium text-red-400 ring-1 ring-inset ring-red-800/40"
+                            title={file.artifact_error || "AI processing failed"}
+                          >
+                            Failed
+                          </span>
+                          {file.artifact_id && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.preventDefault(); void handleRetryArtifact(file); }}
+                              disabled={retryingId === file.artifact_id}
+                              className="rounded-md bg-amber-900/30 px-1.5 py-0.5 text-[10px] font-medium text-amber-400 hover:bg-amber-900/50 disabled:opacity-50"
+                            >
+                              {retryingId === file.artifact_id ? "…" : "Retry"}
+                            </button>
+                          )}
+                        </span>
+                      ) : file.canonical_type ? (
+                        <span className="inline-flex shrink-0 items-center gap-1">
+                          <span
+                            className="inline-flex items-center rounded-md bg-emerald-900/40 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 ring-1 ring-inset ring-emerald-800/40"
+                            title={`AI classified as ${file.canonical_type}`}
+                          >
+                            {file.canonical_type.replace(/_/g, " ")}
+                          </span>
+                          {file.ai_confidence != null && (
+                            <span
+                              className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
+                                file.ai_confidence >= 0.85
+                                  ? "bg-emerald-500"
+                                  : file.ai_confidence >= 0.6
+                                    ? "bg-amber-500"
+                                    : "bg-red-500"
+                              }`}
+                              title={`${Math.round(file.ai_confidence * 100)}% confidence`}
+                            />
+                          )}
+                        </span>
+                      ) : file.naming_method === "provisional" ? (
                         <span
                           className="inline-flex shrink-0 items-center rounded-md bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-400 ring-1 ring-inset ring-amber-800/40"
                           title="Awaiting classification — name will update automatically"
                         >
                           Pending
                         </span>
-                      )}
-                      {file.naming_method === "derived" && (
+                      ) : file.naming_method === "derived" ? (
                         <span
                           className="inline-flex shrink-0 items-center rounded-md bg-emerald-900/40 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 ring-1 ring-inset ring-emerald-800/40"
                           title="Name derived from document classification"
                         >
                           Classified
                         </span>
+                      ) : null}
+                      {/* Form number chips */}
+                      {file.ai_form_numbers && file.ai_form_numbers.length > 0 && (
+                        <>
+                          {file.ai_form_numbers.map((form) => (
+                            <span
+                              key={form}
+                              className="inline-flex shrink-0 items-center rounded bg-violet-900/30 px-1 py-0.5 text-[9px] font-mono font-medium text-violet-300 ring-1 ring-inset ring-violet-800/30"
+                            >
+                              {form}
+                            </span>
+                          ))}
+                        </>
                       )}
                     </div>
                     {file.display_name && file.display_name !== file.original_name && (
@@ -336,8 +424,10 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                     )}
                     <div className="text-xs text-neutral-500">
                       {file.checklist_key
-                        ? `🔗 ${file.checklist_key}`
-                        : "No checklist match"} • {(file.size_bytes / 1024).toFixed(1)} KB
+                        ? `Matched: ${file.checklist_key}`
+                        : file.canonical_type
+                          ? "Classified, not matched"
+                          : "Pending AI classification"} • {(file.size_bytes / 1024).toFixed(1)} KB
                     </div>
                     <div className="text-xs text-neutral-500">
                       {file.source || "Unknown source"} • {new Date(file.created_at).toLocaleDateString()}

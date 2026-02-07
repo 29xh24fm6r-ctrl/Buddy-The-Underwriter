@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
 
 type FieldConfidence = {
   field: string;
@@ -55,7 +54,8 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [actionError, setActionError] = useState<ActionError | null>(null);
-  const [mode, setMode] = useState<"idle" | "search" | "create">("idle");
+  const [mode, setMode] = useState<"idle" | "search" | "create" | "edit">("idle");
+  const [updating, setUpdating] = useState(false);
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<BorrowerSearchRow[]>([]);
@@ -249,6 +249,49 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
       setActionError({ code: "network_error", message: e?.message || "Failed to create borrower", correlationId: "—" });
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function updateBorrower() {
+    if (!legalName.trim()) {
+      setActionError({ code: "legal_name_required", message: "Legal name is required.", correlationId: "—" });
+      return;
+    }
+    if (!entityType.trim()) {
+      setActionError({ code: "entity_type_required", message: "Entity type is required.", correlationId: "—" });
+      return;
+    }
+    if (!contactName.trim() || !contactEmail.trim()) {
+      setActionError({ code: "primary_contact_required", message: "Primary contact name and email are required.", correlationId: "—" });
+      return;
+    }
+    setUpdating(true);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/borrower/ensure`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          source: "manual",
+          legal_name: legalName.trim(),
+          entity_type: entityType.trim() || null,
+          primary_contact_name: contactName.trim() || null,
+          primary_contact_email: contactEmail.trim() || null,
+          ein: ein.trim() || null,
+        }),
+      });
+      const json = await res.json();
+      if (!json?.ok) {
+        handleActionError(json);
+        return;
+      }
+      setToast(`Borrower updated. ${json.meta?.correlationId ? `(${json.meta.correlationId})` : ""}`);
+      setMode("idle");
+      await loadSummary();
+    } catch (e: any) {
+      setActionError({ code: "network_error", message: e?.message || "Failed to update borrower", correlationId: "—" });
+    } finally {
+      setUpdating(false);
     }
   }
 
@@ -460,12 +503,20 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
                 >
                   {autofilling ? "Auto-filling…" : "Auto-fill from Docs"}
                 </button>
-                <Link
-                  href={`/borrowers/${summary.borrower.id}`}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLegalName(summary.borrower!.legal_name || "");
+                    setEntityType(summary.borrower!.entity_type || "");
+                    setContactName(summary.borrower!.primary_contact_name || "");
+                    setContactEmail(summary.borrower!.primary_contact_email || "");
+                    setEin(summary.borrower!.ein || "");
+                    setMode("edit");
+                  }}
                   className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   Edit
-                </Link>
+                </button>
                 <button
                   type="button"
                   onClick={() => setMode("search")}
@@ -769,9 +820,11 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
           </div>
         ) : null}
 
-        {mode === "create" ? (
+        {(mode === "create" || mode === "edit") ? (
           <div className="rounded-xl border border-slate-200 p-4 space-y-3">
-            <div className="text-sm font-semibold text-slate-900">Create new borrower</div>
+            <div className="text-sm font-semibold text-slate-900">
+              {mode === "edit" ? "Edit borrower" : "Create new borrower"}
+            </div>
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
               <input
                 value={legalName}
@@ -811,14 +864,25 @@ export default function BorrowerAttachmentCard({ dealId }: { dealId: string }) {
               />
             </div>
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={createBorrower}
-                disabled={creating}
-                className="rounded-xl border border-slate-200 bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-              >
-                {creating ? "Creating…" : "Create & Attach"}
-              </button>
+              {mode === "edit" ? (
+                <button
+                  type="button"
+                  onClick={updateBorrower}
+                  disabled={updating}
+                  className="rounded-xl border border-slate-200 bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {updating ? "Saving…" : "Save Changes"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={createBorrower}
+                  disabled={creating}
+                  className="rounded-xl border border-slate-200 bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {creating ? "Creating…" : "Create & Attach"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => { setMode("idle"); setActionError(null); }}
