@@ -17,7 +17,7 @@ import {
   mapDocTypeToChecklistKeys,
   type ClassificationResult,
 } from "./classifyDocument";
-import { normalizeToCanonical } from "@/lib/documents/normalizeType";
+import { resolveDocTyping } from "@/lib/docs/typing/resolveDocTyping";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
@@ -492,10 +492,28 @@ export async function processArtifact(
     // 2. Classify the document
     const classification = await classifyDocument(text, filename, mimeType);
 
+    // 2.5. Resolve canonical typing with form-number guardrails
+    const typingResult = resolveDocTyping({
+      aiDocType: classification.docType,
+      aiFormNumbers: classification.formNumbers,
+      aiConfidence: classification.confidence,
+      aiTaxYear: classification.taxYear,
+      aiEntityType: classification.entityType,
+    });
+
+    if (typingResult.guardrail_applied) {
+      console.warn("[processArtifact] Form-number guardrail applied", {
+        source_id,
+        originalDocType: classification.docType,
+        overriddenTo: typingResult.effective_doc_type,
+        reason: typingResult.guardrail_reason,
+      });
+    }
+
     // 3. Update artifact with classification
     await sb.rpc("update_artifact_classification", {
       p_artifact_id: artifactId,
-      p_doc_type: classification.docType,
+      p_doc_type: typingResult.effective_doc_type,
       p_doc_type_confidence: classification.confidence,
       p_doc_type_reason: classification.reason,
       p_tax_year: classification.taxYear,
@@ -506,9 +524,9 @@ export async function processArtifact(
       p_proposed_deal_name_source: classification.proposedDealNameSource,
     });
 
-    // 4. Find matching checklist keys
+    // 4. Find matching checklist keys (use effective docType after guardrails)
     const possibleKeys = mapDocTypeToChecklistKeys(
-      classification.docType,
+      typingResult.effective_doc_type as any,
       classification.taxYear
     );
 
@@ -544,9 +562,8 @@ export async function processArtifact(
       });
     }
 
-    // 6.5. STAMP deal_documents with authoritative classification
+    // 6.5. STAMP deal_documents with authoritative classification (all 24 fields)
     // Double-check manual status first (race condition protection)
-    const canonicalType = normalizeToCanonical(classification.docType);
     if (source_table === "deal_documents") {
       const recheckManual = await sb
         .from("deal_documents")
@@ -560,32 +577,50 @@ export async function processArtifact(
         });
       } else {
         const docYears = classification.taxYear ? [classification.taxYear] : null;
-        const checklistKey = mapDocTypeToChecklistKeys(classification.docType, classification.taxYear)[0] ?? null;
 
         // Route entity name to schema-real columns based on canonical type.
-        // Do NOT write entity_name — use ai_business_name / ai_borrower_name only.
         const entityName = classification.entityName ?? null;
         const entityPatch: Record<string, any> = {};
         if (entityName) {
-          if (canonicalType === "BUSINESS_TAX_RETURN") entityPatch.ai_business_name = entityName;
-          if (canonicalType === "PERSONAL_TAX_RETURN" || canonicalType === "PFS") entityPatch.ai_borrower_name = entityName;
+          if (typingResult.document_type === "BUSINESS_TAX_RETURN") entityPatch.ai_business_name = entityName;
+          if (typingResult.document_type === "PERSONAL_TAX_RETURN" || typingResult.document_type === "PFS") entityPatch.ai_borrower_name = entityName;
         }
 
         const stampResult = await sb
           .from("deal_documents")
           .update({
-            document_type: canonicalType,
+            // Existing fields
+            document_type: typingResult.document_type,
             doc_year: classification.taxYear ?? null,
             doc_years: docYears,
-            checklist_key: checklistKey,
+            checklist_key: typingResult.checklist_key,
             match_source: "ai_classification",
             match_confidence: classification.confidence,
             match_reason: classification.reason,
             finalized_at: new Date().toISOString(),
+            // Raw AI classification fields
+            ai_doc_type: classification.docType,
+            ai_confidence: classification.confidence,
+            ai_model: "claude-sonnet-4-5-20250929",
+            ai_reason: classification.reason,
+            ai_form_numbers: classification.formNumbers,
+            ai_issuer: classification.issuer,
+            ai_tax_year: classification.taxYear,
+            ai_period_start: classification.periodStart,
+            ai_period_end: classification.periodEnd,
+            ai_extracted_json: classification.rawExtraction,
+            // Resolved typing fields
+            canonical_type: typingResult.canonical_type,
+            routing_class: typingResult.routing_class,
+            classification_confidence: classification.confidence,
+            classification_reason: typingResult.guardrail_applied
+              ? `${classification.reason} [guardrail: ${typingResult.guardrail_reason}]`
+              : classification.reason,
+            // Entity routing
             ...entityPatch,
           } as any)
           .eq("id", source_id)
-          .select("id, checklist_key, match_source, document_type, doc_year, ai_business_name, ai_borrower_name")
+          .select("id, checklist_key, match_source, document_type, doc_year, ai_business_name, ai_borrower_name, canonical_type, routing_class")
           .maybeSingle();
 
         if (stampResult.error) {
@@ -621,9 +656,10 @@ export async function processArtifact(
                 details: stampResult.error.details,
               },
               attempted: {
-                canonicalType,
-                checklistKey,
+                canonical_type: typingResult.canonical_type,
+                checklist_key: typingResult.checklist_key,
                 taxYear: classification.taxYear ?? null,
+                guardrail: typingResult.guardrail_applied ? typingResult.guardrail_reason : null,
                 entityPatch,
               },
             },
@@ -633,14 +669,16 @@ export async function processArtifact(
         } else if (!stampResult.data) {
           console.error("[processArtifact] STAMP NO ROWS UPDATED", {
             source_id,
-            canonicalType,
-            checklistKey,
+            canonical_type: typingResult.canonical_type,
+            checklist_key: typingResult.checklist_key,
           });
         } else {
           console.log("[processArtifact] Stamp successful", {
             source_id,
             checklist_key: stampResult.data.checklist_key,
             match_source: stampResult.data.match_source,
+            canonical_type: stampResult.data.canonical_type,
+            routing_class: stampResult.data.routing_class,
           });
         }
       }

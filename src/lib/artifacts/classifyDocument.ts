@@ -45,6 +45,14 @@ export type ClassificationResult = {
   proposedDealName: string | null;
   proposedDealNameSource: string | null;
   rawExtraction: Record<string, unknown>;
+  /** IRS form numbers visible in the document (e.g., ["1040", "Schedule C"]) */
+  formNumbers: string[] | null;
+  /** Issuing entity (e.g., "IRS", "Bank of America") */
+  issuer: string | null;
+  /** Document reporting period start (ISO date string) */
+  periodStart: string | null;
+  /** Document reporting period end (ISO date string) */
+  periodEnd: string | null;
 };
 
 const CLASSIFICATION_PROMPT = `You are a document classification expert for commercial lending. Analyze the provided document and extract key information.
@@ -80,7 +88,11 @@ Respond with a JSON object:
   "entity_name": "ABC Holdings LLC",
   "entity_type": "business",
   "proposed_deal_name": "ABC Holdings LLC",
-  "proposed_deal_name_source": "1120s_header"
+  "proposed_deal_name_source": "1120s_header",
+  "form_numbers": ["1120S"],
+  "issuer": "IRS",
+  "period_start": "2023-01-01",
+  "period_end": "2023-12-31"
 }
 
 Rules:
@@ -90,8 +102,12 @@ Rules:
 - entity_type: "business" or "personal" or null
 - proposed_deal_name: If this is a tax return with a clear business name, suggest it as deal name
 - proposed_deal_name_source: Where the name came from (e.g., "schedule_c", "1120s_header", "1040_header")
+- form_numbers: Array of IRS form numbers visible in the document (e.g., ["1040"], ["1120S", "Schedule K-1"]). null if not a tax/IRS document.
+- issuer: The issuing entity (e.g., "IRS" for tax returns, bank name for statements, insurance company). null if unknown.
+- period_start: Start date of the document's reporting period in YYYY-MM-DD format. null if not applicable.
+- period_end: End date of the document's reporting period in YYYY-MM-DD format. null if not applicable.
 
-Be precise. If unsure, lower the confidence. For tax documents, always try to extract the tax year.`;
+Be precise. If unsure, lower the confidence. For tax documents, always try to extract the tax year and form numbers.`;
 
 /**
  * Classify a document using AI.
@@ -167,6 +183,12 @@ Classify this document and extract key information. Respond with JSON only.`;
         ? String(parsed.proposed_deal_name_source)
         : null,
       rawExtraction: parsed,
+      formNumbers: Array.isArray(parsed.form_numbers)
+        ? parsed.form_numbers.map(String)
+        : null,
+      issuer: parsed.issuer ? String(parsed.issuer) : null,
+      periodStart: parsed.period_start ? String(parsed.period_start) : null,
+      periodEnd: parsed.period_end ? String(parsed.period_end) : null,
     };
   } catch (error: any) {
     console.error("[classifyDocument] AI classification failed", {
@@ -185,6 +207,10 @@ Classify this document and extract key information. Respond with JSON only.`;
       proposedDealName: null,
       proposedDealNameSource: null,
       rawExtraction: { error: error?.message },
+      formNumbers: null,
+      issuer: null,
+      periodStart: null,
+      periodEnd: null,
     };
   }
 }
