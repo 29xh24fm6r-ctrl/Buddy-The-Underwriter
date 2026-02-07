@@ -40,6 +40,7 @@ const SOURCE_TO_BLOCKER_CODE: Record<string, LifecycleBlockerCode> = {
   packet: "packet_fetch_failed",
   advancement: "advancement_fetch_failed",
   readiness: "readiness_fetch_failed",
+  ai_pipeline: "ai_pipeline_incomplete",
 };
 
 /**

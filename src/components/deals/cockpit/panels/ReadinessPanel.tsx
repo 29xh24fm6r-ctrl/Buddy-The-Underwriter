@@ -78,12 +78,31 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
 
       try {
         // Route action-specific endpoints
+        if (action === "ai_pipeline.process") {
+          const res = await fetch(`/api/deals/${dealId}/artifacts/process`, { method: "POST" });
+          if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            setActionError(body?.error ?? `Processing failed (${res.status})`);
+            return;
+          }
+          onAdvance?.();
+          return;
+        }
+
         if (action === "financial_snapshot.recompute") {
           const res = await fetch(`/api/deals/${dealId}/financial-snapshot/recompute`, {
             method: "POST",
           });
           if (!res.ok) {
             const body = await res.json().catch(() => null);
+            if (res.status === 422) {
+              setActionError("No financial data extracted yet. Run AI Processing on documents first.");
+              return;
+            }
+            if (res.status === 409) {
+              setActionError("Spreads are still generating. Please wait and try again.");
+              return;
+            }
             const msg = body?.error ?? `Snapshot failed (${res.status})`;
             console.error("[ReadinessPanel] financial_snapshot.recompute failed:", res.status, body);
             setActionError(msg);
@@ -217,6 +236,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
         {derived && (
           <div className="grid grid-cols-2 gap-2">
             <DerivedFactDot label="Documents" ok={derived.borrowerChecklistSatisfied} />
+            <DerivedFactDot label="AI Pipeline" ok={derived.aiPipelineComplete} />
             <DerivedFactDot label="Financials" ok={derived.financialSnapshotExists} />
             <DerivedFactDot label="Pricing" ok={derived.pricingQuoteReady} />
             <DerivedFactDot label="Underwriting" ok={derived.underwriteStarted} />

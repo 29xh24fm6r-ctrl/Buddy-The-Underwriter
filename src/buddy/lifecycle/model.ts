@@ -58,6 +58,7 @@ export type LifecycleBlockerCode =
   | "checklist_not_seeded"
   | "loan_request_missing"
   | "loan_request_incomplete"
+  | "ai_pipeline_incomplete"
   // Runtime/infrastructure blockers - specific per data source
   | "checklist_fetch_failed"
   | "snapshot_fetch_failed"
@@ -106,6 +107,8 @@ export type LifecycleDerived = {
   pricingQuoteReady: boolean;
   /** True if attestation requirements are satisfied */
   attestationSatisfied: boolean;
+  /** True if all document artifacts have been processed (no queued/processing/failed) */
+  aiPipelineComplete: boolean;
   /** Request correlation ID for debugging (optional, set by route) */
   correlationId?: string;
 };

@@ -71,6 +71,7 @@ function createFallbackState(
       committeeRequired: false,
       pricingQuoteReady: false,
       attestationSatisfied: true,
+      aiPipelineComplete: true,
       correlationId,
     },
   };

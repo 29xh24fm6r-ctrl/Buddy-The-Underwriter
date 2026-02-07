@@ -238,6 +238,12 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/cockpit?tab=setup`,
       };
 
+    case "ai_pipeline_incomplete":
+      return {
+        label: "Run AI Processing",
+        action: "ai_pipeline.process",
+      };
+
     // Infrastructure/fetch errors - no direct fix
     case "checklist_fetch_failed":
     case "snapshot_fetch_failed":

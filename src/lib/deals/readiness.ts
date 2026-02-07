@@ -12,8 +12,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * 
  * A deal is READY iff:
  * 1. All uploads are finalized (finalized_at IS NOT NULL)
- * 2. Checklist engine is satisfied (all required items met)
- * 
+ * 2. AI pipeline has processed all documents (no queued/processing/failed artifacts)
+ * 3. Checklist engine is satisfied (all required items met)
+ *
  * This is the SINGLE SOURCE OF TRUTH for deal completeness.
  * No UI action sets this directly - it's DERIVED.
  */
@@ -23,6 +24,7 @@ export type DealReadinessResult = {
   reason: string;
   details?: {
     uploads_pending?: number;
+    ai_pipeline_incomplete?: number;
     required_items_missing?: number;
     checklist_total?: number;
     checklist_satisfied?: number;
@@ -52,7 +54,22 @@ export async function computeDealReadiness(
     };
   }
 
-  // 2. Check checklist satisfaction
+  // 2. AI pipeline must have processed all documents (prevents "green lies")
+  const { count: aiIncomplete } = await sb
+    .from("document_artifacts")
+    .select("id", { count: "exact", head: true })
+    .eq("deal_id", dealId)
+    .in("status", ["queued", "processing", "failed"]);
+
+  if (aiIncomplete && aiIncomplete > 0) {
+    return {
+      ready: false,
+      reason: `AI pipeline incomplete (${aiIncomplete} document(s) still processing)`,
+      details: { ai_pipeline_incomplete: aiIncomplete },
+    };
+  }
+
+  // 3. Check checklist satisfaction
   const { data: checklist } = await sb
     .from("deal_checklist_items")
     .select("required, status")

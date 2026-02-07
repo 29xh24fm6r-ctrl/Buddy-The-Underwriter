@@ -17,6 +17,12 @@ type PendingMatch = {
   status: string;
 };
 
+type FailedArtifact = {
+  id: string;
+  doc_type: string | null;
+  error_message: string | null;
+};
+
 type Props = {
   dealId: string;
 };
@@ -24,16 +30,26 @@ type Props = {
 export function ArtifactPipelinePanel({ dealId }: Props) {
   const { artifactSummary, isBusy } = useCockpitDataContext();
   const [pendingMatches, setPendingMatches] = useState<PendingMatch[]>([]);
+  const [failedArtifacts, setFailedArtifacts] = useState<FailedArtifact[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // Fetch pending matches when expanded
+  // Fetch pending matches and failed artifacts when expanded
   const fetchMatches = useCallback(async () => {
     try {
       const res = await fetch(`/api/deals/${dealId}/artifacts`, { cache: "no-store" });
       const json = await res.json();
-      if (json.ok && json.pending_matches) {
-        setPendingMatches(json.pending_matches.filter((m: PendingMatch) => m.status === "proposed"));
+      if (json.ok) {
+        if (json.pending_matches) {
+          setPendingMatches(json.pending_matches.filter((m: PendingMatch) => m.status === "proposed"));
+        }
+        if (json.artifacts) {
+          setFailedArtifacts(
+            (json.artifacts as Array<{ id: string; status: string | null; doc_type: string | null; error_message: string | null }>)
+              .filter((a) => a.status === "failed")
+              .map((a) => ({ id: a.id, doc_type: a.doc_type, error_message: a.error_message })),
+          );
+        }
       }
     } catch {
       // Non-fatal
@@ -57,6 +73,23 @@ export function ArtifactPipelinePanel({ dealId }: Props) {
           method: "POST",
         });
         setPendingMatches((prev) => prev.filter((m) => m.id !== matchId));
+      } catch {
+        // Non-fatal
+      } finally {
+        setActionLoading(null);
+      }
+    },
+    [dealId],
+  );
+
+  const handleRequeue = useCallback(
+    async (artifactId: string) => {
+      setActionLoading(artifactId);
+      try {
+        await fetch(`/api/deals/${dealId}/artifacts/${artifactId}/requeue`, {
+          method: "POST",
+        });
+        setFailedArtifacts((prev) => prev.filter((a) => a.id !== artifactId));
       } catch {
         // Non-fatal
       } finally {
@@ -166,6 +199,35 @@ export function ArtifactPipelinePanel({ dealId }: Props) {
                     Reject
                   </button>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Failed documents with per-document retry */}
+        {expanded && failedArtifacts.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-xs text-white/50 font-semibold">Failed Documents</div>
+            {failedArtifacts.slice(0, 5).map((artifact) => (
+              <div
+                key={artifact.id}
+                className="flex items-center gap-2 p-2 rounded-lg bg-red-500/5 border border-red-500/10"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-white/70 truncate">
+                    {artifact.doc_type?.replace(/_/g, " ") || "Unclassified"}
+                  </div>
+                  <div className="text-[10px] text-red-300/70 truncate">
+                    {artifact.error_message || "Processing failed"}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleRequeue(artifact.id)}
+                  disabled={actionLoading === artifact.id}
+                  className="px-2 py-1 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors"
+                >
+                  {actionLoading === artifact.id ? "Retrying..." : "Retry"}
+                </button>
               </div>
             ))}
           </div>

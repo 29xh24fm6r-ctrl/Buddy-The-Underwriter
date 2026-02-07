@@ -176,8 +176,8 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     borrowerChecklistSatisfied = requiredItems.length > 0 && missingItems.length === 0;
   }
 
-  // 4–9. Parallel independent queries (snapshot, decision, packet, advancement, loan requests, pricing)
-  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult] = await Promise.all([
+  // 4–10. Parallel independent queries (snapshot, decision, packet, advancement, loan requests, pricing, ai pipeline)
+  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, aiPipelineResult] = await Promise.all([
     safeSupabaseCount(
       "snapshot",
       () =>
@@ -245,6 +245,17 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .eq("deal_id", dealId),
       ctx
     ),
+    // AI pipeline completeness — count artifacts still queued/processing/failed
+    safeSupabaseCount(
+      "ai_pipeline",
+      () =>
+        sb
+          .from("document_artifacts")
+          .select("id", { count: "exact", head: true })
+          .eq("deal_id", dealId)
+          .in("status", ["queued", "processing", "failed"]),
+      ctx
+    ),
   ]);
 
   let financialSnapshotExists = false;
@@ -286,6 +297,11 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     pricingQuoteReady = pricingResult.data > 0;
   }
 
+  let aiPipelineComplete = true;
+  if (aiPipelineResult.ok) {
+    aiPipelineComplete = aiPipelineResult.data === 0;
+  }
+
   // Attestation check depends on decision result — runs after parallel batch
   let attestationSatisfied = true;
   if (latestDecisionId && deal.bank_id) {
@@ -322,6 +338,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     committeeRequired,
     pricingQuoteReady,
     attestationSatisfied,
+    aiPipelineComplete,
   };
 
   // Map to unified stage
@@ -431,6 +448,17 @@ function computeBlockers(
     });
   }
 
+  // AI pipeline completeness blocker (prevents "green lies")
+  if (
+    ["docs_in_progress", "docs_satisfied", "underwrite_ready"].includes(stage) &&
+    !derived.aiPipelineComplete
+  ) {
+    blockers.push({
+      code: "ai_pipeline_incomplete",
+      message: "AI document processing has not completed for all uploaded documents",
+    });
+  }
+
   // Document collection blockers
   if (
     ["docs_requested", "docs_in_progress"].includes(stage) &&
@@ -515,6 +543,7 @@ function createNotFoundState(): LifecycleState {
       committeeRequired: false,
       pricingQuoteReady: false,
       attestationSatisfied: true,
+      aiPipelineComplete: true,
     },
   };
 }
@@ -544,6 +573,7 @@ function createErrorState(code: string, message: string): LifecycleState {
       committeeRequired: false,
       pricingQuoteReady: false,
       attestationSatisfied: true,
+      aiPipelineComplete: true,
     },
   };
 }

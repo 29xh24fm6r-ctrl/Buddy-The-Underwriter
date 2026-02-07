@@ -16,6 +16,7 @@ const BLOCKER_ICONS: Record<string, string> = {
   closing_docs_missing: "folder_open",
   loan_request_missing: "request_page",
   loan_request_incomplete: "edit_note",
+  ai_pipeline_incomplete: "smart_toy",
   deal_not_found: "error",
   internal_error: "warning",
 };
