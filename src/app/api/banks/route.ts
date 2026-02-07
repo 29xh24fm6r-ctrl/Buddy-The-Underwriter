@@ -365,10 +365,12 @@ export async function POST(req: NextRequest) {
           })
           .eq("clerk_user_id", userId);
 
+        const bank0 = existingBank.banks[0];
+
         const res = NextResponse.json({
           ok: true,
-          bank: { id: existingBank.banks.id, name: existingBank.banks.name },
-          current_bank: existingBank.banks,
+          bank: { id: bank0.id, name: bank0.name },
+          current_bank: bank0,
           existing: true,
         });
         res.cookies.set({
