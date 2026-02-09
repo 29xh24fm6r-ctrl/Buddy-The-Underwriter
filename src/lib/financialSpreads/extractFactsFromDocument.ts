@@ -30,6 +30,8 @@ export async function extractFactsFromDocument(args: {
   dealId: string;
   bankId: string;
   documentId: string;
+  /** Fallback doc type when document_classifications is empty (e.g. from document_artifacts) */
+  docTypeHint?: string;
 }) {
   const sb = supabaseAdmin();
 
@@ -48,7 +50,12 @@ export async function extractFactsFromDocument(args: {
   ]);
 
   const extractedText = String(ocrRes.data?.extracted_text ?? "");
-  const docType = classRes.data?.doc_type ? String(classRes.data.doc_type) : null;
+
+  // Use document_classifications first, fall back to caller-supplied hint
+  // (document_artifacts.doc_type) when the legacy classification table is empty
+  const docType = classRes.data?.doc_type
+    ? String(classRes.data.doc_type)
+    : (args.docTypeHint ?? null);
 
   const normDocType = (docType ?? "").trim().toUpperCase();
 
@@ -64,7 +71,7 @@ export async function extractFactsFromDocument(args: {
 
   if (
     extractedText &&
-    ["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT"].includes(normDocType)
+    ["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT", "TRAILING_12", "OPERATING_STATEMENT"].includes(normDocType)
   ) {
     try {
       const result = await extractIncomeStatement(aiExtractorArgs);
@@ -85,7 +92,7 @@ export async function extractFactsFromDocument(args: {
 
   if (
     extractedText &&
-    ["IRS_1040", "IRS_1120", "IRS_1120S", "IRS_1065", "IRS_BUSINESS", "IRS_PERSONAL", "K1"].includes(normDocType)
+    ["IRS_1040", "IRS_1120", "IRS_1120S", "IRS_1065", "IRS_BUSINESS", "IRS_PERSONAL", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN"].includes(normDocType)
   ) {
     try {
       const result = await extractTaxReturn(aiExtractorArgs);
@@ -185,33 +192,25 @@ export async function extractFactsFromDocument(args: {
   }
 
   // ── Extraction heartbeat ─────────────────────────────────────────────────
-  const fact = {
-    deal_id: args.dealId,
-    bank_id: args.bankId,
-    source_document_id: args.documentId,
-    fact_type: "EXTRACTION_HEARTBEAT",
-    fact_key: `document:${args.documentId}`,
-    fact_period_start: null,
-    fact_period_end: null,
-    fact_value_num: extractedText ? extractedText.length : null,
-    fact_value_text: docType,
-    currency: "USD",
+  const hbResult = await upsertDealFinancialFact({
+    dealId: args.dealId,
+    bankId: args.bankId,
+    sourceDocumentId: args.documentId,
+    factType: "EXTRACTION_HEARTBEAT",
+    factKey: `document:${args.documentId}`,
+    factValueNum: extractedText ? extractedText.length : null,
+    factValueText: docType,
     confidence: classRes.data?.confidence ?? null,
     provenance: {
-      extractor: "extractFactsFromDocument:v2",
-      doc_type: docType,
+      source_type: "DOC_EXTRACT",
+      source_ref: `deal_documents:${args.documentId}`,
+      as_of_date: null,
+      extractor: "extractFactsFromDocument:v3",
     },
-  };
+  });
 
-  const { error } = await (sb as any)
-    .from("deal_financial_facts")
-    .upsert(fact, {
-      onConflict:
-        "deal_id,bank_id,source_document_id,fact_type,fact_key,fact_period_start,fact_period_end",
-    } as any);
-
-  if (error) {
-    throw new Error(`deal_financial_facts_upsert_failed:${error.message}`);
+  if (!hbResult.ok) {
+    throw new Error(`deal_financial_facts_upsert_failed:${hbResult.error}`);
   }
 
   return { ok: true as const, factsWritten: factsWritten + 1 };

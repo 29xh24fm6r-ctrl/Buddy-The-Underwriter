@@ -135,6 +135,7 @@ export async function extractFactsFromClassifiedArtifacts(opts: {
             dealId,
             bankId,
             documentId: artifact.source_id,
+            docTypeHint: artifact.doc_type,
           }),
         ),
       );
