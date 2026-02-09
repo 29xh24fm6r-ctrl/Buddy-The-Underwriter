@@ -138,6 +138,51 @@ async function runOcrForDocument(
     }
     // ── End content hash gate ─────────────────────────────────────────
 
+    // ── Engine-versioned extraction cache READ ────────────────────────
+    const { readExtractionCache, writeExtractionCache, GEMINI_OCR_VERSION } = await import(
+      "@/lib/dedupe/extractionCache"
+    );
+    const cachedPayload = await readExtractionCache({
+      sb,
+      bankId,
+      contentSha256: hashResult.sha256Hex,
+      engine: "GEMINI_OCR",
+      engineVersion: GEMINI_OCR_VERSION,
+    });
+
+    if (cachedPayload?.text) {
+      console.log("[processArtifact] Extraction cache hit (GEMINI_OCR)", {
+        documentId,
+        sha256: hashResult.sha256Hex,
+        textLength: cachedPayload.text.length,
+      });
+
+      const nowIso = new Date().toISOString();
+      await sb.from("document_ocr_results").upsert(
+        {
+          deal_id: dealId,
+          attachment_id: documentId,
+          provider: "extraction_cache",
+          status: "SUCCEEDED",
+          raw_json: {
+            cached: true,
+            engine: "GEMINI_OCR",
+            engine_version: GEMINI_OCR_VERSION,
+            sha256: hashResult.sha256Hex,
+            model: cachedPayload.model,
+          },
+          extracted_text: cachedPayload.text,
+          tables_json: null,
+          error: null,
+          updated_at: nowIso,
+        },
+        { onConflict: "attachment_id" },
+      );
+
+      return { ok: true, text: cachedPayload.text };
+    }
+    // ── End extraction cache READ ─────────────────────────────────────
+
     // 2. Infer mime type if not provided
     const inferredMimeType = mimeType || inferMimeTypeFromFilename(originalFilename);
 
@@ -192,6 +237,21 @@ async function runOcrForDocument(
       pageCount: ocrResult.pageCount,
       model: ocrResult.model,
     });
+
+    // ── Cache WRITE: persist OCR result for future identical uploads ──
+    writeExtractionCache({
+      sb,
+      bankId,
+      contentSha256: hashResult.sha256Hex,
+      engine: "GEMINI_OCR",
+      engineVersion: GEMINI_OCR_VERSION,
+      payload: {
+        text: ocrResult.text,
+        model: ocrResult.model,
+        pageCount: ocrResult.pageCount,
+      },
+    }).catch(() => {}); // fire-and-forget, never block OCR return
+    // ── End cache WRITE ───────────────────────────────────────────────
 
     return { ok: true, text: ocrResult.text };
 

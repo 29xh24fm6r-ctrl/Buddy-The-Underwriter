@@ -90,15 +90,38 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
         }
 
         if (action === "financial_snapshot.recompute") {
-          const res = await fetch(`/api/deals/${dealId}/financial-snapshot/recompute`, {
+          let res = await fetch(`/api/deals/${dealId}/financial-snapshot/recompute`, {
             method: "POST",
           });
           if (!res.ok) {
             const body = await res.json().catch(() => null);
-            if (res.status === 422) {
-              setActionError("No financial data extracted yet. Run AI Processing on documents first.");
+
+            // Auto-heal: if NO_FACTS, materialize anchor facts from classified docs and retry once
+            if (res.status === 422 && body?.reason === "NO_FACTS") {
+              const matRes = await fetch(
+                `/api/deals/${dealId}/financial-facts/materialize-from-docs`,
+                { method: "POST" },
+              ).catch(() => null);
+              const matBody = await matRes?.json().catch(() => null);
+
+              if (matBody?.ok && matBody.factsWritten > 0) {
+                // Retry recompute now that anchor facts exist
+                res = await fetch(`/api/deals/${dealId}/financial-snapshot/recompute`, {
+                  method: "POST",
+                });
+                if (res.ok) {
+                  onAdvance?.();
+                  return;
+                }
+              }
+
+              // Still blocked after auto-heal attempt
+              setActionError(
+                "No financial data extracted yet. Upload and classify financial documents, then try again.",
+              );
               return;
             }
+
             if (res.status === 409) {
               setActionError("Spreads are still generating. Please wait and try again.");
               return;
