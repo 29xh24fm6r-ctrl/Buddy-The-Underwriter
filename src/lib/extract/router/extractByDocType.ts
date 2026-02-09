@@ -39,6 +39,7 @@ export type ExtractByDocTypeResult = {
     mime_type: string;
     page_count?: number;
     original_filename?: string;
+    sha256?: string;
   };
   result: ExtractResult;
   provider_metrics?: ProviderMetrics;
@@ -87,7 +88,8 @@ async function loadDocumentFromDb(
       storage_bucket,
       mime_type,
       page_count,
-      original_filename
+      original_filename,
+      sha256
     `)
     .eq("id", docId)
     .single();
@@ -108,6 +110,7 @@ async function loadDocumentFromDb(
     mime_type: doc.mime_type || "application/pdf",
     page_count: doc.page_count ?? undefined,
     original_filename: doc.original_filename ?? undefined,
+    sha256: doc.sha256 ?? undefined,
   };
 }
 
@@ -275,6 +278,88 @@ export async function extractByDocType(docId: string): Promise<ExtractByDocTypeR
   if (!doc.storage_path) {
     throw new Error(`doc_missing_storage_path: ${docId}`);
   }
+
+  // ── Extraction dedup: skip if identical file already has extraction results ──
+  if (doc.sha256) {
+    try {
+      const sb = supabaseAdmin();
+      const { data: donorDoc } = await (sb as any)
+        .from("deal_documents")
+        .select("id")
+        .eq("bank_id", doc.bank_id)
+        .eq("sha256", doc.sha256)
+        .neq("id", docId)
+        .limit(1)
+        .maybeSingle();
+
+      if (donorDoc) {
+        const { data: cachedExtract } = await (sb as any)
+          .from("document_extracts")
+          .select("fields_json, tables_json, evidence_json, provider, provider_metrics")
+          .eq("attachment_id", donorDoc.id)
+          .eq("status", "SUCCEEDED")
+          .maybeSingle();
+
+        if (cachedExtract) {
+          console.log("[SmartRouter] Extraction cache hit — reusing from donor doc", {
+            docId,
+            donorDocId: donorDoc.id,
+            sha256: doc.sha256,
+          });
+
+          await logLedgerEvent({
+            dealId: doc.deal_id,
+            bankId: doc.bank_id,
+            eventKey: "dedupe.extract_cache.hit",
+            uiState: "done",
+            uiMessage: "Extraction skipped (reusing cached results from identical file)",
+            meta: {
+              doc_id: docId,
+              donor_doc_id: donorDoc.id,
+              sha256: doc.sha256,
+              provider: cachedExtract.provider,
+            },
+          });
+
+          // Save the reused extraction results for THIS document
+          await (sb as any).from("document_extracts").upsert(
+            {
+              deal_id: doc.deal_id,
+              attachment_id: docId,
+              provider: "sha256_dedup",
+              status: "SUCCEEDED",
+              fields_json: cachedExtract.fields_json,
+              tables_json: cachedExtract.tables_json,
+              evidence_json: cachedExtract.evidence_json,
+              provider_metrics: {
+                provider: "sha256_dedup",
+                donor_doc_id: donorDoc.id,
+                original_provider: cachedExtract.provider,
+              },
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "attachment_id" },
+          );
+
+          return {
+            doc,
+            result: {
+              fields: cachedExtract.fields_json ?? {},
+              tables: cachedExtract.tables_json ?? [],
+              evidence: cachedExtract.evidence_json ?? [],
+            },
+            provider_metrics: {
+              provider: "sha256_dedup",
+              route: "cache",
+            },
+          };
+        }
+      }
+    } catch (dedupErr: any) {
+      console.warn("[SmartRouter] Extraction dedup check failed (non-fatal)", dedupErr?.message);
+    }
+  }
+  // ── End extraction dedup ────────────────────────────────────────────────────
 
   const { routingClass, canonicalType, source } = resolveRoutingClass(doc);
   const docAiEnabled = isGoogleDocAiEnabled();

@@ -59,6 +59,7 @@ async function runOcrForDocument(
   storagePath: string,
   originalFilename: string,
   mimeType: string | null,
+  bankId: string,
 ): Promise<OcrResult> {
   // Check if Gemini OCR is enabled
   if (process.env.USE_GEMINI_OCR !== "true") {
@@ -78,6 +79,64 @@ async function runOcrForDocument(
     }
 
     const fileBytes = Buffer.from(await dl.data.arrayBuffer());
+
+    // ── Content hash gate: SHA-256 + virus cache + OCR dedup ──────────
+    const { checkContentHash } = await import("@/lib/dedupe/contentHashGate");
+    const hashResult = await checkContentHash({
+      sb,
+      fileBytes,
+      bankId,
+      dealId,
+      documentId,
+    });
+
+    // Virus gate: block processing if file is known-infected
+    if (hashResult.virusStatus === "infected") {
+      console.error("[processArtifact] BLOCKED: file is infected", {
+        documentId,
+        sha256: hashResult.sha256Hex,
+        signature: hashResult.virusSignature,
+      });
+      return {
+        ok: false,
+        code: "ocr_error",
+        message: `File blocked: virus detected (${hashResult.virusSignature})`,
+      };
+    }
+
+    // OCR dedup gate: if identical content already has OCR results, reuse them
+    if (hashResult.ocrCacheHit && hashResult.ocrText) {
+      console.log("[processArtifact] OCR cache hit — reusing existing OCR", {
+        documentId,
+        donorDocId: hashResult.ocrDonorDocId,
+        sha256: hashResult.sha256Hex,
+        textLength: hashResult.ocrText.length,
+      });
+
+      // Save the reused OCR results for THIS document
+      const nowIso = new Date().toISOString();
+      await sb.from("document_ocr_results").upsert(
+        {
+          deal_id: dealId,
+          attachment_id: documentId,
+          provider: "sha256_dedup",
+          status: "SUCCEEDED",
+          raw_json: {
+            dedup: true,
+            donor_doc_id: hashResult.ocrDonorDocId,
+            sha256: hashResult.sha256Hex,
+          },
+          extracted_text: hashResult.ocrText,
+          tables_json: null,
+          error: null,
+          updated_at: nowIso,
+        },
+        { onConflict: "attachment_id" },
+      );
+
+      return { ok: true, text: hashResult.ocrText };
+    }
+    // ── End content hash gate ─────────────────────────────────────────
 
     // 2. Infer mime type if not provided
     const inferredMimeType = mimeType || inferMimeTypeFromFilename(originalFilename);
@@ -279,6 +338,7 @@ async function getDocumentText(
     doc.storage_path,
     doc.original_filename,
     doc.mime_type,
+    bankId,
   );
 
   if (ocrResult.ok) {
