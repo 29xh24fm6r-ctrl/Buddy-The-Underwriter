@@ -105,13 +105,15 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
               // Auto-heal: only attempt if NO_FACTS is the sole blocker and we haven't tried yet
               if (hasNoFacts && !hasLoanIncomplete && !autoHealAttempted.current) {
                 autoHealAttempted.current = true;
-                const matRes = await fetch(
-                  `/api/deals/${dealId}/financial-facts/materialize-from-docs`,
+
+                // Run AI extraction on classified artifacts (writes real financial facts)
+                const extRes = await fetch(
+                  `/api/deals/${dealId}/financial-facts/extract-from-classified`,
                   { method: "POST" },
                 ).catch(() => null);
-                const matBody = await matRes?.json().catch(() => null);
+                const extBody = await extRes?.json().catch(() => null);
 
-                if (matBody?.ok && matBody.factsWritten > 0) {
+                if (extBody?.ok && extBody.factsWritten > 0) {
                   res = await fetch(`/api/deals/${dealId}/financial-snapshot/recompute`, {
                     method: "POST",
                   });
