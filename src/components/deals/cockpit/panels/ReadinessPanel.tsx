@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useCockpitDataContext } from "@/buddy/cockpit/useCockpitData";
@@ -65,6 +65,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
   const [bankerExplainerOpen, setBankerExplainerOpen] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const autoHealAttempted = useRef(false);
 
   const handleServerAction = useCallback(
     async (action: string) => {
@@ -95,30 +96,39 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
           });
           if (!res.ok) {
             const body = await res.json().catch(() => null);
+            const reasons: string[] = body?.reasons ?? (body?.reason ? [body.reason] : []);
 
-            // Auto-heal: if NO_FACTS, materialize anchor facts from classified docs and retry once
-            if (res.status === 422 && body?.reason === "NO_FACTS") {
-              const matRes = await fetch(
-                `/api/deals/${dealId}/financial-facts/materialize-from-docs`,
-                { method: "POST" },
-              ).catch(() => null);
-              const matBody = await matRes?.json().catch(() => null);
+            if (res.status === 422 && body?.error === "SNAPSHOT_BLOCKED") {
+              const hasNoFacts = reasons.includes("NO_FACTS");
+              const hasLoanIncomplete = reasons.includes("LOAN_REQUEST_INCOMPLETE");
 
-              if (matBody?.ok && matBody.factsWritten > 0) {
-                // Retry recompute now that anchor facts exist
-                res = await fetch(`/api/deals/${dealId}/financial-snapshot/recompute`, {
-                  method: "POST",
-                });
-                if (res.ok) {
-                  onAdvance?.();
-                  return;
+              // Auto-heal: only attempt if NO_FACTS is the sole blocker and we haven't tried yet
+              if (hasNoFacts && !hasLoanIncomplete && !autoHealAttempted.current) {
+                autoHealAttempted.current = true;
+                const matRes = await fetch(
+                  `/api/deals/${dealId}/financial-facts/materialize-from-docs`,
+                  { method: "POST" },
+                ).catch(() => null);
+                const matBody = await matRes?.json().catch(() => null);
+
+                if (matBody?.ok && matBody.factsWritten > 0) {
+                  res = await fetch(`/api/deals/${dealId}/financial-snapshot/recompute`, {
+                    method: "POST",
+                  });
+                  if (res.ok) {
+                    onAdvance?.();
+                    return;
+                  }
                 }
+
+                setActionError(
+                  "No financial data extracted yet. Upload and classify financial documents, then try again.",
+                );
+                return;
               }
 
-              // Still blocked after auto-heal attempt
-              setActionError(
-                "No financial data extracted yet. Upload and classify financial documents, then try again.",
-              );
+              // Show human-readable message from server (covers LOAN_REQUEST_INCOMPLETE etc.)
+              setActionError(body?.message ?? "Snapshot blocked. Resolve issues and try again.");
               return;
             }
 
@@ -131,6 +141,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
             setActionError(msg);
             return;
           }
+          autoHealAttempted.current = false; // Reset on success for future attempts
           onAdvance?.();
           return;
         }

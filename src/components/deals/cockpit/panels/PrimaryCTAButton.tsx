@@ -49,11 +49,13 @@ export function PrimaryCTAButton({ dealId, onServerAction, onAdvance }: Props) {
         if (cta.href) {
           // If targeting documents section on current page, scroll to it
           if (cta.href.includes("focus=documents")) {
-            const el = document.getElementById("cockpit-documents");
-            if (el) {
-              el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-              return;
-            }
+            try {
+              const el = document.getElementById("cockpit-documents");
+              if (el) {
+                el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                return;
+              }
+            } catch { /* guard against parentNode null during React unmount */ }
           }
           router.push(cta.href);
         }

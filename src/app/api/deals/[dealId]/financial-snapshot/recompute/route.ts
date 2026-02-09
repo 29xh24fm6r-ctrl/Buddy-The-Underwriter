@@ -98,6 +98,9 @@ export async function POST(_req: Request, ctx: Ctx) {
       uiMessage: "Snapshot generation started",
     }).catch(() => {});
 
+    // Collect all blocking reasons before building snapshot
+    const preflightReasons: string[] = [];
+
     // Pre-flight: canonical facts visibility check
     const sb = supabaseAdmin();
     let factsVis: FactsVisibility = await getVisibleFacts(dealId, access.bankId);
@@ -235,29 +238,44 @@ export async function POST(_req: Request, ctx: Ctx) {
         }
       }
 
-      // If still no facts after all materialization attempts, return error
+      // If still no facts after all materialization attempts, collect reason
       if (factsVis.total === 0) {
-        logLedgerEvent({
-          dealId,
-          bankId: access.bankId,
-          eventKey: "snapshot.run.failed",
-          uiState: "error",
-          uiMessage: "Snapshot blocked: no financial facts",
-          meta: { reason: "NO_FACTS", facts_count: 0, spreads_ready: spreadsReady },
-        }).catch(() => {});
-
-        return NextResponse.json({
-          ok: false,
-          deal_id: dealId,
-          reason: "NO_FACTS",
-          error: "no_financial_facts",
-          message: "No financial data has been extracted yet. Upload and classify financial documents first, then run Recompute Spreads.",
-          facts_count: 0,
-          spreads_ready: spreadsReady,
-          spreads_generating: spreadsGenerating,
-          spreads_error: spreadsError,
-        }, { status: 422 });
+        preflightReasons.push("NO_FACTS");
       }
+    }
+
+    // Pre-flight: loan request completeness check
+    const { loanTerms: prefLoanTerms } = await loadLoanTermsAndMeta(dealId);
+    if (prefLoanTerms.principal == null) {
+      preflightReasons.push("LOAN_REQUEST_INCOMPLETE");
+    }
+
+    // If any pre-flight reasons, return normalized 422
+    if (preflightReasons.length > 0) {
+      const messages: Record<string, string> = {
+        NO_FACTS: "No financial data extracted yet. Upload and classify documents first.",
+        LOAN_REQUEST_INCOMPLETE: "Loan request is missing or has no amount. Complete the loan request first.",
+      };
+      const message = preflightReasons.map((r) => messages[r] ?? r).join(" ");
+
+      logLedgerEvent({
+        dealId,
+        bankId: access.bankId,
+        eventKey: "snapshot.run.failed",
+        uiState: "error",
+        uiMessage: `Snapshot blocked: ${preflightReasons.join(", ")}`,
+        meta: { reasons: preflightReasons, facts_count: factsVis.total },
+      }).catch(() => {});
+
+      return NextResponse.json({
+        ok: false,
+        deal_id: dealId,
+        error: "SNAPSHOT_BLOCKED",
+        reasons: preflightReasons,
+        reason: preflightReasons[0],
+        message,
+        facts_count: factsVis.total,
+      }, { status: 422 });
     }
 
     const [snapshot, dealMeta, loanMeta] = await Promise.all([

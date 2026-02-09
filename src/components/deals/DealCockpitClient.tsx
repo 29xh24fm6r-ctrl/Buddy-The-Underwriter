@@ -123,7 +123,9 @@ export default function DealCockpitClient({
     } else if (hash === "#documents") {
       // Scroll to document section for legacy #documents links
       requestAnimationFrame(() => {
-        document.getElementById("cockpit-documents")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        try {
+          document.getElementById("cockpit-documents")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } catch { /* guard against parentNode null during React unmount */ }
       });
       // Clean the hash from the URL
       router.replace(`/deals/${dealId}/cockpit`, { scroll: false });

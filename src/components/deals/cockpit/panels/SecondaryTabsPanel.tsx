@@ -92,7 +92,9 @@ export function SecondaryTabsPanel({
       setActiveTab(urlTab);
       // Scroll the panel into view so user sees the activated tab
       requestAnimationFrame(() => {
-        panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        try {
+          panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } catch { /* guard against parentNode null during React unmount */ }
       });
     } else if (urlTab && !VALID_TAB_KEYS.has(urlTab)) {
       if (process.env.NODE_ENV === "development") {
