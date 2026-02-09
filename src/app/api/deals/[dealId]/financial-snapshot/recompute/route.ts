@@ -55,17 +55,25 @@ async function loadLoanTermsAndMeta(dealId: string): Promise<{
     .limit(1)
     .maybeSingle();
 
-  const principal = (underwrite as any)?.proposed_amount ?? (request as any)?.requested_amount ?? null;
-  const amortMonths = (underwrite as any)?.proposed_amort_months ?? (request as any)?.requested_amort_months ?? null;
-  const ioMonths =
-    (underwrite as any)?.proposed_interest_only_months ?? (request as any)?.requested_interest_only_months ?? null;
-  const rate = (underwrite as any)?.pricing_floor_rate ?? null;
+  // Supabase returns numeric columns as strings — parse to number safely
+  const toNum = (v: unknown): number | null => {
+    if (v == null) return null;
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const principal = toNum((underwrite as any)?.proposed_amount ?? (request as any)?.requested_amount);
+  const amortMonths = toNum((underwrite as any)?.proposed_amort_months ?? (request as any)?.requested_amort_months);
+  const ioMonths = toNum(
+    (underwrite as any)?.proposed_interest_only_months ?? (request as any)?.requested_interest_only_months,
+  );
+  const rate = toNum((underwrite as any)?.pricing_floor_rate);
 
   const loanTerms: LoanTerms = {
-    principal: typeof principal === "number" ? principal : null,
-    amortMonths: typeof amortMonths === "number" ? amortMonths : null,
-    interestOnly: typeof ioMonths === "number" ? ioMonths > 0 : false,
-    rate: typeof rate === "number" ? rate : null,
+    principal,
+    amortMonths,
+    interestOnly: ioMonths != null ? ioMonths > 0 : false,
+    rate,
   };
 
   const loanProductType =
@@ -244,9 +252,15 @@ export async function POST(_req: Request, ctx: Ctx) {
       }
     }
 
-    // Pre-flight: loan request completeness check
-    const { loanTerms: prefLoanTerms } = await loadLoanTermsAndMeta(dealId);
-    if (prefLoanTerms.principal == null) {
+    // Pre-flight: loan request completeness check (lightweight — mirrors lifecycle engine)
+    const { data: loanReqs } = await sb
+      .from("deal_loan_requests")
+      .select("id, status, requested_amount")
+      .eq("deal_id", dealId);
+    const loanRows = (loanReqs ?? []) as Array<{ id: string; status: string; requested_amount: number | null }>;
+    if (loanRows.length === 0) {
+      preflightReasons.push("LOAN_REQUEST_INCOMPLETE");
+    } else if (loanRows.some((r) => r.status === "draft" || !r.requested_amount)) {
       preflightReasons.push("LOAN_REQUEST_INCOMPLETE");
     }
 
