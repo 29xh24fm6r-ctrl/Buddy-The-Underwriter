@@ -246,6 +246,49 @@ export async function POST(_req: Request, ctx: Ctx) {
         }
       }
 
+      // Final fallback: run AI extraction on classified artifacts that haven't been extracted
+      if (factsVis.total === 0) {
+        try {
+          const { extractFactsFromClassifiedArtifacts } = await import(
+            "@/lib/financialFacts/extractFactsFromClassifiedArtifacts"
+          );
+          const extResult = await extractFactsFromClassifiedArtifacts({
+            dealId,
+            bankId: access.bankId,
+          });
+
+          if (extResult.ok && (extResult.extracted > 0 || extResult.backfillFactsWritten > 0)) {
+            logLedgerEvent({
+              dealId,
+              bankId: access.bankId,
+              eventKey: "facts.extraction.from_artifacts.completed",
+              uiState: "done",
+              uiMessage: `Extracted facts from ${extResult.extracted} doc(s), ${extResult.backfillFactsWritten} canonical facts backfilled`,
+              meta: {
+                extracted: extResult.extracted,
+                skipped: extResult.skipped,
+                failed: extResult.failed,
+                backfillFactsWritten: extResult.backfillFactsWritten,
+                trigger: "snapshot_recompute_final_fallback",
+              },
+            }).catch(() => {});
+
+            factsVis = await getVisibleFacts(dealId, access.bankId);
+          } else if (!extResult.ok) {
+            logLedgerEvent({
+              dealId,
+              bankId: access.bankId,
+              eventKey: "facts.extraction.from_artifacts.failed",
+              uiState: "error",
+              uiMessage: `AI extraction fallback failed: ${extResult.error}`,
+              meta: { error: extResult.error, trigger: "snapshot_recompute_final_fallback" },
+            }).catch(() => {});
+          }
+        } catch (extErr: any) {
+          console.warn("[recompute] extractFactsFromClassifiedArtifacts fallback threw", extErr?.message);
+        }
+      }
+
       // If still no facts after all materialization attempts, collect reason
       if (factsVis.total === 0) {
         preflightReasons.push("NO_FACTS");
