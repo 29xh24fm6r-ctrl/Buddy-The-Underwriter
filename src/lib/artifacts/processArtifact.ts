@@ -684,6 +684,39 @@ export async function processArtifact(
       }
     }
 
+    // 6.5b. Materialize anchoring facts for financial documents (breaks NO_FACTS deadlock)
+    try {
+      const { materializeFactsFromArtifacts } = await import(
+        "@/lib/financialFacts/materializeFactsFromArtifacts"
+      );
+      const matResult = await materializeFactsFromArtifacts({ dealId, bankId });
+      if (!matResult.ok) {
+        console.warn("[processArtifact] materializeFactsFromArtifacts failed", {
+          dealId,
+          bankId,
+          error: (matResult as any).error,
+        });
+      } else if (matResult.factsWritten > 0) {
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "facts.materialization.from_docs.completed",
+          uiState: "done",
+          uiMessage: `${matResult.factsWritten} anchor fact(s) materialized from classified documents`,
+          meta: {
+            factsWritten: matResult.factsWritten,
+            docsConsidered: matResult.docsConsidered,
+            trigger: "artifact_processor",
+          },
+        });
+      }
+    } catch (matErr: any) {
+      console.warn("[processArtifact] materializeFactsFromArtifacts threw", {
+        dealId,
+        error: matErr?.message,
+      });
+    }
+
     // 6.6. Reconcile checklist (flips required items to received)
     const { reconcileChecklistForDeal } = await import(
       "@/lib/checklist/engine"

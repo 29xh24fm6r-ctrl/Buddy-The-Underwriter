@@ -88,28 +88,36 @@ export async function POST(req: Request) {
 
       // OPTIONAL: auto-extract immediately for FINANCIALS
       if (doc.type === "FINANCIALS") {
-        const { extractFinancialsFromPdf } =
-          await import("@/lib/extract/financials");
-        const { upsertExtract } = await import("@/lib/db/extractRecords");
-        const { setDocStatus } = await import("@/lib/db/docRecords");
+        try {
+          const { extractFinancialsFromPdf } =
+            await import("@/lib/extract/financials");
+          const { upsertExtract } = await import("@/lib/db/extractRecords");
+          const { setDocStatus } = await import("@/lib/db/docRecords");
 
-        const out = await extractFinancialsFromPdf({
-          filePath: fullPath,
-          docId: doc.id,
-          docName: doc.name,
-        });
+          const out = await extractFinancialsFromPdf({
+            filePath: fullPath,
+            docId: doc.id,
+            docName: doc.name,
+          });
 
-        upsertExtract({
-          dealId: doc.dealId,
-          docId: doc.id,
-          docName: doc.name,
-          docType: doc.type,
-          fields: out.fields,
-          tables: out.tables,
-          evidence: out.evidence,
-        });
+          upsertExtract({
+            dealId: doc.dealId,
+            docId: doc.id,
+            docName: doc.name,
+            docType: doc.type,
+            fields: out.fields,
+            tables: out.tables,
+            evidence: out.evidence,
+          });
 
-        setDocStatus(doc.id, "REVIEWED");
+          setDocStatus(doc.id, "REVIEWED");
+        } catch (e: any) {
+          console.error(
+            `[upload] FINANCIALS auto-extract failed for doc ${doc.id}:`,
+            e?.message ?? e,
+          );
+          // Upload still succeeds — extraction errors don't block the upload.
+        }
       }
     })();
 

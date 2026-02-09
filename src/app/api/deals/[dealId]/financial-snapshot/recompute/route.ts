@@ -191,7 +191,51 @@ export async function POST(_req: Request, ctx: Ctx) {
         factsVis = await getVisibleFacts(dealId, access.bankId);
       }
 
-      // If still no facts after materialization attempt, return error
+      // Belt + suspenders: try materializing anchor facts from classified documents
+      if (factsVis.total === 0) {
+        try {
+          const { materializeFactsFromArtifacts } = await import(
+            "@/lib/financialFacts/materializeFactsFromArtifacts"
+          );
+          const matResult = await materializeFactsFromArtifacts({
+            dealId,
+            bankId: access.bankId,
+          });
+
+          if (matResult.ok && matResult.factsWritten > 0) {
+            logLedgerEvent({
+              dealId,
+              bankId: access.bankId,
+              eventKey: "facts.materialization.from_docs.completed",
+              uiState: "done",
+              uiMessage: `${matResult.factsWritten} anchor fact(s) materialized from classified documents`,
+              meta: {
+                factsWritten: matResult.factsWritten,
+                docsConsidered: matResult.docsConsidered,
+                trigger: "snapshot_recompute_fallback",
+              },
+            }).catch(() => {});
+
+            factsVis = await getVisibleFacts(dealId, access.bankId);
+          } else if (!matResult.ok) {
+            logLedgerEvent({
+              dealId,
+              bankId: access.bankId,
+              eventKey: "facts.materialization.from_docs.failed",
+              uiState: "error",
+              uiMessage: `Artifact-based fact materialization failed: ${(matResult as any).error}`,
+              meta: {
+                error: (matResult as any).error,
+                trigger: "snapshot_recompute_fallback",
+              },
+            }).catch(() => {});
+          }
+        } catch (matErr: any) {
+          console.warn("[recompute] materializeFactsFromArtifacts fallback threw", matErr?.message);
+        }
+      }
+
+      // If still no facts after all materialization attempts, return error
       if (factsVis.total === 0) {
         logLedgerEvent({
           dealId,

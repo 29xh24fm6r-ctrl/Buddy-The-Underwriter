@@ -1,9 +1,14 @@
 import fs from "fs/promises";
 
-async function loadPdfParse() {
-  const mod = await import("pdf-parse");
-  // @ts-expect-error - pdf-parse has ESM/CJS module confusion, fallback to named export if default missing
-  return (mod && (mod.default ?? mod)) as any;
+/**
+ * Parse PDF buffer into plain text using pdf-parse v2.x class API.
+ * Handles the ESM dynamic import and Uint8Array conversion.
+ */
+async function parsePdfText(buf: Buffer): Promise<{ text: string }> {
+  const { PDFParse } = await import("pdf-parse");
+  const parser = new PDFParse({ data: new Uint8Array(buf) });
+  const result = await parser.getText();
+  return { text: result.text ?? "" };
 }
 
 type Evidence = {
@@ -223,13 +228,67 @@ function normalizePeriods(periods: string[]) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// DTI (Debt-to-Income) regex extraction
+// ---------------------------------------------------------------------------
+
+type DtiExtraction = {
+  dtiPercent?: number;
+  dtiRatio?: number;
+  evidence?: { snippet: string; index: number };
+};
+
+function extractDti(text: string): DtiExtraction {
+  const t = text ?? "";
+  const patterns: RegExp[] = [
+    // "Debt-to-Income Ratio: 35%" or "Debt to Income = 35%"
+    /\bdebt[\s-]*to[\s-]*income(?:\s+ratio)?\s*[:=]\s*(\d{1,3}(?:\.\d+)?)\s*%/i,
+    // "DTI 35%" or "DTI: 35%"
+    /\bdti(?:\s+ratio)?\s*[:=]?\s*(\d{1,3}(?:\.\d+)?)\s*%/i,
+    // Ratio form: "Debt-to-Income: 0.35"
+    /\bdebt[\s-]*to[\s-]*income(?:\s+ratio)?\s*[:=]\s*(0?\.\d+)\b/i,
+    // "DTI: 0.35"
+    /\bdti(?:\s+ratio)?\s*[:=]\s*(0?\.\d+)\b/i,
+  ];
+
+  for (const re of patterns) {
+    const m = re.exec(t);
+    if (!m) continue;
+
+    const raw = m[1];
+    const idx = m.index ?? 0;
+    const start = Math.max(0, idx - 40);
+    const end = Math.min(t.length, idx + 120);
+    const snippet = t.slice(start, end).replace(/\s+/g, " ").trim();
+
+    const val = Number(raw);
+    if (!Number.isFinite(val)) continue;
+
+    // Percentage form (val > 1 means it was written as "35%")
+    if (val > 1 && val <= 200) {
+      return { dtiPercent: val, evidence: { snippet, index: idx } };
+    }
+
+    // Ratio form (val <= 1, e.g. 0.35)
+    if (val >= 0 && val <= 3) {
+      return {
+        dtiRatio: val,
+        dtiPercent: val * 100,
+        evidence: { snippet, index: idx },
+      };
+    }
+  }
+
+  return {};
+}
+
 export async function extractFinancialsFromPdf(params: {
   filePath: string;
   docId: string;
   docName: string;
 }): Promise<FinancialsExtract> {
   const buf = await fs.readFile(params.filePath);
-  const parsed = (await loadPdfParse())(buf);
+  const parsed = await parsePdfText(buf);
 
   const text = parsed.text || "";
   const lines = text
@@ -429,6 +488,25 @@ export async function extractFinancialsFromPdf(params: {
 
     return periodObj;
   });
+
+  // 7) Extract DTI (Debt-to-Income) ratio if stated in the document
+  const dti = extractDti(text);
+  if (dti.dtiPercent != null) {
+    fields.dtiPercent = dti.dtiPercent;
+    if (dti.dtiRatio != null) fields.dtiRatio = dti.dtiRatio;
+    if (dti.evidence) {
+      evidence.push({
+        id: `EV_${params.docId}_KEY_DTI`,
+        docId: params.docId,
+        docName: params.docName,
+        docType: "FINANCIALS",
+        field: "DTI(percent)",
+        value: dti.dtiPercent,
+        excerpt: dti.evidence.snippet,
+        confidence: 0.9,
+      });
+    }
+  }
 
   return { fields, tables, evidence };
 }
