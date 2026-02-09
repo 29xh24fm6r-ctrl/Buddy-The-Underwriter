@@ -1,6 +1,7 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import type { SpreadType } from "@/lib/financialSpreads/types";
 
 function uniq(arr: string[]) {
@@ -35,7 +36,7 @@ export async function enqueueSpreadRecompute(args: {
               spread_type: t,
               spread_version: 1,
               owner_type: args.ownerType ?? "DEAL",
-              owner_entity_id: args.ownerEntityId ?? null,
+              owner_entity_id: args.ownerEntityId ?? SENTINEL_UUID,
               status: "generating",
               inputs_hash: null,
               rendered_json: {
@@ -67,8 +68,8 @@ export async function enqueueSpreadRecompute(args: {
           ),
       ),
     );
-  } catch {
-    // swallow
+  } catch (placeholderErr) {
+    console.warn("[enqueueSpreadRecompute] placeholder upsert failed:", placeholderErr);
   }
 
   // ── Idempotent job creation ─────────────────────────────────────────────

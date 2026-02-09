@@ -6,6 +6,7 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
 import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
 import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
+import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import { ALL_SPREAD_TYPES, type SpreadType } from "@/lib/financialSpreads/types";
 
 export const runtime = "nodejs";
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     const sourceDocumentId = typeof body?.sourceDocumentId === "string" ? body.sourceDocumentId : null;
     const ownerType = typeof body?.ownerType === "string" ? body.ownerType : "DEAL";
-    const ownerEntityId = typeof body?.ownerEntityId === "string" ? body.ownerEntityId : null;
+    const ownerEntityId = typeof body?.ownerEntityId === "string" ? body.ownerEntityId : SENTINEL_UUID;
 
     const requestedTypes: SpreadType[] = spreadTypes.length
       ? spreadTypes
@@ -108,8 +109,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
             ),
         ),
       );
-    } catch {
-      // swallow: do not block enqueue
+    } catch (placeholderErr) {
+      console.warn("[spreads/recompute] placeholder upsert failed:", placeholderErr);
     }
 
     const res = await enqueueSpreadRecompute({

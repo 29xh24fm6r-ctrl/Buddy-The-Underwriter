@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
+import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import type { RenderedSpread, RentRollRow, SpreadType } from "@/lib/financialSpreads/types";
 
 function emptyErrorSpread(type: SpreadType, message: string): RenderedSpread {
@@ -50,7 +51,7 @@ export async function renderSpread(args: {
           spread_type: args.spreadType,
           spread_version: 1,
           owner_type: args.ownerType ?? "DEAL",
-          owner_entity_id: args.ownerEntityId ?? null,
+          owner_entity_id: args.ownerEntityId ?? SENTINEL_UUID,
           status: "error",
           inputs_hash: null,
           rendered_json: rendered,
@@ -115,7 +116,7 @@ export async function renderSpread(args: {
         spread_type: args.spreadType,
         spread_version: template.version,
         owner_type: args.ownerType ?? "DEAL",
-        owner_entity_id: args.ownerEntityId ?? null,
+        owner_entity_id: args.ownerEntityId ?? SENTINEL_UUID,
         status: "ready",
         inputs_hash: null,
         rendered_json: rendered,
@@ -139,7 +140,7 @@ export async function renderSpread(args: {
       bankId: args.bankId,
       spreadType: args.spreadType,
       ownerType: args.ownerType ?? "DEAL",
-      ownerEntityId: args.ownerEntityId ?? null,
+      ownerEntityId: args.ownerEntityId ?? SENTINEL_UUID,
       rendered,
       dealSpreadId: upsertedSpread?.id ?? null,
     });

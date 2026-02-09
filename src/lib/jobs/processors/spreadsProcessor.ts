@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { extractFactsFromDocument } from "@/lib/financialSpreads/extractFactsFromDocument";
 import { renderSpread } from "@/lib/financialSpreads/renderSpread";
 import { backfillCanonicalFactsFromSpreads } from "@/lib/financialFacts/backfillFromSpreads";
+import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import type { SpreadType } from "@/lib/financialSpreads/types";
 
@@ -57,7 +58,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
 
     const jobMeta = (job.meta && typeof job.meta === "object") ? job.meta : {};
     const ownerType = typeof jobMeta.owner_type === "string" ? jobMeta.owner_type : undefined;
-    const ownerEntityId = typeof jobMeta.owner_entity_id === "string" ? jobMeta.owner_entity_id : null;
+    const ownerEntityId = typeof jobMeta.owner_entity_id === "string" ? jobMeta.owner_entity_id : SENTINEL_UUID;
 
     await logLedgerEvent({
       dealId, bankId,

@@ -3,6 +3,10 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { FinancialFactProvenance } from "@/lib/financialFacts/keys";
 
+/** Sentinel values matching NOT NULL DEFAULT in the DB schema. */
+export const SENTINEL_UUID = "00000000-0000-0000-0000-000000000000";
+export const SENTINEL_DATE = "1900-01-01";
+
 export async function upsertDealFinancialFact(args: {
   dealId: string;
   bankId: string;
@@ -31,18 +35,18 @@ export async function upsertDealFinancialFact(args: {
     const row = {
       deal_id: args.dealId,
       bank_id: args.bankId,
-      source_document_id: args.sourceDocumentId,
+      source_document_id: args.sourceDocumentId ?? SENTINEL_UUID,
       fact_type: args.factType,
       fact_key: args.factKey,
-      fact_period_start: args.factPeriodStart ?? null,
-      fact_period_end: args.factPeriodEnd ?? null,
+      fact_period_start: args.factPeriodStart ?? SENTINEL_DATE,
+      fact_period_end: args.factPeriodEnd ?? SENTINEL_DATE,
       fact_value_num: args.factValueNum,
       fact_value_text: args.factValueText ?? null,
       currency: args.currency ?? "USD",
       confidence: args.confidence,
       provenance: args.provenance,
       owner_type: args.ownerType ?? "DEAL",
-      owner_entity_id: args.ownerEntityId ?? null,
+      owner_entity_id: args.ownerEntityId ?? SENTINEL_UUID,
     };
 
     const { error } = await (sb as any)
