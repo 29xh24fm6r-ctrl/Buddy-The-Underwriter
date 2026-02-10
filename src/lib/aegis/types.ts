@@ -13,7 +13,8 @@ export type AegisEventType =
   | "heartbeat"
   | "deploy"
   | "stuck_job"
-  | "lease_expired";
+  | "lease_expired"
+  | "suppressed";
 
 export type AegisSeverity = "debug" | "info" | "warning" | "error" | "critical";
 
@@ -95,6 +96,17 @@ export interface UnifiedJob {
   updated_at: string;
 }
 
+export interface SystemicFailure {
+  error_signature: string;
+  error_class: string;
+  error_code: string;
+  sample_message: string;
+  hit_count: number;
+  distinct_entities: number;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
 export interface ObserverTickResult {
   ok: boolean;
   scanned: {
@@ -105,8 +117,11 @@ export interface ObserverTickResult {
   actions: {
     retried: number;
     marked_dead: number;
+    suppressed: number;
     workers_marked_dead: number;
+    systemic_failures_detected: number;
     events_emitted: number;
   };
+  systemic_failures: SystemicFailure[];
   errors: string[];
 }

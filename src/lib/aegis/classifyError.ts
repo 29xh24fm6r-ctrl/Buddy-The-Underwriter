@@ -107,12 +107,27 @@ export function classifyError(err: unknown): ClassifiedError {
   };
 }
 
-/** Determine if error class is worth retrying. */
+/**
+ * Determine if error class is worth auto-retrying.
+ *
+ * Retryable: transient, timeout
+ * NOT retryable: auth, schema, permanent, unknown
+ * Special: quota — retryable with longer backoff, but suppressed during systemic outages
+ */
 export function isRetryable(errorClass: AegisErrorClass): boolean {
   return (
     errorClass === "transient" ||
     errorClass === "quota" ||
     errorClass === "timeout"
+  );
+}
+
+/** Returns true for error classes that should NEVER be retried. */
+export function isNeverRetry(errorClass: AegisErrorClass): boolean {
+  return (
+    errorClass === "auth" ||
+    errorClass === "schema" ||
+    errorClass === "permanent"
   );
 }
 
