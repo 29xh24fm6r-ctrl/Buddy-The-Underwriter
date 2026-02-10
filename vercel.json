@@ -15,6 +15,10 @@
     {
       "path": "/api/pulse/cron-forward-ledger?max=50",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/_ops/observer/tick?token=__SET_WORKER_SECRET__",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

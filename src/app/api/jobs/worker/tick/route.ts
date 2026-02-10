@@ -5,6 +5,7 @@ import { processNextOcrJob } from "@/lib/jobs/processors/ocrProcessor";
 import { processNextClassifyJob } from "@/lib/jobs/processors/classifyProcessor";
 import { processNextExtractJob } from "@/lib/jobs/processors/extractProcessor";
 import { runSpreadsWorkerTick } from "@/lib/jobs/workers/spreadsWorker";
+import { withBuddyGuard, sendHeartbeat } from "@/lib/aegis";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,15 +59,40 @@ export async function POST(req: NextRequest) {
   const leaseOwner = `worker-${Date.now()}`;
   const results = [];
 
+  // Aegis: wrap each processor with observability (side-effects only, never alters behavior)
+  const guardedOcr = withBuddyGuard(processNextOcrJob, {
+    source: "ocr_processor",
+    jobTable: "document_jobs",
+    getContext: (lo: string) => ({ correlationId: lo }),
+  });
+  const guardedClassify = withBuddyGuard(processNextClassifyJob, {
+    source: "classify_processor",
+    jobTable: "document_jobs",
+    getContext: (lo: string) => ({ correlationId: lo }),
+  });
+  const guardedExtract = withBuddyGuard(processNextExtractJob, {
+    source: "extract_processor",
+    jobTable: "document_jobs",
+    getContext: (lo: string) => ({ correlationId: lo }),
+  });
+  const guardedSpreads = withBuddyGuard(runSpreadsWorkerTick, {
+    source: "spreads_processor",
+    jobTable: "deal_spread_jobs",
+    getContext: (opts: any) => ({ correlationId: opts?.leaseOwner }),
+  });
+
+  // Aegis: heartbeat at tick start
+  sendHeartbeat({ workerId: leaseOwner, workerType: type.toLowerCase() }).catch(() => {});
+
   try {
     if (type === "SPREADS") {
-      const r = await runSpreadsWorkerTick({ leaseOwner, maxJobs: batchSize });
+      const r = await guardedSpreads({ leaseOwner, maxJobs: batchSize });
       return NextResponse.json(r);
     }
 
     for (let i = 0; i < batchSize; i++) {
       if (type === "OCR" || type === "ALL") {
-        const ocrResult = await processNextOcrJob(leaseOwner);
+        const ocrResult = await guardedOcr(leaseOwner);
         if (ocrResult.ok) {
           results.push({ type: "OCR", ...ocrResult });
           continue;
@@ -74,7 +100,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (type === "CLASSIFY" || type === "ALL") {
-        const classifyResult = await processNextClassifyJob(leaseOwner);
+        const classifyResult = await guardedClassify(leaseOwner);
         if (classifyResult.ok) {
           results.push({ type: "CLASSIFY", ...classifyResult });
           continue;
@@ -82,7 +108,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (type === "EXTRACT" || type === "ALL") {
-        const extractResult = await processNextExtractJob(leaseOwner);
+        const extractResult = await guardedExtract(leaseOwner);
         if (extractResult.ok) {
           results.push({ type: "EXTRACT", ...extractResult });
           continue;

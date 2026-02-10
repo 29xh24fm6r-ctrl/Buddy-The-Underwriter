@@ -16,6 +16,7 @@ import { processBatch } from "@/lib/artifacts/processArtifact";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { sendHeartbeat, writeSystemEvent } from "@/lib/aegis";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,6 +68,9 @@ export async function POST(req: NextRequest) {
 
     console.log("[artifacts/process] starting batch", { max });
 
+    // Aegis: heartbeat at batch start
+    sendHeartbeat({ workerId: `artifact-processor-${process.pid}`, workerType: "artifact_processor" }).catch(() => {});
+
     const startTime = Date.now();
     const results = await processBatch(max);
     const duration = Date.now() - startTime;
@@ -79,6 +83,18 @@ export async function POST(req: NextRequest) {
     };
 
     console.log("[artifacts/process] batch complete", summary);
+
+    // Aegis: emit batch summary event
+    if (summary.failed > 0) {
+      writeSystemEvent({
+        event_type: "warning",
+        severity: "warning",
+        source_system: "artifact_processor",
+        error_message: `Artifact batch: ${summary.failed}/${summary.processed} failed`,
+        resolution_status: "open",
+        payload: summary,
+      }).catch(() => {});
+    }
 
     // === Belt-and-suspenders: trigger naming for all affected deals ===
     // processArtifact already calls runNamingDerivation per artifact, but if
