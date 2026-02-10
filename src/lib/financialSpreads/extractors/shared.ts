@@ -31,6 +31,11 @@ export type ExtractionResult = {
 const ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929";
 const MAX_OCR_CHARS = 25_000;
 
+/**
+ * @deprecated Use deterministic extractors in `./deterministic/` instead.
+ * Set DETERMINISTIC_EXTRACTORS_ENABLED=true to use the new pipeline.
+ * This function will be removed once deterministic extractors are validated.
+ */
 export async function callClaudeForExtraction(args: {
   systemPrompt: string;
   ocrText: string;

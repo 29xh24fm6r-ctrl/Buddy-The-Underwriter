@@ -35,6 +35,18 @@ const eslintConfig = defineConfig([
       "@next/next/no-html-link-for-pages": "warn",
     },
   },
+  // Ban LLM SDK imports in deterministic extractors
+  {
+    files: ["src/lib/financialSpreads/extractors/deterministic/**/*.ts"],
+    rules: {
+      "no-restricted-imports": ["error", {
+        patterns: [{
+          group: ["@anthropic-ai/*"],
+          message: "LLM imports are banned in deterministic extractors. Use regex/DocAI parsing instead.",
+        }],
+      }],
+    },
+  },
 ]);
 
 export default eslintConfig;
