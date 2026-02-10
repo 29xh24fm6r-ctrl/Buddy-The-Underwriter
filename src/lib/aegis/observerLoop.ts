@@ -35,7 +35,6 @@ const SYSTEMIC_WINDOW_MINUTES = 60;
  * Phase 4: Observer heartbeat
  */
 export async function runObserverTick(): Promise<ObserverTickResult> {
-  const sb = supabaseAdmin();
   const result: ObserverTickResult = {
     ok: true,
     scanned: { stuck_jobs: 0, failed_jobs: 0, dead_workers: 0 },
@@ -58,6 +57,27 @@ export async function runObserverTick(): Promise<ObserverTickResult> {
     systemic_failures: [],
     errors: [],
   };
+
+  // Create supabase client — if this fails, we still attempt heartbeat via route fallback
+  let sb: ReturnType<typeof supabaseAdmin>;
+  try {
+    sb = supabaseAdmin();
+  } catch (initErr: any) {
+    result.ok = false;
+    result.errors.push(`supabase_init: ${initErr.message}`);
+
+    // Attempt heartbeat even if supabase init failed (writeSystemEvent creates its own client)
+    writeSystemEvent({
+      event_type: "heartbeat",
+      severity: "error",
+      source_system: "observer",
+      resolution_status: "open",
+      error_message: `Observer init failed: ${initErr.message}`,
+      payload: { ...result.scanned, ...result.actions, init_error: true },
+    }).catch(() => {});
+
+    return result;
+  }
 
   // ── 0. Detect systemic failures FIRST (before processing individual jobs) ──
   const suppressedSignatures = new Set<string>();
@@ -207,19 +227,32 @@ export async function runObserverTick(): Promise<ObserverTickResult> {
     result.errors.push(`dead_workers: ${err.message}`);
   }
 
-  // ── 4. Emit observer's own heartbeat ──
-  writeSystemEvent({
-    event_type: "heartbeat",
-    severity: "info",
-    source_system: "observer",
-    resolution_status: "resolved",
-    payload: {
-      ...result.scanned,
-      ...result.actions,
-      spreads_intelligence: result.spreads_intelligence,
-      systemic_signatures: [...suppressedSignatures],
-    },
-  }).catch(() => {});
+  // Mark ok=false if any phases reported errors
+  if (result.errors.length > 0) {
+    result.ok = false;
+  }
+
+  // ── 4. Emit observer's own heartbeat (ALWAYS attempted) ──
+  try {
+    await writeSystemEvent({
+      event_type: "heartbeat",
+      severity: result.errors.length > 0 ? "warning" : "info",
+      source_system: "observer",
+      resolution_status: "resolved",
+      error_message: result.errors.length > 0
+        ? `Observer completed with ${result.errors.length} error(s): ${result.errors[0]}`
+        : undefined,
+      payload: {
+        ...result.scanned,
+        ...result.actions,
+        spreads_intelligence: result.spreads_intelligence,
+        systemic_signatures: [...suppressedSignatures],
+        phase_errors: result.errors.length > 0 ? result.errors : undefined,
+      },
+    });
+  } catch {
+    // Heartbeat write itself failed — swallow to not crash the tick
+  }
 
   return result;
 }
