@@ -11,6 +11,9 @@ import { getDealIdFromPath } from "@/buddy/getDealIdFromPath";
 import { useBuddy } from "@/buddy/core/useBuddy";
 import BuddyAvatar from "@/buddy/ui/BuddyAvatar";
 import BuddyStatusDot from "@/buddy/ui/BuddyStatusDot";
+import { AegisContextFindings } from "@/buddy/ui/AegisContextFindings";
+import { useAegisHealth } from "@/buddy/hooks/useAegisHealth";
+import type { AegisFinding } from "@/buddy/hooks/useAegisHealth";
 import type { BuddySignal } from "@/buddy/types";
 
 function envObserverEnabled() {
@@ -62,8 +65,20 @@ export function BuddyPanel() {
   const isObserver = enabled && state.role === "builder";
   const open = isObserver ? true : state.isOpen;
   const panelWidth = state.panelWidth ?? 360;
-  const items = useMemo(() => (state.signals ?? []).slice().reverse(), [state.signals]);
   const dealId = useMemo(() => (pathname ? getDealIdFromPath(pathname) : null), [pathname]);
+  const aegis = useAegisHealth({ dealId, enabled: true });
+  const items = useMemo(() => {
+    const signalItems = (state.signals ?? []).map((s) => ({ ...s, _source: "signal" as const }));
+    const aegisItems: Array<BuddySignal & { _source: "aegis" }> = (aegis.findings ?? []).map((f: AegisFinding) => ({
+      ts: Date.parse(f.createdAt),
+      type: "aegis.finding" as any,
+      source: f.sourceSystem ?? "aegis",
+      message: f.errorMessage ?? `${f.eventType} event`,
+      payload: { severity: f.severity, errorClass: f.errorClass, resolutionStatus: f.resolutionStatus },
+      _source: "aegis" as const,
+    }));
+    return [...signalItems, ...aegisItems].sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
+  }, [state.signals, aegis.findings]);
   const explainMd = dealId ? state.explainMarkdownByDeal?.[dealId] ?? null : null;
 
   const header = useMemo(() => {
@@ -194,7 +209,7 @@ export function BuddyPanel() {
         onClick={() => setOpen(true)}
         aria-label="Open Buddy"
       >
-        <BuddyAvatar size={36} />
+        <BuddyAvatar size={36} healthSeverity={aegis.severity} />
       </button>
     );
   }
@@ -222,14 +237,22 @@ export function BuddyPanel() {
         onPointerUp={handleDragEnd}
         data-testid="buddy-drag-handle"
       >
-        <BuddyAvatar size={32} />
+        <BuddyAvatar size={32} healthSeverity={aegis.severity} />
         <div className="min-w-0">
           <div className="text-sm font-semibold flex items-center gap-2">
             <span>{header}</span>
-            <BuddyStatusDot />
+            <BuddyStatusDot healthSeverity={aegis.severity} />
           </div>
           {!isMinimized && (
-            <div className="text-xs text-white/60 truncate">Persistent • Watching context • Never resets</div>
+            <div className="text-xs text-white/60 truncate">
+              {aegis.severity === "alert"
+                ? `Alert · ${aegis.counts?.critical ?? 0} critical, ${aegis.counts?.error ?? 0} errors`
+                : aegis.severity === "degraded"
+                  ? `Watching · ${aegis.findings.length} finding${aegis.findings.length !== 1 ? "s" : ""}`
+                  : aegis.stale
+                    ? "Stale data · Reconnecting..."
+                    : "Persistent · Watching context · Never resets"}
+            </div>
           )}
         </div>
         <div className="ml-auto flex items-center gap-2">
@@ -238,6 +261,17 @@ export function BuddyPanel() {
               <span className="text-[11px] font-semibold px-2 py-1 rounded-full border border-white/15 bg-white/10">
                 {state.runId ? "Run active" : "Run idle"}
               </span>
+              {aegis.findings.length > 0 && (
+                <span
+                  className={`text-[11px] font-semibold px-2 py-1 rounded-full border ${
+                    aegis.severity === "alert"
+                      ? "border-red-400/40 bg-red-500/20 text-red-200"
+                      : "border-amber-400/40 bg-amber-500/20 text-amber-200"
+                  }`}
+                >
+                  {aegis.findings.length} finding{aegis.findings.length !== 1 ? "s" : ""}
+                </span>
+              )}
               <button
                 className="text-xs px-2 py-1 rounded-full border border-white/15 bg-white/5 hover:bg-white/10"
                 onClick={() => setPanelWidth(panelWidth <= 340 ? 420 : 340)}
@@ -488,6 +522,15 @@ export function BuddyPanel() {
             </div>
           </div>
 
+          {aegis.findings.length > 0 && (
+            <AegisContextFindings
+              findings={aegis.findings}
+              severity={aegis.severity}
+              stale={aegis.stale}
+              onResolve={() => aegis.refresh()}
+            />
+          )}
+
           {state.readiness ? (
             <div className="rounded-xl border border-black/10 p-3">
               <div className="flex items-center justify-between">
@@ -606,9 +649,20 @@ export function BuddyPanel() {
                 <div className="text-xs text-black/60">No signals yet.</div>
               ) : (
                 items.map((s, idx) => (
-                  <div key={`${s.ts}-${idx}`} className="rounded-lg bg-white border border-black/10 p-2">
+                  <div
+                    key={`${s.ts}-${idx}`}
+                    className={[
+                      "rounded-lg bg-white border border-black/10 p-2",
+                      (s as any)._source === "aegis" ? "border-l-4 border-l-amber-400" : "",
+                    ].join(" ")}
+                  >
                     <div className="flex items-center justify-between gap-2">
-                      <div className="text-xs font-semibold">{labelFor(s)}</div>
+                      <div className="text-xs font-semibold flex items-center gap-1.5">
+                        {(s as any)._source === "aegis" && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">AEGIS</span>
+                        )}
+                        {labelFor(s)}
+                      </div>
                       <div className="text-[10px] text-black/50">{timeAgo(s.ts)}</div>
                     </div>
                     <div className="text-xs text-black/70 mt-1">{summaryFor(s)}</div>
@@ -647,6 +701,7 @@ export function BuddyPanel() {
 }
 
 function labelFor(s: BuddySignal) {
+  if ((s.type as string) === "aegis.finding") return "Aegis Finding";
   switch (s.type) {
     case "page.ready":
       return "Page ready";
@@ -670,6 +725,11 @@ function labelFor(s: BuddySignal) {
 }
 
 function summaryFor(s: BuddySignal) {
+  if (s.type === ("aegis.finding" as any)) {
+    const cls = s.payload?.errorClass ? `[${String(s.payload.errorClass)}] ` : "";
+    const status = s.payload?.resolutionStatus ? ` · ${String(s.payload.resolutionStatus)}` : "";
+    return `${cls}${s.message ?? "Aegis event"}${status}`;
+  }
   if (s.type === "checklist.updated") {
     const received = s.payload?.received;
     const missing = s.payload?.missing;

@@ -7,6 +7,7 @@ import { backfillCanonicalFactsFromSpreads } from "@/lib/financialFacts/backfill
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import type { SpreadType } from "@/lib/financialSpreads/types";
+import { writeSystemEvent } from "@/lib/aegis";
 
 const LEASE_MS = 3 * 60 * 1000;
 
@@ -81,6 +82,40 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
 
     for (const spreadType of requested) {
       await renderSpread({ dealId, bankId, spreadType, ownerType, ownerEntityId });
+
+      // Empty-row invariant: warn if spread rendered with 0 data rows
+      try {
+        const { data: spread } = await (sb as any)
+          .from("deal_spreads")
+          .select("id, rendered_json")
+          .eq("deal_id", dealId)
+          .eq("bank_id", bankId)
+          .eq("spread_type", spreadType)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (spread?.rendered_json) {
+          const rows = spread.rendered_json?.rows ?? spread.rendered_json?.data;
+          if (Array.isArray(rows) && rows.length === 0) {
+            writeSystemEvent({
+              deal_id: dealId,
+              bank_id: bankId,
+              event_type: "warning",
+              severity: "warning",
+              error_class: "permanent",
+              error_message: `${spreadType} spread rendered with 0 data rows`,
+              source_system: "spreads_processor",
+              source_job_id: jobId,
+              source_job_table: "deal_spread_jobs",
+              payload: { spreadType, spreadId: spread.id },
+            }).catch(() => {});
+          }
+        }
+      } catch {
+        // Invariant check is fire-and-forget
+      }
+
       await logLedgerEvent({
         dealId, bankId,
         eventKey: SPREAD_EVENT_KEY[spreadType] ?? "spread.type.completed",

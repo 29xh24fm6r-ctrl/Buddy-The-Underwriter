@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: { runId: string } };
 
-export async function GET(_req: Request, ctx: Ctx) {
+export async function GET(req: Request, ctx: Ctx) {
   const { userId } = await clerkAuth();
   if (!userId) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -23,6 +23,9 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   const bankId = await getCurrentBankId();
   const sb = supabaseAdmin();
+
+  const url = new URL(req.url);
+  const includeAegis = url.searchParams.get("include_aegis") === "1";
 
   const { data, error } = await sb
     .from("buddy_signal_ledger")
@@ -51,8 +54,51 @@ export async function GET(_req: Request, ctx: Ctx) {
     };
   });
 
+  // Optionally merge Aegis system events for the run's time window
+  let aegisEvents: any[] = [];
+  if (includeAegis && events.length > 0) {
+    const startTs = new Date(events[0].ts).toISOString();
+    const endTs = new Date(events[events.length - 1].ts + 60_000).toISOString();
+
+    const { data: aegisData } = await sb
+      .from("buddy_system_events" as any)
+      .select(
+        "id, created_at, event_type, severity, error_class, error_message, " +
+          "source_system, resolution_status",
+      )
+      .eq("bank_id", bankId)
+      .gte("created_at", startTs)
+      .lte("created_at", endTs)
+      .in("event_type", [
+        "error",
+        "warning",
+        "suppressed",
+        "stuck_job",
+        "lease_expired",
+      ])
+      .order("created_at", { ascending: true })
+      .limit(100);
+
+    aegisEvents = ((aegisData ?? []) as any[]).map((e) => ({
+      ts: new Date(e.created_at).getTime(),
+      kind: "aegis." + e.event_type,
+      type: "aegis.finding",
+      source: e.source_system ?? "aegis",
+      dealId: null,
+      route: null,
+      payload: {
+        severity: e.severity,
+        errorClass: e.error_class,
+        errorMessage: e.error_message,
+        resolutionStatus: e.resolution_status,
+      },
+    }));
+  }
+
+  const allEvents = [...events, ...aegisEvents].sort((a, b) => a.ts - b.ts);
+
   const counts: Record<string, number> = {};
-  for (const ev of events) {
+  for (const ev of allEvents) {
     const key = String(ev.kind ?? ev.type ?? "unknown");
     counts[key] = (counts[key] ?? 0) + 1;
   }
@@ -60,8 +106,8 @@ export async function GET(_req: Request, ctx: Ctx) {
   return NextResponse.json({
     ok: true,
     runId,
-    startedAt: events.length ? new Date(events[0].ts).toISOString() : null,
-    events,
+    startedAt: allEvents.length ? new Date(allEvents[0].ts).toISOString() : null,
+    events: allEvents,
     counts,
     notes: null,
   });

@@ -15,10 +15,12 @@
 import React, { useState } from "react";
 import { useObserverFeed, type OmegaEventEntry } from "./useObserverFeed";
 import { ObserverBadges } from "./ObserverBadges";
+import { useAegisHealth } from "@/buddy/hooks/useAegisHealth";
+import type { AegisFinding } from "@/buddy/hooks/useAegisHealth";
 
 // ── Tab Types ─────────────────────────────────────
 
-type TabId = "health" | "degraded" | "mirrors" | "traces" | "tools";
+type TabId = "health" | "degraded" | "mirrors" | "traces" | "tools" | "aegis";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "health", label: "Health" },
@@ -26,6 +28,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "mirrors", label: "Mirrors" },
   { id: "traces", label: "Traces" },
   { id: "tools", label: "Tools" },
+  { id: "aegis", label: "Aegis" },
 ];
 
 // ── Panel Component ───────────────────────────────
@@ -33,6 +36,7 @@ const TABS: { id: TabId; label: string }[] = [
 export function ObserverPanel() {
   const [activeTab, setActiveTab] = useState<TabId>("health");
   const feed = useObserverFeed({ pollIntervalMs: 15_000 });
+  const aegis = useAegisHealth({ dealId: null, enabled: true, pollIntervalMs: 30_000 });
 
   return (
     <div className="border border-gray-200 rounded-lg bg-white shadow-sm">
@@ -82,6 +86,7 @@ export function ObserverPanel() {
         {activeTab === "mirrors" && <MirrorsTab events={feed.events} />}
         {activeTab === "traces" && <TracesTab />}
         {activeTab === "tools" && <ToolsTab />}
+        {activeTab === "aegis" && <AegisTab aegis={aegis} />}
       </div>
 
       {/* Footer */}
@@ -250,6 +255,83 @@ function ToolsTab() {
         <pre className="text-[10px] font-mono bg-gray-50 p-2 rounded max-h-48 overflow-y-auto">
           {JSON.stringify(toolResult, null, 2)}
         </pre>
+      )}
+    </div>
+  );
+}
+
+function AegisTab({ aegis }: { aegis: ReturnType<typeof useAegisHealth> }) {
+  const SEVERITY_BADGE: Record<string, string> = {
+    ok: "bg-green-100 text-green-700",
+    degraded: "bg-amber-100 text-amber-700",
+    alert: "bg-red-100 text-red-700",
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-gray-500">Severity:</span>
+        <span
+          className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+            SEVERITY_BADGE[aegis.severity ?? "ok"] ?? "bg-gray-100 text-gray-600"
+          }`}
+        >
+          {aegis.severity ?? "unknown"}
+        </span>
+        {aegis.stale && (
+          <span className="text-[10px] text-gray-400 italic">stale</span>
+        )}
+      </div>
+
+      {aegis.counts && (
+        <div className="space-y-1">
+          <Row label="Critical" value={String(aegis.counts.critical ?? 0)} />
+          <Row label="Error" value={String(aegis.counts.error ?? 0)} />
+          <Row label="Warning" value={String(aegis.counts.warning ?? 0)} />
+          <Row label="Suppressed" value={String(aegis.counts.suppressed ?? 0)} />
+        </div>
+      )}
+
+      <div className="text-xs font-medium text-gray-700 mt-2">
+        Open Findings ({aegis.findings.length})
+      </div>
+
+      {aegis.findings.length === 0 ? (
+        <div className="text-gray-400 text-xs">No open findings.</div>
+      ) : (
+        <div className="space-y-1 max-h-64 overflow-y-auto">
+          {aegis.findings.slice(0, 25).map((f: AegisFinding) => (
+            <div
+              key={f.id}
+              className={`text-[11px] font-mono px-2 py-1.5 rounded border ${
+                f.severity === "critical"
+                  ? "bg-red-50 border-red-200"
+                  : f.severity === "error"
+                    ? "bg-red-50/50 border-red-100"
+                    : "bg-amber-50/50 border-amber-100"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {f.errorClass && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+                    {f.errorClass}
+                  </span>
+                )}
+                <span className="text-gray-500">{f.sourceSystem}</span>
+                <span className="ml-auto text-gray-400">{f.resolutionStatus}</span>
+              </div>
+              <div className="text-gray-700 mt-0.5 truncate">
+                {f.errorMessage ?? `${f.eventType} event`}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {aegis.lastRefresh && (
+        <div className="text-[10px] text-gray-400">
+          Last checked: {new Date(aegis.lastRefresh).toLocaleTimeString()}
+        </div>
       )}
     </div>
   );
