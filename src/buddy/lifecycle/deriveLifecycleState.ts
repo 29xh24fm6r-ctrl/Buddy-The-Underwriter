@@ -177,7 +177,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   // 4–11. Parallel independent queries (snapshot, decision, packet, advancement, loan requests, pricing, ai pipeline, spreads)
-  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, aiPipelineResult, spreadsResult] = await Promise.all([
+  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, legacyPricingResult, aiPipelineResult, spreadsResult] = await Promise.all([
     safeSupabaseCount(
       "snapshot",
       () =>
@@ -245,6 +245,17 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .eq("deal_id", dealId),
       ctx
     ),
+    // Legacy locked pricing quote (fallback — deal_pricing_quotes calculator)
+    safeSupabaseCount(
+      "pricing",
+      () =>
+        sb
+          .from("deal_pricing_quotes")
+          .select("id", { count: "exact", head: true })
+          .eq("deal_id", dealId)
+          .eq("status", "locked"),
+      ctx
+    ),
     // AI pipeline completeness — count artifacts still queued/processing/failed
     safeSupabaseCount(
       "ai_pipeline",
@@ -304,8 +315,11 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   let pricingQuoteReady = false;
-  if (pricingResult.ok) {
-    pricingQuoteReady = pricingResult.data > 0;
+  if (pricingResult.ok && pricingResult.data > 0) {
+    pricingQuoteReady = true;
+  } else if (legacyPricingResult.ok && legacyPricingResult.data > 0) {
+    // Fallback: legacy deal_pricing_quotes with status=locked
+    pricingQuoteReady = true;
   }
 
   let aiPipelineComplete = true;
