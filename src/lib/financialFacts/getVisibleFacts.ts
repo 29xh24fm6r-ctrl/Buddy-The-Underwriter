@@ -27,7 +27,8 @@ export async function getVisibleFacts(
     .from("deal_financial_facts")
     .select("id, owner_type, fact_type, created_at")
     .eq("deal_id", dealId)
-    .eq("bank_id", bankId);
+    .eq("bank_id", bankId)
+    .neq("fact_type", "EXTRACTION_HEARTBEAT");
 
   if (error || !data) {
     return {
@@ -80,7 +81,8 @@ export async function countVisibleFacts(
     .from("deal_financial_facts")
     .select("id", { count: "exact", head: true })
     .eq("deal_id", dealId)
-    .eq("bank_id", bankId);
+    .eq("bank_id", bankId)
+    .neq("fact_type", "EXTRACTION_HEARTBEAT");
 
   if (error) return 0;
   return count ?? 0;

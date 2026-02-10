@@ -23,6 +23,8 @@ const EXTRACTABLE_DOC_TYPES = new Set([
   "IRS_PERSONAL",
   "K1",
   "PERSONAL_TAX_RETURN",
+  "BUSINESS_TAX_RETURN",
+  "TAX_RETURN",
   "PFS",
   "PERSONAL_FINANCIAL_STATEMENT",
   "SBA_413",
@@ -90,18 +92,19 @@ export async function extractFactsFromClassifiedArtifacts(opts: {
       };
     }
 
-    // 2) Check which source documents already have EXTRACTION_HEARTBEAT
+    // 2) Check which source documents already have real extracted facts
+    //    (NOT heartbeats — heartbeat-only docs must be re-extracted)
     const sourceDocIds = financialArtifacts.map((a) => a.source_id);
-    const { data: existingHeartbeats } = await (sb as any)
+    const { data: existingRealFacts } = await (sb as any)
       .from("deal_financial_facts")
       .select("source_document_id")
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
-      .eq("fact_type", "EXTRACTION_HEARTBEAT")
+      .neq("fact_type", "EXTRACTION_HEARTBEAT")
       .in("source_document_id", sourceDocIds);
 
     const alreadyExtracted = new Set(
-      ((existingHeartbeats ?? []) as Array<{ source_document_id: string }>)
+      ((existingRealFacts ?? []) as Array<{ source_document_id: string }>)
         .map((r) => r.source_document_id),
     );
 
@@ -121,7 +124,7 @@ export async function extractFactsFromClassifiedArtifacts(opts: {
     }
 
     // 3) Extract facts for unprocessed documents (limited concurrency)
-    const MAX_DOCS = 8;
+    const MAX_DOCS = 12;
     const CONCURRENCY = 3;
     const batch = toExtract.slice(0, MAX_DOCS);
     let extracted = 0;
