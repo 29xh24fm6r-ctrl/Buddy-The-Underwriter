@@ -107,6 +107,15 @@ export interface SystemicFailure {
   last_seen_at: string;
 }
 
+export interface SpreadsIntelligenceResult {
+  spreads_generating_timeout: number;
+  spreads_auto_healed: number;
+  spread_jobs_orphaned: number;
+  snapshot_blocked_deals: number;
+  stale_spread_status_detected: number;
+  failed_spread_jobs_linked: number;
+}
+
 export interface ObserverTickResult {
   ok: boolean;
   scanned: {
@@ -122,6 +131,7 @@ export interface ObserverTickResult {
     systemic_failures_detected: number;
     events_emitted: number;
   };
+  spreads_intelligence: SpreadsIntelligenceResult;
   systemic_failures: SystemicFailure[];
   errors: string[];
 }

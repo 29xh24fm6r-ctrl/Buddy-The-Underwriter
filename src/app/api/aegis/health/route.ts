@@ -98,6 +98,22 @@ export async function GET(req: NextRequest) {
       severity = "degraded";
     }
 
+    // Observer liveness: last heartbeat from observer
+    const { data: lastObserverHeartbeat } = await sb
+      .from("buddy_system_events" as any)
+      .select("created_at")
+      .eq("event_type", "heartbeat")
+      .eq("source_system", "observer")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const lastObserverTickTs =
+      (lastObserverHeartbeat as any)?.created_at ?? null;
+    const observerStale = lastObserverTickTs
+      ? Date.now() - new Date(lastObserverTickTs).getTime() > 10 * 60_000
+      : true; // No heartbeat ever = stale
+
     // Optional: recording session status
     let recording: { active: boolean; session_id: string | null; frames: number } | null = null;
     if (sessionId) {
@@ -124,6 +140,8 @@ export async function GET(req: NextRequest) {
         domain: dealId ? "deal" : "bank",
         severity,
         counts,
+        last_observer_tick_ts: lastObserverTickTs,
+        observer_stale: observerStale,
         ...(recording ? { recording } : {}),
         meta: { correlationId, ts, dealId },
       },

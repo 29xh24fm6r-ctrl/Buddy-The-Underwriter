@@ -14,6 +14,7 @@ import type {
   SystemicFailure,
   ObserverTickResult,
 } from "./types";
+import { runSpreadsIntelligence } from "./spreadsInvariants";
 
 const STUCK_THRESHOLD_MIN = 10;
 const DEAD_WORKER_THRESHOLD_MIN = 15;
@@ -27,13 +28,11 @@ const SYSTEMIC_WINDOW_MINUTES = 60;
 /**
  * Main observer tick — called by cron every 5 minutes.
  *
+ * Phase 0: Systemic failure detection (suppress retries for widespread outages)
  * Phase 1: Scan stuck/failed jobs, auto-retry or mark dead
- * Phase 2 (hardening):
- *   - Systemic failure detection: same signature across N+ hits, M+ entities → suppress retries
- *   - Decision events: every observer action emits an explicit decision event
- *   - Derived failure age: computed for triage in payload
- *   - auth/schema/permanent errors are NEVER retried
- *   - Suppressed signatures skip retry entirely
+ * Phase 2: Spreads Intelligence Layer (spread-specific invariant checks)
+ * Phase 3: Dead worker detection
+ * Phase 4: Observer heartbeat
  */
 export async function runObserverTick(): Promise<ObserverTickResult> {
   const sb = supabaseAdmin();
@@ -47,6 +46,14 @@ export async function runObserverTick(): Promise<ObserverTickResult> {
       workers_marked_dead: 0,
       systemic_failures_detected: 0,
       events_emitted: 0,
+    },
+    spreads_intelligence: {
+      spreads_generating_timeout: 0,
+      spreads_auto_healed: 0,
+      spread_jobs_orphaned: 0,
+      snapshot_blocked_deals: 0,
+      stale_spread_status_detected: 0,
+      failed_spread_jobs_linked: 0,
     },
     systemic_failures: [],
     errors: [],
@@ -138,7 +145,24 @@ export async function runObserverTick(): Promise<ObserverTickResult> {
     result.errors.push(`scan: ${err.message}`);
   }
 
-  // ── 2. Scan for dead workers ──
+  // ── 2. Spreads Intelligence Layer ──
+  try {
+    const si = await runSpreadsIntelligence();
+    result.spreads_intelligence = si.result;
+    result.errors.push(...si.errors);
+
+    const siTotal =
+      si.result.spreads_generating_timeout +
+      si.result.spread_jobs_orphaned +
+      si.result.snapshot_blocked_deals +
+      si.result.stale_spread_status_detected +
+      si.result.failed_spread_jobs_linked;
+    result.actions.events_emitted += siTotal;
+  } catch (err: any) {
+    result.errors.push(`spreads_intelligence: ${err.message}`);
+  }
+
+  // ── 3. Scan for dead workers ──
   try {
     const cutoff = new Date(
       Date.now() - DEAD_WORKER_THRESHOLD_MIN * 60_000,
@@ -183,7 +207,7 @@ export async function runObserverTick(): Promise<ObserverTickResult> {
     result.errors.push(`dead_workers: ${err.message}`);
   }
 
-  // ── 3. Emit observer's own heartbeat ──
+  // ── 4. Emit observer's own heartbeat ──
   writeSystemEvent({
     event_type: "heartbeat",
     severity: "info",
@@ -192,6 +216,7 @@ export async function runObserverTick(): Promise<ObserverTickResult> {
     payload: {
       ...result.scanned,
       ...result.actions,
+      spreads_intelligence: result.spreads_intelligence,
       systemic_signatures: [...suppressedSignatures],
     },
   }).catch(() => {});
