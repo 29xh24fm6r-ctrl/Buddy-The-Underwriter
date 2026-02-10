@@ -17,27 +17,19 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { sendHeartbeat, writeSystemEvent } from "@/lib/aegis";
+import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes max for processing
 
-/** Check if the request is authorized via internal header or worker secret. */
+/** Check if the request is authorized via internal header or worker/cron secret. */
 function isAuthorized(req: NextRequest): boolean {
   // Internal server-to-server call (same-origin, injected by upload route)
   if (req.headers.get("x-buddy-internal") === "1") return true;
 
-  // Worker secret (cron / external worker)
-  const secret = process.env.WORKER_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization") ?? "";
-    if (auth === `Bearer ${secret}`) return true;
-    if (req.headers.get("x-worker-secret") === secret) return true;
-    const url = new URL(req.url);
-    if (url.searchParams.get("token") === secret) return true;
-  }
-
-  return false;
+  // Worker secret or Vercel CRON_SECRET
+  return hasValidWorkerSecret(req);
 }
 
 export async function POST(req: NextRequest) {

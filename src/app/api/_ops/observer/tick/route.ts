@@ -3,20 +3,10 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import { runObserverTick } from "@/lib/aegis/observerLoop";
+import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function hasValidWorkerSecret(req: NextRequest): boolean {
-  const secret = process.env.WORKER_SECRET;
-  if (!secret) return false;
-  const auth = req.headers.get("authorization") ?? "";
-  if (auth.startsWith("Bearer ") && auth.slice(7) === secret) return true;
-  if (req.headers.get("x-worker-secret") === secret) return true;
-  const url = new URL(req.url);
-  if (url.searchParams.get("token") === secret) return true;
-  return false;
-}
 
 /**
  * POST /api/_ops/observer/tick
@@ -24,7 +14,7 @@ function hasValidWorkerSecret(req: NextRequest): boolean {
  * Runs the Aegis observer scan loop.
  * Called by Vercel cron every 5 minutes.
  *
- * Auth: WORKER_SECRET (cron) OR requireSuperAdmin()
+ * Auth: CRON_SECRET (Vercel auto-inject), WORKER_SECRET, or super_admin session.
  */
 export async function POST(req: NextRequest) {
   if (!hasValidWorkerSecret(req)) {

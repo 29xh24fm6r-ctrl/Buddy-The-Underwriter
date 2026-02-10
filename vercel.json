@@ -5,11 +5,11 @@
       "schedule": "0 14 * * *"
     },
     {
-      "path": "/api/jobs/worker/tick?type=SPREADS&token=__SET_WORKER_SECRET__",
+      "path": "/api/jobs/worker/tick?type=SPREADS&batch_size=3",
       "schedule": "*/2 * * * *"
     },
     {
-      "path": "/api/artifacts/process?max=20&token=__SET_WORKER_SECRET__",
+      "path": "/api/artifacts/process?max=20",
       "schedule": "*/1 * * * *"
     },
     {
@@ -17,7 +17,7 @@
       "schedule": "*/2 * * * *"
     },
     {
-      "path": "/api/_ops/observer/tick?token=__SET_WORKER_SECRET__",
+      "path": "/api/_ops/observer/tick",
       "schedule": "*/5 * * * *"
     }
   ]

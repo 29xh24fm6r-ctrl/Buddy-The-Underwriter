@@ -1,6 +1,7 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
+import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
 import { processNextOcrJob } from "@/lib/jobs/processors/ocrProcessor";
 import { processNextClassifyJob } from "@/lib/jobs/processors/classifyProcessor";
 import { processNextExtractJob } from "@/lib/jobs/processors/extractProcessor";
@@ -9,23 +10,6 @@ import { withBuddyGuard, sendHeartbeat } from "@/lib/aegis";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function hasValidWorkerSecret(req: NextRequest): boolean {
-  const secret = process.env.WORKER_SECRET;
-  if (!secret) return false;
-
-  const auth = req.headers.get("authorization") ?? "";
-  if (auth.startsWith("Bearer ") && auth.slice("Bearer ".length) === secret) return true;
-
-  const hdr = req.headers.get("x-worker-secret") ?? "";
-  if (hdr && hdr === secret) return true;
-
-  const url = new URL(req.url);
-  const token = url.searchParams.get("token") ?? "";
-  if (token && token === secret) return true;
-
-  return false;
-}
 
 /**
  * POST /api/jobs/worker/tick
