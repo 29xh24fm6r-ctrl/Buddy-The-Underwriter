@@ -53,6 +53,7 @@ export async function runObserverTick(): Promise<ObserverTickResult> {
       snapshot_blocked_deals: 0,
       stale_spread_status_detected: 0,
       failed_spread_jobs_linked: 0,
+      snapshot_recompute_422_deals: 0,
     },
     systemic_failures: [],
     errors: [],
@@ -176,7 +177,8 @@ export async function runObserverTick(): Promise<ObserverTickResult> {
       si.result.spread_jobs_orphaned +
       si.result.snapshot_blocked_deals +
       si.result.stale_spread_status_detected +
-      si.result.failed_spread_jobs_linked;
+      si.result.failed_spread_jobs_linked +
+      si.result.snapshot_recompute_422_deals;
     result.actions.events_emitted += siTotal;
   } catch (err: any) {
     result.errors.push(`spreads_intelligence: ${err.message}`);

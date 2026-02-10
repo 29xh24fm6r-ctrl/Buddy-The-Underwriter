@@ -14,6 +14,8 @@ const ORPHAN_LEASE_THRESHOLD_MIN = 15;
 const WORKER_HEARTBEAT_STALE_SEC = 60;
 const SNAPSHOT_BLOCKED_STALE_MIN = 15;
 const RECENT_409_WINDOW_MIN = 30;
+const SNAPSHOT_422_WINDOW_MIN = 60;
+const SNAPSHOT_422_MIN_FAILURES = 2;
 
 /* ------------------------------------------------------------------ */
 /*  Orchestrator                                                       */
@@ -39,12 +41,14 @@ export async function runSpreadsIntelligence(): Promise<{
     snapshot_blocked_deals: 0,
     stale_spread_status_detected: 0,
     failed_spread_jobs_linked: 0,
+    snapshot_recompute_422_deals: 0,
   };
 
   await checkSpreadGeneratingTimeout(sb, result, errors);
   await checkSpreadJobOrphans(sb, result, errors);
   await checkSnapshotBlockedByStaleSpreads(sb, result, errors);
   await run409IntelligencePass(sb, result, errors);
+  await checkSnapshotRepeatedBlockedDeals(sb, result, errors);
 
   return { result, errors };
 }
@@ -463,5 +467,109 @@ async function run409IntelligencePass(
     }
   } catch (err: any) {
     errors.push(`409_intelligence_pass: ${err.message}`);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Section 5: snapshot_recompute_422 (NO_FACTS / LOAN_REQUEST)        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Detect deals where snapshot recompute repeatedly fails with 422
+ * (SNAPSHOT_BLOCKED: NO_FACTS or LOAN_REQUEST_INCOMPLETE).
+ *
+ * 2+ failures in 60min → warning event so operators can investigate
+ * whether the extraction pipeline is producing facts for this deal.
+ */
+async function checkSnapshotRepeatedBlockedDeals(
+  sb: ReturnType<typeof supabaseAdmin>,
+  result: SpreadsIntelligenceResult,
+  errors: string[],
+): Promise<void> {
+  try {
+    const windowCutoff = new Date(
+      Date.now() - SNAPSHOT_422_WINDOW_MIN * 60_000,
+    ).toISOString();
+
+    const { data: recentFailures, error } = await sb
+      .from("deal_pipeline_ledger" as any)
+      .select("deal_id, bank_id, created_at, meta")
+      .eq("event_key", "snapshot.run.failed")
+      .gte("created_at", windowCutoff)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (error) {
+      errors.push(`snapshot_recompute_422: ${error.message}`);
+      return;
+    }
+
+    // Filter to SNAPSHOT_BLOCKED failures (422s) — NO_FACTS or LOAN_REQUEST_INCOMPLETE
+    // Exclude SPREADS_IN_PROGRESS (409s) already handled by Sections 3–4
+    const blocked422s = ((recentFailures ?? []) as any[]).filter(
+      (evt) => {
+        const reason = evt.meta?.reason;
+        const reasons: string[] = evt.meta?.reasons ?? [];
+        return (
+          reason !== "SPREADS_IN_PROGRESS" &&
+          (reasons.includes("NO_FACTS") || reasons.includes("LOAN_REQUEST_INCOMPLETE") || reason === "NO_FACTS" || reason === "LOAN_REQUEST_INCOMPLETE")
+        );
+      },
+    );
+
+    // Group by deal_id
+    const dealFailures = new Map<
+      string,
+      { bank_id: string; reasons: Set<string>; count: number; latest: string }
+    >();
+    for (const evt of blocked422s) {
+      const existing = dealFailures.get(evt.deal_id);
+      const evtReasons: string[] = evt.meta?.reasons ?? (evt.meta?.reason ? [evt.meta.reason] : []);
+      if (existing) {
+        existing.count++;
+        for (const r of evtReasons) existing.reasons.add(r);
+        if (evt.created_at > existing.latest) existing.latest = evt.created_at;
+      } else {
+        dealFailures.set(evt.deal_id, {
+          bank_id: evt.bank_id,
+          reasons: new Set(evtReasons),
+          count: 1,
+          latest: evt.created_at,
+        });
+      }
+    }
+
+    // Emit events for deals with repeated failures
+    for (const [dealId, info] of dealFailures) {
+      if (info.count < SNAPSHOT_422_MIN_FAILURES) continue;
+
+      result.snapshot_recompute_422_deals++;
+
+      const reasonsList = [...info.reasons];
+      const hasNoFacts = reasonsList.includes("NO_FACTS");
+      const hasLoanIncomplete = reasonsList.includes("LOAN_REQUEST_INCOMPLETE");
+
+      writeSystemEvent({
+        event_type: "warning",
+        severity: info.count >= 4 ? "error" : "warning",
+        source_system: "observer",
+        deal_id: dealId,
+        bank_id: info.bank_id,
+        error_class: hasNoFacts ? "permanent" : "schema",
+        error_message: `Snapshot recompute blocked ${info.count}x in ${SNAPSHOT_422_WINDOW_MIN}min: ${reasonsList.join(", ")}`,
+        resolution_status: "open",
+        payload: {
+          invariant: "snapshot_recompute_422",
+          failure_count: info.count,
+          window_minutes: SNAPSHOT_422_WINDOW_MIN,
+          reasons: reasonsList,
+          has_no_facts: hasNoFacts,
+          has_loan_incomplete: hasLoanIncomplete,
+          latest_failure: info.latest,
+        },
+      }).catch(() => {});
+    }
+  } catch (err: any) {
+    errors.push(`snapshot_recompute_422: ${err.message}`);
   }
 }

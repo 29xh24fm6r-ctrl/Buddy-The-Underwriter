@@ -114,6 +114,7 @@ export interface SpreadsIntelligenceResult {
   snapshot_blocked_deals: number;
   stale_spread_status_detected: number;
   failed_spread_jobs_linked: number;
+  snapshot_recompute_422_deals: number;
 }
 
 export interface ObserverTickResult {
