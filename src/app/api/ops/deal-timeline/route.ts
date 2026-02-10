@@ -19,7 +19,7 @@ function hasValidWorkerSecret(req: NextRequest): boolean {
 }
 
 /**
- * GET /api/_ops/deal-timeline?deal_id=UUID
+ * GET /api/ops/deal-timeline?deal_id=UUID
  *
  * Returns an ordered timeline of buddy_system_events for a specific deal.
  * One-shot answer to "Why is this deal stuck?"

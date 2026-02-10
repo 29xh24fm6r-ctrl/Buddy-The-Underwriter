@@ -19,7 +19,7 @@ function hasValidWorkerSecret(req: NextRequest): boolean {
 }
 
 /**
- * GET /api/_ops/buddy-status
+ * GET /api/ops/buddy-status
  *
  * Returns system health: active workers, queue depth, recent errors,
  * open system events by severity, oldest stuck job per source.

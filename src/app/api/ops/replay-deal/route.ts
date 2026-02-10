@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/_ops/replay-deal
+ * POST /api/ops/replay-deal
  *
  * Re-enqueues all FAILED jobs for a deal across both job tables.
  * Optionally uses backfillDealArtifacts() for full artifact replay.

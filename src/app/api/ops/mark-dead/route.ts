@@ -12,11 +12,12 @@ export const dynamic = "force-dynamic";
 const VALID_TABLES: AegisJobTable[] = ["document_jobs", "deal_spread_jobs"];
 
 /**
- * POST /api/_ops/retry-job
+ * POST /api/ops/mark-dead
  *
- * Reset a failed job to QUEUED with next_run_at = now().
+ * Permanently mark a job as FAILED and write a "dead" system event.
+ * Also resolves any open system events for this job.
  *
- * Body: { job_id: string, source_table: "document_jobs" | "deal_spread_jobs" }
+ * Body: { job_id: string, source_table: string, reason?: string }
  * Auth: requireSuperAdmin()
  */
 export async function POST(req: Request) {
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const { job_id, source_table } = body ?? {};
+  const { job_id, source_table, reason } = body ?? {};
 
   if (!job_id || typeof job_id !== "string") {
     return NextResponse.json(
@@ -75,17 +76,14 @@ export async function POST(req: Request) {
     }
 
     const row = job as any;
-
-    // Reset to QUEUED
     const now = new Date().toISOString();
+
+    // Mark job as permanently FAILED
     const { error: updateErr } = await sb
       .from(source_table as any)
       .update({
-        status: "QUEUED",
-        next_run_at: now,
-        leased_until: null,
-        lease_owner: null,
-        error: `[admin-retry] previous: ${row.error ?? "none"}`,
+        status: "FAILED",
+        error: `[admin-dead] ${reason ?? "Manually marked dead"} | previous: ${row.error ?? "none"}`,
         updated_at: now,
       } as any)
       .eq("id", job_id);
@@ -97,26 +95,41 @@ export async function POST(req: Request) {
       );
     }
 
-    // Write system event
+    // Write dead system event
     await writeSystemEvent({
-      event_type: "retry",
-      severity: "info",
+      event_type: "error",
+      severity: "critical",
       source_system: "api",
       source_job_id: job_id,
       source_job_table: source_table as AegisJobTable,
       deal_id: row.deal_id,
-      resolution_status: "retrying",
+      error_message: reason ?? "Manually marked dead by admin",
+      resolution_status: "dead",
+      resolved_at: now,
+      resolved_by: "admin",
+      resolution_note: reason ?? undefined,
       retry_attempt: row.attempt,
-      error_message: row.error,
-      payload: { triggered_by: "admin_retry" },
+      payload: { triggered_by: "admin_mark_dead", previous_error: row.error },
     });
+
+    // Resolve any open system events for this job
+    await sb
+      .from("buddy_system_events" as any)
+      .update({
+        resolution_status: "dead",
+        resolved_at: now,
+        resolved_by: "admin",
+        resolution_note: reason ?? "Job manually marked dead",
+      } as any)
+      .eq("source_job_id", job_id)
+      .eq("resolution_status", "open");
 
     return NextResponse.json({
       ok: true,
       job_id,
       source_table,
       previous_status: row.status,
-      new_status: "QUEUED",
+      new_status: "FAILED (dead)",
     });
   } catch (err: any) {
     return NextResponse.json(

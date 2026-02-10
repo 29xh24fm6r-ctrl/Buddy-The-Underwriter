@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/_ops/observer/tick
+ * POST /api/ops/observer/tick
  *
  * Runs the Aegis observer scan loop.
  * Called by Vercel cron every 5 minutes.
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * GET /api/_ops/observer/tick
+ * GET /api/ops/observer/tick
  *
  * Delegates to POST — allows manual browser debugging.
  */
