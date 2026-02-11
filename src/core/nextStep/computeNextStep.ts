@@ -85,8 +85,8 @@ export async function computeNextStep(args: {
     };
   }
 
-  if (verifyResult.recommendedNextAction === "pricing_required") {
-    return { key: "run_pricing", deepLink: `/deals/${dealId}/pricing` };
+  if (verifyResult.recommendedNextAction === "pricing_assumptions_required") {
+    return { key: "set_pricing_assumptions", deepLink: `/deals/${dealId}/pricing` };
   }
 
   const missing = verifyResult.diagnostics?.missing ?? [];

@@ -220,6 +220,12 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/pricing`,
       };
 
+    case "pricing_assumptions_missing":
+      return {
+        label: "Set Pricing Assumptions",
+        href: `/deals/${dealId}/pricing`,
+      };
+
     case "closing_docs_missing":
       return {
         label: "Upload Closing Docs",

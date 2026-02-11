@@ -42,7 +42,7 @@ export default async function DealCommandPage({
   const blockedCopy = {
     complete_intake: "Complete intake details to continue",
     request_docs: "Required documents are missing",
-    run_pricing: "Pricing must be completed",
+    set_pricing_assumptions: "Pricing assumptions must be set",
     open_underwriting: "This deal is ready for underwriting",
     deal_not_found: "Deal setup is incomplete",
   } as const;

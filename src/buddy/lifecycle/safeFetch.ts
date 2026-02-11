@@ -41,6 +41,7 @@ const SOURCE_TO_BLOCKER_CODE: Record<string, LifecycleBlockerCode> = {
   advancement: "advancement_fetch_failed",
   readiness: "readiness_fetch_failed",
   ai_pipeline: "ai_pipeline_incomplete",
+  pricing_inputs: "data_fetch_failed",
 };
 
 /**

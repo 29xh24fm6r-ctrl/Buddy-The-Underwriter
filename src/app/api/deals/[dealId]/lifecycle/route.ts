@@ -70,6 +70,7 @@ function createFallbackState(
       decisionPresent: false,
       committeeRequired: false,
       pricingQuoteReady: false,
+      pricingAssumptionsReady: false,
       attestationSatisfied: true,
       aiPipelineComplete: true,
       spreadsComplete: true,

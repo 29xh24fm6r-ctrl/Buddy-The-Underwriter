@@ -253,6 +253,12 @@ function getBlockersForTransition(
       case "closing_docs_missing":
         return nextStage === "closed";
 
+      case "pricing_assumptions_missing":
+        return nextStage === "committee_ready";
+
+      case "pricing_quote_missing":
+        return nextStage === "committee_decisioned";
+
       default:
         return false; // Unknown blockers don't block by default
     }

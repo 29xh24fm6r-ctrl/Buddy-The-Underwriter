@@ -334,8 +334,8 @@ export default async function DealsPage({
                             ? "Intake Required"
                             : deal.verify.recommendedNextAction === "checklist_incomplete"
                               ? "Waiting on Documents"
-                              : deal.verify.recommendedNextAction === "pricing_required"
-                                ? "Pricing Required"
+                              : deal.verify.recommendedNextAction === "pricing_assumptions_required"
+                                ? "Assumptions Required"
                                 : "Unavailable"}
                         </span>
                       )}

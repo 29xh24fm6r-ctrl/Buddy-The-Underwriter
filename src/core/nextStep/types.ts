@@ -6,5 +6,5 @@ export type NextAction =
       deepLink: string;
       templateId?: string;
     }
-  | { key: "run_pricing"; deepLink: string }
+  | { key: "set_pricing_assumptions"; deepLink: string }
   | { key: "open_underwriting"; deepLink: string };

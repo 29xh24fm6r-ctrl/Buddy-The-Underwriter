@@ -54,6 +54,7 @@ export type LifecycleBlockerCode =
   | "attestation_missing"
   | "closing_docs_missing"
   | "pricing_quote_missing"
+  | "pricing_assumptions_missing"
   | "deal_not_found"
   | "checklist_not_seeded"
   | "loan_request_missing"
@@ -106,6 +107,8 @@ export type LifecycleDerived = {
   committeeRequired: boolean;
   /** True if a locked pricing quote exists */
   pricingQuoteReady: boolean;
+  /** True if pricing assumptions (deal_pricing_inputs) have been saved */
+  pricingAssumptionsReady: boolean;
   /** True if attestation requirements are satisfied */
   attestationSatisfied: boolean;
   /** True if all document artifacts have been processed (no queued/processing/failed) */

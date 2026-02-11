@@ -41,7 +41,7 @@ export default function NextStepCard({ dealId }: { dealId: string }) {
 
   const resolveLabel = (next: NextAction): string => {
     if (next.key === "open_underwriting") return "Start underwriting";
-    if (next.key === "run_pricing") return "Run pricing";
+    if (next.key === "set_pricing_assumptions") return "Set pricing assumptions";
     if (next.key === "request_docs") return "Upload documents";
     if (next.key === "complete_intake") {
       const missing = next.missing ?? [];

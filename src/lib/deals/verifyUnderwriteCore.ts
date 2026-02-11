@@ -11,7 +11,7 @@ import { getMissingRequired } from "@/lib/deals/checklistSatisfaction";
 export type VerifyUnderwriteRecommendedNextAction =
   | "complete_intake"
   | "checklist_incomplete"
-  | "pricing_required"
+  | "pricing_assumptions_required"
   | "deal_not_found";
 
 export type VerifyUnderwriteSuccess = {
@@ -52,7 +52,7 @@ export type VerifyUnderwriteResult = VerifyUnderwriteSuccess | VerifyUnderwriteB
 export type VerifyUnderwriteDeps = {
   sb: SupabaseClient;
   logLedgerEvent: typeof logLedgerEvent;
-  getLatestLockedQuoteId: typeof getLatestLockedQuoteId;
+  getLatestLockedQuoteId?: typeof getLatestLockedQuoteId;
 };
 
 export type VerifyUnderwriteParams = {
@@ -144,7 +144,7 @@ export async function verifyUnderwriteCore(
     verifyDetails,
     deps,
   } = params;
-  const { sb, logLedgerEvent: ledger, getLatestLockedQuoteId: latestQuote } = deps;
+  const { sb, logLedgerEvent: ledger } = deps;
 
   const ledgerEventsWritten: string[] = [];
 
@@ -287,18 +287,23 @@ export async function verifyUnderwriteCore(
     };
   }
 
-  const lockedQuoteId = await latestQuote(sb, dealId);
-  if (!lockedQuoteId) {
-    await logAttemptEvent(bankId, false, "pricing_required", {
+  // Check for pricing assumptions (deal_pricing_inputs row exists)
+  const { count: pricingInputsCount } = await sb
+    .from("deal_pricing_inputs")
+    .select("deal_id", { count: "exact", head: true })
+    .eq("deal_id", dealId);
+
+  if (!pricingInputsCount || pricingInputsCount === 0) {
+    await logAttemptEvent(bankId, false, "pricing_assumptions_required", {
       ...lookupDiagnostics,
-      missing: ["pricing_quote"],
+      missing: ["pricing_assumptions"],
     });
     return {
       ok: false,
       auth: true,
       dealId,
-      recommendedNextAction: "pricing_required",
-      diagnostics: { ...lookupDiagnostics, missing: ["pricing_quote"] },
+      recommendedNextAction: "pricing_assumptions_required",
+      diagnostics: { ...lookupDiagnostics, missing: ["pricing_assumptions"] },
       ledgerEventsWritten,
     };
   }
