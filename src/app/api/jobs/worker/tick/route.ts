@@ -117,9 +117,9 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * GET /api/jobs/worker/stats
+ * GET /api/jobs/worker/tick
  *
- * Returns job queue statistics
+ * Returns job queue statistics (admin-only).
  */
 export async function GET() {
   // Stats are admin-only. (Keep simple: no WORKER_SECRET access here.)
@@ -132,38 +132,43 @@ export async function GET() {
   const supabase = supabaseAdmin();
 
   try {
-    // Count jobs by status
-    const { data: jobs, error } = await (supabase as any)
-      .from("document_jobs")
-      .select("job_type, status, count");
+    const STATUSES = ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED"] as const;
+    const JOB_TYPES = ["OCR", "CLASSIFY", "EXTRACT"] as const;
 
-    if (error) throw error;
-
-    // Aggregate stats
-    const stats = {
-      total: 0,
-      by_type: {} as Record<string, any>,
-      by_status: {} as Record<string, number>,
+    // Run all count queries in parallel (head: true = no row data, just count)
+    const countQ = (filter?: { col: string; val: string }) => {
+      let q = (supabase as any)
+        .from("document_jobs")
+        .select("id", { count: "exact", head: true });
+      if (filter) q = q.eq(filter.col, filter.val);
+      return q;
     };
 
-    for (const job of jobs ?? []) {
-      const type = job.job_type;
-      const status = job.status;
+    const [totalRes, ...groupRes] = await Promise.all([
+      countQ(),
+      ...STATUSES.map((s) => countQ({ col: "status", val: s })),
+      ...JOB_TYPES.map((t) => countQ({ col: "job_type", val: t })),
+    ]);
 
-      if (!stats.by_type[type]) {
-        stats.by_type[type] = {
-          queued: 0,
-          running: 0,
-          succeeded: 0,
-          failed: 0,
-        };
-      }
+    if (totalRes.error) throw totalRes.error;
 
-      stats.by_type[type][status.toLowerCase()] =
-        (stats.by_type[type][status.toLowerCase()] ?? 0) + 1;
-      stats.by_status[status] = (stats.by_status[status] ?? 0) + 1;
-      stats.total++;
-    }
+    const by_status: Record<string, number> = {};
+    STATUSES.forEach((s, i) => {
+      const c = groupRes[i]?.count ?? 0;
+      if (c > 0) by_status[s] = c;
+    });
+
+    const by_type: Record<string, number> = {};
+    JOB_TYPES.forEach((t, i) => {
+      const c = groupRes[STATUSES.length + i]?.count ?? 0;
+      if (c > 0) by_type[t] = c;
+    });
+
+    const stats = {
+      total: totalRes.count ?? 0,
+      by_type,
+      by_status,
+    };
 
     return NextResponse.json({ ok: true, stats });
   } catch (error: any) {
