@@ -157,13 +157,13 @@ const RATIO_ROWS: MoodysRow[] = [
 // ── Executive Summary (Key Metrics) ──────────────────────────────────────────
 
 const EXEC_ROWS: MoodysRow[] = [
-  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 100, label: "Total Assets", key: "ES_TOTAL_ASSETS", formulaId: "TOTAL_ASSETS", precision: 0, sourcePages: [0] },
-  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 110, label: "Total Liabilities", key: "ES_TOTAL_LIABILITIES", formulaId: "TOTAL_LIABILITIES", precision: 0, sourcePages: [0] },
-  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 120, label: "Net Worth", key: "ES_NET_WORTH", formulaId: "NET_WORTH", precision: 0, sourcePages: [0] },
-  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 130, label: "Revenue / Total Income", key: "ES_REVENUE", formulaId: "REVENUE", precision: 0, sourcePages: [0] },
-  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 140, label: "NOI", key: "ES_NOI", formulaId: "NOI", precision: 0, sourcePages: [0] },
-  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 150, label: "DSCR", key: "ES_DSCR", formulaId: "DSCR", precision: 2, sourcePages: [0] },
-  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 160, label: "LTV (Gross)", key: "ES_LTV", formulaId: "LTV_GROSS", precision: 4, isPercent: true, sourcePages: [0] },
+  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 100, label: "Total Assets", key: "ES_TOTAL_ASSETS", formulaId: "TOTAL_ASSETS", precision: 0, sourcePages: [] },
+  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 110, label: "Total Liabilities", key: "ES_TOTAL_LIABILITIES", formulaId: "TOTAL_LIABILITIES", precision: 0, sourcePages: [] },
+  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 120, label: "Net Worth", key: "ES_NET_WORTH", formulaId: "NET_WORTH", precision: 0, sourcePages: [] },
+  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 130, label: "Revenue / Total Income", key: "ES_REVENUE", formulaId: "REVENUE", precision: 0, sourcePages: [] },
+  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 140, label: "NOI", key: "ES_NOI", formulaId: "NOI", precision: 0, sourcePages: [] },
+  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 150, label: "DSCR", key: "ES_DSCR", formulaId: "DSCR", precision: 2, sourcePages: [] },
+  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 160, label: "LTV (Gross)", key: "ES_LTV", formulaId: "LTV_GROSS", precision: 4, isPercent: true, sourcePages: [] },
 ];
 
 // ── Assembled Registry ────────────────────────────────────────────────────────

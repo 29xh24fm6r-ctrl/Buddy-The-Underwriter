@@ -27,8 +27,10 @@ export type TotalDebtServiceResult = {
 export async function computeTotalDebtService(args: {
   dealId: string;
   bankId: string;
+  /** When true, skip existing debt schedule query and treat existing debt as 0. */
+  skipExistingDebt?: boolean;
 }): Promise<{ ok: true; data: TotalDebtServiceResult } | { ok: false; error: string }> {
-  const { dealId, bankId } = args;
+  const { dealId, bankId, skipExistingDebt } = args;
 
   try {
     const sb = supabaseAdmin();
@@ -49,29 +51,34 @@ export async function computeTotalDebtService(args: {
     const proposed: number | null = spRow?.annual_debt_service_est ?? null;
 
     // Step 2: Sum existing debt (included_in_global = true, not being refinanced)
-    const { data: existingRows, error: exErr } = await (sb as any)
-      .from("deal_existing_debt_schedule")
-      .select("annual_debt_service, monthly_payment")
-      .eq("deal_id", dealId)
-      .eq("included_in_global", true)
-      .eq("is_being_refinanced", false);
-
-    if (exErr) {
-      return { ok: false, error: `existing_debt query: ${exErr.message}` };
-    }
-
     let existing: number | null = null;
-    if (existingRows && existingRows.length > 0) {
+
+    if (skipExistingDebt) {
       existing = 0;
-      for (const row of existingRows) {
-        if (row.annual_debt_service != null) {
-          existing += Number(row.annual_debt_service);
-        } else if (row.monthly_payment != null) {
-          existing += Number(row.monthly_payment) * 12;
-        }
+    } else {
+      const { data: existingRows, error: exErr } = await (sb as any)
+        .from("deal_existing_debt_schedule")
+        .select("annual_debt_service, monthly_payment")
+        .eq("deal_id", dealId)
+        .eq("included_in_global", true)
+        .eq("is_being_refinanced", false);
+
+      if (exErr) {
+        return { ok: false, error: `existing_debt query: ${exErr.message}` };
       }
-      if (existing === 0 && existingRows.length > 0) {
-        existing = null; // All rows had null payments
+
+      if (existingRows && existingRows.length > 0) {
+        existing = 0;
+        for (const row of existingRows) {
+          if (row.annual_debt_service != null) {
+            existing += Number(row.annual_debt_service);
+          } else if (row.monthly_payment != null) {
+            existing += Number(row.monthly_payment) * 12;
+          }
+        }
+        if (existing === 0 && existingRows.length > 0) {
+          existing = null; // All rows had null payments
+        }
       }
     }
 

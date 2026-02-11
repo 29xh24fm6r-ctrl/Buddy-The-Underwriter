@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import DealPricingClient from "./DealPricingClient";
 import PricingScenariosPanel from "./PricingScenariosPanel";
+import PricingAssumptionsCard from "@/components/deals/cockpit/panels/PricingAssumptionsCard";
 import { headers } from "next/headers";
 import { runDealRiskPricing } from "@/lib/pricing/runDealRiskPricing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -130,6 +131,13 @@ export default async function Page(
   let latestRates: LatestRates | null = null;
   let quotes: QuoteRow[] = [];
 
+  // Fetch pricing assumptions (deal_pricing_inputs with new columns)
+  const { data: pricingAssumptions } = await sb
+    .from("deal_pricing_inputs")
+    .select("*")
+    .eq("deal_id", dealId)
+    .maybeSingle();
+
   if (inputsRes.ok) {
     const payload = await inputsRes.json();
     inputs = payload?.inputs ?? null;
@@ -152,7 +160,8 @@ export default async function Page(
   const allInRatePct = baseRatePct + spreadBps / 100;
 
   return (
-    <div data-testid="deal-pricing">
+    <div data-testid="deal-pricing" className="space-y-6">
+      <PricingAssumptionsCard dealId={dealId} initial={pricingAssumptions as any} />
       <PricingScenariosPanel dealId={dealId} />
       <DealPricingClient
         deal={deal}

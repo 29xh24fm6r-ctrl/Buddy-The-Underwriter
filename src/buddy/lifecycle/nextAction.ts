@@ -258,8 +258,8 @@ export function getBlockerFixAction(
 
     case "structural_pricing_missing":
       return {
-        label: "Submit Loan Request",
-        href: `/deals/${dealId}/cockpit?tab=setup`,
+        label: "Set Pricing Assumptions",
+        href: `/deals/${dealId}/pricing`,
       };
 
     // Infrastructure/fetch errors - no direct fix

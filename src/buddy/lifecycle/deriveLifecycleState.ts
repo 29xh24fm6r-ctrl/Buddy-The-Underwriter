@@ -568,7 +568,7 @@ function computeBlockers(
   ) {
     blockers.push({
       code: "structural_pricing_missing",
-      message: "Structural pricing has not been computed (submit a loan request to auto-create)",
+      message: "Structural pricing has not been computed (save pricing assumptions or submit a loan request)",
     });
   }
 

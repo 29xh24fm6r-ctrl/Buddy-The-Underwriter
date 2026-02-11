@@ -2,11 +2,12 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { LoanRequest } from "@/lib/loanRequests/types";
+import { computeDebtService } from "./debtServiceMath";
 
 export type StructuralPricingResult = {
   id: string;
   deal_id: string;
-  loan_request_id: string;
+  loan_request_id: string | null;
   loan_amount: number;
   term_months: number;
   amort_months: number;
@@ -63,7 +64,6 @@ export async function computeStructuralPricing(
     const structuralRatePct = baseRatePct + spreadPct;
 
     // Compute monthly payment and annual debt service
-    // Reuses same math as financialStressEngine.ts:44-62
     const { monthlyPayment, annualDebtService } = computeDebtService({
       principal: amount,
       ratePct: structuralRatePct,
@@ -109,40 +109,4 @@ export async function computeStructuralPricing(
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg };
   }
-}
-
-/**
- * Standard amortization payment calculation.
- * Same formula as financialStressEngine.ts:computeAnnualDebtService()
- */
-function computeDebtService(args: {
-  principal: number;
-  ratePct: number;
-  amortMonths: number;
-  interestOnlyMonths: number;
-}): { monthlyPayment: number | null; annualDebtService: number | null } {
-  const { principal, ratePct, amortMonths, interestOnlyMonths } = args;
-
-  if (!principal || principal <= 0 || !ratePct || ratePct <= 0) {
-    return { monthlyPayment: null, annualDebtService: null };
-  }
-
-  const rateDecimal = ratePct / 100;
-
-  // If fully interest-only or no amort
-  if (interestOnlyMonths >= amortMonths || amortMonths <= 0) {
-    const monthly = (principal * rateDecimal) / 12;
-    return { monthlyPayment: monthly, annualDebtService: monthly * 12 };
-  }
-
-  const r = rateDecimal / 12;
-  const n = amortMonths;
-
-  if (r === 0) {
-    const monthly = principal / n;
-    return { monthlyPayment: monthly, annualDebtService: monthly * 12 };
-  }
-
-  const pmt = (principal * r) / (1 - Math.pow(1 + r, -n));
-  return { monthlyPayment: pmt, annualDebtService: pmt * 12 };
 }
