@@ -85,6 +85,17 @@ export async function extractFactsFromDocument(args: {
   const sb = supabaseAdmin();
   const useDeterministic = isDeterministicEnabled();
 
+  // TODO: remove after pipeline validation
+  if (process.env.DEBUG_PIPELINE === "true" || process.env.NODE_ENV !== "production") {
+    console.log("[extractFactsFromDocument] env", {
+      dealId: args.dealId,
+      documentId: args.documentId,
+      docTypeHint: args.docTypeHint,
+      DETERMINISTIC_EXTRACTORS_ENABLED: process.env.DETERMINISTIC_EXTRACTORS_ENABLED,
+      useDeterministic,
+    });
+  }
+
   // Fetch OCR + classification context + DocAI JSON (best-effort, parallel)
   const [ocrRes, classRes, docAiJson] = await Promise.all([
     (sb as any)

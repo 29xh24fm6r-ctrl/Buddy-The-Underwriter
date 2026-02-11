@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { mapGeminiScanToChecklist, GeminiScanResult } from "./mapToChecklist";
+import { isExtractionErrorPayload } from "@/lib/artifacts/extractionError";
 
 export async function persistAiMapping(args: {
   dealId: string;
@@ -30,7 +31,7 @@ export async function persistAiMapping(args: {
         ai_confidence: scan.confidence ?? null,
         ai_model: args.model || "gemini",
         ai_reason: suggestions[0]?.reason ?? null,
-        ai_extracted_json: scan.extracted ?? null,
+        ai_extracted_json: isExtractionErrorPayload(scan.extracted) ? null : (scan.extracted ?? null),
       } as any)
       .eq("id", documentId);
   } catch {

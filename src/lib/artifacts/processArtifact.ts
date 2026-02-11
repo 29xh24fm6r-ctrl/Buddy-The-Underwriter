@@ -18,6 +18,7 @@ import {
   type ClassificationResult,
 } from "./classifyDocument";
 import { resolveDocTyping } from "@/lib/docs/typing/resolveDocTyping";
+import { isExtractionErrorPayload, extractErrorMessage } from "./extractionError";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
@@ -612,6 +613,44 @@ export async function processArtifact(
     // 2. Classify the document
     const classification = await classifyDocument(text, filename, mimeType);
 
+    // ── PIPELINE INTEGRITY GUARD ────────────────────────────────────
+    // classifyDocument() swallows API errors and returns { error: "..." }
+    // as rawExtraction.  Route to mark_artifact_failed instead of
+    // persisting garbage data downstream.
+    if (isExtractionErrorPayload(classification.rawExtraction)) {
+      const errorMsg = extractErrorMessage(classification.rawExtraction);
+      console.error(
+        "[processArtifact] Classification returned error payload — marking artifact FAILED",
+        { artifactId, source_id, errorMsg },
+      );
+
+      await sb.rpc("mark_artifact_failed", {
+        p_artifact_id: artifactId,
+        p_error_message: `classification_error: ${errorMsg}`,
+      });
+
+      await logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "artifact.classification_error",
+        uiState: "error",
+        uiMessage: `Document classification failed: ${errorMsg}`,
+        meta: {
+          artifact_id: artifactId,
+          source_id,
+          error: errorMsg,
+          confidence: classification.confidence,
+          doc_type: classification.docType,
+        },
+      });
+
+      return {
+        ok: false,
+        artifactId,
+        error: `classification_error: ${errorMsg}`,
+      };
+    }
+
     // 2.5. Resolve canonical typing with form-number guardrails
     const typingResult = resolveDocTyping({
       aiDocType: classification.docType,
@@ -728,7 +767,9 @@ export async function processArtifact(
             ai_tax_year: classification.taxYear,
             ai_period_start: classification.periodStart,
             ai_period_end: classification.periodEnd,
-            ai_extracted_json: classification.rawExtraction,
+            ai_extracted_json: isExtractionErrorPayload(classification.rawExtraction)
+              ? null
+              : classification.rawExtraction,
             // Resolved typing fields
             canonical_type: typingResult.canonical_type,
             routing_class: typingResult.routing_class,

@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { extractFactsFromDocument } from "@/lib/financialSpreads/extractFactsFromDocument";
 import { backfillCanonicalFactsFromSpreads } from "@/lib/financialFacts/backfillFromSpreads";
+import { isExtractionErrorPayload } from "@/lib/artifacts/extractionError";
 
 /**
  * Financial artifact doc types that the AI extractors can handle.
@@ -61,7 +62,7 @@ export async function extractFactsFromClassifiedArtifacts(opts: {
     // 1) Find classified financial artifacts sourced from deal_documents
     const { data: artifacts, error: artErr } = await (sb as any)
       .from("document_artifacts")
-      .select("id, source_id, doc_type")
+      .select("id, source_id, doc_type, extraction_json")
       .eq("deal_id", dealId)
       .eq("source_table", "deal_documents")
       .not("doc_type", "is", null)
@@ -73,12 +74,26 @@ export async function extractFactsFromClassifiedArtifacts(opts: {
       id: string;
       source_id: string;
       doc_type: string;
+      extraction_json: unknown;
     }>;
 
     // Filter to extractable financial doc types
-    const financialArtifacts = allArtifacts.filter((a) =>
+    const extractableArtifacts = allArtifacts.filter((a) =>
       EXTRACTABLE_DOC_TYPES.has(a.doc_type.toUpperCase()),
     );
+
+    // Pipeline integrity: skip artifacts whose extraction_json is an error
+    // payload (pre-existing garbage from before the processArtifact guard).
+    const financialArtifacts = extractableArtifacts.filter((a) => {
+      if (isExtractionErrorPayload(a.extraction_json)) {
+        console.warn(
+          "[extractFactsFromClassifiedArtifacts] Skipping artifact with error extraction_json",
+          { artifactId: a.id, sourceId: a.source_id, docType: a.doc_type },
+        );
+        return false;
+      }
+      return true;
+    });
 
     if (financialArtifacts.length === 0) {
       // No classified financial artifacts — try canonical backfill only

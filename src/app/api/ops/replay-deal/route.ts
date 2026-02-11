@@ -51,6 +51,8 @@ export async function POST(req: Request) {
     document_jobs_retried: 0,
     spread_jobs_retried: 0,
     artifacts_requeued: 0,
+    garbage_facts_cleaned: 0,
+    classification_error_artifacts_reset: 0,
     errors: [] as string[],
   };
 
@@ -127,6 +129,59 @@ export async function POST(req: Request) {
           payload: { triggered_by: "deal_replay" },
         }).catch(() => {});
       }
+    }
+
+    // 2.5. Clean garbage facts from classification-error artifacts
+    //       and reset those artifacts to 'queued' for reprocessing
+    try {
+      const { data: errorArtifacts } = await sb
+        .from("document_artifacts" as any)
+        .select("id, source_id, error_message")
+        .eq("deal_id", deal_id)
+        .eq("status", "failed")
+        .like("error_message", "classification_error:%");
+
+      if (errorArtifacts && errorArtifacts.length > 0) {
+        const badSourceIds = (errorArtifacts as any[]).map((a: any) => a.source_id);
+
+        // Delete ALL facts from these source documents (garbage data)
+        const { count: deletedFacts } = await sb
+          .from("deal_financial_facts" as any)
+          .delete({ count: "exact" })
+          .eq("deal_id", deal_id)
+          .in("source_document_id", badSourceIds);
+
+        results.garbage_facts_cleaned = deletedFacts ?? 0;
+
+        // Reset artifacts back to 'queued' for clean reprocessing
+        for (const art of errorArtifacts as any[]) {
+          await sb
+            .from("document_artifacts" as any)
+            .update({
+              status: "queued",
+              error_message: `[replay] previous: ${art.error_message ?? "none"}`,
+              extraction_json: null,
+            } as any)
+            .eq("id", art.id);
+        }
+        results.classification_error_artifacts_reset = (errorArtifacts as any[]).length;
+
+        writeSystemEvent({
+          event_type: "recovery",
+          severity: "info",
+          source_system: "api",
+          deal_id,
+          resolution_status: "retrying",
+          payload: {
+            triggered_by: "deal_replay_garbage_cleanup",
+            bad_source_ids: badSourceIds,
+            facts_deleted: results.garbage_facts_cleaned,
+            artifacts_reset: results.classification_error_artifacts_reset,
+          },
+        }).catch(() => {});
+      }
+    } catch (cleanErr: any) {
+      results.errors.push(`garbage_cleanup: ${cleanErr.message}`);
     }
 
     // 3. Re-queue failed artifacts
