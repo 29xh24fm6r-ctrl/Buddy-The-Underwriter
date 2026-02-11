@@ -740,6 +740,18 @@ export async function POST(req: NextRequest, ctx: Context) {
           documentId,
           error: err?.message,
         });
+        // Emit ledger event so artifact queue failures are observable
+        logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "artifact.queue.failed",
+          uiState: "error",
+          uiMessage: `Artifact queue failed for document ${documentId}: ${err?.message ?? "unknown"}`,
+          meta: {
+            document_id: documentId,
+            error: err?.message ?? String(err),
+          },
+        }).catch(() => {});
       });
 
       // Nudge artifact processor to drain queue (with retries; cron is safety net)

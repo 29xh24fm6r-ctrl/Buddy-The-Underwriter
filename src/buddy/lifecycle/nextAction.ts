@@ -253,7 +253,7 @@ export function getBlockerFixAction(
     case "spreads_incomplete":
       return {
         label: "View Spreads",
-        href: `/deals/${dealId}/cockpit?focus=documents`,
+        href: `/deals/${dealId}/spreads`,
       };
 
     // Infrastructure/fetch errors - no direct fix

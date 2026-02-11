@@ -139,6 +139,18 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         : { jobId, error: (backfill as any).error },
     });
 
+    // Recompute deal readiness after facts are materialized (non-fatal)
+    try {
+      const { recomputeDealReady } = await import("@/lib/deals/readiness");
+      await recomputeDealReady(dealId);
+    } catch (readinessErr: any) {
+      console.warn("[spreadsProcessor] readiness recompute failed (non-fatal)", {
+        dealId,
+        jobId,
+        error: readinessErr?.message,
+      });
+    }
+
     await (sb as any)
       .from("deal_spread_jobs")
       .update({
