@@ -68,7 +68,7 @@ test("computeNextStep returns open_underwriting when verify ok", async () => {
   });
 });
 
-test("computeNextStep returns run_pricing when pricing is required", async () => {
+test("computeNextStep returns set_pricing_assumptions when pricing assumptions required", async () => {
   const result = await computeNextStep({
     dealId: "deal-2",
     deps: {
@@ -80,7 +80,7 @@ test("computeNextStep returns run_pricing when pricing is required", async () =>
         ok: false,
         dealId: "deal-2",
         auth: true,
-        recommendedNextAction: "pricing_required",
+        recommendedNextAction: "pricing_assumptions_required",
         diagnostics: {},
         ledgerEventsWritten: [],
       }),
@@ -88,7 +88,7 @@ test("computeNextStep returns run_pricing when pricing is required", async () =>
   });
 
   assert.deepEqual(result, {
-    key: "run_pricing",
+    key: "set_pricing_assumptions",
     deepLink: "/deals/deal-2/pricing",
   });
 });

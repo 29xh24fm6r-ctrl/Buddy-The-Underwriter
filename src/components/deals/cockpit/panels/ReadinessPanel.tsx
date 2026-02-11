@@ -275,7 +275,8 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
             <DerivedFactDot label="AI Pipeline" ok={derived.aiPipelineComplete} />
             <DerivedFactDot label="Spreads" ok={derived.spreadsComplete} />
             <DerivedFactDot label="Financials" ok={derived.financialSnapshotExists} />
-            <DerivedFactDot label="Pricing" ok={derived.pricingQuoteReady} />
+            <DerivedFactDot label="Assumptions" ok={derived.pricingAssumptionsReady} />
+            <DerivedFactDot label="Pricing Quote" ok={derived.pricingQuoteReady} />
             <DerivedFactDot label="Underwriting" ok={derived.underwriteStarted} />
             <DerivedFactDot label="Decision" ok={derived.decisionPresent} />
           </div>

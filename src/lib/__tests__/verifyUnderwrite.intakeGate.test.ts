@@ -12,7 +12,7 @@ type FakeTables = {
   deals: Row[];
   deal_checklist_items: Row[];
   financial_snapshot_decisions: Row[];
-  deal_pricing_quotes: Row[];
+  deal_pricing_inputs: Row[];
 };
 
 function createFakeSupabase(seed: FakeTables) {
@@ -20,7 +20,7 @@ function createFakeSupabase(seed: FakeTables) {
     deals: [...seed.deals],
     deal_checklist_items: [...seed.deal_checklist_items],
     financial_snapshot_decisions: [...seed.financial_snapshot_decisions],
-    deal_pricing_quotes: [...seed.deal_pricing_quotes],
+    deal_pricing_inputs: [...seed.deal_pricing_inputs],
   };
 
   function applyFilters(rows: Row[], filters: Array<{ key: string; value: any }>) {
@@ -73,12 +73,6 @@ async function runVerify(seed: FakeTables) {
     deps: {
       sb: fake as any,
       logLedgerEvent: async () => undefined,
-      getLatestLockedQuoteId: async (_sb: any, dealId: string) => {
-        const rows = seed.deal_pricing_quotes.filter(
-          (row) => row.deal_id === dealId && row.status === "locked",
-        );
-        return rows[0]?.id ?? null;
-      },
     },
   });
 }
@@ -97,7 +91,7 @@ test("missing deal name blocks complete_intake", async () => {
     ],
     deal_checklist_items: [],
     financial_snapshot_decisions: [{ id: "snap-1", deal_id: "deal-1" }],
-    deal_pricing_quotes: [{ id: "quote-1", deal_id: "deal-1", status: "locked" }],
+    deal_pricing_inputs: [{ deal_id: "deal-1" }],
   });
 
   assert.equal(result.ok, false);
@@ -110,7 +104,7 @@ test("missing deal returns deal_not_found with diagnostics", async () => {
     deals: [],
     deal_checklist_items: [],
     financial_snapshot_decisions: [],
-    deal_pricing_quotes: [],
+    deal_pricing_inputs: [],
   });
 
   assert.equal(result.ok, false);
@@ -133,7 +127,7 @@ test("missing borrower blocks complete_intake", async () => {
     ],
     deal_checklist_items: [],
     financial_snapshot_decisions: [{ id: "snap-1", deal_id: "deal-1" }],
-    deal_pricing_quotes: [{ id: "quote-1", deal_id: "deal-1", status: "locked" }],
+    deal_pricing_inputs: [{ deal_id: "deal-1" }],
   });
 
   assert.equal(result.ok, false);
@@ -155,7 +149,7 @@ test("partial lifecycle blocks complete_intake", async () => {
     ],
     deal_checklist_items: [],
     financial_snapshot_decisions: [{ id: "snap-1", deal_id: "deal-1" }],
-    deal_pricing_quotes: [{ id: "quote-1", deal_id: "deal-1", status: "locked" }],
+    deal_pricing_inputs: [{ deal_id: "deal-1" }],
   });
 
   assert.equal(result.ok, false);
@@ -181,16 +175,17 @@ test("valid deal returns ok", async () => {
         checklist_key: "PFS",
         required: true,
         received_at: "2024-01-01",
+        status: "received",
       },
     ],
     financial_snapshot_decisions: [{ id: "snap-1", deal_id: "deal-1" }],
-    deal_pricing_quotes: [{ id: "quote-1", deal_id: "deal-1", status: "locked" }],
+    deal_pricing_inputs: [{ deal_id: "deal-1" }],
   })) as VerifyUnderwriteResult;
 
   assert.equal(result.ok, true);
 });
 
-test("missing pricing quote blocks pricing_required", async () => {
+test("missing pricing assumptions blocks pricing_assumptions_required", async () => {
   const result = await runVerify({
     deals: [
       {
@@ -208,12 +203,13 @@ test("missing pricing quote blocks pricing_required", async () => {
         checklist_key: "PFS",
         required: true,
         received_at: "2024-01-01",
+        status: "received",
       },
     ],
     financial_snapshot_decisions: [{ id: "snap-1", deal_id: "deal-1" }],
-    deal_pricing_quotes: [],
+    deal_pricing_inputs: [],
   });
 
   assert.equal(result.ok, false);
-  assert.equal(result.recommendedNextAction, "pricing_required");
+  assert.equal(result.recommendedNextAction, "pricing_assumptions_required");
 });

@@ -177,7 +177,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   // 4–11. Parallel independent queries (snapshot, decision, packet, advancement, loan requests, pricing, ai pipeline, spreads)
-  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, legacyPricingResult, aiPipelineResult, spreadsResult] = await Promise.all([
+  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, legacyPricingResult, aiPipelineResult, spreadsResult, pricingInputsResult] = await Promise.all([
     safeSupabaseCount(
       "snapshot",
       () =>
@@ -278,6 +278,16 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .in("status", ["QUEUED", "RUNNING", "FAILED"]),
       ctx
     ),
+    // Pricing assumptions (deal_pricing_inputs) existence check
+    safeSupabaseCount(
+      "pricing_inputs",
+      () =>
+        sb
+          .from("deal_pricing_inputs")
+          .select("deal_id", { count: "exact", head: true })
+          .eq("deal_id", dealId),
+      ctx
+    ),
   ]);
 
   let financialSnapshotExists = false;
@@ -332,6 +342,11 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     spreadsComplete = spreadsResult.data === 0;
   }
 
+  let pricingAssumptionsReady = false;
+  if (pricingInputsResult.ok) {
+    pricingAssumptionsReady = pricingInputsResult.data > 0;
+  }
+
   // Attestation check depends on decision result — runs after parallel batch
   let attestationSatisfied = true;
   if (latestDecisionId && deal.bank_id) {
@@ -367,6 +382,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     decisionPresent,
     committeeRequired,
     pricingQuoteReady,
+    pricingAssumptionsReady,
     attestationSatisfied,
     aiPipelineComplete,
     spreadsComplete,
@@ -517,9 +533,20 @@ function computeBlockers(
     });
   }
 
-  // Pricing blocker — a locked quote is required before committee
+  // Pricing assumptions blocker — assumptions required to proceed through underwriting
   if (
-    ["underwrite_in_progress", "committee_ready"].includes(stage) &&
+    stage === "underwrite_in_progress" &&
+    !derived.pricingAssumptionsReady
+  ) {
+    blockers.push({
+      code: "pricing_assumptions_missing",
+      message: "Pricing assumptions must be saved before underwriting can proceed",
+    });
+  }
+
+  // Pricing quote blocker — a locked quote/decision is required before committee
+  if (
+    stage === "committee_ready" &&
     !derived.pricingQuoteReady
   ) {
     blockers.push({
@@ -580,6 +607,7 @@ function createNotFoundState(): LifecycleState {
       decisionPresent: false,
       committeeRequired: false,
       pricingQuoteReady: false,
+      pricingAssumptionsReady: false,
       attestationSatisfied: true,
       aiPipelineComplete: true,
       spreadsComplete: true,
@@ -611,6 +639,7 @@ function createErrorState(code: string, message: string): LifecycleState {
       decisionPresent: false,
       committeeRequired: false,
       pricingQuoteReady: false,
+      pricingAssumptionsReady: false,
       attestationSatisfied: true,
       aiPipelineComplete: true,
       spreadsComplete: true,
