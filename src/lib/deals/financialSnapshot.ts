@@ -132,6 +132,18 @@ function metricSpecsV1(): MetricSpec[] {
     { metric: "pfs_net_worth", fact_type: CANONICAL_FACTS.PFS_NET_WORTH.fact_type, fact_key: CANONICAL_FACTS.PFS_NET_WORTH.fact_key },
     { metric: "gcf_global_cash_flow", fact_type: CANONICAL_FACTS.GCF_GLOBAL_CASH_FLOW.fact_type, fact_key: CANONICAL_FACTS.GCF_GLOBAL_CASH_FLOW.fact_key },
     { metric: "gcf_dscr", fact_type: CANONICAL_FACTS.GCF_DSCR.fact_type, fact_key: CANONICAL_FACTS.GCF_DSCR.fact_key },
+
+    // Income statement computed metrics
+    { metric: "revenue", fact_type: CANONICAL_FACTS.REVENUE.fact_type, fact_key: CANONICAL_FACTS.REVENUE.fact_key },
+    { metric: "cogs", fact_type: CANONICAL_FACTS.COGS.fact_type, fact_key: CANONICAL_FACTS.COGS.fact_key },
+    { metric: "gross_profit", fact_type: CANONICAL_FACTS.GROSS_PROFIT.fact_type, fact_key: CANONICAL_FACTS.GROSS_PROFIT.fact_key },
+    { metric: "ebitda", fact_type: CANONICAL_FACTS.EBITDA.fact_type, fact_key: CANONICAL_FACTS.EBITDA.fact_key },
+    { metric: "net_income", fact_type: CANONICAL_FACTS.NET_INCOME.fact_type, fact_key: CANONICAL_FACTS.NET_INCOME.fact_key },
+
+    // Balance sheet computed metrics
+    { metric: "working_capital", fact_type: CANONICAL_FACTS.WORKING_CAPITAL.fact_type, fact_key: CANONICAL_FACTS.WORKING_CAPITAL.fact_key },
+    { metric: "current_ratio", fact_type: CANONICAL_FACTS.CURRENT_RATIO.fact_type, fact_key: CANONICAL_FACTS.CURRENT_RATIO.fact_key },
+    { metric: "debt_to_equity", fact_type: CANONICAL_FACTS.DEBT_TO_EQUITY.fact_type, fact_key: CANONICAL_FACTS.DEBT_TO_EQUITY.fact_key },
   ];
 }
 

@@ -530,6 +530,12 @@ export async function buildCanonicalCreditMemo(args: {
         dscr_stressed: financial.dscrStressed300bps,
         debt_yield: debtYield,
         cap_rate: capRate,
+        revenue: metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Revenue" }),
+        ebitda: metricValueFromSnapshot({ snapshot, metric: "ebitda", label: "EBITDA" }),
+        net_income: metricValueFromSnapshot({ snapshot, metric: "net_income", label: "Net Income" }),
+        working_capital: metricValueFromSnapshot({ snapshot, metric: "working_capital", label: "Working Capital" }),
+        current_ratio: metricValueFromSnapshot({ snapshot, metric: "current_ratio", label: "Current Ratio" }),
+        debt_to_equity: metricValueFromSnapshot({ snapshot, metric: "debt_to_equity", label: "Debt-to-Equity" }),
       },
 
       sources_uses: {

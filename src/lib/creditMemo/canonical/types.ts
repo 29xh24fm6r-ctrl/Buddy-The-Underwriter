@@ -119,6 +119,13 @@ export type CanonicalCreditMemoV1 = {
     dscr_stressed: CanonicalMetricValue;
     debt_yield: CanonicalMetricValue;
     cap_rate: CanonicalMetricValue;
+    // Phase 3: Institutional computed metrics
+    revenue?: CanonicalMetricValue;
+    ebitda?: CanonicalMetricValue;
+    net_income?: CanonicalMetricValue;
+    working_capital?: CanonicalMetricValue;
+    current_ratio?: CanonicalMetricValue;
+    debt_to_equity?: CanonicalMetricValue;
   };
 
   sources_uses: {

@@ -58,7 +58,17 @@ export type CanonicalFact = {
     | "GCF_DSCR"
     // Structural debt service breakdown
     | "ANNUAL_DEBT_SERVICE_PROPOSED"
-    | "ANNUAL_DEBT_SERVICE_EXISTING";
+    | "ANNUAL_DEBT_SERVICE_EXISTING"
+    // Income statement computed metrics
+    | "REVENUE"
+    | "COGS"
+    | "GROSS_PROFIT"
+    | "EBITDA"
+    | "NET_INCOME"
+    // Balance sheet computed metrics
+    | "WORKING_CAPITAL"
+    | "CURRENT_RATIO"
+    | "DEBT_TO_EQUITY";
   fact_type: "FINANCIAL_ANALYSIS" | "COLLATERAL" | "SOURCES_USES" | "BALANCE_SHEET" | "TAX_RETURN" | "PERSONAL_INCOME" | "PERSONAL_FINANCIAL_STATEMENT";
   fact_key: string;
 };
@@ -254,6 +264,18 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
     fact_type: "FINANCIAL_ANALYSIS",
     fact_key: "ANNUAL_DEBT_SERVICE_EXISTING",
   },
+
+  // Income statement computed metrics
+  REVENUE: { canonical_key: "REVENUE", fact_type: "FINANCIAL_ANALYSIS", fact_key: "REVENUE" },
+  COGS: { canonical_key: "COGS", fact_type: "FINANCIAL_ANALYSIS", fact_key: "COGS" },
+  GROSS_PROFIT: { canonical_key: "GROSS_PROFIT", fact_type: "FINANCIAL_ANALYSIS", fact_key: "GROSS_PROFIT" },
+  EBITDA: { canonical_key: "EBITDA", fact_type: "FINANCIAL_ANALYSIS", fact_key: "EBITDA" },
+  NET_INCOME: { canonical_key: "NET_INCOME", fact_type: "FINANCIAL_ANALYSIS", fact_key: "NET_INCOME" },
+
+  // Balance sheet computed metrics
+  WORKING_CAPITAL: { canonical_key: "WORKING_CAPITAL", fact_type: "BALANCE_SHEET", fact_key: "WORKING_CAPITAL" },
+  CURRENT_RATIO: { canonical_key: "CURRENT_RATIO", fact_type: "BALANCE_SHEET", fact_key: "CURRENT_RATIO" },
+  DEBT_TO_EQUITY: { canonical_key: "DEBT_TO_EQUITY", fact_type: "BALANCE_SHEET", fact_key: "DEBT_TO_EQUITY" },
 };
 
 export const REQUIRED_CANONICAL_FACT_KEYS: Array<CanonicalFact["canonical_key"]> = [

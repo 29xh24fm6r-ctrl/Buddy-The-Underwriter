@@ -380,6 +380,128 @@ export async function backfillCanonicalFactsFromSpreads(args: {
           },
         }),
       );
+
+      // ── T12-derived computed metrics: REVENUE, COGS, GROSS_PROFIT, EBITDA, NET_INCOME ──
+      // REVENUE = TOTAL_INCOME (in property context, total rental + other income)
+      const revenue = totalIncomeTtm;
+      writes.push(
+        upsertDealFinancialFact({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: null,
+          factType: CANONICAL_FACTS.REVENUE.fact_type,
+          factKey: CANONICAL_FACTS.REVENUE.fact_key,
+          factValueNum: revenue ?? null,
+          confidence: revenue === null ? null : baseConfidence,
+          provenance: {
+            source_type: "SPREAD",
+            source_ref: sourceRef,
+            as_of_date: asOfDate,
+            extractor: "backfillCanonicalFactsFromSpreads:v5",
+            calc: "TOTAL_INCOME_TTM",
+            confidence: revenue === null ? null : baseConfidence,
+          },
+        }),
+      );
+
+      // COGS — not available in property T12 (look for row, will be null for RE)
+      const cogs =
+        tryFindRowNumberForCol(t12.rendered_json, { rowKey: "COGS", colKey: "TTM" }) ??
+        tryFindRowNumberForCol(t12.rendered_json, { rowKey: "COST_OF_GOODS_SOLD", colKey: "TTM" }) ??
+        tryFindRowNumber(t12.rendered_json, { key: "COGS" });
+      writes.push(
+        upsertDealFinancialFact({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: null,
+          factType: CANONICAL_FACTS.COGS.fact_type,
+          factKey: CANONICAL_FACTS.COGS.fact_key,
+          factValueNum: cogs ?? null,
+          confidence: cogs === null ? null : baseConfidence,
+          provenance: {
+            source_type: "SPREAD",
+            source_ref: sourceRef,
+            as_of_date: asOfDate,
+            extractor: "backfillCanonicalFactsFromSpreads:v5",
+            confidence: cogs === null ? null : baseConfidence,
+          },
+        }),
+      );
+
+      // GROSS_PROFIT = REVENUE - COGS (computed if both available)
+      let grossProfit: number | null = null;
+      let grossProfitCalc: string | undefined;
+      if (revenue !== null && cogs !== null) {
+        grossProfit = revenue - cogs;
+        grossProfitCalc = "REVENUE - COGS";
+      }
+      writes.push(
+        upsertDealFinancialFact({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: null,
+          factType: CANONICAL_FACTS.GROSS_PROFIT.fact_type,
+          factKey: CANONICAL_FACTS.GROSS_PROFIT.fact_key,
+          factValueNum: grossProfit,
+          confidence: grossProfit === null ? null : baseConfidence,
+          provenance: {
+            source_type: "SPREAD",
+            source_ref: sourceRef,
+            as_of_date: asOfDate,
+            extractor: "backfillCanonicalFactsFromSpreads:v5",
+            calc: grossProfitCalc,
+            confidence: grossProfit === null ? null : baseConfidence,
+          },
+        }),
+      );
+
+      // EBITDA ≈ NOI for real estate (no depreciation in T12 cash-basis)
+      const ebitda = noiTtm;
+      writes.push(
+        upsertDealFinancialFact({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: null,
+          factType: CANONICAL_FACTS.EBITDA.fact_type,
+          factKey: CANONICAL_FACTS.EBITDA.fact_key,
+          factValueNum: ebitda ?? null,
+          confidence: ebitda === null ? null : baseConfidence,
+          provenance: {
+            source_type: "SPREAD",
+            source_ref: sourceRef,
+            as_of_date: asOfDate,
+            extractor: "backfillCanonicalFactsFromSpreads:v5",
+            calc: "NOI_TTM (RE proxy for EBITDA)",
+            confidence: ebitda === null ? null : baseConfidence,
+          },
+        }),
+      );
+
+      // NET_INCOME = NET_CASH_FLOW_BEFORE_DEBT (closest T12 analogue)
+      const netIncome =
+        tryFindRowNumberForCol(t12.rendered_json, { rowKey: "NET_CASH_FLOW_BEFORE_DEBT", colKey: "TTM" }) ??
+        tryFindRowNumber(t12.rendered_json, { key: "NET_CASH_FLOW_BEFORE_DEBT" }) ??
+        tryFindRowNumberForCol(t12.rendered_json, { rowKey: "CASH_FLOW_AFTER_DEBT", colKey: "TTM" }) ??
+        tryFindRowNumber(t12.rendered_json, { key: "CASH_FLOW_AFTER_DEBT" });
+      writes.push(
+        upsertDealFinancialFact({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: null,
+          factType: CANONICAL_FACTS.NET_INCOME.fact_type,
+          factKey: CANONICAL_FACTS.NET_INCOME.fact_key,
+          factValueNum: netIncome ?? null,
+          confidence: netIncome === null ? null : baseConfidence,
+          provenance: {
+            source_type: "SPREAD",
+            source_ref: sourceRef,
+            as_of_date: asOfDate,
+            extractor: "backfillCanonicalFactsFromSpreads:v5",
+            calc: "NET_CASH_FLOW_BEFORE_DEBT (T12)",
+            confidence: netIncome === null ? null : baseConfidence,
+          },
+        }),
+      );
     }
 
     // Optional: Rent Roll-derived memo inputs
@@ -513,6 +635,104 @@ export async function backfillCanonicalFactsFromSpreads(args: {
           }),
         );
       }
+
+      // ── BS-derived computed metrics: WORKING_CAPITAL, CURRENT_RATIO, DEBT_TO_EQUITY ──
+      const totalCurrentAssets =
+        tryFindRowNumberForCol(bs.rendered_json, { rowKey: "TOTAL_CURRENT_ASSETS", colKey: bsColKey }) ??
+        tryFindRowNumber(bs.rendered_json, { key: "TOTAL_CURRENT_ASSETS" });
+      const totalCurrentLiabilities =
+        tryFindRowNumberForCol(bs.rendered_json, { rowKey: "TOTAL_CURRENT_LIABILITIES", colKey: bsColKey }) ??
+        tryFindRowNumber(bs.rendered_json, { key: "TOTAL_CURRENT_LIABILITIES" });
+
+      // WORKING_CAPITAL = Current Assets - Current Liabilities
+      let workingCapital: number | null = null;
+      if (totalCurrentAssets !== null && totalCurrentLiabilities !== null) {
+        workingCapital = totalCurrentAssets - totalCurrentLiabilities;
+      }
+      writes.push(
+        upsertDealFinancialFact({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: null,
+          factType: CANONICAL_FACTS.WORKING_CAPITAL.fact_type,
+          factKey: CANONICAL_FACTS.WORKING_CAPITAL.fact_key,
+          factValueNum: workingCapital,
+          confidence: workingCapital === null ? null : baseConfidence,
+          provenance: {
+            source_type: "SPREAD",
+            source_ref: sourceRef,
+            as_of_date: asOfDate,
+            extractor: "backfillCanonicalFactsFromSpreads:v5",
+            calc: "TOTAL_CURRENT_ASSETS - TOTAL_CURRENT_LIABILITIES",
+            confidence: workingCapital === null ? null : baseConfidence,
+          },
+          ownerType: "DEAL",
+        }),
+      );
+
+      // CURRENT_RATIO = Current Assets / Current Liabilities (from BS spread row or computed)
+      const currentRatio =
+        tryFindRowNumberForCol(bs.rendered_json, { rowKey: "CURRENT_RATIO", colKey: bsColKey }) ??
+        tryFindRowNumber(bs.rendered_json, { key: "CURRENT_RATIO" }) ??
+        (totalCurrentAssets !== null && totalCurrentLiabilities !== null && totalCurrentLiabilities !== 0
+          ? totalCurrentAssets / totalCurrentLiabilities
+          : null);
+      writes.push(
+        upsertDealFinancialFact({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: null,
+          factType: CANONICAL_FACTS.CURRENT_RATIO.fact_type,
+          factKey: CANONICAL_FACTS.CURRENT_RATIO.fact_key,
+          factValueNum: currentRatio,
+          confidence: currentRatio === null ? null : baseConfidence,
+          provenance: {
+            source_type: "SPREAD",
+            source_ref: sourceRef,
+            as_of_date: asOfDate,
+            extractor: "backfillCanonicalFactsFromSpreads:v5",
+            calc: "TOTAL_CURRENT_ASSETS / TOTAL_CURRENT_LIABILITIES",
+            confidence: currentRatio === null ? null : baseConfidence,
+          },
+          ownerType: "DEAL",
+        }),
+      );
+
+      // DEBT_TO_EQUITY = Total Liabilities / Net Worth (from BS spread row or computed)
+      // Reuse TOTAL_LIABILITIES and NET_WORTH values already extracted above
+      const bsTotalLiabilities =
+        tryFindRowNumberForCol(bs.rendered_json, { rowKey: "TOTAL_LIABILITIES", colKey: bsColKey }) ??
+        tryFindRowNumber(bs.rendered_json, { key: "TOTAL_LIABILITIES" });
+      const bsNetWorth =
+        tryFindRowNumberForCol(bs.rendered_json, { rowKey: "NET_WORTH", colKey: bsColKey }) ??
+        tryFindRowNumber(bs.rendered_json, { key: "NET_WORTH" });
+
+      const debtToEquity =
+        tryFindRowNumberForCol(bs.rendered_json, { rowKey: "DEBT_TO_EQUITY", colKey: bsColKey }) ??
+        tryFindRowNumber(bs.rendered_json, { key: "DEBT_TO_EQUITY" }) ??
+        (bsTotalLiabilities !== null && bsNetWorth !== null && bsNetWorth !== 0
+          ? bsTotalLiabilities / bsNetWorth
+          : null);
+      writes.push(
+        upsertDealFinancialFact({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: null,
+          factType: CANONICAL_FACTS.DEBT_TO_EQUITY.fact_type,
+          factKey: CANONICAL_FACTS.DEBT_TO_EQUITY.fact_key,
+          factValueNum: debtToEquity,
+          confidence: debtToEquity === null ? null : baseConfidence,
+          provenance: {
+            source_type: "SPREAD",
+            source_ref: sourceRef,
+            as_of_date: asOfDate,
+            extractor: "backfillCanonicalFactsFromSpreads:v5",
+            calc: "TOTAL_LIABILITIES / NET_WORTH",
+            confidence: debtToEquity === null ? null : baseConfidence,
+          },
+          ownerType: "DEAL",
+        }),
+      );
     }
 
     // ── PERSONAL INCOME: TOTAL_PERSONAL_INCOME (per owner) ────────────────

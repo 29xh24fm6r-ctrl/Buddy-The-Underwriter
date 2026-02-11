@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Icon } from "@/components/ui/Icon";
 
 const SPREAD_TABS = [
+  { key: "moodys", label: "Moody's Package", href: "moodys", icon: "fact_check" },
   { key: "business", label: "Business Spreads", href: "business", icon: "analytics" },
   { key: "personal-income", label: "Personal Income", href: "personal-income", icon: "person" },
   { key: "personal-financial-statement", label: "PFS", href: "personal-financial-statement", icon: "account_balance" },

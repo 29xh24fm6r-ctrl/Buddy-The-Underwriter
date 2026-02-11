@@ -397,6 +397,27 @@ export async function POST(_req: Request, ctx: Ctx) {
       });
     }
 
+    // Auto-trigger risk pricing computation after snapshot (non-fatal)
+    try {
+      const { computeRiskPricing } = await import("@/buddy/pricing/riskPricingService");
+      const rpResult = await computeRiskPricing(dealId);
+      if (rpResult.ok) {
+        logLedgerEvent({
+          dealId,
+          bankId: access.bankId,
+          eventKey: "risk_pricing.auto_computed",
+          uiState: "done",
+          uiMessage: `Risk pricing auto-computed (grade ${rpResult.data.risk_grade})`,
+          meta: { risk_grade: rpResult.data.risk_grade, model_spread_bps: rpResult.data.model_spread_bps },
+        }).catch(() => {});
+      }
+    } catch (rpErr: any) {
+      console.warn("[recompute] risk pricing auto-trigger failed (non-fatal)", {
+        dealId,
+        error: rpErr?.message,
+      });
+    }
+
     // Count populated metrics for completeness
     // DealFinancialSnapshotV1 is a flat object — metrics are direct SnapshotMetricValue props.
     const METRIC_KEYS = [
@@ -410,6 +431,8 @@ export async function POST(_req: Request, ctx: Ctx) {
       "gross_receipts", "depreciation_addback", "global_cash_flow",
       "personal_total_income", "pfs_total_assets", "pfs_total_liabilities",
       "pfs_net_worth", "gcf_global_cash_flow", "gcf_dscr",
+      "revenue", "cogs", "gross_profit", "ebitda", "net_income",
+      "working_capital", "current_ratio", "debt_to_equity",
     ] as const;
     const populatedMetrics = METRIC_KEYS.filter(
       (k) => (snapshot as any)[k]?.value != null,

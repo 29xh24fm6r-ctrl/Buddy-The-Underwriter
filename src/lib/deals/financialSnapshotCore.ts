@@ -39,7 +39,17 @@ export type SnapshotMetricName =
   | "pfs_total_liabilities"
   | "pfs_net_worth"
   | "gcf_global_cash_flow"
-  | "gcf_dscr";
+  | "gcf_dscr"
+  // Income statement computed metrics
+  | "revenue"
+  | "cogs"
+  | "gross_profit"
+  | "ebitda"
+  | "net_income"
+  // Balance sheet computed metrics
+  | "working_capital"
+  | "current_ratio"
+  | "debt_to_equity";
 
 export type SnapshotMetricValue = {
   value_num: number | null;
@@ -119,6 +129,18 @@ export type DealFinancialSnapshotV1 = {
   gcf_global_cash_flow: SnapshotMetricValue;
   gcf_dscr: SnapshotMetricValue;
 
+  // Income statement computed metrics
+  revenue: SnapshotMetricValue;
+  cogs: SnapshotMetricValue;
+  gross_profit: SnapshotMetricValue;
+  ebitda: SnapshotMetricValue;
+  net_income: SnapshotMetricValue;
+
+  // Balance sheet computed metrics
+  working_capital: SnapshotMetricValue;
+  current_ratio: SnapshotMetricValue;
+  debt_to_equity: SnapshotMetricValue;
+
   // Meta
   as_of_date: string | null;
   completeness_pct: number;
@@ -174,10 +196,10 @@ export function factSourceType(f: MinimalFact): SnapshotSourceType {
 function sourcePriority(st: SnapshotSourceType): number {
   switch (st) {
     case "MANUAL":
+      return 4;
+    case "STRUCTURAL":
       return 3;
     case "SPREAD":
-      return 2;
-    case "STRUCTURAL":
       return 2;
     case "DOC_EXTRACT":
       return 1;
@@ -389,6 +411,16 @@ export function buildSnapshotFromFacts(args: {
     pfs_net_worth: get("pfs_net_worth"),
     gcf_global_cash_flow: get("gcf_global_cash_flow"),
     gcf_dscr: get("gcf_dscr"),
+
+    revenue: get("revenue"),
+    cogs: get("cogs"),
+    gross_profit: get("gross_profit"),
+    ebitda: get("ebitda"),
+    net_income: get("net_income"),
+
+    working_capital: get("working_capital"),
+    current_ratio: get("current_ratio"),
+    debt_to_equity: get("debt_to_equity"),
 
     as_of_date: snapshotAsOf,
     completeness_pct: completenessPct,
