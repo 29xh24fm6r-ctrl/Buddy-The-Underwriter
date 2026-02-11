@@ -177,7 +177,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   // 4–11. Parallel independent queries (snapshot, decision, packet, advancement, loan requests, pricing, ai pipeline, spreads)
-  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, legacyPricingResult, aiPipelineResult, spreadsResult, pricingInputsResult] = await Promise.all([
+  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, legacyPricingResult, aiPipelineResult, spreadsResult, riskPricingResult, structuralPricingResult] = await Promise.all([
     safeSupabaseCount(
       "snapshot",
       () =>
@@ -278,13 +278,24 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .in("status", ["QUEUED", "RUNNING", "FAILED"]),
       ctx
     ),
-    // Pricing assumptions (deal_pricing_inputs) existence check
-    safeSupabaseCount(
-      "pricing_inputs",
+    // Risk pricing finalization check
+    safeSupabaseQuery<{ finalized: boolean }>(
+      "risk_pricing",
       () =>
         sb
-          .from("deal_pricing_inputs")
-          .select("deal_id", { count: "exact", head: true })
+          .from("deal_risk_pricing_model")
+          .select("finalized")
+          .eq("deal_id", dealId)
+          .maybeSingle(),
+      ctx
+    ),
+    // Structural pricing existence check
+    safeSupabaseCount(
+      "structural_pricing",
+      () =>
+        sb
+          .from("deal_structural_pricing")
+          .select("id", { count: "exact", head: true })
           .eq("deal_id", dealId),
       ctx
     ),
@@ -342,9 +353,14 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     spreadsComplete = spreadsResult.data === 0;
   }
 
-  let pricingAssumptionsReady = false;
-  if (pricingInputsResult.ok) {
-    pricingAssumptionsReady = pricingInputsResult.data > 0;
+  let riskPricingFinalized = false;
+  if (riskPricingResult.ok && riskPricingResult.data) {
+    riskPricingFinalized = riskPricingResult.data.finalized === true;
+  }
+
+  let structuralPricingReady = false;
+  if (structuralPricingResult.ok) {
+    structuralPricingReady = structuralPricingResult.data > 0;
   }
 
   // Attestation check depends on decision result — runs after parallel batch
@@ -382,10 +398,11 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     decisionPresent,
     committeeRequired,
     pricingQuoteReady,
-    pricingAssumptionsReady,
+    riskPricingFinalized,
     attestationSatisfied,
     aiPipelineComplete,
     spreadsComplete,
+    structuralPricingReady,
   };
 
   // Map to unified stage
@@ -533,14 +550,25 @@ function computeBlockers(
     });
   }
 
-  // Pricing assumptions blocker — assumptions required to proceed through underwriting
+  // Risk pricing finalization blocker — must be reviewed and finalized before committee
   if (
     stage === "underwrite_in_progress" &&
-    !derived.pricingAssumptionsReady
+    !derived.riskPricingFinalized
   ) {
     blockers.push({
-      code: "pricing_assumptions_missing",
-      message: "Pricing assumptions must be saved before underwriting can proceed",
+      code: "risk_pricing_not_finalized",
+      message: "Risk pricing must be reviewed and finalized before advancing to committee",
+    });
+  }
+
+  // Structural pricing blocker — auto-created from loan request submission
+  if (
+    stage === "underwrite_in_progress" &&
+    !derived.structuralPricingReady
+  ) {
+    blockers.push({
+      code: "structural_pricing_missing",
+      message: "Structural pricing has not been computed (submit a loan request to auto-create)",
     });
   }
 
@@ -607,10 +635,11 @@ function createNotFoundState(): LifecycleState {
       decisionPresent: false,
       committeeRequired: false,
       pricingQuoteReady: false,
-      pricingAssumptionsReady: false,
+      riskPricingFinalized: false,
       attestationSatisfied: true,
       aiPipelineComplete: true,
       spreadsComplete: true,
+      structuralPricingReady: false,
     },
   };
 }
@@ -639,10 +668,11 @@ function createErrorState(code: string, message: string): LifecycleState {
       decisionPresent: false,
       committeeRequired: false,
       pricingQuoteReady: false,
-      pricingAssumptionsReady: false,
+      riskPricingFinalized: false,
       attestationSatisfied: true,
       aiPipelineComplete: true,
       spreadsComplete: true,
+      structuralPricingReady: false,
     },
   };
 }

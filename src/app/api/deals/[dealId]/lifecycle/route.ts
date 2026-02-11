@@ -70,10 +70,11 @@ function createFallbackState(
       decisionPresent: false,
       committeeRequired: false,
       pricingQuoteReady: false,
-      pricingAssumptionsReady: false,
+      riskPricingFinalized: false,
       attestationSatisfied: true,
       aiPipelineComplete: true,
       spreadsComplete: true,
+      structuralPricingReady: false,
       correlationId,
     },
   };

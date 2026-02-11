@@ -79,6 +79,14 @@ export async function createLoanRequest(
     },
   });
 
+  // Fire-and-forget: auto-create structural pricing when submitted with amount
+  if (initialStatus === "submitted" && (data as any).requested_amount) {
+    import("@/lib/structuralPricing/onLoanRequestSubmitted").then(
+      ({ onLoanRequestSubmitted }) =>
+        onLoanRequestSubmitted(data as unknown as LoanRequest),
+    ).catch(() => {});
+  }
+
   return { ok: true, loanRequest: data as unknown as LoanRequest };
 }
 
@@ -115,6 +123,14 @@ export async function updateLoanRequest(
       updates: Object.keys(updates),
     },
   });
+
+  // Fire-and-forget: recompute structural pricing when updated to submitted with amount
+  if ((data as any).status === "submitted" && (data as any).requested_amount) {
+    import("@/lib/structuralPricing/onLoanRequestSubmitted").then(
+      ({ onLoanRequestSubmitted }) =>
+        onLoanRequestSubmitted(data as unknown as LoanRequest),
+    ).catch(() => {});
+  }
 
   return { ok: true, loanRequest: data as unknown as LoanRequest };
 }

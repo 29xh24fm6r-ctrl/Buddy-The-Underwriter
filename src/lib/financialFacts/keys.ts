@@ -1,6 +1,6 @@
 import "server-only";
 
-export type FinancialFactSourceType = "SPREAD" | "DOC_EXTRACT" | "MANUAL";
+export type FinancialFactSourceType = "SPREAD" | "DOC_EXTRACT" | "MANUAL" | "STRUCTURAL";
 
 export type FinancialFactProvenance = {
   source_type: FinancialFactSourceType;
@@ -55,7 +55,10 @@ export type CanonicalFact = {
     | "PFS_TOTAL_LIABILITIES"
     | "PFS_NET_WORTH"
     | "GCF_GLOBAL_CASH_FLOW"
-    | "GCF_DSCR";
+    | "GCF_DSCR"
+    // Structural debt service breakdown
+    | "ANNUAL_DEBT_SERVICE_PROPOSED"
+    | "ANNUAL_DEBT_SERVICE_EXISTING";
   fact_type: "FINANCIAL_ANALYSIS" | "COLLATERAL" | "SOURCES_USES" | "BALANCE_SHEET" | "TAX_RETURN" | "PERSONAL_INCOME" | "PERSONAL_FINANCIAL_STATEMENT";
   fact_key: string;
 };
@@ -238,6 +241,18 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
     canonical_key: "GCF_DSCR",
     fact_type: "FINANCIAL_ANALYSIS",
     fact_key: "GCF_DSCR",
+  },
+
+  // Structural debt service breakdown
+  ANNUAL_DEBT_SERVICE_PROPOSED: {
+    canonical_key: "ANNUAL_DEBT_SERVICE_PROPOSED",
+    fact_type: "FINANCIAL_ANALYSIS",
+    fact_key: "ANNUAL_DEBT_SERVICE_PROPOSED",
+  },
+  ANNUAL_DEBT_SERVICE_EXISTING: {
+    canonical_key: "ANNUAL_DEBT_SERVICE_EXISTING",
+    fact_type: "FINANCIAL_ANALYSIS",
+    fact_key: "ANNUAL_DEBT_SERVICE_EXISTING",
   },
 };
 

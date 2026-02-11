@@ -253,7 +253,10 @@ function getBlockersForTransition(
       case "closing_docs_missing":
         return nextStage === "closed";
 
-      case "pricing_assumptions_missing":
+      case "risk_pricing_not_finalized":
+        return nextStage === "committee_ready";
+
+      case "structural_pricing_missing":
         return nextStage === "committee_ready";
 
       case "pricing_quote_missing":

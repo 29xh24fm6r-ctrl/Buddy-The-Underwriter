@@ -1,6 +1,6 @@
 import type { FinancialFactProvenance } from "@/lib/financialFacts/keys";
 
-export type SnapshotSourceType = "MANUAL" | "SPREAD" | "DOC_EXTRACT" | "UNKNOWN";
+export type SnapshotSourceType = "MANUAL" | "SPREAD" | "DOC_EXTRACT" | "STRUCTURAL" | "UNKNOWN";
 
 export type SnapshotMetricName =
   | "total_income_ttm"
@@ -166,6 +166,7 @@ export function factSourceType(f: MinimalFact): SnapshotSourceType {
   const raw = String(f.provenance?.source_type ?? "").toUpperCase();
   if (raw === "MANUAL") return "MANUAL";
   if (raw === "SPREAD") return "SPREAD";
+  if (raw === "STRUCTURAL") return "STRUCTURAL";
   if (raw === "DOC_EXTRACT") return "DOC_EXTRACT";
   return "UNKNOWN";
 }
@@ -175,6 +176,8 @@ function sourcePriority(st: SnapshotSourceType): number {
     case "MANUAL":
       return 3;
     case "SPREAD":
+      return 2;
+    case "STRUCTURAL":
       return 2;
     case "DOC_EXTRACT":
       return 1;

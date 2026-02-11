@@ -139,6 +139,30 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         : { jobId, error: (backfill as any).error },
     });
 
+    // Compute total debt service (proposed + existing) after facts materialized
+    try {
+      const { computeTotalDebtService } = await import(
+        "@/lib/structuralPricing/computeTotalDebtService"
+      );
+      const totalDebt = await computeTotalDebtService({ dealId, bankId });
+      if (totalDebt.ok) {
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "debt.total.computed",
+          uiState: "done",
+          uiMessage: `Total debt: proposed $${totalDebt.data.proposed?.toFixed(0) ?? "0"}, existing $${totalDebt.data.existing?.toFixed(0) ?? "0"}`,
+          meta: { jobId, ...totalDebt.data },
+        });
+      }
+    } catch (debtErr: any) {
+      console.warn("[spreadsProcessor] total debt failed (non-fatal)", {
+        dealId,
+        jobId,
+        error: debtErr?.message,
+      });
+    }
+
     // Recompute deal readiness after facts are materialized (non-fatal)
     try {
       const { recomputeDealReady } = await import("@/lib/deals/readiness");

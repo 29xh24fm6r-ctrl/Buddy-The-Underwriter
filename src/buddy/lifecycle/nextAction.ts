@@ -220,9 +220,9 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/pricing`,
       };
 
-    case "pricing_assumptions_missing":
+    case "risk_pricing_not_finalized":
       return {
-        label: "Set Pricing Assumptions",
+        label: "Finalize Pricing",
         href: `/deals/${dealId}/pricing`,
       };
 
@@ -254,6 +254,12 @@ export function getBlockerFixAction(
       return {
         label: "View Spreads",
         href: `/deals/${dealId}/spreads`,
+      };
+
+    case "structural_pricing_missing":
+      return {
+        label: "Submit Loan Request",
+        href: `/deals/${dealId}/cockpit?tab=setup`,
       };
 
     // Infrastructure/fetch errors - no direct fix
