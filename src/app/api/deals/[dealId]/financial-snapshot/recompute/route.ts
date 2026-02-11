@@ -386,6 +386,17 @@ export async function POST(_req: Request, ctx: Ctx) {
       narrative,
     });
 
+    // Recompute deal readiness now that snapshot exists (non-fatal)
+    try {
+      const { recomputeDealReady } = await import("@/lib/deals/readiness");
+      await recomputeDealReady(dealId);
+    } catch (readinessErr: any) {
+      console.warn("[recompute] readiness recompute failed (non-fatal)", {
+        dealId,
+        error: readinessErr?.message,
+      });
+    }
+
     // Count populated metrics for completeness
     // DealFinancialSnapshotV1 is a flat object — metrics are direct SnapshotMetricValue props.
     const METRIC_KEYS = [
