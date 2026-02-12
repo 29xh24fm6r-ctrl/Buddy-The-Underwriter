@@ -41,7 +41,12 @@ export type { UnderwriteInput, UnderwriteResult, UnderwriteFailure } from "./typ
 export function runFullUnderwrite(
   input: UnderwriteInput,
 ): UnderwriteResult | UnderwriteFailure {
-  const { model, product, instruments } = input;
+  const { model, product, instruments, bankConfig } = input;
+
+  // Extract config overrides (all optional — undefined = system defaults)
+  const policyConfig = bankConfig?.policy;
+  const stressScenarios = bankConfig?.stress?.scenarios;
+  const pricingConfig = bankConfig?.pricing;
 
   // Build snapshot opts with defaults
   const snapshotOpts: CreditSnapshotOpts = {
@@ -65,11 +70,14 @@ export function runFullUnderwrite(
   // Step 2: Product lens analysis
   const analysis = computeProductAnalysis(snapshot, product);
 
-  // Step 3: Policy evaluation
-  const policy = evaluatePolicy(snapshot, product);
+  // Step 3: Policy evaluation (with optional bank config)
+  const policy = evaluatePolicy(snapshot, product, policyConfig);
 
-  // Step 4: Stress testing
-  const stress = runStressScenarios(model, instruments, snapshotOpts, { product });
+  // Step 4: Stress testing (with optional custom scenarios)
+  const stress = runStressScenarios(model, instruments, snapshotOpts, {
+    product,
+    scenarios: stressScenarios,
+  });
   if (!stress) {
     return {
       failedAt: "stress",
@@ -80,11 +88,12 @@ export function runFullUnderwrite(
     };
   }
 
-  // Step 5: Pricing
+  // Step 5: Pricing (with optional bank config)
   const pricing = computePricing({
     product,
     tier: policy.tier,
     stressedTier: stress.worstTier,
+    config: pricingConfig,
   });
 
   // Step 6: Memo generation

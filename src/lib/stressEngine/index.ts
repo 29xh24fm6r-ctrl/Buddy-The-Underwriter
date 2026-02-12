@@ -11,7 +11,7 @@ import type { DebtInstrument } from "@/lib/debtEngine/types";
 import type { CreditSnapshotOpts } from "@/lib/creditMetrics/types";
 import type { ProductType } from "@/lib/creditLenses/types";
 import type { RiskTier } from "@/lib/policyEngine/types";
-import type { StressResult, StressScenarioResult } from "./types";
+import type { StressResult, StressScenarioDefinition, StressScenarioResult } from "./types";
 import { STRESS_SCENARIOS } from "./scenarios";
 import { runScenario } from "./runner";
 
@@ -49,6 +49,8 @@ function worstOf(a: RiskTier, b: RiskTier): RiskTier {
 
 export interface StressOpts {
   product: ProductType;
+  /** Custom stress scenarios. If provided, replaces system defaults entirely. */
+  scenarios?: StressScenarioDefinition[];
 }
 
 /**
@@ -69,7 +71,8 @@ export function runStressScenarios(
   snapshotOpts: CreditSnapshotOpts,
   opts: StressOpts,
 ): StressResult | undefined {
-  const baselineScenario = STRESS_SCENARIOS[0]; // Always BASELINE first
+  const scenarioDefs = opts.scenarios ?? STRESS_SCENARIOS;
+  const baselineScenario = scenarioDefs[0]; // Always BASELINE first
 
   // Run baseline
   const baseline = runScenario(
@@ -85,9 +88,9 @@ export function runStressScenarios(
   // Run stress scenarios
   const scenarios: StressScenarioResult[] = [baseline];
 
-  for (let i = 1; i < STRESS_SCENARIOS.length; i++) {
+  for (let i = 1; i < scenarioDefs.length; i++) {
     const result = runScenario(
-      STRESS_SCENARIOS[i],
+      scenarioDefs[i],
       model,
       instruments,
       snapshotOpts,

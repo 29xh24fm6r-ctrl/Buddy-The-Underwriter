@@ -15,6 +15,7 @@ import type { PolicyResult } from "@/lib/policyEngine/types";
 import type { StressResult } from "@/lib/stressEngine/types";
 import type { PricingResult } from "@/lib/pricingEngine/types";
 import type { CreditMemo } from "@/lib/memoEngine/types";
+import type { BankConfig } from "@/lib/configEngine/types";
 
 // ---------------------------------------------------------------------------
 // Input
@@ -25,6 +26,8 @@ export interface UnderwriteInput {
   product: ProductType;
   instruments?: DebtInstrument[];
   snapshotOpts?: Partial<CreditSnapshotOpts>;
+  /** Optional bank-specific configuration. When omitted, system defaults apply. */
+  bankConfig?: BankConfig;
 }
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@
 
 import type { ProductType } from "@/lib/creditLenses/types";
 import type { RiskTier } from "@/lib/policyEngine/types";
+import type { PricingConfigOverride } from "@/lib/configEngine/types";
 
 // ---------------------------------------------------------------------------
 // Base Rate
@@ -36,6 +37,8 @@ export interface PricingOpts {
   tier: RiskTier;
   /** Worst stress tier — used for stress adjustment. If omitted, no stress adjustment. */
   stressedTier?: RiskTier;
+  /** Optional bank-specific pricing config overrides */
+  config?: PricingConfigOverride;
 }
 
 // ---------------------------------------------------------------------------
