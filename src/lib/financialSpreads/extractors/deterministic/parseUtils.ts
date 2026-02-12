@@ -96,16 +96,19 @@ export type LabeledAmountResult = {
 export function findLabeledAmount(
   text: string,
   label: string | RegExp,
-  opts?: { maxLookahead?: number },
+  opts?: { maxLookahead?: number; crossLine?: boolean },
 ): LabeledAmountResult {
   const maxLook = opts?.maxLookahead ?? 120;
   const labelPat =
     label instanceof RegExp ? label.source : escapeRegex(label);
   const flags = label instanceof RegExp ? label.flags.replace("g", "") : "i";
 
+  // Character class for lookahead: same-line only or cross-line
+  const gapClass = opts?.crossLine ? "[\\s\\S]" : "[^\\n\\r]";
+
   // Match label, then capture a dollar amount within maxLookahead chars
   const re = new RegExp(
-    `(${labelPat})[^\\n\\r]{0,${maxLook}}?(\\$?\\(?-?[0-9][0-9,]*(?:\\.[0-9]{1,2})?\\)?)`,
+    `(${labelPat})${gapClass}{0,${maxLook}}?(\\$?\\(?-?[0-9][0-9,]*(?:\\.[0-9]{1,2})?\\)?)`,
     flags,
   );
   const m = re.exec(text);
@@ -134,7 +137,7 @@ export function findLabeledAmount(
 export function findAllLabeledAmounts(
   text: string,
   label: string | RegExp,
-  opts?: { maxLookahead?: number },
+  opts?: { maxLookahead?: number; crossLine?: boolean },
 ): LabeledAmountResult[] {
   const maxLook = opts?.maxLookahead ?? 120;
   const labelPat =
@@ -143,8 +146,10 @@ export function findAllLabeledAmounts(
     ? (label.flags.includes("g") ? label.flags : label.flags + "g")
     : "gi";
 
+  const gapClass = opts?.crossLine ? "[\\s\\S]" : "[^\\n\\r]";
+
   const re = new RegExp(
-    `(${labelPat})[^\\n\\r]{0,${maxLook}}?(\\$?\\(?-?[0-9][0-9,]*(?:\\.[0-9]{1,2})?\\)?)`,
+    `(${labelPat})${gapClass}{0,${maxLook}}?(\\$?\\(?-?[0-9][0-9,]*(?:\\.[0-9]{1,2})?\\)?)`,
     flags,
   );
 
