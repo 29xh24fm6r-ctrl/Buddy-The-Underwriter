@@ -177,7 +177,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   // 4–11. Parallel independent queries (snapshot, decision, packet, advancement, loan requests, pricing, ai pipeline, spreads)
-  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, legacyPricingResult, aiPipelineResult, spreadsResult, riskPricingResult, structuralPricingResult, pricingInputsResult] = await Promise.all([
+  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, legacyPricingResult, aiPipelineResult, spreadsResult, riskPricingResult, structuralPricingResult, pricingInputsResult, researchResult] = await Promise.all([
     safeSupabaseCount(
       "snapshot",
       () =>
@@ -309,6 +309,17 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .eq("deal_id", dealId),
       ctx
     ),
+    // Research pipeline completeness — count missions still queued/running
+    safeSupabaseCount(
+      "research_missions",
+      () =>
+        sb
+          .from("buddy_research_missions")
+          .select("id", { count: "exact", head: true })
+          .eq("deal_id", dealId)
+          .in("status", ["queued", "running"]),
+      ctx
+    ),
   ]);
 
   let financialSnapshotExists = false;
@@ -361,6 +372,11 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   let spreadsComplete = true;
   if (spreadsResult.ok) {
     spreadsComplete = spreadsResult.data === 0;
+  }
+
+  let researchComplete = true; // no missions = vacuously complete
+  if (researchResult.ok) {
+    researchComplete = researchResult.data === 0;
   }
 
   let riskPricingFinalized = false;
@@ -428,6 +444,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     structuralPricingReady,
     hasPricingAssumptions,
     hasSubmittedLoanRequest,
+    researchComplete,
   };
 
   // Map to unified stage
@@ -677,6 +694,7 @@ function createNotFoundState(): LifecycleState {
       structuralPricingReady: false,
       hasPricingAssumptions: false,
       hasSubmittedLoanRequest: false,
+      researchComplete: true,
     },
   };
 }
@@ -712,6 +730,7 @@ function createErrorState(code: string, message: string): LifecycleState {
       structuralPricingReady: false,
       hasPricingAssumptions: false,
       hasSubmittedLoanRequest: false,
+      researchComplete: true,
     },
   };
 }

@@ -44,6 +44,7 @@ const SOURCE_TO_BLOCKER_CODE: Record<string, LifecycleBlockerCode> = {
   risk_pricing: "data_fetch_failed",
   structural_pricing: "data_fetch_failed",
   pricing_inputs: "data_fetch_failed",
+  research_missions: "data_fetch_failed",
 };
 
 /**

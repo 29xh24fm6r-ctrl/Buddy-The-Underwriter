@@ -5,6 +5,7 @@ import { getLatestIndexRates, type IndexCode } from "@/lib/rates/indexRates";
 import { runDealRiskPricing } from "@/lib/pricing/runDealRiskPricing";
 import { logPipelineLedger } from "@/lib/pipeline/logPipelineLedger";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { deriveLifecycleState } from "@/buddy/lifecycle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +35,20 @@ export async function POST(
 
   if (!deal || deal.bank_id !== bankId) {
     return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
+  }
+
+  // Gate: require completed spreads, snapshot, and research before pricing
+  const lifecycle = await deriveLifecycleState(dealId);
+  const { spreadsComplete, financialSnapshotExists, researchComplete } = lifecycle.derived;
+  if (!spreadsComplete || !financialSnapshotExists || !researchComplete) {
+    const pending: string[] = [];
+    if (!financialSnapshotExists) pending.push("financial snapshot");
+    if (!spreadsComplete) pending.push("spread jobs");
+    if (!researchComplete) pending.push("research missions");
+    return NextResponse.json(
+      { ok: false, error: "pricing_not_ready", detail: `Requires: ${pending.join(", ")}` },
+      { status: 422 },
+    );
   }
 
   const { data: inputs } = await sb
