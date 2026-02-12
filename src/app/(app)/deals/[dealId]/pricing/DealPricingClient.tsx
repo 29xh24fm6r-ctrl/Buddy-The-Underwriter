@@ -33,8 +33,6 @@ type Deal = {
   borrower_name: string | null;
   stage: string | null;
   risk_score: number | null;
-  project_cost: number | null;
-  property_value: number | null;
   noi: number | null;
   dscr: number | null;
   ltv: number | null;

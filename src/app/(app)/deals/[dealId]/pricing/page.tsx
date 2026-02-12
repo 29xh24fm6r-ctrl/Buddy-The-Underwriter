@@ -86,7 +86,7 @@ export default async function Page(
   const { data: deal, error } = await sb
     .from("deals")
     .select(
-      "id, bank_id, borrower_name, stage, risk_score, project_cost, property_value, noi, dscr, ltv",
+      "id, bank_id, borrower_name, stage, risk_score, noi, dscr, ltv",
     )
     .eq("id", dealId)
     .eq("bank_id", bankId)

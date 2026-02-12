@@ -10,8 +10,6 @@ import { computePricing } from "@/lib/pricing/compute";
 type Deal = {
   id: string;
   risk_score: number | null;
-  project_cost: number | null;
-  property_value: number | null;
   noi: number | null;
   dscr: number | null;
   ltv: number | null;
@@ -68,8 +66,6 @@ export async function runDealRiskPricing(deal: Deal): Promise<DealPricingOutput>
   const inputs = {
     dealId: deal.id,
     risk_score: deal.risk_score,
-    project_cost: deal.project_cost,
-    property_value: deal.property_value,
     noi: deal.noi,
     dscr: deal.dscr,
     ltv: deal.ltv,
