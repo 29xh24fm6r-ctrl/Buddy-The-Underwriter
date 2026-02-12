@@ -16,6 +16,7 @@ import {
   type PeriodMetrics,
   PARITY_METRIC_KEYS,
 } from "./parityTargets";
+import { CANONICAL_PARITY_METRIC_KEYS } from "./metricDictionary";
 import type { V1SpreadData } from "./types";
 import type { FinancialModel } from "../types";
 
@@ -49,6 +50,7 @@ export interface Diff {
 
 // ---------------------------------------------------------------------------
 // ParityReport (per the spec)
+// Keys match CANONICAL_PARITY_METRICS from metricDictionary.ts.
 // ---------------------------------------------------------------------------
 
 export interface PeriodDifferences {

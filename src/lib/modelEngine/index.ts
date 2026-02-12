@@ -3,6 +3,10 @@
  *
  * Feature-flagged parallel financial modeling engine.
  * Default: disabled. Set USE_MODEL_ENGINE_V2=true to enable.
+ *
+ * PHASE 2 SCOPE: Parity validation utilities only.
+ * Do NOT import into production rendering paths (spreads, extraction, lifecycle, pricing).
+ * Parity tooling lives under ./parity/ — import from there for comparison work.
  */
 
 export { buildFinancialModel } from "./buildFinancialModel";
@@ -19,7 +23,12 @@ export { loadMetricRegistry, getV1SeedDefinitions } from "./metricRegistryLoader
 export { computeCapitalModel } from "./capitalModel";
 export { evaluateRisk } from "./riskEngine";
 export { deterministicHash } from "./hashing";
-export { canonicalSerialize, canonicalHash, hashFinancialModel } from "./hash/canonicalSerialize";
+export {
+  canonicalSerialize,
+  canonicalHash,
+  hashFinancialModel,
+  NONDETERMINISTIC_FIELD_NAMES,
+} from "./hash/canonicalSerialize";
 export { saveModelSnapshot, loadLatestSnapshot } from "./snapshotService";
 export type {
   FinancialModel,
