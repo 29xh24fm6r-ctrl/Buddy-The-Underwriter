@@ -27,7 +27,7 @@ export async function POST(
   const { data: deal } = await sb
     .from("deals")
     .select(
-      "id, bank_id, risk_score, requested_loan_amount, project_cost, property_value, noi, dscr, ltv",
+      "id, bank_id, risk_score, project_cost, property_value, noi, dscr, ltv",
     )
     .eq("id", dealId)
     .maybeSingle();
