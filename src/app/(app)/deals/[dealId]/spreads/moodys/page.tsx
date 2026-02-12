@@ -213,6 +213,21 @@ export default function MoodysSpreadPage() {
         </div>
       </div>
 
+      {/* Validation warnings (non-blocking) */}
+      {Array.isArray(meta.validation_errors) && meta.validation_errors.length > 0 && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <p className="text-xs font-semibold text-amber-300">
+            {meta.validation_errors.length} metric{meta.validation_errors.length > 1 ? "s" : ""} missing or incomplete
+          </p>
+          <p className="mt-1 text-xs text-amber-300/70">
+            {(meta.validation_errors as Array<{ metric: string }>).map((e) => e.metric).join(", ")}
+          </p>
+          <p className="mt-1 text-xs text-amber-300/50">
+            Complete pricing and loan setup to resolve.
+          </p>
+        </div>
+      )}
+
       {/* Statement sections */}
       {groups.map((group) => {
         const isCollapsed = collapsed[group.key] ?? false;

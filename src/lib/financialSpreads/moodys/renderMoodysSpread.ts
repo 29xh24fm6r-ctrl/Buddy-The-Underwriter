@@ -307,9 +307,11 @@ export function renderMoodysSpread(input: MoodysRenderInput): RenderedSpread {
 }
 
 /**
- * Render with snapshot validation. If validation fails with errors,
- * returns spread with status: "validation_error" and error details in meta.
- * If validation has warnings only, renders normally with warnings in meta.
+ * Render with snapshot validation.
+ *
+ * Always renders the full spread — validation issues are informational,
+ * not render-blocking. Users should see extracted financial data even when
+ * pricing-derived metrics (dscr, ltv, etc.) are not yet computed.
  */
 export function renderMoodysSpreadWithValidation(
   input: MoodysRenderInput & {
@@ -327,47 +329,15 @@ export function renderMoodysSpreadWithValidation(
   const businessModel = inferBusinessModel(input.snapshot);
   const validation = validateSnapshotForRender(input.snapshot, businessModel);
 
-  if (!validation.valid) {
-    // Return a minimal spread with validation errors
-    return {
-      schema_version: 3,
-      title: "Moody's Financial Analysis",
-      spread_type: "MOODYS",
-      status: "validation_error",
-      generatedAt: new Date().toISOString(),
-      asOf: null,
-      columns: [],
-      rows: [{
-        key: "_validation_error",
-        label: "Validation Failed",
-        values: [`${validation.errors.length} required metric(s) missing or invalid`],
-      }],
-      meta: {
-        template: "moodys",
-        version: 1,
-        validation_errors: validation.errors,
-        validation_warnings: validation.warnings,
-        business_model: businessModel,
-      },
-      validation,
-    };
-  }
-
+  // Always render the full spread with all available data
   const spread = renderMoodysSpread(input);
 
-  // Attach warnings to meta if any
-  if (validation.warnings.length > 0) {
-    spread.meta = {
-      ...spread.meta,
-      validation_warnings: validation.warnings,
-      business_model: businessModel,
-    };
-  } else {
-    spread.meta = {
-      ...spread.meta,
-      business_model: businessModel,
-    };
-  }
+  spread.meta = {
+    ...spread.meta,
+    business_model: businessModel,
+    ...(validation.errors.length > 0 ? { validation_errors: validation.errors } : {}),
+    ...(validation.warnings.length > 0 ? { validation_warnings: validation.warnings } : {}),
+  };
 
   return { ...spread, validation };
 }
