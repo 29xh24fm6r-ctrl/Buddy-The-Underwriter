@@ -33,3 +33,8 @@ export async function POST(req: NextRequest) {
   const result = await forwardLedgerBatch({ max });
   return NextResponse.json(result);
 }
+
+// Vercel Cron sends GET — delegate to POST (POST checks cron auth)
+export async function GET(req: NextRequest) {
+  return POST(req);
+}

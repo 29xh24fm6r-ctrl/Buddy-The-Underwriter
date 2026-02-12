@@ -143,3 +143,8 @@ export async function POST(req: Request) {
     );
   }
 }
+
+// Vercel Cron sends GET — delegate to POST (POST checks cron auth)
+export async function GET(req: Request) {
+  return POST(req);
+}
