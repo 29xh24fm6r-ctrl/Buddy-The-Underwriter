@@ -1,6 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { canonicalSerialize, canonicalHash, hashFinancialModel } from "../hash/canonicalSerialize";
+import {
+  canonicalSerialize,
+  canonicalHash,
+  hashFinancialModel,
+  NONDETERMINISTIC_FIELD_NAMES,
+} from "../hash/canonicalSerialize";
 import { buildFinancialModel } from "../buildFinancialModel";
 import type { FactInput } from "../buildFinancialModel";
 import type { FinancialModel } from "../types";
@@ -171,5 +176,102 @@ describe("hashFinancialModel stability", () => {
 
     assert.equal(hash1, hash2);
     assert.equal(model1.periods.length, 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 closeout: expanded hash stability guarantees
+// ---------------------------------------------------------------------------
+
+describe("canonicalSerialize: strip list completeness", () => {
+  it("NONDETERMINISTIC_FIELD_NAMES is exported and non-empty", () => {
+    assert.ok(Array.isArray(NONDETERMINISTIC_FIELD_NAMES));
+    assert.ok(NONDETERMINISTIC_FIELD_NAMES.length >= 5);
+  });
+
+  it("every field in the strip list is truly removed from serialization", () => {
+    const obj: Record<string, any> = { stableKey: "stable" };
+    for (const field of NONDETERMINISTIC_FIELD_NAMES) {
+      obj[field] = `value-for-${field}`;
+    }
+
+    const serialized = canonicalSerialize(obj);
+    for (const field of NONDETERMINISTIC_FIELD_NAMES) {
+      assert.ok(
+        !serialized.includes(field),
+        `Field "${field}" should be stripped but was found in serialized output`,
+      );
+    }
+    assert.ok(serialized.includes("stableKey"));
+  });
+
+  it("nested non-deterministic fields are also stripped", () => {
+    const obj = {
+      data: {
+        generatedAt: "2024-01-01",
+        nested: { updated_at: "2025-01-01", value: 42 },
+      },
+    };
+    const serialized = canonicalSerialize(obj);
+    assert.ok(!serialized.includes("generatedAt"));
+    assert.ok(!serialized.includes("updated_at"));
+    assert.ok(serialized.includes("42"));
+  });
+});
+
+describe("canonicalSerialize: Date stability", () => {
+  it("Date objects produce stable serialization (deterministic)", () => {
+    // Date objects are treated as plain objects by canonicalize —
+    // always pass ISO strings, not Date objects, for determinism.
+    const d = new Date("2024-12-31T00:00:00.000Z");
+    const s1 = canonicalSerialize({ date: d });
+    const s2 = canonicalSerialize({ date: d });
+    assert.equal(s1, s2); // Same Date → same output
+  });
+
+  it("ISO date strings are stable across serializations", () => {
+    const obj = { periodEnd: "2024-12-31" };
+    const s1 = canonicalSerialize(obj);
+    const s2 = canonicalSerialize(obj);
+    assert.equal(s1, s2);
+  });
+
+  it("ISO date strings produce expected output", () => {
+    const s = canonicalSerialize({ periodEnd: "2024-12-31" });
+    assert.ok(s.includes("2024-12-31"));
+  });
+});
+
+describe("canonicalHash: object identity reuse", () => {
+  it("shared object references across periods do not affect hash", () => {
+    const sharedIncome = { revenue: 1000000, cogs: 400000 };
+    const model1: FinancialModel = {
+      dealId: "identity-test",
+      periods: [
+        {
+          periodId: "identity-test:2023-12-31",
+          periodEnd: "2023-12-31",
+          type: "FYE",
+          income: sharedIncome, // same reference
+          balance: {},
+          cashflow: {},
+          qualityFlags: [],
+        },
+        {
+          periodId: "identity-test:2024-12-31",
+          periodEnd: "2024-12-31",
+          type: "FYE",
+          income: sharedIncome, // same reference reused
+          balance: {},
+          cashflow: {},
+          qualityFlags: [],
+        },
+      ],
+    };
+
+    // Deep clone with separate references
+    const model2: FinancialModel = JSON.parse(JSON.stringify(model1));
+
+    assert.equal(hashFinancialModel(model1), hashFinancialModel(model2));
   });
 });

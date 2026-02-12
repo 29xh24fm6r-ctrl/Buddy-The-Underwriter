@@ -19,6 +19,12 @@ export {
   PARITY_METRIC_KEYS,
 } from "./parityTargets";
 export type { PeriodMetricMap, PeriodMetrics, ParityMetricKey } from "./parityTargets";
+export {
+  CANONICAL_PARITY_METRICS,
+  CANONICAL_PARITY_METRIC_KEYS,
+  EXPECTED_METRIC_COUNT,
+} from "./metricDictionary";
+export type { CanonicalParityMetricKey, ParityMetricDefinition } from "./metricDictionary";
 export type {
   ParityComparison,
   ParityThresholds,

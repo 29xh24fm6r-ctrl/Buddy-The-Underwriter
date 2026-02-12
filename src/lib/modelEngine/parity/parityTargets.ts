@@ -26,25 +26,17 @@ export type PeriodMetricMap = Record<string, PeriodMetrics>;
 
 // ---------------------------------------------------------------------------
 // Canonical metric keys for parity comparison
+// Sourced from the single-source-of-truth metric dictionary.
 // ---------------------------------------------------------------------------
 
-export const PARITY_METRIC_KEYS = [
-  // Income Statement
-  "revenue",
-  "cogs",
-  "operatingExpenses",
-  "ebitda",
-  "netIncome",
-  // Balance Sheet
-  "cash",
-  "totalAssets",
-  "totalLiabilities",
-  "equity",
-  // Derived
-  "leverageDebtToEbitda",
-] as const;
+import {
+  CANONICAL_PARITY_METRIC_KEYS,
+  type CanonicalParityMetricKey,
+} from "./metricDictionary";
 
-export type ParityMetricKey = (typeof PARITY_METRIC_KEYS)[number];
+export const PARITY_METRIC_KEYS = CANONICAL_PARITY_METRIC_KEYS;
+
+export type ParityMetricKey = CanonicalParityMetricKey;
 
 // ---------------------------------------------------------------------------
 // V1 Spread row key → parity metric key

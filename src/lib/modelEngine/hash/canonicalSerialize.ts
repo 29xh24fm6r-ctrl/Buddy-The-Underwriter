@@ -10,8 +10,19 @@
 
 import { createHash } from "node:crypto";
 
-// Fields to strip from serialization (non-deterministic)
-const STRIP_FIELDS = new Set(["generatedAt", "calculatedAt", "computedAt", "created_at", "updated_at"]);
+/**
+ * Non-deterministic field names stripped from canonical serialization.
+ * Exported for test coverage — tests assert that all listed fields are truly removed.
+ */
+export const NONDETERMINISTIC_FIELD_NAMES = [
+  "generatedAt",
+  "calculatedAt",
+  "computedAt",
+  "created_at",
+  "updated_at",
+] as const;
+
+const STRIP_FIELDS = new Set<string>(NONDETERMINISTIC_FIELD_NAMES);
 
 /**
  * Recursively sort object keys and strip non-deterministic fields.
