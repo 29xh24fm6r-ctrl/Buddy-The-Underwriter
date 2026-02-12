@@ -33,7 +33,6 @@ type Deal = {
   borrower_name: string | null;
   stage: string | null;
   risk_score: number | null;
-  requested_loan_amount: number | null;
   project_cost: number | null;
   property_value: number | null;
   noi: number | null;
@@ -170,7 +169,7 @@ export default function DealPricingClient({
   const allInRatePct = baseRatePct + spreadBps / 100;
   const rateAsOf = effectiveRate?.asOf ?? computed.rateAsOf;
   const rateSource = effectiveRate?.source ?? computed.rateSource;
-  const principal = form.loan_amount ?? loanRequestAmount ?? deal.requested_loan_amount ?? 0;
+  const principal = form.loan_amount ?? loanRequestAmount ?? 0;
   const monthlyRate = allInRatePct / 100 / 12;
   const amortMonths = Math.max(1, form.amort_months || 0);
   const paymentEstimate = calculatePayment(principal, monthlyRate, amortMonths);
@@ -1216,7 +1215,7 @@ function normalizeInputs(deal: Deal, inputs: PricingInputs | null, loanRequestAm
     index_tenor: null,
     base_rate_override_pct: null,
     spread_override_bps: null,
-    loan_amount: loanRequestAmount ?? deal.requested_loan_amount ?? null,
+    loan_amount: loanRequestAmount ?? null,
     term_months: 120,
     amort_months: 300,
     interest_only_months: 0,
