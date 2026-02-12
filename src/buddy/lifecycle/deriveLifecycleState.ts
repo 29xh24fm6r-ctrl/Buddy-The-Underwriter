@@ -177,7 +177,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   // 4–11. Parallel independent queries (snapshot, decision, packet, advancement, loan requests, pricing, ai pipeline, spreads)
-  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, legacyPricingResult, aiPipelineResult, spreadsResult, riskPricingResult, structuralPricingResult] = await Promise.all([
+  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, legacyPricingResult, aiPipelineResult, spreadsResult, riskPricingResult, structuralPricingResult, pricingInputsResult] = await Promise.all([
     safeSupabaseCount(
       "snapshot",
       () =>
@@ -299,6 +299,16 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .eq("deal_id", dealId),
       ctx
     ),
+    // Pricing assumptions existence check (deal_pricing_inputs row)
+    safeSupabaseCount(
+      "pricing_inputs",
+      () =>
+        sb
+          .from("deal_pricing_inputs")
+          .select("deal_id", { count: "exact", head: true })
+          .eq("deal_id", dealId),
+      ctx
+    ),
   ]);
 
   let financialSnapshotExists = false;
@@ -363,6 +373,19 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     structuralPricingReady = structuralPricingResult.data > 0;
   }
 
+  let hasPricingAssumptions = false;
+  if (pricingInputsResult.ok) {
+    hasPricingAssumptions = pricingInputsResult.data > 0;
+  }
+
+  let hasSubmittedLoanRequest = false;
+  if (loanRequestResult.ok && loanRequestResult.data) {
+    const requests = loanRequestResult.data as Array<{ id: string; status: string; requested_amount: number | null }>;
+    hasSubmittedLoanRequest = requests.some(
+      (r) => r.status !== "draft" && r.requested_amount != null && r.requested_amount > 0,
+    );
+  }
+
   // Attestation check depends on decision result — runs after parallel batch
   let attestationSatisfied = true;
   if (latestDecisionId && deal.bank_id) {
@@ -403,6 +426,8 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     aiPipelineComplete,
     spreadsComplete,
     structuralPricingReady,
+    hasPricingAssumptions,
+    hasSubmittedLoanRequest,
   };
 
   // Map to unified stage
@@ -448,7 +473,8 @@ function mapToUnifiedStage(
         return derived.requiredDocsReceivedPct > 0 ? "docs_in_progress" : "docs_requested";
       }
       // Docs satisfied - check if ready for underwrite
-      if (derived.financialSnapshotExists) {
+      // Requires submitted loan request + pricing assumptions (NOT financial snapshot)
+      if (derived.hasSubmittedLoanRequest && derived.hasPricingAssumptions) {
         return "underwrite_ready";
       }
       return "docs_satisfied";
@@ -542,11 +568,20 @@ function computeBlockers(
     });
   }
 
-  // Underwrite readiness blockers
-  if (stage === "docs_satisfied" && !derived.financialSnapshotExists) {
+  // Pricing assumptions blocker — needed to advance from docs_satisfied to underwrite_ready
+  if (stage === "docs_satisfied" && !derived.hasPricingAssumptions) {
+    blockers.push({
+      code: "pricing_assumptions_required",
+      message: "Pricing assumptions must be configured before underwriting",
+    });
+  }
+
+  // Financial snapshot blocker — fires in underwrite_ready stage
+  // (snapshot is generated IN the underwrite flow, not as a prerequisite TO it)
+  if (stage === "underwrite_ready" && !derived.financialSnapshotExists) {
     blockers.push({
       code: "financial_snapshot_missing",
-      message: "Financial snapshot required before underwriting",
+      message: "Financial snapshot must be generated to begin underwriting",
     });
   }
 
@@ -640,6 +675,8 @@ function createNotFoundState(): LifecycleState {
       aiPipelineComplete: true,
       spreadsComplete: true,
       structuralPricingReady: false,
+      hasPricingAssumptions: false,
+      hasSubmittedLoanRequest: false,
     },
   };
 }
@@ -673,6 +710,8 @@ function createErrorState(code: string, message: string): LifecycleState {
       aiPipelineComplete: true,
       spreadsComplete: true,
       structuralPricingReady: false,
+      hasPricingAssumptions: false,
+      hasSubmittedLoanRequest: false,
     },
   };
 }

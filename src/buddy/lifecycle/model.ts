@@ -16,7 +16,7 @@
  * - docs_requested: deals.stage = "intake" + checklist seeded
  * - docs_in_progress: deals.stage = "collecting" + checklist incomplete
  * - docs_satisfied: deals.stage = "collecting" + checklist complete
- * - underwrite_ready: docs_satisfied + financial snapshot exists
+ * - underwrite_ready: docs_satisfied + submitted loan request + pricing assumptions exist
  * - underwrite_in_progress: deals.stage = "underwriting"
  * - committee_ready: underwrite complete + committee packet exists
  * - committee_decisioned: decision_snapshots.status = "final"
@@ -61,6 +61,7 @@ export type LifecycleBlockerCode =
   | "loan_request_incomplete"
   | "ai_pipeline_incomplete"
   | "spreads_incomplete"
+  | "pricing_assumptions_required"
   | "structural_pricing_missing"
   // Runtime/infrastructure blockers - specific per data source
   | "checklist_fetch_failed"
@@ -118,6 +119,10 @@ export type LifecycleDerived = {
   spreadsComplete: boolean;
   /** True if structural pricing has been computed from loan request */
   structuralPricingReady: boolean;
+  /** True if deal_pricing_inputs row exists for this deal */
+  hasPricingAssumptions: boolean;
+  /** True if at least one loan request is non-draft with a requested_amount */
+  hasSubmittedLoanRequest: boolean;
   /** Request correlation ID for debugging (optional, set by route) */
   correlationId?: string;
 };
