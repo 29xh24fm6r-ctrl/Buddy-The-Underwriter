@@ -206,7 +206,16 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     // 4. Diff
     const diff = diffSpreadViewModels(v1ViewModel, v2ViewModel);
 
-    // 5. Shadow compare logging (fire-and-forget)
+    // 5. Shadow compare logging (fire-and-forget) — lean payload only
+    const missingRows = diff.sections.reduce((n, s) => n + s.rowsOnlyInV1.length, 0);
+    const extraRows = diff.sections.reduce((n, s) => n + s.rowsOnlyInV2.length, 0);
+    const allCellDiffs = diff.sections.flatMap((s) => s.cellDiffs);
+    const topDiffs = allCellDiffs
+      .filter((d) => d.absDelta !== null)
+      .sort((a, b) => (b.absDelta ?? 0) - (a.absDelta ?? 0))
+      .slice(0, 5)
+      .map((d) => ({ rowKey: d.rowKey, periodId: d.columnKey, delta: d.delta }));
+
     void writeSystemEvent({
       event_type: diff.summary.pass ? "success" : "warning",
       severity: diff.summary.pass ? "info" : "warning",
@@ -215,15 +224,11 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       bank_id: access.bankId ?? undefined,
       error_code: "RENDER_DIFF_COMPUTED",
       payload: {
-        totalCells: diff.summary.totalCells,
-        matchingCells: diff.summary.matchingCells,
-        differingCells: diff.summary.differingCells,
-        materialDiffs: diff.summary.materialDiffs,
-        maxAbsDelta: diff.summary.maxAbsDelta,
-        pass: diff.summary.pass,
-        v1Rows: v1ViewModel.meta.rowCount,
-        v2Rows: v2ViewModel.meta.rowCount,
-        columnsMatch: diff.columnsMatch,
+        materiallyDifferent: diff.summary.materialDiffs > 0,
+        missingRows,
+        extraRows,
+        cellDiffs: diff.summary.differingCells,
+        topDiffs,
       },
     });
 

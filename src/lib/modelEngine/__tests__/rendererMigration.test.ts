@@ -1,5 +1,5 @@
 /**
- * Phase 3 — Renderer Migration Tests
+ * Phase 3 + 3F — Renderer Migration Tests
  *
  * Tests:
  * 1. V1 adapter: RenderedSpread → SpreadViewModel
@@ -7,9 +7,10 @@
  * 3. Diff utility: diffSpreadViewModels
  * 4. Determinism: same input → same output
  * 5. Layout contract: section/row counts
+ * 6. Phase 3F: flag gate, ViewModel → page compatibility
  */
 
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
 import { renderFromLegacySpread } from "../renderer/v1Adapter";
@@ -376,5 +377,66 @@ describe("V2 adapter: layout contract", () => {
     assert.equal(vm.meta.rowCount, MOODYS_ROWS.length);
     // 82 rows: BS(24) + IS(28) + CF(4) + Ratios(19) + Exec(7)
     assert.equal(vm.meta.rowCount, 82);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Phase 3F: flag gate + ViewModel → page compatibility
+// ---------------------------------------------------------------------------
+
+describe("Phase 3F: flag gate", () => {
+  let savedEnv: string | undefined;
+
+  beforeEach(() => {
+    savedEnv = process.env.USE_MODEL_ENGINE_V2;
+  });
+
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env.USE_MODEL_ENGINE_V2;
+    else process.env.USE_MODEL_ENGINE_V2 = savedEnv;
+  });
+
+  it("isModelEngineV2Enabled() returns false when flag is unset", async () => {
+    delete process.env.USE_MODEL_ENGINE_V2;
+    const { isModelEngineV2Enabled } = await import("@/lib/modelEngine");
+    assert.equal(isModelEngineV2Enabled(), false);
+  });
+
+  it("isModelEngineV2Enabled() returns true when flag is 'true'", async () => {
+    process.env.USE_MODEL_ENGINE_V2 = "true";
+    const { isModelEngineV2Enabled } = await import("@/lib/modelEngine");
+    assert.equal(isModelEngineV2Enabled(), true);
+  });
+});
+
+describe("Phase 3F: ViewModel → MultiPeriodSpreadTable compatibility", () => {
+  it("V2 ViewModel rows have valueByCol + displayByCol compatible with table props", () => {
+    const vm = renderFromFinancialModel(MODEL);
+    for (const section of vm.sections) {
+      for (const row of section.rows) {
+        // valueByCol must be Record<string, number | null> (subset of string | number | null)
+        for (const val of Object.values(row.valueByCol)) {
+          assert.ok(val === null || typeof val === "number", `Non-numeric value in ${row.key}: ${val}`);
+        }
+        // displayByCol must be Record<string, string | null>
+        for (const val of Object.values(row.displayByCol)) {
+          assert.ok(val === null || typeof val === "string", `Non-string display in ${row.key}: ${val}`);
+        }
+        // kind must be a valid SpreadRowKind
+        assert.ok(
+          ["source", "total", "derived", "ratio", "section_header"].includes(row.kind),
+          `Invalid kind '${row.kind}' in ${row.key}`,
+        );
+      }
+    }
+  });
+
+  it("V2 ViewModel columns have key + label + kind", () => {
+    const vm = renderFromFinancialModel(MODEL);
+    for (const col of vm.columns) {
+      assert.ok(typeof col.key === "string" && col.key.length > 0);
+      assert.ok(typeof col.label === "string" && col.label.length > 0);
+      assert.ok(typeof col.kind === "string");
+    }
   });
 });
