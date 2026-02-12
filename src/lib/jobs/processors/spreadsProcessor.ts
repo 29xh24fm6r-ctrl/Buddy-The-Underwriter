@@ -33,7 +33,6 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     .from("deal_spread_jobs")
     .update({
       status: "RUNNING",
-      started_at: new Date().toISOString(),
       leased_until: leaseUntil,
       lease_owner: leaseOwner,
       updated_at: new Date().toISOString(),
@@ -179,7 +178,6 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       .from("deal_spread_jobs")
       .update({
         status: "SUCCEEDED",
-        finished_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         error: null,
       })
@@ -232,7 +230,6 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
           status: "FAILED",
           attempt,
           error: errMsg,
-          finished_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq("id", jobId);
