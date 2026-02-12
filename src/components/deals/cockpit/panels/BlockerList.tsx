@@ -18,6 +18,7 @@ const BLOCKER_ICONS: Record<string, string> = {
   loan_request_incomplete: "edit_note",
   ai_pipeline_incomplete: "smart_toy",
   spreads_incomplete: "table_chart",
+  pricing_assumptions_required: "tune",
   structural_pricing_missing: "payments",
   pricing_quote_missing: "request_quote",
   risk_pricing_not_finalized: "price_check",

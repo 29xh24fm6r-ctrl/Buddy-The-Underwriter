@@ -98,13 +98,10 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
 
     case "docs_satisfied":
       return {
-        label: "Generate Snapshot",
+        label: "Set Pricing Assumptions",
         href: `/deals/${dealId}/pricing`,
-        intent: "runnable",
-        serverAction: "generate_snapshot",
-        shouldAdvance: true,
-        description: "Create financial snapshot to unlock underwriting",
-        estimatedTime: "~15s",
+        intent: "navigate",
+        description: "Configure pricing assumptions to unlock underwriting",
       };
 
     case "underwrite_ready":
@@ -254,6 +251,12 @@ export function getBlockerFixAction(
       return {
         label: "View Spreads",
         href: `/deals/${dealId}/spreads`,
+      };
+
+    case "pricing_assumptions_required":
+      return {
+        label: "Set Pricing Assumptions",
+        href: `/deals/${dealId}/pricing`,
       };
 
     case "structural_pricing_missing":

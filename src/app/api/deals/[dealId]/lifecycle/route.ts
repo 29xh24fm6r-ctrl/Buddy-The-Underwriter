@@ -75,6 +75,8 @@ function createFallbackState(
       aiPipelineComplete: true,
       spreadsComplete: true,
       structuralPricingReady: false,
+      hasPricingAssumptions: false,
+      hasSubmittedLoanRequest: false,
       correlationId,
     },
   };

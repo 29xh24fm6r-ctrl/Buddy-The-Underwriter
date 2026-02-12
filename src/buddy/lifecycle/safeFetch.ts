@@ -43,6 +43,7 @@ const SOURCE_TO_BLOCKER_CODE: Record<string, LifecycleBlockerCode> = {
   ai_pipeline: "ai_pipeline_incomplete",
   risk_pricing: "data_fetch_failed",
   structural_pricing: "data_fetch_failed",
+  pricing_inputs: "data_fetch_failed",
 };
 
 /**

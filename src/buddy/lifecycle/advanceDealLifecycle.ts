@@ -235,8 +235,11 @@ function getBlockersForTransition(
       case "missing_required_docs":
         return ["docs_satisfied", "underwrite_ready"].includes(nextStage);
 
-      case "financial_snapshot_missing":
+      case "pricing_assumptions_required":
         return nextStage === "underwrite_ready";
+
+      case "financial_snapshot_missing":
+        return nextStage === "underwrite_in_progress";
 
       case "underwrite_not_started":
         return nextStage === "underwrite_in_progress";
