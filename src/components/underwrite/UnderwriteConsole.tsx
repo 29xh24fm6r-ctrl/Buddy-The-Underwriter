@@ -97,24 +97,35 @@ export default function UnderwriteConsole({ dealId }: Props) {
 
   // Load artifact history
   const loadHistory = useCallback(async () => {
-    const res = await fetch(`/api/deals/${dealId}/underwrite/artifacts`, {
-      cache: "no-store",
-    });
-    const data = await res.json();
-    if (data.ok) setHistory(data.artifacts ?? []);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/underwrite/artifacts`, {
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (data.ok) setHistory(data.artifacts ?? []);
+      else setError(data.error ?? "Failed to load artifact history");
+    } catch (err) {
+      setError(String(err));
+    }
   }, [dealId]);
 
   // Load artifact detail
   const loadDetail = useCallback(
     async (artifactId: string) => {
       setLoadingDetail(true);
-      const res = await fetch(
-        `/api/deals/${dealId}/underwrite/artifacts/${artifactId}`,
-        { cache: "no-store" },
-      );
-      const data = await res.json();
-      if (data.ok) setDetail(data.artifact);
-      setLoadingDetail(false);
+      try {
+        const res = await fetch(
+          `/api/deals/${dealId}/underwrite/artifacts/${artifactId}`,
+          { cache: "no-store" },
+        );
+        const data = await res.json();
+        if (data.ok) setDetail(data.artifact);
+        else setError(data.error ?? "Failed to load artifact detail");
+      } catch (err) {
+        setError(String(err));
+      } finally {
+        setLoadingDetail(false);
+      }
     },
     [dealId],
   );
