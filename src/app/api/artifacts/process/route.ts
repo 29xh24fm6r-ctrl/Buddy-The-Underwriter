@@ -241,13 +241,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET for dev testing only
+// Vercel Cron sends GET — delegate to POST (POST checks auth via isAuthorized)
 export async function GET(req: NextRequest) {
-  if (process.env.NODE_ENV === "production") {
-    return NextResponse.json(
-      { ok: false, error: "GET not allowed in production" },
-      { status: 405 },
-    );
-  }
   return POST(req);
 }

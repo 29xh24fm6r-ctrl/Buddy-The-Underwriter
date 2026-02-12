@@ -127,10 +127,17 @@ export async function POST(req: NextRequest) {
 /**
  * GET /api/jobs/worker/tick
  *
- * Returns job queue statistics (admin-only).
+ * Vercel Cron sends GET with Authorization: Bearer <CRON_SECRET>.
+ * When cron/worker-authenticated, delegate to POST for job processing.
+ * Otherwise, return job queue statistics (admin-only).
  */
-export async function GET() {
-  // Stats are admin-only. (Keep simple: no WORKER_SECRET access here.)
+export async function GET(req: NextRequest) {
+  // Vercel Cron sends GET — delegate to POST for actual job processing
+  if (hasValidWorkerSecret(req)) {
+    return POST(req);
+  }
+
+  // Stats are admin-only
   try {
     await requireSuperAdmin();
   } catch {
