@@ -37,17 +37,20 @@ const LABEL_PATTERNS: Array<{ key: string; patterns: RegExp[] }> = [
   {
     key: "PFS_CASH",
     patterns: [
+      /cash\s+(?:and\s+)?short[\s-]?term\s+invest/i,
       /cash\s+(?:in\s+)?banks?/i,
       /cash\s+(?:and\s+)?(?:cash\s+)?equivalents?/i,
       /checking\s+(?:and\s+)?savings/i,
       /deposits?\s+(?:in\s+)?(?:financial\s+)?institutions?/i,
+      /liquid\s+assets?/i,
     ],
   },
   {
     key: "PFS_SECURITIES",
     patterns: [
+      /stocks?\s*(?:&|and)\s*bonds?/i,
+      /(?:other\s+)?marketable\s+securities/i,
       /stocks?,?\s+bonds?\s+(?:and\s+)?(?:other\s+)?securities/i,
-      /marketable\s+securities/i,
       /brokerage\s+accounts?/i,
       /investment\s+accounts?/i,
     ],
@@ -55,6 +58,8 @@ const LABEL_PATTERNS: Array<{ key: string; patterns: RegExp[] }> = [
   {
     key: "PFS_REAL_ESTATE",
     patterns: [
+      /real\s+estate[\s-]+(?:personal\s+)?residen/i,
+      /real\s+estate[\s-]+invest/i,
       /real\s+estate\s+(?:owned|market\s+value)/i,
       /(?:market\s+)?value\s+of\s+(?:real\s+)?(?:estate|properties)/i,
       /property\s+values?/i,
@@ -64,6 +69,7 @@ const LABEL_PATTERNS: Array<{ key: string; patterns: RegExp[] }> = [
     key: "PFS_BUSINESS_INTERESTS",
     patterns: [
       /business\s+(?:ownership|interests?|equity)/i,
+      /(?:general|limited)\s+partnership\s+interests?/i,
       /partnership\s+(?:interests?|equity)/i,
       /LLC\s+(?:interests?|equity)/i,
     ],
@@ -80,9 +86,11 @@ const LABEL_PATTERNS: Array<{ key: string; patterns: RegExp[] }> = [
     key: "PFS_OTHER_ASSETS",
     patterns: [
       /other\s+assets?/i,
-      /auto(?:mobile)?s?\s+(?:value|owned)/i,
-      /life\s+insurance\s+(?:cash\s+)?value/i,
+      /auto(?:mobile)?s?\s+(?:value|owned)?/i,
+      /life\s+insurance\s+(?:cash\s+)?(?:surrender\s+)?value/i,
+      /cash\s+surrender\s+value/i,
       /personal\s+property/i,
+      /notes?\s+receivable/i,
     ],
   },
   {
@@ -95,6 +103,7 @@ const LABEL_PATTERNS: Array<{ key: string; patterns: RegExp[] }> = [
   {
     key: "PFS_MORTGAGES",
     patterns: [
+      /mortgages?\s+(?:&|and)\s+obligations?\s+due/i,
       /mortgage(?:s)?\s+(?:payable|balance|owed|on\s+real\s+estate)/i,
       /(?:home|real\s+estate)\s+(?:loan|mortgage)\s+balance/i,
     ],
@@ -105,11 +114,13 @@ const LABEL_PATTERNS: Array<{ key: string; patterns: RegExp[] }> = [
       /installment\s+(?:debt|loans?|accounts?)/i,
       /auto\s+loans?/i,
       /student\s+loans?/i,
+      /notes?\s+(?:&|and)\s+accounts?\s+payable/i,
     ],
   },
   {
     key: "PFS_CREDIT_CARDS",
     patterns: [
+      /(?:outstanding\s+)?credit\s+card\s+balance/i,
       /credit\s+card\s+(?:balance|debt)/i,
       /revolving\s+(?:debt|credit)/i,
     ],
@@ -151,14 +162,17 @@ const LABEL_PATTERNS: Array<{ key: string; patterns: RegExp[] }> = [
       /annual\s+(?:debt\s+)?(?:service|payments?)/i,
       /total\s+(?:annual\s+)?(?:debt\s+)?(?:service|payments?)/i,
       /(?:monthly|annual)\s+(?:loan|debt)\s+payments?/i,
+      /loan\s+payments?\s+(?:including|incl)/i,
     ],
   },
   {
     key: "PFS_LIVING_EXPENSES",
     patterns: [
       /(?:annual\s+)?living\s+(?:expenses?|costs?)/i,
+      /general\s+living\s+(?:expenses?|costs?)/i,
       /(?:annual\s+)?household\s+(?:expenses?|costs?)/i,
       /personal\s+(?:expenses?|costs?|obligations?)/i,
+      /total\s+expenses/i,
     ],
   },
 ];
@@ -285,11 +299,14 @@ function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
     for (const pattern of patterns) {
       if (found) break;
 
-      const result = findLabeledAmount(text, pattern);
+      // Try same-line first, then cross-line fallback
+      let result = findLabeledAmount(text, pattern);
+      let confidence = key.startsWith("PFS_TOTAL") || key === "PFS_NET_WORTH" ? 0.50 : 0.45;
+      if (result.value === null) {
+        result = findLabeledAmount(text, pattern, { crossLine: true });
+        confidence = Math.max(0.40, confidence - 0.05);
+      }
       if (result.value === null) continue;
-
-      // PFS gets lower confidence due to format diversity
-      const confidence = key.startsWith("PFS_TOTAL") || key === "PFS_NET_WORTH" ? 0.50 : 0.45;
 
       items.push({
         factKey: key,

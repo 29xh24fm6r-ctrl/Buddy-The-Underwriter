@@ -26,6 +26,7 @@
     "vercel:preview:url": "node scripts/vercel-latest-url.mjs",
     "verify:underwrite": "node scripts/verify-underwrite.mjs",
     "check:icons": "node scripts/check-no-material-icon-tokens.mjs",
+    "check:no-llm-deterministic": "bash scripts/check-no-llm-in-deterministic.sh",
     "audit:layout": "node scripts/layout-audit.mjs",
     "capture:marketing": "node scripts/capture-marketing-screenshots.mjs",
     "e2e:install": "playwright install --with-deps",

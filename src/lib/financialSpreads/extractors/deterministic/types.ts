@@ -7,7 +7,7 @@ import type { ExtractionResult } from "../shared";
  *  docai_table      — Parsed from Document AI's table extraction
  *  ocr_regex        — Parsed from OCR text using regex patterns
  */
-export type ExtractionPath = "docai_structured" | "ocr_regex" | "docai_table";
+export type ExtractionPath = "docai_structured" | "ocr_regex" | "docai_table" | "ocr_generic_scan";
 
 export type DeterministicExtractorArgs = {
   dealId: string;

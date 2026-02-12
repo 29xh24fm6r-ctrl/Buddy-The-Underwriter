@@ -15,12 +15,14 @@ import {
   findEntitiesByType,
   entityToMoney,
 } from "./docAiParser";
+import { normalizePlLabel } from "../../normalization/plAliases";
 
 // ---------------------------------------------------------------------------
 // Canonical line item keys (same as original extractor)
 // ---------------------------------------------------------------------------
 
 const VALID_LINE_KEYS = new Set([
+  // CRE-specific
   "GROSS_RENTAL_INCOME",
   "VACANCY_CONCESSIONS",
   "OTHER_INCOME",
@@ -41,6 +43,13 @@ const VALID_LINE_KEYS = new Set([
   "TOTAL_OPERATING_EXPENSES",
   "NET_OPERATING_INCOME",
   "NET_INCOME",
+  // General business P&L
+  "TOTAL_REVENUE",
+  "COST_OF_GOODS_SOLD",
+  "GROSS_PROFIT",
+  "SELLING_GENERAL_ADMIN",
+  "OPERATING_INCOME",
+  "EBITDA",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -48,26 +57,35 @@ const VALID_LINE_KEYS = new Set([
 // ---------------------------------------------------------------------------
 
 const LABEL_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
+  // ── General business P&L (checked first — more common) ────────────────
+  { key: "TOTAL_REVENUE", pattern: /total\s+(?:sales\s+)?revenue|(?:net|gross)\s+(?:sales|revenue)|total\s+sales|service\s+(?:income|revenue)|fee\s+income/i },
+  { key: "COST_OF_GOODS_SOLD", pattern: /cost\s+of\s+(?:goods\s+)?sold|\bCOGS\b|(?:total\s+)?cost\s+of\s+(?:sales|revenue)|direct\s+costs?/i },
+  { key: "GROSS_PROFIT", pattern: /gross\s+(?:profit|margin)/i },
+  { key: "SELLING_GENERAL_ADMIN", pattern: /selling[\s,]+general\s+(?:&|and)\s+admin|\bSG&?A\b|total\s+general\s+and\s+admin/i },
+  { key: "OPERATING_INCOME", pattern: /(?:income|profit|earnings)\s+from\s+operations|operating\s+(?:income|profit|earnings)/i },
+  { key: "EBITDA", pattern: /\bEBITDA\b/i },
+  // ── CRE-specific ──────────────────────────────────────────────────────
   { key: "GROSS_RENTAL_INCOME", pattern: /gross\s+(?:rental\s+)?income|rental\s+revenue|total\s+rental\s+income/i },
   { key: "VACANCY_CONCESSIONS", pattern: /vacancy|concession|loss\s+to\s+lease|vacancy\s+(?:loss|allowance)/i },
   { key: "OTHER_INCOME", pattern: /other\s+income|miscellaneous\s+income|laundry|parking\s+income|late\s+fees/i },
   { key: "EFFECTIVE_GROSS_INCOME", pattern: /effective\s+gross\s+income|EGI|total\s+income/i },
-  { key: "REPAIRS_MAINTENANCE", pattern: /repairs?\s*(?:&|and)?\s*maintenance|R&M|maintenance/i },
-  { key: "UTILITIES", pattern: /utilit(?:y|ies)|electric|gas|water|sewer/i },
+  // ── Shared operating expense categories ────────────────────────────────
+  { key: "REPAIRS_MAINTENANCE", pattern: /repairs?\s*(?:&|and)?\s*maintenance|R&M|marina\s+svcs/i },
+  { key: "UTILITIES", pattern: /utilit(?:y|ies)|electric|gas|water|sewer|fuel/i },
   { key: "PROPERTY_MANAGEMENT", pattern: /(?:property\s+)?management\s+(?:fee|expense)|management/i },
   { key: "REAL_ESTATE_TAXES", pattern: /real\s+estate\s+tax|property\s+tax|RE\s+tax/i },
-  { key: "INSURANCE", pattern: /\binsurance\b(?!\s+income)/i },
-  { key: "PAYROLL", pattern: /payroll|salaries|wages|employee\s+(?:cost|expense)/i },
-  { key: "MARKETING", pattern: /marketing|advertising/i },
+  { key: "INSURANCE", pattern: /\binsurance\b(?!\s+(?:income|value))/i },
+  { key: "PAYROLL", pattern: /payroll(?:\s+(?:&|and)\s+labor)?|salaries|wages|employee\s+(?:cost|expense)/i },
+  { key: "MARKETING", pattern: /marketing(?:\s+(?:&|and)\s+advertising)?|advertising/i },
   { key: "PROFESSIONAL_FEES", pattern: /professional\s+fees?|legal|accounting|audit/i },
   { key: "OTHER_OPEX", pattern: /other\s+(?:operating\s+)?expense|general\s+(?:&|and)\s+admin|G&A|miscellaneous\s+expense/i },
   { key: "DEPRECIATION", pattern: /\bdepreciation\b/i },
   { key: "AMORTIZATION", pattern: /\bamortization\b/i },
-  { key: "DEBT_SERVICE", pattern: /debt\s+service|mortgage\s+payment|loan\s+payment|interest\s+expense/i },
+  { key: "DEBT_SERVICE", pattern: /debt\s+service|mortgage\s+payment|loan\s+payment|interest\s+(?:expense|paid)/i },
   { key: "CAPITAL_EXPENDITURES", pattern: /capital\s+(?:expenditure|improvement)|capex|cap\s+ex/i },
   { key: "TOTAL_OPERATING_EXPENSES", pattern: /total\s+(?:operating\s+)?expenses|total\s+opex/i },
   { key: "NET_OPERATING_INCOME", pattern: /net\s+operating\s+income|\bNOI\b/i },
-  { key: "NET_INCOME", pattern: /net\s+income|net\s+(?:profit|loss)|bottom\s+line/i },
+  { key: "NET_INCOME", pattern: /net\s+(?:income|profit|loss)|bottom\s+line/i },
 ];
 
 // ---------------------------------------------------------------------------
@@ -75,6 +93,23 @@ const LABEL_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
 // ---------------------------------------------------------------------------
 
 const DOCAI_ENTITY_MAP: Record<string, string> = {
+  // General business
+  revenue: "TOTAL_REVENUE",
+  total_revenue: "TOTAL_REVENUE",
+  sales: "TOTAL_REVENUE",
+  total_sales: "TOTAL_REVENUE",
+  net_sales: "TOTAL_REVENUE",
+  cost_of_goods_sold: "COST_OF_GOODS_SOLD",
+  cogs: "COST_OF_GOODS_SOLD",
+  cost_of_sales: "COST_OF_GOODS_SOLD",
+  gross_profit: "GROSS_PROFIT",
+  gross_margin: "GROSS_PROFIT",
+  operating_income: "OPERATING_INCOME",
+  income_from_operations: "OPERATING_INCOME",
+  ebitda: "EBITDA",
+  sga: "SELLING_GENERAL_ADMIN",
+  selling_general_admin: "SELLING_GENERAL_ADMIN",
+  // CRE
   gross_income: "GROSS_RENTAL_INCOME",
   rental_income: "GROSS_RENTAL_INCOME",
   total_income: "EFFECTIVE_GROSS_INCOME",
@@ -132,6 +167,12 @@ export async function extractIncomeStatementDeterministic(
   if (items.length === 0 && args.ocrText.trim()) {
     items = tryOcrRegex(args);
     path = "ocr_regex";
+  }
+
+  // Last resort: generic row scan via P&L normalization aliases
+  if (items.length === 0 && args.ocrText.trim()) {
+    items = tryGenericRowScan(args);
+    path = "ocr_generic_scan";
   }
 
   if (items.length === 0) {
@@ -197,16 +238,94 @@ function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
   const { start: periodStart, end: periodEnd } = normalizePeriod(dateStr);
 
   for (const { key, pattern } of LABEL_PATTERNS) {
-    const result = findLabeledAmount(text, pattern);
+    // Try same-line first (higher confidence), then cross-line fallback
+    let result = findLabeledAmount(text, pattern);
+    let confidence = 0.60;
+    if (result.value === null) {
+      result = findLabeledAmount(text, pattern, { crossLine: true });
+      confidence = 0.55;
+    }
     if (result.value === null) continue;
 
     items.push({
       factKey: key,
       value: result.value,
-      confidence: 0.60,
+      confidence,
       periodStart,
       periodEnd,
-      provenance: makeProvenance(args.documentId, periodEnd, 0.60, result.snippet, "ocr_regex"),
+      provenance: makeProvenance(args.documentId, periodEnd, confidence, result.snippet, "ocr_regex"),
+    });
+  }
+
+  return items;
+}
+
+// ---------------------------------------------------------------------------
+// Generic row scan — normalize any OCR row via P&L alias dictionary
+// ---------------------------------------------------------------------------
+
+/** Regex that captures a dollar amount token on a line. */
+const MONEY_RE = /\$?\(?-?[0-9][0-9,]*(?:\.[0-9]{1,2})?\)?/;
+
+/**
+ * Scan ALL OCR lines for rows containing a dollar amount, then try to
+ * normalize the label text into a canonical P&L concept via plAliases.
+ *
+ * This is the last-resort fallback. It finds facts that fixed regex patterns
+ * miss because the label wording is industry-specific (e.g. "charter revenue",
+ * "merchant fees", "contract revenue").
+ */
+function tryGenericRowScan(args: DeterministicExtractorArgs): ExtractedLineItem[] {
+  const text = args.ocrText;
+  const lines = text.split(/\n/);
+  const dateStr = findDateOnDocument(text);
+  const { start: periodStart, end: periodEnd } = normalizePeriod(dateStr);
+
+  const items: ExtractedLineItem[] = [];
+  const seenKeys = new Set<string>();
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const moneyMatch = line.match(MONEY_RE);
+    if (!moneyMatch) continue;
+
+    const value = parseMoney(moneyMatch[0]);
+    if (value === null) continue;
+
+    // Build label context: text before the money token on this line,
+    // plus the previous line if this line is mostly just a number.
+    const labelOnLine = line.slice(0, moneyMatch.index).trim();
+    let labelCtx = labelOnLine;
+    if (labelOnLine.length < 4 && i > 0) {
+      // Amount is on its own line — use previous line as label
+      labelCtx = lines[i - 1].trim();
+    }
+
+    if (!labelCtx) continue;
+
+    // Strip common noise: bracketed references like "[J]", "(Sch A)"
+    const cleaned = labelCtx
+      .replace(/\[.*?\]/g, "")
+      .replace(/\(Sch\s+\w+\)/gi, "")
+      .trim();
+
+    const alias = normalizePlLabel(cleaned);
+    if (!alias) continue;
+
+    const factKey = alias.factKey;
+    if (!VALID_LINE_KEYS.has(factKey)) continue;
+    if (seenKeys.has(factKey)) continue;
+    seenKeys.add(factKey);
+
+    const snippet = `${cleaned} ${moneyMatch[0]}`.trim();
+
+    items.push({
+      factKey,
+      value,
+      confidence: 0.45,
+      periodStart,
+      periodEnd,
+      provenance: makeProvenance(args.documentId, periodEnd, 0.45, snippet, "ocr_generic_scan"),
     });
   }
 
