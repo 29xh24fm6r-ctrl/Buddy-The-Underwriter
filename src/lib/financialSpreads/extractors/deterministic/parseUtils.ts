@@ -37,6 +37,44 @@ export function parseMoney(raw: string): number | null {
 }
 
 // ---------------------------------------------------------------------------
+// IRS form / reference number guard
+// ---------------------------------------------------------------------------
+
+/** Well-known IRS form, schedule, and line reference numbers. */
+const IRS_REFERENCE_NUMBERS = new Set([
+  1040, 1065, 1120, 1125, 1099, 1098,
+  4562, 4797, 8825, 8949, 8829, 8995,
+  2106, 2441, 3800, 3903, 4684,
+  5884, 6198, 6251, 6252, 6765,
+  7203, 8283, 8332, 8396, 8582, 8606, 8801, 8839, 8863, 8880, 8889,
+  8910, 8936, 8959, 8960, 8962, 990,
+]);
+
+const IRS_CONTEXT_RE = /\b(form|schedule|line|omb|irs|attach|see|ref|page)\b/i;
+
+/**
+ * Returns true when a numeric value matches a known IRS form/schedule number
+ * AND nearby context confirms it's a reference, not a dollar amount.
+ */
+export function isLikelyReferenceNumber(value: number, context: string): boolean {
+  if (!IRS_REFERENCE_NUMBERS.has(Math.abs(value))) return false;
+  return IRS_CONTEXT_RE.test(context);
+}
+
+/**
+ * Returns true when the raw match string looks like a money token:
+ * contains $, commas, parenthetical negatives, decimals, or is long (>= 5 chars of digits).
+ */
+export function looksLikeMoneyToken(rawMatch: string): boolean {
+  if (/\$/.test(rawMatch)) return true;
+  if (/,/.test(rawMatch)) return true;
+  if (/\([\d,.]+\)/.test(rawMatch)) return true;
+  if (/\.\d{1,2}$/.test(rawMatch)) return true;
+  const digitsOnly = rawMatch.replace(/[^0-9]/g, "");
+  return digitsOnly.length >= 5;
+}
+
+// ---------------------------------------------------------------------------
 // Labeled amount extraction
 // ---------------------------------------------------------------------------
 
@@ -48,6 +86,8 @@ export type LabeledAmountResult = {
 /**
  * Find a dollar amount near a label in text.
  * Searches for `label` followed by a dollar amount within maxLookahead chars.
+ *
+ * Guards against IRS form/schedule reference numbers being mistaken for amounts.
  *
  * @param text      Full document text
  * @param label     Label string or regex to search for
@@ -68,11 +108,24 @@ export function findLabeledAmount(
     `(${labelPat})[^\\n\\r]{0,${maxLook}}?(\\$?\\(?-?[0-9][0-9,]*(?:\\.[0-9]{1,2})?\\)?)`,
     flags,
   );
-  const m = text.match(re);
+  const m = re.exec(text);
   if (!m) return { value: null, snippet: null };
 
+  const rawMatch = m[2];
+  const value = parseMoney(rawMatch);
+  if (value === null) return { value: null, snippet: null };
+
+  // Guard: reject IRS form/schedule reference numbers.
+  // Use a ±40 char window around the match for context (captures "Form 1065" before label).
+  const ctxStart = Math.max(0, m.index - 40);
+  const ctxEnd = Math.min(text.length, m.index + m[0].length + 40);
+  const context = text.slice(ctxStart, ctxEnd);
+  if (isLikelyReferenceNumber(value, context) && !looksLikeMoneyToken(rawMatch)) {
+    return { value: null, snippet: null };
+  }
+
   const snippet = m[0].replace(/\s+/g, " ").trim();
-  return { value: parseMoney(m[2]), snippet };
+  return { value, snippet };
 }
 
 /**
@@ -98,11 +151,20 @@ export function findAllLabeledAmounts(
   const results: LabeledAmountResult[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    const snippet = m[0].replace(/\s+/g, " ").trim();
-    const value = parseMoney(m[2]);
-    if (value !== null) {
-      results.push({ value, snippet });
+    const rawMatch = m[2];
+    const value = parseMoney(rawMatch);
+    if (value === null) continue;
+
+    // Guard: reject IRS form/schedule reference numbers
+    const ctxStart = Math.max(0, m.index - 40);
+    const ctxEnd = Math.min(text.length, m.index + m[0].length + 40);
+    const context = text.slice(ctxStart, ctxEnd);
+    if (isLikelyReferenceNumber(value, context) && !looksLikeMoneyToken(rawMatch)) {
+      continue;
     }
+
+    const snippet = m[0].replace(/\s+/g, " ").trim();
+    results.push({ value, snippet });
   }
   return results;
 }

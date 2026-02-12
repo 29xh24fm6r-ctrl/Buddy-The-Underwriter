@@ -1,7 +1,8 @@
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
+import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { writeSystemEvent } from "@/lib/aegis/writeSystemEvent";
 
@@ -15,16 +16,18 @@ export const dynamic = "force-dynamic";
  * Optionally uses backfillDealArtifacts() for full artifact replay.
  *
  * Body: { deal_id: string }
- * Auth: requireSuperAdmin()
+ * Auth: WORKER_SECRET (ops/cron) OR requireSuperAdmin()
  */
-export async function POST(req: Request) {
-  try {
-    await requireSuperAdmin();
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "unauthorized" },
-      { status: 401 },
-    );
+export async function POST(req: NextRequest) {
+  if (!hasValidWorkerSecret(req)) {
+    try {
+      await requireSuperAdmin();
+    } catch {
+      return NextResponse.json(
+        { ok: false, error: "unauthorized" },
+        { status: 401 },
+      );
+    }
   }
 
   let body: any;

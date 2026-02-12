@@ -4,6 +4,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { extractFactsFromDocument } from "@/lib/financialSpreads/extractFactsFromDocument";
 import { backfillCanonicalFactsFromSpreads } from "@/lib/financialFacts/backfillFromSpreads";
 import { isExtractionErrorPayload } from "@/lib/artifacts/extractionError";
+import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
+import type { SpreadType } from "@/lib/financialSpreads/types";
 
 /**
  * Financial artifact doc types that the AI extractors can handle.
@@ -36,6 +38,18 @@ const EXTRACTABLE_DOC_TYPES = new Set([
   "COLLATERAL_SCHEDULE",
   "OPERATING_STATEMENT",
 ]);
+
+/** Map artifact doc type → spread types to recompute (mirrors classifyProcessor). */
+function spreadsForDocType(docTypeRaw: string): SpreadType[] {
+  const dt = docTypeRaw.trim().toUpperCase();
+  if (["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT", "TRAILING_12", "OPERATING_STATEMENT"].includes(dt)) return ["T12"];
+  if (dt === "BALANCE_SHEET") return ["BALANCE_SHEET"];
+  if (dt === "RENT_ROLL") return ["RENT_ROLL"];
+  if (["IRS_1065", "IRS_1120", "IRS_1120S", "IRS_BUSINESS", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN"].includes(dt)) return ["GLOBAL_CASH_FLOW"];
+  if (["IRS_1040", "IRS_PERSONAL", "PERSONAL_TAX_RETURN"].includes(dt)) return ["PERSONAL_INCOME", "GLOBAL_CASH_FLOW"];
+  if (["PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413"].includes(dt)) return ["PERSONAL_FINANCIAL_STATEMENT", "GLOBAL_CASH_FLOW"];
+  return [];
+}
 
 export type ExtractFromArtifactsResult =
   | { ok: true; extracted: number; skipped: number; failed: number; backfillFactsWritten: number }
@@ -181,6 +195,25 @@ export async function extractFactsFromClassifiedArtifacts(opts: {
 
     // 4) Run canonical fact backfill from any existing spreads
     const backfill = await backfillCanonicalFactsFromSpreads({ dealId, bankId });
+
+    // 5) Enqueue spread recompute if facts were extracted (best-effort)
+    if (extracted > 0) {
+      try {
+        const spreadTypes = Array.from(
+          new Set(batch.flatMap((a) => spreadsForDocType(a.doc_type))),
+        ) as SpreadType[];
+        if (spreadTypes.length > 0) {
+          await enqueueSpreadRecompute({
+            dealId,
+            bankId,
+            spreadTypes,
+            meta: { source: "extract_from_classified", extracted, doc_types: batch.map((a) => a.doc_type) },
+          });
+        }
+      } catch (eqErr) {
+        console.warn("[extractFactsFromClassifiedArtifacts] spread enqueue failed:", eqErr);
+      }
+    }
 
     return {
       ok: true,
