@@ -22,9 +22,30 @@ const SENTINEL_DATES = new Set([
   "0001-01-01",
 ]);
 
-function isSentinelDate(d: string | null | undefined): boolean {
+const PERIOD_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Validate a period_end date. Returns true if the date should be skipped.
+ *
+ * Guards:
+ * - null/undefined → skip
+ * - Known sentinel dates → skip
+ * - Unparseable dates → skip
+ * - Year < 2000 → skip (no legitimate commercial underwriting data before 2000)
+ */
+function isInvalidPeriodDate(d: string | null | undefined): boolean {
   if (!d) return true;
-  return SENTINEL_DATES.has(d);
+  if (SENTINEL_DATES.has(d)) return true;
+  const m = d.match(PERIOD_DATE_RE);
+  if (!m) return true; // unparseable
+  const year = Number(m[1]);
+  if (year < 2000) return true;
+  return false;
+}
+
+/** @deprecated Use isInvalidPeriodDate */
+function isSentinelDate(d: string | null | undefined): boolean {
+  return isInvalidPeriodDate(d);
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +123,7 @@ export function buildFinancialModel(
   for (const f of facts) {
     if (!RELEVANT_FACT_TYPES.has(f.fact_type)) continue;
     if (f.fact_value_num === null) continue;
-    if (isSentinelDate(f.fact_period_end)) continue;
+    if (isInvalidPeriodDate(f.fact_period_end)) continue;
 
     const pe = f.fact_period_end!;
     if (!byPeriod.has(pe)) byPeriod.set(pe, []);
@@ -155,6 +176,21 @@ export function buildFinancialModel(
 
   // Sort by period_end ascending
   periods.sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
+
+  // Period integrity assertions (dev/test safety net)
+  if (process.env.NODE_ENV !== "production") {
+    const seenIds = new Set<string>();
+    for (const p of periods) {
+      if (seenIds.has(p.periodId)) {
+        throw new Error(`Duplicate period ID: ${p.periodId}`);
+      }
+      seenIds.add(p.periodId);
+      const yr = Number(p.periodEnd.substring(0, 4));
+      if (yr < 2000) {
+        throw new Error(`Period year < 2000: ${p.periodEnd}`);
+      }
+    }
+  }
 
   return { dealId, periods };
 }

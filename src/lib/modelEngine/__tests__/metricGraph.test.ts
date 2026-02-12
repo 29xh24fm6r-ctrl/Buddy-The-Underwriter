@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { topologicalSort, evaluateFormula, evaluateMetricGraph } from "../metricGraph";
+import {
+  topologicalSort,
+  evaluateFormula,
+  evaluateMetricGraph,
+  evaluateFormulaWithDiagnostics,
+  evaluateMetricGraphWithDiagnostics,
+} from "../metricGraph";
 import type { MetricDefinition, FormulaNode } from "../types";
 
 describe("evaluateFormula", () => {
@@ -137,5 +143,140 @@ describe("evaluateMetricGraph", () => {
 
     const result = evaluateMetricGraph(metrics, { CFADS: 500000 });
     assert.equal(result["DSCR"], null);
+  });
+});
+
+// ===================================================================
+// evaluateFormulaWithDiagnostics
+// ===================================================================
+
+describe("evaluateFormulaWithDiagnostics", () => {
+  const values: Record<string, number | null> = {
+    REVENUE: 1000000,
+    EBITDA: 500000,
+  };
+
+  it("returns value for valid formula", () => {
+    const formula: FormulaNode = { type: "divide", left: "REVENUE", right: "EBITDA" };
+    const result = evaluateFormulaWithDiagnostics(formula, values);
+    assert.equal(result.value, 2);
+    assert.equal(result.error, undefined);
+  });
+
+  it("returns MISSING_DEPENDENCY for missing left operand", () => {
+    const formula: FormulaNode = { type: "divide", left: "CFADS", right: "EBITDA" };
+    const result = evaluateFormulaWithDiagnostics(formula, values, "DSCR");
+    assert.equal(result.value, null);
+    assert.ok(result.error);
+    assert.equal(result.error.code, "MISSING_DEPENDENCY");
+    assert.ok(result.error.message.includes("CFADS"));
+    assert.ok(result.error.message.includes("DSCR"));
+  });
+
+  it("returns MISSING_DEPENDENCY for missing right operand", () => {
+    const formula: FormulaNode = { type: "divide", left: "REVENUE", right: "DEBT_SERVICE" };
+    const result = evaluateFormulaWithDiagnostics(formula, values);
+    assert.equal(result.value, null);
+    assert.ok(result.error);
+    assert.equal(result.error.code, "MISSING_DEPENDENCY");
+    assert.ok(result.error.message.includes("DEBT_SERVICE"));
+  });
+
+  it("returns DIVIDE_BY_ZERO for zero denominator", () => {
+    const formula: FormulaNode = { type: "divide", left: "REVENUE", right: "0" };
+    const result = evaluateFormulaWithDiagnostics(formula, values, "BAD_RATIO");
+    assert.equal(result.value, null);
+    assert.ok(result.error);
+    assert.equal(result.error.code, "DIVIDE_BY_ZERO");
+    assert.ok(result.error.message.includes("BAD_RATIO"));
+  });
+
+  it("returns INVALID_OP for bad operation", () => {
+    const formula = { type: "modulo" as any, left: "REVENUE", right: "EBITDA" };
+    const result = evaluateFormulaWithDiagnostics(formula, values);
+    assert.equal(result.value, null);
+    assert.ok(result.error);
+    assert.equal(result.error.code, "INVALID_OP");
+  });
+});
+
+// ===================================================================
+// evaluateMetricGraphWithDiagnostics
+// ===================================================================
+
+describe("evaluateMetricGraphWithDiagnostics", () => {
+  it("collects diagnostics for missing dependencies", () => {
+    const metrics: MetricDefinition[] = [
+      {
+        id: "1", version: "v1", key: "DSCR",
+        dependsOn: ["CFADS", "DEBT_SERVICE"],
+        formula: { type: "divide", left: "CFADS", right: "DEBT_SERVICE" },
+      },
+    ];
+
+    const result = evaluateMetricGraphWithDiagnostics(metrics, { CFADS: 500000 });
+    assert.equal(result.values["DSCR"], null);
+    assert.ok(result.diagnostics.length >= 1);
+    assert.equal(result.diagnostics[0].code, "MISSING_DEPENDENCY");
+    assert.equal(result.diagnostics[0].metric, "DSCR");
+  });
+
+  it("detects circular dependencies", () => {
+    const metrics: MetricDefinition[] = [
+      {
+        id: "1", version: "v1", key: "A",
+        dependsOn: ["B"],
+        formula: { type: "add", left: "B", right: "1" },
+      },
+      {
+        id: "2", version: "v1", key: "B",
+        dependsOn: ["A"],
+        formula: { type: "add", left: "A", right: "1" },
+      },
+    ];
+
+    const result = evaluateMetricGraphWithDiagnostics(metrics, {});
+    assert.ok(result.diagnostics.length >= 1);
+    assert.equal(result.diagnostics[0].code, "CYCLE_DETECTED");
+  });
+
+  it("returns clean diagnostics for valid graph", () => {
+    const metrics: MetricDefinition[] = [
+      {
+        id: "1", version: "v1", key: "NET_MARGIN",
+        dependsOn: ["NET_INCOME", "REVENUE"],
+        formula: { type: "divide", left: "NET_INCOME", right: "REVENUE" },
+      },
+    ];
+
+    const result = evaluateMetricGraphWithDiagnostics(metrics, {
+      NET_INCOME: 200000,
+      REVENUE: 1000000,
+    });
+    assert.ok(Math.abs((result.values["NET_MARGIN"] ?? 0) - 0.2) < 0.001);
+    assert.equal(result.diagnostics.length, 0);
+  });
+
+  it("collects multiple diagnostics across metrics", () => {
+    const metrics: MetricDefinition[] = [
+      {
+        id: "1", version: "v1", key: "DSCR",
+        dependsOn: ["CFADS", "DEBT_SERVICE"],
+        formula: { type: "divide", left: "CFADS", right: "DEBT_SERVICE" },
+      },
+      {
+        id: "2", version: "v1", key: "LEVERAGE",
+        dependsOn: ["TOTAL_DEBT", "EBITDA"],
+        formula: { type: "divide", left: "TOTAL_DEBT", right: "EBITDA" },
+      },
+    ];
+
+    // Neither has required dependencies
+    const result = evaluateMetricGraphWithDiagnostics(metrics, {});
+    assert.equal(result.values["DSCR"], null);
+    assert.equal(result.values["LEVERAGE"], null);
+    assert.ok(result.diagnostics.length >= 2);
+    assert.ok(result.diagnostics.some((d) => d.metric === "DSCR"));
+    assert.ok(result.diagnostics.some((d) => d.metric === "LEVERAGE"));
   });
 });
