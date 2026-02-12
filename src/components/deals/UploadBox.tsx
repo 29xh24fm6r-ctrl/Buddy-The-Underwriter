@@ -1346,7 +1346,7 @@ if (!res.ok || !data?.ok) {
                         <BorrowerWowCard borrower={classification.borrower} />
                       ) : null}
 
-                      {/* Moody-style spread (P&L v1) */}
+                      {/* Financial spread (P&L v1) */}
                       {moodyPkg ? <MoodyPnlSpreadCard pkg={moodyPkg} /> : null}
 
                       {classification.doc_type === "FINANCIAL_STATEMENT" && tables.length > 0 ? (

@@ -32,7 +32,7 @@ export default function MoodyPnlSpreadCard({ pkg }: { pkg: MoodyPnlPackage }) {
   if (!period) {
     return (
       <div className="rounded-lg border p-4">
-        <div className="mb-1 text-lg font-semibold">Moody-Style Financial Spread (P&amp;L)</div>
+        <div className="mb-1 text-lg font-semibold">Financial Spread (P&amp;L)</div>
         <div className="text-sm text-gray-600">No P&amp;L periods available yet.</div>
       </div>
     );
@@ -41,7 +41,7 @@ export default function MoodyPnlSpreadCard({ pkg }: { pkg: MoodyPnlPackage }) {
   return (
     <div className="rounded-lg border p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="text-lg font-semibold">Moody-Style Financial Spread (P&amp;L)</div>
+        <div className="text-lg font-semibold">Financial Spread (P&amp;L)</div>
 
         {periods.length > 1 ? (
           <div className="flex flex-wrap gap-1">

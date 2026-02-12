@@ -113,10 +113,10 @@ export default function MoodysSpreadPage() {
     try {
       const res = await fetch(`/api/deals/${dealId}/spreads/moodys`, { cache: "no-store" });
       const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load Moody's spread");
+      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load financial analysis");
       setSpread(json.spread ?? null);
     } catch (e: any) {
-      setError(e?.message ?? "Failed to load Moody's spread");
+      setError(e?.message ?? "Failed to load financial analysis");
     } finally {
       setLoading(false);
     }
@@ -134,9 +134,9 @@ export default function MoodysSpreadPage() {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white">Moody&apos;s Financial Analysis</h2>
+          <h2 className="text-lg font-semibold text-white">Financial Analysis</h2>
         </div>
-        <div className="py-12 text-center text-xs text-white/50">Loading Moody&apos;s package...</div>
+        <div className="py-12 text-center text-xs text-white/50">Loading financial analysis...</div>
       </div>
     );
   }
@@ -145,7 +145,7 @@ export default function MoodysSpreadPage() {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white">Moody&apos;s Financial Analysis</h2>
+          <h2 className="text-lg font-semibold text-white">Financial Analysis</h2>
           <button
             type="button"
             onClick={() => void load()}
@@ -166,13 +166,13 @@ export default function MoodysSpreadPage() {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white">Moody&apos;s Financial Analysis</h2>
+          <h2 className="text-lg font-semibold text-white">Financial Analysis</h2>
         </div>
         <div className="rounded-xl border border-white/10 bg-white/[0.02] p-8 text-center">
           <Icon name="fact_check" className="mx-auto h-8 w-8 text-white/20" />
-          <p className="mt-3 text-sm text-white/50">No Moody&apos;s spread data available yet.</p>
+          <p className="mt-3 text-sm text-white/50">No financial analysis data available yet.</p>
           <p className="mt-1 text-xs text-white/30">
-            Upload financial documents and ensure spreads are computed to populate the Moody&apos;s package.
+            Upload financial documents and ensure spreads are computed to populate the financial analysis.
           </p>
         </div>
       </div>
@@ -187,7 +187,7 @@ export default function MoodysSpreadPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-white">Moody&apos;s Financial Analysis</h2>
+          <h2 className="text-lg font-semibold text-white">Financial Analysis</h2>
           <p className="mt-0.5 text-xs text-white/50">
             {meta.row_count ?? 0} line items &middot; {meta.period_count ?? 1} period{(meta.period_count ?? 1) > 1 ? "s" : ""} &middot; Generated {spread.generatedAt ? new Date(spread.generatedAt).toLocaleDateString() : "—"}
           </p>

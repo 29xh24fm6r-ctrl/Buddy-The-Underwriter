@@ -78,7 +78,7 @@ export default async function MoodysPrintPage(props: {
     <html lang="en">
       <head>
         <meta charSet="UTF-8" />
-        <title>Moody&apos;s Financial Analysis — {deal.deal_name ?? dealId}</title>
+        <title>Financial Analysis — {deal.deal_name ?? dealId}</title>
       </head>
       <body dangerouslySetInnerHTML={{ __html: html }} />
     </html>
