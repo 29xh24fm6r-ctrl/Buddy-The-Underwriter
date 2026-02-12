@@ -99,9 +99,17 @@ type ComputedPricing = {
   rateSource: string | null;
 };
 
+type ReadinessInfo = {
+  spreadsComplete: boolean;
+  financialSnapshotExists: boolean;
+  researchComplete: boolean;
+  stage: string;
+};
+
 export default function DealPricingClient({
   deal,
   pricing,
+  readinessInfo,
   latestRates,
   inputs,
   quotes,
@@ -109,13 +117,58 @@ export default function DealPricingClient({
   computed,
 }: {
   deal: Deal;
-  pricing: Pricing;
+  pricing: Pricing | null;
+  readinessInfo: ReadinessInfo | null;
   latestRates: Record<IndexCode, IndexRate> | null;
   inputs: PricingInputs | null;
   quotes: QuoteRow[];
   loanRequestAmount?: number | null;
-  computed: ComputedPricing;
+  computed: ComputedPricing | null;
 }) {
+  // Gate: if pricing prerequisites are not met, show a "not ready" panel
+  if (!pricing || readinessInfo) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
+        <h2 className="text-lg font-semibold text-amber-900">
+          Pricing Not Available Yet
+        </h2>
+        <p className="mt-2 text-sm text-amber-800">
+          Risk-based pricing requires completed financial analysis and
+          institutional research before it can produce accurate, auditable
+          results. The following prerequisites must be met:
+        </p>
+        <ul className="mt-3 space-y-2 text-sm text-amber-800">
+          <li className="flex items-center gap-2">
+            <span className={readinessInfo?.financialSnapshotExists ? "text-green-600" : "text-amber-600"}>
+              {readinessInfo?.financialSnapshotExists ? "\u2713" : "\u25CB"}
+            </span>
+            Financial snapshot generated from spreads
+          </li>
+          <li className="flex items-center gap-2">
+            <span className={readinessInfo?.spreadsComplete ? "text-green-600" : "text-amber-600"}>
+              {readinessInfo?.spreadsComplete ? "\u2713" : "\u25CB"}
+            </span>
+            All financial spread jobs complete
+          </li>
+          <li className="flex items-center gap-2">
+            <span className={readinessInfo?.researchComplete ? "text-green-600" : "text-amber-600"}>
+              {readinessInfo?.researchComplete ? "\u2713" : "\u25CB"}
+            </span>
+            Institutional research and analysis complete
+          </li>
+        </ul>
+        <p className="mt-4 text-xs text-amber-700">
+          Current stage: {readinessInfo?.stage ?? "unknown"}
+        </p>
+        <Link
+          className="mt-3 inline-block px-3 py-2 rounded border text-sm hover:bg-amber-100"
+          href={`/deals/${deal.id}/cockpit`}
+        >
+          Back to Cockpit
+        </Link>
+      </div>
+    );
+  }
   const [form, setForm] = useState<PricingInputs>(() =>
     normalizeInputs(deal, inputs, loanRequestAmount ?? null),
   );
@@ -159,14 +212,14 @@ export default function DealPricingClient({
   const baseRatePct =
     form.base_rate_override_pct ??
     effectiveRate?.ratePct ??
-    computed.baseRatePct ??
-    pricing.quote.baseRate ??
+    computed?.baseRatePct ??
+    pricing?.quote.baseRate ??
     0;
   const spreadBps =
-    form.spread_override_bps ?? computed.spreadBps ?? pricing.quote.spreadBps ?? 0;
+    form.spread_override_bps ?? computed?.spreadBps ?? pricing?.quote.spreadBps ?? 0;
   const allInRatePct = baseRatePct + spreadBps / 100;
-  const rateAsOf = effectiveRate?.asOf ?? computed.rateAsOf;
-  const rateSource = effectiveRate?.source ?? computed.rateSource;
+  const rateAsOf = effectiveRate?.asOf ?? computed?.rateAsOf ?? null;
+  const rateSource = effectiveRate?.source ?? computed?.rateSource ?? null;
   const principal = form.loan_amount ?? loanRequestAmount ?? 0;
   const monthlyRate = allInRatePct / 100 / 12;
   const amortMonths = Math.max(1, form.amort_months || 0);
@@ -689,11 +742,11 @@ export default function DealPricingClient({
           </Card>
 
           <Card title="Risk Score">
-            <div className="text-3xl font-bold">{pricing.risk.score}</div>
+            <div className="text-3xl font-bold">{pricing?.risk.score ?? "—"}</div>
             <div className="text-sm text-slate-600 mt-1">
-              Tier: {pricing.risk.tier} · Decision:{" "}
-              <span className={pricing.decision === "approve" ? "text-green-700 font-medium" : "text-amber-700 font-medium"}>
-                {pricing.decision.toUpperCase()}
+              Tier: {pricing?.risk.tier ?? "—"} · Decision:{" "}
+              <span className={pricing?.decision === "approve" ? "text-green-700 font-medium" : "text-amber-700 font-medium"}>
+                {pricing?.decision?.toUpperCase() ?? "—"}
               </span>
             </div>
           </Card>
@@ -1111,7 +1164,7 @@ export default function DealPricingClient({
 
           <Card title="Why This Price">
             <ul className="text-sm space-y-2">
-              {pricing.explain.map((x, i) => (
+              {(pricing?.explain ?? []).map((x, i) => (
                 <li key={i} className="flex gap-2">
                   <span className="mt-[2px] inline-block w-2 h-2 rounded-full bg-slate-300" />
                   <span>

@@ -123,6 +123,8 @@ export type LifecycleDerived = {
   hasPricingAssumptions: boolean;
   /** True if at least one loan request is non-draft with a requested_amount */
   hasSubmittedLoanRequest: boolean;
+  /** True if all research missions have completed (no queued/running missions) */
+  researchComplete: boolean;
   /** Request correlation ID for debugging (optional, set by route) */
   correlationId?: string;
 };

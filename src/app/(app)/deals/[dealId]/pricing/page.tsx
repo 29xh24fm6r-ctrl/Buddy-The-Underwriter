@@ -8,6 +8,7 @@ import { runDealRiskPricing } from "@/lib/pricing/runDealRiskPricing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { deriveLifecycleState } from "@/buddy/lifecycle";
 
 type PricingInputs = {
   index_code: "SOFR" | "UST_5Y" | "PRIME";
@@ -118,6 +119,35 @@ export default async function Page(
     );
   }
 
+  // Gate risk pricing behind spreads + snapshot + research completion
+  const lifecycle = await deriveLifecycleState(dealId);
+  const { spreadsComplete, financialSnapshotExists, researchComplete } = lifecycle.derived;
+  const pricingReady = spreadsComplete && financialSnapshotExists && researchComplete;
+
+  if (!pricingReady) {
+    return (
+      <div data-testid="deal-pricing" className="space-y-6">
+        <PricingAssumptionsCard dealId={dealId} />
+        <PricingScenariosPanel dealId={dealId} />
+        <DealPricingClient
+          deal={deal}
+          pricing={null}
+          readinessInfo={{
+            spreadsComplete,
+            financialSnapshotExists,
+            researchComplete,
+            stage: lifecycle.stage,
+          }}
+          latestRates={null}
+          inputs={null}
+          quotes={[]}
+          loanRequestAmount={loanRequestAmount}
+          computed={null}
+        />
+      </div>
+    );
+  }
+
   const pricing = await runDealRiskPricing(deal);
   const baseUrl = await getBaseUrl();
 
@@ -159,6 +189,7 @@ export default async function Page(
       <DealPricingClient
         deal={deal}
         pricing={pricing}
+        readinessInfo={null}
         latestRates={latestRates}
         inputs={inputs}
         quotes={quotes}
