@@ -15,6 +15,7 @@ import {
   findEntitiesByType,
   entityToMoney,
 } from "./docAiParser";
+import { normalizePlLabel } from "../../normalization/plAliases";
 
 // ---------------------------------------------------------------------------
 // Canonical line item keys (same as original extractor)
@@ -168,6 +169,12 @@ export async function extractIncomeStatementDeterministic(
     path = "ocr_regex";
   }
 
+  // Last resort: generic row scan via P&L normalization aliases
+  if (items.length === 0 && args.ocrText.trim()) {
+    items = tryGenericRowScan(args);
+    path = "ocr_generic_scan";
+  }
+
   if (items.length === 0) {
     return { ok: true, factsWritten: 0, extractionPath: path };
   }
@@ -247,6 +254,78 @@ function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
       periodStart,
       periodEnd,
       provenance: makeProvenance(args.documentId, periodEnd, confidence, result.snippet, "ocr_regex"),
+    });
+  }
+
+  return items;
+}
+
+// ---------------------------------------------------------------------------
+// Generic row scan — normalize any OCR row via P&L alias dictionary
+// ---------------------------------------------------------------------------
+
+/** Regex that captures a dollar amount token on a line. */
+const MONEY_RE = /\$?\(?-?[0-9][0-9,]*(?:\.[0-9]{1,2})?\)?/;
+
+/**
+ * Scan ALL OCR lines for rows containing a dollar amount, then try to
+ * normalize the label text into a canonical P&L concept via plAliases.
+ *
+ * This is the last-resort fallback. It finds facts that fixed regex patterns
+ * miss because the label wording is industry-specific (e.g. "charter revenue",
+ * "merchant fees", "contract revenue").
+ */
+function tryGenericRowScan(args: DeterministicExtractorArgs): ExtractedLineItem[] {
+  const text = args.ocrText;
+  const lines = text.split(/\n/);
+  const dateStr = findDateOnDocument(text);
+  const { start: periodStart, end: periodEnd } = normalizePeriod(dateStr);
+
+  const items: ExtractedLineItem[] = [];
+  const seenKeys = new Set<string>();
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const moneyMatch = line.match(MONEY_RE);
+    if (!moneyMatch) continue;
+
+    const value = parseMoney(moneyMatch[0]);
+    if (value === null) continue;
+
+    // Build label context: text before the money token on this line,
+    // plus the previous line if this line is mostly just a number.
+    const labelOnLine = line.slice(0, moneyMatch.index).trim();
+    let labelCtx = labelOnLine;
+    if (labelOnLine.length < 4 && i > 0) {
+      // Amount is on its own line — use previous line as label
+      labelCtx = lines[i - 1].trim();
+    }
+
+    if (!labelCtx) continue;
+
+    // Strip common noise: bracketed references like "[J]", "(Sch A)"
+    const cleaned = labelCtx
+      .replace(/\[.*?\]/g, "")
+      .replace(/\(Sch\s+\w+\)/gi, "")
+      .trim();
+
+    const alias = normalizePlLabel(cleaned);
+    if (!alias) continue;
+
+    const factKey = alias.factKey;
+    if (!VALID_LINE_KEYS.has(factKey)) continue;
+    if (seenKeys.has(factKey)) continue;
+    seenKeys.add(factKey);
+
+    const snippet = `${cleaned} ${moneyMatch[0]}`.trim();
+
+    items.push({
+      factKey,
+      value,
+      confidence: 0.45,
+      periodStart,
+      periodEnd,
+      provenance: makeProvenance(args.documentId, periodEnd, 0.45, snippet, "ocr_generic_scan"),
     });
   }
 
