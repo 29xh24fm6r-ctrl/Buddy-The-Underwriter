@@ -15,6 +15,17 @@ function uniq<T>(arr: T[]) {
   return Array.from(new Set(arr));
 }
 
+/** Derive the correct owner_type from the spread type, not from job meta. */
+function resolveOwnerType(spreadType: string, metaOwnerType?: string): string {
+  if (spreadType === "PERSONAL_INCOME" || spreadType === "PERSONAL_FINANCIAL_STATEMENT") {
+    return "PERSONAL";
+  }
+  if (spreadType === "GLOBAL_CASH_FLOW") {
+    return metaOwnerType ?? "GLOBAL";
+  }
+  return "DEAL";
+}
+
 const SPREAD_EVENT_KEY: Record<string, string> = {
   T12: "spread.business.completed",
   BALANCE_SHEET: "spread.business.completed",
@@ -77,10 +88,47 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         uiMessage: "Financial facts extracted from source document",
         meta: { jobId, sourceDocumentId },
       });
+    } else {
+      // Job merge lost source_document_id — re-extract from ALL deal documents
+      // using EXTRACTION_HEARTBEAT facts as the document roster + doc type hints.
+      const { data: heartbeats } = await (sb as any)
+        .from("deal_financial_facts")
+        .select("source_document_id, fact_value_text")
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId)
+        .eq("fact_type", "EXTRACTION_HEARTBEAT");
+
+      let docsExtracted = 0;
+      if (heartbeats?.length) {
+        for (const hb of heartbeats) {
+          try {
+            await extractFactsFromDocument({
+              dealId,
+              bankId,
+              documentId: String(hb.source_document_id),
+              docTypeHint: hb.fact_value_text ?? undefined,
+            });
+            docsExtracted++;
+          } catch (extractErr: any) {
+            console.warn(`[spreadsProcessor] re-extract failed for ${hb.source_document_id}:`, extractErr?.message);
+          }
+        }
+      }
+
+      if (docsExtracted > 0) {
+        await logLedgerEvent({
+          dealId, bankId,
+          eventKey: "spread.inputs.collected",
+          uiState: "working",
+          uiMessage: `Financial facts re-extracted from ${docsExtracted} document(s)`,
+          meta: { jobId, docsExtracted, totalHeartbeats: heartbeats?.length ?? 0 },
+        });
+      }
     }
 
     for (const spreadType of requested) {
-      await renderSpread({ dealId, bankId, spreadType, ownerType, ownerEntityId });
+      const effectiveOwnerType = resolveOwnerType(spreadType, ownerType);
+      await renderSpread({ dealId, bankId, spreadType, ownerType: effectiveOwnerType, ownerEntityId });
 
       // Empty-row invariant: warn if spread rendered with 0 data rows
       try {
