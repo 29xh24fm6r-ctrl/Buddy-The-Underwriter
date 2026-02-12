@@ -5,6 +5,20 @@
 export { compareModels, compareV1toV2, extractV1SpreadData } from "./compareV1toV2";
 export { formatParityReport } from "./parityReport";
 export { DEFAULT_THRESHOLDS, RELAXED_THRESHOLDS } from "./thresholds";
+export {
+  buildParityReport,
+  compareSpreadToModelV2,
+  compareSpreadToModelV2Pure,
+} from "./parityCompare";
+export type { Diff, ParityReport, PeriodComparisonEntry, PeriodDifferences } from "./parityCompare";
+export {
+  extractSpreadParityMetrics,
+  extractSpreadParityMetricsFromData,
+  extractModelV2ParityMetrics,
+  extractModelV2ParityMetricsFromModel,
+  PARITY_METRIC_KEYS,
+} from "./parityTargets";
+export type { PeriodMetricMap, PeriodMetrics, ParityMetricKey } from "./parityTargets";
 export type {
   ParityComparison,
   ParityThresholds,
