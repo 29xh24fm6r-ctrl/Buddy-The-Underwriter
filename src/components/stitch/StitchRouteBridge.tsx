@@ -51,9 +51,21 @@ export default async function StitchRouteBridge({
   // Check for React replacement (requires pathname mapping)
   // For now, just render Stitch - React replacement can be added per-route
   // when you're ready to migrate specific pages
-  
+
   // Fetch stripped Stitch HTML (chrome already removed)
-  const bodyHtml = await getStrippedStitchHtml(slug);
+  let bodyHtml: string;
+  try {
+    bodyHtml = await getStrippedStitchHtml(slug);
+  } catch {
+    // Stitch export not found — render fallback instead of crashing
+    return (
+      <div className="rounded-2xl border border-neutral-200 bg-white p-8 text-center">
+        <p className="text-sm text-neutral-500">
+          This surface is not yet available. Please check back later.
+        </p>
+      </div>
+    );
+  }
 
   let activationDataJson: string | undefined;
   let activationScript: string | undefined;
