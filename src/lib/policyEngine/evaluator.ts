@@ -22,6 +22,7 @@
 
 import type { CreditSnapshot } from "@/lib/creditMetrics/types";
 import type { ProductType } from "@/lib/creditLenses/types";
+import type { PolicyConfigOverride } from "@/lib/configEngine/types";
 import type {
   BreachSeverity,
   PolicyResult,
@@ -78,8 +79,9 @@ function computeDeviation(
   return { breached: false, deviation: 0 };
 }
 
-function classifySeverity(deviation: number): BreachSeverity {
-  return deviation <= MINOR_BREACH_BAND ? "minor" : "severe";
+function classifySeverity(deviation: number, breachBand?: number): BreachSeverity {
+  const band = breachBand ?? MINOR_BREACH_BAND;
+  return deviation <= band ? "minor" : "severe";
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +100,33 @@ function assignTier(breaches: ThresholdBreach[]): RiskTier {
 }
 
 // ---------------------------------------------------------------------------
+// Config merge
+// ---------------------------------------------------------------------------
+
+/**
+ * Merge bank config threshold overrides onto base policy thresholds.
+ * Config overrides replace matching (product+metric) entries; non-matching are appended.
+ */
+function mergeThresholds(
+  base: PolicyThreshold[],
+  overrides: Array<{ metric: string; minimum?: number; maximum?: number }>,
+): PolicyThreshold[] {
+  const result = base.map((t) => ({ ...t }));
+
+  for (const ov of overrides) {
+    const existing = result.find((t) => t.metric === ov.metric);
+    if (existing) {
+      if (ov.minimum !== undefined) existing.minimum = ov.minimum;
+      if (ov.maximum !== undefined) existing.maximum = ov.maximum;
+    } else {
+      result.push({ metric: ov.metric, minimum: ov.minimum, maximum: ov.maximum });
+    }
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -109,18 +138,32 @@ function assignTier(breaches: ThresholdBreach[]): RiskTier {
  * - Missing metrics generate warnings, not failures
  * - Tier assigned based on breach count and severity
  *
+ * Optional `config` parameter allows bank-specific threshold overrides.
+ * When omitted, system defaults apply (backward-compatible).
+ *
  * Pure function — deterministic, no side effects.
  */
 export function evaluatePolicy(
   snapshot: CreditSnapshot,
   product: ProductType,
+  config?: PolicyConfigOverride,
 ): PolicyResult {
   const policy = getPolicyDefinition(product);
+  const breachBand = config?.minorBreachBand ?? MINOR_BREACH_BAND;
+
+  // Merge config overrides onto base thresholds
+  const thresholds = config?.thresholds
+    ? mergeThresholds(
+        policy.thresholds,
+        config.thresholds.filter((t) => t.product === product),
+      )
+    : policy.thresholds;
+
   const breaches: ThresholdBreach[] = [];
   const warnings: string[] = [];
   const metricsEvaluated: Record<string, number | undefined> = {};
 
-  for (const threshold of policy.thresholds) {
+  for (const threshold of thresholds) {
     const value = extractMetricValue(snapshot, threshold.metric);
     metricsEvaluated[threshold.metric] = value;
 
@@ -136,7 +179,7 @@ export function evaluatePolicy(
         metric: threshold.metric,
         threshold,
         actualValue: value,
-        severity: classifySeverity(deviation),
+        severity: classifySeverity(deviation, breachBand),
         deviation,
       });
     }

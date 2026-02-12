@@ -37,20 +37,33 @@ export { getStressAdjustmentBps } from "./stressAdjust";
  * Pure function — deterministic, no side effects.
  */
 export function computePricing(opts: PricingOpts): PricingResult {
-  const { product, tier, stressedTier } = opts;
+  const { product, tier, stressedTier, config } = opts;
 
   const baseEntry = getBaseRate(product);
-  const riskPremiumBps = getRiskPremiumBps(tier);
-  const stressAdjustmentBps = getStressAdjustmentBps(tier, stressedTier);
+
+  // Apply config overrides for spread, premium, stress adjust
+  const spreadBps = config?.spreads?.[product] ?? baseEntry.spreadBps;
+  const effectiveBaseRate = baseEntry.indexRate + spreadBps / 10_000;
+
+  const riskPremiumBps = config?.tierPremiums?.[tier] ?? getRiskPremiumBps(tier);
+
+  const bpsPerDegradation = config?.stressAdjustBpsPerTier ?? 25;
+  const stressAdjustmentBps = stressedTier !== undefined
+    ? (() => {
+        const TIER_ORD: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
+        const deg = TIER_ORD[stressedTier] - TIER_ORD[tier];
+        return deg > 0 ? deg * bpsPerDegradation : 0;
+      })()
+    : 0;
 
   const totalAdjustmentBps = riskPremiumBps + stressAdjustmentBps;
-  const finalRate = baseEntry.baseRate + totalAdjustmentBps / 10_000;
+  const finalRate = effectiveBaseRate + totalAdjustmentBps / 10_000;
 
   // Build rationale
   const rationale: string[] = [];
 
   rationale.push(
-    `Base rate: ${baseEntry.index} ${(baseEntry.indexRate * 100).toFixed(2)}% + ${baseEntry.spreadBps}bps spread = ${(baseEntry.baseRate * 100).toFixed(2)}%`,
+    `Base rate: ${baseEntry.index} ${(baseEntry.indexRate * 100).toFixed(2)}% + ${spreadBps}bps spread = ${(effectiveBaseRate * 100).toFixed(2)}%`,
   );
 
   rationale.push(
@@ -73,7 +86,7 @@ export function computePricing(opts: PricingOpts): PricingResult {
 
   return {
     product,
-    baseRate: baseEntry.baseRate,
+    baseRate: effectiveBaseRate,
     riskPremiumBps,
     stressAdjustmentBps,
     finalRate,
