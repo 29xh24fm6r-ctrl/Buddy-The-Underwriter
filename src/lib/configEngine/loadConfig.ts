@@ -8,6 +8,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { deepFreeze } from "@/lib/utils/deepFreeze";
 import type { BankConfig } from "./types";
 
 /**
@@ -30,7 +31,7 @@ export async function loadActiveBankConfig(
 
   if (error || !data) return null;
 
-  return Object.freeze({
+  return deepFreeze({
     id: data.id,
     bankId: data.bank_id,
     version: data.version,

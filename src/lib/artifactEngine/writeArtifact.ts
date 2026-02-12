@@ -3,11 +3,12 @@
  *
  * Persists a full underwrite result as an immutable, versioned artifact.
  *
- * Steps:
- * 1. Compute all component hashes
- * 2. Get next version (auto-increment per deal)
- * 3. Supersede any previous draft artifacts for this deal
- * 4. Insert new artifact row
+ * Uses the `persist_underwrite_artifact` RPC for atomic execution:
+ * 1. Advisory lock (per deal_id — prevents concurrent version races)
+ * 2. Idempotency check (same overall_hash → return existing draft)
+ * 3. Version auto-increment
+ * 4. Supersede previous drafts (with supersedes_artifact_id chain)
+ * 5. Insert new artifact row
  *
  * PHASE 7: DB write — no computation, no UI.
  */
@@ -17,6 +18,13 @@ import type { FinancialModel } from "@/lib/modelEngine/types";
 import type { DebtInstrument } from "@/lib/debtEngine/types";
 import type { UnderwriteResult } from "@/lib/underwritingEngine/types";
 import { computeArtifactHashes } from "./hash";
+import pkg from "../../../package.json";
+
+// ---------------------------------------------------------------------------
+// Engine version — sourced from package.json
+// ---------------------------------------------------------------------------
+
+const ENGINE_VERSION: string = pkg.version;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -31,13 +39,13 @@ export async function createUnderwriteArtifact(args: {
   bankConfigVersionId?: string;
   createdBy?: string;
 }): Promise<
-  | { ok: true; artifactId: string; version: number; overallHash: string }
+  | { ok: true; artifactId: string; version: number; overallHash: string; idempotent: boolean }
   | { ok: false; error: string }
 > {
   const { dealId, bankId, result, model, bankConfigVersionId, createdBy } = args;
   const sb = supabaseAdmin();
 
-  // 1. Compute hashes
+  // 1. Compute hashes (pure, no DB)
   const hashes = computeArtifactHashes({
     model,
     snapshot: result.snapshot,
@@ -47,64 +55,38 @@ export async function createUnderwriteArtifact(args: {
     memo: result.memo,
   });
 
-  // 2. Get next version
-  const { data: maxRow } = await sb
-    .from("underwrite_artifacts")
-    .select("version")
-    .eq("deal_id", dealId)
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // 2. Atomic persist via RPC (advisory lock + idempotency + version + supersede + insert)
+  const { data, error } = await sb.rpc("persist_underwrite_artifact", {
+    p_deal_id: dealId,
+    p_bank_id: bankId,
+    p_product_type: result.pricing.product,
+    p_snapshot_json: result.snapshot,
+    p_analysis_json: result.analysis,
+    p_policy_json: result.policy,
+    p_stress_json: result.stress,
+    p_pricing_json: result.pricing,
+    p_memo_json: result.memo,
+    p_model_hash: hashes.modelHash,
+    p_snapshot_hash: hashes.snapshotHash,
+    p_policy_hash: hashes.policyHash,
+    p_stress_hash: hashes.stressHash,
+    p_pricing_hash: hashes.pricingHash,
+    p_memo_hash: hashes.memoHash,
+    p_overall_hash: hashes.overallHash,
+    p_engine_version: ENGINE_VERSION,
+    p_bank_config_version_id: bankConfigVersionId ?? null,
+    p_created_by: createdBy ?? null,
+  });
 
-  const nextVersion = (maxRow?.version ?? 0) + 1;
-
-  // 3. Supersede previous drafts
-  await sb
-    .from("underwrite_artifacts")
-    .update({ status: "superseded" })
-    .eq("deal_id", dealId)
-    .eq("status", "draft");
-
-  // 4. Insert new artifact
-  const { data: inserted, error } = await sb
-    .from("underwrite_artifacts")
-    .insert({
-      deal_id: dealId,
-      bank_id: bankId,
-      product_type: result.pricing.product,
-      version: nextVersion,
-      status: "draft",
-
-      snapshot_json: result.snapshot,
-      analysis_json: result.analysis,
-      policy_json: result.policy,
-      stress_json: result.stress,
-      pricing_json: result.pricing,
-      memo_json: result.memo,
-
-      model_hash: hashes.modelHash,
-      snapshot_hash: hashes.snapshotHash,
-      policy_hash: hashes.policyHash,
-      stress_hash: hashes.stressHash,
-      pricing_hash: hashes.pricingHash,
-      memo_hash: hashes.memoHash,
-      overall_hash: hashes.overallHash,
-
-      engine_version: "1.0.0",
-      bank_config_version_id: bankConfigVersionId ?? null,
-      created_by: createdBy ?? null,
-    })
-    .select("id")
-    .single();
-
-  if (error || !inserted) {
-    return { ok: false, error: error?.message ?? "Insert failed" };
+  if (error || !data) {
+    return { ok: false, error: error?.message ?? "Persist RPC failed" };
   }
 
   return {
     ok: true,
-    artifactId: inserted.id,
-    version: nextVersion,
-    overallHash: hashes.overallHash,
+    artifactId: data.id,
+    version: data.version,
+    overallHash: data.overall_hash,
+    idempotent: data.idempotent === true,
   };
 }
