@@ -131,13 +131,6 @@ export default async function Page(
   let latestRates: LatestRates | null = null;
   let quotes: QuoteRow[] = [];
 
-  // Fetch pricing assumptions (deal_pricing_inputs with new columns)
-  const { data: pricingAssumptions } = await sb
-    .from("deal_pricing_inputs")
-    .select("*")
-    .eq("deal_id", dealId)
-    .maybeSingle();
-
   if (inputsRes.ok) {
     const payload = await inputsRes.json();
     inputs = payload?.inputs ?? null;
@@ -161,7 +154,7 @@ export default async function Page(
 
   return (
     <div data-testid="deal-pricing" className="space-y-6">
-      <PricingAssumptionsCard dealId={dealId} initial={pricingAssumptions as any} />
+      <PricingAssumptionsCard dealId={dealId} />
       <PricingScenariosPanel dealId={dealId} />
       <DealPricingClient
         deal={deal}
