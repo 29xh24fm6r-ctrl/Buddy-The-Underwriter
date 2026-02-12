@@ -58,9 +58,10 @@ const VALID_LINE_KEYS = new Set([
 
 const LABEL_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   // ── General business P&L (checked first — more common) ────────────────
+  // NOTE: "total" variants are checked first to prefer totals over section headers
   { key: "TOTAL_REVENUE", pattern: /total\s+(?:sales\s+)?revenue|(?:net|gross)\s+(?:sales|revenue)|total\s+sales|service\s+(?:income|revenue)|fee\s+income/i },
-  { key: "COST_OF_GOODS_SOLD", pattern: /cost\s+of\s+(?:goods\s+)?sold|\bCOGS\b|(?:total\s+)?cost\s+of\s+(?:sales|revenue)|direct\s+costs?/i },
-  { key: "GROSS_PROFIT", pattern: /gross\s+(?:profit|margin)/i },
+  { key: "COST_OF_GOODS_SOLD", pattern: /total\s+cost\s+of\s+(?:sales|revenue|goods)|cost\s+of\s+(?:goods\s+)?sold|\bCOGS\b|direct\s+costs?/i },
+  { key: "GROSS_PROFIT", pattern: /gross\s+profit(?!\s*%)|gross\s+margin\s+\$/i },
   { key: "SELLING_GENERAL_ADMIN", pattern: /selling[\s,]+general\s+(?:&|and)\s+admin|\bSG&?A\b|total\s+general\s+and\s+admin/i },
   { key: "OPERATING_INCOME", pattern: /(?:income|profit|earnings)\s+from\s+operations|operating\s+(?:income|profit|earnings)/i },
   { key: "EBITDA", pattern: /\bEBITDA\b/i },
@@ -71,7 +72,7 @@ const LABEL_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "EFFECTIVE_GROSS_INCOME", pattern: /effective\s+gross\s+income|EGI|total\s+income/i },
   // ── Shared operating expense categories ────────────────────────────────
   { key: "REPAIRS_MAINTENANCE", pattern: /repairs?\s*(?:&|and)?\s*maintenance|R&M|marina\s+svcs/i },
-  { key: "UTILITIES", pattern: /utilit(?:y|ies)|electric|gas|water|sewer|fuel/i },
+  { key: "UTILITIES", pattern: /utilit(?:y|ies)|electric(?:ity)?|water\s*(?:&|and)?\s*sewer|fuel\s*(?:&|and)?\s*ice/i },
   { key: "PROPERTY_MANAGEMENT", pattern: /(?:property\s+)?management\s+(?:fee|expense)|management/i },
   { key: "REAL_ESTATE_TAXES", pattern: /real\s+estate\s+tax|property\s+tax|RE\s+tax/i },
   { key: "INSURANCE", pattern: /\binsurance\b(?!\s+(?:income|value))/i },

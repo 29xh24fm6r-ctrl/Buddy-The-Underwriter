@@ -62,7 +62,7 @@ const LABEL_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "OTHER_CURRENT_LIABILITIES", pattern: /other\s+current\s+liabilit/i },
   { key: "TOTAL_CURRENT_LIABILITIES", pattern: /total\s+current\s+liabilit/i },
   // Non-Current Liabilities
-  { key: "LONG_TERM_DEBT", pattern: /long[\s-]?term\s+(?:debt|borrowing|note)|LTD|term\s+loan|loan\s+for\b/i },
+  { key: "LONG_TERM_DEBT", pattern: /long[\s-]?term\s+(?:debt|borrowing|note)|LTD|term\s+loan/i },
   { key: "MORTGAGE_PAYABLE", pattern: /mortgage\s+(?:payable|note|loan)/i },
   { key: "DEFERRED_TAX_LIABILITY", pattern: /deferred\s+(?:tax|income\s+tax)\s+liabilit/i },
   { key: "OTHER_NON_CURRENT_LIABILITIES", pattern: /other\s+(?:non[\s-]?current|long[\s-]?term)\s+liabilit/i },
