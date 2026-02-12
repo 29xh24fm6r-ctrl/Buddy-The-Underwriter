@@ -6,6 +6,8 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
 import { renderMoodysSpreadWithValidation } from "@/lib/financialSpreads/moodys/renderMoodysSpread";
 import { buildDealFinancialSnapshotForBank } from "@/lib/deals/financialSnapshot";
+import { isModelEngineV2Enabled, buildFinancialModel } from "@/lib/modelEngine";
+import { renderFromFinancialModel } from "@/lib/modelEngine/renderer/v2Adapter";
 import type { FinancialFact } from "@/lib/financialSpreads/types";
 
 export const runtime = "nodejs";
@@ -85,11 +87,23 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         console.warn("[moodys/route] persist failed (non-fatal)", err?.message);
       });
 
+    // V2 Model Engine: if flag enabled, also return the SpreadViewModel
+    let viewModel = null;
+    if (isModelEngineV2Enabled()) {
+      try {
+        const model = buildFinancialModel(dealId, (facts ?? []) as FinancialFact[]);
+        viewModel = renderFromFinancialModel(model, dealId);
+      } catch (e: any) {
+        console.warn("[moodys/route] V2 viewModel build failed (non-fatal):", e?.message);
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       dealId,
       spread: rendered,
       validation: validation ?? null,
+      ...(viewModel ? { viewModel } : {}),
     });
   } catch (e: any) {
     console.error("[/api/deals/[dealId]/spreads/moodys]", e);
