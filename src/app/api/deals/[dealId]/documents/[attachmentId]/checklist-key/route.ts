@@ -125,6 +125,8 @@ export async function PATCH(
     match_source: isClearing ? null : "manual",
     match_reason: isClearing ? null : "Manual classification by banker",
     match_confidence: isClearing ? null : 1.0,
+    // Manual classification = banker has reviewed → finalize the document
+    finalized_at: isClearing ? null : new Date().toISOString(),
   };
   if (documentType) docUpdate.document_type = documentType;
   if (taxYear !== null) {
