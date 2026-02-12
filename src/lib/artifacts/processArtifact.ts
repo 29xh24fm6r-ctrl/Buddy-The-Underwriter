@@ -47,6 +47,18 @@ type OcrResult =
   | { ok: true; text: string }
   | { ok: false; code: "ocr_disabled" | "download_failed" | "ocr_error"; message: string };
 
+/** Map artifact doc type → spread types to recompute after classification. */
+function spreadsForArtifactDocType(dt: string): Array<"T12" | "BALANCE_SHEET" | "RENT_ROLL" | "PERSONAL_INCOME" | "PERSONAL_FINANCIAL_STATEMENT" | "GLOBAL_CASH_FLOW"> {
+  if (!dt) return [];
+  if (["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT", "TRAILING_12", "OPERATING_STATEMENT"].includes(dt)) return ["T12"];
+  if (dt === "BALANCE_SHEET") return ["BALANCE_SHEET"];
+  if (dt === "RENT_ROLL") return ["RENT_ROLL"];
+  if (["IRS_1065", "IRS_1120", "IRS_1120S", "IRS_BUSINESS", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN"].includes(dt)) return ["GLOBAL_CASH_FLOW"];
+  if (["IRS_1040", "IRS_PERSONAL", "PERSONAL_TAX_RETURN"].includes(dt)) return ["PERSONAL_INCOME", "GLOBAL_CASH_FLOW"];
+  if (["PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413"].includes(dt)) return ["PERSONAL_FINANCIAL_STATEMENT", "GLOBAL_CASH_FLOW"];
+  return [];
+}
+
 /**
  * Run OCR directly on a document (bypasses document_jobs lookup).
  * This is a streamlined version for the artifact processor.
@@ -875,6 +887,36 @@ export async function processArtifact(
       console.warn("[processArtifact] materializeFactsFromArtifacts threw", {
         dealId,
         error: matErr?.message,
+      });
+    }
+
+    // 6.5c. Enqueue financial spread recompute (never block the artifact pipeline)
+    try {
+      const docType = (typingResult.effective_doc_type ?? typingResult.canonical_type ?? "")
+        .trim()
+        .toUpperCase();
+      const spreadTypes = spreadsForArtifactDocType(docType);
+      if (spreadTypes.length > 0) {
+        const { enqueueSpreadRecompute } = await import(
+          "@/lib/financialSpreads/enqueueSpreadRecompute"
+        );
+        await enqueueSpreadRecompute({
+          dealId,
+          bankId,
+          sourceDocumentId: source_id,
+          spreadTypes,
+          meta: {
+            source: "artifact_processor",
+            doc_type: docType,
+            artifact_id: artifactId,
+            enqueued_at: new Date().toISOString(),
+          },
+        });
+      }
+    } catch (spreadErr: any) {
+      console.warn("[processArtifact] spread enqueue failed (non-fatal)", {
+        dealId,
+        error: spreadErr?.message,
       });
     }
 

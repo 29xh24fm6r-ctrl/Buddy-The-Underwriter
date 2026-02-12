@@ -103,6 +103,14 @@ export async function POST(req: NextRequest) {
       break;
     }
 
+    // Process spread jobs when running ALL (after document jobs)
+    if (type === "ALL") {
+      const spreadResult = await guardedSpreads({ leaseOwner, maxJobs: Math.max(1, batchSize) });
+      if (spreadResult.ok && spreadResult.processed > 0) {
+        results.push({ type: "SPREADS", ...spreadResult });
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       processed: results.length,

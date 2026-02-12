@@ -31,34 +31,26 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
     const dt = String(docTypeRaw || "").trim().toUpperCase();
     if (!dt) return [];
 
-    if (dt === "FINANCIAL_STATEMENT" || dt === "T12" || dt === "INCOME_STATEMENT") return ["T12"];
+    if (["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT", "TRAILING_12", "OPERATING_STATEMENT"].includes(dt)) return ["T12"];
 
     if (dt === "BALANCE_SHEET") return ["BALANCE_SHEET"];
 
     if (dt === "RENT_ROLL") return ["RENT_ROLL"];
 
     if (
-      dt === "IRS_1065" ||
-      dt === "IRS_1120" ||
-      dt === "IRS_1120S" ||
-      dt === "IRS_BUSINESS" ||
-      dt === "K1"
+      ["IRS_1065", "IRS_1120", "IRS_1120S", "IRS_BUSINESS", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN"].includes(dt)
     ) {
       return ["GLOBAL_CASH_FLOW"];
     }
 
     if (
-      dt === "IRS_1040" ||
-      dt === "IRS_PERSONAL" ||
-      dt === "PERSONAL_TAX_RETURN"
+      ["IRS_1040", "IRS_PERSONAL", "PERSONAL_TAX_RETURN"].includes(dt)
     ) {
       return ["PERSONAL_INCOME", "GLOBAL_CASH_FLOW"];
     }
 
     if (
-      dt === "PFS" ||
-      dt === "PERSONAL_FINANCIAL_STATEMENT" ||
-      dt === "SBA_413"
+      ["PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413"].includes(dt)
     ) {
       return ["PERSONAL_FINANCIAL_STATEMENT", "GLOBAL_CASH_FLOW"];
     }
