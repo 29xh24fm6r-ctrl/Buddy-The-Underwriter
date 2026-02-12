@@ -15,7 +15,7 @@
 export type ModelRegistryEntry = {
   model_id: string;
   purpose: string;
-  provider: "openai" | "anthropic" | "internal";
+  provider: "openai" | "google" | "internal";
   model_version: string;
   input_scope: string[];
   output_scope: string[];

@@ -38,8 +38,7 @@
     "gate:schema-select": "node scripts/schema/gate-select-columns.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.71.2",
-    "@clerk/nextjs": "^6.36.3",
+"@clerk/nextjs": "^6.36.3",
     "@google-cloud/documentai": "^9.5.0",
     "@google-cloud/storage": "^7.17.0",
     "@google-cloud/vertexai": "^1.9.0",

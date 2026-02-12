@@ -42,7 +42,7 @@ function sha256Sim(input: string): string {
 type ModelRegistryEntry = {
   model_id: string;
   purpose: string;
-  provider: "openai" | "anthropic" | "internal";
+  provider: "openai" | "google" | "internal";
   model_version: string;
   input_scope: string[];
   output_scope: string[];
@@ -279,7 +279,7 @@ describe("governance invariants", () => {
   test("every model has a provider", () => {
     for (const entry of MODEL_REGISTRY) {
       assert.ok(
-        ["openai", "anthropic", "internal"].includes(entry.provider),
+        ["openai", "google", "internal"].includes(entry.provider),
         `${entry.model_id} has invalid provider: ${entry.provider}`,
       );
     }

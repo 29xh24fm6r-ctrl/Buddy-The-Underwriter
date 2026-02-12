@@ -4,8 +4,6 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { FinancialFactProvenance } from "@/lib/financialFacts/keys";
 import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
 
-// Re-export for backwards compat — legacy extractors import from "./shared"
-export { callClaudeForExtraction } from "./legacyClaudeExtractor";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,6 +22,9 @@ export type ExtractionResult = {
   ok: boolean;
   factsWritten: number;
   error?: string;
+  skipped?: boolean;
+  skipReason?: string;
+  extractionPath?: string;
 };
 
 // ---------------------------------------------------------------------------

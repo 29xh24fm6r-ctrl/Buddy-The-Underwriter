@@ -4,7 +4,9 @@
  * Converts canonical deal_financial_facts → normalized FinancialModel.
  *
  * Rules:
- * - No default/sentinel period (1900-01-01) — those facts are skipped
+ * - Sentinel-date (1900-01-01) INCOME_STATEMENT/BALANCE_SHEET facts are promoted
+ *   to the latest real period (T12/BS from spreads use sentinel as "current/undated")
+ * - Other sentinel-date facts are skipped
  * - No cloning values across periods
  * - Strict grouping by period_end
  * - Derived values computed from available inputs only
@@ -55,6 +57,7 @@ function isSentinelDate(d: string | null | undefined): boolean {
 /** Maps fact_key → FinancialPeriod property path */
 const INCOME_MAP: Record<string, keyof FinancialPeriod["income"]> = {
   TOTAL_REVENUE: "revenue",
+  GROSS_RECEIPTS: "revenue", // tax return top-line revenue
   COST_OF_GOODS_SOLD: "cogs",
   TOTAL_OPERATING_EXPENSES: "operatingExpenses",
   DEPRECIATION: "depreciation",
@@ -117,9 +120,14 @@ export function buildFinancialModel(
   dealId: string,
   facts: FactInput[],
 ): FinancialModel {
-  // Group facts by period_end, filtering out sentinel dates and nulls
+  // Group facts by period_end in two passes:
+  // 1. Real-dated facts → grouped normally
+  // 2. Sentinel-date INCOME_STATEMENT/BALANCE_SHEET → promoted to latest real period
+  //    (T12 and balance sheet data from spreads use 1900-01-01 as "current/undated")
   const byPeriod = new Map<string, FactInput[]>();
 
+  // First pass: collect real-dated facts and track max real date
+  const realDates: string[] = [];
   for (const f of facts) {
     if (!RELEVANT_FACT_TYPES.has(f.fact_type)) continue;
     if (f.fact_value_num === null) continue;
@@ -128,6 +136,26 @@ export function buildFinancialModel(
     const pe = f.fact_period_end!;
     if (!byPeriod.has(pe)) byPeriod.set(pe, []);
     byPeriod.get(pe)!.push(f);
+    realDates.push(pe);
+  }
+
+  // Second pass: promote sentinel-date INCOME_STATEMENT and BALANCE_SHEET facts
+  // to the latest real period. These are T12/BS data from AI extraction that lack
+  // a specific fiscal year. They process AFTER real facts so T12 values (which are
+  // more complete) win over tax return form-reference values on key conflicts.
+  const sentinelProxy = realDates.length > 0
+    ? realDates.sort().pop()!
+    : null;
+
+  if (sentinelProxy) {
+    for (const f of facts) {
+      if (f.fact_value_num === null) continue;
+      if (!isInvalidPeriodDate(f.fact_period_end)) continue;
+      if (f.fact_type !== "INCOME_STATEMENT" && f.fact_type !== "BALANCE_SHEET") continue;
+
+      if (!byPeriod.has(sentinelProxy)) byPeriod.set(sentinelProxy, []);
+      byPeriod.get(sentinelProxy)!.push(f);
+    }
   }
 
   // Build periods

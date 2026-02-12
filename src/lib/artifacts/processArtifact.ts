@@ -16,6 +16,7 @@ import {
   classifyDocument,
   mapDocTypeToChecklistKeys,
   type ClassificationResult,
+  type DocAiSignals,
 } from "./classifyDocument";
 import { resolveDocTyping } from "@/lib/docs/typing/resolveDocTyping";
 import { isExtractionErrorPayload, extractErrorMessage } from "./extractionError";
@@ -622,8 +623,43 @@ export async function processArtifact(
       bankId
     );
 
-    // 2. Classify the document
-    const classification = await classifyDocument(text, filename, mimeType);
+    // 1.5. Load existing DocAI signals (available on re-processing or retry)
+    let docAiSignals: DocAiSignals | undefined;
+    try {
+      const docAiRow = await sb
+        .from("document_extracts")
+        .select("fields_json, provider_metrics")
+        .eq("attachment_id", source_id)
+        .eq("status", "SUCCEEDED")
+        .maybeSingle();
+
+      if (docAiRow.data?.provider_metrics) {
+        const structuredJson = docAiRow.data.fields_json?.structuredJson;
+        // Extract document type label from DocAI entities if present
+        const entities = structuredJson?.entities;
+        const typeEntity = Array.isArray(entities)
+          ? entities.find((e: any) => e.type === "document_type" || e.type === "doc_type")
+          : null;
+
+        docAiSignals = {
+          processorType: docAiRow.data.provider_metrics.processorType,
+          docTypeLabel: typeEntity?.mentionText ?? docAiRow.data.provider_metrics.documentType ?? undefined,
+          docTypeConfidence: typeEntity?.confidence ?? undefined,
+          entities: Array.isArray(entities)
+            ? entities.slice(0, 20).map((e: any) => ({
+                type: String(e.type ?? ""),
+                mentionText: String(e.mentionText ?? ""),
+                confidence: Number(e.confidence ?? 0),
+              }))
+            : undefined,
+        };
+      }
+    } catch {
+      // DocAI data is best-effort — continue without it
+    }
+
+    // 2. Classify the document (3-tier: DocAI → Rules → Gemini)
+    const classification = await classifyDocument(text, filename, mimeType, docAiSignals);
 
     // ── PIPELINE INTEGRITY GUARD ────────────────────────────────────
     // classifyDocument() swallows API errors and returns { error: "..." }
@@ -772,7 +808,7 @@ export async function processArtifact(
             // Raw AI classification fields
             ai_doc_type: classification.docType,
             ai_confidence: classification.confidence,
-            ai_model: "claude-sonnet-4-5-20250929",
+            ai_model: classification.model ?? "gemini-2.0-flash",
             ai_reason: classification.reason,
             ai_form_numbers: classification.formNumbers,
             ai_issuer: classification.issuer,

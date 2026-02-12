@@ -45,7 +45,7 @@ export async function loadDealInstruments(
   // 2. Proposed loan from structural pricing (latest computation)
   const { data: proposed } = await sb
     .from("deal_structural_pricing")
-    .select("loan_amount, interest_rate_pct, amortization_years")
+    .select("loan_amount, structural_rate_pct, amort_months")
     .eq("deal_id", dealId)
     .order("computed_at", { ascending: false })
     .limit(1)
@@ -56,8 +56,8 @@ export async function loadDealInstruments(
       id: `proposed-${dealId}`,
       source: "proposed",
       principal: proposed.loan_amount,
-      rate: (proposed.interest_rate_pct ?? 6.5) / 100,
-      amortizationMonths: (proposed.amortization_years ?? 25) * 12,
+      rate: (proposed.structural_rate_pct ?? 6.5) / 100,
+      amortizationMonths: proposed.amort_months ?? 300,
       paymentFrequency: "monthly",
     });
   }

@@ -471,7 +471,7 @@ export async function extractFinancialsLegacy(
     result,
     provider_metrics: {
       provider: "hybrid_financials",
-      model: "claude_vision_hybrid",
+      model: "gemini_vision",
     },
   };
 }

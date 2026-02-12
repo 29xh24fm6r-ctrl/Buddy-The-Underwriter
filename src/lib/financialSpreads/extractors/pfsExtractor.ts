@@ -2,7 +2,6 @@ import "server-only";
 
 import type { FinancialFactProvenance } from "@/lib/financialFacts/keys";
 import {
-  callClaudeForExtraction,
   normalizePeriod,
   writeFactsBatch,
   type ExtractedLineItem,
@@ -86,73 +85,12 @@ Rules:
 - If totals don't reconcile with individual items, extract both but lower confidence
 - Use the statement date as the period, not the filing date`;
 
-export async function extractPfs(args: {
+export async function extractPfs(_args: {
   dealId: string;
   bankId: string;
   documentId: string;
   ocrText: string;
   ownerEntityId?: string | null;
 }): Promise<ExtractionResult> {
-  if (!args.ocrText.trim()) {
-    return { ok: true, factsWritten: 0 };
-  }
-
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = await callClaudeForExtraction({
-      systemPrompt: SYSTEM_PROMPT,
-      ocrText: args.ocrText,
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[pfsExtractor] Claude call failed:", msg);
-    return { ok: false, factsWritten: 0, error: msg };
-  }
-
-  const rawItems = Array.isArray(parsed.line_items) ? parsed.line_items : [];
-  const items: ExtractedLineItem[] = [];
-
-  for (const raw of rawItems) {
-    const lineKey = String(raw.line_key ?? "").toUpperCase();
-    if (!VALID_LINE_KEYS.has(lineKey)) continue;
-
-    const value = Number(raw.value);
-    if (!Number.isFinite(value)) continue;
-
-    const confidence = Math.min(1, Math.max(0, Number(raw.confidence) || 0.5));
-    const { start, end } = normalizePeriod(raw.period);
-
-    const provenance: FinancialFactProvenance = {
-      source_type: "DOC_EXTRACT",
-      source_ref: `deal_documents:${args.documentId}`,
-      as_of_date: end,
-      extractor: "pfsExtractor:v1",
-      confidence,
-      citations: raw.snippet ? [{ page: null, snippet: String(raw.snippet) }] : [],
-      raw_snippets: raw.snippet ? [String(raw.snippet)] : [],
-    };
-
-    items.push({
-      factKey: lineKey,
-      value,
-      confidence,
-      periodStart: start,
-      periodEnd: end,
-      provenance,
-    });
-  }
-
-  if (!items.length) {
-    return { ok: true, factsWritten: 0 };
-  }
-
-  return writeFactsBatch({
-    dealId: args.dealId,
-    bankId: args.bankId,
-    sourceDocumentId: args.documentId,
-    factType: "PERSONAL_FINANCIAL_STATEMENT",
-    items,
-    ownerType: "PERSONAL",
-    ownerEntityId: args.ownerEntityId ?? null,
-  });
+  return { ok: false, factsWritten: 0, skipped: true, skipReason: "legacy_llm_extractor_disabled" };
 }

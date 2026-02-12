@@ -1,14 +1,25 @@
 /**
- * AI-powered document classification for Magic Intake.
+ * 3-Tier Document Classification for Magic Intake.
  *
- * Uses Claude to analyze document content and classify:
- * - Document type (IRS_BUSINESS, IRS_PERSONAL, PFS, RENT_ROLL, T12, etc.)
- * - Tax year (if applicable)
- * - Entity name (business or individual)
- * - Entity type (business vs personal)
+ * Decision order:
+ *  A. DocAI — if Document AI has already processed this document and
+ *     produced a type label with confidence ≥ 0.75, trust it.
+ *  B. Rules — deterministic text/filename anchors (IRS forms, keywords).
+ *     No API call. Returns result with confidence ≥ 0.60.
+ *  C. Gemini — LLM fallback via Google Vertex AI. Only called when
+ *     DocAI and rules cannot classify.
+ *  D. Fallback — if Gemini also fails, use best-effort rules result
+ *     (even if low-confidence) or return OTHER. Never throws.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import "server-only";
+import { VertexAI } from "@google-cloud/vertexai";
+import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
+import { classifyByRules, type RulesClassificationResult } from "./classifyByRules";
+
+// ---------------------------------------------------------------------------
+// Document type enum
+// ---------------------------------------------------------------------------
 
 const DOC_TYPES = [
   "IRS_BUSINESS",      // Business tax return (1120, 1120S, 1065)
@@ -35,6 +46,19 @@ const DOC_TYPES = [
 
 export type DocumentType = (typeof DOC_TYPES)[number];
 
+// ---------------------------------------------------------------------------
+// Classification types
+// ---------------------------------------------------------------------------
+
+export type ClassificationTier = "docai" | "rules" | "gemini" | "fallback";
+
+export type DocAiSignals = {
+  processorType?: string;
+  docTypeLabel?: string;
+  docTypeConfidence?: number;
+  entities?: Array<{ type: string; mentionText: string; confidence: number }>;
+};
+
 export type ClassificationResult = {
   docType: DocumentType;
   confidence: number;
@@ -53,7 +77,50 @@ export type ClassificationResult = {
   periodStart: string | null;
   /** Document reporting period end (ISO date string) */
   periodEnd: string | null;
+  /** Which classification tier produced this result */
+  tier?: ClassificationTier;
+  /** Model/method identifier (e.g. "docai:TAX_PROCESSOR", "rules:rules_form", "gemini-2.0-flash") */
+  model?: string;
 };
+
+// ---------------------------------------------------------------------------
+// DocAI label → DocumentType mapping
+// ---------------------------------------------------------------------------
+
+const DOCAI_LABEL_MAP: Record<string, DocumentType> = {
+  // Google DocAI processor labels (case-insensitive matching done below)
+  "tax_return_1040": "IRS_PERSONAL",
+  "tax_return_1120": "IRS_BUSINESS",
+  "tax_return_1120s": "IRS_BUSINESS",
+  "tax_return_1065": "IRS_BUSINESS",
+  "1040": "IRS_PERSONAL",
+  "1120": "IRS_BUSINESS",
+  "1120s": "IRS_BUSINESS",
+  "1065": "IRS_BUSINESS",
+  "personal_financial_statement": "PFS",
+  "rent_roll": "RENT_ROLL",
+  "operating_statement": "T12",
+  "income_statement": "T12",
+  "financial_statement": "T12",
+  "balance_sheet": "OTHER",
+  "bank_statement": "BANK_STATEMENT",
+  "insurance_certificate": "INSURANCE",
+  "appraisal": "APPRAISAL",
+  "lease": "LEASE",
+  "k1": "K1",
+  "schedule_k1": "K1",
+  "w2": "W2",
+  "1099": "1099",
+};
+
+function mapDocAiLabelToDocType(label: string): DocumentType | null {
+  const normalized = label.toLowerCase().replace(/[\s-]+/g, "_");
+  return DOCAI_LABEL_MAP[normalized] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Gemini prompt
+// ---------------------------------------------------------------------------
 
 const CLASSIFICATION_PROMPT = `You are a document classification expert for commercial lending. Analyze the provided document and extract key information.
 
@@ -109,21 +176,117 @@ Rules:
 
 Be precise. If unsure, lower the confidence. For tax documents, always try to extract the tax year and form numbers.`;
 
+// ---------------------------------------------------------------------------
+// Gemini Vertex AI helpers (mirrors runGeminiOcrJob.ts pattern)
+// ---------------------------------------------------------------------------
+
+function getGoogleProjectId(): string {
+  const projectId =
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.GOOGLE_PROJECT_ID ||
+    process.env.GCS_PROJECT_ID ||
+    process.env.GCP_PROJECT_ID;
+  if (!projectId) {
+    throw new Error(
+      "Missing Google Cloud project id. Set GOOGLE_CLOUD_PROJECT (recommended) or GOOGLE_PROJECT_ID.",
+    );
+  }
+  return projectId;
+}
+
+function getGoogleLocation(): string {
+  return process.env.GOOGLE_CLOUD_LOCATION || process.env.GOOGLE_CLOUD_REGION || "us-central1";
+}
+
+function getClassifierModel(): string {
+  return process.env.GEMINI_CLASSIFIER_MODEL || process.env.GEMINI_MODEL || "gemini-2.0-flash";
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Build ClassificationResult from rules result
+// ---------------------------------------------------------------------------
+
+function rulesResultToClassification(
+  rulesResult: RulesClassificationResult,
+): ClassificationResult {
+  return {
+    docType: rulesResult.docType,
+    confidence: rulesResult.confidence,
+    reason: rulesResult.reason,
+    taxYear: rulesResult.taxYear,
+    entityName: null,
+    entityType: rulesResult.entityType,
+    proposedDealName: null,
+    proposedDealNameSource: null,
+    rawExtraction: { rules_tier: rulesResult.tier },
+    formNumbers: rulesResult.formNumbers,
+    issuer: rulesResult.docType === "IRS_PERSONAL" || rulesResult.docType === "IRS_BUSINESS" || rulesResult.docType === "K1"
+      ? "IRS"
+      : null,
+    periodStart: null,
+    periodEnd: null,
+    tier: "rules",
+    model: `rules:${rulesResult.tier}`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Classify (3-tier)
+// ---------------------------------------------------------------------------
+
 /**
- * Classify a document using AI.
+ * Classify a document using the 3-tier system:
+ * A. DocAI signals (if available and high confidence)
+ * B. Rules-based (text/filename anchors)
+ * C. Gemini LLM fallback
  *
- * @param documentText - The OCR text content of the document
- * @param filename - Original filename (can help with classification)
- * @param mimeType - MIME type of the file
+ * Never throws — returns best-effort result on any failure.
  */
 export async function classifyDocument(
   documentText: string,
   filename: string,
-  mimeType: string | null
+  mimeType: string | null,
+  docAi?: DocAiSignals,
 ): Promise<ClassificationResult> {
-  const anthropic = new Anthropic();
 
-  // Truncate very long documents
+  // ── Tier A: DocAI ──────────────────────────────────────────────────────
+  if (docAi?.docTypeLabel && (docAi.docTypeConfidence ?? 0) >= 0.75) {
+    const mappedType = mapDocAiLabelToDocType(docAi.docTypeLabel);
+    if (mappedType) {
+      // Also run rules to pick up form numbers and tax year
+      const rulesResult = classifyByRules(documentText, filename);
+
+      return {
+        docType: mappedType,
+        confidence: docAi.docTypeConfidence ?? 0.80,
+        reason: `DocAI processor classified as "${docAi.docTypeLabel}" (confidence ${docAi.docTypeConfidence})`,
+        taxYear: rulesResult?.taxYear ?? null,
+        entityName: null,
+        entityType: rulesResult?.entityType ?? null,
+        proposedDealName: null,
+        proposedDealNameSource: null,
+        rawExtraction: {
+          docai_label: docAi.docTypeLabel,
+          docai_confidence: docAi.docTypeConfidence,
+          docai_processor: docAi.processorType,
+        },
+        formNumbers: rulesResult?.formNumbers ?? null,
+        issuer: null,
+        periodStart: null,
+        periodEnd: null,
+        tier: "docai",
+        model: `docai:${docAi.processorType ?? "unknown"}`,
+      };
+    }
+  }
+
+  // ── Tier B: Rules-based ────────────────────────────────────────────────
+  const rulesResult = classifyByRules(documentText, filename);
+  if (rulesResult && rulesResult.confidence >= 0.65) {
+    return rulesResultToClassification(rulesResult);
+  }
+
+  // ── Tier C: Gemini LLM ────────────────────────────────────────────────
   const maxChars = 15000;
   const truncatedText =
     documentText.length > maxChars
@@ -141,21 +304,38 @@ ${truncatedText}
 Classify this document and extract key information. Respond with JSON only.`;
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1024,
-      messages: [
-        { role: "user", content: CLASSIFICATION_PROMPT + "\n\n" + userMessage },
+    await ensureGcpAdcBootstrap();
+    const googleAuthOptions = await getVertexAuthOptions();
+
+    const vertexAI = new VertexAI({
+      project: getGoogleProjectId(),
+      location: getGoogleLocation(),
+      ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
+    });
+
+    const modelName = getClassifierModel();
+    const model = vertexAI.getGenerativeModel({ model: modelName });
+
+    const resp = await model.generateContent({
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: CLASSIFICATION_PROMPT + "\n\n" + userMessage }],
+        },
       ],
     });
 
-    const textContent = response.content.find((c) => c.type === "text");
-    if (!textContent || textContent.type !== "text") {
-      throw new Error("No text response from Claude");
+    const parts = (resp as any)?.response?.candidates?.[0]?.content?.parts ?? [];
+    const textRaw = parts
+      .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
+      .join("");
+
+    if (!textRaw) {
+      throw new Error("No text response from Gemini");
     }
 
     // Parse JSON response
-    const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
+    const jsonMatch = textRaw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error("No JSON found in response");
     }
@@ -189,14 +369,29 @@ Classify this document and extract key information. Respond with JSON only.`;
       issuer: parsed.issuer ? String(parsed.issuer) : null,
       periodStart: parsed.period_start ? String(parsed.period_start) : null,
       periodEnd: parsed.period_end ? String(parsed.period_end) : null,
+      tier: "gemini",
+      model: modelName,
     };
   } catch (error: any) {
-    console.error("[classifyDocument] AI classification failed", {
+    console.error("[classifyDocument] Gemini classification failed", {
       filename,
       error: error?.message,
     });
 
-    // Return low-confidence fallback
+    // ── Tier D: Fallback — prefer rules result (even low-confidence) over bare OTHER
+    if (rulesResult) {
+      console.log("[classifyDocument] Falling back to rules result after Gemini failure", {
+        filename,
+        rulesDocType: rulesResult.docType,
+        rulesConfidence: rulesResult.confidence,
+      });
+      const result = rulesResultToClassification(rulesResult);
+      result.tier = "fallback";
+      result.model = `fallback:${rulesResult.tier}`;
+      result.reason = `${rulesResult.reason} (Gemini unavailable: ${error?.message})`;
+      return result;
+    }
+
     return {
       docType: "OTHER",
       confidence: 0.1,
@@ -211,6 +406,8 @@ Classify this document and extract key information. Respond with JSON only.`;
       issuer: null,
       periodStart: null,
       periodEnd: null,
+      tier: "fallback",
+      model: "fallback:none",
     };
   }
 }
