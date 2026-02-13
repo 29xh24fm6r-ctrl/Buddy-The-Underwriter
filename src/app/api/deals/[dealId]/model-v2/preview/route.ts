@@ -118,12 +118,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     const financialModelHash = deterministicHash(financialModel);
     const computedAt = new Date().toISOString();
 
-    // 9. Optionally persist snapshot
-    const url = new URL(req.url);
-    const persist = url.searchParams.get("persist") === "true";
+    // 9. Always persist snapshot for audit trail
     let snapshotId: string | null = null;
-
-    if (persist) {
+    {
       const saveResult = await saveModelSnapshot(
         sb,
         {

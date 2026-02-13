@@ -48,5 +48,10 @@ export type {
 // ---------------------------------------------------------------------------
 
 export function isModelEngineV2Enabled(): boolean {
-  return process.env.USE_MODEL_ENGINE_V2 === "true";
+  const enabled = process.env.USE_MODEL_ENGINE_V2 === "true";
+  if (enabled && !(globalThis as any).__v2_logged) {
+    (globalThis as any).__v2_logged = true;
+    console.log("[ModelEngine] V2 enabled — shadow mode active");
+  }
+  return enabled;
 }

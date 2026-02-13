@@ -8,6 +8,9 @@ import { renderMoodysSpreadWithValidation } from "@/lib/financialSpreads/moodys/
 import { buildDealFinancialSnapshotForBank } from "@/lib/deals/financialSnapshot";
 import { isModelEngineV2Enabled, buildFinancialModel } from "@/lib/modelEngine";
 import { renderFromFinancialModel } from "@/lib/modelEngine/renderer/v2Adapter";
+import { renderFromLegacySpread } from "@/lib/modelEngine/renderer/v1Adapter";
+import { diffSpreadViewModels } from "@/lib/modelEngine/renderer/viewModelDiff";
+import { writeSystemEvent } from "@/lib/aegis/writeSystemEvent";
 import type { FinancialFact } from "@/lib/financialSpreads/types";
 
 export const runtime = "nodejs";
@@ -88,14 +91,34 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         console.warn("[moodys/route] persist failed (non-fatal)", err?.message);
       });
 
-    // V2 Model Engine: if flag enabled, also return the SpreadViewModel
+    // V2 Model Engine: shadow compare + return SpreadViewModel when enabled
     let viewModel = null;
     if (isModelEngineV2Enabled()) {
       try {
         const model = buildFinancialModel(dealId, (facts ?? []) as FinancialFact[]);
         viewModel = renderFromFinancialModel(model, dealId);
+
+        // Shadow diff: compare V1 legacy vs V2 model at ViewModel level
+        const v1ViewModel = renderFromLegacySpread(rendered as any, dealId);
+        const diff = diffSpreadViewModels(v1ViewModel, viewModel);
+
+        // Fire-and-forget telemetry via Aegis
+        void writeSystemEvent({
+          event_type: diff.summary.pass ? "success" : "warning",
+          severity: diff.summary.pass ? "info" : "warning",
+          source_system: "api",
+          deal_id: dealId,
+          bank_id: access.bankId ?? undefined,
+          error_code: "MOODYS_RENDER_DIFF",
+          payload: {
+            materialDiffs: diff.summary.materialDiffs,
+            totalCells: diff.summary.totalCells,
+            matchingCells: diff.summary.matchingCells,
+            maxAbsDelta: diff.summary.maxAbsDelta,
+          },
+        });
       } catch (e: any) {
-        console.warn("[moodys/route] V2 viewModel build failed (non-fatal):", e?.message);
+        console.warn("[moodys/route] V2 shadow diff failed (non-fatal):", e?.message);
       }
     }
 
