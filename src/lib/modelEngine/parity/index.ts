@@ -25,6 +25,17 @@ export {
   EXPECTED_METRIC_COUNT,
 } from "./metricDictionary";
 export type { CanonicalParityMetricKey, ParityMetricDefinition } from "./metricDictionary";
+export {
+  evaluateParityGate,
+  DEFAULT_PARITY_GATE_CONFIG,
+} from "./parityGate";
+export type {
+  GateVerdict,
+  MetricTypeThreshold,
+  ParityGateConfig,
+  ParityGateResult,
+  ParityGateIssue,
+} from "./parityGate";
 export type {
   ParityComparison,
   ParityThresholds,

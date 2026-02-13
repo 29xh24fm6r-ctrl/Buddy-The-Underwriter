@@ -6,11 +6,11 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
 import { renderMoodysSpreadWithValidation } from "@/lib/financialSpreads/moodys/renderMoodysSpread";
 import { buildDealFinancialSnapshotForBank } from "@/lib/deals/financialSnapshot";
-import { isModelEngineV2Enabled, buildFinancialModel } from "@/lib/modelEngine";
+import { selectModelEngineMode, buildFinancialModel } from "@/lib/modelEngine";
 import { renderFromFinancialModel } from "@/lib/modelEngine/renderer/v2Adapter";
 import { renderFromLegacySpread } from "@/lib/modelEngine/renderer/v1Adapter";
 import { diffSpreadViewModels } from "@/lib/modelEngine/renderer/viewModelDiff";
-import { writeSystemEvent } from "@/lib/aegis/writeSystemEvent";
+import { emitV2Event, V2_EVENT_CODES } from "@/lib/modelEngine/events";
 import type { FinancialFact } from "@/lib/financialSpreads/types";
 
 export const runtime = "nodejs";
@@ -91,9 +91,12 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         console.warn("[moodys/route] persist failed (non-fatal)", err?.message);
       });
 
-    // V2 Model Engine: shadow compare + snapshot persist + return SpreadViewModel
+    // V2 Model Engine: mode-aware compute
+    const modeResult = selectModelEngineMode({ dealId, bankId: access.bankId });
+    const v2Enabled = modeResult.mode !== "v1";
+
     let viewModel = null;
-    if (isModelEngineV2Enabled()) {
+    if (v2Enabled) {
       try {
         const model = buildFinancialModel(dealId, (facts ?? []) as FinancialFact[]);
         viewModel = renderFromFinancialModel(model, dealId);
@@ -103,21 +106,18 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         const diff = diffSpreadViewModels(v1ViewModel, viewModel);
 
         // Fire-and-forget telemetry via Aegis
-        void writeSystemEvent({
-          event_type: diff.summary.pass ? "success" : "warning",
-          severity: diff.summary.pass ? "info" : "warning",
-          source_system: "api",
-          deal_id: dealId,
-          bank_id: access.bankId ?? undefined,
-          error_code: "MOODYS_RENDER_DIFF",
+        emitV2Event({
+          code: V2_EVENT_CODES.MOODYS_RENDER_DIFF,
+          dealId,
+          bankId: access.bankId,
           payload: {
+            mode: modeResult.mode,
             materialDiffs: diff.summary.materialDiffs,
             totalCells: diff.summary.totalCells,
             matchingCells: diff.summary.matchingCells,
             maxAbsDelta: diff.summary.maxAbsDelta,
           },
         });
-        console.log("[V2] shadow diff written", { dealId });
 
         // Fire-and-forget snapshot persist (same logic as preview route)
         void import("@/lib/modelEngine/services/persistModelV2SnapshotFromDeal").then(
@@ -126,14 +126,37 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         ).catch((e) => {
           console.warn("[moodys] snapshot persist failed (non-fatal):", e);
         });
+
+        // v2_primary: emit served event
+        if (modeResult.mode === "v2_primary") {
+          emitV2Event({
+            code: V2_EVENT_CODES.MODEL_V2_PRIMARY_SERVED,
+            dealId,
+            bankId: access.bankId,
+            payload: {
+              surface: "moodys",
+              sectionCount: viewModel.sections.length,
+            },
+          });
+        }
       } catch (e: any) {
-        console.warn("[moodys/route] V2 shadow diff failed (non-fatal):", e?.message);
+        console.warn("[moodys/route] V2 compute failed (non-fatal):", e?.message);
+
+        // v2_primary: emit fallback event
+        if (modeResult.mode === "v2_primary") {
+          emitV2Event({
+            code: V2_EVENT_CODES.MODEL_V2_FALLBACK_TO_V1,
+            dealId,
+            bankId: access.bankId,
+            payload: { surface: "moodys", reason: e?.message ?? "unknown" },
+          });
+        }
       }
     }
 
     // Shadow metadata: minimal breadcrumb for ops (no sensitive data)
-    const shadow = isModelEngineV2Enabled()
-      ? { enabled: true, snapshotPersistAttempted: viewModel !== null }
+    const shadow = v2Enabled
+      ? { enabled: true, mode: modeResult.mode, snapshotPersistAttempted: viewModel !== null }
       : undefined;
 
     return NextResponse.json({

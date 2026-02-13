@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { isModelEngineV2Enabled } from "@/lib/modelEngine";
+import { isModelEngineV2Enabled, selectModelEngineMode } from "@/lib/modelEngine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
   try {
     const sb = supabaseAdmin();
     const enabled = isModelEngineV2Enabled();
+    const modeResult = selectModelEngineMode();
 
     // Metric definitions count
     const { count: metricCount, error: metricErr } = await sb
@@ -94,6 +95,8 @@ export async function GET(req: NextRequest) {
       ok: true,
       status: "healthy",
       v2_enabled: enabled,
+      v2_mode: modeResult.mode,
+      v2_mode_reason: modeResult.reason,
       metric_definitions: {
         count: metricCount ?? 0,
         error: metricErr?.message ?? null,

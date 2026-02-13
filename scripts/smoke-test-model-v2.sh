@@ -60,7 +60,15 @@ check() {
     local shadow_enabled; shadow_enabled=$(jq -r '.shadow.enabled // empty' "$tmpfile" 2>/dev/null)
 
     [[ -n "$snap_id" ]] && extra+=" snapshotId=$snap_id"
+    local v2_mode; v2_mode=$(jq -r '.v2_mode // empty' "$tmpfile" 2>/dev/null)
+    local v2_mode_reason; v2_mode_reason=$(jq -r '.v2_mode_reason // empty' "$tmpfile" 2>/dev/null)
+    local uw_mode; uw_mode=$(jq -r '.mode // empty' "$tmpfile" 2>/dev/null)
+    local uw_engine; uw_engine=$(jq -r '.primaryEngine // empty' "$tmpfile" 2>/dev/null)
+    local uw_fallback; uw_fallback=$(jq -r '.fallbackUsed // empty' "$tmpfile" 2>/dev/null)
+
     [[ -n "$v2_enabled" ]] && extra+=" v2=$v2_enabled metrics=$metric_count snapshots=$snapshot_count diffs=$diff_count"
+    [[ -n "$v2_mode" ]] && extra+=" mode=$v2_mode reason=$v2_mode_reason"
+    [[ -n "$uw_mode" && -n "$uw_engine" ]] && extra+=" engine=$uw_engine fallback=$uw_fallback"
     [[ "$has_view_model" == "yes" ]] && extra+=" viewModel=present"
     [[ "$shadow_enabled" == "true" ]] && extra+=" shadow=active"
 
@@ -90,6 +98,7 @@ check "parity"       "$BASE_URL/api/deals/$DEAL_ID/model-v2/parity"
 check "render-diff"  "$BASE_URL/api/deals/$DEAL_ID/model-v2/render-diff"
 check "kick"         "$BASE_URL/api/deals/$DEAL_ID/model-v2/kick" POST
 check "moodys"       "$BASE_URL/api/deals/$DEAL_ID/spreads/moodys"
+check "underwrite"   "$BASE_URL/api/deals/$DEAL_ID/underwrite"
 
 echo ""
 echo "--- Results ---"

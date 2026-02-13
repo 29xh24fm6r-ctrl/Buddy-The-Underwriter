@@ -2,11 +2,10 @@
  * Model Engine V2 — Public API
  *
  * Feature-flagged parallel financial modeling engine.
- * Default: disabled. Set USE_MODEL_ENGINE_V2=true to enable.
+ * Mode selector: selectModelEngineMode() → v1 | v2_shadow | v2_primary.
  *
- * PHASE 2 SCOPE: Parity validation utilities only.
- * Do NOT import into production rendering paths (spreads, extraction, lifecycle, pricing).
- * Parity tooling lives under ./parity/ — import from there for comparison work.
+ * Phase 10: V2 can be promoted to primary via env vars or allowlists.
+ * See modeSelector.ts for mode determination logic.
  */
 
 export { buildFinancialModel } from "./buildFinancialModel";
@@ -44,11 +43,32 @@ export type {
 } from "./types";
 
 // ---------------------------------------------------------------------------
-// Feature flag
+// Mode selector (Phase 10)
 // ---------------------------------------------------------------------------
 
+export {
+  selectModelEngineMode,
+  isV2Enabled,
+  isV2Primary,
+} from "./modeSelector";
+export type {
+  ModelEngineMode,
+  ModeSelectionContext,
+  ModeSelectionResult,
+} from "./modeSelector";
+
+// ---------------------------------------------------------------------------
+// Feature flag (backward compat — delegates to mode selector)
+// ---------------------------------------------------------------------------
+
+import { isV2Enabled as _isV2Enabled } from "./modeSelector";
+
+/**
+ * @deprecated Use selectModelEngineMode() for context-aware mode selection.
+ * This function is retained for backward compatibility with existing call sites.
+ */
 export function isModelEngineV2Enabled(): boolean {
-  const enabled = process.env.USE_MODEL_ENGINE_V2 === "true";
+  const enabled = _isV2Enabled();
   if (enabled && !(globalThis as any).__v2_logged) {
     (globalThis as any).__v2_logged = true;
     console.log("[ModelEngine] V2 enabled — shadow mode active");
