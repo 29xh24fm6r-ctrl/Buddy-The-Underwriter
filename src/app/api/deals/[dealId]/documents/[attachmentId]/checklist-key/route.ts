@@ -177,6 +177,35 @@ export async function PATCH(
     console.warn("[checklist-key] artifact update failed (non-fatal)", e);
   }
 
+  // 2b. Create checklist_item_matches row (parity with AI path)
+  if (checklistKey && !isClearing) {
+    try {
+      const artifactRes = await sb
+        .from("document_artifacts")
+        .select("id")
+        .eq("deal_id", dealId)
+        .eq("source_id", attachmentId)
+        .eq("source_table", "deal_documents")
+        .maybeSingle();
+
+      if (artifactRes.data?.id) {
+        await sb.rpc("create_checklist_match", {
+          p_deal_id: dealId,
+          p_bank_id: bankId,
+          p_artifact_id: artifactRes.data.id,
+          p_checklist_key: checklistKey,
+          p_confidence: 1.0,
+          p_reason: "Manual classification by banker",
+          p_match_source: "manual",
+          p_tax_year: taxYear,
+          p_auto_apply: true,
+        });
+      }
+    } catch (e) {
+      console.warn("[checklist-key] create_checklist_match RPC failed (non-fatal)", e);
+    }
+  }
+
   // 3. Log audit trail
   try {
     await logLedgerEvent({
@@ -236,6 +265,7 @@ export async function PATCH(
       attachmentId: upd.data.id,
       checklist_key: upd.data.checklist_key ?? null,
       document_type: (upd.data as any).document_type ?? null,
+      doc_year: (upd.data as any).doc_year ?? null,
       manual_override: true,
     },
     { headers: { "cache-control": "no-store" } },

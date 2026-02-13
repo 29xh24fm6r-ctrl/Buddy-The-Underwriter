@@ -469,7 +469,7 @@ export async function reconcileDealChecklist(dealId: string) {
       docsByKey.set(key, arr);
     }
 
-    const dt = String((d as any)?.document_type || "").trim();
+    const dt = String((d as any)?.document_type || "").trim().toLowerCase();
     if (dt) {
       const arr = docsByType.get(dt) ?? [];
       arr.push(d);

@@ -121,12 +121,22 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
     }
   }
 
-  async function setChecklistKey(file: DealFile, checklistKey: string | null, documentType?: string) {
+  // Year options for year-based checklist items (e.g., IRS_BUSINESS_3Y)
+  const currentYear = new Date().getFullYear();
+  const yearOptions = Array.from({ length: 7 }, (_, i) => currentYear - i);
+
+  async function setChecklistKeyWithYear(
+    file: DealFile,
+    checklistKey: string | null,
+    taxYear: number | null,
+    documentType?: string,
+  ) {
     const id = file.file_id;
     setSavingById((prev) => ({ ...prev, [id]: true }));
     try {
       const payload: Record<string, unknown> = { checklist_key: checklistKey };
       if (documentType) payload.document_type = documentType;
+      if (taxYear !== null) payload.tax_year = taxYear;
       const res = await fetch(
         `/api/deals/${dealId}/documents/${encodeURIComponent(id)}/checklist-key`,
         {
@@ -148,6 +158,7 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                 ...f,
                 checklist_key: json.checklist_key ?? null,
                 document_type: json.document_type ?? f.document_type,
+                doc_year: json.doc_year ?? f.doc_year,
               }
             : f,
         ),
@@ -155,6 +166,10 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
     } finally {
       setSavingById((prev) => ({ ...prev, [id]: false }));
     }
+  }
+
+  function setChecklistKey(file: DealFile, checklistKey: string | null, documentType?: string) {
+    return setChecklistKeyWithYear(file, checklistKey, null, documentType);
   }
 
   useEffect(() => {
@@ -504,6 +519,26 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                           ),
                         )}
                       </select>
+                      {/* Year selector for year-based checklist items */}
+                      {file.checklist_key && /_\d+Y$/.test(file.checklist_key) && (
+                        <>
+                          <label className="text-xs text-neutral-400">Year</label>
+                          <select
+                            className="rounded-lg border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-100"
+                            value={file.doc_year ?? ""}
+                            onChange={(e) => {
+                              const year = e.target.value ? Number(e.target.value) : null;
+                              void setChecklistKeyWithYear(file, file.checklist_key, year);
+                            }}
+                            disabled={!!savingById[file.file_id]}
+                          >
+                            <option value="">Select year...</option>
+                            {yearOptions.map((y) => (
+                              <option key={y} value={y}>{y}</option>
+                            ))}
+                          </select>
+                        </>
+                      )}
                       {savingById[file.file_id] ? (
                         <span className="text-xs text-neutral-500">Saving…</span>
                       ) : file.match_source === "manual" ? (
