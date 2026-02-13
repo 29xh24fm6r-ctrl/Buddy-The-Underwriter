@@ -18,6 +18,8 @@ export type DeterministicExtractorArgs = {
   docAiJson?: unknown;
   /** Owner entity ID for personal docs (PFS, personal income) */
   ownerEntityId?: string | null;
+  /** Document year from deal_documents.doc_year — fallback when OCR date extraction fails */
+  docYear?: number | null;
 };
 
 export type DeterministicExtractionResult = ExtractionResult & {

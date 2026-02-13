@@ -115,21 +115,22 @@ export async function extractFactsFromDocument(args: {
 
   const extractedText = String(ocrRes.data?.extracted_text ?? "");
 
+  // Always fetch deal_documents for doc_year (period resolution) + doc_type fallback
+  const { data: dealDoc } = await sb
+    .from("deal_documents")
+    .select("document_type, ai_doc_type, doc_year")
+    .eq("id", args.documentId)
+    .maybeSingle();
+
   // Priority chain for doc type resolution:
   // 1. document_classifications (written by classifyProcessor job pipeline)
-  // 2. deal_documents.document_type (stamped by processArtifact or manual UI classification)
+  // 2. deal_documents.ai_doc_type / document_type (processArtifact or manual UI)
   // 3. args.docTypeHint (caller-supplied fallback, e.g. from document_artifacts.doc_type)
   let docType = classRes.data?.doc_type
     ? String(classRes.data.doc_type)
     : null;
 
   if (!docType) {
-    const { data: dealDoc } = await sb
-      .from("deal_documents")
-      .select("document_type, ai_doc_type")
-      .eq("id", args.documentId)
-      .maybeSingle();
-
     docType = dealDoc?.ai_doc_type
       ? String(dealDoc.ai_doc_type)
       : dealDoc?.document_type
@@ -142,6 +143,7 @@ export async function extractFactsFromDocument(args: {
   }
 
   const normDocType = (docType ?? "").trim().toUpperCase();
+  const docYear: number | null = dealDoc?.doc_year ? Number(dealDoc.doc_year) : null;
 
   let factsWritten = 0;
   let extractionPath: string | null = null;
@@ -158,6 +160,7 @@ export async function extractFactsFromDocument(args: {
   const deterministicArgs = {
     ...baseArgs,
     docAiJson: docAiJson ?? undefined,
+    docYear,
   };
 
   // ── Income Statement / T12 ─────────────────────────────────────────────

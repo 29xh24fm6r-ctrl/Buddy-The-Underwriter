@@ -8,7 +8,7 @@ import {
   type ExtractionResult,
 } from "../shared";
 import type { DeterministicExtractorArgs, ExtractionPath } from "./types";
-import { findLabeledAmount, findDateOnDocument } from "./parseUtils";
+import { findLabeledAmount, resolveDocDate } from "./parseUtils";
 import {
   extractEntitiesFlat,
   entityToMoney,
@@ -151,7 +151,7 @@ function tryDocAiEntities(args: DeterministicExtractorArgs): ExtractedLineItem[]
   if (entities.length === 0) return [];
 
   const items: ExtractedLineItem[] = [];
-  const dateStr = findDateOnDocument(args.ocrText);
+  const dateStr = resolveDocDate(args.ocrText, args.docYear);
   const { start: periodStart, end: periodEnd } = normalizePeriod(dateStr);
 
   for (const entity of entities) {
@@ -185,7 +185,7 @@ function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
   const items: ExtractedLineItem[] = [];
   const text = args.ocrText;
 
-  const dateStr = findDateOnDocument(text);
+  const dateStr = resolveDocDate(text, args.docYear);
   const { start: periodStart, end: periodEnd } = normalizePeriod(dateStr);
 
   for (const { key, pattern } of LABEL_PATTERNS) {

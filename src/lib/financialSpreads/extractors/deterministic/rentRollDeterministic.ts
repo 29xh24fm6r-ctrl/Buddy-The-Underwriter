@@ -6,7 +6,7 @@ import {
   type ExtractionResult,
 } from "../shared";
 import type { DeterministicExtractorArgs } from "./types";
-import { parseMoney, parseTable, findDateOnDocument } from "./parseUtils";
+import { parseMoney, parseTable, resolveDocDate } from "./parseUtils";
 import {
   extractTables,
   extractEntitiesFlat,
@@ -79,7 +79,7 @@ export async function extractRentRollDeterministic(
   if (args.docAiJson) {
     const docAiResult = tryDocAiTables(args);
     if (docAiResult && docAiResult.rows.length > 0) {
-      const asOfDate = findDateOnDocument(args.ocrText) ?? new Date().toISOString().slice(0, 10);
+      const asOfDate = resolveDocDate(args.ocrText, args.docYear) ?? new Date().toISOString().slice(0, 10);
       const result = await writeRentRollRows({
         dealId: args.dealId,
         bankId: args.bankId,
@@ -97,7 +97,7 @@ export async function extractRentRollDeterministic(
     return { ok: true, factsWritten: 0, extractionPath: "ocr_regex" };
   }
 
-  const asOfDate = findDateOnDocument(args.ocrText) ?? new Date().toISOString().slice(0, 10);
+  const asOfDate = resolveDocDate(args.ocrText, args.docYear) ?? new Date().toISOString().slice(0, 10);
   const result = await writeRentRollRows({
     dealId: args.dealId,
     bankId: args.bankId,

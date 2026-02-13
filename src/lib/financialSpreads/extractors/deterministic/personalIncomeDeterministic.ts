@@ -8,7 +8,7 @@ import {
   type ExtractionResult,
 } from "../shared";
 import type { DeterministicExtractorArgs, ExtractionPath } from "./types";
-import { findLabeledAmount, extractTaxYear } from "./parseUtils";
+import { findLabeledAmount, resolveDocTaxYear } from "./parseUtils";
 import {
   extractEntitiesFlat,
   entityToMoney,
@@ -129,7 +129,7 @@ function tryDocAiEntities(args: DeterministicExtractorArgs): ExtractedLineItem[]
   if (entities.length === 0) return [];
 
   const items: ExtractedLineItem[] = [];
-  const taxYear = extractTaxYear(args.ocrText);
+  const taxYear = resolveDocTaxYear(args.ocrText, args.docYear);
   const period = taxYear ? `FY${taxYear}` : null;
   const { start: periodStart, end: periodEnd } = normalizePeriod(period);
 
@@ -162,7 +162,7 @@ function tryDocAiEntities(args: DeterministicExtractorArgs): ExtractedLineItem[]
 
 function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
   const text = args.ocrText;
-  const taxYear = extractTaxYear(text);
+  const taxYear = resolveDocTaxYear(text, args.docYear);
   const period = taxYear ? `FY${taxYear}` : null;
   const { start: periodStart, end: periodEnd } = normalizePeriod(period);
 

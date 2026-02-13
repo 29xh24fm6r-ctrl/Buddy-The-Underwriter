@@ -423,6 +423,40 @@ export function detectIrsFormType(text: string): IrsFormType {
 }
 
 // ---------------------------------------------------------------------------
+// Period resolution with docYear fallback
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a date string from document text, with docYear fallback.
+ * Returns a raw string suitable for `normalizePeriod()`:
+ *  - "2024-03-15" (from findDateOnDocument)
+ *  - "2024" (from docYear fallback — normalizePeriod handles "2024" → FY2024)
+ *  - null (no date found anywhere)
+ */
+export function resolveDocDate(
+  text: string,
+  docYear?: number | null,
+): string | null {
+  const dateStr = findDateOnDocument(text);
+  if (dateStr) return dateStr;
+  if (docYear && docYear >= 1990 && docYear <= 2100) return String(docYear);
+  return null;
+}
+
+/**
+ * Resolve a tax year from document text, with docYear fallback.
+ */
+export function resolveDocTaxYear(
+  text: string,
+  docYear?: number | null,
+): number | null {
+  const fromText = extractTaxYear(text);
+  if (fromText) return fromText;
+  if (docYear && docYear >= 1990 && docYear <= 2100) return docYear;
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
