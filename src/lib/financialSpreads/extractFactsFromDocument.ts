@@ -27,7 +27,9 @@ import { extractPfsDeterministic } from "@/lib/financialSpreads/extractors/deter
 // ---------------------------------------------------------------------------
 
 function isDeterministicEnabled(): boolean {
-  return process.env.DETERMINISTIC_EXTRACTORS_ENABLED === "true";
+  // Legacy Claude-based extractors have been removed — deterministic is now
+  // the only working path.  Default to true unless explicitly disabled.
+  return process.env.DETERMINISTIC_EXTRACTORS_ENABLED !== "false";
 }
 
 // ---------------------------------------------------------------------------
