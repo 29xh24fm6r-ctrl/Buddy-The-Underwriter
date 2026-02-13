@@ -25,7 +25,7 @@ describe("buildFinancialModel", () => {
     assert.equal(period.balance.totalLiabilities, 20000);
   });
 
-  it("skips sentinel date 1900-01-01", () => {
+  it("promotes sentinel-date INCOME_STATEMENT facts to latest real period", () => {
     const facts: FactInput[] = [
       { fact_type: "INCOME_STATEMENT", fact_key: "TOTAL_REVENUE", fact_value_num: 1000000, fact_period_end: "1900-01-01" },
       { fact_type: "INCOME_STATEMENT", fact_key: "NET_INCOME", fact_value_num: 100000, fact_period_end: "2025-06-30" },
@@ -34,7 +34,20 @@ describe("buildFinancialModel", () => {
     const model = buildFinancialModel("deal-2", facts);
     assert.equal(model.periods.length, 1);
     assert.equal(model.periods[0].periodEnd, "2025-06-30");
-    assert.equal(model.periods[0].income.revenue, undefined);
+    // Sentinel-date INCOME_STATEMENT facts are promoted to latest real period
+    // (T12 data from spreads uses 1900-01-01 as "current/undated")
+    assert.equal(model.periods[0].income.revenue, 1000000);
+    assert.equal(model.periods[0].income.netIncome, 100000);
+  });
+
+  it("skips sentinel-date facts when no real period exists", () => {
+    const facts: FactInput[] = [
+      { fact_type: "INCOME_STATEMENT", fact_key: "TOTAL_REVENUE", fact_value_num: 1000000, fact_period_end: "1900-01-01" },
+    ];
+
+    const model = buildFinancialModel("deal-sentinel-only", facts);
+    // No real period to promote to → sentinel facts are dropped
+    assert.equal(model.periods.length, 0);
   });
 
   it("skips null period_end", () => {
