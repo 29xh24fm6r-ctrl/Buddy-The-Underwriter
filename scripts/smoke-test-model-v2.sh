@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test: Model Engine V2 endpoints
+# Smoke test: Model Engine V2 production endpoints
 #
 # Prerequisites:
 #   - USE_MODEL_ENGINE_V2=true must be set in the target environment
@@ -24,20 +24,46 @@ fail=0
 check() {
   local label=$1
   local url=$2
+  local need_auth=${3:-true}
   local tmpfile
   tmpfile=$(mktemp)
 
+  local curl_args=(-s -o "$tmpfile" -w "%{http_code}")
+  if [[ "$need_auth" == "true" && -n "$COOKIE" ]]; then
+    curl_args+=(-b "$COOKIE")
+  fi
+
   local status
-  status=$(curl -s -o "$tmpfile" -w "%{http_code}" -b "$COOKIE" "$url")
+  status=$(curl "${curl_args[@]}" "$url")
+
+  # Fail if response is HTML (should always be JSON)
+  if head -c 50 "$tmpfile" 2>/dev/null | grep -qi '<!DOCTYPE\|<html'; then
+    echo "FAIL  $label  (HTTP $status, got HTML instead of JSON)"
+    ((fail++)) || true
+    rm -f "$tmpfile"
+    return
+  fi
+
   local ok
   ok=$(jq -r '.ok' "$tmpfile" 2>/dev/null || echo "null")
 
   if [[ "$status" == "200" && "$ok" == "true" ]]; then
-    echo "PASS  $label  (HTTP $status)"
+    # Print summary info if available
+    local extra=""
+    local snap_id; snap_id=$(jq -r '.snapshotId // empty' "$tmpfile" 2>/dev/null)
+    local v2_enabled; v2_enabled=$(jq -r '.v2_enabled // empty' "$tmpfile" 2>/dev/null)
+    local metric_count; metric_count=$(jq -r '.metric_definitions.count // empty' "$tmpfile" 2>/dev/null)
+    local snapshot_count; snapshot_count=$(jq -r '.deal_model_snapshots.count // empty' "$tmpfile" 2>/dev/null)
+    local has_view_model; has_view_model=$(jq -r 'if .viewModel then "yes" else "no" end' "$tmpfile" 2>/dev/null)
+
+    [[ -n "$snap_id" ]] && extra+=" snapshotId=$snap_id"
+    [[ -n "$v2_enabled" ]] && extra+=" v2=$v2_enabled metrics=$metric_count snapshots=$snapshot_count"
+    [[ "$has_view_model" == "yes" ]] && extra+=" viewModel=present"
+
+    echo "PASS  $label  (HTTP $status)$extra"
     ((pass++)) || true
   else
     echo "FAIL  $label  (HTTP $status, ok=$ok)"
-    # Show first 200 chars of error response
     head -c 200 "$tmpfile" 2>/dev/null || true
     echo ""
     ((fail++)) || true
@@ -46,14 +72,19 @@ check() {
   rm -f "$tmpfile"
 }
 
-echo "=== Model Engine V2 Smoke Test ==="
+echo "=== Model Engine V2 Production Smoke Test ==="
 echo "Deal:  $DEAL_ID"
 echo "Base:  $BASE_URL"
 echo ""
 
-check "preview"     "$BASE_URL/api/deals/$DEAL_ID/model-v2/preview"
-check "parity"      "$BASE_URL/api/deals/$DEAL_ID/model-v2/parity"
+# Health endpoint (no auth required)
+check "health"       "$BASE_URL/api/health/model-v2" false
+
+# Authenticated endpoints
+check "preview"      "$BASE_URL/api/deals/$DEAL_ID/model-v2/preview"
+check "parity"       "$BASE_URL/api/deals/$DEAL_ID/model-v2/parity"
 check "render-diff"  "$BASE_URL/api/deals/$DEAL_ID/model-v2/render-diff"
+check "moodys"       "$BASE_URL/api/deals/$DEAL_ID/spreads/moodys"
 
 echo ""
 echo "--- Results ---"

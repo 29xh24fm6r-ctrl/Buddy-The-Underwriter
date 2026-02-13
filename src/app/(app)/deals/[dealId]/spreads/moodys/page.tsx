@@ -206,6 +206,11 @@ export default function MoodysSpreadPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {useV2 && (
+            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+              V2 Shadow Active
+            </span>
+          )}
           <button
             type="button"
             onClick={() => void load()}

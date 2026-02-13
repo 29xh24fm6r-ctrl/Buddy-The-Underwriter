@@ -126,6 +126,7 @@ export async function loadMetricRegistry(
   }
 
   if (!data || data.length === 0) {
+    console.warn("[V2] metric_definitions empty — using seed fallback");
     return V1_SEED;
   }
 

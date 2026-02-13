@@ -91,7 +91,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         console.warn("[moodys/route] persist failed (non-fatal)", err?.message);
       });
 
-    // V2 Model Engine: shadow compare + return SpreadViewModel when enabled
+    // V2 Model Engine: shadow compare + snapshot persist + return SpreadViewModel
     let viewModel = null;
     if (isModelEngineV2Enabled()) {
       try {
@@ -116,6 +116,15 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
             matchingCells: diff.summary.matchingCells,
             maxAbsDelta: diff.summary.maxAbsDelta,
           },
+        });
+        console.log("[V2] shadow diff written", { dealId });
+
+        // Fire-and-forget snapshot persist (same logic as preview route)
+        void import("@/lib/modelEngine/services/persistModelV2SnapshotFromDeal").then(
+          ({ persistModelV2SnapshotFromDeal }) =>
+            persistModelV2SnapshotFromDeal({ dealId, bankId: access.bankId, model }),
+        ).catch((e) => {
+          console.warn("[moodys] snapshot persist failed (non-fatal):", e);
         });
       } catch (e: any) {
         console.warn("[moodys/route] V2 shadow diff failed (non-fatal):", e?.message);

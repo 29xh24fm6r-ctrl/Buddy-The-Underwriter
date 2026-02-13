@@ -7,13 +7,9 @@ import { requireRole } from "@/lib/auth/requireRole";
 import {
   isModelEngineV2Enabled,
   buildFinancialModel,
-  evaluateMetricGraph,
   computeCapitalModel,
-  evaluateRisk,
-  deterministicHash,
-  loadMetricRegistry,
-  saveModelSnapshot,
 } from "@/lib/modelEngine";
+import { persistModelV2SnapshotFromDeal } from "@/lib/modelEngine/services/persistModelV2SnapshotFromDeal";
 import type { FactInput, ModelPreviewResult } from "@/lib/modelEngine";
 
 export const runtime = "nodejs";
@@ -21,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ dealId: string }> };
 
-export async function GET(req: NextRequest, ctx: Ctx) {
+export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
     // Feature flag check
     if (!isModelEngineV2Enabled()) {
@@ -69,85 +65,31 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     // 2. Build financial model
     const financialModel = buildFinancialModel(dealId, facts);
 
-    // 3. Load metric registry
-    const metricDefs = await loadMetricRegistry(sb, "v1");
+    // 3. Compute metrics + persist snapshot via shared service
+    const snapshotResult = await persistModelV2SnapshotFromDeal({
+      dealId,
+      bankId: access.bankId,
+      model: financialModel,
+    });
 
-    // 4. Build base values from latest period for metric evaluation
-    const baseValues: Record<string, number | null> = {};
-    if (financialModel.periods.length > 0) {
-      const latest = financialModel.periods[financialModel.periods.length - 1];
+    const computedMetrics = snapshotResult?.computedMetrics ?? {};
+    const riskFlags = snapshotResult?.riskFlags ?? [];
+    const snapshotId = snapshotResult?.snapshotId ?? null;
 
-      // Map period fields to metric keys
-      if (latest.income.revenue !== undefined) baseValues["REVENUE"] = latest.income.revenue;
-      if (latest.income.cogs !== undefined) baseValues["COGS"] = latest.income.cogs;
-      if (latest.income.netIncome !== undefined) baseValues["NET_INCOME"] = latest.income.netIncome;
-      if (latest.income.operatingExpenses !== undefined) baseValues["OPERATING_EXPENSES"] = latest.income.operatingExpenses;
-      if (latest.income.revenue !== undefined && latest.income.cogs !== undefined) {
-        baseValues["GROSS_PROFIT"] = latest.income.revenue - latest.income.cogs;
-      }
-
-      if (latest.balance.totalAssets !== undefined) baseValues["TOTAL_ASSETS"] = latest.balance.totalAssets;
-      if (latest.balance.totalLiabilities !== undefined) baseValues["TOTAL_LIABILITIES"] = latest.balance.totalLiabilities;
-      if (latest.balance.equity !== undefined) baseValues["EQUITY"] = latest.balance.equity;
-      if (latest.balance.shortTermDebt !== undefined || latest.balance.longTermDebt !== undefined) {
-        baseValues["TOTAL_DEBT"] = (latest.balance.shortTermDebt ?? 0) + (latest.balance.longTermDebt ?? 0);
-      }
-
-      // Current assets/liabilities for current ratio
-      const currentAssets = (latest.balance.cash ?? 0) + (latest.balance.accountsReceivable ?? 0) + (latest.balance.inventory ?? 0);
-      if (currentAssets > 0) baseValues["CURRENT_ASSETS"] = currentAssets;
-      // Use short-term debt as proxy for current liabilities
-      if (latest.balance.shortTermDebt !== undefined) baseValues["CURRENT_LIABILITIES"] = latest.balance.shortTermDebt;
-
-      if (latest.cashflow.ebitda !== undefined) baseValues["EBITDA"] = latest.cashflow.ebitda;
-      if (latest.cashflow.cfads !== undefined) baseValues["CFADS"] = latest.cashflow.cfads;
-      if (latest.income.interest !== undefined) baseValues["DEBT_SERVICE"] = latest.income.interest;
-    }
-
-    // 5. Evaluate metrics
-    const computedMetrics = evaluateMetricGraph(metricDefs, baseValues);
-
-    // 6. Capital model
+    // 4. Capital model
     const capitalModel = computeCapitalModel(financialModel);
-
-    // 7. Risk engine
-    const riskResult = evaluateRisk(computedMetrics);
-
-    // 8. Hashes for audit trail
-    const metricRegistryHash = deterministicHash(metricDefs);
-    const financialModelHash = deterministicHash(financialModel);
-    const computedAt = new Date().toISOString();
-
-    // 9. Always persist snapshot for audit trail
-    let snapshotId: string | null = null;
-    {
-      const saveResult = await saveModelSnapshot(
-        sb,
-        {
-          dealId,
-          bankId: access.bankId,
-          modelVersion: "v1",
-          metricRegistryHash,
-          financialModelHash,
-          calculatedAt: computedAt,
-        },
-        computedMetrics,
-        riskResult.flags,
-      );
-      snapshotId = saveResult.id ?? null;
-    }
 
     const result: ModelPreviewResult = {
       financialModel,
       computedMetrics,
-      riskFlags: riskResult.flags,
+      riskFlags,
       capitalModel,
       meta: {
         modelVersion: "v1",
-        metricRegistryHash,
-        financialModelHash,
+        metricRegistryHash: "",
+        financialModelHash: "",
         periodCount: financialModel.periods.length,
-        computedAt,
+        computedAt: new Date().toISOString(),
       },
     };
 
