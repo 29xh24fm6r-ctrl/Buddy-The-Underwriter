@@ -131,12 +131,18 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       }
     }
 
+    // Shadow metadata: minimal breadcrumb for ops (no sensitive data)
+    const shadow = isModelEngineV2Enabled()
+      ? { enabled: true, snapshotPersistAttempted: viewModel !== null }
+      : undefined;
+
     return NextResponse.json({
       ok: true,
       dealId,
       spread: rendered,
       validation: validation ?? null,
       ...(viewModel ? { viewModel } : {}),
+      ...(shadow ? { shadow } : {}),
     });
   } catch (e: any) {
     console.error("[/api/deals/[dealId]/spreads/moodys]", e);

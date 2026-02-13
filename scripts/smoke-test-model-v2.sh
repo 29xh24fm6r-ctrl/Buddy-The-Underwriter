@@ -24,11 +24,12 @@ fail=0
 check() {
   local label=$1
   local url=$2
-  local need_auth=${3:-true}
+  local method=${3:-GET}
+  local need_auth=${4:-true}
   local tmpfile
   tmpfile=$(mktemp)
 
-  local curl_args=(-s -o "$tmpfile" -w "%{http_code}")
+  local curl_args=(-s -o "$tmpfile" -w "%{http_code}" -X "$method")
   if [[ "$need_auth" == "true" && -n "$COOKIE" ]]; then
     curl_args+=(-b "$COOKIE")
   fi
@@ -54,11 +55,14 @@ check() {
     local v2_enabled; v2_enabled=$(jq -r '.v2_enabled // empty' "$tmpfile" 2>/dev/null)
     local metric_count; metric_count=$(jq -r '.metric_definitions.count // empty' "$tmpfile" 2>/dev/null)
     local snapshot_count; snapshot_count=$(jq -r '.deal_model_snapshots.count // empty' "$tmpfile" 2>/dev/null)
+    local diff_count; diff_count=$(jq -r '.diff_events.count // empty' "$tmpfile" 2>/dev/null)
     local has_view_model; has_view_model=$(jq -r 'if .viewModel then "yes" else "no" end' "$tmpfile" 2>/dev/null)
+    local shadow_enabled; shadow_enabled=$(jq -r '.shadow.enabled // empty' "$tmpfile" 2>/dev/null)
 
     [[ -n "$snap_id" ]] && extra+=" snapshotId=$snap_id"
-    [[ -n "$v2_enabled" ]] && extra+=" v2=$v2_enabled metrics=$metric_count snapshots=$snapshot_count"
+    [[ -n "$v2_enabled" ]] && extra+=" v2=$v2_enabled metrics=$metric_count snapshots=$snapshot_count diffs=$diff_count"
     [[ "$has_view_model" == "yes" ]] && extra+=" viewModel=present"
+    [[ "$shadow_enabled" == "true" ]] && extra+=" shadow=active"
 
     echo "PASS  $label  (HTTP $status)$extra"
     ((pass++)) || true
@@ -78,12 +82,13 @@ echo "Base:  $BASE_URL"
 echo ""
 
 # Health endpoint (no auth required)
-check "health"       "$BASE_URL/api/health/model-v2" false
+check "health"       "$BASE_URL/api/health/model-v2" GET false
 
 # Authenticated endpoints
 check "preview"      "$BASE_URL/api/deals/$DEAL_ID/model-v2/preview"
 check "parity"       "$BASE_URL/api/deals/$DEAL_ID/model-v2/parity"
 check "render-diff"  "$BASE_URL/api/deals/$DEAL_ID/model-v2/render-diff"
+check "kick"         "$BASE_URL/api/deals/$DEAL_ID/model-v2/kick" POST
 check "moodys"       "$BASE_URL/api/deals/$DEAL_ID/spreads/moodys"
 
 echo ""
