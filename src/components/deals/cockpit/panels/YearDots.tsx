@@ -124,7 +124,7 @@ export function ConsecutiveYearStatus({
     );
   }
 
-  // Not satisfied: show reason + any years on file
+  // Not satisfied: show reason + any years on file + docs missing year hint
   const yearsOnFile = meta.years_on_file ?? [];
   return (
     <div className="flex flex-col gap-1">
@@ -146,6 +146,11 @@ export function ConsecutiveYearStatus({
       )}
       {meta.reason && (
         <span className="text-[10px] text-amber-400/80">{meta.reason}</span>
+      )}
+      {meta.docs_missing_year != null && meta.docs_missing_year > 0 && (
+        <span className="text-[10px] text-amber-400/60">
+          {meta.docs_missing_year} doc{meta.docs_missing_year !== 1 ? "s" : ""} missing tax year
+        </span>
       )}
     </div>
   );

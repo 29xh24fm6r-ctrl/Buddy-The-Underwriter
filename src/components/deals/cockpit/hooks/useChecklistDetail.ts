@@ -11,6 +11,8 @@ export type ConsecutiveEvalMeta = {
   reason: string | null;
   min_most_recent_year: number;
   years_on_file: number[];
+  docs_matched?: number;
+  docs_missing_year?: number;
 };
 
 export type ChecklistDetailItem = {

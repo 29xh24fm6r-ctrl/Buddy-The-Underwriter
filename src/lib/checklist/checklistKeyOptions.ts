@@ -3,14 +3,16 @@ export type ChecklistKeyOption = {
   title: string;
   category: "tax" | "financial" | "property" | "entity" | "sba" | "other";
   docType?: string;
+  /** True for year-based checklist items that require tax_year on matched docs */
+  requiresTaxYear?: boolean;
 };
 
 export const CHECKLIST_KEY_OPTIONS: ChecklistKeyOption[] = [
   // Tax Documents
-  { key: "IRS_PERSONAL_3Y", title: "Personal Tax Returns (3 consecutive years)", category: "tax", docType: "PERSONAL_TAX_RETURN" },
-  { key: "IRS_PERSONAL_2Y", title: "Personal Tax Returns (2 years)", category: "tax", docType: "PERSONAL_TAX_RETURN" },
-  { key: "IRS_BUSINESS_3Y", title: "Business Tax Returns (3 consecutive years)", category: "tax", docType: "BUSINESS_TAX_RETURN" },
-  { key: "IRS_BUSINESS_2Y", title: "Business Tax Returns (2 years)", category: "tax", docType: "BUSINESS_TAX_RETURN" },
+  { key: "IRS_PERSONAL_3Y", title: "Personal Tax Returns (3 consecutive years)", category: "tax", docType: "PERSONAL_TAX_RETURN", requiresTaxYear: true },
+  { key: "IRS_PERSONAL_2Y", title: "Personal Tax Returns (2 years)", category: "tax", docType: "PERSONAL_TAX_RETURN", requiresTaxYear: true },
+  { key: "IRS_BUSINESS_3Y", title: "Business Tax Returns (3 consecutive years)", category: "tax", docType: "BUSINESS_TAX_RETURN", requiresTaxYear: true },
+  { key: "IRS_BUSINESS_2Y", title: "Business Tax Returns (2 years)", category: "tax", docType: "BUSINESS_TAX_RETURN", requiresTaxYear: true },
   { key: "K1", title: "Schedule K-1", category: "tax", docType: "K1" },
   { key: "W2", title: "W-2 Wage Statement", category: "tax", docType: "W2" },
   { key: "1099", title: "1099 Form", category: "tax", docType: "1099" },
@@ -88,4 +90,17 @@ export function mergeWithSeededOptions(
   }
 
   return result;
+}
+
+/** Checklist keys that require a tax year for year-based satisfaction */
+export const YEAR_REQUIRED_KEYS = new Set(
+  CHECKLIST_KEY_OPTIONS
+    .filter((o) => o.requiresTaxYear)
+    .map((o) => o.key),
+);
+
+/** Whether this checklist key requires a tax year value on matched documents */
+export function isTaxYearRequired(key: string | null | undefined): boolean {
+  if (!key) return false;
+  return YEAR_REQUIRED_KEYS.has(key);
 }

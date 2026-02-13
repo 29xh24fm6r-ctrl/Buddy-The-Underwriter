@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { CHECKLIST_KEY_OPTIONS, type ChecklistKeyOption } from "@/lib/checklist/checklistKeyOptions";
+import { CHECKLIST_KEY_OPTIONS, isTaxYearRequired, type ChecklistKeyOption } from "@/lib/checklist/checklistKeyOptions";
 import { useShouldPoll } from "@/buddy/cockpit";
 
 type DealFile = {
@@ -465,6 +465,9 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                         : file.canonical_type
                           ? "Classified, not matched"
                           : "Pending AI classification"} • {(file.size_bytes / 1024).toFixed(1)} KB
+                      {isTaxYearRequired(file.checklist_key) && file.doc_year == null && (
+                        <span className="ml-1 text-[10px] text-amber-400/70">Year not set</span>
+                      )}
                     </div>
                     <div className="text-xs text-neutral-500">
                       {file.source || "Unknown source"} • {new Date(file.created_at).toLocaleDateString()}
@@ -520,7 +523,7 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                         )}
                       </select>
                       {/* Year selector for year-based checklist items */}
-                      {file.checklist_key && /_\d+Y$/.test(file.checklist_key) && (
+                      {isTaxYearRequired(file.checklist_key) && (
                         <>
                           <label className="text-xs text-neutral-400">Year</label>
                           <select

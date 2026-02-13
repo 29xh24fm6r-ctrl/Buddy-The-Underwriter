@@ -584,6 +584,16 @@ export async function reconcileDealChecklist(dealId: string) {
     }
     const satisfiedYears = Array.from(satisfiedYearsSet).sort((a, b) => b - a);
 
+    // Count matched docs that have no year data — surfaced in UI so bankers
+    // understand WHY a year-based item stays "missing" despite matched docs.
+    const docsMissingYear = isYearBasedItem
+      ? docsForItem.filter((d: any) => {
+          const hasYear = Number.isFinite(Number(d?.doc_year)) ||
+            (Array.isArray(d?.doc_years) && d.doc_years.length > 0);
+          return !hasYear;
+        }).length
+      : 0;
+
     // For _nY keys (e.g. IRS_BUSINESS_3Y): use the consecutive years evaluator
     // which checks for a contiguous run AND recency. For other year-based items
     // (individual year keys): check specific required years. For non-year items:
@@ -612,6 +622,8 @@ export async function reconcileDealChecklist(dealId: string) {
         reason: evalResult.reason ?? null,
         min_most_recent_year: minMostRecentYear,
         years_on_file: satisfiedYears,
+        docs_matched: docsForItem.length,
+        docs_missing_year: docsMissingYear,
       };
     } else if (requiredYears && requiredYears.length) {
       isSatisfied = requiredYears.every((y) => satisfiedYearsSet.has(y));

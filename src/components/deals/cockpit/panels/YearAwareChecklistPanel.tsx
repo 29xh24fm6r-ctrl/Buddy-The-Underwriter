@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { useChecklistDetail, isProtectedKey, type ChecklistDetailItem } from "../hooks/useChecklistDetail";
 import { YearDots, YearSummary, ConsecutiveYearStatus, ConsecutiveYearSummary } from "./YearDots";
+import { isTaxYearRequired } from "@/lib/checklist/checklistKeyOptions";
 
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
 const glassHeader = "border-b border-white/10 bg-white/[0.02] px-5 py-3";
@@ -39,7 +40,7 @@ function ChecklistItemRow({
 }) {
   const badge = statusBadge(item.status);
   const isProtected = isProtectedKey(item.checklist_key);
-  const isConsecutiveItem = /_\d+Y$/.test(item.checklist_key);
+  const isConsecutiveItem = isTaxYearRequired(item.checklist_key);
 
   return (
     <div
