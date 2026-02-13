@@ -37,7 +37,7 @@ export async function GET(
   const { data, error } = await sb
     .from("deal_documents")
     .select(
-      "id, deal_id, bank_id, original_filename, display_name, naming_method, document_type, doc_year, mime_type, size_bytes, checklist_key, created_at, storage_bucket, storage_path, source",
+      "id, deal_id, bank_id, original_filename, display_name, naming_method, document_type, doc_year, mime_type, size_bytes, checklist_key, created_at, storage_bucket, storage_path, source, canonical_type, routing_class, classification_confidence, finalized_at, virus_status, entity_name",
     )
     .eq("deal_id", dealId)
     .eq("bank_id", access.bankId)
@@ -69,6 +69,12 @@ export async function GET(
     storage_bucket: d.storage_bucket,
     storage_path: d.storage_path,
     source: d.source,
+    canonical_type: d.canonical_type ?? null,
+    routing_class: d.routing_class ?? null,
+    classification_confidence: d.classification_confidence ?? null,
+    finalized_at: d.finalized_at ?? null,
+    virus_status: d.virus_status ?? null,
+    entity_name: d.entity_name ?? null,
   }));
 
   return NextResponse.json({ ok: true, documents });

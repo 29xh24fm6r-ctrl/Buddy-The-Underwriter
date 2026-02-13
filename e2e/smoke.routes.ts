@@ -30,8 +30,8 @@ export const SMOKE_ROUTES: SmokeRoute[] = [
   { name: "Deal pricing", path: `/deals/${DEAL_ID}/pricing`, kind: "auth" },
   { name: "Deal readiness", path: `/deals/${DEAL_ID}/readiness`, kind: "auth" },
   {
-    name: "Deal borrower inbox",
-    path: `/deals/${DEAL_ID}/borrower-inbox`,
+    name: "Deal documents",
+    path: `/deals/${DEAL_ID}/documents`,
     kind: "auth",
   },
   { name: "Underwrite (deal)", path: `/underwrite/${DEAL_ID}`, kind: "auth" },

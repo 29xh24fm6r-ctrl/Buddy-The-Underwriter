@@ -8,6 +8,7 @@ import type {
   ProductTypeConfig,
   ProductCategory,
   LoanRequestStatus,
+  PropertyAddress,
 } from "@/lib/loanRequests/types";
 
 // ---------------------------------------------------------------------------
@@ -47,6 +48,19 @@ const CATEGORY_LABELS: Record<ProductCategory, string> = {
   SBA: "SBA",
   SPECIALTY: "Specialty",
 };
+
+function fmtAddress(addr: PropertyAddress | null | undefined): string | null {
+  if (!addr) return null;
+  const parts = [addr.street, addr.city, addr.state, addr.zip].filter(Boolean);
+  if (!parts.length) return null;
+  // "123 Main St, Denver, CO 80202"
+  let line = addr.street ?? "";
+  if (addr.city) line += (line ? ", " : "") + addr.city;
+  if (addr.state) line += (line ? ", " : "") + addr.state;
+  if (addr.zip) line += (line ? " " : "") + addr.zip;
+  if (addr.county) line += ` (${addr.county} County)`;
+  return line || null;
+}
 
 // ---------------------------------------------------------------------------
 // LoanRequestCard
@@ -154,12 +168,27 @@ function LoanRequestCard({
           {lr.purchase_price != null && (
             <div>Purchase Price: {fmtCurrency(lr.purchase_price)}</div>
           )}
+          {lr.down_payment != null && (
+            <div>Down Payment: {fmtCurrency(lr.down_payment)}</div>
+          )}
           {lr.property_noi != null && (
             <div>NOI: {fmtCurrency(lr.property_noi)}</div>
+          )}
+          {fmtAddress(lr.property_address_json) && (
+            <div>Property Address: {fmtAddress(lr.property_address_json)}</div>
           )}
           {lr.sba_program && <div>SBA Program: {lr.sba_program}</div>}
           {lr.injection_amount != null && (
             <div>Injection: {fmtCurrency(lr.injection_amount)}</div>
+          )}
+          {lr.injection_source && (
+            <div>Injection Source: {lr.injection_source}</div>
+          )}
+          {lr.collateral_summary && (
+            <div>Collateral: {lr.collateral_summary}</div>
+          )}
+          {lr.guarantors_summary && (
+            <div>Guarantors: {lr.guarantors_summary}</div>
           )}
           {lr.notes && <div className="italic">{lr.notes}</div>}
         </div>
@@ -169,7 +198,7 @@ function LoanRequestCard({
 }
 
 // ---------------------------------------------------------------------------
-// LoanRequestForm
+// LoanRequestForm — Canonical structured state mirroring LoanRequestInput
 // ---------------------------------------------------------------------------
 
 function LoanRequestForm({
@@ -185,46 +214,34 @@ function LoanRequestForm({
   onSave: (input: LoanRequestInput) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [productType, setProductType] = useState<ProductType | "">(
-    existingRequest?.product_type ?? "",
-  );
-  const [amount, setAmount] = useState(
+  const [form, setForm] = useState<Partial<LoanRequestInput>>(() => ({
+    product_type: existingRequest?.product_type ?? ("" as any),
+    requested_amount: existingRequest?.requested_amount ?? null,
+    loan_purpose: existingRequest?.loan_purpose ?? existingRequest?.purpose ?? null,
+    requested_term_months: existingRequest?.requested_term_months ?? null,
+    requested_amort_months: existingRequest?.requested_amort_months ?? null,
+    rate_type_preference: existingRequest?.rate_type_preference ?? null,
+    property_type: existingRequest?.property_type ?? null,
+    occupancy_type: existingRequest?.occupancy_type ?? null,
+    property_value: existingRequest?.property_value ?? null,
+    purchase_price: existingRequest?.purchase_price ?? null,
+    down_payment: existingRequest?.down_payment ?? null,
+    property_noi: existingRequest?.property_noi ?? null,
+    property_address_json: existingRequest?.property_address_json ?? null,
+    sba_program: existingRequest?.sba_program ?? null,
+    injection_amount: existingRequest?.injection_amount ?? null,
+    injection_source: existingRequest?.injection_source ?? null,
+    collateral_summary: existingRequest?.collateral_summary ?? null,
+    guarantors_summary: existingRequest?.guarantors_summary ?? null,
+    notes: existingRequest?.notes ?? null,
+  }));
+
+  // Separate string state for amount field (accepts comma-formatted input)
+  const [amountRaw, setAmountRaw] = useState(
     existingRequest?.requested_amount?.toString() ?? "",
   );
-  const [purpose, setPurpose] = useState(
-    existingRequest?.loan_purpose ?? existingRequest?.purpose ?? "",
-  );
-  const [termMonths, setTermMonths] = useState(
-    existingRequest?.requested_term_months?.toString() ?? "",
-  );
-  const [amortMonths, setAmortMonths] = useState(
-    existingRequest?.requested_amort_months?.toString() ?? "",
-  );
-  const [ratePreference, setRatePreference] = useState(
-    existingRequest?.rate_type_preference ?? "",
-  );
-  // RE fields
-  const [propertyType, setPropertyType] = useState(
-    existingRequest?.property_type ?? "",
-  );
-  const [occupancyType, setOccupancyType] = useState(
-    existingRequest?.occupancy_type ?? "",
-  );
-  const [propertyValue, setPropertyValue] = useState(
-    existingRequest?.property_value?.toString() ?? "",
-  );
-  const [purchasePrice, setPurchasePrice] = useState(
-    existingRequest?.purchase_price?.toString() ?? "",
-  );
-  // SBA fields
-  const [sbaProgram, setSbaProgram] = useState(
-    existingRequest?.sba_program ?? "",
-  );
-  const [injectionAmount, setInjectionAmount] = useState(
-    existingRequest?.injection_amount?.toString() ?? "",
-  );
 
-  const selectedConfig = productTypes.find((p) => p.code === productType);
+  const selectedConfig = productTypes.find((p) => p.code === form.product_type);
   const showRE = selectedConfig?.requires_real_estate ?? false;
   const showSBA = selectedConfig?.requires_sba_fields ?? false;
 
@@ -246,23 +263,51 @@ function LoanRequestForm({
     return Number.isNaN(n) ? null : n;
   }
 
+  function setStr<K extends keyof LoanRequestInput>(key: K, val: string) {
+    setForm((prev) => ({ ...prev, [key]: val || null }));
+  }
+
+  function setNum<K extends keyof LoanRequestInput>(key: K, val: string) {
+    setForm((prev) => ({ ...prev, [key]: val === "" ? null : Number(val) }));
+  }
+
+  function setAddr(field: keyof PropertyAddress, val: string) {
+    setForm((prev) => ({
+      ...prev,
+      property_address_json: {
+        ...prev.property_address_json,
+        [field]: val || undefined,
+      },
+    }));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!productType) return;
+    if (!form.product_type) return;
+
+    const addr = form.property_address_json;
+    const hasAddr = addr && Object.values(addr).some(Boolean);
 
     const input: LoanRequestInput = {
-      product_type: productType as ProductType,
-      requested_amount: parseNumeric(amount),
-      loan_purpose: purpose || null,
-      requested_term_months: termMonths ? Number(termMonths) : null,
-      requested_amort_months: amortMonths ? Number(amortMonths) : null,
-      rate_type_preference: (ratePreference || null) as any,
-      property_type: propertyType || null,
-      occupancy_type: (occupancyType || null) as any,
-      property_value: propertyValue ? Number(propertyValue) : null,
-      purchase_price: purchasePrice ? Number(purchasePrice) : null,
-      sba_program: (sbaProgram || null) as any,
-      injection_amount: injectionAmount ? Number(injectionAmount) : null,
+      product_type: form.product_type as ProductType,
+      requested_amount: parseNumeric(amountRaw),
+      loan_purpose: form.loan_purpose || null,
+      requested_term_months: form.requested_term_months ?? null,
+      requested_amort_months: form.requested_amort_months ?? null,
+      rate_type_preference: form.rate_type_preference ?? null,
+      property_type: form.property_type || null,
+      occupancy_type: form.occupancy_type ?? null,
+      property_value: form.property_value ?? null,
+      purchase_price: form.purchase_price ?? null,
+      down_payment: form.down_payment ?? null,
+      property_noi: form.property_noi ?? null,
+      property_address_json: hasAddr ? addr : null,
+      sba_program: form.sba_program ?? null,
+      injection_amount: form.injection_amount ?? null,
+      injection_source: form.injection_source || null,
+      collateral_summary: form.collateral_summary || null,
+      guarantors_summary: form.guarantors_summary || null,
+      notes: form.notes || null,
     };
 
     await onSave(input);
@@ -287,8 +332,8 @@ function LoanRequestForm({
         </label>
         <select
           className={inputCls}
-          value={productType}
-          onChange={(e) => setProductType(e.target.value as ProductType)}
+          value={form.product_type ?? ""}
+          onChange={(e) => setForm((prev) => ({ ...prev, product_type: e.target.value as ProductType }))}
           required
           disabled={saving}
         >
@@ -316,8 +361,8 @@ function LoanRequestForm({
             type="text"
             inputMode="decimal"
             placeholder="e.g. 750,000"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            value={amountRaw}
+            onChange={(e) => setAmountRaw(e.target.value)}
             disabled={saving}
           />
         </div>
@@ -327,8 +372,8 @@ function LoanRequestForm({
             className={inputCls + " h-auto py-2 resize-none"}
             rows={2}
             placeholder="e.g. Purchase building"
-            value={purpose}
-            onChange={(e) => setPurpose(e.target.value)}
+            value={form.loan_purpose ?? ""}
+            onChange={(e) => setStr("loan_purpose", e.target.value)}
             disabled={saving}
           />
         </div>
@@ -344,8 +389,8 @@ function LoanRequestForm({
             className={inputCls}
             type="number"
             placeholder="e.g. 120"
-            value={termMonths}
-            onChange={(e) => setTermMonths(e.target.value)}
+            value={form.requested_term_months ?? ""}
+            onChange={(e) => setNum("requested_term_months", e.target.value)}
             disabled={saving}
           />
         </div>
@@ -357,8 +402,8 @@ function LoanRequestForm({
             className={inputCls}
             type="number"
             placeholder="e.g. 300"
-            value={amortMonths}
-            onChange={(e) => setAmortMonths(e.target.value)}
+            value={form.requested_amort_months ?? ""}
+            onChange={(e) => setNum("requested_amort_months", e.target.value)}
             disabled={saving}
           />
         </div>
@@ -368,8 +413,8 @@ function LoanRequestForm({
           </label>
           <select
             className={inputCls}
-            value={ratePreference}
-            onChange={(e) => setRatePreference(e.target.value)}
+            value={form.rate_type_preference ?? ""}
+            onChange={(e) => setForm((prev) => ({ ...prev, rate_type_preference: (e.target.value || null) as any }))}
             disabled={saving}
           >
             <option value="">No preference</option>
@@ -382,8 +427,8 @@ function LoanRequestForm({
 
       {/* Real Estate fields */}
       {showRE && (
-        <div className="rounded-md border border-slate-200 bg-white p-3">
-          <div className="text-xs font-semibold text-slate-700 mb-2">
+        <div className="rounded-md border border-slate-200 bg-white p-3 space-y-3">
+          <div className="text-xs font-semibold text-slate-700">
             Real Estate Details
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -394,8 +439,8 @@ function LoanRequestForm({
               <input
                 className={inputCls}
                 placeholder="e.g. Office, Retail, Industrial"
-                value={propertyType}
-                onChange={(e) => setPropertyType(e.target.value)}
+                value={form.property_type ?? ""}
+                onChange={(e) => setStr("property_type", e.target.value)}
                 disabled={saving}
               />
             </div>
@@ -405,8 +450,8 @@ function LoanRequestForm({
               </label>
               <select
                 className={inputCls}
-                value={occupancyType}
-                onChange={(e) => setOccupancyType(e.target.value)}
+                value={form.occupancy_type ?? ""}
+                onChange={(e) => setForm((prev) => ({ ...prev, occupancy_type: (e.target.value || null) as any }))}
                 disabled={saving}
               >
                 <option value="">Select...</option>
@@ -423,8 +468,8 @@ function LoanRequestForm({
                 className={inputCls}
                 type="number"
                 placeholder="e.g. 1200000"
-                value={propertyValue}
-                onChange={(e) => setPropertyValue(e.target.value)}
+                value={form.property_value ?? ""}
+                onChange={(e) => setNum("property_value", e.target.value)}
                 disabled={saving}
               />
             </div>
@@ -436,8 +481,84 @@ function LoanRequestForm({
                 className={inputCls}
                 type="number"
                 placeholder="e.g. 1000000"
-                value={purchasePrice}
-                onChange={(e) => setPurchasePrice(e.target.value)}
+                value={form.purchase_price ?? ""}
+                onChange={(e) => setNum("purchase_price", e.target.value)}
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600">
+                Down Payment
+              </label>
+              <input
+                className={inputCls}
+                type="number"
+                placeholder="e.g. 250000"
+                value={form.down_payment ?? ""}
+                onChange={(e) => setNum("down_payment", e.target.value)}
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600">
+                Property NOI
+              </label>
+              <input
+                className={inputCls}
+                type="number"
+                placeholder="e.g. 120000"
+                value={form.property_noi ?? ""}
+                onChange={(e) => setNum("property_noi", e.target.value)}
+                disabled={saving}
+              />
+            </div>
+          </div>
+
+          {/* Property Address */}
+          <div className="text-xs font-medium text-slate-600 mt-2">
+            Property Address
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <input
+                className={inputCls}
+                placeholder="Street address"
+                value={form.property_address_json?.street ?? ""}
+                onChange={(e) => setAddr("street", e.target.value)}
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <input
+                className={inputCls}
+                placeholder="City"
+                value={form.property_address_json?.city ?? ""}
+                onChange={(e) => setAddr("city", e.target.value)}
+                disabled={saving}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                className={inputCls}
+                placeholder="State"
+                value={form.property_address_json?.state ?? ""}
+                onChange={(e) => setAddr("state", e.target.value)}
+                disabled={saving}
+              />
+              <input
+                className={inputCls}
+                placeholder="ZIP"
+                value={form.property_address_json?.zip ?? ""}
+                onChange={(e) => setAddr("zip", e.target.value)}
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <input
+                className={inputCls}
+                placeholder="County"
+                value={form.property_address_json?.county ?? ""}
+                onChange={(e) => setAddr("county", e.target.value)}
                 disabled={saving}
               />
             </div>
@@ -458,8 +579,8 @@ function LoanRequestForm({
               </label>
               <select
                 className={inputCls}
-                value={sbaProgram}
-                onChange={(e) => setSbaProgram(e.target.value)}
+                value={form.sba_program ?? ""}
+                onChange={(e) => setForm((prev) => ({ ...prev, sba_program: (e.target.value || null) as any }))}
                 disabled={saving}
               >
                 <option value="">Select...</option>
@@ -477,8 +598,20 @@ function LoanRequestForm({
                 className={inputCls}
                 type="number"
                 placeholder="e.g. 100000"
-                value={injectionAmount}
-                onChange={(e) => setInjectionAmount(e.target.value)}
+                value={form.injection_amount ?? ""}
+                onChange={(e) => setNum("injection_amount", e.target.value)}
+                disabled={saving}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs font-medium text-slate-600">
+                Injection Source
+              </label>
+              <input
+                className={inputCls}
+                placeholder="e.g. Personal savings, 401k rollover"
+                value={form.injection_source ?? ""}
+                onChange={(e) => setStr("injection_source", e.target.value)}
                 disabled={saving}
               />
             </div>
@@ -486,11 +619,59 @@ function LoanRequestForm({
         </div>
       )}
 
+      {/* Collateral & Guarantors */}
+      <div className="rounded-md border border-slate-200 bg-white p-3">
+        <div className="text-xs font-semibold text-slate-700 mb-2">
+          Collateral & Guarantors
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="text-xs font-medium text-slate-600">
+              Collateral Summary
+            </label>
+            <textarea
+              className={inputCls + " h-auto py-2 resize-none"}
+              rows={2}
+              placeholder="e.g. Commercial building at 123 Main St, valued at $1.2M"
+              value={form.collateral_summary ?? ""}
+              onChange={(e) => setStr("collateral_summary", e.target.value)}
+              disabled={saving}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-600">
+              Guarantors Summary
+            </label>
+            <textarea
+              className={inputCls + " h-auto py-2 resize-none"}
+              rows={2}
+              placeholder="e.g. John Smith (51% owner), Jane Doe (49% owner)"
+              value={form.guarantors_summary ?? ""}
+              onChange={(e) => setStr("guarantors_summary", e.target.value)}
+              disabled={saving}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Notes */}
+      <div>
+        <label className="text-xs font-medium text-slate-600">Notes</label>
+        <textarea
+          className={inputCls + " h-auto py-2 resize-none"}
+          rows={2}
+          placeholder="Additional notes or context"
+          value={form.notes ?? ""}
+          onChange={(e) => setStr("notes", e.target.value)}
+          disabled={saving}
+        />
+      </div>
+
       {/* Actions */}
       <div className="flex gap-2 pt-1">
         <button
           type="submit"
-          disabled={saving || !productType}
+          disabled={saving || !form.product_type}
           className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
           {saving

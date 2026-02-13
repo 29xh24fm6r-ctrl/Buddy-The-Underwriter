@@ -138,6 +138,9 @@ export interface LoanRequestInput {
   sba_program?: SBAProgram | null;
   injection_amount?: number | null;
   injection_source?: string | null;
+  collateral_summary?: string | null;
+  guarantors_summary?: string | null;
+  notes?: string | null;
 }
 
 export interface ProductTypeConfig {
