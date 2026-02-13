@@ -31,4 +31,5 @@ Append-only record of phase transitions. Never rewrite old rows.
 | 2026-02-13 | 10 | Phase 10 marked complete (V2 Primary promoted via allowlists + global mode support) | 9fa0762 |
 | 2026-02-13 | 11 | Phase 11 spec created (decommission V1 user-facing rendering) | 5d81063 |
 | 2026-02-13 | 11 | PR1+PR3+PR4 shipped: V1 guard, CI guardrail, health counters | 9cdf098 |
+| 2026-02-13 | 11 | PR2 shipped: admin replay endpoint (V1+V2 audit) | 0f82c7f |
 | 2026-02-13 | 12 | Phase 12 spec created (metric registry audit mode) | TBD |
