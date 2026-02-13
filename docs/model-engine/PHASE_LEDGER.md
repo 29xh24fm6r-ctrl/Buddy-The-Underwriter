@@ -34,3 +34,4 @@ Append-only record of phase transitions. Never rewrite old rows.
 | 2026-02-13 | 11 | PR2 shipped: admin replay endpoint (V1+V2 audit) | 0f82c7f |
 | 2026-02-13 | 12 | Phase 12 spec created (metric registry audit mode) | d623724 |
 | 2026-02-13 | 12 | Phase 12 code shipped: registry versioning, snapshot binding, replay verification, health — pending ops rollout | 31c4084 |
+| 2026-02-13 | 12 | Ops: migration applied + v1 registry published (7 metrics, content_hash=89ff9255…c5b5f4) — snapshot binding + replay pending deployed app | — |
