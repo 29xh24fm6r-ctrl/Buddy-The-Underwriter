@@ -256,11 +256,35 @@ function LoanRequestForm({
     {} as Record<ProductCategory, ProductTypeConfig[]>,
   );
 
-  function parseNumeric(raw: string): number | null {
-    const cleaned = raw.replace(/[,\s$]/g, "");
+  function trimToNull(s: string | null | undefined): string | null {
+    if (s == null) return null;
+    const trimmed = s.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  function parseNumberOrNull(raw: string | number | null | undefined): number | null {
+    if (raw == null || raw === "") return null;
+    const cleaned = String(raw).replace(/[,\s$]/g, "");
     if (!cleaned) return null;
     const n = Number(cleaned);
     return Number.isNaN(n) ? null : n;
+  }
+
+  function normalizeAddressJson(
+    addr: Partial<PropertyAddress> | null | undefined,
+  ): PropertyAddress | null {
+    if (!addr) return null;
+    const norm: PropertyAddress = {};
+    if (addr.street?.trim()) norm.street = addr.street.trim();
+    if (addr.city?.trim()) norm.city = addr.city.trim();
+    if (addr.state?.trim()) norm.state = addr.state.trim();
+    if (addr.zip?.trim()) norm.zip = addr.zip.trim();
+    if (addr.county?.trim()) norm.county = addr.county.trim();
+    return Object.keys(norm).length > 0 ? norm : null;
+  }
+
+  function parseNumeric(raw: string): number | null {
+    return parseNumberOrNull(raw);
   }
 
   function setStr<K extends keyof LoanRequestInput>(key: K, val: string) {
@@ -285,29 +309,26 @@ function LoanRequestForm({
     e.preventDefault();
     if (!form.product_type) return;
 
-    const addr = form.property_address_json;
-    const hasAddr = addr && Object.values(addr).some(Boolean);
-
     const input: LoanRequestInput = {
       product_type: form.product_type as ProductType,
-      requested_amount: parseNumeric(amountRaw),
-      loan_purpose: form.loan_purpose || null,
-      requested_term_months: form.requested_term_months ?? null,
-      requested_amort_months: form.requested_amort_months ?? null,
+      requested_amount: parseNumberOrNull(amountRaw),
+      loan_purpose: trimToNull(form.loan_purpose),
+      requested_term_months: parseNumberOrNull(form.requested_term_months),
+      requested_amort_months: parseNumberOrNull(form.requested_amort_months),
       rate_type_preference: form.rate_type_preference ?? null,
-      property_type: form.property_type || null,
+      property_type: trimToNull(form.property_type),
       occupancy_type: form.occupancy_type ?? null,
-      property_value: form.property_value ?? null,
-      purchase_price: form.purchase_price ?? null,
-      down_payment: form.down_payment ?? null,
-      property_noi: form.property_noi ?? null,
-      property_address_json: hasAddr ? addr : null,
+      property_value: parseNumberOrNull(form.property_value),
+      purchase_price: parseNumberOrNull(form.purchase_price),
+      down_payment: parseNumberOrNull(form.down_payment),
+      property_noi: parseNumberOrNull(form.property_noi),
+      property_address_json: normalizeAddressJson(form.property_address_json),
       sba_program: form.sba_program ?? null,
-      injection_amount: form.injection_amount ?? null,
-      injection_source: form.injection_source || null,
-      collateral_summary: form.collateral_summary || null,
-      guarantors_summary: form.guarantors_summary || null,
-      notes: form.notes || null,
+      injection_amount: parseNumberOrNull(form.injection_amount),
+      injection_source: trimToNull(form.injection_source),
+      collateral_summary: trimToNull(form.collateral_summary),
+      guarantors_summary: trimToNull(form.guarantors_summary),
+      notes: trimToNull(form.notes),
     };
 
     await onSave(input);

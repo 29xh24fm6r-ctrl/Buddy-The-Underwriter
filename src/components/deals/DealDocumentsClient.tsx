@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
+import { getChecklistBadge, getPipelineBadge, TONE_CLS } from "./documents/badges";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,6 +26,10 @@ type DealDocument = {
   virus_status: string | null;
   classification_confidence: number | null;
   entity_name: string | null;
+  match_confidence: number | null;
+  match_source: string | null;
+  artifact_status: string | null;
+  artifact_error: string | null;
 };
 
 type SourceFilter = "all" | "banker" | "borrower";
@@ -63,12 +68,6 @@ function sourceBadgeCls(source: string | null): string {
   if (label === "Banker") return "bg-blue-500/20 text-blue-300 border-blue-500/30";
   if (label === "Borrower") return "bg-amber-500/20 text-amber-300 border-amber-500/30";
   return "bg-white/10 text-white/60 border-white/10";
-}
-
-function classificationBadge(doc: DealDocument): { label: string; cls: string } {
-  if (doc.finalized_at) return { label: "Classified", cls: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" };
-  if (doc.document_type) return { label: "Pending", cls: "bg-amber-500/20 text-amber-300 border-amber-500/30" };
-  return { label: "Unclassified", cls: "bg-white/10 text-white/50 border-white/10" };
 }
 
 function virusBadge(status: string | null): { label: string; cls: string } | null {
@@ -303,15 +302,16 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
                 <th className="px-4 py-3 font-medium">Type</th>
                 <th className="px-4 py-3 font-medium">Year</th>
                 <th className="px-4 py-3 font-medium">Source</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Checklist</th>
+                <th className="px-4 py-3 font-medium">Match</th>
+                <th className="px-4 py-3 font-medium">Pipeline</th>
                 <th className="px-4 py-3 font-medium">Size</th>
                 <th className="px-4 py-3 font-medium">Uploaded</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((doc) => {
-                const clsBadge = classificationBadge(doc);
+                const matchBdg = getChecklistBadge(doc);
+                const pipeBdg = getPipelineBadge(doc);
                 const vBadge = virusBadge(doc.virus_status);
                 return (
                   <tr
@@ -358,10 +358,21 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
                       <span
                         className={[
                           "inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                          clsBadge.cls,
+                          TONE_CLS[matchBdg.tone],
                         ].join(" ")}
                       >
-                        {clsBadge.label}
+                        {matchBdg.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={[
+                          "inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                          TONE_CLS[pipeBdg.tone],
+                        ].join(" ")}
+                        title={pipeBdg.hoverText}
+                      >
+                        {pipeBdg.label}
                       </span>
                       {vBadge && (
                         <span
@@ -373,9 +384,11 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
                           {vBadge.label}
                         </span>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-white/60">
-                      {doc.checklist_key?.replace(/_/g, " ") ?? "—"}
+                      {pipeBdg.tone === "red" && pipeBdg.hoverText && (
+                        <div className="mt-0.5 text-[10px] text-red-400 truncate max-w-[180px]" title={pipeBdg.hoverText}>
+                          {pipeBdg.hoverText}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs text-white/50">
                       {fmtSize(doc.size_bytes)}
