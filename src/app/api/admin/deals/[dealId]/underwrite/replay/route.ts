@@ -11,6 +11,8 @@ import { loadDealModel } from "@/lib/underwritingEngine/loaders/loadDealModel";
 import { loadDealInstruments } from "@/lib/underwritingEngine/loaders/loadDealInstruments";
 import { loadActiveBankConfig } from "@/lib/configEngine";
 import { emitV2Event, V2_EVENT_CODES } from "@/lib/modelEngine/events";
+import { loadVersionById, loadVersionEntries } from "@/lib/metrics/registry/selectActiveVersion";
+import { hashRegistry, hashOutputs } from "@/lib/metrics/registry/hash";
 import type { FinancialFact } from "@/lib/financialSpreads/types";
 import type { ProductType } from "@/lib/creditLenses/types";
 import type { UnderwriteResult } from "@/lib/underwritingEngine/types";
@@ -182,6 +184,75 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     // -----------------------------------------------------------------------
     // V2 Replay
     // -----------------------------------------------------------------------
+
+    // Phase 12: Registry hash verification (when replaying a snapshot)
+    let registryVerification: {
+      status: "match" | "mismatch" | "no_binding" | "version_missing";
+      snapshotHash?: string;
+      currentHash?: string;
+      registryVersionId?: string;
+    } | undefined;
+
+    if (existingSnapshot) {
+      const snapRegVersionId = (existingSnapshot as any).registry_version_id;
+      const snapRegHash = (existingSnapshot as any).registry_content_hash;
+
+      if (snapRegVersionId && snapRegHash) {
+        const regVersion = await loadVersionById(sb, snapRegVersionId);
+        if (!regVersion) {
+          registryVerification = { status: "version_missing", registryVersionId: snapRegVersionId };
+        } else {
+          // Load entries and compute current hash
+          const entries = await loadVersionEntries(sb, snapRegVersionId);
+          const currentHash = hashRegistry(
+            entries.map((e) => ({ metric_key: e.metricKey, definition_json: e.definitionJson })),
+          );
+
+          if (currentHash !== snapRegHash) {
+            registryVerification = {
+              status: "mismatch",
+              snapshotHash: snapRegHash,
+              currentHash,
+              registryVersionId: snapRegVersionId,
+            };
+
+            emitV2Event({
+              code: V2_EVENT_CODES.METRIC_REGISTRY_HASH_MISMATCH,
+              dealId,
+              bankId,
+              payload: {
+                traceId,
+                snapshotId,
+                registryVersionId: snapRegVersionId,
+                snapshotHash: snapRegHash,
+                currentHash,
+              },
+            });
+
+            return NextResponse.json(
+              {
+                ok: false,
+                engine: "v2",
+                error: "REGISTRY_HASH_MISMATCH",
+                traceId,
+                registryVerification,
+              },
+              { status: 409 },
+            );
+          }
+
+          registryVerification = {
+            status: "match",
+            snapshotHash: snapRegHash,
+            currentHash,
+            registryVersionId: snapRegVersionId,
+          };
+        }
+      } else {
+        registryVerification = { status: "no_binding" };
+      }
+    }
+
     const [model, instruments, bankConfig, product] = await Promise.all([
       loadDealModel(dealId),
       loadDealInstruments(dealId),
@@ -211,6 +282,46 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
     const v2Result = result as UnderwriteResult;
 
+    // Phase 12: compute outputs hash + compare with snapshot
+    const outputs = {
+      snapshot: v2Result.snapshot,
+      analysis: v2Result.analysis,
+      policy: v2Result.policy,
+      stress: v2Result.stress,
+      pricing: v2Result.pricing,
+      memo: v2Result.memo,
+    };
+    const replayOutputsHash = hashOutputs(outputs);
+
+    let outputsVerification: {
+      status: "match" | "mismatch" | "no_stored_hash";
+      replayHash: string;
+      storedHash?: string;
+    } | undefined;
+
+    if (existingSnapshot) {
+      const storedOutputsHash = (existingSnapshot as any).outputs_hash;
+      if (storedOutputsHash) {
+        const isMatch = replayOutputsHash === storedOutputsHash;
+        outputsVerification = {
+          status: isMatch ? "match" : "mismatch",
+          replayHash: replayOutputsHash,
+          storedHash: storedOutputsHash,
+        };
+
+        emitV2Event({
+          code: isMatch
+            ? V2_EVENT_CODES.METRIC_REGISTRY_REPLAY_MATCH
+            : V2_EVENT_CODES.METRIC_REGISTRY_REPLAY_MISMATCH,
+          dealId,
+          bankId,
+          payload: { traceId, snapshotId, replayHash: replayOutputsHash, storedHash: storedOutputsHash },
+        });
+      } else {
+        outputsVerification = { status: "no_stored_hash", replayHash: replayOutputsHash };
+      }
+    }
+
     emitV2Event({
       code: V2_EVENT_CODES.MODEL_V2_AUDIT_REPLAY_SERVED,
       dealId,
@@ -229,19 +340,15 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       dealId,
       traceId,
       replayedAt,
-      outputs: {
-        snapshot: v2Result.snapshot,
-        analysis: v2Result.analysis,
-        policy: v2Result.policy,
-        stress: v2Result.stress,
-        pricing: v2Result.pricing,
-        memo: v2Result.memo,
-      },
+      outputs,
+      outputsHash: replayOutputsHash,
       diagnostics: {
         modelPeriodCount: model.periods.length,
         instrumentCount: instruments.length,
         pipelineComplete: result.diagnostics.pipelineComplete,
       },
+      ...(registryVerification ? { registryVerification } : {}),
+      ...(outputsVerification ? { outputsVerification } : {}),
       ...(existingSnapshot ? { existingSnapshot } : {}),
     });
   } catch (e: any) {

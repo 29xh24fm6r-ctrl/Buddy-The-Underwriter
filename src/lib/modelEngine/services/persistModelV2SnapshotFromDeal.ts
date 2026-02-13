@@ -9,6 +9,8 @@ import {
   loadMetricRegistry,
   saveModelSnapshot,
 } from "@/lib/modelEngine";
+import { resolveRegistryBinding } from "@/lib/metrics/registry/selectActiveVersion";
+import { hashOutputs } from "@/lib/metrics/registry/hash";
 import type { FinancialModel, RiskFlag } from "@/lib/modelEngine";
 
 /**
@@ -76,6 +78,14 @@ export async function persistModelV2SnapshotFromDeal(opts: {
     const metricRegistryHash = deterministicHash(metricDefs);
     const financialModelHash = deterministicHash(model);
     const computedAt = new Date().toISOString();
+    const traceId = crypto.randomUUID();
+
+    // 5b. Phase 12: resolve registry binding (non-fatal if no published version)
+    const binding = await resolveRegistryBinding(sb).catch(() => null);
+
+    // 5c. Phase 12: compute outputs hash
+    const outputsPayload = { computedMetrics, riskFlags: riskResult.flags };
+    const computedOutputsHash = hashOutputs(outputsPayload);
 
     // 6. Persist
     const saveResult = await saveModelSnapshot(
@@ -87,6 +97,13 @@ export async function persistModelV2SnapshotFromDeal(opts: {
         metricRegistryHash,
         financialModelHash,
         calculatedAt: computedAt,
+        // Phase 12: registry binding
+        registryVersionId: binding?.registryVersionId ?? null,
+        registryVersionName: binding?.registryVersionName ?? null,
+        registryContentHash: binding?.registryContentHash ?? null,
+        engineVersion: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+        computeTraceId: traceId,
+        outputsHash: computedOutputsHash,
       },
       computedMetrics,
       riskResult.flags,

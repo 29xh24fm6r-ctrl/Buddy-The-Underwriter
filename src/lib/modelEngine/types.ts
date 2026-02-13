@@ -119,6 +119,18 @@ export interface ModelSnapshot {
   financialModelHash: string;
   calculatedAt: string;
   triggeredBy?: string | null;
+  /** Phase 12: FK to metric_registry_versions */
+  registryVersionId?: string | null;
+  /** Phase 12: Denormalized for easy viewing */
+  registryVersionName?: string | null;
+  /** Phase 12: Content hash of registry at compute time */
+  registryContentHash?: string | null;
+  /** Phase 12: Commit SHA or app version */
+  engineVersion?: string | null;
+  /** Phase 12: Unique trace ID for this compute */
+  computeTraceId?: string | null;
+  /** Phase 12: SHA-256 of canonical outputs for replay proof */
+  outputsHash?: string | null;
 }
 
 // ---------------------------------------------------------------------------

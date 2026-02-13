@@ -56,6 +56,49 @@ export async function GET(req: NextRequest) {
       .select("*", { count: "exact", head: true })
       .eq("error_code", "MODEL_V1_RENDER_ATTEMPT_BLOCKED");
 
+    // Phase 12: Registry versioning health
+    let registryVersioning: {
+      activeVersionName: string | null;
+      activeContentHash: string | null;
+      publishedVersionsCount: number;
+      lastPublishedAt: string | null;
+      replayMismatchCount24h: number;
+    } | undefined;
+    try {
+      const { selectActiveVersion } = await import("@/lib/metrics/registry/selectActiveVersion");
+      const active = await selectActiveVersion(sb);
+
+      const { count: publishedCount } = await sb
+        .from("metric_registry_versions")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "published");
+
+      const { data: latestPublished } = await sb
+        .from("metric_registry_versions")
+        .select("published_at")
+        .eq("status", "published")
+        .order("published_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const oneDayAgo = new Date(Date.now() - 86400000).toISOString();
+      const { count: mismatchCount } = await (sb as any)
+        .from("buddy_system_events")
+        .select("*", { count: "exact", head: true })
+        .eq("error_code", "METRIC_REGISTRY_REPLAY_MISMATCH")
+        .gte("created_at", oneDayAgo);
+
+      registryVersioning = {
+        activeVersionName: active?.versionName ?? null,
+        activeContentHash: active?.contentHash ?? null,
+        publishedVersionsCount: publishedCount ?? 0,
+        lastPublishedAt: latestPublished?.published_at ?? null,
+        replayMismatchCount24h: mismatchCount ?? 0,
+      };
+    } catch {
+      // Non-fatal — tables may not exist yet
+    }
+
     // Optional write-check: attempt to persist a snapshot for a specific deal
     const url = new URL(req.url);
     const writeCheckDealId = url.searchParams.get("writeCheckDealId");
@@ -123,6 +166,7 @@ export async function GET(req: NextRequest) {
         source: registrySource,
       },
       ...(snapshotWrite ? { snapshot_write: snapshotWrite } : {}),
+      ...(registryVersioning ? { registry_versioning: registryVersioning } : {}),
       checked_at: new Date().toISOString(),
     });
   } catch (e: any) {

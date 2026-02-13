@@ -38,6 +38,13 @@ export async function saveModelSnapshot(
       risk_flags: riskFlags,
       calculated_at: snapshot.calculatedAt,
       triggered_by: snapshot.triggeredBy ?? null,
+      // Phase 12: registry version binding
+      registry_version_id: snapshot.registryVersionId ?? null,
+      registry_content_hash: snapshot.registryContentHash ?? null,
+      registry_version_name: snapshot.registryVersionName ?? null,
+      engine_version: snapshot.engineVersion ?? null,
+      compute_trace_id: snapshot.computeTraceId ?? null,
+      outputs_hash: snapshot.outputsHash ?? null,
     })
     .select("id")
     .single();
@@ -79,5 +86,12 @@ export async function loadLatestSnapshot(
     financialModelHash: data.financial_model_hash,
     calculatedAt: data.calculated_at,
     triggeredBy: data.triggered_by ?? null,
+    // Phase 12
+    registryVersionId: data.registry_version_id ?? null,
+    registryContentHash: data.registry_content_hash ?? null,
+    registryVersionName: data.registry_version_name ?? null,
+    engineVersion: data.engine_version ?? null,
+    computeTraceId: data.compute_trace_id ?? null,
+    outputsHash: data.outputs_hash ?? null,
   };
 }

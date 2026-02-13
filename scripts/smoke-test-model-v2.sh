@@ -69,9 +69,14 @@ check() {
     local v1_disabled; v1_disabled=$(jq -r '.v1_renderer_disabled // empty' "$tmpfile" 2>/dev/null)
     local v1_blocked; v1_blocked=$(jq -r '.v1_render_blocked.count // empty' "$tmpfile" 2>/dev/null)
 
+    local reg_active; reg_active=$(jq -r '.registry_versioning.activeVersionName // empty' "$tmpfile" 2>/dev/null)
+    local reg_hash; reg_hash=$(jq -r '.registry_versioning.activeContentHash // empty' "$tmpfile" 2>/dev/null)
+    local reg_published; reg_published=$(jq -r '.registry_versioning.publishedVersionsCount // empty' "$tmpfile" 2>/dev/null)
+
     [[ -n "$v2_enabled" ]] && extra+=" v2=$v2_enabled metrics=$metric_count snapshots=$snapshot_count diffs=$diff_count"
     [[ -n "$v1_disabled" ]] && extra+=" v1_disabled=$v1_disabled v1_blocked=$v1_blocked"
     [[ -n "$v2_mode" ]] && extra+=" mode=$v2_mode reason=$v2_mode_reason"
+    [[ -n "$reg_active" ]] && extra+=" registry=$reg_active published=$reg_published"
     [[ -n "$uw_mode" && -n "$uw_engine" ]] && extra+=" engine=$uw_engine fallback=$uw_fallback"
     [[ "$has_view_model" == "yes" ]] && extra+=" viewModel=present"
     [[ "$shadow_enabled" == "true" ]] && extra+=" shadow=active"
@@ -107,6 +112,7 @@ check "underwrite"   "$BASE_URL/api/deals/$DEAL_ID/underwrite"
 # Admin endpoints (require super_admin auth)
 check "replay-v2"    "$BASE_URL/api/admin/deals/$DEAL_ID/underwrite/replay?engine=v2"
 check "replay-v1"    "$BASE_URL/api/admin/deals/$DEAL_ID/underwrite/replay?engine=v1"
+check "registry-ver" "$BASE_URL/api/admin/metric-registry/versions"
 
 echo ""
 echo "--- Results ---"
