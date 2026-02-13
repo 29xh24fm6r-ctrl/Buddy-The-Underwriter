@@ -104,6 +104,10 @@ check "kick"         "$BASE_URL/api/deals/$DEAL_ID/model-v2/kick" POST
 check "moodys"       "$BASE_URL/api/deals/$DEAL_ID/spreads/moodys"
 check "underwrite"   "$BASE_URL/api/deals/$DEAL_ID/underwrite"
 
+# Admin endpoints (require super_admin auth)
+check "replay-v2"    "$BASE_URL/api/admin/deals/$DEAL_ID/underwrite/replay?engine=v2"
+check "replay-v1"    "$BASE_URL/api/admin/deals/$DEAL_ID/underwrite/replay?engine=v1"
+
 echo ""
 echo "--- Results ---"
 echo "$pass passed, $fail failed"
