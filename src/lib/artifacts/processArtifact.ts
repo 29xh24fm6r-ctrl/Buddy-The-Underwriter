@@ -643,7 +643,7 @@ export async function processArtifact(
 
         docAiSignals = {
           processorType: docAiRow.data.provider_metrics.processorType,
-          docTypeLabel: typeEntity?.mentionText ?? docAiRow.data.provider_metrics.documentType ?? undefined,
+          docTypeLabel: typeEntity?.mentionText ?? undefined,
           docTypeConfidence: typeEntity?.confidence ?? undefined,
           entities: Array.isArray(entities)
             ? entities.slice(0, 20).map((e: any) => ({

@@ -250,19 +250,30 @@ export async function classifyDocument(
 ): Promise<ClassificationResult> {
 
   // ── Tier A: DocAI ──────────────────────────────────────────────────────
+  // Always run rules first — form anchors in text ("Form 1040") are the
+  // most reliable signal we have and should override DocAI when they disagree.
+  const rulesResultEarly = classifyByRules(documentText, filename);
+
   if (docAi?.docTypeLabel && (docAi.docTypeConfidence ?? 0) >= 0.75) {
     const mappedType = mapDocAiLabelToDocType(docAi.docTypeLabel);
     if (mappedType) {
-      // Also run rules to pick up form numbers and tax year
-      const rulesResult = classifyByRules(documentText, filename);
+      // Cross-validation: if rules found a definitive form anchor (≥ 0.90)
+      // that contradicts DocAI, trust the text-level evidence over DocAI.
+      if (
+        rulesResultEarly &&
+        rulesResultEarly.confidence >= 0.90 &&
+        rulesResultEarly.docType !== mappedType
+      ) {
+        return rulesResultToClassification(rulesResultEarly);
+      }
 
       return {
         docType: mappedType,
         confidence: docAi.docTypeConfidence ?? 0.80,
         reason: `DocAI processor classified as "${docAi.docTypeLabel}" (confidence ${docAi.docTypeConfidence})`,
-        taxYear: rulesResult?.taxYear ?? null,
+        taxYear: rulesResultEarly?.taxYear ?? null,
         entityName: null,
-        entityType: rulesResult?.entityType ?? null,
+        entityType: rulesResultEarly?.entityType ?? null,
         proposedDealName: null,
         proposedDealNameSource: null,
         rawExtraction: {
@@ -270,7 +281,7 @@ export async function classifyDocument(
           docai_confidence: docAi.docTypeConfidence,
           docai_processor: docAi.processorType,
         },
-        formNumbers: rulesResult?.formNumbers ?? null,
+        formNumbers: rulesResultEarly?.formNumbers ?? null,
         issuer: null,
         periodStart: null,
         periodEnd: null,
@@ -281,7 +292,8 @@ export async function classifyDocument(
   }
 
   // ── Tier B: Rules-based ────────────────────────────────────────────────
-  const rulesResult = classifyByRules(documentText, filename);
+  // Reuse early result (already computed above for cross-validation)
+  const rulesResult = rulesResultEarly;
   if (rulesResult && rulesResult.confidence >= 0.65) {
     return rulesResultToClassification(rulesResult);
   }
