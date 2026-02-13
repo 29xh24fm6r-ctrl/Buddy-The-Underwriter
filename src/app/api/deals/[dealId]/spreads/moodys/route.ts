@@ -102,6 +102,8 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
           rendered_html: null,
           rendered_csv: null,
           error: null,
+          error_code: null,
+          finished_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
         { onConflict: "deal_id,bank_id,spread_type,spread_version,owner_type,owner_entity_id" },

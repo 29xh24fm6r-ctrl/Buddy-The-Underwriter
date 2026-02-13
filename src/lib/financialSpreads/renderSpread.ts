@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
+import { reconcileAegisFindingsForSpread } from "@/lib/aegis/reconcileSpreadFindings";
 import type { RenderedSpread, RentRollRow, SpreadType } from "@/lib/financialSpreads/types";
 
 function emptyErrorSpread(type: SpreadType, message: string): RenderedSpread {
@@ -58,6 +59,8 @@ export async function renderSpread(args: {
           rendered_html: null,
           rendered_csv: null,
           error: rendered.meta?.error ?? null,
+          error_code: "TEMPLATE_NOT_FOUND",
+          finished_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
         { onConflict: "deal_id,bank_id,spread_type,spread_version,owner_type,owner_entity_id" } as any,
@@ -123,6 +126,8 @@ export async function renderSpread(args: {
         rendered_html: null,
         rendered_csv: null,
         error: null,
+        error_code: null,
+        finished_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
       { onConflict: "deal_id,bank_id,spread_type,spread_version,owner_type,owner_entity_id" } as any,
@@ -131,6 +136,14 @@ export async function renderSpread(args: {
     .maybeSingle();
 
   if (error) throw new Error(`deal_spreads_upsert_failed:${error.message}`);
+
+  // Fire-and-forget: reconcile Aegis findings now that spread is ready
+  reconcileAegisFindingsForSpread({
+    dealId: args.dealId,
+    bankId: args.bankId,
+    spreadType: args.spreadType,
+    newStatus: "ready",
+  }).catch(() => {});
 
   // ── Write normalized line items to deal_spread_line_items (best-effort) ──
   try {

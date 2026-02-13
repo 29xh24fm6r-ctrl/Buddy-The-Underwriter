@@ -6,6 +6,8 @@ import { renderSpread } from "@/lib/financialSpreads/renderSpread";
 import { backfillCanonicalFactsFromSpreads } from "@/lib/financialFacts/backfillFromSpreads";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { classifySpreadError } from "@/lib/financialSpreads/spreadErrorCodes";
+import { reconcileAegisFindingsForSpread } from "@/lib/aegis/reconcileSpreadFindings";
 import type { SpreadType } from "@/lib/financialSpreads/types";
 import { writeSystemEvent } from "@/lib/aegis";
 
@@ -60,16 +62,18 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
   const dealId = String(job.deal_id);
   const bankId = String(job.bank_id);
 
+  // Hoisted for catch block visibility
+  const requested = uniq((job.requested_spread_types ?? []) as string[])
+    .map((s) => String(s))
+    .filter(Boolean) as SpreadType[];
+
+  const jobMeta = (job.meta && typeof job.meta === "object") ? job.meta : {};
+  const ownerType = typeof jobMeta.owner_type === "string" ? jobMeta.owner_type : undefined;
+  const ownerEntityId = typeof jobMeta.owner_entity_id === "string" ? jobMeta.owner_entity_id : SENTINEL_UUID;
+  const completedTypes = new Set<string>();
+
   try {
     const sourceDocumentId = job.source_document_id ? String(job.source_document_id) : null;
-
-    const requested = uniq((job.requested_spread_types ?? []) as string[])
-      .map((s) => String(s))
-      .filter(Boolean) as SpreadType[];
-
-    const jobMeta = (job.meta && typeof job.meta === "object") ? job.meta : {};
-    const ownerType = typeof jobMeta.owner_type === "string" ? jobMeta.owner_type : undefined;
-    const ownerEntityId = typeof jobMeta.owner_entity_id === "string" ? jobMeta.owner_entity_id : SENTINEL_UUID;
 
     await logLedgerEvent({
       dealId, bankId,
@@ -126,9 +130,89 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       }
     }
 
+    const runId = jobId; // canonical run identifier for CAS ownership
+
+    // ── Preflight: check upstream facts exist ──
+    const { count: factCount } = await (sb as any)
+      .from("deal_financial_facts")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .eq("bank_id", bankId);
+
+    if (!factCount || factCount === 0) {
+      for (const spreadType of requested) {
+        const effectiveOwnerType = resolveOwnerType(spreadType, ownerType);
+        await (sb as any)
+          .from("deal_spreads")
+          .update({
+            status: "error",
+            finished_at: new Date().toISOString(),
+            error: "No financial facts available for this deal",
+            error_code: "MISSING_UPSTREAM_FACTS",
+            error_details_json: { dealId, bankId, factCount: 0 },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("deal_id", dealId)
+          .eq("bank_id", bankId)
+          .eq("spread_type", spreadType)
+          .eq("owner_type", effectiveOwnerType)
+          .eq("owner_entity_id", ownerEntityId)
+          .in("status", ["queued", "generating"]);
+
+        reconcileAegisFindingsForSpread({ dealId, bankId, spreadType, newStatus: "error" }).catch(() => {});
+      }
+
+      // Preflight completed — spreads intentionally errored, job is NOT a failure
+      await (sb as any)
+        .from("deal_spread_jobs")
+        .update({ status: "SUCCEEDED", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("id", jobId);
+
+      return { ok: true as const, jobId, preflightFailed: true };
+    }
+
     for (const spreadType of requested) {
       const effectiveOwnerType = resolveOwnerType(spreadType, ownerType);
+
+      // CAS: transition queued→generating ONLY if no other run owns it
+      // Accepts: status='queued' (no owner yet) OR status='generating' with same run_id (retry)
+      const { data: claimed, error: claimErr } = await (sb as any)
+        .from("deal_spreads")
+        .update({
+          status: "generating",
+          started_at: new Date().toISOString(),
+          last_run_id: runId,
+          error_code: null,
+          error: null,
+          error_details_json: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId)
+        .eq("spread_type", spreadType)
+        .eq("owner_type", effectiveOwnerType)
+        .eq("owner_entity_id", ownerEntityId)
+        .or(`status.eq.queued,and(status.eq.generating,last_run_id.eq.${runId})`)
+        .select("id, attempts")
+        .maybeSingle();
+
+      if (!claimed) {
+        // Another run owns this spread — skip, don't stomp
+        continue;
+      }
+
+      // Best-effort: increment attempts
+      await (sb as any)
+        .from("deal_spreads")
+        .update({ attempts: (claimed.attempts ?? 0) + 1 })
+        .eq("id", claimed.id)
+        .catch(() => {});
+
       await renderSpread({ dealId, bankId, spreadType, ownerType: effectiveOwnerType, ownerEntityId });
+      completedTypes.add(spreadType);
+
+      // Fire-and-forget: reconcile findings
+      reconcileAegisFindingsForSpread({ dealId, bankId, spreadType, newStatus: "ready" }).catch(() => {});
 
       // Empty-row invariant: warn if spread rendered with 0 data rows
       try {
@@ -294,6 +378,38 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
           updated_at: new Date().toISOString(),
         })
         .eq("id", jobId);
+    }
+
+    // NON-NEGOTIABLE: clean up spread status for types that didn't complete
+    const runId = jobId;
+    const failedTypes = requested.filter((t) => !completedTypes.has(t));
+    for (const spreadType of failedTypes) {
+      const effectiveOwnerType = resolveOwnerType(spreadType, ownerType);
+      await (sb as any)
+        .from("deal_spreads")
+        .update({
+          status: "error",
+          finished_at: new Date().toISOString(),
+          error: errMsg.slice(0, 500),
+          error_code: classifySpreadError(e),
+          error_details_json: {
+            exceptionName: e?.name ?? "Error",
+            runId,
+            jobId,
+            attempt,
+            spreadType,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId)
+        .eq("spread_type", spreadType)
+        .eq("owner_type", effectiveOwnerType)
+        .eq("owner_entity_id", ownerEntityId)
+        .eq("last_run_id", runId)       // STRICT CAS: only if we own this run
+        .eq("status", "generating");    // STRICT CAS: only if still generating
+
+      reconcileAegisFindingsForSpread({ dealId, bankId, spreadType, newStatus: "error" }).catch(() => {});
     }
 
     await logLedgerEvent({

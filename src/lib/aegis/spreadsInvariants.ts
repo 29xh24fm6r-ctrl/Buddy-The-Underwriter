@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { writeSystemEvent } from "./writeSystemEvent";
+import { reconcileAegisFindingsForSpread } from "./reconcileSpreadFindings";
 import type { SpreadsIntelligenceResult } from "./types";
 
 /* ------------------------------------------------------------------ */
@@ -74,8 +75,8 @@ async function checkSpreadGeneratingTimeout(
 
     const { data: stuckSpreads, error } = await sb
       .from("deal_spreads" as any)
-      .select("id, deal_id, bank_id, spread_type, status, updated_at")
-      .eq("status", "generating")
+      .select("id, deal_id, bank_id, spread_type, status, started_at, updated_at")
+      .in("status", ["queued", "generating"])
       .lt("updated_at", warningCutoff);
 
     if (error) {
@@ -84,8 +85,8 @@ async function checkSpreadGeneratingTimeout(
     }
 
     for (const spread of (stuckSpreads ?? []) as any[]) {
-      const updatedAt = new Date(spread.updated_at).getTime();
-      const minutesStuck = (Date.now() - updatedAt) / 60_000;
+      const effectiveStart = spread.started_at ?? spread.updated_at;
+      const minutesStuck = (Date.now() - new Date(effectiveStart).getTime()) / 60_000;
       const isCritical = minutesStuck >= GENERATING_CRITICAL_MIN;
 
       result.spreads_generating_timeout++;
@@ -95,12 +96,43 @@ async function checkSpreadGeneratingTimeout(
           .from("deal_spreads" as any)
           .update({
             status: "error",
-            error: `[observer] stuck in generating for ${Math.round(minutesStuck)} minutes — auto-healed`,
+            finished_at: new Date().toISOString(),
+            error: `[observer] stuck ${Math.round(minutesStuck)}min — auto-healed`,
+            error_code: "TIMEOUT",
+            error_details_json: {
+              minutesStuck: Math.round(minutesStuck),
+              autoHealed: true,
+              spreadId: spread.id,
+            },
             updated_at: new Date().toISOString(),
           } as any)
           .eq("id", spread.id);
 
         result.spreads_auto_healed++;
+
+        reconcileAegisFindingsForSpread({
+          dealId: spread.deal_id,
+          bankId: spread.bank_id,
+          spreadType: spread.spread_type,
+          newStatus: "error",
+        }).catch(() => {});
+      }
+
+      // Dedup: skip warning event if open finding already exists for this spread+invariant
+      if (!isCritical) {
+        const { count: existingCount } = await sb
+          .from("buddy_system_events" as any)
+          .select("id", { count: "exact", head: true })
+          .eq("deal_id", spread.deal_id)
+          .eq("bank_id", spread.bank_id)
+          .in("resolution_status", ["open", "retrying"])
+          .in("event_type", ["stuck_job", "warning"])
+          .contains("payload" as any, {
+            spread_type: spread.spread_type,
+            invariant: "spread_generating_timeout",
+          } as any);
+
+        if ((existingCount ?? 0) > 0) continue;
       }
 
       writeSystemEvent({
@@ -110,7 +142,7 @@ async function checkSpreadGeneratingTimeout(
         deal_id: spread.deal_id,
         bank_id: spread.bank_id,
         error_class: "timeout",
-        error_message: `Spread ${spread.spread_type} stuck in "generating" for ${Math.round(minutesStuck)} minutes${isCritical ? " — auto-healed to error" : ""}`,
+        error_message: `Spread ${spread.spread_type} stuck in "${spread.status}" for ${Math.round(minutesStuck)} minutes${isCritical ? " — auto-healed to error" : ""}`,
         resolution_status: isCritical ? "resolved" : "open",
         ...(isCritical
           ? {
@@ -265,7 +297,7 @@ async function checkSnapshotBlockedByStaleSpreads(
     const { data: staleSpreads, error } = await sb
       .from("deal_spreads" as any)
       .select("deal_id, bank_id, spread_type, updated_at")
-      .eq("status", "generating")
+      .in("status", ["queued", "generating"])
       .lt("updated_at", staleCutoff);
 
     if (error) {
@@ -413,7 +445,7 @@ async function run409IntelligencePass(
         jobs.length > 0 && jobs.every((j) => j.status === "SUCCEEDED");
       const anyJobFailed = jobs.some((j) => j.status === "FAILED");
       const anySpreadsGenerating = spreadRows.some(
-        (s) => s.status === "generating",
+        (s) => s.status === "generating" || s.status === "queued",
       );
 
       // Case A: All jobs SUCCEEDED but spread still "generating"

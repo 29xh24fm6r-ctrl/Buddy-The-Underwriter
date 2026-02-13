@@ -36,10 +36,10 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         .eq("bank_id", access.bankId)
         .order("created_at", { ascending: false })
         .limit(1),
-      // All spreads for this deal (minimal projection)
+      // All spreads for this deal
       (sb as any)
         .from("deal_spreads")
-        .select("spread_type, status, owner_type, updated_at")
+        .select("spread_type, status, owner_type, updated_at, error_code, error, error_details_json, started_at, finished_at, attempts")
         .eq("deal_id", dealId)
         .eq("bank_id", access.bankId),
       // Canonical facts visibility
@@ -60,14 +60,23 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       : null;
 
     // Spreads summary
-    const spreadRows = (spreadsRes.data ?? []) as Array<{ spread_type: string; status: string }>;
+    const spreadRows = (spreadsRes.data ?? []) as Array<{
+      spread_type: string;
+      status: string;
+      error_code?: string | null;
+      error?: string | null;
+      error_details_json?: any;
+      attempts?: number;
+    }>;
     const types = Array.from(new Set(spreadRows.map((r) => r.spread_type)));
     let ready = 0;
     let generating = 0;
     let errCount = 0;
+    let queued = 0;
     for (const r of spreadRows) {
       if (r.status === "ready") ready++;
       else if (r.status === "generating") generating++;
+      else if (r.status === "queued") queued++;
       else if (r.status === "error") errCount++;
     }
 
@@ -79,8 +88,18 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         total: spreadRows.length,
         ready,
         generating,
+        queued,
         error: errCount,
         types,
+        errors: spreadRows
+          .filter((r) => r.status === "error")
+          .map((r) => ({
+            spreadType: r.spread_type,
+            errorCode: r.error_code ?? null,
+            errorMessage: r.error ?? null,
+            errorDetails: r.error_details_json ?? null,
+            attempts: r.attempts ?? 0,
+          })),
       },
       facts: {
         total: factsVis.total,

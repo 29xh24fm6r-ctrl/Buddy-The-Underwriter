@@ -147,7 +147,7 @@ export async function POST(_req: Request, ctx: Ctx) {
 
       const spreads = (spreadRows ?? []) as Array<{ spread_type: string; status: string }>;
       const spreadsReady = spreads.filter((s) => s.status === "ready").length;
-      const spreadsGenerating = spreads.filter((s) => s.status === "generating").length;
+      const spreadsGenerating = spreads.filter((s) => s.status === "generating" || s.status === "queued").length;
       const spreadsError = spreads.filter((s) => s.status === "error").length;
 
       if ((pendingJobs && pendingJobs.length > 0) || spreadsGenerating > 0) {

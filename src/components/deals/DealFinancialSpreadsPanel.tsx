@@ -8,7 +8,7 @@ type SpreadRow = {
   bank_id: string;
   spread_type: string;
   spread_version: number;
-  status: "ready" | "generating" | "error" | string;
+  status: "ready" | "generating" | "queued" | "error" | string;
   rendered_json: any;
   updated_at: string;
   error: string | null;
@@ -86,7 +86,9 @@ function displaySpreadGridValue(args: { rowKey: string; cell: any; colKey: strin
   }, [load]);
 
   React.useEffect(() => {
-    const hasGenerating = spreads.some((s) => String(s.status) === "generating");
+    const hasGenerating = spreads.some(
+      (s) => String(s.status) === "generating" || String(s.status) === "queued",
+    );
     if (!hasGenerating) return;
 
     const id = window.setInterval(() => {

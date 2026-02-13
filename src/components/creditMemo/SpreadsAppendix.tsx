@@ -86,7 +86,7 @@ export default async function SpreadsAppendix({
     .select("spread_type, status, owner_type, owner_entity_id, rendered_json, updated_at")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
-    .eq("status", "complete")
+    .eq("status", "ready")
     .order("updated_at", { ascending: false })
     .limit(20);
 
