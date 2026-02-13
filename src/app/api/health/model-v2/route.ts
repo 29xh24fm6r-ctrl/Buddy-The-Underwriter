@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { isModelEngineV2Enabled, selectModelEngineMode } from "@/lib/modelEngine";
+import { isModelEngineV2Enabled, selectModelEngineMode, isV1RendererDisabled } from "@/lib/modelEngine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +49,12 @@ export async function GET(req: NextRequest) {
       .from("buddy_system_events")
       .select("*", { count: "exact", head: true })
       .eq("error_code", "MOODYS_RENDER_DIFF");
+
+    // V1 render attempts blocked (Phase 11)
+    const { count: v1BlockedCount } = await (sb as any)
+      .from("buddy_system_events")
+      .select("*", { count: "exact", head: true })
+      .eq("error_code", "MODEL_V1_RENDER_ATTEMPT_BLOCKED");
 
     // Optional write-check: attempt to persist a snapshot for a specific deal
     const url = new URL(req.url);
@@ -105,8 +111,12 @@ export async function GET(req: NextRequest) {
         count: snapshotCount ?? 0,
         error: snapshotErr?.message ?? null,
       },
+      v1_renderer_disabled: isV1RendererDisabled(),
       diff_events: {
         count: diffEventCount ?? 0,
+      },
+      v1_render_blocked: {
+        count: v1BlockedCount ?? 0,
       },
       registry: {
         loaded: registryOk,

@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/requireRole";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { selectModelEngineMode } from "@/lib/modelEngine/modeSelector";
+import { selectModelEngineMode, isV1RendererDisabled } from "@/lib/modelEngine/modeSelector";
 import { runFullUnderwrite } from "@/lib/underwritingEngine";
 import { loadDealModel } from "@/lib/underwritingEngine/loaders/loadDealModel";
 import { loadDealInstruments } from "@/lib/underwritingEngine/loaders/loadDealInstruments";
@@ -90,6 +90,25 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       dealId,
       bankId: access.bankId,
     });
+
+    // V1 renderer guard (Phase 11): when disabled, only v2_primary is allowed
+    if (isV1RendererDisabled() && modeResult.mode !== "v2_primary") {
+      emitV2Event({
+        code: V2_EVENT_CODES.MODEL_V1_RENDER_ATTEMPT_BLOCKED,
+        dealId,
+        bankId: access.bankId,
+        payload: { surface: "underwrite", resolvedMode: modeResult.mode },
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error_code: "V1_RENDERER_DISABLED",
+          message: "V1 rendering disabled; use V2 primary.",
+          resolvedMode: modeResult.mode,
+        },
+        { status: 409 },
+      );
+    }
 
     // v1 mode: no V2 compute
     if (modeResult.mode === "v1") {

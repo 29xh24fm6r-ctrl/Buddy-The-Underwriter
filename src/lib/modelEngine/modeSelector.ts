@@ -109,6 +109,11 @@ export function isV2Primary(ctx?: ModeSelectionContext): boolean {
   return selectModelEngineMode(ctx).mode === "v2_primary";
 }
 
+/** Returns true if V1 rendering is disabled for user-facing surfaces. */
+export function isV1RendererDisabled(): boolean {
+  return process.env.V1_RENDERER_DISABLED === "true";
+}
+
 /**
  * Clear the allowlist cache. Used in tests to reset between env changes.
  * @internal

@@ -11,6 +11,7 @@ import {
   selectModelEngineMode,
   isV2Enabled,
   isV2Primary,
+  isV1RendererDisabled,
   _resetAllowlistCache,
 } from "../modeSelector";
 
@@ -23,6 +24,7 @@ const ENV_KEYS = [
   "USE_MODEL_ENGINE_V2",
   "V2_PRIMARY_DEAL_ALLOWLIST",
   "V2_PRIMARY_BANK_ALLOWLIST",
+  "V1_RENDERER_DISABLED",
 ] as const;
 
 let savedEnv: Record<string, string | undefined>;
@@ -196,5 +198,57 @@ describe("isV2Primary", () => {
   it("returns true when mode is v2_primary", () => {
     process.env.MODEL_ENGINE_MODE = "v2_primary";
     assert.equal(isV2Primary(), true);
+  });
+});
+
+describe("isV1RendererDisabled", () => {
+  beforeEach(() => {
+    saveEnv();
+    clearEnv();
+  });
+
+  afterEach(() => {
+    restoreEnv();
+  });
+
+  it("returns false when V1_RENDERER_DISABLED is unset", () => {
+    assert.equal(isV1RendererDisabled(), false);
+  });
+
+  it("returns false when V1_RENDERER_DISABLED=false", () => {
+    process.env.V1_RENDERER_DISABLED = "false";
+    assert.equal(isV1RendererDisabled(), false);
+  });
+
+  it("returns true when V1_RENDERER_DISABLED=true", () => {
+    process.env.V1_RENDERER_DISABLED = "true";
+    assert.equal(isV1RendererDisabled(), true);
+  });
+
+  it("guard pattern: v1 mode + disabled → would block", () => {
+    process.env.V1_RENDERER_DISABLED = "true";
+    const { mode } = selectModelEngineMode();
+    assert.equal(mode, "v1");
+    // Simulate the route guard condition (cast avoids TS narrowing after assert)
+    const shouldBlock = isV1RendererDisabled() && (mode as string) !== "v2_primary";
+    assert.equal(shouldBlock, true);
+  });
+
+  it("guard pattern: v2_primary + disabled → allowed", () => {
+    process.env.V1_RENDERER_DISABLED = "true";
+    process.env.MODEL_ENGINE_MODE = "v2_primary";
+    const { mode } = selectModelEngineMode();
+    assert.equal(mode, "v2_primary");
+    const shouldBlock = isV1RendererDisabled() && (mode as string) !== "v2_primary";
+    assert.equal(shouldBlock, false);
+  });
+
+  it("guard pattern: v2_shadow + disabled → would block", () => {
+    process.env.V1_RENDERER_DISABLED = "true";
+    process.env.USE_MODEL_ENGINE_V2 = "true";
+    const { mode } = selectModelEngineMode();
+    assert.equal(mode, "v2_shadow");
+    const shouldBlock = isV1RendererDisabled() && (mode as string) !== "v2_primary";
+    assert.equal(shouldBlock, true);
   });
 });

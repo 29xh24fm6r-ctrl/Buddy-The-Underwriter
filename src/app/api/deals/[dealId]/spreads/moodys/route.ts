@@ -6,7 +6,7 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
 import { renderMoodysSpreadWithValidation } from "@/lib/financialSpreads/moodys/renderMoodysSpread";
 import { buildDealFinancialSnapshotForBank } from "@/lib/deals/financialSnapshot";
-import { selectModelEngineMode, buildFinancialModel } from "@/lib/modelEngine";
+import { selectModelEngineMode, buildFinancialModel, isV1RendererDisabled } from "@/lib/modelEngine";
 import { renderFromFinancialModel } from "@/lib/modelEngine/renderer/v2Adapter";
 import { renderFromLegacySpread } from "@/lib/modelEngine/renderer/v1Adapter";
 import { diffSpreadViewModels } from "@/lib/modelEngine/renderer/viewModelDiff";
@@ -28,6 +28,26 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       return NextResponse.json(
         { ok: false, error: access.error },
         { status: access.error === "deal_not_found" ? 404 : 403 },
+      );
+    }
+
+    // V1 renderer guard (Phase 11): when disabled, only v2_primary is allowed
+    const modeResult = selectModelEngineMode({ dealId, bankId: access.bankId });
+    if (isV1RendererDisabled() && modeResult.mode !== "v2_primary") {
+      emitV2Event({
+        code: V2_EVENT_CODES.MODEL_V1_RENDER_ATTEMPT_BLOCKED,
+        dealId,
+        bankId: access.bankId,
+        payload: { surface: "moodys", resolvedMode: modeResult.mode },
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error_code: "V1_RENDERER_DISABLED",
+          message: "V1 rendering disabled; use V2 primary.",
+          resolvedMode: modeResult.mode,
+        },
+        { status: 409 },
       );
     }
 
@@ -91,8 +111,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         console.warn("[moodys/route] persist failed (non-fatal)", err?.message);
       });
 
-    // V2 Model Engine: mode-aware compute
-    const modeResult = selectModelEngineMode({ dealId, bankId: access.bankId });
+    // V2 Model Engine: mode-aware compute (modeResult computed above, before V1 guard)
     const v2Enabled = modeResult.mode !== "v1";
 
     let viewModel = null;

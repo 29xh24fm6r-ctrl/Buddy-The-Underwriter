@@ -23,6 +23,8 @@ export const V2_EVENT_CODES = {
   MODEL_V2_PARITY_WARN: "MODEL_V2_PARITY_WARN",
   MODEL_V2_PARITY_BLOCK: "MODEL_V2_PARITY_BLOCK",
   MODEL_V2_HARD_FAILURE: "MODEL_V2_HARD_FAILURE",
+  // New (Phase 11)
+  MODEL_V1_RENDER_ATTEMPT_BLOCKED: "MODEL_V1_RENDER_ATTEMPT_BLOCKED",
 } as const;
 
 export type V2EventCode = (typeof V2_EVENT_CODES)[keyof typeof V2_EVENT_CODES];
@@ -37,6 +39,7 @@ function mapSeverity(code: V2EventCode): AegisSeverity {
       return "error";
     case "MODEL_V2_PARITY_BLOCK":
     case "MODEL_V2_FALLBACK_TO_V1":
+    case "MODEL_V1_RENDER_ATTEMPT_BLOCKED":
       return "warning";
     default:
       return "info";
@@ -50,6 +53,7 @@ function mapEventType(code: V2EventCode): AegisEventType {
     case "MODEL_V2_PARITY_BLOCK":
     case "MODEL_V2_FALLBACK_TO_V1":
     case "MODEL_V2_PARITY_WARN":
+    case "MODEL_V1_RENDER_ATTEMPT_BLOCKED":
       return "warning";
     default:
       return "success";

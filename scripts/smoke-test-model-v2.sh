@@ -66,7 +66,11 @@ check() {
     local uw_engine; uw_engine=$(jq -r '.primaryEngine // empty' "$tmpfile" 2>/dev/null)
     local uw_fallback; uw_fallback=$(jq -r '.fallbackUsed // empty' "$tmpfile" 2>/dev/null)
 
+    local v1_disabled; v1_disabled=$(jq -r '.v1_renderer_disabled // empty' "$tmpfile" 2>/dev/null)
+    local v1_blocked; v1_blocked=$(jq -r '.v1_render_blocked.count // empty' "$tmpfile" 2>/dev/null)
+
     [[ -n "$v2_enabled" ]] && extra+=" v2=$v2_enabled metrics=$metric_count snapshots=$snapshot_count diffs=$diff_count"
+    [[ -n "$v1_disabled" ]] && extra+=" v1_disabled=$v1_disabled v1_blocked=$v1_blocked"
     [[ -n "$v2_mode" ]] && extra+=" mode=$v2_mode reason=$v2_mode_reason"
     [[ -n "$uw_mode" && -n "$uw_engine" ]] && extra+=" engine=$uw_engine fallback=$uw_fallback"
     [[ "$has_view_model" == "yes" ]] && extra+=" viewModel=present"

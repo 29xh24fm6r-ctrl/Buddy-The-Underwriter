@@ -50,6 +50,7 @@ export {
   selectModelEngineMode,
   isV2Enabled,
   isV2Primary,
+  isV1RendererDisabled,
 } from "./modeSelector";
 export type {
   ModelEngineMode,
