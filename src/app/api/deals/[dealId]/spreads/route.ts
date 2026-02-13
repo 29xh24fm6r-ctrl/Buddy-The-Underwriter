@@ -35,7 +35,8 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       .from("deal_spreads")
       .select("deal_id, bank_id, spread_type, spread_version, status, rendered_json, updated_at, error, owner_type, owner_entity_id")
       .eq("deal_id", dealId)
-      .eq("bank_id", access.bankId);
+      .eq("bank_id", access.bankId)
+      .neq("error_code", "SUPERSEDED_BY_NEWER_VERSION");
 
     if (types.length) {
       q = q.in("spread_type", types);

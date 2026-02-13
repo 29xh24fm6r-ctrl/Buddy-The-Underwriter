@@ -36,12 +36,13 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         .eq("bank_id", access.bankId)
         .order("created_at", { ascending: false })
         .limit(1),
-      // All spreads for this deal
+      // All spreads for this deal (exclude superseded orphan rows)
       (sb as any)
         .from("deal_spreads")
         .select("spread_type, status, owner_type, updated_at, error_code, error, error_details_json, started_at, finished_at, attempts")
         .eq("deal_id", dealId)
-        .eq("bank_id", access.bankId),
+        .eq("bank_id", access.bankId)
+        .neq("error_code", "SUPERSEDED_BY_NEWER_VERSION"),
       // Canonical facts visibility
       getVisibleFacts(dealId, access.bankId),
     ]);

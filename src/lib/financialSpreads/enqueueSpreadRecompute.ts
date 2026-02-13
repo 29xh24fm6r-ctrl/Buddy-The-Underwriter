@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import type { SpreadType } from "@/lib/financialSpreads/types";
+import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
 
 function uniq(arr: string[]) {
   return Array.from(new Set(arr));
@@ -22,19 +23,23 @@ export async function enqueueSpreadRecompute(args: {
   const requested = uniq((args.spreadTypes ?? []).filter(Boolean));
   if (!requested.length) return { ok: true as const, enqueued: false as const };
 
-  // Best-effort: create placeholder spreads so UI can show "generating" immediately.
-  // This must never block enqueue.
+  // Best-effort: create placeholder spreads so UI can show "queued" immediately.
+  // Version MUST come from the template registry — never hardcode.
   try {
     await Promise.all(
-      requested.map((t) =>
-        (sb as any)
+      requested.map((t) => {
+        const tpl = getSpreadTemplate(t as SpreadType);
+        if (!tpl) {
+          throw new Error(`Unknown spread template: ${t}`);
+        }
+        return (sb as any)
           .from("deal_spreads")
           .upsert(
             {
               deal_id: args.dealId,
               bank_id: args.bankId,
               spread_type: t,
-              spread_version: 1,
+              spread_version: tpl.version,
               owner_type: args.ownerType ?? "DEAL",
               owner_entity_id: args.ownerEntityId ?? SENTINEL_UUID,
               status: "queued",
@@ -70,8 +75,8 @@ export async function enqueueSpreadRecompute(args: {
               updated_at: new Date().toISOString(),
             },
             { onConflict: "deal_id,bank_id,spread_type,spread_version,owner_type,owner_entity_id" } as any,
-          ),
-      ),
+          );
+      }),
     );
   } catch (placeholderErr) {
     console.warn("[enqueueSpreadRecompute] placeholder upsert failed:", placeholderErr);
