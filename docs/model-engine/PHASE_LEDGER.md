@@ -22,7 +22,7 @@ Append-only record of phase transitions. Never rewrite old rows.
 | 9 | Telemetry + Shadow Mode | COMPLETE | dff66f0 |
 | 10 | Promote V2 to Primary | COMPLETE | 9fa0762 |
 | 11 | Decommission V1 Rendering | IN_PROGRESS | 9cdf098 |
-| 12 | Metric Registry Audit Mode | IN_PROGRESS | — |
+| 12 | Metric Registry Audit Mode | SHIPPED (Pending Ops) | 31c4084 |
 
 ## Ledger Events (Append-Only)
 
@@ -33,4 +33,4 @@ Append-only record of phase transitions. Never rewrite old rows.
 | 2026-02-13 | 11 | PR1+PR3+PR4 shipped: V1 guard, CI guardrail, health counters | 9cdf098 |
 | 2026-02-13 | 11 | PR2 shipped: admin replay endpoint (V1+V2 audit) | 0f82c7f |
 | 2026-02-13 | 12 | Phase 12 spec created (metric registry audit mode) | d623724 |
-| 2026-02-13 | 12 | Phase 12 implementation: DB tables, hashing, admin API, snapshot binding, replay verification, health, tests | TBD |
+| 2026-02-13 | 12 | Phase 12 code shipped: registry versioning, snapshot binding, replay verification, health — pending ops rollout | 31c4084 |
