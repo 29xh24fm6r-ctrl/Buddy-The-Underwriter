@@ -87,6 +87,12 @@ export async function createLoanRequest(
     ).catch(() => {});
   }
 
+  // Fire-and-forget: materialize key values (loan amount, collateral) into financial facts
+  import("@/lib/loanRequests/materializeFacts").then(
+    ({ materializeLoanRequestFacts }) =>
+      materializeLoanRequestFacts(data as unknown as LoanRequest),
+  ).catch(() => {});
+
   return { ok: true, loanRequest: data as unknown as LoanRequest };
 }
 
@@ -131,6 +137,12 @@ export async function updateLoanRequest(
         onLoanRequestSubmitted(data as unknown as LoanRequest),
     ).catch(() => {});
   }
+
+  // Fire-and-forget: re-materialize key values (loan amount, collateral) into financial facts
+  import("@/lib/loanRequests/materializeFacts").then(
+    ({ materializeLoanRequestFacts }) =>
+      materializeLoanRequestFacts(data as unknown as LoanRequest),
+  ).catch(() => {});
 
   return { ok: true, loanRequest: data as unknown as LoanRequest };
 }
