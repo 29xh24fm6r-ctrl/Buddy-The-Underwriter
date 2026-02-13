@@ -57,11 +57,13 @@ function LoanRequestCard({
   productTypes,
   onEdit,
   onDelete,
+  onSubmit,
 }: {
   lr: LoanRequest;
   productTypes: ProductTypeConfig[];
   onEdit: () => void;
   onDelete: () => void;
+  onSubmit: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const ptConfig = productTypes.find((p) => p.code === lr.product_type);
@@ -109,6 +111,14 @@ function LoanRequestCard({
         </div>
 
         <div className="flex shrink-0 gap-1">
+          {lr.status === "draft" && (
+            <button
+              onClick={onSubmit}
+              className="rounded-md border border-blue-200 bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+            >
+              Submit
+            </button>
+          )}
           <button
             onClick={onEdit}
             className="rounded-md border px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
@@ -589,6 +599,28 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
     }
   }
 
+  async function handleSubmitRequest(requestId: string) {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/deals/${dealId}/loan-requests/${requestId}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status: "submitted" }),
+        },
+      );
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error ?? "Submit failed");
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? "Unknown error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="rounded-xl border bg-white p-4 text-sm text-slate-500">
@@ -666,6 +698,7 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
                 setShowForm(false);
               }}
               onDelete={() => handleDelete(lr.id)}
+              onSubmit={() => handleSubmitRequest(lr.id)}
             />
           ))}
         </div>
