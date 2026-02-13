@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, Suspense } from "react";
 import React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SafeBoundary } from "@/components/SafeBoundary";
@@ -54,20 +54,7 @@ type UnderwriteVerifyLedgerEvent = {
  */
 const FORCE_CLIENT_ONLY = process.env.NEXT_PUBLIC_COCKPIT_CLIENT_ONLY === "true";
 
-export default function DealCockpitClient({
-  dealId,
-  isAdmin = false,
-  dealName,
-  bankName,
-  readiness: _readiness,
-  lifecycleStage,
-  ignitedEvent: _ignitedEvent,
-  intakeInitialized,
-  verify,
-  verifyLedger,
-  unifiedLifecycleState,
-  lifecycleAvailable: _lifecycleAvailable = true,
-}: {
+type DealCockpitClientProps = {
   dealId: string;
   isAdmin?: boolean;
   dealName?: { displayName?: string | null; nickname?: string | null; borrowerName?: string | null; name?: string | null };
@@ -87,7 +74,30 @@ export default function DealCockpitClient({
   verifyLedger?: UnderwriteVerifyLedgerEvent | null;
   unifiedLifecycleState?: LifecycleState | null;
   lifecycleAvailable?: boolean;
-}) {
+};
+
+export default function DealCockpitClient(props: DealCockpitClientProps) {
+  return (
+    <Suspense fallback={null}>
+      <DealCockpitClientInner {...props} />
+    </Suspense>
+  );
+}
+
+function DealCockpitClientInner({
+  dealId,
+  isAdmin = false,
+  dealName,
+  bankName,
+  readiness: _readiness,
+  lifecycleStage,
+  ignitedEvent: _ignitedEvent,
+  intakeInitialized,
+  verify,
+  verifyLedger,
+  unifiedLifecycleState,
+  lifecycleAvailable: _lifecycleAvailable = true,
+}: DealCockpitClientProps) {
   const [stage, setStage] = useState<string | null>(lifecycleStage ?? null);
   const { deal: dealMeta, refresh: refreshMeta, setDeal: setDealMeta } = useDealMeta(dealId);
 

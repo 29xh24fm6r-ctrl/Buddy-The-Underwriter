@@ -47,14 +47,6 @@ function buildFactsMap(
         best = f;
       }
     }
-    // If no match for specific period, fall back to any latest
-    if (!best && periodEnd) {
-      for (const f of group) {
-        if (!best || (f.fact_period_end ?? "") > (best.fact_period_end ?? "")) {
-          best = f;
-        }
-      }
-    }
     if (best) {
       map[key] = best.fact_value_num;
     }
@@ -63,13 +55,19 @@ function buildFactsMap(
   return map;
 }
 
+/** Sentinel dates used as placeholders when real period is unknown. */
+const SENTINEL_DATES = new Set(["1900-01-01", "0001-01-01"]);
+
 /**
  * Detect distinct periods from facts (for multi-period columns).
+ * Filters out sentinel dates that represent "unknown period".
  */
 function detectPeriods(facts: FinancialFact[]): PeriodBucket[] {
   const periodEnds = new Set<string>();
   for (const f of facts) {
-    if (f.fact_period_end) periodEnds.add(f.fact_period_end);
+    if (f.fact_period_end && !SENTINEL_DATES.has(f.fact_period_end)) {
+      periodEnds.add(f.fact_period_end);
+    }
   }
 
   const sorted = [...periodEnds].sort();

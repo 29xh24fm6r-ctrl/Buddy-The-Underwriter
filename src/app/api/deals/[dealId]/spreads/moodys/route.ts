@@ -35,7 +35,8 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       .from("deal_financial_facts")
       .select("*")
       .eq("deal_id", dealId)
-      .eq("bank_id", access.bankId);
+      .eq("bank_id", access.bankId)
+      .neq("fact_type", "EXTRACTION_HEARTBEAT");
 
     if (factsErr) {
       return NextResponse.json(
