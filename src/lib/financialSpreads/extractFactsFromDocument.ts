@@ -115,11 +115,31 @@ export async function extractFactsFromDocument(args: {
 
   const extractedText = String(ocrRes.data?.extracted_text ?? "");
 
-  // Use document_classifications first, fall back to caller-supplied hint
-  // (document_artifacts.doc_type) when the legacy classification table is empty
-  const docType = classRes.data?.doc_type
+  // Priority chain for doc type resolution:
+  // 1. document_classifications (written by classifyProcessor job pipeline)
+  // 2. deal_documents.document_type (stamped by processArtifact or manual UI classification)
+  // 3. args.docTypeHint (caller-supplied fallback, e.g. from document_artifacts.doc_type)
+  let docType = classRes.data?.doc_type
     ? String(classRes.data.doc_type)
-    : (args.docTypeHint ?? null);
+    : null;
+
+  if (!docType) {
+    const { data: dealDoc } = await sb
+      .from("deal_documents")
+      .select("document_type, ai_doc_type")
+      .eq("id", args.documentId)
+      .maybeSingle();
+
+    docType = dealDoc?.ai_doc_type
+      ? String(dealDoc.ai_doc_type)
+      : dealDoc?.document_type
+        ? String(dealDoc.document_type)
+        : null;
+  }
+
+  if (!docType) {
+    docType = args.docTypeHint ?? null;
+  }
 
   const normDocType = (docType ?? "").trim().toUpperCase();
 
