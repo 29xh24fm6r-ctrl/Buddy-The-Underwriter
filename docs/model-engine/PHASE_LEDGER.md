@@ -22,6 +22,7 @@ Append-only record of phase transitions. Never rewrite old rows.
 | 9 | Telemetry + Shadow Mode | COMPLETE | dff66f0 |
 | 10 | Promote V2 to Primary | COMPLETE | 9fa0762 |
 | 11 | Decommission V1 Rendering | IN_PROGRESS | 9cdf098 |
+| 12 | Metric Registry Audit Mode | PLANNED | — |
 
 ## Ledger Events (Append-Only)
 
@@ -30,3 +31,4 @@ Append-only record of phase transitions. Never rewrite old rows.
 | 2026-02-13 | 10 | Phase 10 marked complete (V2 Primary promoted via allowlists + global mode support) | 9fa0762 |
 | 2026-02-13 | 11 | Phase 11 spec created (decommission V1 user-facing rendering) | 5d81063 |
 | 2026-02-13 | 11 | PR1+PR3+PR4 shipped: V1 guard, CI guardrail, health counters | 9cdf098 |
+| 2026-02-13 | 12 | Phase 12 spec created (metric registry audit mode) | TBD |
