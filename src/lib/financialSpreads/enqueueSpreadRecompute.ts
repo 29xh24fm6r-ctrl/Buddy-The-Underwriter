@@ -23,15 +23,45 @@ export async function enqueueSpreadRecompute(args: {
   const requested = uniq((args.spreadTypes ?? []).filter(Boolean));
   if (!requested.length) return { ok: true as const, enqueued: false as const };
 
+  // ── Validate against template registry ──────────────────────────────────
+  // Never let one invalid type poison the entire pipeline.
+  const validTypes: string[] = [];
+  const invalidTypes: string[] = [];
+  for (const t of requested) {
+    if (getSpreadTemplate(t as SpreadType)) {
+      validTypes.push(t);
+    } else {
+      invalidTypes.push(t);
+    }
+  }
+
+  if (invalidTypes.length > 0) {
+    console.warn(`[enqueueSpreadRecompute] skipping invalid types: ${invalidTypes.join(", ")}`);
+    import("@/lib/aegis").then(({ writeSystemEvent }) =>
+      writeSystemEvent({
+        event_type: "warning",
+        severity: "warning",
+        source_system: "spreads_processor",
+        deal_id: args.dealId,
+        bank_id: args.bankId,
+        error_class: "permanent",
+        error_code: "INVALID_SPREAD_TYPES_SKIPPED",
+        error_message: `Invalid spread types skipped during enqueue: ${invalidTypes.join(", ")}`,
+        payload: { deal_id: args.dealId, requested, invalidTypes, validTypes },
+      }),
+    ).catch(() => {});
+  }
+
+  if (validTypes.length === 0) {
+    return { ok: true as const, enqueued: false as const };
+  }
+
   // Best-effort: create placeholder spreads so UI can show "queued" immediately.
   // Version MUST come from the template registry — never hardcode.
   try {
     await Promise.all(
-      requested.map((t) => {
-        const tpl = getSpreadTemplate(t as SpreadType);
-        if (!tpl) {
-          throw new Error(`Unknown spread template: ${t}`);
-        }
+      validTypes.map((t) => {
+        const tpl = getSpreadTemplate(t as SpreadType)!; // guaranteed non-null by filter above
         return (sb as any)
           .from("deal_spreads")
           .upsert(
@@ -97,7 +127,7 @@ export async function enqueueSpreadRecompute(args: {
 
   if (existingJob) {
     const existingTypes = (existingJob.requested_spread_types ?? []) as string[];
-    const merged = uniq([...existingTypes, ...requested]);
+    const merged = uniq([...existingTypes, ...validTypes]);
 
     if (merged.length > existingTypes.length) {
       await (sb as any)
@@ -128,7 +158,7 @@ export async function enqueueSpreadRecompute(args: {
     deal_id: args.dealId,
     bank_id: args.bankId,
     source_document_id: args.sourceDocumentId ?? null,
-    requested_spread_types: requested,
+    requested_spread_types: validTypes,
     status: "QUEUED",
     next_run_at: new Date().toISOString(),
     meta: {
@@ -159,7 +189,7 @@ export async function enqueueSpreadRecompute(args: {
       if (raceJob) {
         const merged = uniq([
           ...((raceJob.requested_spread_types ?? []) as string[]),
-          ...requested,
+          ...validTypes,
         ]);
         await (sb as any)
           .from("deal_spread_jobs")

@@ -9,6 +9,7 @@ import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { classifySpreadError } from "@/lib/financialSpreads/spreadErrorCodes";
 import { reconcileAegisFindingsForSpread } from "@/lib/aegis/reconcileSpreadFindings";
 import type { SpreadType } from "@/lib/financialSpreads/types";
+import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
 import { writeSystemEvent } from "@/lib/aegis";
 
 const LEASE_MS = 3 * 60 * 1000;
@@ -71,6 +72,8 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
   const ownerType = typeof jobMeta.owner_type === "string" ? jobMeta.owner_type : undefined;
   const ownerEntityId = typeof jobMeta.owner_entity_id === "string" ? jobMeta.owner_entity_id : SENTINEL_UUID;
   const completedTypes = new Set<string>();
+  let skippedMissingTemplate = 0;
+  let skippedMissingPlaceholder = 0;
 
   try {
     const sourceDocumentId = job.source_document_id ? String(job.source_document_id) : null;
@@ -172,10 +175,31 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     }
 
     for (const spreadType of requested) {
+      // Defense-in-depth: skip types with no registered template
+      const tpl = getSpreadTemplate(spreadType);
+      if (!tpl) {
+        skippedMissingTemplate++;
+        writeSystemEvent({
+          event_type: "warning",
+          severity: "warning",
+          source_system: "spreads_processor",
+          source_job_id: jobId,
+          source_job_table: "deal_spread_jobs",
+          deal_id: dealId,
+          bank_id: bankId,
+          error_class: "permanent",
+          error_code: "SPREAD_TEMPLATE_MISSING_IN_JOB",
+          error_message: `Spread type ${spreadType} has no registered template — skipped`,
+          payload: { spreadType, jobId, dealId },
+        }).catch(() => {});
+        continue;
+      }
+
       const effectiveOwnerType = resolveOwnerType(spreadType, ownerType);
 
       // CAS: transition queued→generating ONLY if no other run owns it
       // Accepts: status='queued' (no owner yet) OR status='generating' with same run_id (retry)
+      // Pinned to spread_version = tpl.version for deterministic claiming.
       const { data: claimed, error: claimErr } = await (sb as any)
         .from("deal_spreads")
         .update({
@@ -190,6 +214,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         .eq("deal_id", dealId)
         .eq("bank_id", bankId)
         .eq("spread_type", spreadType)
+        .eq("spread_version", tpl.version)
         .eq("owner_type", effectiveOwnerType)
         .eq("owner_entity_id", ownerEntityId)
         .or(`status.eq.queued,and(status.eq.generating,last_run_id.eq.${runId})`)
@@ -197,7 +222,19 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         .maybeSingle();
 
       if (!claimed) {
-        // Another run owns this spread — skip, don't stomp
+        skippedMissingPlaceholder++;
+        writeSystemEvent({
+          event_type: "warning",
+          severity: "warning",
+          source_system: "spreads_processor",
+          source_job_id: jobId,
+          source_job_table: "deal_spread_jobs",
+          deal_id: dealId,
+          bank_id: bankId,
+          error_code: "SPREAD_PLACEHOLDER_MISSING",
+          error_message: `No claimable placeholder for ${spreadType} v${tpl.version} — skipped`,
+          payload: { spreadType, version: tpl.version, ownerType: effectiveOwnerType, ownerEntityId },
+        }).catch(() => {});
         continue;
       }
 
@@ -306,14 +343,71 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       });
     }
 
-    await (sb as any)
-      .from("deal_spread_jobs")
-      .update({
-        status: "SUCCEEDED",
-        updated_at: new Date().toISOString(),
-        error: null,
-      })
-      .eq("id", jobId);
+    // ── Job outcome: no silent "SUCCEEDED 0 work" ──────────────────────────
+    const renderedCount = completedTypes.size;
+    const attemptedCount = requested.length;
+
+    if (renderedCount === 0) {
+      await (sb as any)
+        .from("deal_spread_jobs")
+        .update({
+          status: "FAILED",
+          error: `NO_SPREADS_RENDERED: ${skippedMissingTemplate} missing template, ${skippedMissingPlaceholder} missing placeholder`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", jobId);
+
+      writeSystemEvent({
+        event_type: "warning",
+        severity: "warning",
+        source_system: "spreads_processor",
+        source_job_id: jobId,
+        source_job_table: "deal_spread_jobs",
+        deal_id: dealId,
+        bank_id: bankId,
+        error_code: "SPREAD_JOB_NOOP",
+        error_message: `Job processed 0 spreads out of ${attemptedCount} requested`,
+        payload: {
+          jobId, dealId,
+          requested,
+          renderedCount,
+          skippedMissingTemplate,
+          skippedMissingPlaceholder,
+        },
+      }).catch(() => {});
+    } else {
+      await (sb as any)
+        .from("deal_spread_jobs")
+        .update({
+          status: "SUCCEEDED",
+          updated_at: new Date().toISOString(),
+          error: renderedCount < attemptedCount
+            ? `Partial: ${renderedCount}/${attemptedCount} types rendered`
+            : null,
+        })
+        .eq("id", jobId);
+
+      if (renderedCount < attemptedCount) {
+        writeSystemEvent({
+          event_type: "warning",
+          severity: "info",
+          source_system: "spreads_processor",
+          source_job_id: jobId,
+          source_job_table: "deal_spread_jobs",
+          deal_id: dealId,
+          bank_id: bankId,
+          error_code: "SPREAD_JOB_PARTIAL",
+          error_message: `${renderedCount}/${attemptedCount} types rendered`,
+          payload: {
+            jobId, dealId,
+            requested,
+            completed: Array.from(completedTypes),
+            skippedMissingTemplate,
+            skippedMissingPlaceholder,
+          },
+        }).catch(() => {});
+      }
+    }
 
     // Best-effort invariant check — log violations but never fail the job
     try {
@@ -385,6 +479,8 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     const failedTypes = requested.filter((t) => !completedTypes.has(t));
     for (const spreadType of failedTypes) {
       const effectiveOwnerType = resolveOwnerType(spreadType, ownerType);
+      const failTpl = getSpreadTemplate(spreadType);
+      const failVersion = failTpl?.version ?? 1; // fallback to 1 for unknown types
       await (sb as any)
         .from("deal_spreads")
         .update({
@@ -404,6 +500,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         .eq("deal_id", dealId)
         .eq("bank_id", bankId)
         .eq("spread_type", spreadType)
+        .eq("spread_version", failVersion)  // Pin to template version
         .eq("owner_type", effectiveOwnerType)
         .eq("owner_entity_id", ownerEntityId)
         .eq("last_run_id", runId)       // STRICT CAS: only if we own this run
