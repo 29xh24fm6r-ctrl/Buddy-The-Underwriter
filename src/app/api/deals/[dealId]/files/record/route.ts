@@ -30,6 +30,19 @@ import { getBaseUrl } from "@/lib/net/getBaseUrl";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Phase 15C: Allowlist validator for slot_key values.
+ * Only core document slot keys are accepted.
+ */
+function isValidSlotKey(slotKey: string): boolean {
+  return (
+    /^(BUSINESS_TAX_RETURN|PERSONAL_TAX_RETURN)_(20\d{2})$/.test(slotKey) ||
+    slotKey === "INCOME_STATEMENT_YTD" ||
+    slotKey === "BALANCE_SHEET_CURRENT" ||
+    slotKey === "PFS_CURRENT"
+  );
+}
+
 function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
   return Promise.race<T>([
     Promise.resolve(p),
@@ -144,6 +157,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       session_id,
       upload_session_id,
       slot_id = null,
+      slot_key = null,
     } = body;
 
     const headerSessionId = req.headers.get("x-buddy-upload-session-id");
@@ -729,8 +743,59 @@ export async function POST(req: NextRequest, ctx: Context) {
     // The artifact processor (processArtifact.ts) handles:
     //   OCR → classify → stamp deal_documents → reconcile → recomputeReadiness
 
+    // Phase 15C: Resolve slot_key → slot_id and track attachment outcome
+    let resolvedSlotId = slot_id;
+    const slotAttach: {
+      requested: boolean;
+      used: "slot_id" | "slot_key" | null;
+      slot_key: string | null;
+      slot_id: string | null;
+      resolved_slot_id: string | null;
+      attached: boolean;
+      reason: string | null;
+    } = {
+      requested: false,
+      used: null,
+      slot_key: typeof slot_key === "string" ? slot_key : null,
+      slot_id: typeof slot_id === "string" ? slot_id : null,
+      resolved_slot_id: null,
+      attached: false,
+      reason: null,
+    };
+
+    if (typeof slot_id === "string" && slot_id.length > 0) {
+      slotAttach.requested = true;
+      slotAttach.used = "slot_id";
+      resolvedSlotId = slot_id;
+    } else if (typeof slot_key === "string" && slot_key.length > 0) {
+      slotAttach.requested = true;
+      slotAttach.used = "slot_key";
+      if (!isValidSlotKey(slot_key)) {
+        slotAttach.reason = "invalid_slot_key";
+        console.warn("[files/record] invalid slot_key ignored", { dealId, slot_key });
+      } else {
+        const { data: slotRow, error: slotErr } = await sb
+          .from("deal_document_slots")
+          .select("id")
+          .eq("deal_id", dealId)
+          .eq("slot_key", slot_key)
+          .maybeSingle();
+
+        if (slotErr) {
+          slotAttach.reason = "slot_lookup_error";
+          console.warn("[files/record] slot_key lookup failed", { dealId, slot_key, slotErr });
+        } else if (!slotRow?.id) {
+          slotAttach.reason = "slot_not_found";
+          console.warn("[files/record] slot_key not found", { dealId, slot_key });
+        } else {
+          resolvedSlotId = slotRow.id;
+          slotAttach.resolved_slot_id = slotRow.id;
+        }
+      }
+    }
+
     // Phase 15: Attach document to slot (BEFORE queueArtifact so slot_id is set)
-    if (slot_id && documentId) {
+    if (resolvedSlotId && documentId) {
       try {
         const { attachDocumentToSlot } = await import(
           "@/lib/intake/slots/attachDocumentToSlot"
@@ -738,25 +803,36 @@ export async function POST(req: NextRequest, ctx: Context) {
         const attachResult = await attachDocumentToSlot({
           dealId,
           bankId,
-          slotId: slot_id,
+          slotId: resolvedSlotId,
           documentId,
           attachedByRole: "banker",
           userId: userId ?? undefined,
         });
-        if (!attachResult.ok) {
+        if (attachResult.ok) {
+          slotAttach.attached = true;
+          slotAttach.resolved_slot_id = slotAttach.resolved_slot_id ?? resolvedSlotId;
+        } else {
+          slotAttach.attached = false;
+          slotAttach.reason = "attach_failed";
           console.warn("[files/record] slot attachment failed", {
-            slot_id,
+            resolvedSlotId,
             documentId,
             error: attachResult.error,
           });
         }
       } catch (slotErr: any) {
-        console.warn("[files/record] slot attachment threw (non-fatal)", {
-          slot_id,
+        slotAttach.attached = false;
+        slotAttach.reason = "attach_failed";
+        console.warn("[files/record] attachDocumentToSlot failed", {
+          dealId,
+          resolvedSlotId,
           documentId,
           error: slotErr?.message,
         });
       }
+    } else if (slotAttach.requested) {
+      if (!documentId) slotAttach.reason = slotAttach.reason ?? "missing_document_id";
+      if (!resolvedSlotId) slotAttach.reason = slotAttach.reason ?? "missing_resolved_slot_id";
     }
 
     // ✅ 2) Queue for Magic Intake classification (blocking — failures are observable)
@@ -885,6 +961,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       file_id,
       checklist_key: checklist_key || null,
       meta: { document_id: documentId, artifactQueued, slot_id: slot_id ?? undefined },
+      slot_attach: slotAttach,
     });
   } catch (error: any) {
     console.error("[files/record] uncaught exception", {

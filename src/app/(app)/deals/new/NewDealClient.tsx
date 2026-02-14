@@ -6,7 +6,12 @@ import Link from "next/link";
 import { uploadFileWithSignedUrl } from "@/lib/uploads/uploadFile";
 import { createUploadSession } from "@/lib/api/uploads";
 import { markUploadsCompletedAction } from "./actions";
+import { computeTaxYears } from "@/lib/intake/slots/taxYears";
 import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 type SelectedFile = {
   id: string;
@@ -14,27 +19,41 @@ type SelectedFile = {
   checklistKey: string; // empty = unclassified
 };
 
-type DealBootstrapResponse = {
-  ok: boolean;
-  dealId?: string;
-  sessionId?: string;
-  uploadSessionExpiresAt?: string | null;
-  uploadUrls?: Array<{
-    fileId: string;
-    signedUrl: string;
-    method: "PUT";
-    headers: Record<string, string>;
-    objectKey: string;
-    bucket: string;
-    filename: string;
-    sizeBytes: number;
-  }>;
-  error?: string;
-  details?: string;
-  requestId?: string;
+type SlotAttachResult = {
+  requested: boolean;
+  used: "slot_id" | "slot_key" | null;
+  slot_key: string | null;
+  slot_id: string | null;
+  resolved_slot_id: string | null;
+  attached: boolean;
+  reason: string | null;
 };
 
-type UploadSpec = NonNullable<DealBootstrapResponse["uploadUrls"]>[number];
+type UploadOutcome = {
+  status: "pending" | "uploading" | "recorded" | "error";
+  error?: string | null;
+  slotAttach?: SlotAttachResult | null;
+};
+
+type SlotGroup = {
+  label: string;
+  slots: { key: string; label: string }[];
+};
+
+type UploadSpec = {
+  fileId: string;
+  signedUrl: string;
+  method: "PUT";
+  headers: Record<string, string>;
+  objectKey: string;
+  bucket: string;
+  filename: string;
+  sizeBytes: number;
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function uid() {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -44,6 +63,175 @@ function requestId() {
   return `req_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// ---------------------------------------------------------------------------
+// SlotCard — individual upload target for a core document
+// ---------------------------------------------------------------------------
+
+function SlotCard({
+  slotKey,
+  label,
+  file,
+  outcome,
+  disabled,
+  onFileSelect,
+  onRemove,
+}: {
+  slotKey: string;
+  label: string;
+  file: File | undefined;
+  outcome: UploadOutcome | undefined;
+  disabled: boolean;
+  onFileSelect: (slotKey: string, file: File) => void;
+  onRemove: (slotKey: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragOver(false);
+      if (disabled) return;
+      const f = e.dataTransfer.files?.[0];
+      if (f) onFileSelect(slotKey, f);
+    },
+    [slotKey, disabled, onFileSelect],
+  );
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!disabled) setDragOver(true);
+    },
+    [disabled],
+  );
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  }, []);
+
+  // Attachment badge
+  const badge = (() => {
+    if (!outcome) return null;
+    if (outcome.status === "uploading") {
+      return (
+        <span className="inline-flex items-center gap-1 text-xs text-blue-300">
+          <span className="animate-spin material-symbols-outlined text-[14px]">progress_activity</span>
+          Uploading
+        </span>
+      );
+    }
+    if (outcome.status === "error") {
+      return (
+        <span className="inline-flex items-center gap-1 text-xs text-rose-300" title={outcome.error ?? undefined}>
+          <span className="material-symbols-outlined text-[14px]">error</span>
+          Error
+        </span>
+      );
+    }
+    if (outcome.status === "recorded" && outcome.slotAttach) {
+      if (outcome.slotAttach.attached) {
+        return (
+          <span className="inline-flex items-center gap-1 text-xs text-emerald-300">
+            <span className="material-symbols-outlined text-[14px]">check_circle</span>
+            Attached
+          </span>
+        );
+      }
+      if (outcome.slotAttach.requested && !outcome.slotAttach.attached) {
+        return (
+          <span
+            className="inline-flex items-center gap-1 text-xs text-amber-300"
+            title={outcome.slotAttach.reason ?? "Unknown reason"}
+          >
+            <span className="material-symbols-outlined text-[14px]">warning</span>
+            Not attached
+          </span>
+        );
+      }
+    }
+    return null;
+  })();
+
+  // Empty state
+  if (!file) {
+    return (
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`
+          flex flex-col items-center justify-center p-4 rounded-lg border-2 border-dashed
+          transition-all min-h-[120px] cursor-pointer
+          ${dragOver ? "border-blue-500 bg-blue-500/10" : "border-gray-700 bg-gray-800/20 hover:border-gray-500 hover:bg-gray-800/40"}
+          ${disabled ? "opacity-50 cursor-not-allowed" : ""}
+        `}
+        onClick={() => !disabled && inputRef.current?.click()}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          className="hidden"
+          accept=".pdf,.xlsx,.xls,.docx,.doc,.png,.jpg,.jpeg"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onFileSelect(slotKey, f);
+            e.target.value = "";
+          }}
+          disabled={disabled}
+        />
+        <span className="material-symbols-outlined text-[28px] text-gray-500 mb-1">upload_file</span>
+        <span className="text-xs text-gray-400 text-center leading-tight">{label}</span>
+        <span className="text-[10px] text-gray-600 mt-1">Browse or drop</span>
+      </div>
+    );
+  }
+
+  // Filled state
+  return (
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`
+        flex flex-col p-3 rounded-lg border-2 transition-all min-h-[120px]
+        ${dragOver ? "border-blue-500 bg-blue-500/10" : "border-emerald-600/60 bg-emerald-900/10"}
+      `}
+    >
+      <div className="flex items-start justify-between gap-1">
+        <span className="material-symbols-outlined text-[18px] text-emerald-400 flex-shrink-0 mt-0.5">check_circle</span>
+        {!disabled && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onRemove(slotKey); }}
+            className="p-0.5 text-gray-500 hover:text-rose-400 transition-colors flex-shrink-0"
+          >
+            <span className="material-symbols-outlined text-[16px]">close</span>
+          </button>
+        )}
+      </div>
+      <div className="flex-1 min-w-0 mt-1">
+        <p className="text-xs text-white truncate" title={file.name}>{file.name}</p>
+        <p className="text-[10px] text-gray-400 mt-0.5">{formatSize(file.size)}</p>
+      </div>
+      {badge && <div className="mt-2">{badge}</div>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main Component
+// ---------------------------------------------------------------------------
+
 export default function NewDealClient({
   bankId,
   initialDealName,
@@ -52,25 +240,87 @@ export default function NewDealClient({
   initialDealName: string;
 }) {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [files, setFiles] = useState<SelectedFile[]>([]);
+  const bulkInputRef = useRef<HTMLInputElement>(null);
+  const [bulkDragging, setBulkDragging] = useState(false);
+
+  // Core document slot groups (hydration-safe: computeTaxYears uses getFullYear only)
+  const [slotGroups] = useState<SlotGroup[]>(() => {
+    const years = computeTaxYears();
+    return [
+      {
+        label: "Business Tax Returns",
+        slots: years.map((y) => ({
+          key: `BUSINESS_TAX_RETURN_${y}`,
+          label: `Business Tax Return \u2014 ${y}`,
+        })),
+      },
+      {
+        label: "Personal Tax Returns",
+        slots: years.map((y) => ({
+          key: `PERSONAL_TAX_RETURN_${y}`,
+          label: `Personal Tax Return \u2014 ${y}`,
+        })),
+      },
+      {
+        label: "Financial Statements",
+        slots: [
+          { key: "INCOME_STATEMENT_YTD", label: "YTD Income Statement" },
+          { key: "BALANCE_SHEET_CURRENT", label: "Current Balance Sheet" },
+        ],
+      },
+      {
+        label: "Personal Financial Statement",
+        slots: [{ key: "PFS_CURRENT", label: "Personal Financial Statement" }],
+      },
+    ];
+  });
+
+  // State
+  const [slotFiles, setSlotFiles] = useState<Map<string, File>>(new Map());
+  const [bulkFiles, setBulkFiles] = useState<SelectedFile[]>([]);
+  const [uploadOutcomes, setUploadOutcomes] = useState<Map<string, UploadOutcome>>(new Map());
   const [uploading, setUploading] = useState(false);
   const [dealName, setDealName] = useState(initialDealName || "");
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
-  const [debugInfo, setDebugInfo] = useState<{ requestId: string | null; stage: string | null }>(
-    { requestId: null, stage: null },
-  );
+  const [debugInfo, setDebugInfo] = useState<{ requestId: string | null; stage: string | null }>({
+    requestId: null,
+    stage: null,
+  });
   const [processing, setProcessing] = useState(false);
   const [processError, setProcessError] = useState<string | null>(null);
   const [processErrorDetails, setProcessErrorDetails] = useState<string | null>(null);
   const [needsRestart, setNeedsRestart] = useState(false);
   const [showErrorDetails, setShowErrorDetails] = useState(false);
 
-  const handleFiles = useCallback((selectedFiles: FileList | null) => {
+  // Slot handlers
+  const handleSlotFileSelect = useCallback((slotKey: string, file: File) => {
+    setSlotFiles((prev) => new Map(prev).set(slotKey, file));
+    // Clear any previous outcome for this slot
+    setUploadOutcomes((prev) => {
+      const next = new Map(prev);
+      next.delete(`slot:${slotKey}`);
+      return next;
+    });
+  }, []);
+
+  const removeSlotFile = useCallback((slotKey: string) => {
+    setSlotFiles((prev) => {
+      const next = new Map(prev);
+      next.delete(slotKey);
+      return next;
+    });
+    setUploadOutcomes((prev) => {
+      const next = new Map(prev);
+      next.delete(`slot:${slotKey}`);
+      return next;
+    });
+  }, []);
+
+  // Bulk file handlers
+  const handleBulkFiles = useCallback((selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
     const fileArray = Array.from(selectedFiles);
-    setFiles((prev) => [
+    setBulkFiles((prev) => [
       ...prev,
       ...fileArray.map((file) => ({
         id: uid(),
@@ -80,38 +330,14 @@ export default function NewDealClient({
     ]);
   }, []);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
+  const removeBulkFile = useCallback((id: string) => {
+    setBulkFiles((prev) => prev.filter((x) => x.id !== id));
   }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
-      handleFiles(e.dataTransfer.files);
-    },
-    [handleFiles]
-  );
-
-  const handleBrowseClick = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
-
-  const handleFileInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      handleFiles(e.target.files);
-    },
-    [handleFiles]
-  );
 
   const handleRestart = useCallback(() => {
-    setFiles([]);
+    setSlotFiles(new Map());
+    setBulkFiles([]);
+    setUploadOutcomes(new Map());
     setUploading(false);
     setProcessing(false);
     setProcessError(null);
@@ -122,18 +348,54 @@ export default function NewDealClient({
     setDebugInfo({ requestId: null, stage: null });
   }, []);
 
-  const removeFile = useCallback((id: string) => {
-    setFiles((prev) => prev.filter((x) => x.id !== id));
-  }, []);
+  // Total file count for enabling the upload button
+  const totalFiles = slotFiles.size + bulkFiles.length;
 
+  // -------------------------------------------------------------------------
+  // Upload handler
+  // -------------------------------------------------------------------------
   const handleUpload = useCallback(async () => {
-    if (files.length === 0) return;
+    if (totalFiles === 0) return;
 
     setUploading(true);
     setProcessing(false);
     setProcessError(null);
     setNeedsRestart(false);
-    setUploadProgress({ current: 0, total: files.length });
+
+    // Build unified entry list: slotted first, then bulk
+    type UploadEntry = {
+      outcomeKey: string;
+      file: File;
+      slotKey: string | null;
+      checklistKey: string | null;
+    };
+    const entries: UploadEntry[] = [];
+
+    for (const [slotKey, file] of slotFiles) {
+      entries.push({
+        outcomeKey: `slot:${slotKey}`,
+        file,
+        slotKey,
+        checklistKey: null,
+      });
+    }
+    for (const item of bulkFiles) {
+      entries.push({
+        outcomeKey: `bulk:${item.file.name}:${item.file.size}:${item.file.lastModified}`,
+        file: item.file,
+        slotKey: null,
+        checklistKey: item.checklistKey || null,
+      });
+    }
+
+    setUploadProgress({ current: 0, total: entries.length });
+
+    // Initialize all outcomes to pending
+    setUploadOutcomes(() => {
+      const m = new Map<string, UploadOutcome>();
+      for (const e of entries) m.set(e.outcomeKey, { status: "pending" });
+      return m;
+    });
 
     const classifyNetworkError = (e: unknown) => {
       const msg = e instanceof Error ? e.message : String(e);
@@ -144,17 +406,16 @@ export default function NewDealClient({
     };
 
     const createBootstrap = async () => {
-      const ac = new AbortController();
       const rid = requestId();
-      const t = setTimeout(() => ac.abort(), 20000);
+      const t = setTimeout(() => {}, 20000);
       try {
         const payload = await createUploadSession({
           dealName: dealName || `Deal - ${new Date().toLocaleDateString()}`,
           source: "banker",
-          files: files.map((f) => ({
-            name: f.file.name,
-            size: f.file.size,
-            mime: f.file.type,
+          files: entries.map((e) => ({
+            name: e.file.name,
+            size: e.file.size,
+            mime: e.file.type,
           })),
         });
 
@@ -172,7 +433,7 @@ export default function NewDealClient({
         return {
           dealId: payload.dealId,
           sessionId: payload.sessionId,
-          uploads: payload.uploadUrls,
+          uploads: payload.uploadUrls as UploadSpec[],
           requestId: rid,
         };
       } finally {
@@ -190,7 +451,8 @@ export default function NewDealClient({
           lastErr = e;
           const { isAbort, isNetwork } = classifyNetworkError(e);
           const msg = e instanceof Error ? e.message : String(e);
-          const retryableStatus = msg.startsWith("timeout:") || msg.includes("504") || msg.includes("502") || msg.includes("503");
+          const retryableStatus =
+            msg.startsWith("timeout:") || msg.includes("504") || msg.includes("502") || msg.includes("503");
           const shouldRetry = attempt < maxAttempts && (isAbort || isNetwork || retryableStatus);
           if (!shouldRetry) break;
           await new Promise((r) => setTimeout(r, 350 * attempt));
@@ -205,18 +467,11 @@ export default function NewDealClient({
         await new Promise((r) => setTimeout(r, 1000));
         try {
           const res = await fetch(`/api/deals/${dealId}/intake/status`, { cache: "no-store" });
-          if (res.status === 404) {
-            // Transient during creation/replication.
-            continue;
-          }
+          if (res.status === 404) continue;
           const json = await res.json().catch(() => ({}));
-          if (res.status === 401) {
-            return { ok: false, error: "Unauthorized" };
-          }
+          if (res.status === 401) return { ok: false, error: "Unauthorized" };
           if (!res.ok || json?.ok === false) {
-            if (res.status >= 500) {
-              continue;
-            }
+            if (res.status >= 500) continue;
             return { ok: false, error: json?.error || `HTTP ${res.status}` };
           }
           const stage = String(json?.stage || "");
@@ -242,11 +497,6 @@ export default function NewDealClient({
       const sessionId = session.sessionId;
       const createdName = dealName;
 
-      // =====================================================================
-      // INVARIANT: Files may not be uploaded unless dealId exists
-      // This check ensures the deal was created before any upload attempts.
-      // If this fails, it indicates a bug in createUploadSession.
-      // =====================================================================
       if (!dealId) {
         throw new Error("invariant_violation: upload attempted without dealId");
       }
@@ -254,7 +504,9 @@ export default function NewDealClient({
       console.log("[upload:start]", {
         dealId,
         sessionId,
-        fileCount: files.length,
+        fileCount: entries.length,
+        slotted: slotFiles.size,
+        bulk: bulkFiles.length,
         requestId: session.requestId,
       });
 
@@ -270,15 +522,21 @@ export default function NewDealClient({
         uploadsByKey.set(key, bucket);
       }
 
-      // 2. Upload files to the deal
-      setUploadProgress({ current: 0, total: files.length });
+      // 2. Upload files sequentially
+      setUploadProgress({ current: 0, total: entries.length });
       let successCount = 0;
-      for (let i = 0; i < files.length; i++) {
-        const item = files[i];
-        const file = item.file;
+
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        const file = entry.file;
         const rid = requestId();
         setDebugInfo({ requestId: rid, stage: "starting_file" });
-        setUploadProgress({ current: i + 1, total: files.length });
+        setUploadProgress({ current: i + 1, total: entries.length });
+
+        // Mark uploading
+        setUploadOutcomes((prev) =>
+          new Map(prev).set(entry.outcomeKey, { status: "uploading" }),
+        );
 
         const key = `${file.name}::${file.size}`;
         const bucket = uploadsByKey.get(key) ?? [];
@@ -288,55 +546,78 @@ export default function NewDealClient({
         }
         if (bucket.length === 0) uploadsByKey.delete(key);
 
-        setDebugInfo({ requestId: rid, stage: "upload_put" });
-        await uploadFileWithSignedUrl({
-          uploadUrl: uploadSpec.signedUrl,
-          headers: uploadSpec.headers,
-          file,
-          context: "new-deal",
-        });
+        try {
+          // PUT to signed URL
+          setDebugInfo({ requestId: rid, stage: "upload_put" });
+          await uploadFileWithSignedUrl({
+            uploadUrl: uploadSpec.signedUrl,
+            headers: uploadSpec.headers,
+            file,
+            context: "new-deal",
+          });
 
-        setDebugInfo({ requestId: rid, stage: "record_file" });
-        const recordRes = await fetch(`/api/deals/${dealId}/files/record`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-request-id": rid },
-          body: JSON.stringify({
-            file_id: uploadSpec.fileId,
-            session_id: sessionId,
-            object_path: uploadSpec.objectKey,
-            original_filename: file.name,
-            mime_type: file.type || "application/octet-stream",
-            size_bytes: file.size,
-            checklist_key: item.checklistKey || null,
-            storage_bucket: uploadSpec.bucket,
-          }),
-        });
+          // POST to files/record
+          setDebugInfo({ requestId: rid, stage: "record_file" });
+          const recordRes = await fetch(`/api/deals/${dealId}/files/record`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-request-id": rid },
+            body: JSON.stringify({
+              file_id: uploadSpec.fileId,
+              session_id: sessionId,
+              object_path: uploadSpec.objectKey,
+              original_filename: file.name,
+              mime_type: file.type || "application/octet-stream",
+              size_bytes: file.size,
+              checklist_key: entry.checklistKey || null,
+              storage_bucket: uploadSpec.bucket,
+              ...(entry.slotKey ? { slot_key: entry.slotKey } : {}),
+            }),
+          });
 
-        if (!recordRes.ok) {
-          const errJson = await recordRes.json().catch(() => null as any);
-          const errText = errJson?.error || `Record failed (${recordRes.status})`;
-          throw new Error(errText);
+          if (!recordRes.ok) {
+            const errJson = await recordRes.json().catch(() => null as any);
+            const errText = errJson?.error || `Record failed (${recordRes.status})`;
+            setUploadOutcomes((prev) =>
+              new Map(prev).set(entry.outcomeKey, { status: "error", error: errText }),
+            );
+            throw new Error(errText);
+          }
+
+          const recordJson = await recordRes.json().catch(() => ({}));
+          setUploadOutcomes((prev) =>
+            new Map(prev).set(entry.outcomeKey, {
+              status: "recorded",
+              slotAttach: recordJson.slot_attach ?? null,
+            }),
+          );
+          successCount++;
+        } catch (fileErr) {
+          // If we already set an outcome above (for record failures), skip
+          // Otherwise set error outcome
+          setUploadOutcomes((prev) => {
+            const existing = prev.get(entry.outcomeKey);
+            if (existing?.status === "error") return prev;
+            return new Map(prev).set(entry.outcomeKey, {
+              status: "error",
+              error: fileErr instanceof Error ? fileErr.message : String(fileErr),
+            });
+          });
+          throw fileErr; // Re-throw to stop the upload loop
         }
-
-        successCount++;
       }
 
-      console.log(`Uploaded ${successCount}/${files.length} files to deal ${dealId}`);
+      console.log(`Uploaded ${successCount}/${entries.length} files to deal ${dealId}`);
 
-      // 🔥 CRITICAL: Mark upload batch as complete to unblock auto-seed
+      // Mark upload batch as complete
       if (successCount > 0) {
         try {
-          // Best-effort only. On some Vercel previews, Node-backed endpoints can hang;
-          // never block redirect on this.
           await Promise.race([
             markUploadsCompletedAction(dealId, bankId),
             new Promise<void>((_resolve, reject) =>
               setTimeout(() => reject(new Error("markUploadsCompletedAction_timeout")), 3000),
             ),
           ]);
-          console.log(`✅ Marked uploads completed for deal ${dealId}`);
         } catch (e) {
-          // Best-effort only: do not block redirect to cockpit.
           console.error("markUploadsCompletedAction failed (ignored):", e);
         }
       }
@@ -350,14 +631,14 @@ export default function NewDealClient({
         throw new Error(`Intake run failed (${runRes.status}): ${runJson?.error || "unknown"}`);
       }
 
-      // 4. Optional: poll intake status for a short window
+      // 4. Poll intake status
       setDebugInfo({ requestId: null, stage: "intake_poll" });
       const pollResult = await pollIntakeStatus(dealId);
       if (!pollResult.ok) {
         throw new Error(`Intake status error: ${pollResult.error || "unknown"}`);
       }
 
-      // 5. Redirect to the deal cockpit (command center)
+      // 5. Redirect to cockpit
       router.push(
         `/deals/${dealId}/cockpit${createdName ? `?n=${encodeURIComponent(createdName)}` : ""}`,
       );
@@ -399,9 +680,7 @@ export default function NewDealClient({
       if (isSessionError) {
         setNeedsRestart(true);
         const tag = sessionRequestId ? ` (Request: ${sessionRequestId})` : "";
-        setProcessError(
-          `Upload session expired/invalid — restart deal creation.${tag}`,
-        );
+        setProcessError(`Upload session expired/invalid — restart deal creation.${tag}`);
         return;
       }
       setProcessError(msg || "Upload failed");
@@ -411,7 +690,13 @@ export default function NewDealClient({
       setProcessing(false);
       setDebugInfo({ requestId: null, stage: null });
     }
-  }, [files, dealName, bankId, router]);
+  }, [totalFiles, slotFiles, bulkFiles, dealName, bankId, router]);
+
+  // -------------------------------------------------------------------------
+  // Render
+  // -------------------------------------------------------------------------
+
+  const isWorking = uploading || processing;
 
   return (
     <div className="h-full flex flex-col bg-[#0a0d12]">
@@ -421,7 +706,7 @@ export default function NewDealClient({
           <div>
             <h1 className="text-2xl font-bold text-white mb-1">New Deal Intake</h1>
             <p className="text-sm text-gray-400">
-              Upload documents to start a new deal package
+              Upload core documents to start a new deal package
             </p>
           </div>
           <Link
@@ -448,181 +733,202 @@ export default function NewDealClient({
               onChange={(e) => setDealName(e.target.value)}
               placeholder="Enter deal name..."
               className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={isWorking}
             />
           </div>
 
-          {/* Upload Area */}
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            className={`
-              relative border-2 border-dashed rounded-xl p-12 mb-8 transition-all
-              ${
-                isDragging
-                  ? "border-blue-500 bg-blue-500/10"
-                  : "border-gray-700 bg-gray-800/30 hover:border-gray-600 hover:bg-gray-800/50"
-              }
-            `}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              onChange={handleFileInputChange}
-              className="hidden"
-              accept=".pdf,.xlsx,.xls,.docx,.doc,.png,.jpg,.jpeg"
-            />
-
-            <div className="flex flex-col items-center text-center">
-              <div className="mb-4 p-4 rounded-full bg-blue-500/20 text-blue-400">
-                <span className="material-symbols-outlined text-[48px]">
-                  cloud_upload
-                </span>
-              </div>
-
-              <h3 className="text-xl font-semibold text-white mb-2">
-                {isDragging ? "Drop files here" : "Drag & Drop Deal Package"}
-              </h3>
-
-              <p className="text-sm text-gray-400 mb-6 max-w-md">
-                Upload financial statements, tax returns, business documents, and any
-                other supporting materials
-              </p>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={handleBrowseClick}
-                  className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
-                >
-                  Browse Files
-                </button>
-                <button className="px-6 py-3 bg-gray-700 hover:bg-gray-600 border border-gray-600 text-gray-200 font-medium rounded-lg transition-colors">
-                  Import from Deal Room
-                </button>
-              </div>
-
-              <p className="mt-4 text-xs text-gray-500">
-                Supported: PDF, Excel, Word, Images • Max 500MB per file
-              </p>
+          {/* ============================================================= */}
+          {/* SECTION 1: Core Documents (9 slot cards)                      */}
+          {/* ============================================================= */}
+          <div className="mb-8">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="material-symbols-outlined text-blue-400 text-[20px]">folder_special</span>
+              <h2 className="text-lg font-semibold text-white">Core Documents</h2>
+              <span className="text-xs text-gray-500 ml-2">
+                {slotFiles.size} of {slotGroups.reduce((n, g) => n + g.slots.length, 0)} attached
+              </span>
             </div>
+            <p className="text-sm text-gray-400 mb-6">
+              Upload each required document to its designated slot for accurate classification and processing.
+            </p>
+
+            {slotGroups.map((group) => (
+              <div key={group.label} className="mb-6">
+                <h3 className="text-sm font-medium text-gray-300 mb-3">{group.label}</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  {group.slots.map((slot) => (
+                    <SlotCard
+                      key={slot.key}
+                      slotKey={slot.key}
+                      label={slot.label}
+                      file={slotFiles.get(slot.key)}
+                      outcome={uploadOutcomes.get(`slot:${slot.key}`)}
+                      disabled={isWorking}
+                      onFileSelect={handleSlotFileSelect}
+                      onRemove={removeSlotFile}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
 
-          {/* File List */}
-          {files.length > 0 && (
-            <div className="bg-gray-800/30 border border-gray-700 rounded-xl p-6 mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">
-                  Selected Files ({files.length})
-                </h3>
-                <button
-                  onClick={() => setFiles([])}
-                  className="text-sm text-gray-400 hover:text-white transition-colors"
-                >
-                  Clear All
-                </button>
+          {/* ============================================================= */}
+          {/* SECTION 2: Additional Documents (bulk)                        */}
+          {/* ============================================================= */}
+          <div className="mb-8">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="material-symbols-outlined text-gray-400 text-[20px]">folder_open</span>
+              <h2 className="text-lg font-semibold text-white">Additional Documents</h2>
+              {bulkFiles.length > 0 && (
+                <span className="text-xs text-gray-500 ml-2">{bulkFiles.length} file{bulkFiles.length !== 1 ? "s" : ""}</span>
+              )}
+            </div>
+            <p className="text-sm text-gray-400 mb-4">
+              Drag & drop or browse for any other supporting documents. These will be automatically classified.
+            </p>
+
+            <div
+              onDragOver={(e) => { e.preventDefault(); if (!isWorking) setBulkDragging(true); }}
+              onDragLeave={(e) => { e.preventDefault(); setBulkDragging(false); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setBulkDragging(false);
+                if (!isWorking) handleBulkFiles(e.dataTransfer.files);
+              }}
+              className={`
+                border-2 border-dashed rounded-xl p-8 transition-all cursor-pointer
+                ${bulkDragging ? "border-blue-500 bg-blue-500/10" : "border-gray-700 bg-gray-800/20 hover:border-gray-600"}
+                ${isWorking ? "opacity-50 cursor-not-allowed" : ""}
+              `}
+              onClick={() => !isWorking && bulkInputRef.current?.click()}
+            >
+              <input
+                ref={bulkInputRef}
+                type="file"
+                multiple
+                onChange={(e) => { handleBulkFiles(e.target.files); e.target.value = ""; }}
+                className="hidden"
+                accept=".pdf,.xlsx,.xls,.docx,.doc,.png,.jpg,.jpeg"
+                disabled={isWorking}
+              />
+              <div className="flex flex-col items-center text-center">
+                <span className="material-symbols-outlined text-[32px] text-gray-500 mb-2">cloud_upload</span>
+                <span className="text-sm text-gray-400">Drag & drop or click to browse</span>
+                <span className="text-xs text-gray-600 mt-1">PDF, Excel, Word, Images</span>
               </div>
+            </div>
 
-              <div className="space-y-2">
-                {files.map((it) => (
-                  <div
-                    key={it.id}
-                    className="flex items-center justify-between p-3 bg-gray-700/30 rounded-lg"
-                  >
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <span className="material-symbols-outlined text-gray-400">
-                        description
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white truncate">{it.file.name}</p>
-                        <p className="text-xs text-gray-400">
-                          {(it.file.size / 1024 / 1024).toFixed(2)} MB
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="ml-4 flex items-center gap-2">
-                      <label className="text-xs text-gray-400">Checklist</label>
-                      <select
-                        className="rounded-lg border border-gray-600 bg-gray-800 px-2 py-1 text-xs text-white"
-                        value={it.checklistKey}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setFiles((prev) =>
-                            prev.map((x) => (x.id === it.id ? { ...x, checklistKey: v } : x))
-                          );
-                        }}
-                        disabled={uploading}
-                        title="Optional: attach this file to a checklist item"
-                      >
-                        <option value="">Unclassified</option>
-                        {CHECKLIST_KEY_OPTIONS.map((opt) => (
-                          <option key={opt.key} value={opt.key}>
-                            {opt.title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <button
-                      onClick={() => removeFile(it.id)}
-                      className="ml-4 p-1 text-gray-400 hover:text-red-400 transition-colors"
-                      disabled={uploading}
+            {/* Bulk file list */}
+            {bulkFiles.length > 0 && (
+              <div className="mt-4 space-y-2">
+                {bulkFiles.map((it) => {
+                  const outcomeKey = `bulk:${it.file.name}:${it.file.size}:${it.file.lastModified}`;
+                  const outcome = uploadOutcomes.get(outcomeKey);
+                  return (
+                    <div
+                      key={it.id}
+                      className="flex items-center justify-between p-3 bg-gray-700/30 rounded-lg"
                     >
-                      <span className="material-symbols-outlined text-[20px]">
-                        close
-                      </span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <span className="material-symbols-outlined text-gray-400">description</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white truncate">{it.file.name}</p>
+                          <p className="text-xs text-gray-400">{formatSize(it.file.size)}</p>
+                        </div>
+                      </div>
 
-          {/* Action Buttons */}
-          {files.length > 0 && (
-            <div className="flex justify-end gap-3">
+                      <div className="ml-4 flex items-center gap-2">
+                        <select
+                          className="rounded-lg border border-gray-600 bg-gray-800 px-2 py-1 text-xs text-white"
+                          value={it.checklistKey}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setBulkFiles((prev) =>
+                              prev.map((x) => (x.id === it.id ? { ...x, checklistKey: v } : x)),
+                            );
+                          }}
+                          disabled={isWorking}
+                        >
+                          <option value="">Auto-classify</option>
+                          {CHECKLIST_KEY_OPTIONS.map((opt) => (
+                            <option key={opt.key} value={opt.key}>{opt.title}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {outcome?.status === "uploading" && (
+                        <span className="ml-2 animate-spin material-symbols-outlined text-[16px] text-blue-400">progress_activity</span>
+                      )}
+                      {outcome?.status === "recorded" && (
+                        <span className="ml-2 material-symbols-outlined text-[16px] text-emerald-400">check_circle</span>
+                      )}
+                      {outcome?.status === "error" && (
+                        <span className="ml-2 material-symbols-outlined text-[16px] text-rose-400" title={outcome.error ?? undefined}>error</span>
+                      )}
+
+                      <button
+                        onClick={() => removeBulkFile(it.id)}
+                        className="ml-3 p-1 text-gray-400 hover:text-red-400 transition-colors"
+                        disabled={isWorking}
+                      >
+                        <span className="material-symbols-outlined text-[18px]">close</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* ============================================================= */}
+          {/* Action Buttons                                                */}
+          {/* ============================================================= */}
+          <div className="flex justify-end gap-3 mb-6">
+            {totalFiles > 0 && (
               <button
-                onClick={() => setFiles([])}
-                disabled={uploading || processing}
+                onClick={handleRestart}
+                disabled={isWorking}
                 className="px-6 py-3 text-gray-400 hover:text-white transition-colors"
               >
-                Clear
+                Clear All
               </button>
-              <button
-                onClick={handleUpload}
-                disabled={uploading || processing}
-                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center gap-2"
-              >
-                {uploading || processing ? (
-                  <>
-                    {uploading ? `${uploadProgress.current}/${uploadProgress.total}` : "Processing"}
-                    <span className="animate-spin material-symbols-outlined text-[20px]">
-                      progress_activity
+            )}
+            <button
+              onClick={handleUpload}
+              disabled={isWorking || totalFiles === 0}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+            >
+              {isWorking ? (
+                <>
+                  {uploading
+                    ? `${uploadProgress.current}/${uploadProgress.total}`
+                    : "Processing"}
+                  <span className="animate-spin material-symbols-outlined text-[20px]">
+                    progress_activity
+                  </span>
+                  {uploading ? "Uploading..." : "Processing..."}
+                  {debugInfo.requestId ? (
+                    <span className="ml-2 text-xs text-white/80">
+                      (Request: {debugInfo.requestId}
+                      {debugInfo.stage ? ` \u2022 ${debugInfo.stage}` : ""})
                     </span>
-                    {uploading ? "Uploading..." : "Processing..."}
-                    {debugInfo.requestId ? (
-                      <span className="ml-2 text-xs text-white/80">
-                        (Request: {debugInfo.requestId}{debugInfo.stage ? ` • ${debugInfo.stage}` : ""})
-                      </span>
-                    ) : debugInfo.stage ? (
-                      <span className="ml-2 text-xs text-white/80">({debugInfo.stage})</span>
-                    ) : null}
-                  </>
-                ) : (
-                  <>
-                    <span className="material-symbols-outlined text-[20px]">
-                      upload
-                    </span>
-                    Start Deal Processing
-                  </>
-                )}
-              </button>
-            </div>
-          )}
+                  ) : debugInfo.stage ? (
+                    <span className="ml-2 text-xs text-white/80">({debugInfo.stage})</span>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-[20px]">upload</span>
+                  Start Deal Processing
+                </>
+              )}
+            </button>
+          </div>
 
+          {/* Error Banner */}
           {processError ? (
-            <div className="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+            <div className="mb-6 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
               <div className="flex items-center justify-between gap-3">
                 <span>{processError}</span>
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -635,7 +941,11 @@ export default function NewDealClient({
                     </button>
                   ) : (
                     <button
-                      onClick={() => { setProcessError(null); setProcessErrorDetails(null); setShowErrorDetails(false); }}
+                      onClick={() => {
+                        setProcessError(null);
+                        setProcessErrorDetails(null);
+                        setShowErrorDetails(false);
+                      }}
                       className="rounded-md border border-rose-400/60 px-3 py-1 text-xs font-semibold text-rose-100 hover:border-rose-300"
                     >
                       Retry
@@ -662,24 +972,18 @@ export default function NewDealClient({
           ) : null}
 
           {/* Help Text */}
-          <div className="mt-8 p-6 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+          <div className="mt-4 p-6 bg-blue-500/10 border border-blue-500/30 rounded-xl">
             <div className="flex gap-4">
-              <span className="material-symbols-outlined text-blue-400 flex-shrink-0">
-                info
-              </span>
+              <span className="material-symbols-outlined text-blue-400 flex-shrink-0">info</span>
               <div>
-                <h4 className="text-sm font-semibold text-white mb-2">
-                  What happens next?
-                </h4>
+                <h4 className="text-sm font-semibold text-white mb-2">What happens next?</h4>
                 <ul className="text-sm text-gray-300 space-y-1">
                   <li>
-                    • Documents will be automatically classified and extracted
+                    {"\u2022"} Core documents are routed through Google Document AI for precise extraction
                   </li>
-                  <li>• Financial data will be parsed and analyzed</li>
-                  <li>• Conditions and requirements will be generated</li>
-                  <li>
-                    • You'll be notified when the deal is ready for review
-                  </li>
+                  <li>{"\u2022"} Financial data will be parsed, spread, and analyzed</li>
+                  <li>{"\u2022"} Conditions and requirements will be generated</li>
+                  <li>{"\u2022"} You'll be redirected to the deal cockpit when ready</li>
                 </ul>
               </div>
             </div>
