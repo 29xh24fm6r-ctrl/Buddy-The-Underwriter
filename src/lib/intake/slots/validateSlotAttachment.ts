@@ -41,6 +41,16 @@ const DOC_TYPE_EQUIVALENCES: Record<string, string[]> = {
   ENTITY_DOCS: ["ENTITY_DOCS", "OPERATING_AGREEMENT", "ARTICLES_OF_ORGANIZATION"],
 };
 
+/** Tax-return slot types eligible for year auto-adjustment. */
+const TAX_RETURN_SLOT_DOC_TYPES = new Set([
+  "BUSINESS_TAX_RETURN",
+  "PERSONAL_TAX_RETURN",
+]);
+
+function isTaxReturnSlotDocType(docType: string): boolean {
+  return TAX_RETURN_SLOT_DOC_TYPES.has(docType.toUpperCase().trim());
+}
+
 function docTypesMatch(
   slotDocType: string,
   classifiedDocType: string,
@@ -80,49 +90,80 @@ export async function validateSlotAttachmentIfAny(
 
   const slotId = doc.slot_id as string;
 
-  // 2. Fetch slot requirements
+  // 2. Fetch slot requirements (include deal_id for sibling query)
   const { data: slot } = await sb
     .from("deal_document_slots")
-    .select("required_doc_type, required_tax_year")
+    .select("deal_id, required_doc_type, required_tax_year")
     .eq("id", slotId)
     .maybeSingle();
 
   if (!slot) return null;
 
+  const dealId = slot.deal_id as string;
+
   // 3. Validate doc type
   const typeMatch = docTypesMatch(slot.required_doc_type, classifiedDocType);
 
-  // 4. Validate tax year (only if slot requires a specific year)
-  let yearMatch = true;
-  if (slot.required_tax_year != null) {
-    yearMatch = classifiedTaxYear === slot.required_tax_year;
+  // 4. Year handling: auto-adjust for tax-return slots only
+  let yearAdjusted = false;
+  if (
+    typeMatch &&
+    slot.required_tax_year != null &&
+    classifiedTaxYear != null &&
+    classifiedTaxYear !== slot.required_tax_year &&
+    isTaxReturnSlotDocType(slot.required_doc_type)
+  ) {
+    yearAdjusted = true;
   }
 
   // 5. Update slot status
-  const validated = typeMatch && yearMatch;
+  if (typeMatch) {
+    // Type matches → validate (auto-adjust year if needed)
+    const updates: Record<string, any> = {
+      status: "validated",
+      validation_reason: null,
+    };
 
-  if (validated) {
+    if (yearAdjusted) {
+      updates.required_tax_year = classifiedTaxYear;
+
+      let reasonText = `Year auto-adjusted from ${slot.required_tax_year} to ${classifiedTaxYear}`;
+
+      // Detect duplicate year among sibling slots of same doc type
+      const { data: siblings } = await sb
+        .from("deal_document_slots")
+        .select("id")
+        .eq("deal_id", dealId)
+        .eq("required_doc_type", slot.required_doc_type)
+        .eq("required_tax_year", classifiedTaxYear)
+        .neq("id", slotId);
+
+      if (siblings && siblings.length > 0) {
+        reasonText += " (duplicate year)";
+      }
+
+      updates.validation_reason = reasonText;
+
+      console.log("[validateSlotAttachment] year auto-adjusted", {
+        documentId,
+        slotId,
+        dealId,
+        from: slot.required_tax_year,
+        to: classifiedTaxYear,
+        duplicateYear: siblings && siblings.length > 0,
+      });
+    }
+
     await sb
       .from("deal_document_slots")
-      .update({ status: "validated", validation_reason: null } as any)
+      .update(updates)
       .eq("id", slotId);
 
     return { validated: true, slotId };
   }
 
-  // Build rejection reason
-  const reasons: string[] = [];
-  if (!typeMatch) {
-    reasons.push(
-      `Expected ${slot.required_doc_type}, got ${classifiedDocType}`,
-    );
-  }
-  if (!yearMatch) {
-    reasons.push(
-      `Expected year ${slot.required_tax_year}, got ${classifiedTaxYear ?? "unknown"}`,
-    );
-  }
-  const reason = reasons.join("; ");
+  // Type mismatch → reject
+  const reason = `Expected ${slot.required_doc_type}, got ${classifiedDocType}`;
 
   await sb
     .from("deal_document_slots")
