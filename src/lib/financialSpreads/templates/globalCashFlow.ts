@@ -85,6 +85,10 @@ export function globalCashFlowTemplate(): SpreadTemplate {
     spreadType: "GLOBAL_CASH_FLOW",
     title,
     version: 3,
+    priority: 90,
+    prerequisites: () => ({
+      note: "Cross-entity aggregation — always renderable with partials",
+    }),
     columns: ["Line Item", "Value"],
     render: (args): RenderedSpread => {
       const facts = args.facts;

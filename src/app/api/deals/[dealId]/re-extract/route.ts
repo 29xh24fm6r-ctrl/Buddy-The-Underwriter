@@ -8,25 +8,13 @@ import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadReco
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import type { SpreadType } from "@/lib/financialSpreads/types";
+import { spreadsForDocType } from "@/lib/financialSpreads/docTypeToSpreadTypes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 type Ctx = { params: Promise<{ dealId: string }> };
-
-// Map doc types to spread types (same logic as processArtifact.spreadsForArtifactDocType)
-function spreadsForDocType(dt: string): SpreadType[] {
-  if (!dt) return [];
-  const u = dt.trim().toUpperCase();
-  if (["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT", "TRAILING_12", "OPERATING_STATEMENT"].includes(u)) return ["T12"];
-  if (u === "BALANCE_SHEET") return ["BALANCE_SHEET"];
-  if (u === "RENT_ROLL") return ["RENT_ROLL"];
-  if (["IRS_1065", "IRS_1120", "IRS_1120S", "IRS_BUSINESS", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN"].includes(u)) return ["GLOBAL_CASH_FLOW"];
-  if (["IRS_1040", "IRS_PERSONAL", "PERSONAL_TAX_RETURN"].includes(u)) return ["PERSONAL_INCOME", "GLOBAL_CASH_FLOW"];
-  if (["PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413"].includes(u)) return ["PERSONAL_FINANCIAL_STATEMENT", "GLOBAL_CASH_FLOW"];
-  return [];
-}
 
 /**
  * POST /api/deals/[dealId]/re-extract

@@ -4,7 +4,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/requireRole";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { selectModelEngineMode, isV1RendererDisabled } from "@/lib/modelEngine/modeSelector";
 import { runFullUnderwrite } from "@/lib/underwritingEngine";
 import { loadDealModel } from "@/lib/underwritingEngine/loaders/loadDealModel";
 import { loadDealInstruments } from "@/lib/underwritingEngine/loaders/loadDealInstruments";
@@ -58,19 +57,14 @@ async function resolveProductType(dealId: string): Promise<ProductType> {
 }
 
 // ---------------------------------------------------------------------------
-// GET handler — canonical V2 underwrite endpoint
+// GET handler — authoritative V2 underwrite endpoint
 // ---------------------------------------------------------------------------
 
 /**
  * GET /api/deals/[dealId]/underwrite
  *
- * Canonical endpoint for V2 underwriting outputs.
- * Returns full pipeline results + parity status + fallback info.
- *
- * Behavior:
- * - v1 mode: returns { mode: "v1", result: null }
- * - v2_shadow: runs pipeline, returns results for observation
- * - v2_primary: runs pipeline as authoritative, with fallback + parity gate
+ * Authoritative underwriting endpoint (V2 sole engine).
+ * No V1 fallback. V2 failure propagates as 500.
  */
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
@@ -85,49 +79,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       );
     }
 
-    // Mode selection (context-aware)
-    const modeResult = selectModelEngineMode({
-      dealId,
-      bankId: access.bankId,
-    });
-
-    // V1 renderer guard (Phase 11): when disabled, only v2_primary is allowed
-    if (isV1RendererDisabled() && modeResult.mode !== "v2_primary") {
-      emitV2Event({
-        code: V2_EVENT_CODES.MODEL_V1_RENDER_ATTEMPT_BLOCKED,
-        dealId,
-        bankId: access.bankId,
-        payload: { surface: "underwrite", resolvedMode: modeResult.mode },
-      });
-      return NextResponse.json(
-        {
-          ok: false,
-          error_code: "V1_RENDERER_DISABLED",
-          message: "V1 rendering disabled; use V2 primary.",
-          resolvedMode: modeResult.mode,
-        },
-        { status: 409 },
-      );
-    }
-
-    // v1 mode: no V2 compute
-    if (modeResult.mode === "v1") {
-      return NextResponse.json({
-        ok: true,
-        mode: "v1",
-        modeReason: modeResult.reason,
-        primaryEngine: "v1",
-        fallbackUsed: false,
-        result: null,
-        diagnostics: {
-          computedAt: new Date().toISOString(),
-          modelPeriodCount: 0,
-          instrumentCount: 0,
-        },
-      });
-    }
-
-    // Load inputs (v2_shadow or v2_primary)
+    // Load inputs
     const [model, instruments, bankConfig, product] = await Promise.all([
       loadDealModel(dealId),
       loadDealInstruments(dealId),
@@ -135,136 +87,92 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       resolveProductType(dealId),
     ]);
 
-    // Attempt V2 pipeline
-    let v2Result: UnderwriteResult | null = null;
-    let fallbackUsed = false;
-    let fallbackReason: string | undefined;
+    // V2 pipeline — sole engine, no fallback
+    const result = runFullUnderwrite({
+      model,
+      product,
+      instruments: instruments.length > 0 ? instruments : undefined,
+      bankConfig: bankConfig ?? undefined,
+    });
 
+    if (!result.diagnostics.pipelineComplete) {
+      throw new Error(
+        (result as { diagnostics: { reason: string } }).diagnostics.reason,
+      );
+    }
+
+    const v2Result = result as UnderwriteResult;
+
+    // Parity diagnostics (non-fatal)
+    let parity: { verdict: string; warningCount: number; blockCount: number } | undefined;
     try {
-      const result = runFullUnderwrite({
-        model,
-        product,
-        instruments: instruments.length > 0 ? instruments : undefined,
-        bankConfig: bankConfig ?? undefined,
-      });
+      const sb = supabaseAdmin();
+      const { data: v1Spreads } = await (sb as any)
+        .from("deal_spreads")
+        .select("spread_type, rendered_json")
+        .eq("deal_id", dealId)
+        .eq("bank_id", access.bankId)
+        .in("spread_type", ["T12", "BALANCE_SHEET"]);
 
-      if (result.diagnostics.pipelineComplete) {
-        v2Result = result as UnderwriteResult;
-      } else {
-        throw new Error(
-          (result as { diagnostics: { reason: string } }).diagnostics.reason,
-        );
-      }
-    } catch (e: any) {
-      // V2 hard failure
-      emitV2Event({
-        code: V2_EVENT_CODES.MODEL_V2_HARD_FAILURE,
-        dealId,
-        bankId: access.bankId,
-        payload: { error: e?.message ?? "unknown" },
-      });
+      const v1SpreadData: V1SpreadData[] = (v1Spreads ?? []).map((row: any) => ({
+        spreadType: row.spread_type,
+        periods: row.rendered_json?.columnsV2 ?? [],
+        rows: row.rendered_json?.rows ?? [],
+      }));
 
-      if (modeResult.mode === "v2_primary" && process.env.V2_FALLBACK_TO_V1 !== "false") {
-        fallbackUsed = true;
-        fallbackReason = e?.message ?? "v2_pipeline_failed";
+      const spreadMetrics = extractSpreadParityMetricsFromData(v1SpreadData);
+      const modelMetrics = extractModelV2ParityMetricsFromModel(model);
+      const report = buildParityReport(dealId, spreadMetrics, modelMetrics);
+      const gateResult = evaluateParityGate(report);
 
+      parity = {
+        verdict: gateResult.verdict,
+        warningCount: gateResult.warnings.length,
+        blockCount: gateResult.blocks.length,
+      };
+
+      if (gateResult.verdict === "WARN") {
         emitV2Event({
-          code: V2_EVENT_CODES.MODEL_V2_FALLBACK_TO_V1,
+          code: V2_EVENT_CODES.MODEL_V2_PARITY_WARN,
           dealId,
           bankId: access.bankId,
-          payload: { reason: fallbackReason },
+          payload: { warningCount: gateResult.warnings.length },
         });
       }
-    }
 
-    // Parity comparison (v2_primary only, and only if V2 succeeded)
-    let parity: { verdict: string; warningCount: number; blockCount: number } | undefined;
-
-    if (modeResult.mode === "v2_primary" && v2Result) {
-      try {
-        const sb = supabaseAdmin();
-        const { data: v1Spreads } = await (sb as any)
-          .from("deal_spreads")
-          .select("spread_type, rendered_json")
-          .eq("deal_id", dealId)
-          .eq("bank_id", access.bankId)
-          .in("spread_type", ["T12", "BALANCE_SHEET"]);
-
-        const v1SpreadData: V1SpreadData[] = (v1Spreads ?? []).map((row: any) => ({
-          spreadType: row.spread_type,
-          periods: row.rendered_json?.columnsV2 ?? [],
-          rows: row.rendered_json?.rows ?? [],
-        }));
-
-        const spreadMetrics = extractSpreadParityMetricsFromData(v1SpreadData);
-        const modelMetrics = extractModelV2ParityMetricsFromModel(model);
-        const report = buildParityReport(dealId, spreadMetrics, modelMetrics);
-        const gateResult = evaluateParityGate(report);
-
-        parity = {
-          verdict: gateResult.verdict,
-          warningCount: gateResult.warnings.length,
-          blockCount: gateResult.blocks.length,
-        };
-
-        if (gateResult.verdict === "WARN") {
-          emitV2Event({
-            code: V2_EVENT_CODES.MODEL_V2_PARITY_WARN,
-            dealId,
-            bankId: access.bankId,
-            payload: { warningCount: gateResult.warnings.length },
-          });
-        }
-
-        if (gateResult.verdict === "BLOCK") {
-          emitV2Event({
-            code: V2_EVENT_CODES.MODEL_V2_PARITY_BLOCK,
-            dealId,
-            bankId: access.bankId,
-            payload: { blockCount: gateResult.blocks.length },
-          });
-
-          // In block mode, fall back to V1
-          fallbackUsed = true;
-          fallbackReason = "parity_gate_block";
-          v2Result = null;
-        }
-      } catch {
-        // Parity evaluation failure is non-fatal
+      if (gateResult.verdict === "BLOCK") {
+        emitV2Event({
+          code: V2_EVENT_CODES.MODEL_V2_PARITY_BLOCK,
+          dealId,
+          bankId: access.bankId,
+          payload: { blockCount: gateResult.blocks.length },
+        });
       }
+    } catch {
+      // Parity evaluation failure is non-fatal
     }
 
-    // Emit primary served event when V2 result is returned
-    if (v2Result) {
-      emitV2Event({
-        code: V2_EVENT_CODES.MODEL_V2_PRIMARY_SERVED,
-        dealId,
-        bankId: access.bankId,
-        payload: {
-          mode: modeResult.mode,
-          tier: v2Result.policy.tier,
-          metricsComputed: Object.keys(v2Result.snapshot.ratios).length,
-        },
-      });
-    }
+    // Emit served event
+    emitV2Event({
+      code: V2_EVENT_CODES.MODEL_V2_PRIMARY_SERVED,
+      dealId,
+      bankId: access.bankId,
+      payload: {
+        tier: v2Result.policy.tier,
+        metricsComputed: Object.keys(v2Result.snapshot.ratios).length,
+      },
+    });
 
     return NextResponse.json({
       ok: true,
-      mode: modeResult.mode,
-      modeReason: modeResult.reason,
-      primaryEngine: fallbackUsed ? "v1" : "v2",
-      fallbackUsed,
-      ...(fallbackReason ? { fallbackReason } : {}),
-      result: v2Result
-        ? {
-            snapshot: v2Result.snapshot,
-            analysis: v2Result.analysis,
-            policy: v2Result.policy,
-            stress: v2Result.stress,
-            pricing: v2Result.pricing,
-            memo: v2Result.memo,
-          }
-        : null,
+      result: {
+        snapshot: v2Result.snapshot,
+        analysis: v2Result.analysis,
+        policy: v2Result.policy,
+        stress: v2Result.stress,
+        pricing: v2Result.pricing,
+        memo: v2Result.memo,
+      },
       ...(parity ? { parity } : {}),
       diagnostics: {
         computedAt: new Date().toISOString(),

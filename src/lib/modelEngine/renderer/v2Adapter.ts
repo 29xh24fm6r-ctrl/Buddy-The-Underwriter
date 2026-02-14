@@ -1,33 +1,33 @@
 /**
- * Model Engine V2 — V2 Adapter
+ * Model Engine — Authoritative Adapter
  *
- * Converts FinancialModel → SpreadViewModel using the Moody's row mapping.
+ * Converts FinancialModel → SpreadViewModel using the standard row mapping.
  * Reads from FinancialModel.periods (income/balance/cashflow),
- * evaluates formulas through the same Moody's formula registry,
+ * evaluates formulas through the same standard formula registry,
  * and produces the renderer-neutral SpreadViewModel.
  *
- * PHASE 3 SCOPE: Shadow comparison only.
+ * Phase 10: V2 is the authoritative computation engine.
  */
 
-import { MOODYS_ROWS, type MoodysRow, type MoodysStatement } from "@/lib/financialSpreads/moodys/mapping";
+import { STANDARD_ROWS, type StandardRow, type StandardStatement } from "@/lib/financialSpreads/standard/mapping";
 import { classifyRowKind } from "@/components/deals/spreads/SpreadTable";
 import type { FinancialModel, FinancialPeriod } from "../types";
 import type { SpreadViewColumn, SpreadViewRow, SpreadViewSection, SpreadViewModel } from "./types";
-import { evaluateMoodysFormula, formatMoodysValue } from "./formulaEval";
+import { evaluateStandardFormula, formatStandardValue } from "./formulaEval";
 
 // ---------------------------------------------------------------------------
-// Reverse mapping: FinancialPeriod field → Moody's fact key
+// Reverse mapping: FinancialPeriod field → standard fact key
 // ---------------------------------------------------------------------------
 
 /**
  * Flatten a FinancialPeriod into a Record<string, number | null> keyed by
- * Moody's fact keys. This is the reverse of buildFinancialModel's
+ * standard fact keys. This is the reverse of buildFinancialModel's
  * INCOME_MAP / BALANCE_MAP / CASHFLOW_MAP.
  */
 function periodToFactMap(period: FinancialPeriod): Record<string, number | null> {
   const map: Record<string, number | null> = {};
 
-  // Income → Moody's keys
+  // Income → standard keys
   if (period.income.revenue !== undefined) map["TOTAL_REVENUE"] = period.income.revenue;
   if (period.income.cogs !== undefined) map["COST_OF_GOODS_SOLD"] = period.income.cogs;
   if (period.income.operatingExpenses !== undefined) map["TOTAL_OPERATING_EXPENSES"] = period.income.operatingExpenses;
@@ -35,7 +35,7 @@ function periodToFactMap(period: FinancialPeriod): Record<string, number | null>
   if (period.income.interest !== undefined) map["DEBT_SERVICE"] = period.income.interest;
   if (period.income.netIncome !== undefined) map["NET_INCOME"] = period.income.netIncome;
 
-  // Balance → Moody's keys
+  // Balance → standard keys
   if (period.balance.cash !== undefined) map["CASH_AND_EQUIVALENTS"] = period.balance.cash;
   if (period.balance.accountsReceivable !== undefined) map["ACCOUNTS_RECEIVABLE"] = period.balance.accountsReceivable;
   if (period.balance.inventory !== undefined) map["INVENTORY"] = period.balance.inventory;
@@ -45,7 +45,7 @@ function periodToFactMap(period: FinancialPeriod): Record<string, number | null>
   if (period.balance.totalLiabilities !== undefined) map["TOTAL_LIABILITIES"] = period.balance.totalLiabilities;
   if (period.balance.equity !== undefined) map["TOTAL_EQUITY"] = period.balance.equity;
 
-  // Cashflow → Moody's keys
+  // Cashflow → standard keys
   if (period.cashflow.ebitda !== undefined) map["EBITDA"] = period.cashflow.ebitda;
   if (period.cashflow.capex !== undefined) map["CAPITAL_EXPENDITURES"] = period.cashflow.capex;
   if (period.cashflow.cfads !== undefined) map["CASH_FLOW_AVAILABLE"] = period.cashflow.cfads;
@@ -54,10 +54,10 @@ function periodToFactMap(period: FinancialPeriod): Record<string, number | null>
 }
 
 // ---------------------------------------------------------------------------
-// Statement ordering (same as renderMoodysSpread)
+// Statement ordering (same as renderStandardSpread)
 // ---------------------------------------------------------------------------
 
-const STATEMENT_ORDER: Record<MoodysStatement, number> = {
+const STATEMENT_ORDER: Record<StandardStatement, number> = {
   BALANCE_SHEET: 1,
   INCOME_STATEMENT: 2,
   CASH_FLOW: 3,
@@ -65,7 +65,7 @@ const STATEMENT_ORDER: Record<MoodysStatement, number> = {
   EXEC_SUMMARY: 5,
 };
 
-const STATEMENT_LABELS: Record<MoodysStatement, string> = {
+const STATEMENT_LABELS: Record<StandardStatement, string> = {
   BALANCE_SHEET: "Balance Sheet",
   INCOME_STATEMENT: "Income Statement",
   CASH_FLOW: "Cash Flow Analysis",
@@ -74,7 +74,7 @@ const STATEMENT_LABELS: Record<MoodysStatement, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Period label formatting (same as renderMoodysSpread)
+// Period label formatting (same as renderStandardSpread)
 // ---------------------------------------------------------------------------
 
 function formatPeriodLabel(periodEnd: string): string {
@@ -119,15 +119,15 @@ export function renderFromFinancialModel(
     periodFactMaps.set(p.periodEnd, periodToFactMap(p));
   }
 
-  // Sort rows by statement order, then row order (same as renderMoodysSpread)
-  const sortedRows = [...MOODYS_ROWS].sort((a, b) => {
+  // Sort rows by statement order, then row order (same as renderStandardSpread)
+  const sortedRows = [...STANDARD_ROWS].sort((a, b) => {
     const stmtDiff = (STATEMENT_ORDER[a.statement] ?? 99) - (STATEMENT_ORDER[b.statement] ?? 99);
     if (stmtDiff !== 0) return stmtDiff;
     return a.order - b.order;
   });
 
   // Group rows into sections by statement
-  const sectionMap = new Map<MoodysStatement, SpreadViewRow[]>();
+  const sectionMap = new Map<StandardStatement, SpreadViewRow[]>();
   let nonNullCellCount = 0;
 
   for (const row of sortedRows) {
@@ -145,7 +145,7 @@ export function renderFromFinancialModel(
       const enrichedFacts = { ...factsMap };
       for (const dep of sortedRows) {
         if (dep.formulaId && dep.order < row.order && dep.statement === row.statement) {
-          const depVal = evaluateMoodysFormula(dep.formulaId, enrichedFacts);
+          const depVal = evaluateStandardFormula(dep.formulaId, enrichedFacts);
           if (depVal !== null) enrichedFacts[dep.key] = depVal;
         }
       }
@@ -153,13 +153,13 @@ export function renderFromFinancialModel(
       let value: number | null = null;
 
       if (row.formulaId) {
-        value = evaluateMoodysFormula(row.formulaId, enrichedFacts);
+        value = evaluateStandardFormula(row.formulaId, enrichedFacts);
       } else {
         value = enrichedFacts[row.key] ?? null;
       }
 
       valueByCol[period.periodEnd] = value;
-      displayByCol[period.periodEnd] = formatMoodysValue(value, row);
+      displayByCol[period.periodEnd] = formatStandardValue(value, row);
 
       if (value !== null) nonNullCellCount++;
     }
@@ -178,7 +178,7 @@ export function renderFromFinancialModel(
   }
 
   // Build sections in statement order
-  const statementOrder: MoodysStatement[] = [
+  const statementOrder: StandardStatement[] = [
     "BALANCE_SHEET",
     "INCOME_STATEMENT",
     "CASH_FLOW",

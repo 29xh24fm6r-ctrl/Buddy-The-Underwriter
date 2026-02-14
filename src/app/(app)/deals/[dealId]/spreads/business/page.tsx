@@ -202,7 +202,7 @@ export default function BusinessSpreadsPage() {
         <div>
           <h2 className="text-lg font-semibold text-white">Business Spreads</h2>
           <p className="mt-0.5 text-xs text-white/50">
-            T12 income statement, balance sheet, and rent roll for the subject property.
+            Operating performance, balance sheet, and rent roll for the subject property.
           </p>
         </div>
         <div className="flex items-center gap-2">

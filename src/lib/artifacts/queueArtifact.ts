@@ -82,6 +82,31 @@ export async function queueArtifact(
       artifactId,
     });
 
+    // B4: Dual pipeline detection — emit event if document_jobs also exist for this doc
+    if (sourceTable === "deal_documents") {
+      (sb as any)
+        .from("document_jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("attachment_id", sourceId)
+        .then(({ count }: { count: number | null }) => {
+          if (count && count > 0) {
+            import("@/lib/aegis").then(({ writeSystemEvent }) =>
+              writeSystemEvent({
+                event_type: "warning",
+                severity: "info",
+                source_system: "queue_artifact",
+                deal_id: dealId,
+                bank_id: bankId,
+                error_code: "DUAL_PIPELINE_DETECTED",
+                error_message: `Document ${sourceId} has both document_artifacts and document_jobs rows`,
+                payload: { sourceId, artifactId, sourceTable },
+              }),
+            ).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
+
     return {
       ok: true,
       artifactId,

@@ -64,7 +64,7 @@ function rowClassName(kind: ReturnType<typeof classifyRowKind>): string {
 }
 
 const SPREAD_LABELS: Record<string, string> = {
-  T12: "Trailing 12 Income Statement",
+  T12: "Operating Performance",
   BALANCE_SHEET: "Balance Sheet",
   RENT_ROLL: "Rent Roll Summary",
   GLOBAL_CASH_FLOW: "Global Cash Flow",

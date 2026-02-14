@@ -39,7 +39,7 @@ export function buildChecklistForLoanType(loanType: LoanType): ChecklistSeedRow[
   const CRE_RENTAL_OPTIONAL: ChecklistSeedRow[] = [
     { checklist_key: "RENT_ROLL", title: "Rent roll (if applicable)", required: false },
     { checklist_key: "LEASES_TOP", title: "Major leases (if applicable)", required: false },
-    { checklist_key: "PROPERTY_T12", title: "Trailing 12-month property operating statement (if applicable)", required: false },
+    { checklist_key: "PROPERTY_T12", title: "Property operating statement (if applicable)", required: false },
   ];
 
   const LOC: ChecklistSeedRow[] = [

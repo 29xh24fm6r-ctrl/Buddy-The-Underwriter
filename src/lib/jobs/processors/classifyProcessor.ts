@@ -7,8 +7,6 @@ import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 import { persistAiMapping } from "@/lib/ai-docs/persistMapping";
 import { buildGeminiScanResultFromExtractedText } from "@/lib/ai-docs/mapToChecklist";
-import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
-import type { SpreadType } from "@/lib/financialSpreads/types";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { enqueueExtractJob } from "@/lib/jobs/processors/extractProcessor";
 import { resolveDocTypeRouting } from "@/lib/documents/docTypeRouting";
@@ -26,37 +24,6 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
   const supabase = supabaseAdmin();
   const leaseDuration = 3 * 60 * 1000; // 3 minutes
   const leaseUntil = new Date(Date.now() + leaseDuration).toISOString();
-
-  function spreadsToRecomputeFromDocType(docTypeRaw: unknown): SpreadType[] {
-    const dt = String(docTypeRaw || "").trim().toUpperCase();
-    if (!dt) return [];
-
-    if (["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT", "TRAILING_12", "OPERATING_STATEMENT"].includes(dt)) return ["T12"];
-
-    if (dt === "BALANCE_SHEET") return ["BALANCE_SHEET"];
-
-    if (dt === "RENT_ROLL") return ["RENT_ROLL"];
-
-    if (
-      ["IRS_1065", "IRS_1120", "IRS_1120S", "IRS_BUSINESS", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN"].includes(dt)
-    ) {
-      return ["GLOBAL_CASH_FLOW"];
-    }
-
-    if (
-      ["IRS_1040", "IRS_PERSONAL", "PERSONAL_TAX_RETURN"].includes(dt)
-    ) {
-      return ["PERSONAL_INCOME", "GLOBAL_CASH_FLOW"];
-    }
-
-    if (
-      ["PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413"].includes(dt)
-    ) {
-      return ["PERSONAL_FINANCIAL_STATEMENT", "GLOBAL_CASH_FLOW"];
-    }
-
-    return [];
-  }
 
   function mapClassifierDocTypeToCanonicalBucket(docTypeRaw: any): string | null {
     const dt = String(docTypeRaw || "").trim().toUpperCase();
@@ -244,35 +211,7 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
       classifierReasons: (classifyResult as any).reasons ?? null,
     });
 
-    // Best-effort: enqueue financial spread recompute (never block classify job).
-    try {
-      const spreadTypes = spreadsToRecomputeFromDocType(classifyResult.doc_type);
-      if (spreadTypes.length) {
-        const { data: docRow } = await (supabase as any)
-          .from("deal_documents")
-          .select("bank_id")
-          .eq("id", job.attachment_id)
-          .maybeSingle();
-
-        const bankId = docRow?.bank_id ? String(docRow.bank_id) : null;
-        if (bankId) {
-          await enqueueSpreadRecompute({
-            dealId: String(job.deal_id),
-            bankId,
-            sourceDocumentId: String(job.attachment_id),
-            spreadTypes,
-            meta: {
-              source: "classify_job",
-              doc_type: classifyResult.doc_type,
-              document_id: String(job.attachment_id),
-              enqueued_at: new Date().toISOString(),
-            },
-          });
-        }
-      }
-    } catch {
-      // swallow
-    }
+    // B2: Spread enqueue removed — artifact pipeline is the single path for spread triggers.
 
     // MEGA STEP 10: Reconcile conditions (auto-satisfy matching conditions)
     try {

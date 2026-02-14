@@ -53,7 +53,7 @@ Phase 3 introduces a renderer-neutral **SpreadViewModel** contract with adapters
 **When**: After Stage 2 confidence threshold met
 **Scope**: Future PR — not included in this PR
 
-1. Wire `renderFromFinancialModel` into the Moody's spreads page behind an additional per-deal flag
+1. Wire `renderFromFinancialModel` into the standard spreads page behind an additional per-deal flag
 2. A/B test: specific deals render from V2, rest from V1
 3. Verify UI output is identical (pixel-level for numbers, section ordering)
 4. Expand to all deals with complete financial data

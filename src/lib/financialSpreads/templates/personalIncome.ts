@@ -42,6 +42,11 @@ export function personalIncomeTemplate(): SpreadTemplate {
     spreadType: "PERSONAL_INCOME",
     title: "Personal Income",
     version: 1,
+    priority: 30,
+    prerequisites: () => ({
+      facts: { fact_types: ["PERSONAL_INCOME"] },
+      note: "Needs personal income facts",
+    }),
     columns: ["Line Item", "Value"],
     render: (args): RenderedSpread => {
       const ownerId = args.ownerEntityId ?? null;

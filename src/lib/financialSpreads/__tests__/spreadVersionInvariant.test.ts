@@ -25,12 +25,12 @@ const originalResolve = (Module as any)._resolveFilename;
 };
 
 describe("spread version invariant", () => {
-  it("all non-MOODYS templates exist and have numeric version >= 1", async () => {
+  it("all non-STANDARD templates exist and have numeric version >= 1", async () => {
     const { ALL_SPREAD_TYPES } = await import("../types");
     const { getSpreadTemplate } = await import("../templates");
 
     for (const type of ALL_SPREAD_TYPES) {
-      if (type === "MOODYS") continue; // rendered via dedicated route, no standard template
+      if (type === "STANDARD") continue; // rendered via dedicated route, no standard template
       const tpl = getSpreadTemplate(type);
       assert.ok(tpl, `Missing template for ${type}`);
       assert.strictEqual(

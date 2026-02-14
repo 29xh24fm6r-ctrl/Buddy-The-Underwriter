@@ -62,7 +62,7 @@ export function matchChecklistKeyFromFilename(filenameRaw: string): MatchResult 
 
     // === Real Estate Documents ===
     { key: "RENT_ROLL", re: /rent[\s_]*roll|rentroll|tenant[\s_]*schedule/i, confidence: 0.85, reason: "Rent roll" },
-    { key: "PROPERTY_T12", re: /(?:^|[\s_\-./])t[\s_\-]?12(?:[\s_\-./]|\.pdf|$)|trailing.*12|operating[\s_]*statement/i, confidence: 0.8, reason: "T-12 / Operating statement" },
+    { key: "PROPERTY_T12", re: /(?:^|[\s_\-./])t[\s_\-]?12(?:[\s_\-./]|\.pdf|$)|trailing.*12|operating[\s_]*statement/i, confidence: 0.8, reason: "Operating statement" },
     { key: "LEASES_TOP", re: /\blease\b/i, confidence: 0.6, reason: "Lease document" },
     { key: "PROPERTY_INSURANCE", re: /insurance|dec(?:larations?)?[\s_]*page/i, confidence: 0.7, reason: "Insurance document" },
     { key: "APPRAISAL_IF_AVAILABLE", re: /appraisal|valuation/i, confidence: 0.8, reason: "Appraisal" },

@@ -25,7 +25,22 @@ export async function saveModelSnapshot(
   snapshot: ModelSnapshot,
   computedMetrics: Record<string, number | null>,
   riskFlags: Array<{ key: string; value: number; threshold: number; severity: string }>,
-): Promise<{ ok: boolean; id?: string; error?: string }> {
+): Promise<{ ok: boolean; id?: string; deduped?: boolean; error?: string }> {
+  // Phase 12: Immutability guard — skip write if identical outputs_hash exists for deal
+  if (snapshot.outputsHash) {
+    const { data: existing } = await supabase
+      .from("deal_model_snapshots")
+      .select("id")
+      .eq("deal_id", snapshot.dealId)
+      .eq("outputs_hash", snapshot.outputsHash)
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      return { ok: true, id: existing.id, deduped: true };
+    }
+  }
+
   const { data, error } = await supabase
     .from("deal_model_snapshots")
     .insert({

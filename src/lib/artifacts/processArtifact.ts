@@ -48,17 +48,8 @@ type OcrResult =
   | { ok: true; text: string }
   | { ok: false; code: "ocr_disabled" | "download_failed" | "ocr_error"; message: string };
 
-/** Map artifact doc type → spread types to recompute after classification. */
-function spreadsForArtifactDocType(dt: string): Array<"T12" | "BALANCE_SHEET" | "RENT_ROLL" | "PERSONAL_INCOME" | "PERSONAL_FINANCIAL_STATEMENT" | "GLOBAL_CASH_FLOW"> {
-  if (!dt) return [];
-  if (["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT", "TRAILING_12", "OPERATING_STATEMENT"].includes(dt)) return ["T12"];
-  if (dt === "BALANCE_SHEET") return ["BALANCE_SHEET"];
-  if (dt === "RENT_ROLL") return ["RENT_ROLL"];
-  if (["IRS_1065", "IRS_1120", "IRS_1120S", "IRS_BUSINESS", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN"].includes(dt)) return ["GLOBAL_CASH_FLOW"];
-  if (["IRS_1040", "IRS_PERSONAL", "PERSONAL_TAX_RETURN"].includes(dt)) return ["PERSONAL_INCOME", "GLOBAL_CASH_FLOW"];
-  if (["PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413"].includes(dt)) return ["PERSONAL_FINANCIAL_STATEMENT", "GLOBAL_CASH_FLOW"];
-  return [];
-}
+// Use shared canonical mapping (replaces inline duplicate).
+import { spreadsForDocType as spreadsForArtifactDocType } from "@/lib/financialSpreads/docTypeToSpreadTypes";
 
 /**
  * Run OCR directly on a document (bypasses document_jobs lookup).
@@ -927,6 +918,7 @@ export async function processArtifact(
     }
 
     // 6.5c. Enqueue financial spread recompute (never block the artifact pipeline)
+    let spreadEnqueueResult: any = null;
     try {
       const docType = (typingResult.effective_doc_type ?? typingResult.canonical_type ?? "")
         .trim()
@@ -936,7 +928,7 @@ export async function processArtifact(
         const { enqueueSpreadRecompute } = await import(
           "@/lib/financialSpreads/enqueueSpreadRecompute"
         );
-        await enqueueSpreadRecompute({
+        spreadEnqueueResult = await enqueueSpreadRecompute({
           dealId,
           bankId,
           sourceDocumentId: source_id,
@@ -948,6 +940,39 @@ export async function processArtifact(
             enqueued_at: new Date().toISOString(),
           },
         });
+
+        // D2: Feature-flagged inline spread processing — attempt immediate rendering
+        if (
+          process.env.ENABLE_INLINE_SPREAD_PROCESSING === "true" &&
+          spreadEnqueueResult?.ok &&
+          spreadEnqueueResult?.enqueued &&
+          spreadEnqueueResult?.jobId
+        ) {
+          try {
+            const { processSpreadJob } = await import(
+              "@/lib/jobs/processors/spreadsProcessor"
+            );
+            await processSpreadJob(spreadEnqueueResult.jobId, "inline-artifact");
+          } catch (inlineErr: any) {
+            console.warn("[processArtifact] inline spread processing failed (non-fatal)", {
+              dealId,
+              jobId: spreadEnqueueResult.jobId,
+              error: inlineErr?.message,
+            });
+            import("@/lib/aegis").then(({ writeSystemEvent }) =>
+              writeSystemEvent({
+                event_type: "warning",
+                severity: "warning",
+                source_system: "artifact_processor",
+                deal_id: dealId,
+                bank_id: bankId,
+                error_code: "SPREAD_INLINE_PROCESSING_FAILED",
+                error_message: `Inline spread processing failed: ${inlineErr?.message}`,
+                payload: { jobId: spreadEnqueueResult.jobId, artifactId },
+              }),
+            ).catch(() => {});
+          }
+        }
       }
     } catch (spreadErr: any) {
       console.warn("[processArtifact] spread enqueue failed (non-fatal)", {

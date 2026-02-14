@@ -5,6 +5,9 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
 import { getVisibleFacts } from "@/lib/financialFacts/getVisibleFacts";
+import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
+import { evaluatePrereq } from "@/lib/financialSpreads/evaluatePrereq";
+import { ALL_SPREAD_TYPES } from "@/lib/financialSpreads/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -81,6 +84,52 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       else if (r.status === "error") errCount++;
     }
 
+    // ── Fact coverage per spread type (diagnostics) ──
+    const rentRollRes = await (sb as any)
+      .from("deal_rent_roll_rows")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .eq("bank_id", access.bankId);
+    const rentRollRowCount = rentRollRes.count ?? 0;
+
+    const factCoverage: Record<string, {
+      required: { fact_types?: string[]; fact_keys?: string[]; tables?: { rent_roll_rows?: boolean } };
+      present: Record<string, number>;
+      missing: string[];
+      ready: boolean;
+      note: string | null;
+    }> = {};
+
+    for (const spreadType of ALL_SPREAD_TYPES) {
+      const tpl = getSpreadTemplate(spreadType);
+      if (!tpl) continue;
+
+      const prereq = tpl.prerequisites();
+      const { ready: isReady, missing } = evaluatePrereq(prereq, factsVis, rentRollRowCount);
+
+      const present: Record<string, number> = {};
+      if (prereq.facts?.fact_types) {
+        for (const ft of prereq.facts.fact_types) {
+          present[`fact_type:${ft}`] = factsVis.byFactType[ft] ?? 0;
+        }
+      }
+      if (prereq.tables?.rent_roll_rows) {
+        present["table:rent_roll_rows"] = rentRollRowCount;
+      }
+
+      factCoverage[spreadType] = {
+        required: {
+          fact_types: prereq.facts?.fact_types,
+          fact_keys: prereq.facts?.fact_keys,
+          tables: prereq.tables,
+        },
+        present,
+        missing,
+        ready: isReady,
+        note: prereq.note ?? null,
+      };
+    }
+
     return NextResponse.json({
       ok: true,
       dealId,
@@ -107,6 +156,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         by_owner_type: factsVis.byOwnerType,
         by_fact_type: factsVis.byFactType,
       },
+      factCoverage,
     });
   } catch (e: any) {
     console.error("[/api/deals/[dealId]/spreads/status]", e);

@@ -5,7 +5,6 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
 import {
-  isModelEngineV2Enabled,
   buildFinancialModel,
   computeCapitalModel,
 } from "@/lib/modelEngine";
@@ -19,14 +18,6 @@ type Ctx = { params: Promise<{ dealId: string }> };
 
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
-    // Feature flag check
-    if (!isModelEngineV2Enabled()) {
-      return NextResponse.json(
-        { ok: false, error: "model_engine_v2_disabled" },
-        { status: 404 },
-      );
-    }
-
     await requireRole(["super_admin", "bank_admin", "underwriter"]);
 
     const { dealId } = await ctx.params;
@@ -70,6 +61,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       dealId,
       bankId: access.bankId,
       model: financialModel,
+      engineSource: "authoritative",
     });
 
     const computedMetrics = snapshotResult?.computedMetrics ?? {};

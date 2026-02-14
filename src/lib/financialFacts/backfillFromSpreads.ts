@@ -310,7 +310,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
     // Optional: T12 TTM-derived memo inputs
     const t12 = await getLatestSpreadRow({ dealId: args.dealId, bankId: args.bankId, spreadType: "T12" });
     if (!t12?.rendered_json) {
-      notes.push("T12 spread missing (no spreads-to-facts backfill possible for NOI_TTM/TOTAL_INCOME_TTM/OPEX_TTM). ");
+      notes.push("Operating performance spread missing (no spreads-to-facts backfill possible for NOI_TTM/TOTAL_INCOME_TTM/OPEX_TTM). ");
     } else {
       const asOfDate = extractAsOfDate(t12.rendered_json);
       const sourceRef = `deal_spreads:T12:v${t12.spread_version}`;

@@ -29,8 +29,8 @@ const DEAL_ID = "render-migration-test";
 /** Minimal RenderedSpread (schema v3) with 2 sections, 3 rows */
 const LEGACY_SPREAD: RenderedSpread = {
   schema_version: 3,
-  title: "Moody's Financial Analysis",
-  spread_type: "MOODYS",
+  title: "Financial Analysis",
+  spread_type: "STANDARD",
   status: "ready",
   generatedAt: "2024-12-01T00:00:00Z",
   columns: ["Dec 2024"],
@@ -371,10 +371,10 @@ describe("V2 adapter: layout contract", () => {
     assert.ok(sectionKeys.includes("EXEC_SUMMARY"));
   });
 
-  it("produces data rows matching MOODYS_ROWS.length", async () => {
-    const { MOODYS_ROWS } = await import("@/lib/financialSpreads/moodys/mapping");
+  it("produces data rows matching STANDARD_ROWS.length", async () => {
+    const { STANDARD_ROWS } = await import("@/lib/financialSpreads/standard/mapping");
     const vm = renderFromFinancialModel(MODEL);
-    assert.equal(vm.meta.rowCount, MOODYS_ROWS.length);
+    assert.equal(vm.meta.rowCount, STANDARD_ROWS.length);
     // 82 rows: BS(24) + IS(28) + CF(4) + Ratios(19) + Exec(7)
     assert.equal(vm.meta.rowCount, 82);
   });
@@ -384,28 +384,23 @@ describe("V2 adapter: layout contract", () => {
 // 6. Phase 3F: flag gate + ViewModel → page compatibility
 // ---------------------------------------------------------------------------
 
-describe("Phase 3F: flag gate", () => {
-  let savedEnv: string | undefined;
-
-  beforeEach(() => {
-    savedEnv = process.env.USE_MODEL_ENGINE_V2;
+describe("Phase 11: V2 is sole engine — isModelEngineV2Enabled removed", () => {
+  it("barrel no longer exports isModelEngineV2Enabled", async () => {
+    const mod = await import("@/lib/modelEngine");
+    assert.equal(
+      "isModelEngineV2Enabled" in mod,
+      false,
+      "isModelEngineV2Enabled must not exist in barrel (Phase 11 cleanup)",
+    );
   });
 
-  afterEach(() => {
-    if (savedEnv === undefined) delete process.env.USE_MODEL_ENGINE_V2;
-    else process.env.USE_MODEL_ENGINE_V2 = savedEnv;
-  });
-
-  it("isModelEngineV2Enabled() returns false when flag is unset", async () => {
-    delete process.env.USE_MODEL_ENGINE_V2;
-    const { isModelEngineV2Enabled } = await import("@/lib/modelEngine");
-    assert.equal(isModelEngineV2Enabled(), false);
-  });
-
-  it("isModelEngineV2Enabled() returns true when flag is 'true'", async () => {
-    process.env.USE_MODEL_ENGINE_V2 = "true";
-    const { isModelEngineV2Enabled } = await import("@/lib/modelEngine");
-    assert.equal(isModelEngineV2Enabled(), true);
+  it("barrel no longer exports selectModelEngineMode as value", async () => {
+    const mod = await import("@/lib/modelEngine");
+    assert.equal(
+      typeof (mod as any).selectModelEngineMode,
+      "undefined",
+      "selectModelEngineMode removed from barrel (import from modeSelector.ts directly)",
+    );
   });
 });
 

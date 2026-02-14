@@ -9,10 +9,10 @@ import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
 import { markUploadsCompletedAction } from "@/lib/uploads/actions";
 import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
 
-import MoodyPnlSpreadCard from "@/components/deals/MoodyPnlSpreadCard";
+import PnlSpreadCard from "@/components/deals/PnlSpreadCard";
 import DocumentCoverageCard from "@/components/deals/DocumentCoverageCard";
 import CreditMemoView from "@/components/deals/CreditMemoView";
-import buildMoodyPnlPackageFromC4 from "@/lib/finance/normalize/normalizePnlFromC4";
+import buildPnlPackageFromC4Input from "@/lib/finance/normalize/normalizePnlFromC4";
 import { analyzeDocumentCoverage } from "@/lib/finance/underwriting/documentCoverage";
 import { buildCreditMemoSkeleton } from "@/lib/creditMemo/buildCreditMemo";
 import { buildPackIndex, type PackIndex } from "@/lib/deals/pack/buildPackIndex";
@@ -620,11 +620,11 @@ if (!res.ok || !data?.ok) {
   const rawJsonStr = rawJsonObj ? safeJson(rawJsonObj) : "";
   const tables = rawJsonObj ? extractTables(rawJsonObj) : [];
   const tablesCsv = useMemo(() => tablesToCsv(tables), [tables]);
-    const moodyPkg = useMemo(() => {
+    const pnlPkg = useMemo(() => {
     const c4 = activeResult?.c4 ?? null;
     if (!c4) return null;
     try {
-      return buildMoodyPnlPackageFromC4({ dealId, jobId: activeJobDisplay?.job_id ?? "unknown", c4 });
+      return buildPnlPackageFromC4Input({ dealId, jobId: activeJobDisplay?.job_id ?? "unknown", c4 });
 
     } catch {
       return null;
@@ -1347,7 +1347,7 @@ if (!res.ok || !data?.ok) {
                       ) : null}
 
                       {/* Financial spread (P&L v1) */}
-                      {moodyPkg ? <MoodyPnlSpreadCard pkg={moodyPkg} /> : null}
+                      {pnlPkg ? <PnlSpreadCard pkg={pnlPkg} /> : null}
 
                       {classification.doc_type === "FINANCIAL_STATEMENT" && tables.length > 0 ? (
                         <FinancialStatementWowCard c4={activeResult?.c4 ?? null} />

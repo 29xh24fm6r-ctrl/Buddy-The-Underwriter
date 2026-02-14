@@ -185,6 +185,11 @@ export function balanceSheetTemplate(): SpreadTemplate {
     spreadType: "BALANCE_SHEET",
     title,
     version: 1,
+    priority: 20,
+    prerequisites: () => ({
+      facts: { fact_types: ["BALANCE_SHEET"] },
+      note: "Needs balance sheet facts",
+    }),
     columns: ["Line Item", "Value"],
     render: (args): RenderedSpread => {
       const bsFacts = args.facts.filter((f) => f.fact_type === "BALANCE_SHEET");

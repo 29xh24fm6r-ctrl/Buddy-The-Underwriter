@@ -8,7 +8,7 @@ Goal: Prove Phase 10 stability on real deals using v2_primary allowlists.
 Acceptance:
 - >= 3 real deals run through:
   - /api/deals/:dealId/underwrite (primaryEngine=v2)
-  - /api/deals/:dealId/moodys (shadowMetadata present; v2_mode=v2_primary)
+  - /api/deals/:dealId/spreads/standard (shadowMetadata present; v2_mode=v2_primary)
 - No MODEL_V2_HARD_FAILURE events for allowlisted deals
 - Parity: no repeated BLOCK on the same deal without explanation/acceptance
 - Smoke test passes repeatedly over 24-48 hours (or agreed period)
@@ -26,17 +26,17 @@ Exit of Gate:
 
 ---
 
-## 1) PR1 — V1_RENDERER_DISABLED Guard + Event (moodys/route)
+## 1) PR1 — V1_RENDERER_DISABLED Guard + Event (standard/route)
 - Add flag V1_RENDERER_DISABLED=true/false
 - If enabled:
-  - block any attempt to serve V1-rendered output from the user-facing moodys route
+  - block any attempt to serve V1-rendered output from the user-facing standard spread route
   - return structured 409:
     { ok:false, error_code:"V1_RENDERER_DISABLED", ... }
   - emit MODEL_V1_RENDER_ATTEMPT_BLOCKED
 
 Notes:
 - This guard must key off actual call paths:
-  - direct calls to renderMoodysSpreadWithValidation
+  - direct calls to renderStandardSpreadWithValidation
   - any v1-mode selection from modeSelector
 
 ---
@@ -59,8 +59,8 @@ Emit:
 ## 3) PR3 — CI Guardrail (Target Real V1 Imports)
 Replace the spec's placeholder path with reality:
 - Block user-facing imports/usages of V1-rendering entrypoints:
-  - renderMoodysSpreadWithValidation (and any other V1-specific renderer helpers)
-  - any v1-only builder functions for Moody's viewModel
+  - renderStandardSpreadWithValidation (and any other V1-specific renderer helpers)
+  - any v1-only builder functions for standard spread viewModel
 - Scope:
   - src/app/(app)/**
   - src/app/api/deals/** (exclude admin replay route)
@@ -81,7 +81,7 @@ Health:
 Smoke:
 - assert primaryEngine=v2
 - assert no fallbackUsed unless intentionally simulated
-- assert moodys response indicates v2_primary
+- assert standard spread response indicates v2_primary
 
 ---
 

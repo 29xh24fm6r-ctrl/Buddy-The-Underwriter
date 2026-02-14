@@ -1,22 +1,22 @@
 // src/lib/finance/normalize/normalizePnlFromC4.ts
 
-import type { MoodyPnlLine, MoodyPnlPackage, MoodyPnlPeriod } from "@/lib/finance/moody";
+import type { PnlLine, PnlPackage, PnlPeriod } from "@/lib/finance/pnl";
 import {
   canonicalizePnlLabel,
   PNL_LINE_LABEL,
   PNL_LINE_ORDER,
   type PnlLineId,
-} from "@/lib/finance/moody/pnl-line-catalog";
+} from "@/lib/finance/pnl/pnl-line-catalog";
 
 type C4LikeInput = any;
 
 /**
- * Build a MoodyPnlPackage from a C4 (Document Intelligence) normalized structure.
+ * Build a PnlPackage from a C4 (Document Intelligence) normalized structure.
  * IMPORTANT: This function's return type is the contract. Do not change lightly.
  */
-export const buildMoodyPackageFromC4 = buildMoodyPnlPackageFromC4;
+export const buildPnlPackageFromC4 = buildPnlPackageFromC4Input;
 
-export default function buildMoodyPnlPackageFromC4(input: C4LikeInput): MoodyPnlPackage {
+export default function buildPnlPackageFromC4Input(input: C4LikeInput): PnlPackage {
   const builtAt = new Date().toISOString();
   const warnings: { code: string; message: string }[] = [];
 
@@ -63,7 +63,7 @@ export default function buildMoodyPnlPackageFromC4(input: C4LikeInput): MoodyPnl
 function normalizePeriodsFromC4_CommonLayout(
   c4: any,
   warnings: { code: string; message: string }[]
-): MoodyPnlPeriod[] {
+): PnlPeriod[] {
   const tables = c4?.analyzeResult?.tables ?? c4?.tables ?? [];
   if (!Array.isArray(tables) || tables.length === 0) {
     warnings.push({
@@ -112,7 +112,7 @@ function normalizePeriodsFromC4_CommonLayout(
   }
 
   // Build one period per header column 1..N
-  const periods: MoodyPnlPeriod[] = [];
+  const periods: PnlPeriod[] = [];
 
   for (let col = 1; col < grid.colCount; col++) {
     const periodLabel = periodLabels[col - 1] ?? `COL_${col}`;
@@ -263,7 +263,7 @@ function linesFromC4Table_RightMostNumeric(t: any): Array<{ label: string; amoun
 function canonicalizeLines(
   raw: Array<{ label: string; amount: number }>,
   warnings: { code: string; message: string }[]
-): { canonicalLines: MoodyPnlLine[]; idToAmount: Record<PnlLineId, number | undefined> } {
+): { canonicalLines: PnlLine[]; idToAmount: Record<PnlLineId, number | undefined> } {
   const idToAmount: Record<PnlLineId, number | undefined> = {
     REVENUE: undefined,
     COGS: undefined,
@@ -304,7 +304,7 @@ function canonicalizeLines(
     }
   }
 
-  const canonicalLines: MoodyPnlLine[] = [];
+  const canonicalLines: PnlLine[] = [];
 
   // Render in canonical order first
   for (const id of PNL_LINE_ORDER) {

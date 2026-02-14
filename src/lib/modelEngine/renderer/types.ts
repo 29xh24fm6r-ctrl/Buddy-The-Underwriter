@@ -1,11 +1,10 @@
 /**
- * Model Engine V2 — SpreadViewModel Contract
+ * Model Engine — SpreadViewModel Contract
  *
  * Renderer-neutral view model for financial spread display.
  * Both V1 (legacy RenderedSpread) and V2 (FinancialModel) adapt to this shape.
  *
- * PHASE 3 SCOPE: Shadow comparison only.
- * Do NOT wire into production rendering paths until Phase 3 Part 2.
+ * Phase 10: V2 is the authoritative computation engine.
  */
 
 import type { SpreadRowKind } from "@/components/deals/spreads/SpreadTable";
@@ -31,7 +30,7 @@ export type SpreadViewColumn = {
 // ---------------------------------------------------------------------------
 
 export type SpreadViewRow = {
-  /** Row key matching Moody's mapping: "TOTAL_ASSETS", "CASH_AND_EQUIVALENTS" */
+  /** Row key matching standard mapping: "TOTAL_ASSETS", "CASH_AND_EQUIVALENTS" */
   key: string;
   /** Display label: "Total Assets", "Cash & Cash Equivalents" */
   label: string;

@@ -7,6 +7,7 @@ import "server-only";
 export type AegisEventType =
   | "error"
   | "warning"
+  | "info"
   | "retry"
   | "recovery"
   | "success"
@@ -40,6 +41,9 @@ export type AegisSourceSystem =
   | "extract_processor"
   | "spreads_processor"
   | "artifact_processor"
+  | "enqueue_spread_recompute"
+  | "checklist_key_endpoint"
+  | "queue_artifact"
   | "lifecycle"
   | "observer"
   | "api";

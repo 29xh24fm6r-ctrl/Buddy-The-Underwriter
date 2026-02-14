@@ -110,7 +110,7 @@ Expect:
 ### 4.1 Force a snapshot
 Trigger any V2 compute path:
 - `GET /api/deals/:dealId/underwrite`
-- `GET /api/deals/:dealId/spreads/moodys`
+- `GET /api/deals/:dealId/spreads/standard`
 - `POST /api/deals/:dealId/model-v2/kick`
 
 ### 4.2 Validate snapshot DB row

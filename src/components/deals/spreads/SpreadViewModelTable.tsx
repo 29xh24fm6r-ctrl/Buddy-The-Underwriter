@@ -3,7 +3,7 @@
 /**
  * SpreadViewModelTable — renders a SpreadViewModel (from Model Engine V2)
  * using the same collapsible-section + MultiPeriodSpreadTable UI as the
- * legacy Moody's page.
+ * legacy Financial Analysis page.
  *
  * PHASE 3F: Drop-in replacement when USE_MODEL_ENGINE_V2 is enabled.
  * When the flag is OFF this component is never imported/rendered.

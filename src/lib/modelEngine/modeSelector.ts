@@ -1,15 +1,18 @@
 /**
- * Model Engine V2 — Centralized Mode Selector
+ * Model Engine — Centralized Mode Selector
  *
  * Single source of truth for engine mode determination.
  * Pure function (reads env vars only). Never duplicated.
  *
- * Priority:
- * 1. MODEL_ENGINE_MODE env (explicit override)
- * 2. V2_PRIMARY_DEAL_ALLOWLIST → v2_primary for listed deals
- * 3. V2_PRIMARY_BANK_ALLOWLIST → v2_primary for listed banks
- * 4. USE_MODEL_ENGINE_V2=true  → v2_shadow (backward compat)
- * 5. Default → v1
+ * Phase 11: Non-ops contexts are enforced to v2_primary.
+ * Only ops contexts (isOpsOverride=true) may resolve to V1 modes.
+ *
+ * Priority (ops context only):
+ * 1. MODEL_ENGINE_PRIMARY (V1 | V2) — human-readable primary control
+ * 2. MODEL_ENGINE_MODE env (fine-grained override: v1 | v2_shadow | v2_primary)
+ * 3. V2_PRIMARY_DEAL_ALLOWLIST → v2_primary for listed deals
+ * 4. V2_PRIMARY_BANK_ALLOWLIST → v2_primary for listed banks
+ * 5. Default → v2_primary
  */
 
 // ---------------------------------------------------------------------------
@@ -21,6 +24,8 @@ export type ModelEngineMode = "v1" | "v2_shadow" | "v2_primary";
 export interface ModeSelectionContext {
   bankId?: string;
   dealId?: string;
+  /** Set true for ops/admin endpoints that may need V1 comparison. */
+  isOpsOverride?: boolean;
 }
 
 export interface ModeSelectionResult {
@@ -64,13 +69,27 @@ const VALID_MODES: ReadonlySet<string> = new Set(["v1", "v2_shadow", "v2_primary
 export function selectModelEngineMode(
   ctx?: ModeSelectionContext,
 ): ModeSelectionResult {
-  // 1. Explicit mode override (highest priority)
+  // Phase 11: Non-ops contexts are enforced to v2_primary
+  if (!ctx?.isOpsOverride) {
+    return { mode: "v2_primary", reason: "enforced" };
+  }
+
+  // 1. MODEL_ENGINE_PRIMARY — human-readable primary control (highest priority)
+  const primary = process.env.MODEL_ENGINE_PRIMARY;
+  if (primary === "V1") {
+    return { mode: "v1", reason: "env:MODEL_ENGINE_PRIMARY=V1" };
+  }
+  if (primary === "V2") {
+    return { mode: "v2_primary", reason: "env:MODEL_ENGINE_PRIMARY=V2" };
+  }
+
+  // 2. MODEL_ENGINE_MODE — fine-grained override
   const explicit = process.env.MODEL_ENGINE_MODE;
   if (explicit && VALID_MODES.has(explicit)) {
     return { mode: explicit as ModelEngineMode, reason: `env:MODEL_ENGINE_MODE=${explicit}` };
   }
 
-  // 2. Deal allowlist
+  // 3. Deal allowlist
   if (ctx?.dealId) {
     const dealAllowlist = parseAllowlist("V2_PRIMARY_DEAL_ALLOWLIST");
     if (dealAllowlist.has(ctx.dealId)) {
@@ -78,7 +97,7 @@ export function selectModelEngineMode(
     }
   }
 
-  // 3. Bank allowlist
+  // 4. Bank allowlist
   if (ctx?.bankId) {
     const bankAllowlist = parseAllowlist("V2_PRIMARY_BANK_ALLOWLIST");
     if (bankAllowlist.has(ctx.bankId)) {
@@ -86,13 +105,8 @@ export function selectModelEngineMode(
     }
   }
 
-  // 4. Legacy flag compat
-  if (process.env.USE_MODEL_ENGINE_V2 === "true") {
-    return { mode: "v2_shadow", reason: "env:USE_MODEL_ENGINE_V2=true" };
-  }
-
-  // 5. Default
-  return { mode: "v1", reason: "default" };
+  // 5. Default → v2_primary
+  return { mode: "v2_primary", reason: "default" };
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +126,11 @@ export function isV2Primary(ctx?: ModeSelectionContext): boolean {
 /** Returns true if V1 rendering is disabled for user-facing surfaces. */
 export function isV1RendererDisabled(): boolean {
   return process.env.V1_RENDERER_DISABLED === "true";
+}
+
+/** Returns true if legacy V1 shadow comparison is enabled alongside V2 primary. */
+export function isShadowCompareEnabled(): boolean {
+  return process.env.SHADOW_COMPARE === "true";
 }
 
 /**

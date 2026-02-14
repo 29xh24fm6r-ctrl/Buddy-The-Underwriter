@@ -1,23 +1,25 @@
 /**
- * Model Engine V2 — Public API
+ * Model Engine — Public API
  *
- * Feature-flagged parallel financial modeling engine.
- * Mode selector: selectModelEngineMode() → v1 | v2_shadow | v2_primary.
+ * V2 authoritative financial modeling engine (Phase 11).
+ * V1 rendering is decommissioned from user-facing paths.
+ * Mode selector available via direct import from modeSelector.ts for ops.
  *
- * Phase 10: V2 can be promoted to primary via env vars or allowlists.
- * See modeSelector.ts for mode determination logic.
+ * See engineAuthority.ts for the authoritative computation boundary.
  */
 
 export { buildFinancialModel } from "./buildFinancialModel";
 export type { FactInput } from "./buildFinancialModel";
+export { extractBaseValues } from "./extractBaseValues";
 export {
   topologicalSort,
   evaluateFormula,
   evaluateMetricGraph,
+  evaluateMetricGraphWithAudit,
   evaluateFormulaWithDiagnostics,
   evaluateMetricGraphWithDiagnostics,
 } from "./metricGraph";
-export type { DiagnosticEntry, FormulaResult, GraphEvalResult } from "./metricGraph";
+export type { DiagnosticEntry, FormulaResult, GraphEvalResult, AuditGraphResult } from "./metricGraph";
 export { loadMetricRegistry, getV1SeedDefinitions } from "./metricRegistryLoader";
 export { computeCapitalModel } from "./capitalModel";
 export { evaluateRisk } from "./riskEngine";
@@ -43,36 +45,24 @@ export type {
 } from "./types";
 
 // ---------------------------------------------------------------------------
-// Mode selector (Phase 10)
+// Authoritative engine boundary (Phase 10)
+// ---------------------------------------------------------------------------
+// NOTE: computeAuthoritativeEngine and computeLegacyComparison are NOT
+// re-exported here because engineAuthority.ts has `import "server-only"`.
+// Routes should import directly from "@/lib/modelEngine/engineAuthority".
+// Type-only re-exports are safe (erased at compile time).
+
+export type {
+  AuthoritativeResult,
+  LegacyResult,
+} from "./engineAuthority";
+
+// ---------------------------------------------------------------------------
+// Mode selector types (value exports removed — import from modeSelector.ts)
 // ---------------------------------------------------------------------------
 
-export {
-  selectModelEngineMode,
-  isV2Enabled,
-  isV2Primary,
-  isV1RendererDisabled,
-} from "./modeSelector";
 export type {
   ModelEngineMode,
   ModeSelectionContext,
   ModeSelectionResult,
 } from "./modeSelector";
-
-// ---------------------------------------------------------------------------
-// Feature flag (backward compat — delegates to mode selector)
-// ---------------------------------------------------------------------------
-
-import { isV2Enabled as _isV2Enabled } from "./modeSelector";
-
-/**
- * @deprecated Use selectModelEngineMode() for context-aware mode selection.
- * This function is retained for backward compatibility with existing call sites.
- */
-export function isModelEngineV2Enabled(): boolean {
-  const enabled = _isV2Enabled();
-  if (enabled && !(globalThis as any).__v2_logged) {
-    (globalThis as any).__v2_logged = true;
-    console.log("[ModelEngine] V2 enabled — shadow mode active");
-  }
-  return enabled;
-}

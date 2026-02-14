@@ -16,7 +16,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
-import { isModelEngineV2Enabled } from "@/lib/modelEngine";
+// V2 is always enabled (Phase 11) — no gate needed
 import { compareV1toV2 } from "@/lib/modelEngine/parity/compareV1toV2";
 import { compareSpreadToModelV2 } from "@/lib/modelEngine/parity/parityCompare";
 import {
@@ -62,14 +62,6 @@ function validateFormat(format: string | null): string | null {
 
 export async function GET(req: NextRequest, ctx: Ctx) {
   try {
-    // Feature flag gate
-    if (!isModelEngineV2Enabled()) {
-      return NextResponse.json(
-        { ok: false, error: "model_engine_v2_disabled" },
-        { status: 404 },
-      );
-    }
-
     await requireRole(["super_admin", "bank_admin", "underwriter"]);
 
     const { dealId } = await ctx.params;

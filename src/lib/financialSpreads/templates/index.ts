@@ -21,6 +21,8 @@ function placeholderTemplate(type: SpreadType): SpreadTemplate {
     spreadType: type,
     title,
     version: 1,
+    priority: 99,
+    prerequisites: () => ({ note: "Placeholder template — no prerequisites" }),
     columns: ["Line Item", "Value"],
     render: () => {
       const generatedAt = new Date().toISOString();
@@ -37,7 +39,7 @@ function placeholderTemplate(type: SpreadType): SpreadTemplate {
           {
             key: "placeholder",
             label: "Placeholder",
-            values: ["Moody’s-exact template pending; pipeline is operational."],
+            values: ["Standard template pending; pipeline is operational."],
           },
         ],
         meta: { template: "placeholder", version: 1 },
@@ -47,7 +49,7 @@ function placeholderTemplate(type: SpreadType): SpreadTemplate {
 }
 
 // Placeholder templates keep the system end-to-end operational.
-// Replace these with Moody’s-exact templates (layout + formulas) once the fixture is integrated.
+// Replace these with standard templates (layout + formulas) once the fixture is integrated.
 export function getSpreadTemplate(type: SpreadType): SpreadTemplate | null {
   if (type === "BALANCE_SHEET") return balanceSheetTemplate();
   if (type === "GLOBAL_CASH_FLOW") return globalCashFlowTemplate();

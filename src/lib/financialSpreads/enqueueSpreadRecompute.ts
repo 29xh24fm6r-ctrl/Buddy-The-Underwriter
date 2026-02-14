@@ -4,6 +4,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import type { SpreadType } from "@/lib/financialSpreads/types";
 import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
+import { getVisibleFacts } from "@/lib/financialFacts/getVisibleFacts";
+import { evaluatePrereq } from "@/lib/financialSpreads/evaluatePrereq";
 
 function uniq(arr: string[]) {
   return Array.from(new Set(arr));
@@ -56,11 +58,61 @@ export async function enqueueSpreadRecompute(args: {
     return { ok: true as const, enqueued: false as const };
   }
 
+  // ── Readiness gate: per-spread prerequisite check ───────────────────────
+  // Only create placeholders + enqueue types whose prereqs are currently met.
+  // Types whose prereqs aren't met get SPREAD_WAITING_ON_FACTS events.
+  const [factsVis, rentRollRes] = await Promise.all([
+    getVisibleFacts(args.dealId, args.bankId),
+    (sb as any)
+      .from("deal_rent_roll_rows")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", args.dealId)
+      .eq("bank_id", args.bankId),
+  ]);
+  const rentRollRowCount = rentRollRes.count ?? 0;
+
+  const readyTypes: string[] = [];
+  const notReadyTypes: Array<{ type: string; missing: string[]; note?: string }> = [];
+
+  for (const t of validTypes) {
+    const tpl = getSpreadTemplate(t as SpreadType)!;
+    const prereq = tpl.prerequisites();
+    const { ready, missing } = evaluatePrereq(prereq, factsVis, rentRollRowCount);
+
+    if (ready) {
+      readyTypes.push(t);
+    } else {
+      notReadyTypes.push({ type: t, missing, note: prereq.note });
+    }
+  }
+
+  // Emit events for not-ready types — no placeholders, no job enqueue
+  if (notReadyTypes.length > 0) {
+    import("@/lib/aegis").then(({ writeSystemEvent }) => {
+      for (const nr of notReadyTypes) {
+        writeSystemEvent({
+          event_type: "info",
+          severity: "info",
+          source_system: "enqueue_spread_recompute",
+          deal_id: args.dealId,
+          bank_id: args.bankId,
+          error_code: "SPREAD_WAITING_ON_FACTS",
+          error_message: `${nr.type} prerequisites not met at enqueue: ${nr.missing.join(", ")}`,
+          payload: { spreadType: nr.type, missing: nr.missing, note: nr.note },
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+  }
+
+  if (readyTypes.length === 0) {
+    return { ok: true as const, enqueued: false as const, waitingOnFacts: true as const };
+  }
+
   // Best-effort: create placeholder spreads so UI can show "queued" immediately.
   // Version MUST come from the template registry — never hardcode.
   try {
     await Promise.all(
-      validTypes.map((t) => {
+      readyTypes.map((t) => {
         const tpl = getSpreadTemplate(t as SpreadType)!; // guaranteed non-null by filter above
         return (sb as any)
           .from("deal_spreads")
@@ -127,7 +179,7 @@ export async function enqueueSpreadRecompute(args: {
 
   if (existingJob) {
     const existingTypes = (existingJob.requested_spread_types ?? []) as string[];
-    const merged = uniq([...existingTypes, ...validTypes]);
+    const merged = uniq([...existingTypes, ...readyTypes]);
 
     if (merged.length > existingTypes.length) {
       await (sb as any)
@@ -158,7 +210,7 @@ export async function enqueueSpreadRecompute(args: {
     deal_id: args.dealId,
     bank_id: args.bankId,
     source_document_id: args.sourceDocumentId ?? null,
-    requested_spread_types: validTypes,
+    requested_spread_types: readyTypes,
     status: "QUEUED",
     next_run_at: new Date().toISOString(),
     meta: {
@@ -189,7 +241,7 @@ export async function enqueueSpreadRecompute(args: {
       if (raceJob) {
         const merged = uniq([
           ...((raceJob.requested_spread_types ?? []) as string[]),
-          ...validTypes,
+          ...readyTypes,
         ]);
         await (sb as any)
           .from("deal_spread_jobs")

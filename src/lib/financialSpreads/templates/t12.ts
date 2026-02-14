@@ -334,6 +334,38 @@ function normalizeInputs(args: { facts: FinancialFact[]; columns: SpreadColumnV2
     }
   }
 
+  // ── Tax return facts (1120/1065) → map into T12 rows (fill empty cells only) ──
+  const TAX_RETURN_TO_T12_ROW: Record<string, T12RowKey> = {
+    GROSS_RECEIPTS: "GROSS_RENTAL_INCOME",
+    TOTAL_INCOME: "GROSS_RENTAL_INCOME",
+    OFFICER_COMPENSATION: "PAYROLL",
+    SALARIES_WAGES: "PAYROLL",
+    REPAIRS_MAINTENANCE: "REPAIRS_MAINTENANCE",
+    INSURANCE_EXPENSE: "INSURANCE",
+    TAXES_LICENSES: "REAL_ESTATE_TAXES",
+    RENT_EXPENSE: "OTHER_OPEX",
+    OTHER_DEDUCTIONS: "OTHER_OPEX",
+    // NOTE: Tax return NET_INCOME includes non-operating deductions (depreciation, interest)
+    // and is NOT equivalent to property NOI. Used as best-effort approximation when
+    // no income statement is available. Income statement data takes precedence.
+    NET_INCOME: "NOI",
+  };
+
+  const taxReturnFacts = args.facts.filter((f) => f.fact_type === "TAX_RETURN");
+  for (const fact of taxReturnFacts) {
+    const rowKey = TAX_RETURN_TO_T12_ROW[fact.fact_key];
+    if (!rowKey) continue;
+    if (typeof fact.fact_value_num !== "number") continue;
+
+    // Only fill empty cells — income statement data takes priority
+    if (valuesByRow[rowKey]?.TTM === undefined || valuesByRow[rowKey]?.TTM === null) {
+      if (!valuesByRow[rowKey]) valuesByRow[rowKey] = {};
+      valuesByRow[rowKey].TTM = fact.fact_value_num;
+      if (!provenanceByRow[rowKey]) provenanceByRow[rowKey] = {};
+      provenanceByRow[rowKey].TTM = { source: "TAX_RETURN", input: factToInputRef(fact) };
+    }
+  }
+
   // ── Legacy: fallback to existing T12-type single-column totals mapped into TTM ──
   const egI = pickLatestFact({ facts: args.facts, factType: "T12", factKey: "EFFECTIVE_GROSS_INCOME" });
   const opex = pickLatestFact({ facts: args.facts, factType: "T12", factKey: "OPERATING_EXPENSES" });
@@ -368,12 +400,17 @@ function normalizeInputs(args: { facts: FinancialFact[]; columns: SpreadColumnV2
 }
 
 export function t12Template(): SpreadTemplate {
-  const title = "Operating Statement (T12)";
+  const title = "Operating Performance";
 
   return {
     spreadType: "T12",
     title,
     version: 3,
+    priority: 10,
+    prerequisites: () => ({
+      facts: { fact_types: ["INCOME_STATEMENT", "TAX_RETURN"] },
+      note: "Needs operating performance facts from business tax returns or income statements",
+    }),
     columns: ["Line Item", "TTM"],
     render: (args): RenderedSpread => {
       const asOf = deriveAsOfDate(args.facts);

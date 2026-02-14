@@ -9,6 +9,7 @@ import {
   loadMetricRegistry,
   saveModelSnapshot,
 } from "@/lib/modelEngine";
+import { extractBaseValues } from "@/lib/modelEngine/extractBaseValues";
 import { resolveRegistryBinding } from "@/lib/metrics/registry/selectActiveVersion";
 import { hashOutputs } from "@/lib/metrics/registry/hash";
 import type { FinancialModel, RiskFlag } from "@/lib/modelEngine";
@@ -16,9 +17,8 @@ import type { FinancialModel, RiskFlag } from "@/lib/modelEngine";
 /**
  * Shared service: compute metrics + persist a V2 model snapshot.
  *
- * Used by both:
- *   - /api/deals/[dealId]/model-v2/preview (primary computation route)
- *   - /api/deals/[dealId]/spreads/moodys   (shadow snapshot on spread view)
+ * AUTHORITY RULE: Only computeAuthoritativeEngine (or v1_fallback path) may
+ * call this function. V1 shadow comparison must NEVER persist snapshots.
  *
  * Returns the snapshotId and computed metrics, or null on failure.
  * Never throws — callers use fire-and-forget.
@@ -27,6 +27,7 @@ export async function persistModelV2SnapshotFromDeal(opts: {
   dealId: string;
   bankId: string;
   model: FinancialModel;
+  engineSource: "authoritative" | "v1_fallback";
 }): Promise<{
   snapshotId: string | null;
   computedMetrics: Record<string, number | null>;
@@ -40,33 +41,7 @@ export async function persistModelV2SnapshotFromDeal(opts: {
     const metricDefs = await loadMetricRegistry(sb, "v1");
 
     // 2. Build base values from latest period
-    const baseValues: Record<string, number | null> = {};
-    if (model.periods.length > 0) {
-      const latest = model.periods[model.periods.length - 1];
-
-      if (latest.income.revenue !== undefined) baseValues["REVENUE"] = latest.income.revenue;
-      if (latest.income.cogs !== undefined) baseValues["COGS"] = latest.income.cogs;
-      if (latest.income.netIncome !== undefined) baseValues["NET_INCOME"] = latest.income.netIncome;
-      if (latest.income.operatingExpenses !== undefined) baseValues["OPERATING_EXPENSES"] = latest.income.operatingExpenses;
-      if (latest.income.revenue !== undefined && latest.income.cogs !== undefined) {
-        baseValues["GROSS_PROFIT"] = latest.income.revenue - latest.income.cogs;
-      }
-
-      if (latest.balance.totalAssets !== undefined) baseValues["TOTAL_ASSETS"] = latest.balance.totalAssets;
-      if (latest.balance.totalLiabilities !== undefined) baseValues["TOTAL_LIABILITIES"] = latest.balance.totalLiabilities;
-      if (latest.balance.equity !== undefined) baseValues["EQUITY"] = latest.balance.equity;
-      if (latest.balance.shortTermDebt !== undefined || latest.balance.longTermDebt !== undefined) {
-        baseValues["TOTAL_DEBT"] = (latest.balance.shortTermDebt ?? 0) + (latest.balance.longTermDebt ?? 0);
-      }
-
-      const currentAssets = (latest.balance.cash ?? 0) + (latest.balance.accountsReceivable ?? 0) + (latest.balance.inventory ?? 0);
-      if (currentAssets > 0) baseValues["CURRENT_ASSETS"] = currentAssets;
-      if (latest.balance.shortTermDebt !== undefined) baseValues["CURRENT_LIABILITIES"] = latest.balance.shortTermDebt;
-
-      if (latest.cashflow.ebitda !== undefined) baseValues["EBITDA"] = latest.cashflow.ebitda;
-      if (latest.cashflow.cfads !== undefined) baseValues["CFADS"] = latest.cashflow.cfads;
-      if (latest.income.interest !== undefined) baseValues["DEBT_SERVICE"] = latest.income.interest;
-    }
+    const baseValues = extractBaseValues(model);
 
     // 3. Evaluate metrics
     const computedMetrics = evaluateMetricGraph(metricDefs, baseValues);
@@ -80,8 +55,8 @@ export async function persistModelV2SnapshotFromDeal(opts: {
     const computedAt = new Date().toISOString();
     const traceId = crypto.randomUUID();
 
-    // 5b. Phase 12: resolve registry binding (non-fatal if no published version)
-    const binding = await resolveRegistryBinding(sb).catch(() => null);
+    // 5b. Phase 12/13: resolve registry binding (bank-aware, non-fatal)
+    const binding = await resolveRegistryBinding(sb, bankId).catch(() => null);
 
     // 5c. Phase 12: compute outputs hash
     const outputsPayload = { computedMetrics, riskFlags: riskResult.flags };

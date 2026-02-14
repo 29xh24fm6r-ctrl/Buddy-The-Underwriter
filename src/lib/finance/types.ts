@@ -92,10 +92,10 @@ export type NormalizedCashFlow = {
 };
 
 /* ============================
-   MOODY METRICS
+   PNL METRICS
    ============================ */
 
-export type MoodyMetricId =
+export type PnlMetricId =
   | "gross_margin_pct"
   | "opex_pct_of_sales"
   | "net_margin_pct"
@@ -111,8 +111,8 @@ export type MoodyMetricId =
   | "fixed_charge_coverage"
   | "dscr_global";
 
-export type MoodyMetricValue = {
-  id: MoodyMetricId;
+export type PnlMetricValue = {
+  id: PnlMetricId;
   label: string;
   value: number | null;
   unit: "money" | "pct" | "ratio";
@@ -121,10 +121,10 @@ export type MoodyMetricValue = {
 };
 
 /* ============================
-   MOODY PACKAGE (FINAL OUTPUT)
+   PNL ANALYSIS PACKAGE (FINAL OUTPUT)
    ============================ */
 
-export type MoodyPackage = {
+export type PnlAnalysisPackage = {
   dealId: string;
   jobId: string;
   generatedAt: string;
@@ -133,7 +133,7 @@ export type MoodyPackage = {
   bs: NormalizedBalanceSheet | null;
   cf: NormalizedCashFlow | null;
 
-  metrics: MoodyMetricValue[];
+  metrics: PnlMetricValue[];
 
   flags: {
     severity: "info" | "warn" | "risk";

@@ -59,6 +59,11 @@ export function personalFinancialStatementTemplate(): SpreadTemplate {
     spreadType: "PERSONAL_FINANCIAL_STATEMENT",
     title: "Personal Financial Statement",
     version: 1,
+    priority: 40,
+    prerequisites: () => ({
+      facts: { fact_types: ["PERSONAL_FINANCIAL_STATEMENT"] },
+      note: "Needs PFS facts",
+    }),
     columns: ["Line Item", "Value"],
     render: (args): RenderedSpread => {
       const ownerId = args.ownerEntityId ?? null;

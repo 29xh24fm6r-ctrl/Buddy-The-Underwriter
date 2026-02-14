@@ -1,20 +1,20 @@
 /**
  * Model Engine V2 — Shared Formula Evaluation + Display Formatting
  *
- * Pure functions extracted from the Moody's renderer logic.
+ * Pure functions extracted from the standard spread renderer logic.
  * No server-only dependencies, no DB calls.
  * Used by the V2 adapter to evaluate rows from FinancialModel data.
  *
  * IMPORTANT: This is a parallel implementation of the same logic in
- * renderMoodysSpread.ts. Do NOT import from that server-only module.
+ * renderStandardSpread.ts. Do NOT import from that server-only module.
  */
 
-import { MOODYS_FORMULAS } from "@/lib/financialSpreads/moodys/formulas/registry";
+import { STANDARD_FORMULAS } from "@/lib/financialSpreads/standard/formulas/registry";
 import { evaluateMetric } from "@/lib/metrics/evaluateMetric";
-import type { MoodysRow } from "@/lib/financialSpreads/moodys/mapping";
+import type { StandardRow } from "@/lib/financialSpreads/standard/mapping";
 
 // ---------------------------------------------------------------------------
-// Structural expression evaluator (same logic as renderMoodysSpread)
+// Structural expression evaluator (same logic as renderStandardSpread)
 // ---------------------------------------------------------------------------
 
 /**
@@ -60,19 +60,19 @@ export function evaluateStructuralExpr(
 }
 
 // ---------------------------------------------------------------------------
-// Formula evaluator (same logic as renderMoodysSpread)
+// Formula evaluator (same logic as renderStandardSpread)
 // ---------------------------------------------------------------------------
 
 /**
- * Evaluate a Moody's formula by its ID.
+ * Evaluate a standard spread formula by its ID.
  * - Formulas with metricRegistryId → delegate to evaluateMetric()
  * - Structural formulas (metricRegistryId: null) → evaluate expression directly
  */
-export function evaluateMoodysFormula(
+export function evaluateStandardFormula(
   formulaId: string,
   factsMap: Record<string, number | null>,
 ): number | null {
-  const formula = MOODYS_FORMULAS[formulaId];
+  const formula = STANDARD_FORMULAS[formulaId];
   if (!formula) return null;
 
   if (formula.metricRegistryId) {
@@ -84,16 +84,16 @@ export function evaluateMoodysFormula(
 }
 
 // ---------------------------------------------------------------------------
-// Display value formatter (same logic as renderMoodysSpread)
+// Display value formatter (same logic as renderStandardSpread)
 // ---------------------------------------------------------------------------
 
 /**
- * Format a numeric value for display using Moody's row formatting rules.
+ * Format a numeric value for display using standard row formatting rules.
  * Returns "—" for null values.
  */
-export function formatMoodysValue(
+export function formatStandardValue(
   value: number | null,
-  row: Pick<MoodysRow, "precision" | "isPercent" | "sign">,
+  row: Pick<StandardRow, "precision" | "isPercent" | "sign">,
 ): string {
   if (value === null) return "—";
 

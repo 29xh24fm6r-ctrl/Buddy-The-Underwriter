@@ -93,7 +93,7 @@ export function renderPrintableSpread(
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Moody's Financial Analysis — ${escapeHtml(metadata.dealName)}</title>
+  <title>Financial Analysis — ${escapeHtml(metadata.dealName)}</title>
   <style>
     @page {
       size: letter landscape;
@@ -215,7 +215,7 @@ export function renderPrintableSpread(
 <body>
   <div class="page-header">
     <div>
-      <h1>Moody's Financial Analysis</h1>
+      <h1>Financial Analysis</h1>
       <div style="font-size: 11px; color: #444; margin-top: 2px;">${escapeHtml(metadata.dealName)}</div>
     </div>
     <div class="meta">

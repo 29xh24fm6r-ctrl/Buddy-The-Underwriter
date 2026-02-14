@@ -33,3 +33,16 @@ export interface RegistryBinding {
   registryVersionName: string;
   registryContentHash: string;
 }
+
+/**
+ * Phase 13 — Per-bank registry pin.
+ * Allows a bank to be locked to a specific registry version.
+ */
+export interface BankRegistryPin {
+  id: string;
+  bankId: string;
+  registryVersionId: string;
+  pinnedAt: string;
+  pinnedBy: string | null;
+  reason: string | null;
+}

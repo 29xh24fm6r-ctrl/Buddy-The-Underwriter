@@ -3,7 +3,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
-import { renderMoodysSpreadWithValidation } from "@/lib/financialSpreads/moodys/renderMoodysSpread";
+import { renderStandardSpreadWithValidation } from "@/lib/financialSpreads/standard/renderStandardSpread";
 import { buildDealFinancialSnapshotForBank } from "@/lib/deals/financialSnapshot";
 import { buildFinancialModel } from "@/lib/modelEngine";
 import { runFullUnderwrite } from "@/lib/underwritingEngine";
@@ -151,7 +151,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
         // Non-fatal
       }
 
-      const { validation, ...rendered } = renderMoodysSpreadWithValidation({
+      const { validation, ...rendered } = renderStandardSpreadWithValidation({
         dealId,
         bankId,
         facts,

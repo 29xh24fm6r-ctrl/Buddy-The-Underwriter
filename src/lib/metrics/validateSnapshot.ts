@@ -1,7 +1,7 @@
 /**
  * Snapshot Hard Validation
  *
- * Ensures required facts exist before Moody's render.
+ * Ensures required facts exist before standard spread render.
  * No NaN, no Infinity, no divide-by-zero.
  * Returns structured errors + warnings — never throws.
  */
@@ -23,7 +23,7 @@ export type ValidationResult = {
   warnings: ValidationEntry[];
 };
 
-// Metrics required for each business model to produce a valid Moody's spread.
+// Metrics required for each business model to produce a valid standard spread.
 const REQUIRED_METRICS: Record<BusinessModel, string[]> = {
   REAL_ESTATE: [
     "noi_ttm",
@@ -66,7 +66,7 @@ function getMetricValue(snapshot: DealFinancialSnapshotV1, metric: string): Snap
 }
 
 /**
- * Validate a snapshot for Moody's render readiness.
+ * Validate a snapshot for standard spread render readiness.
  *
  * @param snapshot - The financial snapshot to validate
  * @param businessModel - Which business model classification to validate against

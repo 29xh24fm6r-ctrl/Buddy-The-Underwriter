@@ -11,6 +11,8 @@ import { reconcileAegisFindingsForSpread } from "@/lib/aegis/reconcileSpreadFind
 import type { SpreadType } from "@/lib/financialSpreads/types";
 import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
 import { writeSystemEvent } from "@/lib/aegis";
+import { getVisibleFacts } from "@/lib/financialFacts/getVisibleFacts";
+import { evaluatePrereq } from "@/lib/financialSpreads/evaluatePrereq";
 
 const LEASE_MS = 3 * 60 * 1000;
 
@@ -67,6 +69,13 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
   const requested = uniq((job.requested_spread_types ?? []) as string[])
     .map((s) => String(s))
     .filter(Boolean) as SpreadType[];
+
+  // A3: Deterministic ordering — lower priority runs first.
+  requested.sort((a, b) => {
+    const pa = getSpreadTemplate(a)?.priority ?? 99;
+    const pb = getSpreadTemplate(b)?.priority ?? 99;
+    return pa - pb;
+  });
 
   const jobMeta = (job.meta && typeof job.meta === "object") ? job.meta : {};
   const ownerType = typeof jobMeta.owner_type === "string" ? jobMeta.owner_type : undefined;
@@ -135,46 +144,161 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
 
     const runId = jobId; // canonical run identifier for CAS ownership
 
-    // ── Preflight: check upstream facts exist ──
-    const { count: factCount } = await (sb as any)
-      .from("deal_financial_facts")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId)
-      .eq("bank_id", bankId);
+    // ── Preflight: heartbeat-aware bounded retry + per-spread prereq eval ──
+    const [factsVis, heartbeatRes, rentRollRes] = await Promise.all([
+      getVisibleFacts(dealId, bankId),
+      (sb as any)
+        .from("deal_financial_facts")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId)
+        .eq("fact_type", "EXTRACTION_HEARTBEAT"),
+      (sb as any)
+        .from("deal_rent_roll_rows")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId),
+    ]);
 
-    if (!factCount || factCount === 0) {
-      for (const spreadType of requested) {
-        const effectiveOwnerType = resolveOwnerType(spreadType, ownerType);
+    const heartbeatExists = (heartbeatRes.count ?? 0) > 0;
+    const rentRollRowCount = rentRollRes.count ?? 0;
+
+    if (factsVis.total === 0 && !heartbeatExists) {
+      // Timing race — extraction hasn't run yet. Bounded retry.
+      const preflightRetries = typeof jobMeta.preflight_retries === "number" ? jobMeta.preflight_retries : 0;
+
+      if (preflightRetries < 5) {
+        const nextRunAt = new Date(Date.now() + 30_000).toISOString();
+        await (sb as any)
+          .from("deal_spread_jobs")
+          .update({
+            status: "QUEUED",
+            next_run_at: nextRunAt,
+            meta: { ...jobMeta, preflight_retries: preflightRetries + 1 },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", jobId);
+
+        writeSystemEvent({
+          event_type: "info",
+          severity: "info",
+          source_system: "spreads_processor",
+          source_job_id: jobId,
+          source_job_table: "deal_spread_jobs",
+          deal_id: dealId,
+          bank_id: bankId,
+          error_code: "SPREAD_JOB_DEFERRED_WAITING_ON_EXTRACTION",
+          error_message: `Deferred spread job (retry ${preflightRetries + 1}/5): no facts and no extraction heartbeat yet`,
+          payload: { jobId, dealId, preflightRetries: preflightRetries + 1 },
+        }).catch(() => {});
+
+        return { ok: true as const, jobId, deferred: true as const };
+      }
+
+      // Max retries exceeded
+      await (sb as any)
+        .from("deal_spread_jobs")
+        .update({
+          status: "FAILED",
+          error: "NO_FACTS_AFTER_RETRIES: extraction never produced facts after 5 attempts",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", jobId);
+
+      writeSystemEvent({
+        event_type: "error",
+        severity: "error",
+        source_system: "spreads_processor",
+        source_job_id: jobId,
+        source_job_table: "deal_spread_jobs",
+        deal_id: dealId,
+        bank_id: bankId,
+        error_class: "permanent",
+        error_code: "SPREAD_JOB_NO_FACTS_TIMEOUT",
+        error_message: "Spread job abandoned after 5 preflight retries — no extraction heartbeat found",
+        payload: { jobId, dealId },
+      }).catch(() => {});
+
+      return { ok: false as const, error: "NO_FACTS_AFTER_RETRIES" };
+    }
+
+    if (factsVis.total === 0 && heartbeatExists) {
+      // Extraction ran but produced 0 visible facts — emit diagnostic event
+      writeSystemEvent({
+        event_type: "warning",
+        severity: "warning",
+        source_system: "spreads_processor",
+        source_job_id: jobId,
+        source_job_table: "deal_spread_jobs",
+        deal_id: dealId,
+        bank_id: bankId,
+        error_code: "EXTRACTION_ZERO_FACTS",
+        error_message: "Extraction completed (heartbeat present) but produced 0 visible facts",
+        payload: { dealId, bankId, jobId },
+      }).catch(() => {});
+    }
+
+    // ── Per-spread prerequisite evaluation ──
+    const readyTypes: SpreadType[] = [];
+    const notReadyTypes: Array<{ type: SpreadType; missing: string[]; note?: string }> = [];
+    let skippedPrereqs = 0;
+
+    for (const spreadType of requested) {
+      const tpl = getSpreadTemplate(spreadType);
+      if (!tpl) continue; // Will be caught by template guard below
+
+      const prereq = tpl.prerequisites();
+      const { ready, missing } = evaluatePrereq(prereq, factsVis, rentRollRowCount);
+
+      if (ready) {
+        readyTypes.push(spreadType);
+      } else {
+        notReadyTypes.push({ type: spreadType, missing, note: prereq.note });
+        skippedPrereqs++;
+      }
+    }
+
+    // Emit events for not-ready types — they stay queued or get MISSING_UPSTREAM_FACTS
+    for (const nr of notReadyTypes) {
+      const effectiveOwnerType = resolveOwnerType(nr.type, ownerType);
+
+      if (heartbeatExists) {
+        // Extraction ran but didn't produce facts for this type — genuine absence
         await (sb as any)
           .from("deal_spreads")
           .update({
             status: "error",
             finished_at: new Date().toISOString(),
-            error: "No financial facts available for this deal",
+            error: `Prerequisites not met: ${nr.missing.join(", ")}`,
             error_code: "MISSING_UPSTREAM_FACTS",
-            error_details_json: { dealId, bankId, factCount: 0 },
+            error_details_json: { dealId, bankId, missing: nr.missing, note: nr.note },
             updated_at: new Date().toISOString(),
           })
           .eq("deal_id", dealId)
           .eq("bank_id", bankId)
-          .eq("spread_type", spreadType)
+          .eq("spread_type", nr.type)
           .eq("owner_type", effectiveOwnerType)
           .eq("owner_entity_id", ownerEntityId)
           .in("status", ["queued", "generating"]);
 
-        reconcileAegisFindingsForSpread({ dealId, bankId, spreadType, newStatus: "error" }).catch(() => {});
+        reconcileAegisFindingsForSpread({ dealId, bankId, spreadType: nr.type, newStatus: "error" }).catch(() => {});
       }
 
-      // Preflight completed — spreads intentionally errored, job is NOT a failure
-      await (sb as any)
-        .from("deal_spread_jobs")
-        .update({ status: "SUCCEEDED", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq("id", jobId);
-
-      return { ok: true as const, jobId, preflightFailed: true };
+      writeSystemEvent({
+        event_type: "info",
+        severity: "info",
+        source_system: "spreads_processor",
+        source_job_id: jobId,
+        source_job_table: "deal_spread_jobs",
+        deal_id: dealId,
+        bank_id: bankId,
+        error_code: "SPREAD_WAITING_ON_FACTS",
+        error_message: `${nr.type} prerequisites not met: ${nr.missing.join(", ")}`,
+        payload: { spreadType: nr.type, missing: nr.missing, note: nr.note, jobId },
+      }).catch(() => {});
     }
 
-    for (const spreadType of requested) {
+    for (const spreadType of readyTypes) {
       // Defense-in-depth: skip types with no registered template
       const tpl = getSpreadTemplate(spreadType);
       if (!tpl) {
@@ -251,8 +375,9 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       // Fire-and-forget: reconcile findings
       reconcileAegisFindingsForSpread({ dealId, bankId, spreadType, newStatus: "ready" }).catch(() => {});
 
-      // Empty-row invariant: warn if spread rendered with 0 data rows
+      // Empty-row invariant: mark as error if spread rendered with 0 data rows
       try {
+        const effectiveOwnerTypeForCheck = resolveOwnerType(spreadType, ownerType);
         const { data: spread } = await (sb as any)
           .from("deal_spreads")
           .select("id, rendered_json")
@@ -266,18 +391,36 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         if (spread?.rendered_json) {
           const rows = spread.rendered_json?.rows ?? spread.rendered_json?.data;
           if (Array.isArray(rows) && rows.length === 0) {
+            // A7: Empty spread = error, not warning
+            await (sb as any)
+              .from("deal_spreads")
+              .update({
+                status: "error",
+                finished_at: new Date().toISOString(),
+                error: `${spreadType} spread rendered with 0 data rows`,
+                error_code: "EMPTY_SPREAD_RENDERED",
+                error_details_json: { spreadType, spreadId: spread.id, jobId },
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", spread.id);
+
+            completedTypes.delete(spreadType);
+
             writeSystemEvent({
               deal_id: dealId,
               bank_id: bankId,
-              event_type: "warning",
-              severity: "warning",
+              event_type: "error",
+              severity: "error",
               error_class: "permanent",
+              error_code: "EMPTY_SPREAD_RENDERED",
               error_message: `${spreadType} spread rendered with 0 data rows`,
               source_system: "spreads_processor",
               source_job_id: jobId,
               source_job_table: "deal_spread_jobs",
               payload: { spreadType, spreadId: spread.id },
             }).catch(() => {});
+
+            reconcileAegisFindingsForSpread({ dealId, bankId, spreadType, newStatus: "error" }).catch(() => {});
           }
         }
       } catch {
@@ -345,14 +488,14 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
 
     // ── Job outcome: no silent "SUCCEEDED 0 work" ──────────────────────────
     const renderedCount = completedTypes.size;
-    const attemptedCount = requested.length;
+    const attemptedCount = readyTypes.length;
 
     if (renderedCount === 0) {
       await (sb as any)
         .from("deal_spread_jobs")
         .update({
           status: "FAILED",
-          error: `NO_SPREADS_RENDERED: ${skippedMissingTemplate} missing template, ${skippedMissingPlaceholder} missing placeholder`,
+          error: `NO_SPREADS_RENDERED: ${skippedMissingTemplate} missing template, ${skippedMissingPlaceholder} missing placeholder, ${skippedPrereqs} prereqs not met`,
           updated_at: new Date().toISOString(),
         })
         .eq("id", jobId);
@@ -366,13 +509,16 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         deal_id: dealId,
         bank_id: bankId,
         error_code: "SPREAD_JOB_NOOP",
-        error_message: `Job processed 0 spreads out of ${attemptedCount} requested`,
+        error_message: `Job processed 0 spreads out of ${requested.length} requested (${attemptedCount} ready)`,
         payload: {
           jobId, dealId,
           requested,
+          readyTypes,
+          notReadyTypes: notReadyTypes.map((nr) => ({ type: nr.type, missing: nr.missing })),
           renderedCount,
           skippedMissingTemplate,
           skippedMissingPlaceholder,
+          skippedPrereqs,
         },
       }).catch(() => {});
     } else {

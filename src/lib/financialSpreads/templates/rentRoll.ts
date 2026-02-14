@@ -283,6 +283,11 @@ export function rentRollTemplate(): SpreadTemplate {
     spreadType: "RENT_ROLL",
     title,
     version: 3,
+    priority: 50,
+    prerequisites: () => ({
+      tables: { rent_roll_rows: true },
+      note: "Needs rent roll rows",
+    }),
     columns: ["Unit", "Tenant", "Status", "Sqft", "Rent / Mo", "Rent / Yr"],
     render: (args): RenderedSpread => {
       const cols = buildRentRollColumnsV2();

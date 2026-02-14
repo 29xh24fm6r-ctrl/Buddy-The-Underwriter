@@ -31,7 +31,7 @@ export const CHECKLIST_KEY_OPTIONS: ChecklistKeyOption[] = [
 
   // Property Documents
   { key: "RENT_ROLL", title: "Rent Roll (current)", category: "property", docType: "RENT_ROLL" },
-  { key: "PROPERTY_T12", title: "T12 / Operating Statement", category: "property", docType: "T12" },
+  { key: "PROPERTY_T12", title: "Property Operating Statement", category: "property", docType: "T12" },
   { key: "LEASES_TOP", title: "Major Leases (top tenants)", category: "property", docType: "LEASE" },
   { key: "PROPERTY_INSURANCE", title: "Property Insurance", category: "property", docType: "INSURANCE" },
   { key: "REAL_ESTATE_TAX_BILL", title: "Real Estate Tax Bill", category: "property", docType: "TAX_BILL" },

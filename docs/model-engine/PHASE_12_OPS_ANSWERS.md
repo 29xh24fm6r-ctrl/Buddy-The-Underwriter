@@ -284,7 +284,7 @@ These are the same 7 metrics already in the `metric_definitions` table in produc
 
 - **Phase 12 registry** (`metric_registry_versions` + `metric_registry_entries`): NEW versioned audit system. Entries use `definition_json` (freeform JSONB with formula, depends_on, description, etc.)
 - **V2 model engine** (`metric_definitions`): Existing table. Uses `FormulaNode` (`{type, left, right}`), `depends_on` array, etc. This is what the engine actually evaluates.
-- **Legacy Moody's** (`src/lib/metrics/registry.ts`): 32 static metrics. Expression-based (`"NOI / TOTAL_INCOME"`). Completely separate system.
+- **Legacy standard spread** (`src/lib/metrics/registry.ts`): 32 static metrics. Expression-based (`"NOI / TOTAL_INCOME"`). Completely separate system.
 
 The Phase 12 registry is a **versioned audit snapshot** of metric definitions. It captures the definitions for provenance and replay verification, but it does NOT replace the model engine's `metric_definitions` table.
 

@@ -11,8 +11,8 @@ import { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Valid spread types that the template registry knows about (excludes MOODYS which uses a dedicated route). */
-const VALID_SPREAD_TYPES = ALL_SPREAD_TYPES.filter((t) => t !== "MOODYS");
+/** Valid spread types that the template registry knows about (excludes STANDARD which uses a dedicated route). */
+const VALID_SPREAD_TYPES = ALL_SPREAD_TYPES.filter((t) => t !== "STANDARD");
 
 /**
  * POST /api/ops/cleanup-spread-orphans

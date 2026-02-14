@@ -28,7 +28,7 @@ export type {
 
 // Formula evaluation (shared)
 export {
-  evaluateMoodysFormula,
+  evaluateStandardFormula,
   evaluateStructuralExpr,
-  formatMoodysValue,
+  formatStandardValue,
 } from "./formulaEval";

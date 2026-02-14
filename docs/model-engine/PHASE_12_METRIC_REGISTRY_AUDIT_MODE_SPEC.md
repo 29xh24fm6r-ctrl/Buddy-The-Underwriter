@@ -130,7 +130,7 @@ Immutability enforcement:
 # 4) Runtime Selection (Which Registry Does V2 Use?)
 
 ## 4.1 Default behavior
-When V2 runs (underwrite/moodys):
+When V2 runs (underwrite/standard spread):
 - use "active published version" unless overridden by:
   - request parameter (admin-only replay)
   - snapshot binding (replay must use snapshot's registry_version_id)

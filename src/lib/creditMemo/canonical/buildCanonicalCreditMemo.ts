@@ -570,7 +570,7 @@ export async function buildCanonicalCreditMemo(args: {
 
       meta: {
         notes: [
-          "This is the canonical memo shell; formulas + exact Moody's layout come next.",
+          "This is the canonical memo shell; formulas + exact standard layout come next.",
           "Sections are locked; fields never disappear (Pending instead).",
         ],
         readiness,

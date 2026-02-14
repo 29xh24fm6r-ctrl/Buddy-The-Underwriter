@@ -1,14 +1,16 @@
 /**
- * Phase 12 — Active Registry Version Selection
+ * Phase 12/13 — Active Registry Version Selection + Governance
  *
  * Resolves which published registry version is active for V2 computation.
- * "Active" = latest published by published_at.
+ * "Active" = latest published by published_at (excludes deprecated).
  *
- * In dev, if no published version exists, falls back to null (callers
- * decide whether to use built-in seed or error).
+ * Phase 13 additions:
+ * - Per-bank registry pinning (resolveRegistryBinding with optional bankId)
+ * - Version deprecation (replay-safe — entries never deleted)
+ * - listSelectableVersions (published only, excludes deprecated)
  */
 
-import type { RegistryVersion, RegistryEntry, RegistryBinding } from "./types";
+import type { RegistryVersion, RegistryEntry, RegistryBinding, BankRegistryPin } from "./types";
 import { hashRegistry } from "./hash";
 
 // ---------------------------------------------------------------------------
@@ -36,6 +38,15 @@ interface DbEntryRow {
   created_at: string;
 }
 
+interface DbPinRow {
+  id: string;
+  bank_id: string;
+  registry_version_id: string;
+  pinned_at: string;
+  pinned_by: string | null;
+  reason: string | null;
+}
+
 function rowToVersion(row: DbVersionRow): RegistryVersion {
   return {
     id: row.id,
@@ -61,12 +72,23 @@ function rowToEntry(row: DbEntryRow): RegistryEntry {
   };
 }
 
+function rowToPin(row: DbPinRow): BankRegistryPin {
+  return {
+    id: row.id,
+    bankId: row.bank_id,
+    registryVersionId: row.registry_version_id,
+    pinnedAt: row.pinned_at,
+    pinnedBy: row.pinned_by,
+    reason: row.reason,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Select active published version
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch the latest published registry version.
+ * Fetch the latest published registry version (excludes deprecated).
  * Returns null if no published version exists.
  */
 export async function selectActiveVersion(
@@ -82,6 +104,22 @@ export async function selectActiveVersion(
 
   if (error || !data) return null;
   return rowToVersion(data as DbVersionRow);
+}
+
+/**
+ * List all selectable versions (published only, excludes deprecated + draft).
+ */
+export async function listSelectableVersions(
+  supabase: any,
+): Promise<RegistryVersion[]> {
+  const { data, error } = await supabase
+    .from("metric_registry_versions")
+    .select("*")
+    .eq("status", "published")
+    .order("published_at", { ascending: false });
+
+  if (error || !data) return [];
+  return (data as DbVersionRow[]).map(rowToVersion);
 }
 
 /**
@@ -103,6 +141,7 @@ export async function loadVersionById(
 
 /**
  * Load all entries for a registry version.
+ * NOTE: No status filter — deprecated versions remain loadable (replay-safe).
  */
 export async function loadVersionEntries(
   supabase: any,
@@ -119,20 +158,37 @@ export async function loadVersionEntries(
 }
 
 // ---------------------------------------------------------------------------
+// Per-bank registry pinning (Phase 13)
+// ---------------------------------------------------------------------------
+
+/**
+ * Load the current bank registry pin, if any.
+ */
+export async function loadBankPin(
+  supabase: any,
+  bankId: string,
+): Promise<BankRegistryPin | null> {
+  const { data, error } = await supabase
+    .from("bank_registry_pins")
+    .select("*")
+    .eq("bank_id", bankId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return rowToPin(data as DbPinRow);
+}
+
+// ---------------------------------------------------------------------------
 // Resolve binding for compute
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the registry binding for a V2 compute.
- * Returns the active version + content hash, or null if none published.
+ * Build a RegistryBinding from a RegistryVersion, computing content hash if needed.
  */
-export async function resolveRegistryBinding(
+async function versionToBinding(
   supabase: any,
-): Promise<RegistryBinding | null> {
-  const version = await selectActiveVersion(supabase);
-  if (!version) return null;
-
-  // If content_hash was set at publish time, use it
+  version: RegistryVersion,
+): Promise<RegistryBinding> {
   if (version.contentHash) {
     return {
       registryVersionId: version.id,
@@ -153,6 +209,37 @@ export async function resolveRegistryBinding(
     registryVersionName: version.versionName,
     registryContentHash: contentHash,
   };
+}
+
+/**
+ * Resolve the registry binding for a V2 compute.
+ *
+ * Resolution order (Phase 13):
+ * 1. If bankId provided AND bank_registry_pins row exists → use pinned version
+ *    (even if deprecated — pinning is intentional)
+ * 2. Else → latest published (non-deprecated) via selectActiveVersion()
+ * 3. If none → return null (never silently default)
+ */
+export async function resolveRegistryBinding(
+  supabase: any,
+  bankId?: string,
+): Promise<RegistryBinding | null> {
+  // Phase 13: Check bank pin first
+  if (bankId) {
+    const pin = await loadBankPin(supabase, bankId);
+    if (pin) {
+      const pinnedVersion = await loadVersionById(supabase, pin.registryVersionId);
+      if (pinnedVersion) {
+        return versionToBinding(supabase, pinnedVersion);
+      }
+    }
+  }
+
+  // Global: latest published (non-deprecated)
+  const version = await selectActiveVersion(supabase);
+  if (!version) return null;
+
+  return versionToBinding(supabase, version);
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +291,51 @@ export async function publishVersion(
 
   if (error || !data) {
     return { ok: false, error: error?.message ?? "publish_failed" };
+  }
+
+  return { ok: true, version: rowToVersion(data as DbVersionRow) };
+}
+
+// ---------------------------------------------------------------------------
+// Deprecate a published version (Phase 13)
+// ---------------------------------------------------------------------------
+
+/**
+ * Deprecate a published registry version.
+ *
+ * Rules:
+ * - Only published → deprecated (CAS guard)
+ * - Entries are NEVER deleted (replay-safe)
+ * - Deprecated versions are NOT auto-selected for new bindings
+ * - Deprecated versions remain loadable via loadVersionEntries()
+ */
+export async function deprecateVersion(
+  supabase: any,
+  versionId: string,
+): Promise<{ ok: true; version: RegistryVersion } | { ok: false; error: string }> {
+  const version = await loadVersionById(supabase, versionId);
+  if (!version) return { ok: false, error: "version_not_found" };
+  if (version.status === "deprecated") {
+    return { ok: false, error: "already_deprecated" };
+  }
+  if (version.status !== "published") {
+    return { ok: false, error: "only_published_can_be_deprecated" };
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("metric_registry_versions")
+    .update({
+      status: "deprecated",
+      updated_at: now,
+    })
+    .eq("id", versionId)
+    .eq("status", "published") // CAS guard
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    return { ok: false, error: error?.message ?? "deprecate_failed" };
   }
 
   return { ok: true, version: rowToVersion(data as DbVersionRow) };

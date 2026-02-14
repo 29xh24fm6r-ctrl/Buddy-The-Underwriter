@@ -1,11 +1,11 @@
 /**
- * Model Engine V2 — Render Diff (Shadow Mode) Endpoint
+ * Model Engine — Render Diff (Legacy Comparison) Endpoint
  *
  * READ-ONLY. Compares V1 legacy RenderedSpread to V2 FinancialModel
  * at the rendered ViewModel level (row-by-row, column-by-column).
  *
  * Auth: requireRole(["super_admin", "bank_admin", "underwriter"])
- * Gate: USE_MODEL_ENGINE_V2 must be true
+ * Gate: V2 must be enabled (default in Phase 10+)
  *
  * Query params:
  *   ?format=json|markdown  (default: json)
@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRole } from "@/lib/auth/requireRole";
-import { isModelEngineV2Enabled } from "@/lib/modelEngine";
+// V2 is always enabled (Phase 11) — no gate needed
 import { buildFinancialModel } from "@/lib/modelEngine/buildFinancialModel";
 import { renderFromLegacySpread } from "@/lib/modelEngine/renderer/v1Adapter";
 import { renderFromFinancialModel } from "@/lib/modelEngine/renderer/v2Adapter";
@@ -116,14 +116,6 @@ function formatDiffMarkdown(diff: ReturnType<typeof diffSpreadViewModels>): stri
 
 export async function GET(req: NextRequest, ctx: Ctx) {
   try {
-    // Feature flag gate
-    if (!isModelEngineV2Enabled()) {
-      return NextResponse.json(
-        { ok: false, error: "model_engine_v2_disabled" },
-        { status: 404 },
-      );
-    }
-
     await requireRole(["super_admin", "bank_admin", "underwriter"]);
 
     const { dealId } = await ctx.params;
@@ -155,12 +147,12 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
     const sb = supabaseAdmin();
 
-    // 1. Load V1 spread (MOODYS, owner_type=DEAL)
+    // 1. Load V1 spread (STANDARD or legacy MOODYS, owner_type=DEAL)
     const { data: spreadRow, error: spreadErr } = await sb
       .from("deal_spreads")
       .select("rendered_json")
       .eq("deal_id", dealId)
-      .eq("spread_type", "MOODYS")
+      .in("spread_type", ["STANDARD", "MOODYS"])
       .eq("owner_type", "DEAL")
       .order("created_at", { ascending: false })
       .limit(1)
@@ -176,7 +168,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
     if (!spreadRow?.rendered_json) {
       return NextResponse.json(
-        { ok: false, error: "no_moodys_spread", hint: "No MOODYS spread found for this deal. Run spread recompute first." },
+        { ok: false, error: "no_standard_spread", hint: "No standard spread found for this deal. Run spread recompute first." },
         { status: 404 },
       );
     }

@@ -108,6 +108,28 @@ export function evaluateFormula(
 // ---------------------------------------------------------------------------
 
 /**
+ * Shared internal — single evaluation loop used by both public functions.
+ * When `audit` is true, also builds the dependency graph.
+ */
+function evaluateMetricGraphInternal(
+  metrics: MetricDefinition[],
+  baseValues: Record<string, number | null>,
+  options?: { audit?: boolean },
+): { values: Record<string, number | null>; dependencyGraph?: Record<string, string[]> } {
+  const sorted = topologicalSort(metrics);
+  const values: Record<string, number | null> = { ...baseValues };
+  const dependencyGraph: Record<string, string[]> | undefined =
+    options?.audit ? {} : undefined;
+
+  for (const def of sorted) {
+    if (dependencyGraph) dependencyGraph[def.key] = [...def.dependsOn];
+    values[def.key] = evaluateFormula(def.formula, values);
+  }
+
+  return { values, dependencyGraph };
+}
+
+/**
  * Evaluate all metrics in topological order.
  *
  * @param metrics - MetricDefinitions (will be topologically sorted)
@@ -118,15 +140,33 @@ export function evaluateMetricGraph(
   metrics: MetricDefinition[],
   baseValues: Record<string, number | null>,
 ): Record<string, number | null> {
-  const sorted = topologicalSort(metrics);
-  const values: Record<string, number | null> = { ...baseValues };
+  return evaluateMetricGraphInternal(metrics, baseValues).values;
+}
 
-  for (const def of sorted) {
-    const result = evaluateFormula(def.formula, values);
-    values[def.key] = result;
-  }
+// ---------------------------------------------------------------------------
+// Audit-mode evaluation (Phase 12 — Explainability)
+// ---------------------------------------------------------------------------
 
-  return values;
+export interface AuditGraphResult {
+  values: Record<string, number | null>;
+  dependencyGraph: Record<string, string[]>;
+}
+
+/**
+ * Evaluate all metrics with audit trail (dependency graph).
+ *
+ * Same computation as evaluateMetricGraph — shared internal, zero logic duplication.
+ * Returns the dependency graph mapping each metric key to its direct dependencies.
+ */
+export function evaluateMetricGraphWithAudit(
+  metrics: MetricDefinition[],
+  baseValues: Record<string, number | null>,
+): AuditGraphResult {
+  const result = evaluateMetricGraphInternal(metrics, baseValues, { audit: true });
+  return {
+    values: result.values,
+    dependencyGraph: result.dependencyGraph!,
+  };
 }
 
 // ---------------------------------------------------------------------------

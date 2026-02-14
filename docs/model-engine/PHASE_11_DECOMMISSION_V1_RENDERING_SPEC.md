@@ -6,7 +6,7 @@ Depends on: Phase 10 complete (9fa0762)
 
 ## Objective
 Remove all user-facing usage of Model Engine V1 for:
-- spreads rendering (Moody's viewModel)
+- spreads rendering (standard spread viewModel)
 - underwriting metrics powering UI panels
 - credit memo computed metric inputs
 
@@ -38,7 +38,7 @@ Keep V1 only for:
 
 # 1) Define "User-Facing" Surfaces (Must Be V2 Only)
 These must never invoke V1 once Phase 11 ships:
-- /api/deals/[dealId]/moodys (spreads render)
+- /api/deals/[dealId]/spreads/standard (spreads render)
 - cockpit metrics panels
 - pricing/risk panels that read DSCR/LTV/debt service totals
 - credit memo generation path (computed metrics + spreads summaries)
@@ -51,8 +51,8 @@ Implementation rule:
 
 ---
 
-# 2) Disable V1 In Moodys Route
-In `moodys/route.ts`:
+# 2) Disable V1 In Standard Spread Route
+In `standard/route.ts`:
 - If V1_RENDERER_DISABLED=true:
   - forbid v1 or v2_shadow primary=v1 responses
   - require modeSelector resolves to v2_primary for user session routes
@@ -129,7 +129,7 @@ Add event codes if needed:
 
 # 7) Tests
 - unit: mode selector respects V1_RENDERER_DISABLED (cannot resolve to user-facing v1)
-- integration: moodys route returns 409 when attempting v1 path
+- integration: standard spread route returns 409 when attempting v1 path
 - integration: admin replay endpoint works (v1 allowed only there)
 - CI script test: ensure it fails when a forbidden import is added
 
@@ -140,7 +140,7 @@ Add event codes if needed:
 2) Flip V1_RENDERER_DISABLED=true in staging
 3) Run smoke suite:
    - underwrite endpoint
-   - moodys render
+   - standard spread render
    - verify no v1 used
 4) Flip in prod:
    - V1_RENDERER_DISABLED=true
@@ -151,7 +151,7 @@ Add event codes if needed:
 
 # 9) Acceptance Checklist
 - [ ] No user-facing V1 code path reachable
-- [ ] Moodys route blocks V1 when disabled
+- [ ] Standard spread route blocks V1 when disabled
 - [ ] Admin replay endpoint exists and is gated
 - [ ] CI guard prevents reintroduction
 - [ ] Health endpoint shows v1 disabled + counts

@@ -5,6 +5,7 @@ import { extractFactsFromDocument } from "@/lib/financialSpreads/extractFactsFro
 import { backfillCanonicalFactsFromSpreads } from "@/lib/financialFacts/backfillFromSpreads";
 import { isExtractionErrorPayload } from "@/lib/artifacts/extractionError";
 import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
+import { spreadsForDocType } from "@/lib/financialSpreads/docTypeToSpreadTypes";
 import type { SpreadType } from "@/lib/financialSpreads/types";
 
 /**
@@ -38,18 +39,6 @@ const EXTRACTABLE_DOC_TYPES = new Set([
   "COLLATERAL_SCHEDULE",
   "OPERATING_STATEMENT",
 ]);
-
-/** Map artifact doc type → spread types to recompute (mirrors classifyProcessor). */
-function spreadsForDocType(docTypeRaw: string): SpreadType[] {
-  const dt = docTypeRaw.trim().toUpperCase();
-  if (["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT", "TRAILING_12", "OPERATING_STATEMENT"].includes(dt)) return ["T12"];
-  if (dt === "BALANCE_SHEET") return ["BALANCE_SHEET"];
-  if (dt === "RENT_ROLL") return ["RENT_ROLL"];
-  if (["IRS_1065", "IRS_1120", "IRS_1120S", "IRS_BUSINESS", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN"].includes(dt)) return ["GLOBAL_CASH_FLOW"];
-  if (["IRS_1040", "IRS_PERSONAL", "PERSONAL_TAX_RETURN"].includes(dt)) return ["PERSONAL_INCOME", "GLOBAL_CASH_FLOW"];
-  if (["PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413"].includes(dt)) return ["PERSONAL_FINANCIAL_STATEMENT", "GLOBAL_CASH_FLOW"];
-  return [];
-}
 
 export type ExtractFromArtifactsResult =
   | { ok: true; extracted: number; skipped: number; failed: number; backfillFactsWritten: number }

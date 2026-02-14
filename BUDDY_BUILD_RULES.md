@@ -5,7 +5,7 @@ Architectural invariants enforced across all contributors (human and AI).
 ## Financial Computations
 
 - **No inline math in templates or renderers.** All computed rows use `evaluateMetric()` from the metric registry or `evaluateStructuralExpr()`. No `eval()`, no raw arithmetic in template files.
-- **No duplicate formulas.** The metric registry (`src/lib/metrics/registry.ts`) and Moody's formula registry (`src/lib/financialSpreads/moodys/formulas/registry.ts`) are the single sources of truth. Never redefine a formula that already exists in a registry.
+- **No duplicate formulas.** The metric registry (`src/lib/metrics/registry.ts`) and standard formula registry (`src/lib/financialSpreads/standard/formulas/registry.ts`) are the single sources of truth. Never redefine a formula that already exists in a registry.
 - **Null propagation, not zero-fill.** If a metric input is missing, the output is `null`, not `0`. Downstream consumers handle nulls explicitly.
 
 ## Model Engine V2

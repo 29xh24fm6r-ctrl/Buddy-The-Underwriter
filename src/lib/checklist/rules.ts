@@ -73,9 +73,9 @@ export const RULESETS: ChecklistRuleSet[] = [
       },
       {
         checklist_key: "PROPERTY_T12",
-        title: "Trailing 12 Operating Statement",
+        title: "Property Operating Statement",
         required: false,
-        description: "T-12 operating statement for the property",
+        description: "Operating statement for the property",
       },
     ],
   },
@@ -94,9 +94,9 @@ export const RULESETS: ChecklistRuleSet[] = [
       },
       {
         checklist_key: "PROPERTY_T12",
-        title: "Trailing 12 Operating Statement",
+        title: "Property Operating Statement",
         required: true,
-        description: "T-12 operating statement for the property",
+        description: "Operating statement for the property",
       },
       {
         checklist_key: "LEASES_TOP",

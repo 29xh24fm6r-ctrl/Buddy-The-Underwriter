@@ -6,5 +6,5 @@ export default async function SpreadsIndex({
   params: Promise<{ dealId: string }>;
 }) {
   const { dealId } = await params;
-  redirect(`/deals/${dealId}/spreads/moodys`);
+  redirect(`/deals/${dealId}/spreads/standard`);
 }
