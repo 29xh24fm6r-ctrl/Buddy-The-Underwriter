@@ -34,7 +34,7 @@ test("SBA_7A EXISTING produces tax returns + financials + SBA forms", () => {
   assert.equal(btr.length, 3, "3 business tax return slots");
   assert.deepEqual(
     btr.map((s) => s.required_tax_year).sort(),
-    [2023, 2024, 2025],
+    [2022, 2023, 2024],
   );
 
   // Personal tax returns (3 years)

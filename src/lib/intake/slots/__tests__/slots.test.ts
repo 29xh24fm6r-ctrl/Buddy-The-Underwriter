@@ -30,11 +30,11 @@ test("ensureCoreDocumentSlots defines 11 baseline slots with correct structure",
     "Must export computeTaxYears",
   );
 
-  // Tax year computation lives in taxYears.ts (pure module)
+  // Tax year computation lives in taxYears.ts (pure module, filing-deadline-aware)
   const taxSrc = readFile("src/lib/intake/slots/taxYears.ts");
   assert.ok(
-    taxSrc.includes("currentYear - 1") && taxSrc.includes("currentYear - 2") && taxSrc.includes("currentYear - 3"),
-    "computeTaxYears must derive [year-1, year-2, year-3]",
+    taxSrc.includes("year - 1") && taxSrc.includes("year - 2") && taxSrc.includes("mostRecent"),
+    "computeTaxYears must derive filing-deadline-aware tax years",
   );
 
   // 3 business tax return slots
