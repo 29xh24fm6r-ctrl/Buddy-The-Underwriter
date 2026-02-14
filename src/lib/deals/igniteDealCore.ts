@@ -133,6 +133,20 @@ export async function igniteDeal(params: {
     return { ok: false, error: "checklist_seed_failed" } as const;
   }
 
+  // ── Step 1.5: Seed core document slots (Phase 15) ──────────────
+  try {
+    const { ensureCoreDocumentSlots } = await import(
+      "@/lib/intake/slots/ensureCoreDocumentSlots"
+    );
+    await ensureCoreDocumentSlots({ dealId, bankId });
+  } catch (slotErr: any) {
+    // Non-fatal: slots can be seeded later
+    console.warn("[igniteDeal] ensureCoreDocumentSlots failed (non-fatal)", {
+      dealId,
+      error: slotErr?.message,
+    });
+  }
+
   // ── Step 2: Advance lifecycle to "intake" (checklist is guaranteed) ──
   const { error: updErr } = await sb
     .from("deals")

@@ -143,6 +143,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       sha256,
       session_id,
       upload_session_id,
+      slot_id = null,
     } = body;
 
     const headerSessionId = req.headers.get("x-buddy-upload-session-id");
@@ -728,20 +729,53 @@ export async function POST(req: NextRequest, ctx: Context) {
     // The artifact processor (processArtifact.ts) handles:
     //   OCR → classify → stamp deal_documents → reconcile → recomputeReadiness
 
-    // ✅ 2) Queue for Magic Intake classification
+    // Phase 15: Attach document to slot (BEFORE queueArtifact so slot_id is set)
+    if (slot_id && documentId) {
+      try {
+        const { attachDocumentToSlot } = await import(
+          "@/lib/intake/slots/attachDocumentToSlot"
+        );
+        const attachResult = await attachDocumentToSlot({
+          dealId,
+          bankId,
+          slotId: slot_id,
+          documentId,
+          attachedByRole: "banker",
+          userId: userId ?? undefined,
+        });
+        if (!attachResult.ok) {
+          console.warn("[files/record] slot attachment failed", {
+            slot_id,
+            documentId,
+            error: attachResult.error,
+          });
+        }
+      } catch (slotErr: any) {
+        console.warn("[files/record] slot attachment threw (non-fatal)", {
+          slot_id,
+          documentId,
+          error: slotErr?.message,
+        });
+      }
+    }
+
+    // ✅ 2) Queue for Magic Intake classification (blocking — failures are observable)
+    let artifactQueued = false;
     if (documentId) {
-      queueArtifact({
-        dealId,
-        bankId,
-        sourceTable: "deal_documents",
-        sourceId: documentId,
-      }).catch((err) => {
-        console.warn("[files/record] queueArtifact failed (non-fatal)", {
+      try {
+        await queueArtifact({
+          dealId,
+          bankId,
+          sourceTable: "deal_documents",
+          sourceId: documentId,
+        });
+        artifactQueued = true;
+      } catch (err: any) {
+        console.error("[files/record] queueArtifact failed", {
           documentId,
           error: err?.message,
         });
-        // Emit ledger event so artifact queue failures are observable
-        logLedgerEvent({
+        await logLedgerEvent({
           dealId,
           bankId,
           eventKey: "artifact.queue.failed",
@@ -752,7 +786,20 @@ export async function POST(req: NextRequest, ctx: Context) {
             error: err?.message ?? String(err),
           },
         }).catch(() => {});
-      });
+
+        import("@/lib/aegis").then(({ writeSystemEvent }) =>
+          writeSystemEvent({
+            event_type: "error",
+            severity: "error",
+            source_system: "api",
+            deal_id: dealId,
+            bank_id: bankId,
+            error_code: "QUEUE_ARTIFACT_FAILED",
+            error_message: err?.message ?? "unknown",
+            payload: { documentId },
+          }),
+        ).catch(() => {});
+      }
 
       // Nudge artifact processor to drain queue (with retries; cron is safety net)
       const base = getBaseUrl();
@@ -837,7 +884,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       ok: true,
       file_id,
       checklist_key: checklist_key || null,
-      meta: { document_id: documentId },
+      meta: { document_id: documentId, artifactQueued, slot_id: slot_id ?? undefined },
     });
   } catch (error: any) {
     console.error("[files/record] uncaught exception", {

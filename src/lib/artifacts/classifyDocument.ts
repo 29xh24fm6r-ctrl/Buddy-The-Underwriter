@@ -36,6 +36,7 @@ const DOC_TYPES = [
   "INSURANCE",         // Insurance certificate / policy
   "APPRAISAL",         // Property appraisal
   "ENVIRONMENTAL",     // Environmental report (Phase I/II)
+  "BALANCE_SHEET",     // Balance sheet
   "SCHEDULE_OF_RE",    // Schedule of real estate owned
   "K1",                // Schedule K-1
   "W2",                // W-2 wage statement
@@ -102,7 +103,7 @@ const DOCAI_LABEL_MAP: Record<string, DocumentType> = {
   "operating_statement": "T12",
   "income_statement": "T12",
   "financial_statement": "T12",
-  "balance_sheet": "OTHER",
+  "balance_sheet": "BALANCE_SHEET",
   "bank_statement": "BANK_STATEMENT",
   "insurance_certificate": "INSURANCE",
   "appraisal": "APPRAISAL",
@@ -130,6 +131,7 @@ DOCUMENT TYPES (choose the most specific match):
 - PFS: Personal Financial Statement
 - RENT_ROLL: Rent roll showing tenants, units, rents
 - T12: Trailing 12-month operating statement / P&L
+- BALANCE_SHEET: Balance sheet / statement of financial position
 - BANK_STATEMENT: Bank account statement
 - ARTICLES: Articles of incorporation/organization
 - OPERATING_AGREEMENT: LLC operating agreement
@@ -459,6 +461,9 @@ export function mapDocTypeToChecklistKeys(
       break;
     case "T12":
       keys.push("PROPERTY_T12", "FIN_STMT_PL_YTD", "T12", "OPERATING_STATEMENT");
+      break;
+    case "BALANCE_SHEET":
+      keys.push("BALANCE_SHEET", "FIN_STMT_BS_YTD");
       break;
     case "BANK_STATEMENT":
       keys.push("BANK_STMT_3M", "BANK_STATEMENTS", "BANK_STATEMENT_3MO");

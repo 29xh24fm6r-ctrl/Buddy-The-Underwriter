@@ -37,6 +37,12 @@ type Body = {
   borrowerEmail?: string | null;
   borrowerPhone?: string | null;
   autoSeed?: boolean; // default true
+  // Phase 15B — scenario signals for deterministic slot generation
+  borrowerBusinessStage?: "EXISTING" | "STARTUP" | "ACQUISITION";
+  hasBusinessTaxReturns?: boolean;
+  hasFinancialStatements?: boolean;
+  hasProjections?: boolean;
+  entityAgeMonths?: number;
 };
 
 export async function POST(
@@ -174,6 +180,41 @@ export async function POST(
         },
         { status: 500 },
       );
+    }
+
+    // Phase 15B: Upsert intake scenario + regenerate deterministic slots
+    try {
+      const scenarioRow = {
+        deal_id: dealId,
+        bank_id: bankId,
+        product_type: loanType,
+        borrower_business_stage: body?.borrowerBusinessStage ?? "EXISTING",
+        has_business_tax_returns: body?.hasBusinessTaxReturns ?? true,
+        has_financial_statements: body?.hasFinancialStatements ?? true,
+        has_projections: body?.hasProjections ?? false,
+        entity_age_months: body?.entityAgeMonths ?? null,
+      };
+      await withTimeout(
+        (sb as any)
+          .from("deal_intake_scenario")
+          .upsert(scenarioRow, { onConflict: "deal_id" }),
+        10_000,
+        "upsert_intake_scenario",
+      );
+
+      const { ensureDeterministicSlotsForScenario } = await import(
+        "@/lib/intake/slots/ensureDeterministicSlots"
+      );
+      await withTimeout(
+        ensureDeterministicSlotsForScenario({ dealId, bankId }),
+        15_000,
+        "ensure_deterministic_slots",
+      );
+    } catch (scenarioErr: any) {
+      console.warn("[intake/set] scenario + slot regen failed (non-fatal)", {
+        dealId,
+        error: scenarioErr?.message,
+      });
     }
 
     // Create phone link if borrower phone provided

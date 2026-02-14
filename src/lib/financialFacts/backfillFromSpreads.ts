@@ -876,6 +876,11 @@ export async function backfillCanonicalFactsFromSpreads(args: {
       else notes.push(`fact_upsert_failed:${r?.error ?? "unknown"}`);
     }
 
+    // If we attempted writes but ALL failed, report as error (not false green)
+    if (writes.length > 0 && factsWritten === 0) {
+      return { ok: false as const, error: `All ${writes.length} fact writes failed` };
+    }
+
     return { ok: true, factsWritten, notes };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

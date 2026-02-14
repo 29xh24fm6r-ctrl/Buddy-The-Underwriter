@@ -168,7 +168,8 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       const preflightRetries = typeof jobMeta.preflight_retries === "number" ? jobMeta.preflight_retries : 0;
 
       if (preflightRetries < 5) {
-        const nextRunAt = new Date(Date.now() + 30_000).toISOString();
+        const backoffMs = Math.min(15_000 * Math.pow(2, preflightRetries), 120_000);
+        const nextRunAt = new Date(Date.now() + backoffMs).toISOString();
         await (sb as any)
           .from("deal_spread_jobs")
           .update({
@@ -491,14 +492,32 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     const attemptedCount = readyTypes.length;
 
     if (renderedCount === 0) {
-      await (sb as any)
+      const { data: failData, count: failCount } = await (sb as any)
         .from("deal_spread_jobs")
         .update({
           status: "FAILED",
           error: `NO_SPREADS_RENDERED: ${skippedMissingTemplate} missing template, ${skippedMissingPlaceholder} missing placeholder, ${skippedPrereqs} prereqs not met`,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", jobId);
+        .eq("id", jobId)
+        .eq("status", "RUNNING")
+        .eq("lease_owner", leaseOwner)
+        .select("id", { count: "exact", head: true });
+
+      if ((failCount ?? failData?.length ?? 0) === 0) {
+        writeSystemEvent({
+          event_type: "warning",
+          severity: "warning",
+          source_system: "spreads_processor",
+          source_job_id: jobId,
+          source_job_table: "deal_spread_jobs",
+          deal_id: dealId,
+          bank_id: bankId,
+          error_code: "SPREAD_JOB_COMPLETION_CAS_REJECTED",
+          error_message: "CAS rejected: job no longer RUNNING or not owned by this lease",
+          payload: { jobId, leaseOwner },
+        }).catch(() => {});
+      }
 
       writeSystemEvent({
         event_type: "warning",
@@ -522,7 +541,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         },
       }).catch(() => {});
     } else {
-      await (sb as any)
+      const { data: succData, count: succCount } = await (sb as any)
         .from("deal_spread_jobs")
         .update({
           status: "SUCCEEDED",
@@ -531,7 +550,25 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
             ? `Partial: ${renderedCount}/${attemptedCount} types rendered`
             : null,
         })
-        .eq("id", jobId);
+        .eq("id", jobId)
+        .eq("status", "RUNNING")
+        .eq("lease_owner", leaseOwner)
+        .select("id", { count: "exact", head: true });
+
+      if ((succCount ?? succData?.length ?? 0) === 0) {
+        writeSystemEvent({
+          event_type: "warning",
+          severity: "warning",
+          source_system: "spreads_processor",
+          source_job_id: jobId,
+          source_job_table: "deal_spread_jobs",
+          deal_id: dealId,
+          bank_id: bankId,
+          error_code: "SPREAD_JOB_COMPLETION_CAS_REJECTED",
+          error_message: "CAS rejected: job no longer RUNNING or not owned by this lease",
+          payload: { jobId, leaseOwner },
+        }).catch(() => {});
+      }
 
       if (renderedCount < attemptedCount) {
         writeSystemEvent({
@@ -586,6 +623,15 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
   } catch (e: any) {
     const errMsg = String(e?.message ?? e);
 
+    // Fix 6: Permanent error pruning — no retries for known-unrecoverable errors
+    const PERMANENT_ERRORS = new Set([
+      "TEMPLATE_NOT_FOUND",
+      "SCHEMA_VALIDATION_FAILED",
+      "UNKNOWN_SPREAD_TYPE",
+    ]);
+    const spreadErrorCode = classifySpreadError(e);
+    const isPermanent = PERMANENT_ERRORS.has(spreadErrorCode);
+
     const { data: cur } = await (sb as any)
       .from("deal_spread_jobs")
       .select("attempt, max_attempts")
@@ -595,13 +641,13 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     const attempt = Number(cur?.attempt ?? 0) + 1;
     const maxAttempts = Number(cur?.max_attempts ?? 3);
 
-    if (attempt >= maxAttempts) {
+    if (isPermanent || attempt >= maxAttempts) {
       await (sb as any)
         .from("deal_spread_jobs")
         .update({
           status: "FAILED",
           attempt,
-          error: errMsg,
+          error: isPermanent ? `PERMANENT: ${errMsg}` : errMsg,
           updated_at: new Date().toISOString(),
         })
         .eq("id", jobId);

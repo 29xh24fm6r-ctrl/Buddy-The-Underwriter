@@ -124,12 +124,14 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
   let lastError: any = null;
   const tried: string[] = [];
 
+  const OCR_TIMEOUT_MS = 120_000; // 120s per model attempt
+
   for (const modelName of modelCandidates) {
     tried.push(modelName);
 
     try {
       const model = vertexAI.getGenerativeModel({ model: modelName });
-      const resp = await model.generateContent({
+      const generatePromise = model.generateContent({
         contents: [
           {
             role: "user",
@@ -145,6 +147,16 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
           },
         ],
       });
+
+      const resp = await Promise.race([
+        generatePromise,
+        new Promise<never>((_resolve, reject) =>
+          setTimeout(
+            () => reject(new Error(`OCR timeout after ${OCR_TIMEOUT_MS / 1000}s (model: ${modelName})`)),
+            OCR_TIMEOUT_MS,
+          ),
+        ),
+      ]);
 
       const parts = (resp as any)?.response?.candidates?.[0]?.content?.parts ?? [];
       const textRaw =
@@ -170,8 +182,9 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
     } catch (e: any) {
       lastError = e;
 
-      if (isVertexModelNotFoundError(e)) {
-        console.warn("[GeminiOCR] Model unavailable, trying next", {
+      const isTimeout = e?.message?.includes("OCR timeout");
+      if (isVertexModelNotFoundError(e) || isTimeout) {
+        console.warn(`[GeminiOCR] ${isTimeout ? "Timeout" : "Model unavailable"}, trying next`, {
           fileName,
           model: modelName,
           elapsed_ms: Date.now() - started,

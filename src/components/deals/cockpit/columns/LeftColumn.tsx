@@ -1,6 +1,7 @@
 "use client";
 
 import { SafeBoundary } from "@/components/SafeBoundary";
+import { CoreDocumentsPanel } from "../panels/CoreDocumentsPanel";
 import { ArtifactPipelinePanel } from "../panels/ArtifactPipelinePanel";
 import DealFilesCard from "@/components/deals/DealFilesCard";
 
@@ -11,6 +12,9 @@ type Props = {
 export function LeftColumn({ dealId }: Props) {
   return (
     <div className="space-y-4">
+      <SafeBoundary>
+        <CoreDocumentsPanel dealId={dealId} />
+      </SafeBoundary>
       <SafeBoundary>
         <ArtifactPipelinePanel dealId={dealId} />
       </SafeBoundary>

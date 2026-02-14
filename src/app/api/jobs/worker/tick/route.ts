@@ -10,6 +10,7 @@ import { withBuddyGuard, sendHeartbeat } from "@/lib/aegis";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300; // 5 min (3 min lease + buffer)
 
 /**
  * POST /api/jobs/worker/tick
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
   }
 
   const batchParam = url.searchParams.get("batch_size");
-  const defaultBatch = type === "SPREADS" ? 3 : 1;
+  const defaultBatch = type === "SPREADS" ? 1 : 1;
   const batchSize = Math.min(10, Math.max(1, Number(batchParam ?? String(defaultBatch))));
 
   const leaseOwner = `worker-${Date.now()}`;

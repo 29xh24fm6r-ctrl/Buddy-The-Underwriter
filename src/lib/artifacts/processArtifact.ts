@@ -51,6 +51,50 @@ type OcrResult =
 // Use shared canonical mapping (replaces inline duplicate).
 import { spreadsForDocType as spreadsForArtifactDocType } from "@/lib/financialSpreads/docTypeToSpreadTypes";
 
+// ---------------------------------------------------------------------------
+// Extract eligibility — canonical doc types only, no synonyms
+// ---------------------------------------------------------------------------
+
+const EXTRACT_ELIGIBLE_DOC_TYPES = new Set([
+  "BUSINESS_TAX_RETURN",
+  "PERSONAL_TAX_RETURN",
+  "INCOME_STATEMENT",
+  "BALANCE_SHEET",
+  "RENT_ROLL",
+  "PERSONAL_FINANCIAL_STATEMENT",
+  "PERSONAL_INCOME",
+  "SCHEDULE_K1",
+]);
+
+function isExtractEligibleDocType(docType: string): boolean {
+  return EXTRACT_ELIGIBLE_DOC_TYPES.has(docType);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 15 — Slot-aware doc type lookup
+// ---------------------------------------------------------------------------
+
+async function lookupSlotDocType(
+  sb: ReturnType<typeof supabaseAdmin>,
+  documentId: string,
+): Promise<string | null> {
+  const { data: doc } = await sb
+    .from("deal_documents")
+    .select("slot_id")
+    .eq("id", documentId)
+    .maybeSingle();
+
+  if (!doc?.slot_id) return null;
+
+  const { data: slot } = await (sb as any)
+    .from("deal_document_slots")
+    .select("required_doc_type")
+    .eq("id", doc.slot_id)
+    .maybeSingle();
+
+  return slot?.required_doc_type ?? null;
+}
+
 /**
  * Run OCR directly on a document (bypasses document_jobs lookup).
  * This is a streamlined version for the artifact processor.
@@ -884,7 +928,122 @@ export async function processArtifact(
       }
     }
 
+    // 6.5-slot. Validate slot attachment (if any) — Phase 15
+    if (source_table === "deal_documents") {
+      try {
+        const { validateSlotAttachmentIfAny } = await import(
+          "@/lib/intake/slots/validateSlotAttachment"
+        );
+        const slotResult = await validateSlotAttachmentIfAny({
+          documentId: source_id,
+          classifiedDocType:
+            typingResult?.effective_doc_type ?? classification.docType,
+          classifiedTaxYear: classification.taxYear ?? null,
+        });
+        if (slotResult) {
+          await logLedgerEvent({
+            dealId,
+            bankId,
+            eventKey: slotResult.validated
+              ? "slot.validation.passed"
+              : "slot.validation.rejected",
+            uiState: slotResult.validated ? "done" : "error",
+            uiMessage: slotResult.validated
+              ? "Slot validation passed"
+              : `Slot validation rejected: ${slotResult.reason}`,
+            meta: {
+              artifactId,
+              documentId: source_id,
+              slotId: slotResult.slotId,
+              reason: slotResult.reason,
+            },
+          });
+        }
+      } catch (slotErr: any) {
+        console.warn("[processArtifact] slot validation failed (non-fatal)", {
+          source_id,
+          error: slotErr?.message,
+        });
+      }
+    }
+
+    // 6.5a. Structured extraction (writes document_extracts for deterministic extractors)
+    // Phase 15: Slot-attached docs use slot's required_doc_type (deterministic routing)
+    if (source_table === "deal_documents") {
+      let effectiveDocType: string =
+        typingResult?.effective_doc_type ?? classification.docType;
+
+      const slotDocType = await lookupSlotDocType(sb, source_id);
+      if (slotDocType) {
+        effectiveDocType = slotDocType;
+      }
+
+      if (effectiveDocType && isExtractEligibleDocType(effectiveDocType)) {
+        try {
+          const { extractByDocType } = await import(
+            "@/lib/extract/router/extractByDocType"
+          );
+
+          const extractResult = await extractByDocType(source_id);
+
+          // Persist extraction result to document_extracts (mirrors extractProcessor)
+          const extractSb = supabaseAdmin();
+          await (extractSb as any).from("document_extracts").upsert(
+            {
+              deal_id: dealId,
+              attachment_id: source_id,
+              provider: extractResult.provider_metrics?.provider || "smart_router",
+              status: "SUCCEEDED",
+              fields_json: extractResult.result.fields,
+              tables_json: extractResult.result.tables,
+              evidence_json: extractResult.result.evidence,
+              provider_metrics: extractResult.provider_metrics,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "attachment_id" },
+          );
+
+          await logLedgerEvent({
+            dealId,
+            bankId,
+            eventKey: "extraction.completed",
+            uiState: "done",
+            uiMessage: `Extraction completed (${extractResult.provider_metrics?.provider ?? "unknown"})`,
+            meta: {
+              artifactId,
+              documentId: source_id,
+              provider: extractResult.provider_metrics?.provider,
+              docType: effectiveDocType,
+            },
+          });
+        } catch (extractErr: any) {
+          await logLedgerEvent({
+            dealId,
+            bankId,
+            eventKey: "extraction.failed",
+            uiState: "error",
+            uiMessage: `Extraction failed: ${extractErr?.message ?? "unknown"}`,
+            meta: { artifactId, documentId: source_id, docType: effectiveDocType },
+          });
+
+          import("@/lib/aegis").then(({ writeSystemEvent }) =>
+            writeSystemEvent({
+              event_type: "error",
+              severity: "error",
+              source_system: "artifact_processor",
+              deal_id: dealId,
+              bank_id: bankId,
+              error_code: "DOCUMENT_EXTRACT_FAILED",
+              error_message: extractErr?.message ?? "unknown",
+              payload: { artifactId, documentId: source_id, docType: effectiveDocType },
+            }),
+          ).catch(() => {});
+        }
+      }
+    }
+
     // 6.5b. Materialize anchoring facts for financial documents (breaks NO_FACTS deadlock)
+    let factsReady = false;
     try {
       const { materializeFactsFromArtifacts } = await import(
         "@/lib/financialFacts/materializeFactsFromArtifacts"
@@ -896,19 +1055,22 @@ export async function processArtifact(
           bankId,
           error: (matResult as any).error,
         });
-      } else if (matResult.factsWritten > 0) {
-        await logLedgerEvent({
-          dealId,
-          bankId,
-          eventKey: "facts.materialization.from_docs.completed",
-          uiState: "done",
-          uiMessage: `${matResult.factsWritten} anchor fact(s) materialized from classified documents`,
-          meta: {
-            factsWritten: matResult.factsWritten,
-            docsConsidered: matResult.docsConsidered,
-            trigger: "artifact_processor",
-          },
-        });
+      } else {
+        factsReady = matResult.factsWritten > 0;
+        if (matResult.factsWritten > 0) {
+          await logLedgerEvent({
+            dealId,
+            bankId,
+            eventKey: "facts.materialization.from_docs.completed",
+            uiState: "done",
+            uiMessage: `${matResult.factsWritten} anchor fact(s) materialized from classified documents`,
+            meta: {
+              factsWritten: matResult.factsWritten,
+              docsConsidered: matResult.docsConsidered,
+              trigger: "artifact_processor",
+            },
+          });
+        }
       }
     } catch (matErr: any) {
       console.warn("[processArtifact] materializeFactsFromArtifacts threw", {
@@ -917,12 +1079,30 @@ export async function processArtifact(
       });
     }
 
-    // 6.5c. Enqueue financial spread recompute (never block the artifact pipeline)
+    // 6.5c. Enqueue financial spread recompute — gated on facts being ready
     let spreadEnqueueResult: any = null;
-    try {
-      const docType = (typingResult.effective_doc_type ?? typingResult.canonical_type ?? "")
-        .trim()
-        .toUpperCase();
+    if (!factsReady) {
+      await logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "spread.enqueue.skipped_no_facts",
+        uiState: "done",
+        uiMessage: "Spread enqueue skipped (no facts materialized yet)",
+        meta: { artifactId, documentId: source_id },
+      });
+    }
+
+    if (factsReady) try {
+      // Phase 15: slot doc type takes priority for spread routing
+      const slotDocTypeForSpreads = source_table === "deal_documents"
+        ? await lookupSlotDocType(sb, source_id)
+        : null;
+      const docType = (
+        slotDocTypeForSpreads ??
+        typingResult.effective_doc_type ??
+        typingResult.canonical_type ??
+        ""
+      ).trim().toUpperCase();
       const spreadTypes = spreadsForArtifactDocType(docType);
       if (spreadTypes.length > 0) {
         const { enqueueSpreadRecompute } = await import(

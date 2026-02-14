@@ -64,6 +64,7 @@ type KeywordRule = {
 const KEYWORD_RULES: KeywordRule[] = [
   { pattern: /rent\s+roll/i, docType: "RENT_ROLL", entityType: null },
   { pattern: /trailing\s+12|operating\s+statement|income\s*(and|&|\/)?\s*expense/i, docType: "T12", entityType: null },
+  { pattern: /balance\s+sheet|statement\s+of\s+financial\s+position/i, docType: "BALANCE_SHEET", entityType: null },
   { pattern: /personal\s+financial\s+statement/i, docType: "PFS", entityType: "personal" },
   { pattern: /articles\s+of\s+(incorporation|organization)/i, docType: "ARTICLES", entityType: "business" },
   { pattern: /certificate\s+of\s+insurance|insurance\s+certificate/i, docType: "INSURANCE", entityType: null },
@@ -91,6 +92,7 @@ const FILENAME_RULES: FilenameRule[] = [
   { pattern: /1120|1065/i, docType: "IRS_BUSINESS", entityType: "business" },
   { pattern: /rent.?roll/i, docType: "RENT_ROLL", entityType: null },
   { pattern: /t12|operating.?statement/i, docType: "T12", entityType: null },
+  { pattern: /balance.?sheet/i, docType: "BALANCE_SHEET", entityType: null },
   { pattern: /pfs|personal.?financial/i, docType: "PFS", entityType: "personal" },
   { pattern: /k-?1/i, docType: "K1", entityType: "business" },
   { pattern: /w-?2/i, docType: "W2", entityType: "personal" },

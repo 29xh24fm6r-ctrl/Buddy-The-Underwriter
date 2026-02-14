@@ -41,6 +41,7 @@ export interface DirectUploadArgs {
   checklistKey?: string | null;
   source?: string;
   packId?: string | null;
+  slotId?: string | null;
   requestId?: string;
   onStage?: (stage: string, meta?: Record<string, unknown>) => void;
 }
@@ -211,7 +212,7 @@ async function fetchWithTimeout(
 export async function directDealDocumentUpload(
   args: DirectUploadArgs,
 ): Promise<UploadResult> {
-  const { dealId, file, checklistKey = null, source = "internal", packId = null } = args;
+  const { dealId, file, checklistKey = null, source = "internal", packId = null, slotId = null } = args;
   const requestId = args.requestId ?? generateRequestId();
   const onStage = args.onStage;
 
@@ -347,6 +348,7 @@ export async function directDealDocumentUpload(
           checklist_key: checklistKey,
           source,
           pack_id: packId,
+          slot_id: slotId ?? undefined,
         }),
       },
       30_000,
