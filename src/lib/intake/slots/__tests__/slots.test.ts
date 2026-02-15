@@ -107,21 +107,32 @@ test("migration adds slot_id column to deal_documents", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. processArtifact has slot-aware routing
+// 3. processArtifact routing — gatekeeper drives, slots are telemetry only
 // ---------------------------------------------------------------------------
 
-test("processArtifact uses slot doc type before classification-based routing", () => {
+test("processArtifact keeps lookupSlotDocType for telemetry but never uses it for routing", () => {
   const src = readFile("src/lib/artifacts/processArtifact.ts");
 
-  // lookupSlotDocType must be called BEFORE effectiveDocType is used
-  const lookupIdx = src.indexOf("lookupSlotDocType");
-  const extractIdx = src.indexOf("isExtractEligibleDocType(effectiveDocType)");
-
-  assert.ok(lookupIdx > 0, "lookupSlotDocType must be in processArtifact");
-  assert.ok(extractIdx > 0, "isExtractEligibleDocType must be in processArtifact");
+  // lookupSlotDocType still exists (for shadow comparison / telemetry)
   assert.ok(
-    lookupIdx < extractIdx,
-    "lookupSlotDocType must come BEFORE isExtractEligibleDocType",
+    src.includes("lookupSlotDocType"),
+    "lookupSlotDocType must still exist for telemetry",
+  );
+
+  // effectiveDocType must NEVER be assigned from slotDocType
+  assert.ok(
+    !src.includes("effectiveDocType = slotDocType"),
+    "effectiveDocType must NOT be assigned from slotDocType",
+  );
+  assert.ok(
+    !src.includes("effectiveDocType = slotDoc"),
+    "effectiveDocType must NOT be derived from slot doc type",
+  );
+
+  // Gatekeeper drives routing (mapGatekeeperDocTypeToEffectiveDocType present)
+  assert.ok(
+    src.includes("mapGatekeeperDocTypeToEffectiveDocType"),
+    "Gatekeeper mapping must drive effectiveDocType",
   );
 });
 
@@ -143,10 +154,10 @@ test("processArtifact validates slot attachment after stamp", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. validateSlotAttachment checks type + year
+// 4. validateSlotAttachment — informational only, never rejects
 // ---------------------------------------------------------------------------
 
-test("validateSlotAttachment checks doc type and year match", () => {
+test("validateSlotAttachment checks doc type and year, never rejects", () => {
   const src = readFile("src/lib/intake/slots/validateSlotAttachment.ts");
 
   assert.ok(
@@ -161,13 +172,23 @@ test("validateSlotAttachment checks doc type and year match", () => {
     src.includes('"validated"'),
     "Must set status to validated on match",
   );
+  // Mismatch produces informational status, never "rejected"
   assert.ok(
-    src.includes('"rejected"'),
-    "Must set status to rejected on mismatch",
+    !src.includes('status: "rejected"') && !src.includes("status: 'rejected'"),
+    "Must NEVER set status to rejected — slots are informational only",
+  );
+  assert.ok(
+    src.includes("mismatch_info"),
+    "Mismatch must produce informational mismatch_info reason",
   );
   assert.ok(
     src.includes("validation_reason"),
-    "Must set validation_reason on rejection",
+    "Must set validation_reason on mismatch",
+  );
+  // Never returns validated: false
+  assert.ok(
+    !src.includes("validated: false"),
+    "Must NEVER return validated: false — slots never reject",
   );
 });
 
@@ -275,19 +296,23 @@ test("igniteDeal calls ensureCoreDocumentSlots during bootstrap", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 9. Slot-aware spread routing
+// 9. Spread routing — gatekeeper or classifier, never slot
 // ---------------------------------------------------------------------------
 
-test("processArtifact uses slot doc type for spread routing", () => {
+test("processArtifact spread routing uses gatekeeper, not slot doc type", () => {
   const src = readFile("src/lib/artifacts/processArtifact.ts");
 
-  // The spread enqueue section must also reference lookupSlotDocType
+  // The spread enqueue section must use gatekeeper mapping, not slotDocType
   const spreadSection = src.slice(
     src.indexOf("6.5c. Enqueue financial spread"),
   );
   assert.ok(
-    spreadSection.includes("slotDocType") || spreadSection.includes("lookupSlotDocType"),
-    "Spread enqueue section must use slot doc type",
+    spreadSection.includes("mapGatekeeperDocTypeToEffectiveDocType"),
+    "Spread section must use gatekeeper mapping for doc type",
+  );
+  assert.ok(
+    !spreadSection.includes("slotDocTypeForSpreads"),
+    "Spread section must NOT use slotDocTypeForSpreads",
   );
 });
 

@@ -139,7 +139,7 @@ type BadgeColor = "gray" | "amber" | "blue" | "emerald" | "red";
 
 function statusBadgeColor(slot: Slot): BadgeColor {
   if (slot.status === "empty") return "gray";
-  if (slot.status === "rejected") return "red";
+  if (slot.status === "rejected") return "amber"; // informational mismatch, not error
   if (slot.status === "validated" || slot.status === "completed") return "emerald";
 
   // "attached" — check if still processing
@@ -150,7 +150,7 @@ function statusBadgeColor(slot: Slot): BadgeColor {
 
 function statusLabel(slot: Slot): string {
   if (slot.status === "empty") return "Empty";
-  if (slot.status === "rejected") return "Rejected";
+  if (slot.status === "rejected") return "Mismatch"; // informational, not rejection
   if (slot.status === "validated") return "Validated";
   if (slot.status === "completed") return "Completed";
 
@@ -610,11 +610,19 @@ function SlotRow({
           </Link>
         )}
 
-        {/* Rejection reason */}
+        {/* Mismatch info (informational, not error) */}
         {slot.status === "rejected" && slot.validation_reason && (
-          <p className="text-xs text-red-400/80 mt-0.5">
-            {slot.validation_reason}
+          <p className="text-xs text-amber-400/80 mt-0.5">
+            {slot.validation_reason.replace("mismatch_info: ", "")}
           </p>
+        )}
+
+        {/* Gatekeeper detected type differs from slot requirement */}
+        {hasDoc?.gatekeeper_doc_type && slot.required_doc_type &&
+          hasDoc.gatekeeper_doc_type.toUpperCase() !== slot.required_doc_type.toUpperCase() && (
+          <span className="text-[10px] text-amber-400/60 mt-0.5 block">
+            Detected: {hasDoc.gatekeeper_doc_type.replace(/_/g, " ")}
+          </span>
         )}
 
         {/* Help reason (Phase 15B) */}

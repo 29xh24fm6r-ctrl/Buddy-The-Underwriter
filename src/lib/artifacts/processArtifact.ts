@@ -23,7 +23,7 @@ import { isExtractionErrorPayload, extractErrorMessage } from "./extractionError
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
-import { isGatekeeperInlineEnabled, isGatekeeperShadowCompareEnabled, isGatekeeperPrimaryRoutingEnabled } from "@/lib/flags/openaiGatekeeper";
+import { isGatekeeperInlineEnabled } from "@/lib/flags/openaiGatekeeper";
 
 export type ProcessArtifactResult = {
   ok: boolean;
@@ -1014,13 +1014,12 @@ export async function processArtifact(
       gatekeeper_confidence: number | null;
       gatekeeper_needs_review: boolean | null;
     } | null = null;
-    let slotDocType: string | null = null;
-    const gkPrimary = isGatekeeperPrimaryRoutingEnabled();
+    const slotDocType: string | null = source_table === "deal_documents"
+      ? await lookupSlotDocType(sb, source_id)
+      : null;
     let gkBlockedByReview = false;
 
     if (source_table === "deal_documents") {
-      slotDocType = await lookupSlotDocType(sb, source_id);
-
       try {
         const { data } = await (sb as any)
           .from("deal_documents")
@@ -1038,24 +1037,25 @@ export async function processArtifact(
       let effectiveDocType: string =
         typingResult?.effective_doc_type ?? classification.docType;
 
-      if (gkPrimary && gkCols) {
-        // ── NEEDS_REVIEW = hard block (fail-closed, no slot fallback) ──
+      // Gatekeeper drives routing — slots NEVER override effectiveDocType
+      if (gkCols) {
+        // ── NEEDS_REVIEW = hard block (fail-closed) ──
         if (
           gkCols.gatekeeper_needs_review === true ||
           gkCols.gatekeeper_route === "NEEDS_REVIEW"
         ) {
           gkBlockedByReview = true;
 
-          console.log("[processArtifact] NEEDS_REVIEW hard block — no extraction, no slot fallback", {
+          console.log("[processArtifact] NEEDS_REVIEW hard block — no extraction", {
             artifactId, documentId: source_id, gatekeeperRoute: gkCols.gatekeeper_route,
           });
 
           logLedgerEvent({
             dealId,
             bankId,
-            eventKey: "gatekeeper.primary_routing.blocked_by_review",
+            eventKey: "gatekeeper.routing.blocked_by_review",
             uiState: "waiting",
-            uiMessage: "Extraction blocked: gatekeeper NEEDS_REVIEW (no fallback)",
+            uiMessage: "Extraction blocked: gatekeeper NEEDS_REVIEW",
             meta: {
               document_id: source_id,
               gatekeeper_route: gkCols.gatekeeper_route,
@@ -1072,40 +1072,13 @@ export async function processArtifact(
             gkCols.gatekeeper_doc_type as any,
           );
           effectiveDocType = gkEffective;
-
-          // Log when slot would have produced a different type
-          if (slotDocType && slotDocType !== gkEffective) {
-            logLedgerEvent({
-              dealId,
-              bankId,
-              eventKey: "gatekeeper.primary_routing.ignored_slot_override",
-              uiState: "done",
-              uiMessage: `Slot override ignored: slot=${slotDocType}, gatekeeper=${gkEffective}`,
-              meta: {
-                document_id: source_id,
-                slot_doc_type: slotDocType,
-                gatekeeper_doc_type: gkCols.gatekeeper_doc_type,
-                gatekeeper_effective: gkEffective,
-              },
-            }).catch(() => {});
-          }
         }
-        // If gatekeeper_doc_type is null but not NEEDS_REVIEW, fall through to
-        // classifier-based effectiveDocType (no slot override under gkPrimary).
-      } else if (!gkPrimary) {
-        // ── Legacy behavior: slot overrides effectiveDocType ──
-        if (slotDocType) {
-          effectiveDocType = slotDocType;
-        }
+        // else: gatekeeper present but no doc_type → classifier-derived effectiveDocType stands
       }
-      // else: gkPrimary=true but gkCols=null → fallback to classifier + slot
-      // (gatekeeper absent, pre-inline or env without gatekeeper)
-      if (gkPrimary && !gkCols && slotDocType) {
-        effectiveDocType = slotDocType;
-      }
+      // No slot override. No slot fallback. Classifier-derived effectiveDocType stands if gatekeeper absent.
 
-      // ── Shadow routing comparison — log divergence, do NOT change routing ──
-      if (isGatekeeperShadowCompareEnabled() && gkCols) {
+      // ── Shadow routing comparison — always log when gatekeeper data present ──
+      if (gkCols) {
         try {
           const { computeShadowRoutingComparison } = await import(
             "@/lib/gatekeeper/shadowRouting"
@@ -1261,30 +1234,18 @@ export async function processArtifact(
     }
 
     if (factsReady && !gkBlockedByReview) try {
-      // Spread routing: gatekeeper-first when flag is on
+      // Spread routing: gatekeeper drives, classifier fallback (slots never override)
       let docType: string;
-      if (gkPrimary && gkCols?.gatekeeper_doc_type && gkCols.gatekeeper_route !== "NEEDS_REVIEW") {
+      if (gkCols?.gatekeeper_doc_type && gkCols.gatekeeper_route !== "NEEDS_REVIEW") {
         const { mapGatekeeperDocTypeToEffectiveDocType } = await import(
           "@/lib/gatekeeper/routing"
         );
         docType = mapGatekeeperDocTypeToEffectiveDocType(
           gkCols.gatekeeper_doc_type as any,
         ).trim().toUpperCase();
-      } else if (!gkPrimary) {
-        // Legacy: slot doc type takes priority for spread routing
-        const slotDocTypeForSpreads = source_table === "deal_documents"
-          ? slotDocType
-          : null;
-        docType = (
-          slotDocTypeForSpreads ??
-          typingResult.effective_doc_type ??
-          typingResult.canonical_type ??
-          ""
-        ).trim().toUpperCase();
       } else {
-        // gkPrimary=true but gatekeeper absent → fallback with slot
+        // Classifier-derived fallback (no slot override)
         docType = (
-          slotDocType ??
           typingResult.effective_doc_type ??
           typingResult.canonical_type ??
           ""
