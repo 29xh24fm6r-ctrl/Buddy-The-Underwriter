@@ -5,6 +5,7 @@ import { seedIntakePrereqsCore } from "@/lib/intake/seedIntakePrereqsCoreImpl";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { normalizeGoogleError } from "@/lib/google/errors";
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
+import { isOpenAiGatekeeperEnabled } from "@/lib/flags/openaiGatekeeper";
 import { classifyDocument } from "@/lib/intelligence/classifyDocument";
 import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
 import { extractBorrowerFromDocs } from "@/lib/borrower/extractBorrowerFromDocs";
@@ -172,6 +173,34 @@ export async function orchestrateIntake(args: {
     });
 
     return seed?.stage ?? "seeded";
+  });
+
+  await step("gatekeeper_classify", async () => {
+    if (!isOpenAiGatekeeperEnabled()) return "skipped_or_disabled";
+    const { runGatekeeperBatch } = await import("@/lib/gatekeeper/runGatekeeperBatch");
+    const batch = await runGatekeeperBatch({
+      dealId: args.dealId,
+      bankId: args.bankId,
+    });
+    if (batch.total === 0) return "no_docs";
+
+    await logLedgerOnce({
+      sb,
+      dealId: args.dealId,
+      bankId: args.bankId,
+      eventKey: "deal.gatekeeper.completed",
+      uiMessage: `Gatekeeper classified ${batch.classified}/${batch.total} documents`,
+      meta: {
+        source,
+        total: batch.total,
+        classified: batch.classified,
+        cached: batch.cached,
+        needs_review: batch.needs_review,
+        errors: batch.errors,
+      },
+    });
+
+    return `classified_${batch.classified}_of_${batch.total}`;
   });
 
   await step("classify_documents", async () => {

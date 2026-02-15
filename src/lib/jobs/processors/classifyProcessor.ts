@@ -47,7 +47,7 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
     try {
       const docRes = await (supabase as any)
         .from("deal_documents")
-        .select("id, bank_id, original_filename, document_type, doc_year, doc_years")
+        .select("id, bank_id, original_filename, document_type, doc_year, doc_years, match_source, finalized_at, gatekeeper_classified_at, gatekeeper_route, gatekeeper_doc_type")
         .eq("deal_id", args.dealId)
         .eq("id", args.attachmentId)
         .maybeSingle();
@@ -96,9 +96,35 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
 
       // Resolve canonical_type + routing_class from the best available type.
       const resolvedType = (docRes.data as any)?.document_type ?? nextType;
-      const { canonical_type, routing_class } = resolveDocTypeRouting(
+      let { canonical_type, routing_class } = resolveDocTypeRouting(
         String(args.classifierDocType || resolvedType || ""),
       );
+
+      // If gatekeeper already classified AND doc is not manually classified or finalized,
+      // use gatekeeper hints for canonical_type/routing_class when our own resolve is weak.
+      const gkClassifiedAt = (docRes.data as any)?.gatekeeper_classified_at;
+      const gkRoute = (docRes.data as any)?.gatekeeper_route;
+      const gkDocType = (docRes.data as any)?.gatekeeper_doc_type;
+      const matchSource = (docRes.data as any)?.match_source;
+      const finalizedAt = (docRes.data as any)?.finalized_at;
+
+      if (
+        gkClassifiedAt &&
+        gkDocType &&
+        (gkRoute === "GOOGLE_DOC_AI_CORE" || gkRoute === "STANDARD") &&
+        matchSource !== "manual" &&
+        !finalizedAt &&
+        canonical_type === "OTHER"
+      ) {
+        try {
+          const { mapGatekeeperToCanonicalHint } = await import("@/lib/gatekeeper/routing");
+          const hint = mapGatekeeperToCanonicalHint(gkDocType);
+          canonical_type = hint.canonical_type_hint as any;
+          routing_class = hint.routing_class_hint as any;
+        } catch {
+          // Non-fatal — gatekeeper hint import failed, use default resolve
+        }
+      }
 
       const attempt1 = await (supabase as any)
         .from("deal_documents")
@@ -240,9 +266,25 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
       console.error("Condition reconciliation failed (non-fatal):", reconErr);
     }
 
-    // Enqueue extraction job (Smart Router will route to DocAI or Gemini OCR)
+    // Enqueue extraction job — but respect gatekeeper routing
     try {
-      await enqueueExtractJob(String(job.deal_id), String(job.attachment_id));
+      // Check if gatekeeper flagged this doc as NEEDS_REVIEW
+      const { data: gkCheck } = await (supabase as any)
+        .from("deal_documents")
+        .select("gatekeeper_needs_review, gatekeeper_route")
+        .eq("id", job.attachment_id)
+        .maybeSingle();
+
+      if (gkCheck?.gatekeeper_needs_review === true) {
+        // Skip extraction — doc needs human review first
+        console.log("[classifyProcessor] Skipping extract: gatekeeper_needs_review", {
+          jobId,
+          attachmentId: job.attachment_id,
+          gatekeeperRoute: gkCheck.gatekeeper_route,
+        });
+      } else {
+        await enqueueExtractJob(String(job.deal_id), String(job.attachment_id));
+      }
     } catch (extractErr) {
       // Non-fatal - extraction is optional enhancement
       console.error("Enqueue extract job failed (non-fatal):", extractErr);

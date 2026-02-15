@@ -29,6 +29,10 @@ type SlotAttachment = {
     artifact_status: string | null;
     checklist_key: string | null;
     finalized_at: string | null;
+    gatekeeper_route: string | null;
+    gatekeeper_doc_type: string | null;
+    gatekeeper_needs_review: boolean | null;
+    gatekeeper_tax_year: number | null;
   } | null;
 };
 
@@ -486,6 +490,52 @@ function SlotSection({
 }
 
 // ---------------------------------------------------------------------------
+// Gatekeeper route badge
+// ---------------------------------------------------------------------------
+
+const GATEKEEPER_BADGE_CONFIG: Record<string, { label: string; style: string }> = {
+  GOOGLE_DOC_AI_CORE: {
+    label: "Core (DocAI)",
+    style: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+  },
+  STANDARD: {
+    label: "Standard",
+    style: "bg-white/10 text-white/50 border-white/10",
+  },
+  NEEDS_REVIEW: {
+    label: "Needs Review",
+    style: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  },
+};
+
+function GatekeeperBadge({
+  route,
+  docType,
+  taxYear,
+}: {
+  route: string;
+  docType: string | null;
+  taxYear: number | null;
+}) {
+  const cfg = GATEKEEPER_BADGE_CONFIG[route];
+  if (!cfg) return null;
+
+  const extra = [docType, taxYear].filter(Boolean).join(" ");
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium leading-none",
+        cfg.style,
+      )}
+      title={extra ? `${cfg.label}: ${extra}` : cfg.label}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Slot row
 // ---------------------------------------------------------------------------
 
@@ -533,6 +583,13 @@ function SlotRow({
           >
             {label}
           </span>
+          {hasDoc?.gatekeeper_route && (
+            <GatekeeperBadge
+              route={hasDoc.gatekeeper_route}
+              docType={hasDoc.gatekeeper_doc_type}
+              taxYear={hasDoc.gatekeeper_tax_year}
+            />
+          )}
         </div>
 
         {/* Attached doc filename */}

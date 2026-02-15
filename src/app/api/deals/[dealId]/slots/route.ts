@@ -64,7 +64,8 @@ export async function GET(
       .from("deal_documents")
       .select(
         "id, original_filename, display_name, document_type, canonical_type, " +
-        "ai_confidence, ai_doc_type, ai_tax_year, artifact_status, checklist_key, finalized_at",
+        "ai_confidence, ai_doc_type, ai_tax_year, artifact_status, checklist_key, finalized_at, " +
+        "gatekeeper_route, gatekeeper_doc_type, gatekeeper_needs_review, gatekeeper_tax_year",
       )
       .in("id", docIds);
 
