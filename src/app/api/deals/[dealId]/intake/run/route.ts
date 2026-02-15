@@ -1,7 +1,8 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { orchestrateIntake } from "@/lib/intake/orchestrateIntake";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -14,7 +15,7 @@ type Ctx = { params: Promise<{ dealId: string }> };
 
 export async function POST(_req: Request, ctx: Ctx) {
   try {
-    await requireRole(["super_admin", "bank_admin", "underwriter"]);
+    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
 
     const access = await ensureDealBankAccess(dealId);
@@ -55,6 +56,15 @@ export async function POST(_req: Request, ctx: Ctx) {
 
     return NextResponse.json(result);
   } catch (error: any) {
+    rethrowNextErrors(error);
+
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json(
+        { ok: false, error: error.code },
+        { status: error.code === "not_authenticated" ? 401 : 403 },
+      );
+    }
+
     return NextResponse.json(
       { ok: false, error: error?.message ?? "unexpected_error" },
       { status: 500 },

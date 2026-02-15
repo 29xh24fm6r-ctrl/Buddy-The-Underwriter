@@ -16,7 +16,8 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 // V2 is always enabled (Phase 11) — no gate needed
 import { buildFinancialModel } from "@/lib/modelEngine/buildFinancialModel";
 import { renderFromLegacySpread } from "@/lib/modelEngine/renderer/v1Adapter";
@@ -116,7 +117,7 @@ function formatDiffMarkdown(diff: ReturnType<typeof diffSpreadViewModels>): stri
 
 export async function GET(req: NextRequest, ctx: Ctx) {
   try {
-    await requireRole(["super_admin", "bank_admin", "underwriter"]);
+    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
 
     const { dealId } = await ctx.params;
 
@@ -239,6 +240,15 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       v2: v2ViewModel,
     });
   } catch (e: any) {
+    rethrowNextErrors(e);
+
+    if (e instanceof AuthorizationError) {
+      return NextResponse.json(
+        { ok: false, error: e.code },
+        { status: e.code === "not_authenticated" ? 401 : 403 },
+      );
+    }
+
     console.error("[/api/deals/[dealId]/model-v2/render-diff]", e);
     return NextResponse.json(
       { ok: false, error: "unexpected_error" },

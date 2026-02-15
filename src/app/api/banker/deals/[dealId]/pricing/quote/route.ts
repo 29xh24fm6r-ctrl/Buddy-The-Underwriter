@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { computePricing, formatBorrowerRate } from "@/lib/pricing/compute";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { clerkCurrentUser } from "@/lib/auth/clerkServer";
 import { logDemoUsageEvent } from "@/lib/tenant/demoTelemetry";
 
@@ -23,7 +24,7 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    await requireRole(["super_admin", "bank_admin", "underwriter"]);
+    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok)
@@ -69,6 +70,15 @@ export async function POST(
       },
     });
   } catch (e: any) {
+    rethrowNextErrors(e);
+
+    if (e instanceof AuthorizationError) {
+      return NextResponse.json(
+        { ok: false, error: e.code },
+        { status: e.code === "not_authenticated" ? 401 : 403 },
+      );
+    }
+
     return NextResponse.json(
       { ok: false, error: e?.message ?? "Unknown error" },
       { status: 400 },

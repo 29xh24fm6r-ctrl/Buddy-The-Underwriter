@@ -1,7 +1,8 @@
 import "server-only";
 
-import { NextRequest } from "next/server";
-import { requireRole } from "@/lib/auth/requireRole";
+import { NextResponse, NextRequest } from "next/server";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { loadRegulatorSandbox } from "@/lib/sandbox/loadRegulatorSandbox";
 import {
@@ -31,7 +32,7 @@ export async function GET(_req: NextRequest) {
   const headers = createHeaders(correlationId, ROUTE);
 
   try {
-    await requireRole(["super_admin", "bank_admin", "regulator_sandbox"]);
+    await requireRoleApi(["super_admin", "bank_admin", "regulator_sandbox"]);
     const bankId = await getCurrentBankId();
 
     const sandbox = await loadRegulatorSandbox(bankId);
@@ -45,6 +46,15 @@ export async function GET(_req: NextRequest) {
       headers,
     );
   } catch (err) {
+    rethrowNextErrors(err);
+
+    if (err instanceof AuthorizationError) {
+      return NextResponse.json(
+        { ok: false, error: err.code },
+        { status: err.code === "not_authenticated" ? 401 : 403 },
+      );
+    }
+
     const safe = sanitizeError(err, "sandbox_load_failed");
     return respond200(
       { ok: false, error: safe, meta: { correlationId, ts } },

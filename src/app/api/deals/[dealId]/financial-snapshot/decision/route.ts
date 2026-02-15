@@ -12,9 +12,10 @@
  */
 import "server-only";
 
-import { NextRequest } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { sanitizeErrorForEvidence } from "@/buddy/lifecycle/jsonSafe";
 import { trackDegradedResponse } from "@/lib/api/degradedTracker";
@@ -82,9 +83,9 @@ async function buildPayload(
 
     // === Phase 2: Role check ===
     const roleResult = await safeWithTimeout(
-      requireRole(["super_admin", "bank_admin", "underwriter"]),
+      requireRoleApi(["super_admin", "bank_admin", "underwriter"]),
       8_000,
-      "requireRole",
+      "requireRoleApi",
       correlationId
     );
 
@@ -217,6 +218,19 @@ async function buildPayload(
       meta: { dealId, correlationId, ts },
     };
   } catch (unexpectedErr) {
+    rethrowNextErrors(unexpectedErr);
+
+    if (unexpectedErr instanceof AuthorizationError) {
+      return {
+        ok: false,
+        dealId,
+        decision: null,
+        snapshot: null,
+        error: { code: unexpectedErr.code, message: unexpectedErr.message },
+        meta: { dealId, correlationId, ts },
+      };
+    }
+
     const errInfo = sanitizeErrorForEvidence(unexpectedErr);
     console.error(`[financial-snapshot/decision] correlationId=${correlationId} dealId=${dealId} UNEXPECTED: ${errInfo.message}`);
     return {

@@ -4,7 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export async function GET(
   _req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  await requireRole(["super_admin", "bank_admin", "underwriter"]);
+  await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
 
   const { dealId } = await ctx.params;
 

@@ -1,8 +1,9 @@
 import "server-only";
 
-import { NextRequest } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { writeBuddySignal } from "@/buddy/server/writeBuddySignal";
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ borrowerId
   const headers = createHeaders(correlationId, ROUTE);
 
   try {
-    const { userId } = await requireRole(["super_admin", "bank_admin", "underwriter"]);
+    const { userId } = await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { borrowerId } = await ctx.params;
 
     const uuidCheck = validateUuidParam(borrowerId, "borrowerId");
@@ -190,6 +191,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ borrowerId
       headers,
     );
   } catch (err) {
+    rethrowNextErrors(err);
+
+    if (err instanceof AuthorizationError) {
+      return NextResponse.json(
+        { ok: false, error: err.code },
+        { status: err.code === "not_authenticated" ? 401 : 403 },
+      );
+    }
+
     const safe = sanitizeError(err, "attestation_failed");
     return respond200(
       { ok: false, error: safe, meta: { borrowerId: "unknown", correlationId, ts } },

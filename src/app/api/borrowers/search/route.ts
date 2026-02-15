@@ -1,9 +1,10 @@
 import "server-only";
 
-import { NextRequest } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import {
   respond200,
   createHeaders,
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
   const headers = createHeaders(correlationId, ROUTE);
 
   try {
-    await requireRole(["super_admin", "bank_admin", "underwriter"]);
+    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") ?? "").trim();
 
@@ -51,6 +52,15 @@ export async function GET(req: NextRequest) {
 
     return respond200({ ok: true, borrowers: data ?? [], meta: { correlationId, ts } } as any, headers);
   } catch (error: unknown) {
+    rethrowNextErrors(error);
+
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json(
+        { ok: false, error: error.code },
+        { status: error.code === "not_authenticated" ? 401 : 403 },
+      );
+    }
+
     const safe = sanitizeError(error, "borrower_search_failed");
     return respond200({ ok: false, error: safe, meta: { correlationId, ts } } as any, headers);
   }

@@ -2,7 +2,8 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { chromium } from "playwright";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,13 +70,13 @@ async function renderStandardPdf(req: NextRequest, dealId: string) {
 }
 
 export async function GET(req: NextRequest, ctx: Ctx) {
-  await requireRole(["super_admin", "bank_admin", "underwriter"]);
+  await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
   const { dealId } = await ctx.params;
   return renderStandardPdf(req, dealId);
 }
 
 export async function POST(req: NextRequest, ctx: Ctx) {
-  await requireRole(["super_admin", "bank_admin", "underwriter"]);
+  await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
   const { dealId } = await ctx.params;
   return renderStandardPdf(req, dealId);
 }

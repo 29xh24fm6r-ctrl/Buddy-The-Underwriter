@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { ensureGeometryForAttachment } from "@/lib/evidence/ensureGeometry";
 
 export const runtime = "nodejs";
@@ -15,7 +16,7 @@ export async function GET(
   ctx: { params: Promise<{ dealId: string; memoId: string }> },
 ) {
   const { dealId, memoId } = await ctx.params;
-  await requireRole(["super_admin", "bank_admin", "underwriter"]);
+  await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
   const sb = supabaseAdmin();
 
   // Choose attachment(s) from citations

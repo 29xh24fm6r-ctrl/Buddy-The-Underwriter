@@ -3,7 +3,8 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import {
   buildFinancialModel,
   computeCapitalModel,
@@ -18,7 +19,7 @@ type Ctx = { params: Promise<{ dealId: string }> };
 
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
-    await requireRole(["super_admin", "bank_admin", "underwriter"]);
+    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
 
     const { dealId } = await ctx.params;
     const access = await ensureDealBankAccess(dealId);
@@ -91,6 +92,15 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       ...(snapshotId ? { snapshotId } : {}),
     });
   } catch (e: any) {
+    rethrowNextErrors(e);
+
+    if (e instanceof AuthorizationError) {
+      return NextResponse.json(
+        { ok: false, error: e.code },
+        { status: e.code === "not_authenticated" ? 401 : 403 },
+      );
+    }
+
     console.error("[/api/deals/[dealId]/model-v2/preview]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { aiJson } from "@/lib/ai/openai";
 import { recordAiEvent } from "@/lib/ai/audit";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
@@ -13,7 +14,7 @@ export async function POST(
   _req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  await requireRole(["super_admin", "bank_admin", "underwriter"]);
+  await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
   const { dealId } = await ctx.params;
   const bankId = await getCurrentBankId();
   const sb = supabaseAdmin();

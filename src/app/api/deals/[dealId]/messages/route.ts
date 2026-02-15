@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -15,7 +16,7 @@ export async function GET(
   req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  await requireRole(["underwriter", "bank_admin", "super_admin"]);
+  await requireRoleApi(["underwriter", "bank_admin", "super_admin"]);
   const { dealId } = await ctx.params;
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");

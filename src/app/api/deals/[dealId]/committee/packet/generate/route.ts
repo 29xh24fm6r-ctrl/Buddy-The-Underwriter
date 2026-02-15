@@ -3,7 +3,8 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument as PdfLibDocument } from "pdf-lib";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { renderDecisionPdf } from "@/lib/pdf/decisionPdf";
 import { getActiveLetterhead, downloadLetterheadBuffer } from "@/lib/bank/letterhead";
@@ -36,7 +37,7 @@ export async function POST(
   ctx: { params: Params }
 ): Promise<NextResponse> {
   try {
-    const { userId } = await requireRole(["super_admin", "bank_admin", "underwriter"]);
+    const { userId } = await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
 
     // Verify deal access
@@ -142,6 +143,15 @@ export async function POST(
       hasAppendix: !!appendixQuoteId,
     });
   } catch (error: any) {
+    rethrowNextErrors(error);
+
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json(
+        { ok: false, error: error.code },
+        { status: error.code === "not_authenticated" ? 401 : 403 },
+      );
+    }
+
     console.error("[/api/deals/[dealId]/committee/packet/generate] Error:", error);
     return NextResponse.json(
       { ok: false, error: error?.message ?? "unexpected_error" },

@@ -14,7 +14,8 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 // V2 is always enabled (Phase 11) — no gate needed
 import { compareV1toV2 } from "@/lib/modelEngine/parity/compareV1toV2";
@@ -62,7 +63,7 @@ function validateFormat(format: string | null): string | null {
 
 export async function GET(req: NextRequest, ctx: Ctx) {
   try {
-    await requireRole(["super_admin", "bank_admin", "underwriter"]);
+    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
 
     const { dealId } = await ctx.params;
 
@@ -159,6 +160,15 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
     return NextResponse.json(response);
   } catch (e: any) {
+    rethrowNextErrors(e);
+
+    if (e instanceof AuthorizationError) {
+      return NextResponse.json(
+        { ok: false, error: e.code },
+        { status: e.code === "not_authenticated" ? 401 : 403 },
+      );
+    }
+
     console.error("[/api/deals/[dealId]/model-v2/parity]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }

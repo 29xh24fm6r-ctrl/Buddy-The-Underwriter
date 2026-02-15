@@ -11,7 +11,8 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { buildFinancialModel } from "@/lib/modelEngine/buildFinancialModel";
 import { extractBaseValues } from "@/lib/modelEngine/extractBaseValues";
@@ -28,7 +29,7 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ dealId: string }> };
 
 export async function GET(req: NextRequest, ctx: Ctx) {
-  await requireRole(["super_admin", "bank_admin", "underwriter"]);
+  await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
 
   const { dealId } = await ctx.params;
   const access = await ensureDealBankAccess(dealId);

@@ -9,8 +9,9 @@ import "server-only";
  * Sealed endpoint: always HTTP 200.
  */
 
-import { NextRequest } from "next/server";
-import { requireRole } from "@/lib/auth/requireRole";
+import { NextResponse, NextRequest } from "next/server";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import {
@@ -32,7 +33,7 @@ export async function POST(_req: NextRequest) {
   const headers = createHeaders(correlationId, ROUTE);
 
   try {
-    await requireRole(["super_admin", "bank_admin", "underwriter"]);
+    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const bankId = await getCurrentBankId();
 
     // Non-blocking ledger write
@@ -47,6 +48,15 @@ export async function POST(_req: NextRequest) {
 
     return respond200({ ok: true, meta: { correlationId, ts } }, headers);
   } catch (error: unknown) {
+    rethrowNextErrors(error);
+
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json(
+        { ok: false, error: error.code },
+        { status: error.code === "not_authenticated" ? 401 : 403 },
+      );
+    }
+
     const safe = sanitizeError(error, "governance_viewed_failed");
     return respond200({ ok: false, error: safe, meta: { correlationId, ts } }, headers);
   }

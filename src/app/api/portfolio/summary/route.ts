@@ -2,7 +2,8 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildPortfolioSummary } from "@/lib/portfolio/portfolioAnalytics";
 import type { DealFinancialSnapshotV1 } from "@/lib/deals/financialSnapshotCore";
@@ -23,7 +24,7 @@ function pickLatestByDeal<T extends { deal_id: string; created_at: string }>(row
 
 export async function GET(_req: Request) {
   try {
-    await requireRole(["super_admin", "bank_admin", "underwriter"]);
+    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
 
@@ -76,6 +77,15 @@ export async function GET(_req: Request) {
 
     return NextResponse.json({ ok: true, bankId, summary });
   } catch (e: any) {
+    rethrowNextErrors(e);
+
+    if (e instanceof AuthorizationError) {
+      return NextResponse.json(
+        { ok: false, error: e.code },
+        { status: e.code === "not_authenticated" ? 401 : 403 },
+      );
+    }
+
     console.error("[/api/portfolio/summary]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }

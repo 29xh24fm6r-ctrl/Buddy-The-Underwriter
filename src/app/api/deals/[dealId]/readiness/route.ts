@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDealReadiness } from "@/lib/deals/readiness";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ type Context = {
  * Actual computation happens on event triggers (upload, reconcile, etc).
  */
 export async function GET(req: Request, ctx: Context) {
-  await requireRole(["super_admin", "bank_admin", "underwriter"]);
+  await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
   
   const { dealId } = await ctx.params;
   const { ready, reason } = await getDealReadiness(dealId);
