@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { computeGatekeeperRoute, mapGatekeeperToCanonicalHint } from "../routing";
+import { computeGatekeeperRoute, mapGatekeeperToCanonicalHint, mapGatekeeperDocTypeToEffectiveDocType } from "../routing";
 import type { GatekeeperDocType } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -125,6 +125,18 @@ describe("computeGatekeeperRoute", () => {
     );
   });
 
+  // Rule 6: Defensive fallback — unrecognized type → NEEDS_REVIEW
+  it("routes unrecognized doc type to NEEDS_REVIEW (defensive fallback)", () => {
+    assert.equal(
+      computeGatekeeperRoute({
+        doc_type: "SOME_FUTURE_TYPE" as GatekeeperDocType,
+        confidence: 0.99,
+        tax_year: null,
+      }),
+      "NEEDS_REVIEW",
+    );
+  });
+
   // Priority: UNKNOWN overrides high confidence
   it("UNKNOWN overrides even 1.0 confidence", () => {
     assert.equal(
@@ -232,6 +244,49 @@ describe("mapGatekeeperToCanonicalHint", () => {
       const hint = mapGatekeeperToCanonicalHint(dt);
       assert.ok(hint.canonical_type_hint, `Missing canonical_type_hint for ${dt}`);
       assert.ok(hint.routing_class_hint, `Missing routing_class_hint for ${dt}`);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mapGatekeeperDocTypeToEffectiveDocType
+// ---------------------------------------------------------------------------
+
+describe("mapGatekeeperDocTypeToEffectiveDocType", () => {
+  it("maps tax-related types correctly", () => {
+    assert.equal(mapGatekeeperDocTypeToEffectiveDocType("BUSINESS_TAX_RETURN"), "BUSINESS_TAX_RETURN");
+    assert.equal(mapGatekeeperDocTypeToEffectiveDocType("PERSONAL_TAX_RETURN"), "PERSONAL_TAX_RETURN");
+    assert.equal(mapGatekeeperDocTypeToEffectiveDocType("W2"), "PERSONAL_TAX_RETURN");
+    assert.equal(mapGatekeeperDocTypeToEffectiveDocType("FORM_1099"), "PERSONAL_TAX_RETURN");
+    assert.equal(mapGatekeeperDocTypeToEffectiveDocType("K1"), "PERSONAL_TAX_RETURN");
+  });
+
+  it("maps non-core types correctly", () => {
+    assert.equal(mapGatekeeperDocTypeToEffectiveDocType("BANK_STATEMENT"), "BANK_STATEMENT");
+    assert.equal(mapGatekeeperDocTypeToEffectiveDocType("FINANCIAL_STATEMENT"), "FINANCIAL_STATEMENT");
+    assert.equal(mapGatekeeperDocTypeToEffectiveDocType("DRIVERS_LICENSE"), "ENTITY_DOCS");
+    assert.equal(mapGatekeeperDocTypeToEffectiveDocType("VOIDED_CHECK"), "OTHER");
+    assert.equal(mapGatekeeperDocTypeToEffectiveDocType("OTHER"), "OTHER");
+    assert.equal(mapGatekeeperDocTypeToEffectiveDocType("UNKNOWN"), "OTHER");
+  });
+
+  it("maps unrecognized types to OTHER (defensive)", () => {
+    assert.equal(
+      mapGatekeeperDocTypeToEffectiveDocType("SOME_FUTURE_TYPE" as GatekeeperDocType),
+      "OTHER",
+    );
+  });
+
+  it("returns non-empty strings for all 11 types", () => {
+    const allTypes: GatekeeperDocType[] = [
+      "BUSINESS_TAX_RETURN", "PERSONAL_TAX_RETURN", "W2", "FORM_1099", "K1",
+      "BANK_STATEMENT", "FINANCIAL_STATEMENT", "DRIVERS_LICENSE", "VOIDED_CHECK",
+      "OTHER", "UNKNOWN",
+    ];
+
+    for (const dt of allTypes) {
+      const result = mapGatekeeperDocTypeToEffectiveDocType(dt);
+      assert.ok(result.length > 0, `Empty result for ${dt}`);
     }
   });
 });

@@ -112,6 +112,7 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
         gkClassifiedAt &&
         gkDocType &&
         (gkRoute === "GOOGLE_DOC_AI_CORE" || gkRoute === "STANDARD") &&
+        gkRoute !== "NEEDS_REVIEW" &&
         matchSource !== "manual" &&
         !finalizedAt &&
         canonical_type === "OTHER"
@@ -271,17 +272,31 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
       // Check if gatekeeper flagged this doc as NEEDS_REVIEW
       const { data: gkCheck } = await (supabase as any)
         .from("deal_documents")
-        .select("gatekeeper_needs_review, gatekeeper_route")
+        .select("gatekeeper_needs_review, gatekeeper_route, gatekeeper_classified_at")
         .eq("id", job.attachment_id)
         .maybeSingle();
 
-      if (gkCheck?.gatekeeper_needs_review === true) {
-        // Skip extraction — doc needs human review first
+      if (
+        gkCheck?.gatekeeper_needs_review === true ||
+        gkCheck?.gatekeeper_route === "NEEDS_REVIEW"
+      ) {
+        // Hard gate — doc needs human review, skip extraction
         console.log("[classifyProcessor] Skipping extract: gatekeeper_needs_review", {
           jobId,
           attachmentId: job.attachment_id,
           gatekeeperRoute: gkCheck.gatekeeper_route,
         });
+
+        // Ledger event for metrics
+        const { logLedgerEvent } = await import("@/lib/pipeline/logLedgerEvent");
+        logLedgerEvent({
+          dealId: job.deal_id,
+          bankId: "",
+          eventKey: "gatekeeper.needs_review.block_extract",
+          uiState: "waiting",
+          uiMessage: `Extraction blocked: doc needs gatekeeper review`,
+          meta: { jobId, attachmentId: job.attachment_id, gatekeeperRoute: gkCheck.gatekeeper_route },
+        }).catch(() => {});
       } else {
         await enqueueExtractJob(String(job.deal_id), String(job.attachment_id));
       }

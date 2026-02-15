@@ -62,7 +62,7 @@ export function deriveCockpitPhase(
 
   if (activelyProcessing) return "PROCESSING";
 
-  const allSatisfied = lifecycleState?.derived?.borrowerChecklistSatisfied ?? false;
+  const allSatisfied = lifecycleState?.derived?.documentsReady ?? false;
   return allSatisfied ? "READY" : "BLOCKED";
 }
 
@@ -115,19 +115,18 @@ export function usePrimaryCTA(
       };
     }
 
-    // BLOCKED — missing required docs
+    // BLOCKED — check document completeness or generic blocker
     if (phase === "BLOCKED") {
-      const missing = lifecycleState?.derived?.requiredDocsMissing ?? [];
-      // Check if the blocker is specifically docs or something else
-      const hasMissingDocs = missing.length > 0;
-      if (hasMissingDocs) {
+      const docsReady = lifecycleState?.derived?.documentsReady ?? false;
+      if (!docsReady) {
+        const pct = lifecycleState?.derived?.documentsReadinessPct ?? 0;
         return {
-          label: "Request Missing Documents",
+          label: "Upload Missing Documents",
           intent: "navigate" as const,
           disabled: false,
-          icon: "mail",
-          description: `${missing.length} required document${missing.length !== 1 ? "s" : ""} still needed`,
-          href: `/deals/${dealId}/cockpit?tab=portal`,
+          icon: "upload_file",
+          description: `AI document readiness at ${Math.round(pct)}%`,
+          href: `/deals/${dealId}/cockpit?focus=documents`,
         };
       }
       // Generic blocked

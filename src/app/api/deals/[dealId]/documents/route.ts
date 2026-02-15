@@ -42,7 +42,7 @@ export async function GET(
     sb
       .from("deal_documents")
       .select(
-        "id, deal_id, bank_id, original_filename, display_name, naming_method, document_type, doc_year, mime_type, size_bytes, checklist_key, created_at, storage_bucket, storage_path, source, canonical_type, routing_class, classification_confidence, finalized_at, virus_status, entity_name, match_confidence, match_source",
+        "id, deal_id, bank_id, original_filename, display_name, naming_method, document_type, doc_year, mime_type, size_bytes, checklist_key, created_at, storage_bucket, storage_path, source, canonical_type, routing_class, classification_confidence, finalized_at, virus_status, entity_name, match_confidence, match_source, gatekeeper_needs_review",
       )
       .eq("deal_id", dealId)
       .eq("bank_id", access.bankId)
@@ -98,6 +98,7 @@ export async function GET(
       entity_name: d.entity_name ?? null,
       match_confidence: d.match_confidence ?? null,
       match_source: d.match_source ?? null,
+      gatekeeper_needs_review: d.gatekeeper_needs_review ?? null,
       artifact_status: artifact?.status ?? null,
       artifact_error: artifact?.error ?? null,
     };

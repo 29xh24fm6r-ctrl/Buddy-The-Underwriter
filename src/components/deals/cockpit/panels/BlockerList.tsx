@@ -7,7 +7,6 @@ import type { LifecycleBlocker } from "@/buddy/lifecycle/model";
 import { getBlockerFixAction } from "@/buddy/lifecycle/nextAction";
 
 const BLOCKER_ICONS: Record<string, string> = {
-  missing_required_docs: "folder_off",
   checklist_not_seeded: "playlist_add",
   financial_snapshot_missing: "monitoring",
   committee_packet_missing: "description",
@@ -16,34 +15,16 @@ const BLOCKER_ICONS: Record<string, string> = {
   closing_docs_missing: "folder_open",
   loan_request_missing: "request_page",
   loan_request_incomplete: "edit_note",
-  ai_pipeline_incomplete: "smart_toy",
   spreads_incomplete: "table_chart",
   pricing_assumptions_required: "tune",
   structural_pricing_missing: "payments",
   pricing_quote_missing: "request_quote",
   risk_pricing_not_finalized: "price_check",
+  gatekeeper_docs_need_review: "rate_review",
+  gatekeeper_docs_incomplete: "docs_add_on",
   deal_not_found: "error",
   internal_error: "warning",
 };
-
-/** Convert checklist key to human-readable label */
-function formatChecklistKey(key: string): string {
-  // Grouped consecutive-year keys (canonical)
-  if (key === "IRS_PERSONAL_3Y") return "Personal Tax Returns (3 consecutive years)";
-  if (key === "IRS_BUSINESS_3Y") return "Business Tax Returns (3 consecutive years)";
-  if (key === "IRS_PERSONAL_2Y") return "Personal Tax Returns (2 years)";
-  if (key === "IRS_BUSINESS_2Y") return "Business Tax Returns (2 years)";
-
-  // Individual year tax returns (legacy): IRS_PERSONAL_2024 → "2024 Personal Tax Return"
-  const personalYearMatch = key.match(/^IRS_PERSONAL_(\d{4})$/);
-  if (personalYearMatch) return `${personalYearMatch[1]} Personal Tax Return`;
-
-  const businessYearMatch = key.match(/^IRS_BUSINESS_(\d{4})$/);
-  if (businessYearMatch) return `${businessYearMatch[1]} Business Tax Return`;
-
-  // Default: replace underscores with spaces
-  return key.replace(/_/g, " ");
-}
 
 type Props = {
   blockers: LifecycleBlocker[];
@@ -91,24 +72,29 @@ export function BlockerList({ blockers, dealId, onServerAction, busyAction }: Pr
                   {blocker.message}
                 </div>
 
-                {/* Show missing doc keys if available */}
-                {blocker.code === "missing_required_docs" && Array.isArray(blocker.evidence?.missing) ? (
+                {/* Gatekeeper docs incomplete — missing year chips */}
+                {blocker.code === "gatekeeper_docs_incomplete" && blocker.evidence && (
                   <div className="mt-1 flex flex-wrap gap-1">
-                    {(blocker.evidence!.missing as string[]).slice(0, 5).map((key: string) => (
-                      <span
-                        key={key}
-                        className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/10 text-[10px] text-amber-300/70"
-                      >
-                        {formatChecklistKey(key)}
-                      </span>
-                    ))}
-                    {(blocker.evidence!.missing as string[]).length > 5 && (
-                      <span className="text-[10px] text-white/30">
-                        +{(blocker.evidence!.missing as string[]).length - 5} more
-                      </span>
+                    {Array.isArray(blocker.evidence.missingBusinessTaxYears) &&
+                      (blocker.evidence.missingBusinessTaxYears as number[]).map((y) => (
+                        <span key={`btr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/10 text-[10px] text-amber-300/70">BTR {y}</span>
+                      ))}
+                    {Array.isArray(blocker.evidence.missingPersonalTaxYears) &&
+                      (blocker.evidence.missingPersonalTaxYears as number[]).map((y) => (
+                        <span key={`ptr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/10 text-[10px] text-amber-300/70">PTR {y}</span>
+                      ))}
+                    {blocker.evidence.missingFinancialStatements === true && (
+                      <span className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/10 text-[10px] text-amber-300/70">Financial Statements</span>
                     )}
                   </div>
-                ) : null}
+                )}
+
+                {/* Gatekeeper docs need review — guidance text */}
+                {blocker.code === "gatekeeper_docs_need_review" && (
+                  <p className="mt-1 text-[10px] text-amber-300/60">
+                    AI could not confidently classify these documents. Review and confirm the document type.
+                  </p>
+                )}
               </div>
 
               {/* Fix action button */}

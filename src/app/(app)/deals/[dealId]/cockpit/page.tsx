@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
 import { deriveLifecycleState } from "@/buddy/lifecycle";
+import { isGatekeeperPrimaryRoutingEnabled } from "@/lib/flags/openaiGatekeeper";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 import type { LifecycleState } from "@/buddy/lifecycle";
 
@@ -174,22 +175,17 @@ export default async function DealCockpitPage({ params }: Props) {
 
     // SINGLE SOURCE OF TRUTH: Derive docs/financial readiness from lifecycle state
     const lifecycleDerived = unifiedLifecycleState?.derived;
-    const requiredDocsMissingCount = lifecycleDerived?.requiredDocsMissing?.length ?? 0;
-    // Estimate total required docs from percentage (if 80% and 2 missing → 10 total)
-    const pct = lifecycleDerived?.requiredDocsReceivedPct ?? 0;
-    const estimatedTotal = requiredDocsMissingCount > 0 && pct < 100
-      ? Math.round(requiredDocsMissingCount / ((100 - pct) / 100))
-      : requiredDocsMissingCount;
-    const documentsReady = lifecycleDerived?.borrowerChecklistSatisfied ?? false;
+    const documentsReady = lifecycleDerived?.documentsReady ?? false;
     const financialSnapshotReady = lifecycleDerived?.financialSnapshotExists ?? false;
+    const docPct = lifecycleDerived?.documentsReadinessPct ?? 0;
 
     readiness = {
       named: hasDisplayName || hasNickname,
       borrowerAttached,
       documentsReady,
       financialSnapshotReady,
-      requiredDocsCount: estimatedTotal,
-      missingDocsCount: requiredDocsMissingCount,
+      requiredDocsCount: docPct < 100 ? 1 : 0, // simplified: binary for UI
+      missingDocsCount: documentsReady ? 0 : 1,
     };
 
     const { data: intake } = await sb
@@ -267,6 +263,7 @@ export default async function DealCockpitPage({ params }: Props) {
           verifyLedger={verifyLedger}
           unifiedLifecycleState={unifiedLifecycleState}
           lifecycleAvailable={lifecycleAvailable}
+          gatekeeperPrimaryRouting={isGatekeeperPrimaryRoutingEnabled()}
         />
       </Suspense>
     </div>

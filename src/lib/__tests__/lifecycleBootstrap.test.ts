@@ -85,7 +85,7 @@ describe("deriveCockpitPhase: BLOCKED is terminal", () => {
 
   type LifecycleState = {
     blockers: Array<{ code: string; message: string }>;
-    derived: { borrowerChecklistSatisfied: boolean };
+    derived: { documentsReady: boolean };
   };
 
   type CockpitPhase = "UPLOADING" | "PROCESSING" | "READY" | "BLOCKED";
@@ -106,7 +106,7 @@ describe("deriveCockpitPhase: BLOCKED is terminal", () => {
 
     if (activelyProcessing) return "PROCESSING";
 
-    const allSatisfied = lifecycleState?.derived?.borrowerChecklistSatisfied ?? false;
+    const allSatisfied = lifecycleState?.derived?.documentsReady ?? false;
     return allSatisfied ? "READY" : "BLOCKED";
   }
 
@@ -122,8 +122,8 @@ describe("deriveCockpitPhase: BLOCKED is terminal", () => {
     const phase = deriveCockpitPhase(
       { total_files: 5, queued: 2, processing: 1, matched: 2 },
       {
-        blockers: [{ code: "missing_required_docs", message: "2 docs missing" }],
-        derived: { borrowerChecklistSatisfied: false },
+        blockers: [{ code: "gatekeeper_docs_incomplete", message: "2 docs missing" }],
+        derived: { documentsReady: false },
       },
     );
     assert.equal(phase, "BLOCKED");
@@ -133,8 +133,8 @@ describe("deriveCockpitPhase: BLOCKED is terminal", () => {
     const phase = deriveCockpitPhase(
       { total_files: 5, queued: 0, processing: 0, matched: 5 },
       {
-        blockers: [{ code: "missing_required_docs", message: "1 doc missing" }],
-        derived: { borrowerChecklistSatisfied: false },
+        blockers: [{ code: "gatekeeper_docs_incomplete", message: "1 doc missing" }],
+        derived: { documentsReady: false },
       },
     );
     assert.equal(phase, "BLOCKED");
@@ -143,7 +143,7 @@ describe("deriveCockpitPhase: BLOCKED is terminal", () => {
   test("no blockers + processing → PROCESSING", () => {
     const phase = deriveCockpitPhase(
       { total_files: 5, queued: 1, processing: 0, matched: 4 },
-      { blockers: [], derived: { borrowerChecklistSatisfied: false } },
+      { blockers: [], derived: { documentsReady: false } },
     );
     assert.equal(phase, "PROCESSING");
   });
@@ -151,7 +151,7 @@ describe("deriveCockpitPhase: BLOCKED is terminal", () => {
   test("no blockers + no processing + satisfied → READY", () => {
     const phase = deriveCockpitPhase(
       { total_files: 5, queued: 0, processing: 0, matched: 5 },
-      { blockers: [], derived: { borrowerChecklistSatisfied: true } },
+      { blockers: [], derived: { documentsReady: true } },
     );
     assert.equal(phase, "READY");
   });
@@ -159,7 +159,7 @@ describe("deriveCockpitPhase: BLOCKED is terminal", () => {
   test("no blockers + no processing + not satisfied → BLOCKED", () => {
     const phase = deriveCockpitPhase(
       { total_files: 5, queued: 0, processing: 0, matched: 3 },
-      { blockers: [], derived: { borrowerChecklistSatisfied: false } },
+      { blockers: [], derived: { documentsReady: false } },
     );
     assert.equal(phase, "BLOCKED");
   });
@@ -169,7 +169,7 @@ describe("deriveCockpitPhase: BLOCKED is terminal", () => {
     // This was the original bug — total_files > matched was incorrectly treated as processing
     const phase = deriveCockpitPhase(
       { total_files: 10, queued: 0, processing: 0, matched: 3 },
-      { blockers: [], derived: { borrowerChecklistSatisfied: false } },
+      { blockers: [], derived: { documentsReady: false } },
     );
     assert.equal(phase, "BLOCKED");
   });
@@ -489,7 +489,7 @@ describe("lifecycle stage mapping", () => {
   function mapToUnifiedStage(
     lifecycleStage: DealLifecycleStage,
     dealStatusStage: DealStatusStage | null,
-    borrowerChecklistSatisfied: boolean,
+    documentsReady: boolean,
   ): string {
     // Terminal states from deal_status take priority
     if (dealStatusStage === "funded") return "closed";
@@ -501,7 +501,7 @@ describe("lifecycle stage mapping", () => {
       case "intake":
         return "docs_requested";
       case "collecting":
-        return borrowerChecklistSatisfied ? "docs_satisfied" : "docs_in_progress";
+        return documentsReady ? "docs_satisfied" : "docs_in_progress";
       case "underwriting":
         return "underwrite_in_progress";
       case "ready":
@@ -626,17 +626,17 @@ describe("lifecycle route: deal_not_found stripping when access confirmed", () =
   test("preserves other blockers when stripping deal_not_found", () => {
     const blockers = stripFalseNotFound(true, [
       { code: "deal_not_found", message: "Deal not found" },
-      { code: "missing_required_docs", message: "2 docs missing" },
+      { code: "gatekeeper_docs_incomplete", message: "2 docs missing" },
       { code: "checklist_not_seeded", message: "No checklist" },
     ]);
     assert.equal(blockers.length, 2);
-    assert.equal(blockers[0].code, "missing_required_docs");
+    assert.equal(blockers[0].code, "gatekeeper_docs_incomplete");
     assert.equal(blockers[1].code, "checklist_not_seeded");
   });
 
   test("no-op when no deal_not_found blocker present", () => {
     const blockers = stripFalseNotFound(true, [
-      { code: "missing_required_docs", message: "2 docs missing" },
+      { code: "gatekeeper_docs_incomplete", message: "2 docs missing" },
     ]);
     assert.equal(blockers.length, 1);
   });

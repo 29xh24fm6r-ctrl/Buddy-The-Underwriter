@@ -107,8 +107,10 @@ function getStageColor(stage: LifecycleStage): string {
  */
 function getBankerExplanation(blocker: LifecycleBlocker): string {
   switch (blocker.code) {
-    case "missing_required_docs":
-      return "These documents verify the borrower's financial position and ability to service the loan. Without them, we can't calculate accurate ratios or validate collateral.";
+    case "gatekeeper_docs_incomplete":
+      return "Required documents are still missing. The AI readiness engine tracks which tax returns, financial statements, and other core documents have been received.";
+    case "gatekeeper_docs_need_review":
+      return "Some documents could not be confidently classified by AI. A banker needs to review and confirm the document type before they count toward readiness.";
     case "financial_snapshot_missing":
       return "The financial snapshot consolidates all borrower data into standardized metrics (DSCR, LTV, etc.) that our credit policy requires for underwriting.";
     case "checklist_not_seeded":
@@ -136,12 +138,12 @@ function getBuddyActionsSummary(state: LifecycleState): { completed: string[]; i
   const inProgress: string[] = [];
 
   // Check what's been done based on derived state
-  if (state.derived.requiredDocsReceivedPct > 0) {
-    const docPct = state.derived.requiredDocsReceivedPct;
-    if (docPct === 100) {
-      completed.push("Classified and organized all submitted documents");
+  if (state.derived.documentsReadinessPct > 0) {
+    const docPct = state.derived.documentsReadinessPct;
+    if (state.derived.documentsReady) {
+      completed.push("All required documents received and classified");
     } else {
-      completed.push(`Classified ${docPct}% of required documents`);
+      completed.push(`AI document readiness at ${Math.round(docPct)}%`);
       inProgress.push("Waiting for remaining documents from borrower");
     }
   }
@@ -165,7 +167,7 @@ function getBuddyActionsSummary(state: LifecycleState): { completed: string[]; i
 
   if (["docs_requested", "docs_in_progress"].includes(state.stage)) {
     completed.push("Sent document request to borrower portal");
-    if (state.derived.requiredDocsMissing.length > 0) {
+    if (!state.derived.documentsReady) {
       inProgress.push("Monitoring for missing documents");
     }
   }
@@ -176,8 +178,10 @@ function getBuddyActionsSummary(state: LifecycleState): { completed: string[]; i
 function getBlockerIcon(code: string): string {
   switch (code) {
     // Business logic blockers
-    case "missing_required_docs":
-      return "description";
+    case "gatekeeper_docs_incomplete":
+      return "docs_add_on";
+    case "gatekeeper_docs_need_review":
+      return "rate_review";
     case "financial_snapshot_missing":
       return "account_balance";
     case "checklist_not_seeded":
@@ -225,15 +229,6 @@ function getBlockerIcon(code: string): string {
 function formatEvidence(blocker: LifecycleBlocker): string | null {
   if (!blocker.evidence || Object.keys(blocker.evidence).length === 0) {
     return null;
-  }
-
-  // Special handling for missing docs
-  if (blocker.code === "missing_required_docs" && blocker.evidence.missing) {
-    const missing = blocker.evidence.missing as string[];
-    if (missing.length <= 3) {
-      return `Missing: ${missing.join(", ")}`;
-    }
-    return `Missing: ${missing.slice(0, 2).join(", ")} +${missing.length - 2} more`;
   }
 
   // Default: show first key-value pair
@@ -407,7 +402,7 @@ function BankerExplainerPanel({
               <div className="text-[10px] text-white/40">items pending</div>
             </div>
             <div className="text-center">
-              <div className="text-lg font-bold text-sky-300">{state.derived.requiredDocsReceivedPct}%</div>
+              <div className="text-lg font-bold text-sky-300">{Math.round(state.derived.documentsReadinessPct)}%</div>
               <div className="text-[10px] text-white/40">docs received</div>
             </div>
           </div>
@@ -682,10 +677,10 @@ export function LifecycleStatusPanel({ dealId, initialState, available }: Props)
           <div className="flex items-center gap-2">
             <span className={cn(
               "h-2 w-2 rounded-full",
-              lifecycleUnavailable ? "bg-white/20" : (state.derived.borrowerChecklistSatisfied ? "bg-emerald-400" : "bg-amber-400")
+              lifecycleUnavailable ? "bg-white/20" : (state.derived.documentsReady ? "bg-emerald-400" : "bg-amber-400")
             )} />
             <span className="text-white/60">
-              Docs: {lifecycleUnavailable ? "—" : `${state.derived.requiredDocsReceivedPct}%`}
+              Docs: {lifecycleUnavailable ? "—" : `${Math.round(state.derived.documentsReadinessPct)}%`}
             </span>
           </div>
           <div className="flex items-center gap-2">

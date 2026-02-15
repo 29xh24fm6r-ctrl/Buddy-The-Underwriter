@@ -3,10 +3,12 @@
  *
  * No DB, no IO, no side effects. Fully testable.
  *
- * Two exports:
+ * Three exports:
  *  - computeGatekeeperRoute() — applies threshold + type rules to derive route
  *  - mapGatekeeperToCanonicalHint() — maps gatekeeper types to existing
  *    ExtendedCanonicalType / RoutingClass as HINTS (not authoritative writes)
+ *  - mapGatekeeperDocTypeToEffectiveDocType() — maps gatekeeper types to
+ *    effectiveDocType strings for extraction eligibility + spread routing
  */
 import type { GatekeeperClassification, GatekeeperDocType, GatekeeperRoute } from "./types";
 
@@ -23,17 +25,29 @@ const CORE_TYPES: ReadonlySet<GatekeeperDocType> = new Set([
   "K1",
 ]);
 
+/** Types explicitly eligible for STANDARD route. Anything NOT in CORE_TYPES
+ *  and NOT in this set will defensively route to NEEDS_REVIEW. */
+const STANDARD_ELIGIBLE: ReadonlySet<GatekeeperDocType> = new Set([
+  "BANK_STATEMENT",
+  "FINANCIAL_STATEMENT",
+  "DRIVERS_LICENSE",
+  "VOIDED_CHECK",
+  "OTHER",
+]);
+
 // ─── Route Computation ──────────────────────────────────────────────────────
 
 /**
  * Deterministic routing rules applied to the raw model classification.
+ * TOTAL function — every GatekeeperDocType maps to exactly one route.
  *
  * Priority:
  * 1) doc_type === UNKNOWN → NEEDS_REVIEW
  * 2) confidence < 0.80 → NEEDS_REVIEW
  * 3) Tax return (BUSINESS or PERSONAL) with null tax_year → NEEDS_REVIEW
  * 4) CORE type → GOOGLE_DOC_AI_CORE
- * 5) Everything else → STANDARD
+ * 5) Explicit STANDARD allowlist → STANDARD
+ * 6) Defensive fallback → NEEDS_REVIEW
  */
 export function computeGatekeeperRoute(
   classification: Pick<GatekeeperClassification, "doc_type" | "confidence" | "tax_year">,
@@ -62,8 +76,13 @@ export function computeGatekeeperRoute(
     return "GOOGLE_DOC_AI_CORE";
   }
 
-  // Rule 5: Everything else
-  return "STANDARD";
+  // Rule 5: Explicit STANDARD allowlist
+  if (STANDARD_ELIGIBLE.has(classification.doc_type)) {
+    return "STANDARD";
+  }
+
+  // Rule 6: Defensive — unrecognized type → NEEDS_REVIEW
+  return "NEEDS_REVIEW";
 }
 
 // ─── Canonical Type Hint Mapping ────────────────────────────────────────────
@@ -101,5 +120,39 @@ export function mapGatekeeperToCanonicalHint(docType: GatekeeperDocType): {
     case "UNKNOWN":
     default:
       return { canonical_type_hint: "OTHER", routing_class_hint: "GEMINI_STANDARD" };
+  }
+}
+
+// ─── Effective Doc Type Mapping (Primary Routing) ───────────────────────────
+
+/**
+ * Map a GatekeeperDocType to an effectiveDocType string for use in:
+ *  - isExtractEligibleDocType() gate (processArtifact.ts)
+ *  - spreadsForDocType() spread selection (docTypeToSpreadTypes.ts)
+ *
+ * Pure function — no DB, no side effects, deterministic.
+ */
+export function mapGatekeeperDocTypeToEffectiveDocType(
+  docType: GatekeeperDocType,
+): string {
+  switch (docType) {
+    case "BUSINESS_TAX_RETURN":
+      return "BUSINESS_TAX_RETURN";
+    case "PERSONAL_TAX_RETURN":
+    case "W2":
+    case "FORM_1099":
+    case "K1":
+      return "PERSONAL_TAX_RETURN";
+    case "BANK_STATEMENT":
+      return "BANK_STATEMENT";
+    case "FINANCIAL_STATEMENT":
+      return "FINANCIAL_STATEMENT";
+    case "DRIVERS_LICENSE":
+      return "ENTITY_DOCS";
+    case "VOIDED_CHECK":
+    case "OTHER":
+    case "UNKNOWN":
+    default:
+      return "OTHER";
   }
 }

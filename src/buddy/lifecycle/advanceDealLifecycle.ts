@@ -213,6 +213,12 @@ function computeNextStage(currentStage: LifecycleStage): LifecycleStage | null {
   return allowed[0];
 }
 
+/** Blocker codes in the "documents" category — block document-phase transitions */
+const DOCUMENT_BLOCKER_CODES = new Set([
+  "gatekeeper_docs_incomplete",
+  "gatekeeper_docs_need_review",
+]);
+
 /**
  * Get blockers that specifically prevent the given transition.
  * Some blockers are informational and don't prevent all transitions.
@@ -221,19 +227,19 @@ function getBlockersForTransition(
   state: LifecycleState,
   nextStage: LifecycleStage
 ): LifecycleBlocker[] {
-  // For now, all blockers prevent advancement
-  // In the future, we could make some blockers stage-specific
   return state.blockers.filter((blocker) => {
-    // Map blocker codes to the stages they block
+    // Document-category blockers — all share the same transition gates
+    if (DOCUMENT_BLOCKER_CODES.has(blocker.code)) {
+      return ["docs_satisfied", "underwrite_ready"].includes(nextStage);
+    }
+
+    // Map remaining blocker codes to the stages they block
     switch (blocker.code) {
       case "deal_not_found":
         return true; // Always blocking
 
       case "checklist_not_seeded":
         return nextStage === "docs_requested"; // Blocks moving to docs_requested
-
-      case "missing_required_docs":
-        return ["docs_satisfied", "underwrite_ready"].includes(nextStage);
 
       case "pricing_assumptions_required":
         return nextStage === "underwrite_ready";

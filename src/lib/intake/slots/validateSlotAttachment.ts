@@ -162,9 +162,26 @@ export async function validateSlotAttachmentIfAny(
     return { validated: true, slotId };
   }
 
-  // Type mismatch → reject
+  // Type mismatch
   const reason = `Expected ${slot.required_doc_type}, got ${classifiedDocType}`;
 
+  // UX-only mode: log mismatch info but do NOT reject
+  const { isSlotsUxOnly } = await import("@/lib/flags/openaiGatekeeper");
+
+  if (isSlotsUxOnly()) {
+    await sb
+      .from("deal_document_slots")
+      .update({ status: "attached", validation_reason: `mismatch_info: ${reason}` } as any)
+      .eq("id", slotId);
+
+    console.log("[validateSlotAttachment] mismatch suppressed (SLOTS_UX_ONLY)", {
+      documentId, slotId, reason,
+    });
+
+    return { validated: true, slotId, reason };
+  }
+
+  // Legacy path: reject on type mismatch
   await sb
     .from("deal_document_slots")
     .update({ status: "rejected", validation_reason: reason } as any)

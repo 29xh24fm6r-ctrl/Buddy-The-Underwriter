@@ -92,6 +92,15 @@ export async function runGatekeeperForDocument(
     if (input.sha256) {
       const cached = await readGatekeeperCache(input.bankId, input.sha256, promptHash);
       if (cached) {
+        // Defense-in-depth: verify cache row was produced by current prompt
+        if (cached.prompt_version !== getPromptVersion()) {
+          console.warn("[Gatekeeper] cache prompt_version drift (hash matched)", {
+            documentId: input.documentId,
+            cachedVersion: cached.prompt_version,
+            currentVersion: getPromptVersion(),
+          });
+          // prompt_hash is authoritative — if hash matched, cache is still valid.
+        }
         const route = computeGatekeeperRoute(cached.classification);
         const result: GatekeeperResult = {
           ...cached.classification,
@@ -280,7 +289,10 @@ async function stampDocument(
         gatekeeper_prompt_version: result.prompt_version,
         gatekeeper_prompt_hash: result.prompt_hash,
         gatekeeper_classified_at: new Date().toISOString(),
-        gatekeeper_error: result.input_path === "error" ? result.reasons[0] ?? null : null,
+        gatekeeper_error:
+          result.input_path === "error" || result.input_path === "no_ocr_no_image"
+            ? result.reasons[0] ?? null
+            : null,
       })
       .eq("id", input.documentId);
   } catch (e) {

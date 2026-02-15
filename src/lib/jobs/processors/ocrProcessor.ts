@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runOcrJob } from "@/lib/ocr/runOcrJob";
 import { reconcileConditionsFromOcrResult } from "@/lib/conditions/reconcileConditions";
 import { createClient } from "@supabase/supabase-js";
+import { isGatekeeperInlineEnabled } from "@/lib/flags/openaiGatekeeper";
 
 /**
  * OCR Job Processor
@@ -130,6 +131,49 @@ export async function processOcrJob(jobId: string, leaseOwner: string) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", jobId);
+
+    // ── Inline Gatekeeper — AWAITED for ordering guarantee ──────────────
+    // Must complete (or timeout) BEFORE CLASSIFY is enqueued so results
+    // are available for the classifier. Failure → NEEDS_REVIEW (fail-closed).
+    if (isGatekeeperInlineEnabled()) {
+      try {
+        const { data: docMeta } = await (supabase as any)
+          .from("deal_documents")
+          .select("bank_id, sha256, storage_bucket, storage_path, mime_type")
+          .eq("id", job.attachment_id)
+          .maybeSingle();
+
+        if (docMeta) {
+          const { runGatekeeperForDocument } = await import(
+            "@/lib/gatekeeper/runGatekeeper"
+          );
+          const { withTimeout } = await import("@/lib/gatekeeper/withTimeout");
+
+          await withTimeout(
+            runGatekeeperForDocument({
+              documentId: String(job.attachment_id),
+              dealId: String(job.deal_id),
+              bankId: String(docMeta.bank_id ?? ""),
+              sha256: docMeta.sha256 ?? null,
+              ocrText: extractedText || null,
+              storageBucket: docMeta.storage_bucket || "deal-documents",
+              storagePath: docMeta.storage_path || "",
+              mimeType: docMeta.mime_type || "application/pdf",
+            }),
+            5_000,
+            "gatekeeper_inline",
+          );
+        }
+      } catch (gkErr: any) {
+        // Timeout or error: gatekeeper's own fail-closed logic stamps
+        // NEEDS_REVIEW. If even that failed, log and continue.
+        console.warn("[ocrProcessor] inline gatekeeper failed (non-fatal)", {
+          jobId,
+          attachmentId: job.attachment_id,
+          error: gkErr?.message,
+        });
+      }
+    }
 
     // Enqueue CLASSIFY job
     await (supabase as any)

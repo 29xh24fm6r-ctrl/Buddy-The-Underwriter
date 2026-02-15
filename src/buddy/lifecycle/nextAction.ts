@@ -171,16 +171,6 @@ export function getBlockerFixAction(
   dealId: string
 ): FixAction | null {
   switch (blocker.code) {
-    case "missing_required_docs":
-      return {
-        label: "View Missing Docs",
-        href: `/deals/${dealId}/cockpit?focus=documents`,
-        secondary: {
-          label: "Send Reminder",
-          action: "send_reminder",
-        },
-      };
-
     case "checklist_not_seeded":
       return {
         label: "Set Up Intake",
@@ -241,12 +231,6 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/cockpit?tab=setup`,
       };
 
-    case "ai_pipeline_incomplete":
-      return {
-        label: "Run AI Processing",
-        action: "ai_pipeline.process",
-      };
-
     case "spreads_incomplete":
       return {
         label: "View Spreads",
@@ -263,6 +247,18 @@ export function getBlockerFixAction(
       return {
         label: "Set Pricing Assumptions",
         href: `/deals/${dealId}/pricing`,
+      };
+
+    case "gatekeeper_docs_need_review":
+      return {
+        label: "Review Documents",
+        href: `/deals/${dealId}/documents`,
+      };
+
+    case "gatekeeper_docs_incomplete":
+      return {
+        label: "Upload Missing Documents",
+        href: `/deals/${dealId}/cockpit?focus=documents`,
       };
 
     // Infrastructure/fetch errors - no direct fix

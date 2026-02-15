@@ -43,7 +43,6 @@ export type LifecycleStage =
  */
 export type LifecycleBlockerCode =
   // Business logic blockers
-  | "missing_required_docs"
   | "identity_not_verified"
   | "financial_snapshot_missing"
   | "underwrite_not_started"
@@ -59,10 +58,11 @@ export type LifecycleBlockerCode =
   | "checklist_not_seeded"
   | "loan_request_missing"
   | "loan_request_incomplete"
-  | "ai_pipeline_incomplete"
   | "spreads_incomplete"
   | "pricing_assumptions_required"
   | "structural_pricing_missing"
+  | "gatekeeper_docs_need_review"
+  | "gatekeeper_docs_incomplete"
   // Runtime/infrastructure blockers - specific per data source
   | "checklist_fetch_failed"
   | "snapshot_fetch_failed"
@@ -89,14 +89,14 @@ export type LifecycleBlocker = {
 /**
  * Derived facts about the deal's current state.
  * All computed from canonical data sources - never manually set.
+ *
+ * Document readiness is driven exclusively by the gatekeeper AI engine.
  */
 export type LifecycleDerived = {
-  /** Percentage of required docs received (0-100) */
-  requiredDocsReceivedPct: number;
-  /** List of missing required doc keys */
-  requiredDocsMissing: string[];
-  /** True if all required checklist items are satisfied */
-  borrowerChecklistSatisfied: boolean;
+  /** True if all required documents are present (gatekeeper-authoritative) */
+  documentsReady: boolean;
+  /** Document readiness percentage 0-100 (gatekeeper-authoritative) */
+  documentsReadinessPct: number;
   /** True if underwrite has been started */
   underwriteStarted: boolean;
   /** True if financial snapshot exists */
@@ -127,6 +127,19 @@ export type LifecycleDerived = {
   researchComplete: boolean;
   /** Request correlation ID for debugging (optional, set by route) */
   correlationId?: string;
+  // Gatekeeper-derived readiness detail fields
+  /** True if all AI-verifiable required docs are present and no NEEDS_REVIEW */
+  gatekeeperDocsReady?: boolean;
+  /** AI document readiness percentage (PFS excluded since AI can't classify it) */
+  gatekeeperReadinessPct?: number;
+  /** Count of documents flagged as NEEDS_REVIEW by gatekeeper */
+  gatekeeperNeedsReviewCount?: number;
+  /** Missing business tax return years */
+  gatekeeperMissingBtrYears?: number[];
+  /** Missing personal tax return years */
+  gatekeeperMissingPtrYears?: number[];
+  /** Whether financial statements are missing */
+  gatekeeperMissingFinancialStatements?: boolean;
 };
 
 /**

@@ -23,6 +23,7 @@ import { isExtractionErrorPayload, extractErrorMessage } from "./extractionError
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { isGatekeeperInlineEnabled, isGatekeeperShadowCompareEnabled, isGatekeeperPrimaryRoutingEnabled } from "@/lib/flags/openaiGatekeeper";
 
 export type ProcessArtifactResult = {
   ok: boolean;
@@ -658,6 +659,45 @@ export async function processArtifact(
       bankId
     );
 
+    // ── Inline Gatekeeper — AWAITED for ordering guarantee ──────────────
+    // processArtifact runs its own classification (not through document_jobs),
+    // so we must run gatekeeper here to ensure results exist before classify.
+    if (isGatekeeperInlineEnabled() && source_table === "deal_documents") {
+      try {
+        const { data: docMeta } = await (sb as any)
+          .from("deal_documents")
+          .select("bank_id, sha256, storage_bucket, storage_path, mime_type")
+          .eq("id", source_id)
+          .maybeSingle();
+
+        if (docMeta) {
+          const { runGatekeeperForDocument } = await import(
+            "@/lib/gatekeeper/runGatekeeper"
+          );
+          const { withTimeout } = await import("@/lib/gatekeeper/withTimeout");
+
+          await withTimeout(
+            runGatekeeperForDocument({
+              documentId: source_id,
+              dealId,
+              bankId: String(docMeta.bank_id ?? bankId),
+              sha256: docMeta.sha256 ?? null,
+              ocrText: text || null,
+              storageBucket: docMeta.storage_bucket || "deal-documents",
+              storagePath: docMeta.storage_path || "",
+              mimeType: docMeta.mime_type || mimeType || "application/pdf",
+            }),
+            5_000,
+            "gatekeeper_inline_artifact",
+          );
+        }
+      } catch (gkErr: any) {
+        console.warn("[processArtifact] inline gatekeeper failed (non-fatal)", {
+          artifactId, source_id, error: gkErr?.message,
+        });
+      }
+    }
+
     // 1.5. Load existing DocAI signals (available on re-processing or retry)
     let docAiSignals: DocAiSignals | undefined;
     try {
@@ -967,18 +1007,146 @@ export async function processArtifact(
       }
     }
 
+    // ── Shared gatekeeper state (used by extraction routing + spread routing) ──
+    let gkCols: {
+      gatekeeper_doc_type: string | null;
+      gatekeeper_route: string | null;
+      gatekeeper_confidence: number | null;
+      gatekeeper_needs_review: boolean | null;
+    } | null = null;
+    let slotDocType: string | null = null;
+    const gkPrimary = isGatekeeperPrimaryRoutingEnabled();
+    let gkBlockedByReview = false;
+
+    if (source_table === "deal_documents") {
+      slotDocType = await lookupSlotDocType(sb, source_id);
+
+      try {
+        const { data } = await (sb as any)
+          .from("deal_documents")
+          .select("gatekeeper_doc_type, gatekeeper_route, gatekeeper_confidence, gatekeeper_needs_review")
+          .eq("id", source_id)
+          .maybeSingle();
+        gkCols = data ?? null;
+      } catch {
+        // Non-fatal — gatekeeper columns may not exist in all environments
+      }
+    }
+
     // 6.5a. Structured extraction (writes document_extracts for deterministic extractors)
-    // Phase 15: Slot-attached docs use slot's required_doc_type (deterministic routing)
     if (source_table === "deal_documents") {
       let effectiveDocType: string =
         typingResult?.effective_doc_type ?? classification.docType;
 
-      const slotDocType = await lookupSlotDocType(sb, source_id);
-      if (slotDocType) {
+      if (gkPrimary && gkCols) {
+        // ── NEEDS_REVIEW = hard block (fail-closed, no slot fallback) ──
+        if (
+          gkCols.gatekeeper_needs_review === true ||
+          gkCols.gatekeeper_route === "NEEDS_REVIEW"
+        ) {
+          gkBlockedByReview = true;
+
+          console.log("[processArtifact] NEEDS_REVIEW hard block — no extraction, no slot fallback", {
+            artifactId, documentId: source_id, gatekeeperRoute: gkCols.gatekeeper_route,
+          });
+
+          logLedgerEvent({
+            dealId,
+            bankId,
+            eventKey: "gatekeeper.primary_routing.blocked_by_review",
+            uiState: "waiting",
+            uiMessage: "Extraction blocked: gatekeeper NEEDS_REVIEW (no fallback)",
+            meta: {
+              document_id: source_id,
+              gatekeeper_route: gkCols.gatekeeper_route,
+              gatekeeper_doc_type: gkCols.gatekeeper_doc_type,
+            },
+          }).catch(() => {});
+
+        // ── Gatekeeper drives routing ──
+        } else if (gkCols.gatekeeper_doc_type) {
+          const { mapGatekeeperDocTypeToEffectiveDocType } = await import(
+            "@/lib/gatekeeper/routing"
+          );
+          const gkEffective = mapGatekeeperDocTypeToEffectiveDocType(
+            gkCols.gatekeeper_doc_type as any,
+          );
+          effectiveDocType = gkEffective;
+
+          // Log when slot would have produced a different type
+          if (slotDocType && slotDocType !== gkEffective) {
+            logLedgerEvent({
+              dealId,
+              bankId,
+              eventKey: "gatekeeper.primary_routing.ignored_slot_override",
+              uiState: "done",
+              uiMessage: `Slot override ignored: slot=${slotDocType}, gatekeeper=${gkEffective}`,
+              meta: {
+                document_id: source_id,
+                slot_doc_type: slotDocType,
+                gatekeeper_doc_type: gkCols.gatekeeper_doc_type,
+                gatekeeper_effective: gkEffective,
+              },
+            }).catch(() => {});
+          }
+        }
+        // If gatekeeper_doc_type is null but not NEEDS_REVIEW, fall through to
+        // classifier-based effectiveDocType (no slot override under gkPrimary).
+      } else if (!gkPrimary) {
+        // ── Legacy behavior: slot overrides effectiveDocType ──
+        if (slotDocType) {
+          effectiveDocType = slotDocType;
+        }
+      }
+      // else: gkPrimary=true but gkCols=null → fallback to classifier + slot
+      // (gatekeeper absent, pre-inline or env without gatekeeper)
+      if (gkPrimary && !gkCols && slotDocType) {
         effectiveDocType = slotDocType;
       }
 
-      if (effectiveDocType && isExtractEligibleDocType(effectiveDocType)) {
+      // ── Shadow routing comparison — log divergence, do NOT change routing ──
+      if (isGatekeeperShadowCompareEnabled() && gkCols) {
+        try {
+          const { computeShadowRoutingComparison } = await import(
+            "@/lib/gatekeeper/shadowRouting"
+          );
+
+          const shadow = computeShadowRoutingComparison({
+            documentId: source_id,
+            slotDocType,
+            effectiveDocType,
+            gatekeeperDocType: gkCols.gatekeeper_doc_type as any,
+            gatekeeperRoute: gkCols.gatekeeper_route as any,
+            gatekeeperConfidence: gkCols.gatekeeper_confidence ?? null,
+          });
+
+          const eventKey = shadow.divergentEngine || shadow.divergentDocType
+            ? "gatekeeper.shadow.divergent"
+            : "gatekeeper.shadow.agree";
+
+          if (shadow.divergentEngine) {
+            console.warn("[processArtifact] shadow ENGINE divergence", shadow);
+          }
+
+          logLedgerEvent({
+            dealId,
+            bankId,
+            eventKey,
+            uiState: "done",
+            uiMessage: shadow.reason
+              ? `Shadow divergence: ${shadow.reason}`
+              : `Shadow agree: effective=${effectiveDocType}`,
+            meta: {
+              document_id: source_id,
+              ...shadow,
+            },
+          }).catch(() => {});
+        } catch {
+          // Non-fatal
+        }
+      }
+
+      if (!gkBlockedByReview && effectiveDocType && isExtractEligibleDocType(effectiveDocType)) {
         try {
           const { extractByDocType } = await import(
             "@/lib/extract/router/extractByDocType"
@@ -1092,17 +1260,36 @@ export async function processArtifact(
       });
     }
 
-    if (factsReady) try {
-      // Phase 15: slot doc type takes priority for spread routing
-      const slotDocTypeForSpreads = source_table === "deal_documents"
-        ? await lookupSlotDocType(sb, source_id)
-        : null;
-      const docType = (
-        slotDocTypeForSpreads ??
-        typingResult.effective_doc_type ??
-        typingResult.canonical_type ??
-        ""
-      ).trim().toUpperCase();
+    if (factsReady && !gkBlockedByReview) try {
+      // Spread routing: gatekeeper-first when flag is on
+      let docType: string;
+      if (gkPrimary && gkCols?.gatekeeper_doc_type && gkCols.gatekeeper_route !== "NEEDS_REVIEW") {
+        const { mapGatekeeperDocTypeToEffectiveDocType } = await import(
+          "@/lib/gatekeeper/routing"
+        );
+        docType = mapGatekeeperDocTypeToEffectiveDocType(
+          gkCols.gatekeeper_doc_type as any,
+        ).trim().toUpperCase();
+      } else if (!gkPrimary) {
+        // Legacy: slot doc type takes priority for spread routing
+        const slotDocTypeForSpreads = source_table === "deal_documents"
+          ? slotDocType
+          : null;
+        docType = (
+          slotDocTypeForSpreads ??
+          typingResult.effective_doc_type ??
+          typingResult.canonical_type ??
+          ""
+        ).trim().toUpperCase();
+      } else {
+        // gkPrimary=true but gatekeeper absent → fallback with slot
+        docType = (
+          slotDocType ??
+          typingResult.effective_doc_type ??
+          typingResult.canonical_type ??
+          ""
+        ).trim().toUpperCase();
+      }
       const spreadTypes = spreadsForArtifactDocType(docType);
       if (spreadTypes.length > 0) {
         const { enqueueSpreadRecompute } = await import(

@@ -177,8 +177,8 @@ function computeLifecycleDiff(
   }
 
   // Docs progress
-  const prevDocsPct = prev.derived.requiredDocsReceivedPct;
-  const nextDocsPct = next.derived.requiredDocsReceivedPct;
+  const prevDocsPct = prev.derived.documentsReadinessPct;
+  const nextDocsPct = next.derived.documentsReadinessPct;
   if (nextDocsPct > prevDocsPct && nextDocsPct === 100) {
     toasts.push({
       id: `docs_${now}`,

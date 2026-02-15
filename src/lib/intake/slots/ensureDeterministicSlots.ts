@@ -11,7 +11,7 @@ import { generateSlotsForScenario } from "./policies";
  * Load the intake scenario for a deal.
  * Returns null if no scenario exists (legacy/conventional deal).
  */
-async function loadIntakeScenario(
+export async function loadIntakeScenario(
   dealId: string,
 ): Promise<IntakeScenario | null> {
   const sb = supabaseAdmin();
@@ -34,7 +34,7 @@ async function loadIntakeScenario(
 }
 
 /** Default scenario for conventional deals without explicit scenario data. */
-const CONVENTIONAL_FALLBACK: IntakeScenario = {
+export const CONVENTIONAL_FALLBACK: IntakeScenario = {
   product_type: "CONVENTIONAL",
   borrower_business_stage: "EXISTING",
   has_business_tax_returns: true,

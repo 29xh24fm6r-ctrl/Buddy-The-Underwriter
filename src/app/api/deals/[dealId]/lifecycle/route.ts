@@ -61,9 +61,8 @@ function createFallbackState(
       },
     ],
     derived: {
-      requiredDocsReceivedPct: 0,
-      requiredDocsMissing: [],
-      borrowerChecklistSatisfied: false,
+      documentsReady: false,
+      documentsReadinessPct: 0,
       underwriteStarted: false,
       financialSnapshotExists: false,
       committeePacketReady: false,

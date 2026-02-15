@@ -17,27 +17,6 @@ const STAGE_ORDER: LifecycleStage[] = [
   "committee_decisioned", "closing_in_progress", "closed",
 ];
 
-/** Convert checklist key to human-readable label */
-function formatMissingDocKey(key: string): string {
-  // Individual year tax returns: IRS_PERSONAL_2024 → "2024 Personal"
-  const personalYearMatch = key.match(/^IRS_PERSONAL_(\d{4})$/);
-  if (personalYearMatch) return `${personalYearMatch[1]} Personal`;
-
-  const businessYearMatch = key.match(/^IRS_BUSINESS_(\d{4})$/);
-  if (businessYearMatch) return `${businessYearMatch[1]} Business`;
-
-  // Legacy grouped keys
-  if (key === "IRS_PERSONAL_3Y") return "Personal 3Y";
-  if (key === "IRS_BUSINESS_3Y") return "Business 3Y";
-  if (key === "PFS_CURRENT") return "PFS";
-
-  // Abbreviate common keys
-  if (key === "FIN_STMT_PL_YTD") return "P&L YTD";
-  if (key === "FIN_STMT_BS_YTD") return "Balance Sheet";
-
-  // Default: abbreviate
-  return key.replace(/_/g, " ").slice(0, 15);
-}
 
 function DerivedFactDot({ label, ok }: { label: string; ok: boolean }) {
   return (
@@ -177,8 +156,9 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
   const stageIdx = stage ? STAGE_ORDER.indexOf(stage) : 0;
   const stagePct = Math.round(((stageIdx + 1) / STAGE_ORDER.length) * 100);
 
-  // Docs readiness
-  const docsPct = derived?.requiredDocsReceivedPct ?? 0;
+  // Document readiness (gatekeeper-authoritative)
+  const primaryPct = derived?.documentsReadinessPct ?? 0;
+  const primaryReady = derived?.documentsReady ?? false;
 
   // Skeleton state while initial data loads
   if (isInitialLoading) {
@@ -249,29 +229,53 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
           onAdvance={onAdvance}
         />
 
-        {/* Readiness progress bar */}
+        {/* Document readiness bar */}
         <div className="space-y-1">
           <div className="flex justify-between text-xs text-white/50">
-            <span>Documents</span>
-            <span>{Math.round(docsPct)}%</span>
+            <span>AI Document Readiness</span>
+            <span>{Math.round(primaryPct)}%</span>
           </div>
           <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-500",
-                docsPct === 100
-                  ? "bg-emerald-400"
-                  : "bg-sky-400",
+                primaryReady ? "bg-emerald-400" : "bg-violet-400",
               )}
-              style={{ width: `${docsPct}%` }}
+              style={{ width: `${primaryPct}%` }}
             />
           </div>
+          {/* Needs-review indicator */}
+          {(derived?.gatekeeperNeedsReviewCount ?? 0) > 0 && (
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] text-amber-300/60">
+                {derived!.gatekeeperNeedsReviewCount} document(s) need review
+              </p>
+              <Link href={`/deals/${dealId}/documents`}
+                className="text-[10px] text-amber-300/80 hover:text-amber-200 underline underline-offset-2">
+                Review
+              </Link>
+            </div>
+          )}
+          {/* Missing document year chips */}
+          {!primaryReady && derived?.gatekeeperMissingBtrYears && (
+            <div className="flex flex-wrap gap-1">
+              {derived.gatekeeperMissingBtrYears.map((y) => (
+                <span key={`btr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">BTR {y}</span>
+              ))}
+              {(derived.gatekeeperMissingPtrYears ?? []).map((y) => (
+                <span key={`ptr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">PTR {y}</span>
+              ))}
+              {derived.gatekeeperMissingFinancialStatements && (
+                <span className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">Financial Stmt</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Derived facts grid */}
         {derived && (
           <div className="grid grid-cols-2 gap-2">
-            <DerivedFactDot label="Documents" ok={derived.borrowerChecklistSatisfied} />
+            <DerivedFactDot label="Documents" ok={derived.documentsReady} />
             <DerivedFactDot label="AI Pipeline" ok={derived.aiPipelineComplete} />
             <DerivedFactDot label="Spreads" ok={derived.spreadsComplete} />
             <DerivedFactDot label="Pricing Setup" ok={derived.hasPricingAssumptions} />
@@ -331,28 +335,11 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
                   <div className="font-semibold text-white/70">What Buddy has done</div>
                   <ul className="space-y-1">
                     <li className="flex items-start gap-2">
-                      <span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", derived.borrowerChecklistSatisfied ? "bg-emerald-400" : "bg-amber-400/50")} />
+                      <span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", derived.documentsReady ? "bg-emerald-400" : "bg-amber-400/50")} />
                       <div>
-                        {derived.borrowerChecklistSatisfied
+                        {derived.documentsReady
                           ? "All required documents received and matched"
-                          : `${Math.round(docsPct)}% of required documents received (${derived.requiredDocsMissing.length} missing)`}
-                        {!derived.borrowerChecklistSatisfied && derived.requiredDocsMissing.length > 0 && (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {derived.requiredDocsMissing.slice(0, 4).map((key: string) => (
-                              <span
-                                key={key}
-                                className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/10 text-[9px] text-amber-300/70"
-                              >
-                                {formatMissingDocKey(key)}
-                              </span>
-                            ))}
-                            {derived.requiredDocsMissing.length > 4 && (
-                              <span className="text-[9px] text-white/30">
-                                +{derived.requiredDocsMissing.length - 4} more
-                              </span>
-                            )}
-                          </div>
-                        )}
+                          : `${Math.round(primaryPct)}% of required documents received`}
                       </div>
                     </li>
                     <li className="flex items-center gap-2">
@@ -385,7 +372,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
                   <div className="font-semibold text-white/70 mb-1">Progress</div>
                   <div className="flex items-center gap-4 text-[10px] font-mono">
                     <span>Stage: {stageIdx + 1}/{STAGE_ORDER.length}</span>
-                    <span>Docs: {Math.round(docsPct)}%</span>
+                    <span>Docs: {Math.round(primaryPct)}%</span>
                     <span>Blockers: {blockers.length}</span>
                   </div>
                 </div>

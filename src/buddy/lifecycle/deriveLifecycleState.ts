@@ -23,7 +23,6 @@
 
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { computeDealReadiness } from "@/lib/deals/readiness";
 import type {
   LifecycleStage,
   LifecycleState,
@@ -37,7 +36,9 @@ import {
   safeSupabaseCount,
   type SafeFetchContext,
 } from "./safeFetch";
-import { getSatisfiedRequired, getMissingRequired } from "@/lib/deals/checklistSatisfaction";
+import { isGatekeeperReadinessEnabled, isGatekeeperReadinessBlockingEnabled } from "@/lib/flags/openaiGatekeeper";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { computeBlockers } from "./computeBlockers";
 
 // Type for the internal lifecycle stage from deals table
 type DealLifecycleStage = "created" | "intake" | "collecting" | "underwriting" | "ready";
@@ -157,26 +158,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     checklist = checklistResult.data || [];
   }
 
-  const requiredItems = checklist.filter((item) => item.required);
-  const satisfiedItems = getSatisfiedRequired(checklist);
-  const missingItems = getMissingRequired(checklist);
-
-  // 3. Compute deal readiness using existing function
-  let borrowerChecklistSatisfied = false;
-  const readinessResult = await safeFetch(
-    "readiness",
-    () => computeDealReadiness(dealId),
-    ctx
-  );
-
-  if (readinessResult.ok) {
-    borrowerChecklistSatisfied = readinessResult.data.ready;
-  } else {
-    // Fall back to checklist-based calculation (don't add blocker - it's a soft failure)
-    borrowerChecklistSatisfied = requiredItems.length > 0 && missingItems.length === 0;
-  }
-
-  // 4–11. Parallel independent queries (snapshot, decision, packet, advancement, loan requests, pricing, ai pipeline, spreads)
+  // 3–11. Parallel independent queries (snapshot, decision, packet, advancement, loan requests, pricing, ai pipeline, spreads)
   const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, legacyPricingResult, aiPipelineResult, spreadsResult, riskPricingResult, structuralPricingResult, pricingInputsResult, researchResult] = await Promise.all([
     safeSupabaseCount(
       "snapshot",
@@ -419,18 +401,38 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     }
   }
 
-  // Build derived state (safe math - guard against divide by zero)
-  const requiredDocsReceivedPct =
-    requiredItems.length > 0
-      ? Math.round((satisfiedItems.length / requiredItems.length) * 100)
-      : checklist.length === 0
-        ? 0
-        : 100; // No checklist = 0%, empty required = 100%
+  // Gatekeeper readiness (informational; optionally blocking under flag)
+  let gatekeeperDerived: Partial<Pick<LifecycleDerived,
+    'gatekeeperDocsReady' | 'gatekeeperReadinessPct' | 'gatekeeperNeedsReviewCount'
+    | 'gatekeeperMissingBtrYears' | 'gatekeeperMissingPtrYears' | 'gatekeeperMissingFinancialStatements'
+  >> = {};
+
+  if (isGatekeeperReadinessEnabled()) {
+    try {
+      const { computeGatekeeperDocReadiness } = await import("@/lib/gatekeeper/readinessServer");
+      const readiness = await computeGatekeeperDocReadiness(dealId);
+      gatekeeperDerived = {
+        gatekeeperDocsReady: readiness.ready,
+        gatekeeperReadinessPct: readiness.readinessPct,
+        gatekeeperNeedsReviewCount: readiness.needsReviewCount,
+        ...(isGatekeeperReadinessBlockingEnabled() && {
+          gatekeeperMissingBtrYears: readiness.missing.businessTaxYears,
+          gatekeeperMissingPtrYears: readiness.missing.personalTaxYears,
+          gatekeeperMissingFinancialStatements: readiness.missing.financialStatementsMissing,
+        }),
+      };
+    } catch {
+      // Non-fatal: gatekeeper readiness failure never blocks lifecycle
+    }
+  }
+
+  // Document readiness — gatekeeper is the sole authority.
+  const documentsReady = gatekeeperDerived.gatekeeperDocsReady ?? false;
+  const documentsReadinessPct = gatekeeperDerived.gatekeeperReadinessPct ?? 0;
 
   const derived: LifecycleDerived = {
-    requiredDocsReceivedPct,
-    requiredDocsMissing: missingItems.map((item) => item.checklist_key),
-    borrowerChecklistSatisfied,
+    documentsReady,
+    documentsReadinessPct,
     underwriteStarted: lifecycleStage === "underwriting" || lifecycleStage === "ready",
     financialSnapshotExists,
     committeePacketReady,
@@ -445,6 +447,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     hasPricingAssumptions,
     hasSubmittedLoanRequest,
     researchComplete,
+    ...gatekeeperDerived,
   };
 
   // Map to unified stage
@@ -455,6 +458,29 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     ...computeBlockers(stage, derived, checklist.length, loanRequestCount, loanRequestHasIncomplete),
     ...runtimeBlockers,
   ];
+
+  // Gatekeeper blocker telemetry — fire-and-forget, always emit when present
+  if (deal.bank_id) {
+    const gkBlockers = blockers.filter(
+      (b) => b.code === "gatekeeper_docs_need_review" || b.code === "gatekeeper_docs_incomplete",
+    );
+    for (const b of gkBlockers) {
+      logLedgerEvent({
+        dealId,
+        bankId: deal.bank_id,
+        eventKey: b.code === "gatekeeper_docs_need_review"
+          ? "gatekeeper.readiness.blocker.docs_need_review"
+          : "gatekeeper.readiness.blocker.docs_incomplete",
+        uiState: "waiting",
+        uiMessage: b.message,
+        meta: {
+          ...(b.evidence ?? {}),
+          readinessPct: derived.gatekeeperReadinessPct,
+          needsReviewCount: derived.gatekeeperNeedsReviewCount,
+        },
+      }).catch(() => {});
+    }
+  }
 
   return {
     stage,
@@ -485,9 +511,9 @@ function mapToUnifiedStage(
       return "docs_requested";
 
     case "collecting":
-      // Sub-stages based on checklist completion
-      if (!derived.borrowerChecklistSatisfied) {
-        return derived.requiredDocsReceivedPct > 0 ? "docs_in_progress" : "docs_requested";
+      // Sub-stages based on document readiness (gatekeeper-authoritative)
+      if (!derived.documentsReady) {
+        return derived.documentsReadinessPct > 0 ? "docs_in_progress" : "docs_requested";
       }
       // Docs satisfied - check if ready for underwrite
       // Requires submitted loan request + pricing assumptions (NOT financial snapshot)
@@ -512,159 +538,6 @@ function mapToUnifiedStage(
 }
 
 /**
- * Compute blockers based on current stage and derived state.
- */
-function computeBlockers(
-  stage: LifecycleStage,
-  derived: LifecycleDerived,
-  checklistCount: number,
-  loanRequestCount: number = 0,
-  loanRequestHasIncomplete: boolean = false,
-): LifecycleBlocker[] {
-  const blockers: LifecycleBlocker[] = [];
-
-  // Early stages: checklist not seeded
-  if (stage === "intake_created" && checklistCount === 0) {
-    blockers.push({
-      code: "checklist_not_seeded",
-      message: "Checklist has not been created for this deal",
-    });
-  }
-
-  // Loan request blockers — check from docs_requested onward (not intake_created)
-  if (
-    stage !== "intake_created" &&
-    stage !== "closed" &&
-    stage !== "workout" &&
-    loanRequestCount === 0
-  ) {
-    blockers.push({
-      code: "loan_request_missing",
-      message: "No loan request has been created for this deal",
-    });
-  }
-
-  if (
-    loanRequestCount > 0 &&
-    loanRequestHasIncomplete &&
-    ["docs_satisfied", "underwrite_ready", "underwrite_in_progress"].includes(stage)
-  ) {
-    blockers.push({
-      code: "loan_request_incomplete",
-      message: "One or more loan requests are incomplete (missing amount or still in draft)",
-    });
-  }
-
-  // AI pipeline completeness blocker (prevents "green lies")
-  // Demoted: does NOT block when checklist is already satisfied by manual overrides.
-  // Rule: "AI must never block a human from fixing a deal."
-  if (
-    ["docs_in_progress", "docs_satisfied", "underwrite_ready"].includes(stage) &&
-    !derived.aiPipelineComplete &&
-    !derived.borrowerChecklistSatisfied
-  ) {
-    blockers.push({
-      code: "ai_pipeline_incomplete",
-      message: "AI document processing has not completed for all uploaded documents",
-    });
-  }
-
-  // Spread pipeline completeness — informational only, NOT a lifecycle blocker.
-  // Spreads run in parallel and should never gate pricing or advancement.
-  // The derived.spreadsComplete flag is still visible in ReadinessPanel dots.
-
-  // Document collection blockers
-  if (
-    ["docs_requested", "docs_in_progress"].includes(stage) &&
-    derived.requiredDocsMissing.length > 0
-  ) {
-    blockers.push({
-      code: "missing_required_docs",
-      message: `${derived.requiredDocsMissing.length} required document(s) missing`,
-      evidence: { missing: derived.requiredDocsMissing },
-    });
-  }
-
-  // Pricing assumptions blocker — needed to advance from docs_satisfied to underwrite_ready
-  if (stage === "docs_satisfied" && !derived.hasPricingAssumptions) {
-    blockers.push({
-      code: "pricing_assumptions_required",
-      message: "Pricing assumptions must be configured before underwriting",
-    });
-  }
-
-  // Financial snapshot blocker — fires in underwrite_ready stage
-  // (snapshot is generated IN the underwrite flow, not as a prerequisite TO it)
-  if (stage === "underwrite_ready" && !derived.financialSnapshotExists) {
-    blockers.push({
-      code: "financial_snapshot_missing",
-      message: "Financial snapshot must be generated to begin underwriting",
-    });
-  }
-
-  // Risk pricing finalization blocker — must be reviewed and finalized before committee
-  if (
-    stage === "underwrite_in_progress" &&
-    !derived.riskPricingFinalized
-  ) {
-    blockers.push({
-      code: "risk_pricing_not_finalized",
-      message: "Risk pricing must be reviewed and finalized before advancing to committee",
-    });
-  }
-
-  // Structural pricing blocker — auto-created from loan request submission
-  if (
-    stage === "underwrite_in_progress" &&
-    !derived.structuralPricingReady
-  ) {
-    blockers.push({
-      code: "structural_pricing_missing",
-      message: "Structural pricing has not been computed (save pricing assumptions or submit a loan request)",
-    });
-  }
-
-  // Pricing quote blocker — a locked quote/decision is required before committee
-  if (
-    stage === "committee_ready" &&
-    !derived.pricingQuoteReady
-  ) {
-    blockers.push({
-      code: "pricing_quote_missing",
-      message: "A locked pricing quote is required before committee review",
-    });
-  }
-
-  // Committee readiness blockers
-  if (stage === "underwrite_in_progress" || stage === "committee_ready") {
-    if (!derived.committeePacketReady && derived.committeeRequired) {
-      blockers.push({
-        code: "committee_packet_missing",
-        message: "Committee packet must be generated before decision",
-      });
-    }
-  }
-
-  // Decision blockers
-  if (stage === "committee_ready" && !derived.decisionPresent) {
-    blockers.push({
-      code: "decision_missing",
-      message: "Final decision has not been recorded",
-    });
-  }
-
-  // Attestation blockers (only if decision exists but not attested)
-  if (stage === "committee_decisioned" && !derived.attestationSatisfied) {
-    blockers.push({
-      code: "attestation_missing",
-      message: "Required attestations not yet completed",
-    });
-  }
-
-  return blockers;
-}
-
-/**
  * Create a state for deals that don't exist.
  */
 function createNotFoundState(): LifecycleState {
@@ -678,9 +551,8 @@ function createNotFoundState(): LifecycleState {
       },
     ],
     derived: {
-      requiredDocsReceivedPct: 0,
-      requiredDocsMissing: [],
-      borrowerChecklistSatisfied: false,
+      documentsReady: false,
+      documentsReadinessPct: 0,
       underwriteStarted: false,
       financialSnapshotExists: false,
       committeePacketReady: false,
@@ -714,9 +586,8 @@ function createErrorState(code: string, message: string): LifecycleState {
       },
     ],
     derived: {
-      requiredDocsReceivedPct: 0,
-      requiredDocsMissing: [],
-      borrowerChecklistSatisfied: false,
+      documentsReady: false,
+      documentsReadinessPct: 0,
       underwriteStarted: false,
       financialSnapshotExists: false,
       committeePacketReady: false,

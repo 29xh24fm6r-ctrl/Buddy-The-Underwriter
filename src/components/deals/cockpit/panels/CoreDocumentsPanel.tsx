@@ -61,6 +61,7 @@ type Slot = {
 
 type Props = {
   dealId: string;
+  gatekeeperPrimaryRouting?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -252,7 +253,7 @@ function groupSlots(slots: Slot[]): SlotSection[] {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function CoreDocumentsPanel({ dealId }: Props) {
+export function CoreDocumentsPanel({ dealId, gatekeeperPrimaryRouting = false }: Props) {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadingSlot, setUploadingSlot] = useState<string | null>(null);
@@ -399,6 +400,13 @@ export function CoreDocumentsPanel({ dealId }: Props) {
           {validatedSlots}/{totalSlots} validated
         </span>
       </div>
+
+      {/* Gatekeeper primary routing indicator */}
+      {gatekeeperPrimaryRouting && (
+        <p className="px-5 pt-1.5 text-[10px] text-white/25">
+          Routing based on document content
+        </p>
+      )}
 
       {/* Progress bar */}
       <div className="px-5 pt-3 pb-1">

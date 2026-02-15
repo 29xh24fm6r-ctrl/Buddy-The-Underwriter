@@ -7,13 +7,14 @@ import DealFilesCard from "@/components/deals/DealFilesCard";
 
 type Props = {
   dealId: string;
+  gatekeeperPrimaryRouting?: boolean;
 };
 
-export function LeftColumn({ dealId }: Props) {
+export function LeftColumn({ dealId, gatekeeperPrimaryRouting = false }: Props) {
   return (
     <div className="space-y-4">
       <SafeBoundary>
-        <CoreDocumentsPanel dealId={dealId} />
+        <CoreDocumentsPanel dealId={dealId} gatekeeperPrimaryRouting={gatekeeperPrimaryRouting} />
       </SafeBoundary>
       <SafeBoundary>
         <ArtifactPipelinePanel dealId={dealId} />
