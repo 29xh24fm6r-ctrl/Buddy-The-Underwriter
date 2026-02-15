@@ -307,7 +307,7 @@ function DealCockpitClientInner({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
             {/* Left Column: Documents + Pipeline (mobile: 3rd) */}
             <div id="cockpit-documents" className="lg:col-span-4 order-3 lg:order-1">
-              <LeftColumn dealId={dealId} gatekeeperPrimaryRouting={gatekeeperPrimaryRouting} />
+              <LeftColumn dealId={dealId} isAdmin={isAdmin} gatekeeperPrimaryRouting={gatekeeperPrimaryRouting} />
             </div>
 
             {/* Center Column: Year-Aware Checklist (mobile: 2nd) */}

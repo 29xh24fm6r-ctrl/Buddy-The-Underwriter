@@ -1,10 +1,80 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { SpreadViewModelTable } from "@/components/deals/spreads/SpreadViewModelTable";
 import type { SpreadViewModel } from "@/lib/modelEngine/renderer/types";
+
+// ── Pipeline error context (shows actionable diagnostics on error) ──
+
+function PipelineErrorContext({ dealId }: { dealId: string }) {
+  const [hint, setHint] = React.useState<string | null>(null);
+  const [ledger, setLedger] = React.useState<
+    Array<{ event_key: string | null; stage: string; status: string; created_at: string }>
+  >([]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/deals/${dealId}/pipeline-status`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((json) => {
+        if (cancelled || !json.ok) return;
+
+        // Derive actionable hint
+        if (json.docs.total === 0) {
+          setHint("Upload financial documents to begin.");
+        } else if (json.docs.classified === 0) {
+          setHint("Documents are being processed (OCR/Classification).");
+        } else if (json.facts.total === 0) {
+          setHint("Financial data is being extracted from documents.");
+        } else if (json.spreads.ready === 0 && json.spreads.error === 0) {
+          setHint("Spreads are being generated.");
+        } else if (json.spreads.error > 0) {
+          setHint(`${json.spreads.error} spread(s) failed. Check the deal cockpit for details.`);
+        }
+
+        // Last 3 ledger events
+        setLedger((json.ledger ?? []).slice(0, 3));
+      })
+      .catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [dealId]);
+
+  return (
+    <div className="space-y-2 pt-1">
+      {hint && (
+        <div className="text-white/60 text-xs">
+          {hint}
+        </div>
+      )}
+      {ledger.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] text-white/40 font-semibold">Recent pipeline events:</div>
+          {ledger.map((e, i) => (
+            <div key={`${e.created_at}-${i}`} className="flex items-center gap-1.5 text-[10px] text-white/40">
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                  e.status === "ok" ? "bg-emerald-400" : e.status === "error" ? "bg-red-400" : "bg-amber-400"
+                }`}
+              />
+              <span>{e.event_key ?? e.stage}</span>
+              <span className="text-white/20 ml-auto">{e.created_at?.slice(0, 16).replace("T", " ")}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <Link
+        href={`/deals/${dealId}/cockpit`}
+        className="inline-flex items-center gap-1 text-[10px] text-sky-300 hover:text-sky-200"
+      >
+        View deal cockpit
+      </Link>
+    </div>
+  );
+}
 
 export default function StandardSpreadPage() {
   const params = useParams<{ dealId: string }>();
@@ -57,8 +127,9 @@ export default function StandardSpreadPage() {
             Retry
           </button>
         </div>
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300">
-          {error}
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-300 space-y-2">
+          <div>{error}</div>
+          <PipelineErrorContext dealId={dealId} />
         </div>
       </div>
     );
