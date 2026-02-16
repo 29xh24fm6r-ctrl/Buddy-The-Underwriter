@@ -72,29 +72,7 @@ function isExtractEligibleDocType(docType: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 15 — Slot-aware doc type lookup
-// ---------------------------------------------------------------------------
-
-async function lookupSlotDocType(
-  sb: ReturnType<typeof supabaseAdmin>,
-  documentId: string,
-): Promise<string | null> {
-  const { data: doc } = await sb
-    .from("deal_documents")
-    .select("slot_id")
-    .eq("id", documentId)
-    .maybeSingle();
-
-  if (!doc?.slot_id) return null;
-
-  const { data: slot } = await (sb as any)
-    .from("deal_document_slots")
-    .select("required_doc_type")
-    .eq("id", doc.slot_id)
-    .maybeSingle();
-
-  return slot?.required_doc_type ?? null;
-}
+// Phase 15 — Slot lookup removed (slots are UX-only upload groups, never drive routing)
 
 /**
  * Run OCR directly on a document (bypasses document_jobs lookup).
@@ -1014,9 +992,6 @@ export async function processArtifact(
       gatekeeper_confidence: number | null;
       gatekeeper_needs_review: boolean | null;
     } | null = null;
-    const slotDocType: string | null = source_table === "deal_documents"
-      ? await lookupSlotDocType(sb, source_id)
-      : null;
     let gkBlockedByReview = false;
 
     if (source_table === "deal_documents") {
@@ -1077,6 +1052,27 @@ export async function processArtifact(
       }
       // No slot override. No slot fallback. Classifier-derived effectiveDocType stands if gatekeeper absent.
 
+      // ── Upload-group auto-fill (UI-only; never affects routing) ───────────────────
+      // Best-effort: attaches document to an empty upload group so the Core Docs UI
+      // populates even when gatekeeper inline is off. Must NOT block pipeline.
+      if (!gkBlockedByReview && effectiveDocType) {
+        try {
+          const { autoMatchByEffectiveType } = await import(
+            "@/lib/intake/slots/autoMatchDocToSlot"
+          );
+
+          autoMatchByEffectiveType({
+            dealId,
+            bankId,
+            documentId: source_id,
+            effectiveDocType,
+            taxYear: classification?.taxYear ?? null,
+          }).catch(() => {});
+        } catch {
+          // Non-fatal; never blocks pipeline
+        }
+      }
+
       // ── Shadow routing comparison — always log when gatekeeper data present ──
       if (gkCols) {
         try {
@@ -1086,7 +1082,6 @@ export async function processArtifact(
 
           const shadow = computeShadowRoutingComparison({
             documentId: source_id,
-            slotDocType,
             effectiveDocType,
             gatekeeperDocType: gkCols.gatekeeper_doc_type as any,
             gatekeeperRoute: gkCols.gatekeeper_route as any,

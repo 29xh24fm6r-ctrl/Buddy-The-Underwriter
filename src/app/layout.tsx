@@ -73,7 +73,9 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkGate>
-      <html lang="en" className="dark">
+      {/* suppressHydrationWarning reduces extension-driven hydration noise.
+          Do not use to hide real SSR/client divergence. */}
+      <html lang="en" className="dark" suppressHydrationWarning>
         <head>
           {/* Material Symbols - Updated with all required parameters for icon rendering */}
           <link
@@ -81,7 +83,7 @@ export default function RootLayout({
             href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
           />
         </head>
-        <body className={`${inter.variable} font-inter bg-bg-dark text-white antialiased`}>
+        <body className={`${inter.variable} font-inter bg-bg-dark text-white antialiased`} suppressHydrationWarning>
           <BuddyProvider>
             <PHProvider>
               <QaModeProvider>

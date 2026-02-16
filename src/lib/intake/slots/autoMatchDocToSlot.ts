@@ -5,7 +5,13 @@ import { attachDocumentToSlot } from "./attachDocumentToSlot";
 import type { GatekeeperDocType } from "@/lib/gatekeeper/types";
 
 // ---------------------------------------------------------------------------
-// Slot Auto-Fill — match gatekeeper-classified docs to empty slots
+// Slot Auto-Fill — match classified docs to empty upload-group slots (UI-only)
+//
+// Architectural contract:
+//   - Writes only to slot/upload-group tables (deal_document_slots attachments)
+//   - Fire-and-forget — never blocks OCR/classify/extract/spreads
+//   - Must NOT mutate deal_documents.canonical_type / routing_class
+//   - Must NOT affect effectiveDocType or spreads/extract decisions
 // ---------------------------------------------------------------------------
 
 /**
@@ -13,6 +19,7 @@ import type { GatekeeperDocType } from "@/lib/gatekeeper/types";
  *
  * Most map 1:1. FINANCIAL_STATEMENT is special: gatekeeper doesn't
  * distinguish IS vs BS, so we try both slot types (first empty wins).
+ * The classifier may produce INCOME_STATEMENT or BALANCE_SHEET directly.
  */
 function effectiveTypeToSlotDocTypes(effectiveType: string): string[] {
   switch (effectiveType) {
@@ -25,6 +32,10 @@ function effectiveTypeToSlotDocTypes(effectiveType: string): string[] {
     case "FINANCIAL_STATEMENT":
       // Gatekeeper lumps IS + BS; try both slot types
       return ["BALANCE_SHEET", "INCOME_STATEMENT"];
+    case "INCOME_STATEMENT":
+      return ["INCOME_STATEMENT"];
+    case "BALANCE_SHEET":
+      return ["BALANCE_SHEET"];
     default:
       return [];
   }
@@ -33,41 +44,35 @@ function effectiveTypeToSlotDocTypes(effectiveType: string): string[] {
 export type AutoMatchResult = {
   matched: boolean;
   slotId?: string;
+  reason?: string;
 };
 
 /**
- * Auto-match a gatekeeper-classified document to an empty slot.
+ * Core auto-match function — accepts effectiveDocType directly.
+ *
+ * Used by both the gatekeeper path (via wrapper) and the classify path
+ * (processArtifact). Finds the best matching empty slot and attaches the doc.
  *
  * Rules:
  * - Only matches `status = 'empty'` slots (never replaces existing attachments)
  * - Year-based slots (BTR, PTR) require exact tax_year match
- * - Non-year slots (PFS) match on doc type alone
- * - W2/K1/FORM_1099 map to PERSONAL_TAX_RETURN slots via effective type
+ * - Non-year slots (PFS, IS, BS) match on doc type alone
  * - FINANCIAL_STATEMENT tries BALANCE_SHEET then INCOME_STATEMENT (first empty)
- * - NEEDS_REVIEW docs (UNKNOWN, errors) are never auto-matched
  * - Fire-and-forget: failure never blocks the pipeline
  */
-export async function autoMatchDocToSlot(params: {
+export async function autoMatchByEffectiveType(params: {
   dealId: string;
   bankId: string;
   documentId: string;
-  gatekeeperDocType: GatekeeperDocType;
-  gatekeeperTaxYear: number | null;
+  effectiveDocType: string;
+  taxYear: number | null;
 }): Promise<AutoMatchResult> {
-  const { dealId, bankId, documentId, gatekeeperDocType, gatekeeperTaxYear } =
-    params;
+  const { dealId, bankId, documentId, effectiveDocType, taxYear } = params;
 
-  // Skip UNKNOWN — nothing to match
-  if (gatekeeperDocType === "UNKNOWN") {
-    return { matched: false };
-  }
-
-  const effectiveType =
-    mapGatekeeperDocTypeToEffectiveDocType(gatekeeperDocType);
-  const slotDocTypes = effectiveTypeToSlotDocTypes(effectiveType);
+  const slotDocTypes = effectiveTypeToSlotDocTypes(effectiveDocType);
 
   if (slotDocTypes.length === 0) {
-    return { matched: false };
+    return { matched: false, reason: "no_slot_types" };
   }
 
   const sb = supabaseAdmin();
@@ -82,21 +87,21 @@ export async function autoMatchDocToSlot(params: {
     .order("sort_order", { ascending: true });
 
   if (!emptySlots || emptySlots.length === 0) {
-    return { matched: false };
+    return { matched: false, reason: "no_empty_slots" };
   }
 
   // Find best match: prefer exact year match, then null-year slots
   const yearBased =
-    effectiveType === "BUSINESS_TAX_RETURN" ||
-    effectiveType === "PERSONAL_TAX_RETURN";
+    effectiveDocType === "BUSINESS_TAX_RETURN" ||
+    effectiveDocType === "PERSONAL_TAX_RETURN";
 
   let bestSlot: (typeof emptySlots)[0] | null = null;
 
-  if (yearBased && gatekeeperTaxYear != null) {
+  if (yearBased && taxYear != null) {
     // Exact year match required
     bestSlot =
       emptySlots.find(
-        (s: any) => s.required_tax_year === gatekeeperTaxYear,
+        (s: any) => s.required_tax_year === taxYear,
       ) ?? null;
   } else {
     // Non-year slot: first empty match by sort_order (already ordered)
@@ -104,7 +109,7 @@ export async function autoMatchDocToSlot(params: {
   }
 
   if (!bestSlot) {
-    return { matched: false };
+    return { matched: false, reason: "no_year_match" };
   }
 
   const result = await attachDocumentToSlot({
@@ -116,15 +121,48 @@ export async function autoMatchDocToSlot(params: {
   });
 
   if (result.ok) {
-    console.log("[autoMatchDocToSlot] auto-filled slot", {
+    console.log("[autoMatchByEffectiveType] auto-filled slot", {
       dealId,
       documentId,
       slotId: bestSlot.id,
-      gatekeeperDocType,
-      gatekeeperTaxYear,
+      effectiveDocType,
+      taxYear,
     });
     return { matched: true, slotId: bestSlot.id };
   }
 
-  return { matched: false };
+  return { matched: false, reason: "attach_failed" };
+}
+
+/**
+ * Gatekeeper-path wrapper — converts gatekeeperDocType to effectiveDocType
+ * and delegates to autoMatchByEffectiveType.
+ *
+ * Used by runGatekeeper.ts (step 6b) after stampDocument.
+ */
+export async function autoMatchDocToSlot(params: {
+  dealId: string;
+  bankId: string;
+  documentId: string;
+  gatekeeperDocType: GatekeeperDocType;
+  gatekeeperTaxYear: number | null;
+}): Promise<AutoMatchResult> {
+  const { dealId, bankId, documentId, gatekeeperDocType, gatekeeperTaxYear } =
+    params;
+
+  // Skip UNKNOWN — nothing to match
+  if (gatekeeperDocType === "UNKNOWN") {
+    return { matched: false, reason: "unknown_type" };
+  }
+
+  const effectiveType =
+    mapGatekeeperDocTypeToEffectiveDocType(gatekeeperDocType);
+
+  return autoMatchByEffectiveType({
+    dealId,
+    bankId,
+    documentId,
+    effectiveDocType: effectiveType,
+    taxYear: gatekeeperTaxYear,
+  });
 }

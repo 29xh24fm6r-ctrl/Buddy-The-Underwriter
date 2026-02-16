@@ -49,14 +49,14 @@ export type ShadowCompareResult = {
 
 export function computeShadowRoutingComparison(args: {
   documentId: string;
-  slotDocType: string | null;
+  slotDocType?: string | null; // deprecated — slots are UX-only, always null
   effectiveDocType: string;
   gatekeeperDocType: GatekeeperDocType | null;
   gatekeeperRoute: GatekeeperRoute | null;
   gatekeeperConfidence: number | null;
 }): ShadowCompareResult {
   const {
-    documentId, slotDocType, effectiveDocType,
+    documentId, slotDocType = null, effectiveDocType,
     gatekeeperDocType, gatekeeperRoute, gatekeeperConfidence,
   } = args;
 

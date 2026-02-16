@@ -1,33 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Mock supabaseAdmin + attachDocumentToSlot before importing the module
-// ---------------------------------------------------------------------------
-
-let mockSlots: Array<{
-  id: string;
-  required_doc_type: string;
-  required_tax_year: number | null;
-  sort_order: number;
-}> = [];
-
-let attachCalls: Array<{
-  dealId: string;
-  bankId: string;
-  slotId: string;
-  documentId: string;
-  attachedByRole: string;
-}> = [];
-
-let attachShouldFail = false;
-
-// Mock modules using a simple approach: override the imported functions
-// We test the matching logic by importing the effectiveTypeToSlotDocTypes
-// mapping indirectly through the full function.
-
-// Since we can't easily mock supabase in node:test, we test the pure
-// matching logic by extracting it into testable units.
 
 // ---------------------------------------------------------------------------
 // Test the matching logic via mapGatekeeperDocTypeToEffectiveDocType
@@ -35,7 +7,6 @@ let attachShouldFail = false;
 // ---------------------------------------------------------------------------
 
 import { mapGatekeeperDocTypeToEffectiveDocType } from "@/lib/gatekeeper/routing";
-import type { GatekeeperDocType } from "@/lib/gatekeeper/types";
 
 describe("autoMatchDocToSlot — effective type mapping for slots", () => {
   it("BUSINESS_TAX_RETURN maps to BUSINESS_TAX_RETURN", () => {
@@ -107,7 +78,7 @@ describe("autoMatchDocToSlot — effective type mapping for slots", () => {
 // ---------------------------------------------------------------------------
 
 describe("autoMatchDocToSlot — slot matching rules", () => {
-  // Simulate the matching logic from autoMatchDocToSlot
+  // Simulate the matching logic from autoMatchByEffectiveType
   function findBestSlot(
     effectiveType: string,
     taxYear: number | null,
@@ -132,6 +103,12 @@ describe("autoMatchDocToSlot — slot matching rules", () => {
         break;
       case "FINANCIAL_STATEMENT":
         slotDocTypes = ["BALANCE_SHEET", "INCOME_STATEMENT"];
+        break;
+      case "INCOME_STATEMENT":
+        slotDocTypes = ["INCOME_STATEMENT"];
+        break;
+      case "BALANCE_SHEET":
+        slotDocTypes = ["BALANCE_SHEET"];
         break;
       default:
         return null;
@@ -194,7 +171,7 @@ describe("autoMatchDocToSlot — slot matching rules", () => {
     assert.equal(findBestSlot("PERSONAL_FINANCIAL_STATEMENT", null, slots), "s7");
   });
 
-  it("FINANCIAL_STATEMENT matches BALANCE_SHEET slot (first empty by sort_order)", () => {
+  it("FINANCIAL_STATEMENT matches INCOME_STATEMENT slot (first empty by sort_order)", () => {
     const slots = [
       { id: "s9", required_doc_type: "BALANCE_SHEET", required_tax_year: null, sort_order: 8 },
       { id: "s8", required_doc_type: "INCOME_STATEMENT", required_tax_year: null, sort_order: 7 },
@@ -203,17 +180,11 @@ describe("autoMatchDocToSlot — slot matching rules", () => {
     assert.equal(findBestSlot("FINANCIAL_STATEMENT", null, slots), "s8");
   });
 
-  it("BTR with null tax_year does not match year-based slots", () => {
+  it("BTR with null tax_year falls through to first candidate", () => {
     const slots = [
       { id: "s1", required_doc_type: "BUSINESS_TAX_RETURN", required_tax_year: 2024, sort_order: 0 },
     ];
-    // Year-based type with null year: yearBased=true, taxYear=null → skip year match → no match via find
-    // Actually our logic: if yearBased && taxYear != null → find exact. If yearBased && taxYear == null → falls through to candidates[0]
-    // Let's check: the code goes to candidates[0] which is s1. That's actually fine — a BTR without year could fill any BTR slot.
-    // But actually for safety, we should not auto-match without a year. Let me re-read the code...
-    // The current code: if yearBased && taxYear != null → find exact match. else → first candidate.
-    // For BTR with null year, it would match the first slot. This might be acceptable but could be wrong.
-    // For now, test current behavior:
+    // Year-based type with null year: falls to candidates[0]
     assert.equal(findBestSlot("BUSINESS_TAX_RETURN", null, slots), "s1");
   });
 
@@ -242,5 +213,117 @@ describe("autoMatchDocToSlot — slot matching rules", () => {
 
   it("ENTITY_DOCS → null (no slot types)", () => {
     assert.equal(findBestSlot("ENTITY_DOCS", null, []), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test direct INCOME_STATEMENT / BALANCE_SHEET mapping (Phase 2A additions)
+// ---------------------------------------------------------------------------
+
+describe("autoMatchDocToSlot — direct IS/BS effective type mapping", () => {
+  function findBestSlot(
+    effectiveType: string,
+    taxYear: number | null,
+    slots: Array<{
+      id: string;
+      required_doc_type: string;
+      required_tax_year: number | null;
+      sort_order: number;
+    }>,
+  ): string | null {
+    let slotDocTypes: string[];
+    switch (effectiveType) {
+      case "BUSINESS_TAX_RETURN":
+        slotDocTypes = ["BUSINESS_TAX_RETURN"];
+        break;
+      case "PERSONAL_TAX_RETURN":
+        slotDocTypes = ["PERSONAL_TAX_RETURN"];
+        break;
+      case "PERSONAL_FINANCIAL_STATEMENT":
+        slotDocTypes = ["PERSONAL_FINANCIAL_STATEMENT"];
+        break;
+      case "FINANCIAL_STATEMENT":
+        slotDocTypes = ["BALANCE_SHEET", "INCOME_STATEMENT"];
+        break;
+      case "INCOME_STATEMENT":
+        slotDocTypes = ["INCOME_STATEMENT"];
+        break;
+      case "BALANCE_SHEET":
+        slotDocTypes = ["BALANCE_SHEET"];
+        break;
+      default:
+        return null;
+    }
+
+    const candidates = slots
+      .filter((s) => slotDocTypes.includes(s.required_doc_type))
+      .sort((a, b) => a.sort_order - b.sort_order);
+
+    if (candidates.length === 0) return null;
+
+    const yearBased =
+      effectiveType === "BUSINESS_TAX_RETURN" ||
+      effectiveType === "PERSONAL_TAX_RETURN";
+
+    if (yearBased && taxYear != null) {
+      return candidates.find((s) => s.required_tax_year === taxYear)?.id ?? null;
+    }
+
+    return candidates[0]?.id ?? null;
+  }
+
+  it("INCOME_STATEMENT matches INCOME_STATEMENT slot directly", () => {
+    const slots = [
+      { id: "s8", required_doc_type: "INCOME_STATEMENT", required_tax_year: null, sort_order: 7 },
+      { id: "s9", required_doc_type: "BALANCE_SHEET", required_tax_year: null, sort_order: 8 },
+    ];
+    assert.equal(findBestSlot("INCOME_STATEMENT", null, slots), "s8");
+  });
+
+  it("BALANCE_SHEET matches BALANCE_SHEET slot directly", () => {
+    const slots = [
+      { id: "s8", required_doc_type: "INCOME_STATEMENT", required_tax_year: null, sort_order: 7 },
+      { id: "s9", required_doc_type: "BALANCE_SHEET", required_tax_year: null, sort_order: 8 },
+    ];
+    assert.equal(findBestSlot("BALANCE_SHEET", null, slots), "s9");
+  });
+
+  it("INCOME_STATEMENT does not match BALANCE_SHEET slot", () => {
+    const slots = [
+      { id: "s9", required_doc_type: "BALANCE_SHEET", required_tax_year: null, sort_order: 8 },
+    ];
+    assert.equal(findBestSlot("INCOME_STATEMENT", null, slots), null);
+  });
+
+  it("BALANCE_SHEET does not match INCOME_STATEMENT slot", () => {
+    const slots = [
+      { id: "s8", required_doc_type: "INCOME_STATEMENT", required_tax_year: null, sort_order: 7 },
+    ];
+    assert.equal(findBestSlot("BALANCE_SHEET", null, slots), null);
+  });
+
+  it("idempotency: second call on already-empty slots returns same result", () => {
+    const slots = [
+      { id: "s8", required_doc_type: "INCOME_STATEMENT", required_tax_year: null, sort_order: 7 },
+    ];
+    const first = findBestSlot("INCOME_STATEMENT", null, slots);
+    const second = findBestSlot("INCOME_STATEMENT", null, slots);
+    assert.equal(first, second);
+    assert.equal(first, "s8");
+  });
+
+  it("PTR with year mismatch returns null", () => {
+    const slots = [
+      { id: "s4", required_doc_type: "PERSONAL_TAX_RETURN", required_tax_year: 2024, sort_order: 0 },
+      { id: "s5", required_doc_type: "PERSONAL_TAX_RETURN", required_tax_year: 2023, sort_order: 1 },
+    ];
+    assert.equal(findBestSlot("PERSONAL_TAX_RETURN", 2020, slots), null);
+  });
+
+  it("PTR with null year still matches first candidate (non-strict)", () => {
+    const slots = [
+      { id: "s4", required_doc_type: "PERSONAL_TAX_RETURN", required_tax_year: 2024, sort_order: 0 },
+    ];
+    assert.equal(findBestSlot("PERSONAL_TAX_RETURN", null, slots), "s4");
   });
 });
