@@ -18,6 +18,7 @@ import { NextRequest } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { deriveLifecycleState } from "@/buddy/lifecycle";
 import { sanitizeErrorForEvidence } from "@/buddy/lifecycle/jsonSafe";
+import { normalizeYearArray } from "@/buddy/lifecycle/normalizeYears";
 import type { LifecycleState } from "@/buddy/lifecycle";
 import { trackDegradedResponse } from "@/lib/api/degradedTracker";
 import {
@@ -201,13 +202,19 @@ async function buildPayload(
       };
     }
 
-    // Inject correlationId into derived for debugging
+    // === API boundary normalization ===
+    // Strict deterministic contract: year arrays are always number[],
+    // coerced to integers, deduped, sorted. Never undefined, never non-array.
+    const normalizedDerived = {
+      ...sanitizedState.derived,
+      correlationId,
+      gatekeeperMissingBtrYears: normalizeYearArray(sanitizedState.derived.gatekeeperMissingBtrYears),
+      gatekeeperMissingPtrYears: normalizeYearArray(sanitizedState.derived.gatekeeperMissingPtrYears),
+    };
+
     const stateWithCorrelation: LifecycleState = {
       ...sanitizedState,
-      derived: {
-        ...sanitizedState.derived,
-        correlationId,
-      },
+      derived: normalizedDerived,
     };
 
     // Check for internal errors in blockers (also ok: false)

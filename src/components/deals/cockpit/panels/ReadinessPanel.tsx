@@ -276,16 +276,20 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
               )}
             </div>
           )}
-          {/* Missing document year chips */}
-          {!primaryReady && derived?.gatekeeperMissingBtrYears && (
+          {/* Missing document year chips — API guarantees number[], guards are belt-and-suspenders */}
+          {!primaryReady && (
+            (Array.isArray(derived?.gatekeeperMissingBtrYears) && derived.gatekeeperMissingBtrYears.length > 0) ||
+            (Array.isArray(derived?.gatekeeperMissingPtrYears) && derived.gatekeeperMissingPtrYears.length > 0) ||
+            derived?.gatekeeperMissingFinancialStatements
+          ) && (
             <div className="flex flex-wrap gap-1">
-              {derived.gatekeeperMissingBtrYears.map((y) => (
+              {Array.isArray(derived?.gatekeeperMissingBtrYears) && derived.gatekeeperMissingBtrYears.map((y) => (
                 <span key={`btr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">BTR {y}</span>
               ))}
-              {(derived.gatekeeperMissingPtrYears ?? []).map((y) => (
+              {Array.isArray(derived?.gatekeeperMissingPtrYears) && derived.gatekeeperMissingPtrYears.map((y) => (
                 <span key={`ptr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">PTR {y}</span>
               ))}
-              {derived.gatekeeperMissingFinancialStatements && (
+              {derived?.gatekeeperMissingFinancialStatements && (
                 <span className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">Financial Stmt</span>
               )}
             </div>
