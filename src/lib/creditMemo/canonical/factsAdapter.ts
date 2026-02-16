@@ -20,7 +20,7 @@ export type SpreadSnapshot = {
   rendered_json: RenderedSpread | null;
 };
 
-const REQUIRED_SPREADS: SpreadType[] = ["T12", "GLOBAL_CASH_FLOW"];
+const REQUIRED_SPREADS: SpreadType[] = ["GLOBAL_CASH_FLOW"];
 
 export type RequiredMetric = {
   key: string;

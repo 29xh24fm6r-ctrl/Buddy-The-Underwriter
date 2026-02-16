@@ -18,7 +18,7 @@ export type CanonicalMemoStatusRow = {
   missing_spreads: string[];
 };
 
-const REQUIRED_SPREADS: SpreadType[] = ["T12", "GLOBAL_CASH_FLOW"];
+const REQUIRED_SPREADS: SpreadType[] = ["GLOBAL_CASH_FLOW"];
 
 const REQUIRED_FACT_TYPES = ["COLLATERAL", "SOURCES_USES", "FINANCIAL_ANALYSIS"] as const;
 

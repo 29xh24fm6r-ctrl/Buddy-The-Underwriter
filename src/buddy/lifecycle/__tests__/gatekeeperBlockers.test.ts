@@ -102,7 +102,7 @@ describe("gatekeeper blocker emission", () => {
     assert.equal(blockers[0].code, "gatekeeper_docs_incomplete");
   });
 
-  test("needsReviewCount > 0 → gatekeeper_docs_need_review", () => {
+  test("hard review reasons → gatekeeper_docs_need_review", () => {
     const derived = baseDerived({
       readinessMode: "gatekeeper",
       gatekeeperReadinessPct: 100,
@@ -110,6 +110,7 @@ describe("gatekeeper blocker emission", () => {
       gatekeeperMissingPtrYears: [],
       gatekeeperMissingFinancialStatements: false,
       gatekeeperNeedsReviewCount: 2,
+      gatekeeperNeedsReviewReasons: { UNKNOWN_DOC_TYPE: 1, MISSING_TAX_YEAR: 1 },
     });
     const blockers = gkBlockers(docStage, derived);
     assert.equal(blockers.length, 1);
@@ -124,6 +125,7 @@ describe("gatekeeper blocker emission", () => {
       gatekeeperMissingPtrYears: [],
       gatekeeperMissingFinancialStatements: true,
       gatekeeperNeedsReviewCount: 1,
+      gatekeeperNeedsReviewReasons: { MISSING_TAX_YEAR: 1 },
     });
     const blockers = gkBlockers(docStage, derived);
     assert.equal(blockers.length, 2);
@@ -155,6 +157,7 @@ describe("gatekeeper blocker stage gating", () => {
     gatekeeperMissingPtrYears: [],
     gatekeeperMissingFinancialStatements: false,
     gatekeeperNeedsReviewCount: 1,
+    gatekeeperNeedsReviewReasons: { UNKNOWN_DOC_TYPE: 1 },
   });
 
   test("stages requiring documents → blockers fire", () => {
@@ -228,7 +231,7 @@ describe("gatekeeper blocker evidence", () => {
     assert.deepEqual(incomplete.evidence!.missingBusinessTaxYears, [2022, 2023]);
   });
 
-  test("gatekeeper_docs_need_review evidence has needsReviewCount", () => {
+  test("gatekeeper_docs_need_review evidence has hardReviewCount and totalNeedsReviewCount", () => {
     const derived = baseDerived({
       readinessMode: "gatekeeper",
       gatekeeperReadinessPct: 100,
@@ -236,12 +239,14 @@ describe("gatekeeper blocker evidence", () => {
       gatekeeperMissingPtrYears: [],
       gatekeeperMissingFinancialStatements: false,
       gatekeeperNeedsReviewCount: 3,
+      gatekeeperNeedsReviewReasons: { MISSING_TAX_YEAR: 2, LOW_CONFIDENCE: 1 },
     });
     const blockers = gkBlockers(docStage, derived);
     const review = blockers.find((b) => b.code === "gatekeeper_docs_need_review");
     assert.ok(review, "Expected gatekeeper_docs_need_review blocker");
     assert.ok(review.evidence, "Expected evidence on blocker");
-    assert.equal(review.evidence!.needsReviewCount, 3);
+    assert.equal(review.evidence!.hardReviewCount, 2);
+    assert.equal(review.evidence!.totalNeedsReviewCount, 3);
   });
 
   test("gatekeeper_docs_incomplete evidence includes missingFinancialStatements when true", () => {
@@ -258,6 +263,70 @@ describe("gatekeeper blocker evidence", () => {
     assert.ok(incomplete, "Expected gatekeeper_docs_incomplete blocker");
     assert.equal(incomplete.evidence!.missingFinancialStatements, true);
     assert.deepEqual(incomplete.evidence!.missingPersonalTaxYears, [2023]);
+  });
+});
+
+// ─── LOW_CONFIDENCE Softening Tests ───────────────────────────────────────
+
+describe("LOW_CONFIDENCE is informational-only", () => {
+  test("LOW_CONFIDENCE only → no gatekeeper_docs_need_review blocker", () => {
+    const derived = baseDerived({
+      readinessMode: "gatekeeper",
+      gatekeeperReadinessPct: 100,
+      gatekeeperMissingBtrYears: [],
+      gatekeeperMissingPtrYears: [],
+      gatekeeperMissingFinancialStatements: false,
+      gatekeeperNeedsReviewCount: 3,
+      gatekeeperNeedsReviewReasons: { LOW_CONFIDENCE: 3 },
+    });
+    const blockers = gkBlockers(docStage, derived);
+    assert.equal(blockers.length, 0);
+  });
+
+  test("MISSING_TAX_YEAR only → blocker emitted", () => {
+    const derived = baseDerived({
+      readinessMode: "gatekeeper",
+      gatekeeperReadinessPct: 100,
+      gatekeeperMissingBtrYears: [],
+      gatekeeperMissingPtrYears: [],
+      gatekeeperMissingFinancialStatements: false,
+      gatekeeperNeedsReviewCount: 1,
+      gatekeeperNeedsReviewReasons: { MISSING_TAX_YEAR: 1 },
+    });
+    const blockers = gkBlockers(docStage, derived);
+    assert.equal(blockers.length, 1);
+    assert.equal(blockers[0].code, "gatekeeper_docs_need_review");
+  });
+
+  test("LOW_CONFIDENCE + MISSING_TAX_YEAR → blocker emitted (hard reason present)", () => {
+    const derived = baseDerived({
+      readinessMode: "gatekeeper",
+      gatekeeperReadinessPct: 100,
+      gatekeeperMissingBtrYears: [],
+      gatekeeperMissingPtrYears: [],
+      gatekeeperMissingFinancialStatements: false,
+      gatekeeperNeedsReviewCount: 4,
+      gatekeeperNeedsReviewReasons: { LOW_CONFIDENCE: 3, MISSING_TAX_YEAR: 1 },
+    });
+    const blockers = gkBlockers(docStage, derived);
+    assert.equal(blockers.length, 1);
+    assert.equal(blockers[0].code, "gatekeeper_docs_need_review");
+    assert.equal(blockers[0].evidence!.hardReviewCount, 1);
+  });
+
+  test("UNKNOWN reason (null fallback) → blocker emitted (fail-safe)", () => {
+    const derived = baseDerived({
+      readinessMode: "gatekeeper",
+      gatekeeperReadinessPct: 100,
+      gatekeeperMissingBtrYears: [],
+      gatekeeperMissingPtrYears: [],
+      gatekeeperMissingFinancialStatements: false,
+      gatekeeperNeedsReviewCount: 1,
+      gatekeeperNeedsReviewReasons: { UNKNOWN: 1 },
+    });
+    const blockers = gkBlockers(docStage, derived);
+    assert.equal(blockers.length, 1);
+    assert.equal(blockers[0].code, "gatekeeper_docs_need_review");
   });
 });
 

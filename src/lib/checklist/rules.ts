@@ -95,7 +95,7 @@ export const RULESETS: ChecklistRuleSet[] = [
       {
         checklist_key: "PROPERTY_T12",
         title: "Property Operating Statement",
-        required: true,
+        required: false,
         description: "Operating statement for the property",
       },
       {

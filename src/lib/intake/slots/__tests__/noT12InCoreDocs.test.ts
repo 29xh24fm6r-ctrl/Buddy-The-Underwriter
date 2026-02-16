@@ -26,3 +26,23 @@ test("TRIPWIRE: Core Docs policies/UI must not reference T12 slot requirements",
     }
   }
 });
+
+// ─── T12 must NOT be a universal required spread ──────────────────────────
+
+const REQUIRED_SPREADS_FILES = [
+  "src/lib/creditMemo/canonical/factsAdapter.ts",
+  "src/lib/creditMemo/canonical/getCanonicalMemoStatusForDeals.ts",
+];
+
+test("TRIPWIRE: REQUIRED_SPREADS must not include T12 (de-universalized)", () => {
+  const REQUIRED_PATTERN = /REQUIRED_SPREADS[^;]*=\s*\[[^\]]*"T12"[^\]]*\]/;
+  for (const file of REQUIRED_SPREADS_FILES) {
+    const p = path.join(process.cwd(), file);
+    const src = fs.readFileSync(p, "utf8");
+    assert.equal(
+      REQUIRED_PATTERN.test(src),
+      false,
+      `${file} must not include "T12" in REQUIRED_SPREADS (T12 is CRE-specific, not universal)`,
+    );
+  }
+});

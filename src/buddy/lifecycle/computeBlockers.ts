@@ -64,12 +64,29 @@ export function computeBlockers(
     stageRequiresDocuments(stage) &&
     derived.readinessMode === "gatekeeper"
   ) {
-    // gatekeeper_docs_need_review — highest priority (pushed first)
-    if ((derived.gatekeeperNeedsReviewCount ?? 0) > 0) {
+    // gatekeeper_docs_need_review — only hard (structural) reasons block lifecycle.
+    // LOW_CONFIDENCE is the sole soft/informational reason (visible in UI, never blocks).
+    // Fail-safe: any unrecognized or null-mapped reason code blocks by default.
+    const SOFT_REVIEW_REASONS = new Set(["LOW_CONFIDENCE"]);
+
+    const reasons = derived.gatekeeperNeedsReviewReasons ?? {};
+    let hardCount = 0;
+
+    for (const [code, count] of Object.entries(reasons)) {
+      if (!SOFT_REVIEW_REASONS.has(code)) {
+        hardCount += count;
+      }
+    }
+
+    if (hardCount > 0) {
       blockers.push({
         code: "gatekeeper_docs_need_review",
-        message: `${derived.gatekeeperNeedsReviewCount} document(s) flagged for review by AI`,
-        evidence: { needsReviewCount: derived.gatekeeperNeedsReviewCount },
+        message: `${hardCount} document(s) require review`,
+        evidence: {
+          hardReviewCount: hardCount,
+          totalNeedsReviewCount: derived.gatekeeperNeedsReviewCount,
+          reasons,
+        },
       });
     }
 
