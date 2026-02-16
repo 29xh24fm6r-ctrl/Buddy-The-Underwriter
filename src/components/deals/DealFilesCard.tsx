@@ -83,11 +83,11 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
     if (silent) setRefreshing(true);
     else setLoading(true);
     try {
-      const { res, json } = await fetchJsonWithTimeout(`/api/deals/${dealId}/files/list`, 15_000);
+      const { res, json } = await fetchJsonWithTimeout(`/api/deals/${dealId}/files/list`, 30_000);
       if (res.ok && json?.ok && json.files) setFiles(json.files);
 
       // Best-effort: load the actual seeded checklist so the dropdown shows the deal's real items.
-      const clOut = await fetchJsonWithTimeout(`/api/deals/${dealId}/checklist/list`, 15_000).catch(
+      const clOut = await fetchJsonWithTimeout(`/api/deals/${dealId}/checklist/list`, 30_000).catch(
         () => null as any,
       );
       const clJson = clOut?.json ?? {};
@@ -113,7 +113,12 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
         setChecklistOptions(CHECKLIST_KEY_OPTIONS);
       }
     } catch (error) {
-      console.error("[DealFilesCard] Failed to load files:", error);
+      // AbortError = fetch timeout, not a real error — will retry on next poll
+      if (error instanceof DOMException && error.name === "AbortError") {
+        console.warn("[DealFilesCard] Fetch timed out, will retry on next poll");
+      } else {
+        console.error("[DealFilesCard] Failed to load files:", error);
+      }
       if (checklistOptions.length === 0) setChecklistOptions(CHECKLIST_KEY_OPTIONS);
     } finally {
       if (silent) setRefreshing(false);

@@ -102,7 +102,7 @@ describe("computeGatekeeperReadiness", () => {
     assert.equal(result.ready, false); // blocked by NEEDS_REVIEW
   });
 
-  it("PFS excluded from readinessPct — requiresPFS=true but still 100% if all eligible matched", () => {
+  it("PFS included in readinessPct — requiresPFS=true without PFS doc → not 100%", () => {
     const req: ScenarioRequirements = {
       businessTaxYears: [2024],
       personalTaxYears: [],
@@ -112,10 +112,29 @@ describe("computeGatekeeperReadiness", () => {
     const docs = [makeDoc("BUSINESS_TAX_RETURN", 2024)];
     const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
 
-    assert.equal(result.readinessPct, 100);
+    assert.equal(result.readinessPct, 50); // 1/2 eligible matched
     assert.equal(result.missing.pfsMissing, true);
     assert.equal(result.present.pfsPresent, false);
-    assert.equal(result.ready, true); // PFS doesn't block readiness %
+    assert.equal(result.ready, false);
+  });
+
+  it("PFS doc satisfies requiresPFS — PERSONAL_FINANCIAL_STATEMENT present → pfsPresent: true", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [2024],
+      personalTaxYears: [],
+      requiresFinancialStatements: false,
+      requiresPFS: true,
+    };
+    const docs = [
+      makeDoc("BUSINESS_TAX_RETURN", 2024),
+      makeDoc("PERSONAL_FINANCIAL_STATEMENT", null),
+    ];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.equal(result.readinessPct, 100);
+    assert.equal(result.present.pfsPresent, true);
+    assert.equal(result.missing.pfsMissing, false);
+    assert.equal(result.ready, true);
   });
 
   it("extra documents ignored — 5 BTR docs across years, only 3 required", () => {
@@ -213,7 +232,7 @@ describe("computeGatekeeperReadiness", () => {
 
   it("all required present + no needs review → ready: true", () => {
     const req = conventionalRequirements();
-    // Feb 2026 → years [2024, 2023, 2022]
+    // Feb 2026 → years [2024, 2023, 2022], FS + PFS required
     const docs = [
       makeDoc("BUSINESS_TAX_RETURN", 2024),
       makeDoc("BUSINESS_TAX_RETURN", 2023),
@@ -222,14 +241,15 @@ describe("computeGatekeeperReadiness", () => {
       makeDoc("PERSONAL_TAX_RETURN", 2023),
       makeDoc("PERSONAL_TAX_RETURN", 2022),
       makeDoc("FINANCIAL_STATEMENT", null),
+      makeDoc("PERSONAL_FINANCIAL_STATEMENT", null),
     ];
     const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
 
     assert.equal(result.readinessPct, 100);
     assert.equal(result.needsReviewCount, 0);
     assert.equal(result.ready, true);
-    // PFS is missing but doesn't affect readinessPct
-    assert.equal(result.missing.pfsMissing, true);
+    assert.equal(result.present.pfsPresent, true);
+    assert.equal(result.missing.pfsMissing, false);
   });
 
   it("empty documents array → everything missing, readinessPct = 0", () => {

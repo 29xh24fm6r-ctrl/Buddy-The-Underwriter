@@ -188,6 +188,24 @@ export async function runGatekeeperForDocument(
     // ── 6. Stamp deal_documents ─────────────────────────────────────────
     await stampDocument(sb, input, result);
 
+    // ── 6b. Auto-fill slot (fire-and-forget, non-blocking) ────────────
+    if (!result.needs_review) {
+      try {
+        const { autoMatchDocToSlot } = await import(
+          "@/lib/intake/slots/autoMatchDocToSlot"
+        );
+        await autoMatchDocToSlot({
+          dealId: input.dealId,
+          bankId: input.bankId,
+          documentId: input.documentId,
+          gatekeeperDocType: result.doc_type,
+          gatekeeperTaxYear: result.tax_year,
+        });
+      } catch {
+        // Non-fatal: slot matching failure never blocks pipeline
+      }
+    }
+
     // ── 7. Write cache + ledger ─────────────────────────────────────────
     if (input.sha256) {
       writeGatekeeperCache({

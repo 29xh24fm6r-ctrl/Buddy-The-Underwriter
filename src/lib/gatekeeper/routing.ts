@@ -30,6 +30,7 @@ const CORE_TYPES: ReadonlySet<GatekeeperDocType> = new Set([
 const STANDARD_ELIGIBLE: ReadonlySet<GatekeeperDocType> = new Set([
   "BANK_STATEMENT",
   "FINANCIAL_STATEMENT",
+  "PERSONAL_FINANCIAL_STATEMENT",
   "DRIVERS_LICENSE",
   "VOIDED_CHECK",
   "OTHER",
@@ -113,6 +114,8 @@ export function mapGatekeeperToCanonicalHint(docType: GatekeeperDocType): {
       return { canonical_type_hint: "BANK_STATEMENT", routing_class_hint: "GEMINI_STANDARD" };
     case "FINANCIAL_STATEMENT":
       return { canonical_type_hint: "FINANCIAL_STATEMENT", routing_class_hint: "GEMINI_PACKET" };
+    case "PERSONAL_FINANCIAL_STATEMENT":
+      return { canonical_type_hint: "PFS", routing_class_hint: "DOC_AI_ATOMIC" };
     case "DRIVERS_LICENSE":
       return { canonical_type_hint: "ENTITY_DOCS", routing_class_hint: "GEMINI_STANDARD" };
     case "VOIDED_CHECK":
@@ -147,6 +150,8 @@ export function mapGatekeeperDocTypeToEffectiveDocType(
       return "BANK_STATEMENT";
     case "FINANCIAL_STATEMENT":
       return "FINANCIAL_STATEMENT";
+    case "PERSONAL_FINANCIAL_STATEMENT":
+      return "PERSONAL_FINANCIAL_STATEMENT";
     case "DRIVERS_LICENSE":
       return "ENTITY_DOCS";
     case "VOIDED_CHECK":

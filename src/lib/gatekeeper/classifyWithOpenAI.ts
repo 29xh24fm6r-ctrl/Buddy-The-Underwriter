@@ -22,7 +22,7 @@ import type { GatekeeperClassification } from "./types";
 // ─── Config ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_MODEL = "gpt-4o-mini";
-const PROMPT_VERSION = "gatekeeper_v1";
+const PROMPT_VERSION = "gatekeeper_v2";
 
 /** Max text chars for head+tail truncation. */
 const HEAD_CHARS = 8_000;
@@ -41,7 +41,8 @@ CLASSIFICATION RULES:
 - FORM_1099: Any 1099 variant (1099-INT, 1099-DIV, 1099-MISC, 1099-NEC, etc.)
 - K1: Schedule K-1 (from 1065, 1120-S, or trust)
 - BANK_STATEMENT: Monthly/quarterly bank account statements
-- FINANCIAL_STATEMENT: P&L, income statement, balance sheet, T12, interim financials
+- FINANCIAL_STATEMENT: P&L, income statement, balance sheet, T12, interim financials (NOT personal financial statements — see PERSONAL_FINANCIAL_STATEMENT)
+- PERSONAL_FINANCIAL_STATEMENT: Personal Financial Statement, SBA Form 413, guarantor statement of assets and liabilities, personal balance sheet listing an individual's net worth. Key signals: guarantor/borrower name with personal assets, personal liabilities, and net worth summary.
 - DRIVERS_LICENSE: Government-issued photo ID (driver's license, state ID, passport)
 - VOIDED_CHECK: Voided check for direct deposit / ACH setup
 - OTHER: Identifiable document that doesn't fit above categories (lease, insurance, appraisal, etc.)

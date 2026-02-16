@@ -7,8 +7,7 @@
  * No DB, no IO, no side effects. Fully testable.
  *
  * Key design decisions:
- * - PFS is tracked in `missing` but EXCLUDED from `readinessPct`
- *   (gatekeeper taxonomy does not include PFS)
+ * - PFS is a first-class gatekeeper type — included in readinessPct
  * - Present year counts are capped at required count (no > 100%)
  * - W2 / FORM_1099 / K1 count as PERSONAL_TAX_RETURN via effective type mapping
  * - NEEDS_REVIEW docs are counted separately and prevent `ready: true`
@@ -64,11 +63,11 @@ export type GatekeeperReadinessResult = {
  * - Personal Tax Returns: exact year matching against PERSONAL_TAX_RETURN effective type
  *   (includes W2, FORM_1099, K1)
  * - Financial Statements: present if any FINANCIAL_STATEMENT doc exists
- * - PFS: always false (not in gatekeeper taxonomy), excluded from readinessPct
+ * - PFS: present if any PERSONAL_FINANCIAL_STATEMENT doc exists (first-class type)
  *
- * Readiness formula (PFS excluded):
- *   eligibleRequired = BTR years + PTR years + (FS ? 1 : 0)
- *   eligibleMatched  = present BTR years + present PTR years + (FS present ? 1 : 0)
+ * Readiness formula:
+ *   eligibleRequired = BTR years + PTR years + (FS ? 1 : 0) + (PFS ? 1 : 0)
+ *   eligibleMatched  = present BTR years + present PTR years + (FS present ? 1 : 0) + (PFS present ? 1 : 0)
  *   readinessPct     = eligibleMatched / eligibleRequired * 100
  *   ready            = readinessPct === 100 && needsReviewCount === 0
  */
@@ -131,24 +130,28 @@ export function computeGatekeeperReadiness(params: {
   const financialStatementsMissing =
     requirements.requiresFinancialStatements && !financialStatementsPresent;
 
-  // ── PFS (not in gatekeeper taxonomy — tracked but excluded from %) ────────
+  // ── PFS (first-class gatekeeper type) ────────────────────────────────────
 
-  const pfsPresent = false;
-  const pfsMissing = requirements.requiresPFS;
+  const pfsPresent = effectiveDocs.some(
+    (d) => d.effectiveDocType === "PERSONAL_FINANCIAL_STATEMENT",
+  );
+  const pfsMissing = requirements.requiresPFS && !pfsPresent;
 
-  // ── Readiness Formula (PFS excluded) ──────────────────────────────────────
+  // ── Readiness Formula ────────────────────────────────────────────────────
 
   const eligibleRequiredCount =
     requirements.businessTaxYears.length +
     requirements.personalTaxYears.length +
-    (requirements.requiresFinancialStatements ? 1 : 0);
+    (requirements.requiresFinancialStatements ? 1 : 0) +
+    (requirements.requiresPFS ? 1 : 0);
 
   const eligibleMatchedCount =
     matchedBtrYears.length +
     matchedPtrYears.length +
     (requirements.requiresFinancialStatements && financialStatementsPresent
       ? 1
-      : 0);
+      : 0) +
+    (requirements.requiresPFS && pfsPresent ? 1 : 0);
 
   const readinessPct =
     eligibleRequiredCount === 0

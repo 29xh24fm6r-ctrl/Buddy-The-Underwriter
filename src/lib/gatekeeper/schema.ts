@@ -15,6 +15,7 @@ export const GatekeeperDocTypeEnum = z.enum([
   "K1",
   "BANK_STATEMENT",
   "FINANCIAL_STATEMENT",
+  "PERSONAL_FINANCIAL_STATEMENT",
   "DRIVERS_LICENSE",
   "VOIDED_CHECK",
   "OTHER",

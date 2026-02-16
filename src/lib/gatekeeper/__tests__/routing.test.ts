@@ -125,6 +125,13 @@ describe("computeGatekeeperRoute", () => {
     );
   });
 
+  it("routes PERSONAL_FINANCIAL_STATEMENT to STANDARD", () => {
+    assert.equal(
+      computeGatekeeperRoute({ doc_type: "PERSONAL_FINANCIAL_STATEMENT", confidence: 0.90, tax_year: null }),
+      "STANDARD",
+    );
+  });
+
   // Rule 6: Defensive fallback — unrecognized type → NEEDS_REVIEW
   it("routes unrecognized doc type to NEEDS_REVIEW (defensive fallback)", () => {
     assert.equal(
@@ -232,12 +239,18 @@ describe("mapGatekeeperToCanonicalHint", () => {
     assert.equal(hint.routing_class_hint, "GEMINI_STANDARD");
   });
 
-  // All 11 doc types should return valid hints
-  it("returns valid hints for all 11 GatekeeperDocType values", () => {
+  it("maps PERSONAL_FINANCIAL_STATEMENT to PFS + DOC_AI_ATOMIC", () => {
+    const hint = mapGatekeeperToCanonicalHint("PERSONAL_FINANCIAL_STATEMENT");
+    assert.equal(hint.canonical_type_hint, "PFS");
+    assert.equal(hint.routing_class_hint, "DOC_AI_ATOMIC");
+  });
+
+  // All 12 doc types should return valid hints
+  it("returns valid hints for all 12 GatekeeperDocType values", () => {
     const allTypes: GatekeeperDocType[] = [
       "BUSINESS_TAX_RETURN", "PERSONAL_TAX_RETURN", "W2", "FORM_1099", "K1",
-      "BANK_STATEMENT", "FINANCIAL_STATEMENT", "DRIVERS_LICENSE", "VOIDED_CHECK",
-      "OTHER", "UNKNOWN",
+      "BANK_STATEMENT", "FINANCIAL_STATEMENT", "PERSONAL_FINANCIAL_STATEMENT",
+      "DRIVERS_LICENSE", "VOIDED_CHECK", "OTHER", "UNKNOWN",
     ];
 
     for (const dt of allTypes) {
@@ -264,6 +277,7 @@ describe("mapGatekeeperDocTypeToEffectiveDocType", () => {
   it("maps non-core types correctly", () => {
     assert.equal(mapGatekeeperDocTypeToEffectiveDocType("BANK_STATEMENT"), "BANK_STATEMENT");
     assert.equal(mapGatekeeperDocTypeToEffectiveDocType("FINANCIAL_STATEMENT"), "FINANCIAL_STATEMENT");
+    assert.equal(mapGatekeeperDocTypeToEffectiveDocType("PERSONAL_FINANCIAL_STATEMENT"), "PERSONAL_FINANCIAL_STATEMENT");
     assert.equal(mapGatekeeperDocTypeToEffectiveDocType("DRIVERS_LICENSE"), "ENTITY_DOCS");
     assert.equal(mapGatekeeperDocTypeToEffectiveDocType("VOIDED_CHECK"), "OTHER");
     assert.equal(mapGatekeeperDocTypeToEffectiveDocType("OTHER"), "OTHER");
@@ -277,11 +291,11 @@ describe("mapGatekeeperDocTypeToEffectiveDocType", () => {
     );
   });
 
-  it("returns non-empty strings for all 11 types", () => {
+  it("returns non-empty strings for all 12 types", () => {
     const allTypes: GatekeeperDocType[] = [
       "BUSINESS_TAX_RETURN", "PERSONAL_TAX_RETURN", "W2", "FORM_1099", "K1",
-      "BANK_STATEMENT", "FINANCIAL_STATEMENT", "DRIVERS_LICENSE", "VOIDED_CHECK",
-      "OTHER", "UNKNOWN",
+      "BANK_STATEMENT", "FINANCIAL_STATEMENT", "PERSONAL_FINANCIAL_STATEMENT",
+      "DRIVERS_LICENSE", "VOIDED_CHECK", "OTHER", "UNKNOWN",
     ];
 
     for (const dt of allTypes) {
