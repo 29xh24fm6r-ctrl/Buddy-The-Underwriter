@@ -17,6 +17,15 @@ const STAGE_ORDER: LifecycleStage[] = [
   "committee_decisioned", "closing_in_progress", "closed",
 ];
 
+const REASON_LABELS: Record<string, string> = {
+  UNKNOWN_DOC_TYPE: "Unknown type",
+  LOW_CONFIDENCE: "Low confidence",
+  MISSING_TAX_YEAR: "Missing year",
+  UNRECOGNIZED_DOC_TYPE: "Unrecognized",
+  NO_OCR_OR_IMAGE: "Unreadable",
+  CLASSIFICATION_ERROR: "AI error",
+};
+
 
 function DerivedFactDot({ label, ok }: { label: string; ok: boolean }) {
   return (
@@ -244,16 +253,27 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
               style={{ width: `${primaryPct}%` }}
             />
           </div>
-          {/* Needs-review indicator */}
+          {/* Needs-review indicator with reason breakdown */}
           {(derived?.gatekeeperNeedsReviewCount ?? 0) > 0 && (
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] text-amber-300/60">
-                {derived!.gatekeeperNeedsReviewCount} document(s) need review
-              </p>
-              <Link href={`/deals/${dealId}/documents`}
-                className="text-[10px] text-amber-300/80 hover:text-amber-200 underline underline-offset-2">
-                Review
-              </Link>
+            <div className="space-y-0.5">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] text-amber-300/60">
+                  {derived!.gatekeeperNeedsReviewCount} document(s) need review
+                </p>
+                <Link href={`/deals/${dealId}/documents`}
+                  className="text-[10px] text-amber-300/80 hover:text-amber-200 underline underline-offset-2">
+                  Review
+                </Link>
+              </div>
+              {derived?.gatekeeperNeedsReviewReasons && Object.keys(derived.gatekeeperNeedsReviewReasons).length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {Object.entries(derived.gatekeeperNeedsReviewReasons).map(([code, count]) => (
+                    <span key={code} className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/10 text-[9px] text-amber-300/60">
+                      {REASON_LABELS[code] ?? code} ({count})
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {/* Missing document year chips */}

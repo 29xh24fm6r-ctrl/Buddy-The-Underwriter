@@ -36,7 +36,8 @@ import {
   safeSupabaseCount,
   type SafeFetchContext,
 } from "./safeFetch";
-import { isGatekeeperReadinessEnabled, isGatekeeperReadinessBlockingEnabled } from "@/lib/flags/openaiGatekeeper";
+import { isGatekeeperReadinessEnabled } from "@/lib/flags/openaiGatekeeper";
+import type { ReadinessMode } from "./model";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { computeBlockers } from "./computeBlockers";
 
@@ -401,36 +402,59 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     }
   }
 
-  // Gatekeeper readiness (informational; optionally blocking under flag)
+  // Gatekeeper readiness — with slot-based fallback when disabled/errored
+  let readinessMode: ReadinessMode = "disabled";
   let gatekeeperDerived: Partial<Pick<LifecycleDerived,
     'gatekeeperDocsReady' | 'gatekeeperReadinessPct' | 'gatekeeperNeedsReviewCount'
     | 'gatekeeperMissingBtrYears' | 'gatekeeperMissingPtrYears' | 'gatekeeperMissingFinancialStatements'
+    | 'gatekeeperNeedsReviewReasons'
   >> = {};
 
   if (isGatekeeperReadinessEnabled()) {
     try {
       const { computeGatekeeperDocReadiness } = await import("@/lib/gatekeeper/readinessServer");
       const readiness = await computeGatekeeperDocReadiness(dealId);
+      readinessMode = "gatekeeper";
       gatekeeperDerived = {
         gatekeeperDocsReady: readiness.ready,
         gatekeeperReadinessPct: readiness.readinessPct,
         gatekeeperNeedsReviewCount: readiness.needsReviewCount,
-        ...(isGatekeeperReadinessBlockingEnabled() && {
-          gatekeeperMissingBtrYears: readiness.missing.businessTaxYears,
-          gatekeeperMissingPtrYears: readiness.missing.personalTaxYears,
-          gatekeeperMissingFinancialStatements: readiness.missing.financialStatementsMissing,
-        }),
+        // Always populate missing details (no more GATEKEEPER_READINESS_BLOCKS_LIFECYCLE gate)
+        gatekeeperMissingBtrYears: readiness.missing.businessTaxYears,
+        gatekeeperMissingPtrYears: readiness.missing.personalTaxYears,
+        gatekeeperMissingFinancialStatements: readiness.missing.financialStatementsMissing,
+        gatekeeperNeedsReviewReasons: readiness.needsReviewReasons,
       };
     } catch {
-      // Non-fatal: gatekeeper readiness failure never blocks lifecycle
+      readinessMode = "slot_fallback"; // gatekeeper errored → fall back
     }
   }
 
-  // Document readiness — gatekeeper is the sole authority.
-  const documentsReady = gatekeeperDerived.gatekeeperDocsReady ?? false;
-  const documentsReadinessPct = gatekeeperDerived.gatekeeperReadinessPct ?? 0;
+  // Document readiness — gatekeeper is the primary authority.
+  // Fallback to slot-based readiness when gatekeeper is disabled or errored.
+  let documentsReady: boolean;
+  let documentsReadinessPct: number;
+
+  if (readinessMode === "gatekeeper") {
+    documentsReady = gatekeeperDerived.gatekeeperDocsReady ?? false;
+    documentsReadinessPct = gatekeeperDerived.gatekeeperReadinessPct ?? 0;
+  } else {
+    // Slot fallback — never 0% when docs are actually uploaded
+    try {
+      const { computeSlotFallbackReadiness } = await import("@/lib/gatekeeper/readinessServer");
+      const fallback = await computeSlotFallbackReadiness(dealId);
+      documentsReady = fallback.ready;
+      documentsReadinessPct = fallback.readinessPct;
+      readinessMode = "slot_fallback";
+    } catch {
+      documentsReady = false;
+      documentsReadinessPct = 0;
+      readinessMode = "disabled";
+    }
+  }
 
   const derived: LifecycleDerived = {
+    readinessMode,
     documentsReady,
     documentsReadinessPct,
     underwriteStarted: lifecycleStage === "underwriting" || lifecycleStage === "ready",

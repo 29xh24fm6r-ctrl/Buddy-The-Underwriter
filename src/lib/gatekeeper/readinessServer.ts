@@ -50,7 +50,7 @@ export async function computeGatekeeperDocReadiness(
   const { data: rows } = await (sb as any)
     .from("deal_documents")
     .select(
-      "gatekeeper_doc_type, gatekeeper_tax_year, gatekeeper_needs_review",
+      "gatekeeper_doc_type, gatekeeper_tax_year, gatekeeper_needs_review, gatekeeper_review_reason_code",
     )
     .eq("deal_id", dealId)
     .not("gatekeeper_classified_at", "is", null);
@@ -59,8 +59,32 @@ export async function computeGatekeeperDocReadiness(
     gatekeeper_doc_type: r.gatekeeper_doc_type ?? "UNKNOWN",
     gatekeeper_tax_year: r.gatekeeper_tax_year ?? null,
     gatekeeper_needs_review: r.gatekeeper_needs_review === true,
+    gatekeeper_review_reason_code: r.gatekeeper_review_reason_code ?? null,
   }));
 
   // 4. Delegate to pure engine
   return computeGatekeeperReadiness({ requirements, documents });
+}
+
+/**
+ * Slot-based fallback readiness — used when gatekeeper is disabled or errored.
+ * Prevents silent 0% by counting filled slots.
+ */
+export async function computeSlotFallbackReadiness(
+  dealId: string,
+): Promise<{ ready: boolean; readinessPct: number }> {
+  const sb = supabaseAdmin();
+  const { data: slots } = await (sb as any)
+    .from("deal_document_slots")
+    .select("id, status")
+    .eq("deal_id", dealId);
+
+  if (!slots || slots.length === 0) return { ready: false, readinessPct: 0 };
+
+  const filled = slots.filter(
+    (s: any) => s.status === "attached" || s.status === "validated" || s.status === "completed",
+  ).length;
+
+  const pct = Math.round((filled / slots.length) * 100);
+  return { ready: pct === 100, readinessPct: pct };
 }

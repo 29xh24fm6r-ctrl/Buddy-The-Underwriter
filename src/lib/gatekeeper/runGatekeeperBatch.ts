@@ -88,7 +88,7 @@ export async function runGatekeeperBatch(args: {
   for (let i = 0; i < inputs.length; i += MAX_CONCURRENCY) {
     const chunk = inputs.slice(i, i + MAX_CONCURRENCY);
     const chunkResults = await Promise.allSettled(
-      chunk.map((input) => runGatekeeperForDocument(input)),
+      chunk.map((input) => runGatekeeperForDocument(input, { mode: "batch" })),
     );
 
     for (let j = 0; j < chunkResults.length; j++) {

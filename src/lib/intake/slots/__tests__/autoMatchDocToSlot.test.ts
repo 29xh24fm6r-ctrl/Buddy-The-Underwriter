@@ -89,26 +89,30 @@ describe("autoMatchDocToSlot — slot matching rules", () => {
       sort_order: number;
     }>,
   ): string | null {
-    // Replicate effectiveTypeToSlotDocTypes logic
+    // Replicate effectiveTypeToSlotDocTypes logic (with classifier aliases)
     let slotDocTypes: string[];
     switch (effectiveType) {
+      case "IRS_BUSINESS":
       case "BUSINESS_TAX_RETURN":
         slotDocTypes = ["BUSINESS_TAX_RETURN"];
         break;
+      case "IRS_PERSONAL":
       case "PERSONAL_TAX_RETURN":
         slotDocTypes = ["PERSONAL_TAX_RETURN"];
         break;
+      case "PFS":
       case "PERSONAL_FINANCIAL_STATEMENT":
         slotDocTypes = ["PERSONAL_FINANCIAL_STATEMENT"];
         break;
-      case "FINANCIAL_STATEMENT":
-        slotDocTypes = ["BALANCE_SHEET", "INCOME_STATEMENT"];
-        break;
+      case "T12":
       case "INCOME_STATEMENT":
         slotDocTypes = ["INCOME_STATEMENT"];
         break;
       case "BALANCE_SHEET":
         slotDocTypes = ["BALANCE_SHEET"];
+        break;
+      case "FINANCIAL_STATEMENT":
+        slotDocTypes = ["BALANCE_SHEET", "INCOME_STATEMENT"];
         break;
       default:
         return null;
@@ -122,7 +126,9 @@ describe("autoMatchDocToSlot — slot matching rules", () => {
 
     const yearBased =
       effectiveType === "BUSINESS_TAX_RETURN" ||
-      effectiveType === "PERSONAL_TAX_RETURN";
+      effectiveType === "IRS_BUSINESS" ||
+      effectiveType === "PERSONAL_TAX_RETURN" ||
+      effectiveType === "IRS_PERSONAL";
 
     if (yearBased && taxYear != null) {
       return candidates.find((s) => s.required_tax_year === taxYear)?.id ?? null;
@@ -214,6 +220,55 @@ describe("autoMatchDocToSlot — slot matching rules", () => {
   it("ENTITY_DOCS → null (no slot types)", () => {
     assert.equal(findBestSlot("ENTITY_DOCS", null, []), null);
   });
+
+  // --- Classifier raw type aliases ---
+
+  it("IRS_BUSINESS + year 2024 matches BTR 2024 slot", () => {
+    const slots = [
+      { id: "s1", required_doc_type: "BUSINESS_TAX_RETURN", required_tax_year: 2024, sort_order: 0 },
+      { id: "s2", required_doc_type: "BUSINESS_TAX_RETURN", required_tax_year: 2023, sort_order: 1 },
+    ];
+    assert.equal(findBestSlot("IRS_BUSINESS", 2024, slots), "s1");
+  });
+
+  it("IRS_PERSONAL + year 2023 matches PTR 2023 slot", () => {
+    const slots = [
+      { id: "s4", required_doc_type: "PERSONAL_TAX_RETURN", required_tax_year: 2024, sort_order: 0 },
+      { id: "s5", required_doc_type: "PERSONAL_TAX_RETURN", required_tax_year: 2023, sort_order: 1 },
+    ];
+    assert.equal(findBestSlot("IRS_PERSONAL", 2023, slots), "s5");
+  });
+
+  it("PFS matches PERSONAL_FINANCIAL_STATEMENT slot", () => {
+    const slots = [
+      { id: "s7", required_doc_type: "PERSONAL_FINANCIAL_STATEMENT", required_tax_year: null, sort_order: 6 },
+    ];
+    assert.equal(findBestSlot("PFS", null, slots), "s7");
+  });
+
+  it("T12 matches INCOME_STATEMENT slot (NOT BALANCE_SHEET)", () => {
+    const slots = [
+      { id: "s8", required_doc_type: "INCOME_STATEMENT", required_tax_year: null, sort_order: 7 },
+      { id: "s9", required_doc_type: "BALANCE_SHEET", required_tax_year: null, sort_order: 8 },
+    ];
+    assert.equal(findBestSlot("T12", null, slots), "s8");
+  });
+
+  it("IRS_BUSINESS + year 2021 → null (no matching year)", () => {
+    const slots = [
+      { id: "s1", required_doc_type: "BUSINESS_TAX_RETURN", required_tax_year: 2024, sort_order: 0 },
+      { id: "s2", required_doc_type: "BUSINESS_TAX_RETURN", required_tax_year: 2023, sort_order: 1 },
+    ];
+    assert.equal(findBestSlot("IRS_BUSINESS", 2021, slots), null);
+  });
+
+  it("IRS_PERSONAL + null year → first PTR candidate", () => {
+    const slots = [
+      { id: "s4", required_doc_type: "PERSONAL_TAX_RETURN", required_tax_year: 2024, sort_order: 0 },
+      { id: "s5", required_doc_type: "PERSONAL_TAX_RETURN", required_tax_year: 2023, sort_order: 1 },
+    ];
+    assert.equal(findBestSlot("IRS_PERSONAL", null, slots), "s4");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -233,23 +288,27 @@ describe("autoMatchDocToSlot — direct IS/BS effective type mapping", () => {
   ): string | null {
     let slotDocTypes: string[];
     switch (effectiveType) {
+      case "IRS_BUSINESS":
       case "BUSINESS_TAX_RETURN":
         slotDocTypes = ["BUSINESS_TAX_RETURN"];
         break;
+      case "IRS_PERSONAL":
       case "PERSONAL_TAX_RETURN":
         slotDocTypes = ["PERSONAL_TAX_RETURN"];
         break;
+      case "PFS":
       case "PERSONAL_FINANCIAL_STATEMENT":
         slotDocTypes = ["PERSONAL_FINANCIAL_STATEMENT"];
         break;
-      case "FINANCIAL_STATEMENT":
-        slotDocTypes = ["BALANCE_SHEET", "INCOME_STATEMENT"];
-        break;
+      case "T12":
       case "INCOME_STATEMENT":
         slotDocTypes = ["INCOME_STATEMENT"];
         break;
       case "BALANCE_SHEET":
         slotDocTypes = ["BALANCE_SHEET"];
+        break;
+      case "FINANCIAL_STATEMENT":
+        slotDocTypes = ["BALANCE_SHEET", "INCOME_STATEMENT"];
         break;
       default:
         return null;
@@ -263,7 +322,9 @@ describe("autoMatchDocToSlot — direct IS/BS effective type mapping", () => {
 
     const yearBased =
       effectiveType === "BUSINESS_TAX_RETURN" ||
-      effectiveType === "PERSONAL_TAX_RETURN";
+      effectiveType === "IRS_BUSINESS" ||
+      effectiveType === "PERSONAL_TAX_RETURN" ||
+      effectiveType === "IRS_PERSONAL";
 
     if (yearBased && taxYear != null) {
       return candidates.find((s) => s.required_tax_year === taxYear)?.id ?? null;

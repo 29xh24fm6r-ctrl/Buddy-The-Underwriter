@@ -23,19 +23,28 @@ import type { GatekeeperDocType } from "@/lib/gatekeeper/types";
  */
 function effectiveTypeToSlotDocTypes(effectiveType: string): string[] {
   switch (effectiveType) {
-    case "BUSINESS_TAX_RETURN":
+    case "IRS_BUSINESS":              // classifier raw type
+    case "BUSINESS_TAX_RETURN":       // canonical type
       return ["BUSINESS_TAX_RETURN"];
-    case "PERSONAL_TAX_RETURN":
+
+    case "IRS_PERSONAL":              // classifier raw type
+    case "PERSONAL_TAX_RETURN":       // canonical type
       return ["PERSONAL_TAX_RETURN"];
-    case "PERSONAL_FINANCIAL_STATEMENT":
+
+    case "PFS":                       // classifier raw type
+    case "PERSONAL_FINANCIAL_STATEMENT": // canonical type
       return ["PERSONAL_FINANCIAL_STATEMENT"];
-    case "FINANCIAL_STATEMENT":
-      // Gatekeeper lumps IS + BS; try both slot types
-      return ["BALANCE_SHEET", "INCOME_STATEMENT"];
+
+    case "T12":                       // legacy classifier → normalize to IS
     case "INCOME_STATEMENT":
       return ["INCOME_STATEMENT"];
+
     case "BALANCE_SHEET":
       return ["BALANCE_SHEET"];
+
+    case "FINANCIAL_STATEMENT":       // gatekeeper umbrella → try both
+      return ["BALANCE_SHEET", "INCOME_STATEMENT"];
+
     default:
       return [];
   }
@@ -93,7 +102,9 @@ export async function autoMatchByEffectiveType(params: {
   // Find best match: prefer exact year match, then null-year slots
   const yearBased =
     effectiveDocType === "BUSINESS_TAX_RETURN" ||
-    effectiveDocType === "PERSONAL_TAX_RETURN";
+    effectiveDocType === "IRS_BUSINESS" ||
+    effectiveDocType === "PERSONAL_TAX_RETURN" ||
+    effectiveDocType === "IRS_PERSONAL";
 
   let bestSlot: (typeof emptySlots)[0] | null = null;
 

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { computeGatekeeperRoute, mapGatekeeperToCanonicalHint, mapGatekeeperDocTypeToEffectiveDocType } from "../routing";
+import { computeGatekeeperRoute, mapGatekeeperToCanonicalHint, mapGatekeeperDocTypeToEffectiveDocType, computeNeedsReviewReasonCode } from "../routing";
 import type { GatekeeperDocType } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -302,5 +302,111 @@ describe("mapGatekeeperDocTypeToEffectiveDocType", () => {
       const result = mapGatekeeperDocTypeToEffectiveDocType(dt);
       assert.ok(result.length > 0, `Empty result for ${dt}`);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeNeedsReviewReasonCode
+// ---------------------------------------------------------------------------
+
+describe("computeNeedsReviewReasonCode", () => {
+  it("input_path 'error' → CLASSIFICATION_ERROR", () => {
+    assert.equal(
+      computeNeedsReviewReasonCode(
+        { doc_type: "BUSINESS_TAX_RETURN", confidence: 0.95, tax_year: 2024 },
+        "error",
+      ),
+      "CLASSIFICATION_ERROR",
+    );
+  });
+
+  it("input_path 'no_ocr_no_image' → NO_OCR_OR_IMAGE", () => {
+    assert.equal(
+      computeNeedsReviewReasonCode(
+        { doc_type: "UNKNOWN", confidence: 0, tax_year: null },
+        "no_ocr_no_image",
+      ),
+      "NO_OCR_OR_IMAGE",
+    );
+  });
+
+  it("UNKNOWN doc_type → UNKNOWN_DOC_TYPE", () => {
+    assert.equal(
+      computeNeedsReviewReasonCode(
+        { doc_type: "UNKNOWN", confidence: 0.5, tax_year: null },
+        "text",
+      ),
+      "UNKNOWN_DOC_TYPE",
+    );
+  });
+
+  it("confidence < 0.80 → LOW_CONFIDENCE", () => {
+    assert.equal(
+      computeNeedsReviewReasonCode(
+        { doc_type: "BUSINESS_TAX_RETURN", confidence: 0.79, tax_year: 2024 },
+        "text",
+      ),
+      "LOW_CONFIDENCE",
+    );
+  });
+
+  it("BTR with null tax_year → MISSING_TAX_YEAR", () => {
+    assert.equal(
+      computeNeedsReviewReasonCode(
+        { doc_type: "BUSINESS_TAX_RETURN", confidence: 0.95, tax_year: null },
+        "text",
+      ),
+      "MISSING_TAX_YEAR",
+    );
+  });
+
+  it("PTR with null tax_year → MISSING_TAX_YEAR", () => {
+    assert.equal(
+      computeNeedsReviewReasonCode(
+        { doc_type: "PERSONAL_TAX_RETURN", confidence: 0.90, tax_year: null },
+        "text",
+      ),
+      "MISSING_TAX_YEAR",
+    );
+  });
+
+  it("unrecognized doc type → UNRECOGNIZED_DOC_TYPE", () => {
+    assert.equal(
+      computeNeedsReviewReasonCode(
+        { doc_type: "SOME_FUTURE_TYPE" as any, confidence: 0.99, tax_year: null },
+        "text",
+      ),
+      "UNRECOGNIZED_DOC_TYPE",
+    );
+  });
+
+  it("valid classification → null (not needs_review)", () => {
+    assert.equal(
+      computeNeedsReviewReasonCode(
+        { doc_type: "BUSINESS_TAX_RETURN", confidence: 0.95, tax_year: 2024 },
+        "text",
+      ),
+      null,
+    );
+  });
+
+  it("BANK_STATEMENT with high confidence → null", () => {
+    assert.equal(
+      computeNeedsReviewReasonCode(
+        { doc_type: "BANK_STATEMENT", confidence: 0.90, tax_year: null },
+        "text",
+      ),
+      null,
+    );
+  });
+
+  it("error input_path takes priority over UNKNOWN doc_type", () => {
+    assert.equal(
+      computeNeedsReviewReasonCode(
+        { doc_type: "UNKNOWN", confidence: 0, tax_year: null },
+        "error",
+      ),
+      "CLASSIFICATION_ERROR",
+    );
   });
 });

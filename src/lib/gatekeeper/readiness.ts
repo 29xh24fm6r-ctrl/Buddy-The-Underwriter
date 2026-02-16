@@ -24,6 +24,7 @@ export type GatekeeperDocRow = {
   gatekeeper_doc_type: string;
   gatekeeper_tax_year: number | null;
   gatekeeper_needs_review: boolean;
+  gatekeeper_review_reason_code?: string | null;
 };
 
 export type GatekeeperReadinessResult = {
@@ -49,6 +50,8 @@ export type GatekeeperReadinessResult = {
   };
 
   needsReviewCount: number;
+  /** Aggregated reason codes for needs-review docs (code → count). */
+  needsReviewReasons: Record<string, number>;
   readinessPct: number;
   ready: boolean;
 };
@@ -160,6 +163,13 @@ export function computeGatekeeperReadiness(params: {
 
   const ready = readinessPct === 100 && needsReviewCount === 0;
 
+  // Aggregate needs-review reason codes
+  const needsReviewReasons: Record<string, number> = {};
+  for (const d of documents.filter((d) => d.gatekeeper_needs_review)) {
+    const code = d.gatekeeper_review_reason_code ?? "UNKNOWN";
+    needsReviewReasons[code] = (needsReviewReasons[code] ?? 0) + 1;
+  }
+
   return {
     required: {
       businessTaxYears: requirements.businessTaxYears,
@@ -180,6 +190,7 @@ export function computeGatekeeperReadiness(params: {
       pfsMissing,
     },
     needsReviewCount,
+    needsReviewReasons,
     readinessPct,
     ready,
   };

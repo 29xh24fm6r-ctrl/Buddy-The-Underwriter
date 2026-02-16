@@ -86,6 +86,9 @@ export type LifecycleBlocker = {
   evidence?: Record<string, unknown>;
 };
 
+/** How document readiness was computed. */
+export type ReadinessMode = "gatekeeper" | "slot_fallback" | "disabled";
+
 /**
  * Derived facts about the deal's current state.
  * All computed from canonical data sources - never manually set.
@@ -93,6 +96,8 @@ export type LifecycleBlocker = {
  * Document readiness is driven exclusively by the gatekeeper AI engine.
  */
 export type LifecycleDerived = {
+  /** How document readiness was computed (gatekeeper, slot_fallback, or disabled) */
+  readinessMode?: ReadinessMode;
   /** True if all required documents are present (gatekeeper-authoritative) */
   documentsReady: boolean;
   /** Document readiness percentage 0-100 (gatekeeper-authoritative) */
@@ -140,6 +145,8 @@ export type LifecycleDerived = {
   gatekeeperMissingPtrYears?: number[];
   /** Whether financial statements are missing */
   gatekeeperMissingFinancialStatements?: boolean;
+  /** Aggregated needs-review reason codes → count (e.g. { LOW_CONFIDENCE: 2 }) */
+  gatekeeperNeedsReviewReasons?: Record<string, number>;
 };
 
 /**

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, Suspense } from "react";
+import { useState, useCallback, useEffect } from "react";
 import React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SafeBoundary } from "@/components/SafeBoundary";
@@ -78,11 +78,7 @@ type DealCockpitClientProps = {
 };
 
 export default function DealCockpitClient(props: DealCockpitClientProps) {
-  return (
-    <Suspense fallback={null}>
-      <DealCockpitClientInner {...props} />
-    </Suspense>
-  );
+  return <DealCockpitClientInner {...props} />;
 }
 
 function DealCockpitClientInner({

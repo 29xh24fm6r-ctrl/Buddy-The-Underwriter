@@ -10,7 +10,7 @@
  *  - mapGatekeeperDocTypeToEffectiveDocType() — maps gatekeeper types to
  *    effectiveDocType strings for extraction eligibility + spread routing
  */
-import type { GatekeeperClassification, GatekeeperDocType, GatekeeperRoute } from "./types";
+import type { GatekeeperClassification, GatekeeperDocType, GatekeeperRoute, GatekeeperResult, NeedsReviewReasonCode } from "./types";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -84,6 +84,37 @@ export function computeGatekeeperRoute(
 
   // Rule 6: Defensive — unrecognized type → NEEDS_REVIEW
   return "NEEDS_REVIEW";
+}
+
+// ─── Needs-Review Reason Code ────────────────────────────────────────────────
+
+/**
+ * Derive a normalized reason code explaining WHY a doc routes to NEEDS_REVIEW.
+ * Mirrors the priority order of computeGatekeeperRoute().
+ * Returns null when the doc is NOT needs_review.
+ */
+export function computeNeedsReviewReasonCode(
+  classification: Pick<GatekeeperClassification, "doc_type" | "confidence" | "tax_year">,
+  inputPath: GatekeeperResult["input_path"],
+): NeedsReviewReasonCode {
+  if (inputPath === "error") return "CLASSIFICATION_ERROR";
+  if (inputPath === "no_ocr_no_image") return "NO_OCR_OR_IMAGE";
+  if (classification.doc_type === "UNKNOWN") return "UNKNOWN_DOC_TYPE";
+  if (classification.confidence < CONFIDENCE_THRESHOLD) return "LOW_CONFIDENCE";
+  if (
+    (classification.doc_type === "BUSINESS_TAX_RETURN" ||
+      classification.doc_type === "PERSONAL_TAX_RETURN") &&
+    classification.tax_year === null
+  ) {
+    return "MISSING_TAX_YEAR";
+  }
+  if (
+    !CORE_TYPES.has(classification.doc_type) &&
+    !STANDARD_ELIGIBLE.has(classification.doc_type)
+  ) {
+    return "UNRECOGNIZED_DOC_TYPE";
+  }
+  return null;
 }
 
 // ─── Canonical Type Hint Mapping ────────────────────────────────────────────

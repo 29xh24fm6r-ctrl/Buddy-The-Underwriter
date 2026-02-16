@@ -63,13 +63,34 @@ function gkBlockers(stage: LifecycleStage, derived: LifecycleDerived) {
 
 describe("gatekeeper blocker emission", () => {
   test("no gatekeeper derived fields → no gatekeeper blockers", () => {
-    const derived = baseDerived(); // no gatekeeperMissingBtrYears
+    const derived = baseDerived(); // no readinessMode
+    const blockers = gkBlockers(docStage, derived);
+    assert.equal(blockers.length, 0);
+  });
+
+  test("readinessMode=disabled → no gatekeeper blockers", () => {
+    const derived = baseDerived({
+      readinessMode: "disabled",
+      gatekeeperReadinessPct: 50,
+      gatekeeperNeedsReviewCount: 2,
+    });
+    const blockers = gkBlockers(docStage, derived);
+    assert.equal(blockers.length, 0);
+  });
+
+  test("readinessMode=slot_fallback → no gatekeeper blockers", () => {
+    const derived = baseDerived({
+      readinessMode: "slot_fallback",
+      gatekeeperReadinessPct: 50,
+      gatekeeperNeedsReviewCount: 2,
+    });
     const blockers = gkBlockers(docStage, derived);
     assert.equal(blockers.length, 0);
   });
 
   test("readinessPct < 100 with missing years → gatekeeper_docs_incomplete", () => {
     const derived = baseDerived({
+      readinessMode: "gatekeeper",
       gatekeeperReadinessPct: 60,
       gatekeeperMissingBtrYears: [2023, 2022],
       gatekeeperMissingPtrYears: [2023],
@@ -83,6 +104,7 @@ describe("gatekeeper blocker emission", () => {
 
   test("needsReviewCount > 0 → gatekeeper_docs_need_review", () => {
     const derived = baseDerived({
+      readinessMode: "gatekeeper",
       gatekeeperReadinessPct: 100,
       gatekeeperMissingBtrYears: [],
       gatekeeperMissingPtrYears: [],
@@ -96,6 +118,7 @@ describe("gatekeeper blocker emission", () => {
 
   test("both conditions → both emitted, need_review first", () => {
     const derived = baseDerived({
+      readinessMode: "gatekeeper",
       gatekeeperReadinessPct: 50,
       gatekeeperMissingBtrYears: [2022],
       gatekeeperMissingPtrYears: [],
@@ -110,6 +133,7 @@ describe("gatekeeper blocker emission", () => {
 
   test("readinessPct=100, needsReviewCount=0 → no blockers", () => {
     const derived = baseDerived({
+      readinessMode: "gatekeeper",
       gatekeeperReadinessPct: 100,
       gatekeeperMissingBtrYears: [],
       gatekeeperMissingPtrYears: [],
@@ -125,6 +149,7 @@ describe("gatekeeper blocker emission", () => {
 
 describe("gatekeeper blocker stage gating", () => {
   const blockingDerived = baseDerived({
+    readinessMode: "gatekeeper",
     gatekeeperReadinessPct: 50,
     gatekeeperMissingBtrYears: [2022],
     gatekeeperMissingPtrYears: [],
@@ -189,6 +214,7 @@ describe("gatekeeper blocker fix actions", () => {
 describe("gatekeeper blocker evidence", () => {
   test("gatekeeper_docs_incomplete evidence has missingBusinessTaxYears", () => {
     const derived = baseDerived({
+      readinessMode: "gatekeeper",
       gatekeeperReadinessPct: 40,
       gatekeeperMissingBtrYears: [2022, 2023],
       gatekeeperMissingPtrYears: [],
@@ -204,6 +230,7 @@ describe("gatekeeper blocker evidence", () => {
 
   test("gatekeeper_docs_need_review evidence has needsReviewCount", () => {
     const derived = baseDerived({
+      readinessMode: "gatekeeper",
       gatekeeperReadinessPct: 100,
       gatekeeperMissingBtrYears: [],
       gatekeeperMissingPtrYears: [],
@@ -219,6 +246,7 @@ describe("gatekeeper blocker evidence", () => {
 
   test("gatekeeper_docs_incomplete evidence includes missingFinancialStatements when true", () => {
     const derived = baseDerived({
+      readinessMode: "gatekeeper",
       gatekeeperReadinessPct: 30,
       gatekeeperMissingBtrYears: [],
       gatekeeperMissingPtrYears: [2023],

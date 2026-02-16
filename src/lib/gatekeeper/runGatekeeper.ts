@@ -24,11 +24,12 @@ import {
   getPromptVersion,
   getGatekeeperModel,
 } from "./classifyWithOpenAI";
-import { computeGatekeeperRoute } from "./routing";
+import { computeGatekeeperRoute, computeNeedsReviewReasonCode } from "./routing";
 import type {
   GatekeeperDocInput,
   GatekeeperResult,
   GatekeeperClassification,
+  NeedsReviewReasonCode,
 } from "./types";
 
 // ─── Image MIME types we can send directly to vision ────────────────────────
@@ -46,11 +47,13 @@ const VISION_MIME_TYPES = new Set([
 
 export async function runGatekeeperForDocument(
   input: GatekeeperDocInput,
+  options?: { mode?: "inline" | "batch" },
 ): Promise<GatekeeperResult> {
   const sb = supabaseAdmin();
   const promptHash = getPromptHash();
   const promptVersion = getPromptVersion();
   const started = Date.now();
+  const mode = options?.mode ?? "inline";
 
   // ── 1. Idempotency check ──────────────────────────────────────────────
   if (!input.forceReclassify) {
@@ -60,7 +63,8 @@ export async function runGatekeeperForDocument(
         "gatekeeper_classified_at, gatekeeper_doc_type, gatekeeper_confidence, " +
         "gatekeeper_tax_year, gatekeeper_form_numbers, gatekeeper_route, " +
         "gatekeeper_needs_review, gatekeeper_reasons, gatekeeper_signals, " +
-        "gatekeeper_model, gatekeeper_prompt_version, gatekeeper_prompt_hash"
+        "gatekeeper_model, gatekeeper_prompt_version, gatekeeper_prompt_hash, " +
+        "gatekeeper_review_reason_code"
       )
       .eq("id", input.documentId)
       .maybeSingle();
@@ -78,6 +82,7 @@ export async function runGatekeeperForDocument(
         },
         route: existingDoc.gatekeeper_route ?? "NEEDS_REVIEW",
         needs_review: existingDoc.gatekeeper_needs_review ?? false,
+        reviewReasonCode: (existingDoc.gatekeeper_review_reason_code as NeedsReviewReasonCode) ?? null,
         cache_hit: false,
         model: existingDoc.gatekeeper_model ?? "cached_on_doc",
         prompt_version: existingDoc.gatekeeper_prompt_version ?? promptVersion,
@@ -102,10 +107,12 @@ export async function runGatekeeperForDocument(
           // prompt_hash is authoritative — if hash matched, cache is still valid.
         }
         const route = computeGatekeeperRoute(cached.classification);
+        const reviewReasonCode = computeNeedsReviewReasonCode(cached.classification, "cache");
         const result: GatekeeperResult = {
           ...cached.classification,
           route,
           needs_review: route === "NEEDS_REVIEW",
+          reviewReasonCode,
           cache_hit: true,
           model: cached.model,
           prompt_version: cached.prompt_version,
@@ -116,7 +123,7 @@ export async function runGatekeeperForDocument(
           input_path: "cache",
         };
         await stampDocument(sb, input, result);
-        await emitLedgerEvents(input, result);
+        await emitLedgerEvents(input, result, mode);
         return result;
       }
     }
@@ -169,17 +176,19 @@ export async function runGatekeeperForDocument(
         Date.now() - started,
       );
       await stampDocument(sb, input, failResult);
-      await emitLedgerEvents(input, failResult);
+      await emitLedgerEvents(input, failResult, mode);
       return failResult;
     }
 
     // ── 5. Apply routing rules ──────────────────────────────────────────
     const route = computeGatekeeperRoute(classification);
+    const reviewReasonCode = computeNeedsReviewReasonCode(classification, inputPath);
 
     const result: GatekeeperResult = {
       ...classification,
       route,
       needs_review: route === "NEEDS_REVIEW",
+      reviewReasonCode,
       cache_hit: false,
       input_path: inputPath,
       latency_ms: Date.now() - started,
@@ -226,7 +235,7 @@ export async function runGatekeeperForDocument(
       }).catch(() => {});
     }
 
-    await emitLedgerEvents(input, result);
+    await emitLedgerEvents(input, result, mode);
     return result;
   } catch (error: any) {
     // ── FAIL-CLOSED: errors → NEEDS_REVIEW ──────────────────────────────
@@ -244,7 +253,7 @@ export async function runGatekeeperForDocument(
     );
 
     await stampDocument(sb, input, failResult).catch(() => {});
-    await emitLedgerEvents(input, failResult).catch(() => {});
+    await emitLedgerEvents(input, failResult, mode).catch(() => {});
 
     return failResult;
   }
@@ -259,14 +268,14 @@ function buildFailResult(
   errorMessage: string,
   latencyMs: number,
 ): GatekeeperResult {
+  const failClassification = { doc_type: "UNKNOWN" as const, confidence: 0, tax_year: null };
   return {
-    doc_type: "UNKNOWN",
-    confidence: 0,
-    tax_year: null,
+    ...failClassification,
     reasons: [errorMessage],
     detected_signals: { form_numbers: [], has_ein: false, has_ssn: false },
     route: "NEEDS_REVIEW",
     needs_review: true,
+    reviewReasonCode: computeNeedsReviewReasonCode(failClassification, inputPath),
     cache_hit: false,
     model: "error",
     prompt_version: promptVersion,
@@ -301,6 +310,7 @@ async function stampDocument(
         gatekeeper_form_numbers: result.detected_signals.form_numbers,
         gatekeeper_route: result.route,
         gatekeeper_needs_review: result.needs_review,
+        gatekeeper_review_reason_code: result.reviewReasonCode ?? null,
         gatekeeper_reasons: result.reasons,
         gatekeeper_signals: result.detected_signals,
         gatekeeper_model: result.model,
@@ -324,6 +334,7 @@ async function stampDocument(
 async function emitLedgerEvents(
   input: GatekeeperDocInput,
   result: GatekeeperResult,
+  mode: "inline" | "batch" = "inline",
 ): Promise<void> {
   const basePayload = {
     document_id: input.documentId,
@@ -333,8 +344,10 @@ async function emitLedgerEvents(
     tax_year: result.tax_year,
     route: result.route,
     needs_review: result.needs_review,
+    review_reason_code: result.reviewReasonCode ?? null,
     cache_hit: result.cache_hit,
     input_path: result.input_path,
+    stamp_mode: mode,
     model: result.model,
     prompt_version: result.prompt_version,
     prompt_hash: result.prompt_hash,
@@ -375,7 +388,7 @@ async function emitLedgerEvents(
   logLedgerEvent({
     dealId: input.dealId,
     bankId: input.bankId,
-    eventKey: `gatekeeper.${result.route === "NEEDS_REVIEW" ? "needs_review" : "classified"}`,
+    eventKey: `gatekeeper.${result.route === "NEEDS_REVIEW" ? "needs_review" : "classified"}.${mode}`,
     uiState: result.route === "NEEDS_REVIEW" ? "waiting" : "done",
     uiMessage:
       result.route === "NEEDS_REVIEW"

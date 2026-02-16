@@ -62,7 +62,7 @@ export function computeBlockers(
   // Gatekeeper content-based readiness blockers (sole authority for document readiness)
   if (
     stageRequiresDocuments(stage) &&
-    derived.gatekeeperMissingBtrYears !== undefined
+    derived.readinessMode === "gatekeeper"
   ) {
     // gatekeeper_docs_need_review — highest priority (pushed first)
     if ((derived.gatekeeperNeedsReviewCount ?? 0) > 0) {

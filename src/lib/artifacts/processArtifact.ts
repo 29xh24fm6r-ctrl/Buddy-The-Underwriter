@@ -640,6 +640,11 @@ export async function processArtifact(
     // ── Inline Gatekeeper — AWAITED for ordering guarantee ──────────────
     // processArtifact runs its own classification (not through document_jobs),
     // so we must run gatekeeper here to ensure results exist before classify.
+    if (!isGatekeeperInlineEnabled() && source_table === "deal_documents") {
+      console.log("[processArtifact] gatekeeper inline disabled, skipping", {
+        artifactId, source_id,
+      });
+    }
     if (isGatekeeperInlineEnabled() && source_table === "deal_documents") {
       try {
         const { data: docMeta } = await (sb as any)
@@ -1067,7 +1072,19 @@ export async function processArtifact(
             documentId: source_id,
             effectiveDocType,
             taxYear: classification?.taxYear ?? null,
-          }).catch(() => {});
+          })
+            .then((r) => {
+              if (r.matched) {
+                console.log("[processArtifact] auto-match hit", {
+                  documentId: source_id, effectiveDocType, slotId: r.slotId,
+                });
+              }
+            })
+            .catch((err) => {
+              console.warn("[processArtifact] auto-match error", {
+                documentId: source_id, effectiveDocType, error: String(err),
+              });
+            });
         } catch {
           // Non-fatal; never blocks pipeline
         }

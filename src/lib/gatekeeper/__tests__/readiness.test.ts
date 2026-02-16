@@ -329,3 +329,61 @@ describe("deriveScenarioRequirements", () => {
     assert.equal(req.requiresPFS, true); // PFS always required
   });
 });
+
+// ---------------------------------------------------------------------------
+// needsReviewReasons aggregation
+// ---------------------------------------------------------------------------
+
+describe("needsReviewReasons aggregation", () => {
+  it("aggregates reason codes from needs-review docs", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [2024],
+      personalTaxYears: [],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    const docs: GatekeeperDocRow[] = [
+      { gatekeeper_doc_type: "BUSINESS_TAX_RETURN", gatekeeper_tax_year: 2024, gatekeeper_needs_review: false },
+      { gatekeeper_doc_type: "OTHER", gatekeeper_tax_year: null, gatekeeper_needs_review: true, gatekeeper_review_reason_code: "LOW_CONFIDENCE" },
+      { gatekeeper_doc_type: "UNKNOWN", gatekeeper_tax_year: null, gatekeeper_needs_review: true, gatekeeper_review_reason_code: "LOW_CONFIDENCE" },
+      { gatekeeper_doc_type: "BUSINESS_TAX_RETURN", gatekeeper_tax_year: null, gatekeeper_needs_review: true, gatekeeper_review_reason_code: "MISSING_TAX_YEAR" },
+    ];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.equal(result.needsReviewCount, 3);
+    assert.deepEqual(result.needsReviewReasons, {
+      LOW_CONFIDENCE: 2,
+      MISSING_TAX_YEAR: 1,
+    });
+  });
+
+  it("defaults to UNKNOWN when reason code is null", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [],
+      personalTaxYears: [],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    const docs: GatekeeperDocRow[] = [
+      { gatekeeper_doc_type: "OTHER", gatekeeper_tax_year: null, gatekeeper_needs_review: true },
+    ];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.deepEqual(result.needsReviewReasons, { UNKNOWN: 1 });
+  });
+
+  it("empty when no needs-review docs", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [2024],
+      personalTaxYears: [],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    const docs: GatekeeperDocRow[] = [
+      { gatekeeper_doc_type: "BUSINESS_TAX_RETURN", gatekeeper_tax_year: 2024, gatekeeper_needs_review: false },
+    ];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.deepEqual(result.needsReviewReasons, {});
+  });
+});

@@ -44,11 +44,24 @@ export type GatekeeperClassification = {
   };
 };
 
+// ─── Needs-Review Reason Code ────────────────────────────────────────────────
+
+/** Normalized reason code for NEEDS_REVIEW routing. null = not needs_review. */
+export type NeedsReviewReasonCode =
+  | "UNKNOWN_DOC_TYPE"
+  | "LOW_CONFIDENCE"
+  | "MISSING_TAX_YEAR"
+  | "UNRECOGNIZED_DOC_TYPE"
+  | "NO_OCR_OR_IMAGE"
+  | "CLASSIFICATION_ERROR"
+  | null;
+
 // ─── Full Result (after routing applied) ────────────────────────────────────
 
 export type GatekeeperResult = GatekeeperClassification & {
   route: GatekeeperRoute;
   needs_review: boolean;
+  reviewReasonCode: NeedsReviewReasonCode;
   cache_hit: boolean;
   model: string;
   prompt_version: string;

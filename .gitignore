@@ -91,6 +91,9 @@ buddy-the-underwriter-full.zip
 # VS Code
 .vscode/
 
+# Python virtual environments
+.venv/
+
 # buddy-core-worker build artifacts
 services/buddy-core-worker/node_modules/
 services/buddy-core-worker/dist/
