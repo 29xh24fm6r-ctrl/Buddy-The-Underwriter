@@ -11,6 +11,17 @@ function uniq(arr: string[]) {
   return Array.from(new Set(arr));
 }
 
+/** Must match spreadsProcessor.resolveOwnerType exactly. */
+function resolveOwnerType(spreadType: string, metaOwnerType?: string): string {
+  if (spreadType === "PERSONAL_INCOME" || spreadType === "PERSONAL_FINANCIAL_STATEMENT") {
+    return "PERSONAL";
+  }
+  if (spreadType === "GLOBAL_CASH_FLOW") {
+    return metaOwnerType ?? "GLOBAL";
+  }
+  return "DEAL";
+}
+
 export async function enqueueSpreadRecompute(args: {
   dealId: string;
   bankId: string;
@@ -122,7 +133,7 @@ export async function enqueueSpreadRecompute(args: {
               bank_id: args.bankId,
               spread_type: t,
               spread_version: tpl.version,
-              owner_type: args.ownerType ?? "DEAL",
+              owner_type: resolveOwnerType(t, args.ownerType),
               owner_entity_id: args.ownerEntityId ?? SENTINEL_UUID,
               status: "queued",
               inputs_hash: null,

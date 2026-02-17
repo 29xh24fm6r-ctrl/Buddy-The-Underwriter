@@ -156,6 +156,22 @@ export async function PATCH(
     );
   }
 
+  // 1b. Re-validate slot attachment after manual classification
+  if (!isClearing && documentType) {
+    try {
+      const { validateSlotAttachmentIfAny } = await import(
+        "@/lib/intake/slots/validateSlotAttachment"
+      );
+      await validateSlotAttachmentIfAny({
+        documentId: attachmentId,
+        classifiedDocType: documentType,
+        classifiedTaxYear: taxYear,
+      });
+    } catch (e) {
+      console.warn("[checklist-key] slot re-validation failed (non-fatal)", e);
+    }
+  }
+
   // 2. Update document_artifacts (prevents AI re-classification)
   try {
     await sb
