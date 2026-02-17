@@ -312,29 +312,59 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
 
       const effectiveOwnerType = resolveOwnerType(spreadType, ownerType);
 
-      // CAS: transition queued→generating ONLY if no other run owns it
-      // Accepts: status='queued' (no owner yet) OR status='generating' with same run_id (retry)
-      // Pinned to spread_version = tpl.version for deterministic claiming.
-      const { data: claimed, error: claimErr } = await (sb as any)
+      // CAS: transition queued→generating ONLY if no other run owns it.
+      // Two-step claim avoids .or() on .update() which is broken on PostgREST
+      // (observed: .or() silently returns null on PATCH across 5+ deals).
+      // Step 1: claim a queued placeholder (normal path).
+      // Step 2: if step 1 misses, reclaim a generating row owned by this run (retry path).
+      const casFilters = {
+        deal_id: dealId,
+        bank_id: bankId,
+        spread_type: spreadType,
+        spread_version: tpl.version,
+        owner_type: effectiveOwnerType,
+        owner_entity_id: ownerEntityId,
+      };
+      const casPayload = {
+        status: "generating",
+        started_at: new Date().toISOString(),
+        last_run_id: runId,
+        error_code: null,
+        error: null,
+        error_details_json: null,
+        updated_at: new Date().toISOString(),
+      };
+
+      // Step 1: claim queued placeholder
+      let { data: claimed } = await (sb as any)
         .from("deal_spreads")
-        .update({
-          status: "generating",
-          started_at: new Date().toISOString(),
-          last_run_id: runId,
-          error_code: null,
-          error: null,
-          error_details_json: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("deal_id", dealId)
-        .eq("bank_id", bankId)
-        .eq("spread_type", spreadType)
-        .eq("spread_version", tpl.version)
-        .eq("owner_type", effectiveOwnerType)
-        .eq("owner_entity_id", ownerEntityId)
-        .or(`status.eq.queued,and(status.eq.generating,last_run_id.eq.${runId})`)
+        .update(casPayload)
+        .eq("deal_id", casFilters.deal_id)
+        .eq("bank_id", casFilters.bank_id)
+        .eq("spread_type", casFilters.spread_type)
+        .eq("spread_version", casFilters.spread_version)
+        .eq("owner_type", casFilters.owner_type)
+        .eq("owner_entity_id", casFilters.owner_entity_id)
+        .eq("status", "queued")
         .select("id, attempts")
         .maybeSingle();
+
+      // Step 2: retry — reclaim a generating row owned by this same run
+      if (!claimed) {
+        ({ data: claimed } = await (sb as any)
+          .from("deal_spreads")
+          .update({ ...casPayload, started_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("deal_id", casFilters.deal_id)
+          .eq("bank_id", casFilters.bank_id)
+          .eq("spread_type", casFilters.spread_type)
+          .eq("spread_version", casFilters.spread_version)
+          .eq("owner_type", casFilters.owner_type)
+          .eq("owner_entity_id", casFilters.owner_entity_id)
+          .eq("status", "generating")
+          .eq("last_run_id", runId)
+          .select("id, attempts")
+          .maybeSingle());
+      }
 
       if (!claimed) {
         skippedMissingPlaceholder++;
