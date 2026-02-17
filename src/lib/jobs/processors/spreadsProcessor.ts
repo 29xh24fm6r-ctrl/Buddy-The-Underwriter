@@ -13,22 +13,12 @@ import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
 import { writeSystemEvent } from "@/lib/aegis";
 import { getVisibleFacts } from "@/lib/financialFacts/getVisibleFacts";
 import { evaluatePrereq } from "@/lib/financialSpreads/evaluatePrereq";
+import { resolveOwnerType } from "@/lib/financialSpreads/resolveOwnerType";
 
 const LEASE_MS = 3 * 60 * 1000;
 
 function uniq<T>(arr: T[]) {
   return Array.from(new Set(arr));
-}
-
-/** Derive the correct owner_type from the spread type, not from job meta. */
-function resolveOwnerType(spreadType: string, metaOwnerType?: string): string {
-  if (spreadType === "PERSONAL_INCOME" || spreadType === "PERSONAL_FINANCIAL_STATEMENT") {
-    return "PERSONAL";
-  }
-  if (spreadType === "GLOBAL_CASH_FLOW") {
-    return metaOwnerType ?? "GLOBAL";
-  }
-  return "DEAL";
 }
 
 const SPREAD_EVENT_KEY: Record<string, string> = {

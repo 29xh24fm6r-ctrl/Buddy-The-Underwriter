@@ -6,20 +6,10 @@ import type { SpreadType } from "@/lib/financialSpreads/types";
 import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
 import { getVisibleFacts } from "@/lib/financialFacts/getVisibleFacts";
 import { evaluatePrereq } from "@/lib/financialSpreads/evaluatePrereq";
+import { resolveOwnerType } from "@/lib/financialSpreads/resolveOwnerType";
 
 function uniq(arr: string[]) {
   return Array.from(new Set(arr));
-}
-
-/** Must match spreadsProcessor.resolveOwnerType exactly. */
-function resolveOwnerType(spreadType: string, metaOwnerType?: string): string {
-  if (spreadType === "PERSONAL_INCOME" || spreadType === "PERSONAL_FINANCIAL_STATEMENT") {
-    return "PERSONAL";
-  }
-  if (spreadType === "GLOBAL_CASH_FLOW") {
-    return metaOwnerType ?? "GLOBAL";
-  }
-  return "DEAL";
 }
 
 export async function enqueueSpreadRecompute(args: {
