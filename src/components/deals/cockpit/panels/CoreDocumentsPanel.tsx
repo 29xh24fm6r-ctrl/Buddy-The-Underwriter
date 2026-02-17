@@ -303,8 +303,8 @@ export function CoreDocumentsPanel({ dealId, gatekeeperPrimaryRouting = false }:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           filename: file.name,
-          contentType: file.type,
-          size: file.size,
+          mime_type: file.type,
+          size_bytes: file.size,
         }),
       });
       const signData = await signRes.json();
