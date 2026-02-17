@@ -384,11 +384,14 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       }
 
       // Best-effort: increment attempts
-      await (sb as any)
-        .from("deal_spreads")
-        .update({ attempts: (claimed.attempts ?? 0) + 1 })
-        .eq("id", claimed.id)
-        .catch(() => {});
+      try {
+        await (sb as any)
+          .from("deal_spreads")
+          .update({ attempts: (claimed.attempts ?? 0) + 1 })
+          .eq("id", claimed.id);
+      } catch {
+        // non-fatal
+      }
 
       await renderSpread({ dealId, bankId, spreadType, ownerType: effectiveOwnerType, ownerEntityId });
       completedTypes.add(spreadType);
