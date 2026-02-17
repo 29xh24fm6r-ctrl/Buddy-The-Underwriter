@@ -14,7 +14,7 @@
 import "server-only";
 
 import crypto from "node:crypto";
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { zodResponseFormat } from "openai/helpers/zod";
 import { getOpenAI } from "@/lib/ai/openaiClient";
 import { GatekeeperClassificationSchema } from "./schema";
 import type { GatekeeperClassification } from "./types";
@@ -66,25 +66,14 @@ DETECTED SIGNALS:
 - has_ein: true if an EIN (XX-XXXXXXX) pattern is visible
 - has_ssn: true if a SSN (XXX-XX-XXXX) pattern is visible (even if partially redacted)`;
 
-// ─── Schema Compilation (cached) ────────────────────────────────────────────
+// ─── Prompt Hash (cached) ────────────────────────────────────────────────────
 
-let _jsonSchemaCache: unknown = null;
 let _promptHashCache: string | null = null;
-
-function getJsonSchema(): unknown {
-  if (!_jsonSchemaCache) {
-    _jsonSchemaCache = zodToJsonSchema(
-      GatekeeperClassificationSchema as any,
-      "GatekeeperClassification",
-    );
-  }
-  return _jsonSchemaCache;
-}
 
 /** SHA-256 of prompt + schema for cache invalidation. */
 export function getPromptHash(): string {
   if (!_promptHashCache) {
-    const schemaStr = JSON.stringify(getJsonSchema());
+    const schemaStr = JSON.stringify(GatekeeperClassificationSchema.shape);
     const combined = SYSTEM_PROMPT + "\n---\n" + schemaStr;
     _promptHashCache = crypto
       .createHash("sha256")
@@ -139,7 +128,7 @@ export async function classifyWithOpenAIText(
   const model = getGatekeeperModel();
   const truncated = truncateText(ocrText);
 
-  const completion = await client.chat.completions.create({
+  const completion = await client.chat.completions.parse({
     model,
     temperature: 0.0,
     max_tokens: 512,
@@ -147,20 +136,15 @@ export async function classifyWithOpenAIText(
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: `Classify this document:\n\n${truncated}` },
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "GatekeeperClassification",
-        schema: getJsonSchema() as Record<string, unknown>,
-        strict: true,
-      },
-    },
+    response_format: zodResponseFormat(
+      GatekeeperClassificationSchema,
+      "GatekeeperClassification",
+    ),
   });
 
-  const raw = completion.choices[0]?.message?.content;
-  if (!raw) throw new Error("OpenAI returned empty content");
+  const parsed = completion.choices[0]?.message?.parsed;
+  if (!parsed) throw new Error("Gatekeeper structured output missing parsed result");
 
-  const parsed = GatekeeperClassificationSchema.parse(JSON.parse(raw));
   return {
     ...parsed,
     model,
@@ -189,7 +173,7 @@ export async function classifyWithOpenAIVision(
   const model = getGatekeeperModel();
   const dataUrl = `data:${mimeType};base64,${imageBase64}`;
 
-  const completion = await client.chat.completions.create({
+  const completion = await client.chat.completions.parse({
     model,
     temperature: 0.0,
     max_tokens: 512,
@@ -206,20 +190,15 @@ export async function classifyWithOpenAIVision(
         ],
       },
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "GatekeeperClassification",
-        schema: getJsonSchema() as Record<string, unknown>,
-        strict: true,
-      },
-    },
+    response_format: zodResponseFormat(
+      GatekeeperClassificationSchema,
+      "GatekeeperClassification",
+    ),
   });
 
-  const raw = completion.choices[0]?.message?.content;
-  if (!raw) throw new Error("OpenAI returned empty content (vision)");
+  const parsed = completion.choices[0]?.message?.parsed;
+  if (!parsed) throw new Error("Gatekeeper structured output missing parsed result (vision)");
 
-  const parsed = GatekeeperClassificationSchema.parse(JSON.parse(raw));
   return {
     ...parsed,
     model,
