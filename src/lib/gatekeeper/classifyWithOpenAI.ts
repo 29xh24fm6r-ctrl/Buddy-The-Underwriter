@@ -10,12 +10,16 @@
  *
  * Model is config-driven via OPENAI_GATEKEEPER_MODEL env var (default: gpt-4o-mini).
  * Prompt version and hash are tracked for cache invalidation and auditing.
+ *
+ * Resilience: Wrapped with withOpenAIResilience for retry, circuit breaker,
+ * and per-request trace IDs.
  */
 import "server-only";
 
 import crypto from "node:crypto";
 import { zodResponseFormat } from "openai/helpers/zod";
-import { getOpenAI } from "@/lib/ai/openaiClient";
+import { getOpenAI, openaiRequestHeaders } from "@/lib/ai/openaiClient";
+import { withOpenAIResilience } from "@/lib/ai/openaiResilience";
 import { GatekeeperClassificationSchema } from "./schema";
 import type { GatekeeperClassification } from "./types";
 
@@ -124,35 +128,41 @@ export type OpenAIClassifyResult = GatekeeperClassification & {
 export async function classifyWithOpenAIText(
   ocrText: string,
 ): Promise<OpenAIClassifyResult> {
-  const client = getOpenAI();
   const model = getGatekeeperModel();
   const truncated = truncateText(ocrText);
 
-  const completion = await client.chat.completions.parse({
-    model,
-    temperature: 0.0,
-    max_tokens: 512,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: `Classify this document:\n\n${truncated}` },
-    ],
-    response_format: zodResponseFormat(
-      GatekeeperClassificationSchema,
-      "GatekeeperClassification",
-    ),
+  return withOpenAIResilience("gatekeeper_text", async (ids) => {
+    const client = getOpenAI();
+
+    const completion = await client.chat.completions.parse(
+      {
+        model,
+        temperature: 0.0,
+        max_tokens: 512,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: `Classify this document:\n\n${truncated}` },
+        ],
+        response_format: zodResponseFormat(
+          GatekeeperClassificationSchema,
+          "GatekeeperClassification",
+        ),
+      },
+      { headers: openaiRequestHeaders(ids) },
+    );
+
+    const parsed = completion.choices[0]?.message?.parsed;
+    if (!parsed) throw new Error("Gatekeeper structured output missing parsed result");
+
+    return {
+      ...parsed,
+      model,
+      prompt_version: PROMPT_VERSION,
+      prompt_hash: getPromptHash(),
+      prompt_tokens: completion.usage?.prompt_tokens ?? undefined,
+      completion_tokens: completion.usage?.completion_tokens ?? undefined,
+    };
   });
-
-  const parsed = completion.choices[0]?.message?.parsed;
-  if (!parsed) throw new Error("Gatekeeper structured output missing parsed result");
-
-  return {
-    ...parsed,
-    model,
-    prompt_version: PROMPT_VERSION,
-    prompt_hash: getPromptHash(),
-    prompt_tokens: completion.usage?.prompt_tokens ?? undefined,
-    completion_tokens: completion.usage?.completion_tokens ?? undefined,
-  };
 }
 
 // ─── Vision Path ────────────────────────────────────────────────────────────
@@ -169,42 +179,48 @@ export async function classifyWithOpenAIVision(
   imageBase64: string,
   mimeType: string,
 ): Promise<OpenAIClassifyResult> {
-  const client = getOpenAI();
   const model = getGatekeeperModel();
   const dataUrl = `data:${mimeType};base64,${imageBase64}`;
 
-  const completion = await client.chat.completions.parse({
-    model,
-    temperature: 0.0,
-    max_tokens: 512,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+  return withOpenAIResilience("gatekeeper_vision", async (ids) => {
+    const client = getOpenAI();
+
+    const completion = await client.chat.completions.parse(
       {
-        role: "user",
-        content: [
-          { type: "text", text: "Classify this document:" },
+        model,
+        temperature: 0.0,
+        max_tokens: 512,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
           {
-            type: "image_url",
-            image_url: { url: dataUrl, detail: "low" },
+            role: "user",
+            content: [
+              { type: "text", text: "Classify this document:" },
+              {
+                type: "image_url",
+                image_url: { url: dataUrl, detail: "low" },
+              },
+            ],
           },
         ],
+        response_format: zodResponseFormat(
+          GatekeeperClassificationSchema,
+          "GatekeeperClassification",
+        ),
       },
-    ],
-    response_format: zodResponseFormat(
-      GatekeeperClassificationSchema,
-      "GatekeeperClassification",
-    ),
+      { headers: openaiRequestHeaders(ids) },
+    );
+
+    const parsed = completion.choices[0]?.message?.parsed;
+    if (!parsed) throw new Error("Gatekeeper structured output missing parsed result (vision)");
+
+    return {
+      ...parsed,
+      model,
+      prompt_version: PROMPT_VERSION,
+      prompt_hash: getPromptHash(),
+      prompt_tokens: completion.usage?.prompt_tokens ?? undefined,
+      completion_tokens: completion.usage?.completion_tokens ?? undefined,
+    };
   });
-
-  const parsed = completion.choices[0]?.message?.parsed;
-  if (!parsed) throw new Error("Gatekeeper structured output missing parsed result (vision)");
-
-  return {
-    ...parsed,
-    model,
-    prompt_version: PROMPT_VERSION,
-    prompt_hash: getPromptHash(),
-    prompt_tokens: completion.usage?.prompt_tokens ?? undefined,
-    completion_tokens: completion.usage?.completion_tokens ?? undefined,
-  };
 }

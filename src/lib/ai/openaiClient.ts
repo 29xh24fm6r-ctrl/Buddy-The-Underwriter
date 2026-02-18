@@ -1,9 +1,27 @@
 import OpenAI from "openai";
+import type { TraceIds } from "./openaiResilience";
 
 export function getOpenAI() {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY missing");
-  return new OpenAI({ apiKey });
+  return new OpenAI({
+    apiKey,
+    maxRetries: 0,   // Buddy owns retries via withOpenAIResilience
+    timeout: 45_000, // 45s per attempt (30-60s spec)
+  });
+}
+
+/**
+ * Per-request headers for OpenAI API calls.
+ *
+ * - X-Client-Request-Id: unique per attempt (for OpenAI support lookup)
+ * - X-Buddy-Trace-Id: stable per logical operation (same across retries)
+ */
+export function openaiRequestHeaders(ids: TraceIds) {
+  return {
+    "X-Client-Request-Id": ids.attemptId,
+    "X-Buddy-Trace-Id": ids.traceId,
+  };
 }
 
 export function getModel() {
