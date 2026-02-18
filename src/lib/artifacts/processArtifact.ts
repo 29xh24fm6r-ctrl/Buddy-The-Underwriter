@@ -951,44 +951,9 @@ export async function processArtifact(
       }
     }
 
-    // 6.5-slot. Validate slot attachment (if any) — Phase 15
-    if (source_table === "deal_documents") {
-      try {
-        const { validateSlotAttachmentIfAny } = await import(
-          "@/lib/intake/slots/validateSlotAttachment"
-        );
-        const slotResult = await validateSlotAttachmentIfAny({
-          documentId: source_id,
-          classifiedDocType:
-            typingResult?.effective_doc_type ?? classification.docType,
-          classifiedTaxYear: classification.taxYear ?? null,
-        });
-        if (slotResult) {
-          await logLedgerEvent({
-            dealId,
-            bankId,
-            eventKey: slotResult.validated
-              ? "slot.validation.passed"
-              : "slot.validation.rejected",
-            uiState: slotResult.validated ? "done" : "error",
-            uiMessage: slotResult.validated
-              ? "Slot validation passed"
-              : `Slot validation rejected: ${slotResult.reason}`,
-            meta: {
-              artifactId,
-              documentId: source_id,
-              slotId: slotResult.slotId,
-              reason: slotResult.reason,
-            },
-          });
-        }
-      } catch (slotErr: any) {
-        console.warn("[processArtifact] slot validation failed (non-fatal)", {
-          source_id,
-          error: slotErr?.message,
-        });
-      }
-    }
+    // NOTE: Slot validation moved AFTER auto-match (see below) to ensure slot_id
+    // is stamped before validation runs. This eliminates the timing race where
+    // validation found no slot_id because auto-match hadn't completed yet.
 
     // ── Shared gatekeeper state (used by extraction routing + spread routing) ──
     let gkCols: {
@@ -996,6 +961,7 @@ export async function processArtifact(
       gatekeeper_route: string | null;
       gatekeeper_confidence: number | null;
       gatekeeper_needs_review: boolean | null;
+      gatekeeper_tax_year: number | null;
     } | null = null;
     let gkBlockedByReview = false;
 
@@ -1003,7 +969,7 @@ export async function processArtifact(
       try {
         const { data } = await (sb as any)
           .from("deal_documents")
-          .select("gatekeeper_doc_type, gatekeeper_route, gatekeeper_confidence, gatekeeper_needs_review")
+          .select("gatekeeper_doc_type, gatekeeper_route, gatekeeper_confidence, gatekeeper_needs_review, gatekeeper_tax_year")
           .eq("id", source_id)
           .maybeSingle();
         gkCols = data ?? null;
@@ -1057,37 +1023,71 @@ export async function processArtifact(
       }
       // No slot override. No slot fallback. Classifier-derived effectiveDocType stands if gatekeeper absent.
 
-      // ── Upload-group auto-fill (UI-only; never affects routing) ───────────────────
-      // Best-effort: attaches document to an empty upload group so the Core Docs UI
-      // populates even when gatekeeper inline is off. Must NOT block pipeline.
+      // ── Upload-group auto-fill (awaited; slot_id must be stamped before validation) ──
+      // Attaches document to an empty upload-group slot so Core Docs UI populates.
+      // Must complete before slot validation runs (deterministic state machine).
       if (!gkBlockedByReview && effectiveDocType) {
         try {
           const { autoMatchByEffectiveType } = await import(
             "@/lib/intake/slots/autoMatchDocToSlot"
           );
 
-          autoMatchByEffectiveType({
+          const matchResult = await autoMatchByEffectiveType({
             dealId,
             bankId,
             documentId: source_id,
             effectiveDocType,
-            taxYear: classification?.taxYear ?? null,
-          })
-            .then((r) => {
-              if (r.matched) {
-                console.log("[processArtifact] auto-match hit", {
-                  documentId: source_id, effectiveDocType, slotId: r.slotId,
-                });
-              }
-            })
-            .catch((err) => {
-              console.warn("[processArtifact] auto-match error", {
-                documentId: source_id, effectiveDocType, error: String(err),
-              });
+            taxYear: gkCols?.gatekeeper_tax_year ?? classification?.taxYear ?? null,
+          });
+
+          if (matchResult.matched) {
+            console.log("[processArtifact] auto-match hit", {
+              documentId: source_id, effectiveDocType, slotId: matchResult.slotId,
             });
-        } catch {
-          // Non-fatal; never blocks pipeline
+          }
+        } catch (matchErr: any) {
+          console.warn("[processArtifact] auto-match error (non-fatal)", {
+            documentId: source_id, effectiveDocType, error: matchErr?.message,
+          });
         }
+      }
+
+      // ── Deterministic slot validation (AFTER auto-match ensures slot_id is stamped) ──
+      try {
+        const { validateSlotAttachmentIfAny } = await import(
+          "@/lib/intake/slots/validateSlotAttachment"
+        );
+        const effectiveTaxYear =
+          gkCols?.gatekeeper_tax_year ?? classification?.taxYear ?? null;
+        const slotResult = await validateSlotAttachmentIfAny({
+          documentId: source_id,
+          classifiedDocType: effectiveDocType,
+          classifiedTaxYear: effectiveTaxYear,
+        });
+        if (slotResult) {
+          await logLedgerEvent({
+            dealId,
+            bankId,
+            eventKey: slotResult.validated
+              ? "slot.validation.passed"
+              : "slot.validation.rejected",
+            uiState: slotResult.validated ? "done" : "error",
+            uiMessage: slotResult.validated
+              ? "Slot validation passed"
+              : `Slot validation rejected: ${slotResult.reason}`,
+            meta: {
+              artifactId,
+              documentId: source_id,
+              slotId: slotResult.slotId,
+              reason: slotResult.reason,
+            },
+          });
+        }
+      } catch (slotErr: any) {
+        console.warn("[processArtifact] slot validation failed (non-fatal)", {
+          source_id,
+          error: slotErr?.message,
+        });
       }
 
       // ── Shadow routing comparison — always log when gatekeeper data present ──
