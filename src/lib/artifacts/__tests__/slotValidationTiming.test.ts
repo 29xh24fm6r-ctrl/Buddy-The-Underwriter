@@ -122,3 +122,36 @@ test("slot validation references gatekeeper_tax_year for year param", () => {
     "effectiveTaxYear used by validation must reference gatekeeper_tax_year",
   );
 });
+
+// ─── 8. Gatekeeper authority gate exists before auto-match ───────────────────
+
+test("gatekeeper authority gate emits slot.routing.skipped.missing_gatekeeper", () => {
+  const src = readProcessArtifact();
+  assert.ok(
+    src.includes("slot.routing.skipped.missing_gatekeeper"),
+    "processArtifact.ts must emit slot.routing.skipped.missing_gatekeeper when gatekeeper absent",
+  );
+});
+
+// ─── 9. Auto-match guarded by gatekeeper_doc_type check ─────────────────────
+
+test("auto-match is guarded by gkCols?.gatekeeper_doc_type check", () => {
+  const src = readProcessArtifact();
+
+  // The gatekeeper authority gate must check gatekeeper_doc_type before auto-match
+  const gateIdx = src.indexOf("!gkCols?.gatekeeper_doc_type");
+  const autoMatchIdx = src.indexOf("await autoMatchByEffectiveType(");
+
+  assert.ok(
+    gateIdx > 0,
+    "processArtifact.ts must contain gatekeeper_doc_type authority check",
+  );
+  assert.ok(
+    autoMatchIdx > 0,
+    "processArtifact.ts must contain await autoMatchByEffectiveType call",
+  );
+  assert.ok(
+    gateIdx < autoMatchIdx,
+    "gatekeeper_doc_type authority check must appear BEFORE auto-match call",
+  );
+});

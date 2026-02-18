@@ -1027,28 +1027,50 @@ export async function processArtifact(
       // Attaches document to an empty upload-group slot so Core Docs UI populates.
       // Must complete before slot validation runs (deterministic state machine).
       if (!gkBlockedByReview && effectiveDocType) {
-        try {
-          const { autoMatchByEffectiveType } = await import(
-            "@/lib/intake/slots/autoMatchDocToSlot"
-          );
+        // ── Gatekeeper authority gate ──
+        // AI-only classification must NOT stamp slot_id.
+        // Gatekeeper is authoritative. If it hasn't run, skip auto-match.
+        if (!gkCols?.gatekeeper_doc_type) {
+          console.log("[processArtifact] skipping auto-match — gatekeeper not classified", {
+            documentId: source_id, effectiveDocType,
+          });
 
-          const matchResult = await autoMatchByEffectiveType({
+          logLedgerEvent({
             dealId,
             bankId,
-            documentId: source_id,
-            effectiveDocType,
-            taxYear: gkCols?.gatekeeper_tax_year ?? classification?.taxYear ?? null,
-          });
+            eventKey: "slot.routing.skipped.missing_gatekeeper",
+            uiState: "waiting",
+            uiMessage: "Slot routing skipped: gatekeeper has not classified this document",
+            meta: {
+              documentId: source_id,
+              effectiveDocType,
+              reason: "gatekeeper_not_classified",
+            },
+          }).catch(() => {});
+        } else {
+          try {
+            const { autoMatchByEffectiveType } = await import(
+              "@/lib/intake/slots/autoMatchDocToSlot"
+            );
 
-          if (matchResult.matched) {
-            console.log("[processArtifact] auto-match hit", {
-              documentId: source_id, effectiveDocType, slotId: matchResult.slotId,
+            const matchResult = await autoMatchByEffectiveType({
+              dealId,
+              bankId,
+              documentId: source_id,
+              effectiveDocType,
+              taxYear: gkCols?.gatekeeper_tax_year ?? classification?.taxYear ?? null,
+            });
+
+            if (matchResult.matched) {
+              console.log("[processArtifact] auto-match hit", {
+                documentId: source_id, effectiveDocType, slotId: matchResult.slotId,
+              });
+            }
+          } catch (matchErr: any) {
+            console.warn("[processArtifact] auto-match error (non-fatal)", {
+              documentId: source_id, effectiveDocType, error: matchErr?.message,
             });
           }
-        } catch (matchErr: any) {
-          console.warn("[processArtifact] auto-match error (non-fatal)", {
-            documentId: source_id, effectiveDocType, error: matchErr?.message,
-          });
         }
       }
 
