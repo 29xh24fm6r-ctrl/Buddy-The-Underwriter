@@ -160,7 +160,7 @@ async function loadDocumentBytes(args: {
   // Load document metadata
   const { data: doc, error } = await (sb as any)
     .from("deal_documents")
-    .select("id, deal_id, bank_id, storage_bucket, storage_path, mime_type, page_count, original_filename")
+    .select("id, deal_id, bank_id, storage_bucket, storage_path, mime_type, original_filename")
     .eq("id", args.docId)
     .single();
 
@@ -183,7 +183,7 @@ async function loadDocumentBytes(args: {
 
   const bytes = Buffer.from(await dl.data.arrayBuffer());
   const mimeType = doc.mime_type || "application/pdf";
-  const pageCount = doc.page_count ?? undefined;
+  const pageCount = undefined;
 
   return { bytes, mimeType, pageCount };
 }

@@ -37,7 +37,6 @@ export type ExtractByDocTypeResult = {
     storage_path: string;
     storage_bucket: string;
     mime_type: string;
-    page_count?: number;
     original_filename?: string;
     sha256?: string;
   };
@@ -87,7 +86,6 @@ async function loadDocumentFromDb(
       storage_path,
       storage_bucket,
       mime_type,
-      page_count,
       original_filename,
       sha256
     `)
@@ -108,7 +106,6 @@ async function loadDocumentFromDb(
     storage_path: doc.storage_path || "",
     storage_bucket: doc.storage_bucket || "deal-documents",
     mime_type: doc.mime_type || "application/pdf",
-    page_count: doc.page_count ?? undefined,
     original_filename: doc.original_filename ?? undefined,
     sha256: doc.sha256 ?? undefined,
   };
@@ -176,7 +173,7 @@ async function extractWithGeminiOcr(doc: ExtractByDocTypeResult["doc"]): Promise
     fileName: doc.original_filename,
   });
 
-  const pages = ocrResult.pageCount || doc.page_count || 1;
+  const pages = ocrResult.pageCount || 1;
 
   const provider_metrics: ProviderMetrics = {
     provider: "gemini_ocr",
