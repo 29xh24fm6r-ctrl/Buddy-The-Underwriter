@@ -93,6 +93,12 @@ async function loadDocumentFromDb(
     .single();
 
   if (error || !doc) {
+    console.error("[loadDocumentFromDb] PostgREST error loading deal_document", {
+      docId,
+      code: error?.code,
+      message: error?.message,
+      hint: error?.hint,
+    });
     return null;
   }
 

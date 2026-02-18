@@ -165,6 +165,12 @@ async function loadDocumentBytes(args: {
     .single();
 
   if (error || !doc) {
+    console.error("[DocAI:loadDocumentBytes] PostgREST error loading deal_document", {
+      docId: args.docId,
+      code: error?.code,
+      message: error?.message,
+      hint: error?.hint,
+    });
     throw new Error(`doc_not_found: ${args.docId}`);
   }
 
