@@ -24,6 +24,8 @@ export type ProviderMetrics = {
   pages?: number;
   unit_count?: number;
   estimated_cost_usd?: number;
+  fallback_from?: string;
+  fallback_reason?: string;
 };
 
 export type ExtractByDocTypeResult = {
@@ -256,6 +258,22 @@ async function extractWithDocumentAi(
   };
 }
 
+// ─── DocAI Error Detection ──────────────────────────────────────────────────
+
+/**
+ * Detect DocAI page-limit gRPC errors.
+ * These are permanent for DocAI but recoverable via Gemini OCR fallback.
+ */
+export function isDocAiPageLimitError(err: unknown): boolean {
+  const msg = String(
+    (err as any)?.message || (err as any)?.details || err || "",
+  ).toLowerCase();
+  return (
+    msg.includes("document pages") &&
+    (msg.includes("exceed the limit") || msg.includes("exceed"))
+  );
+}
+
 // ─── Main Router ─────────────────────────────────────────────────────────────
 
 /**
@@ -425,6 +443,70 @@ export async function extractByDocType(docId: string): Promise<ExtractByDocTypeR
 
     return { doc, result, provider_metrics };
   } catch (error: any) {
+    // ── DocAI page-limit fallback → Gemini OCR ──────────────────────────
+    if (useDocAi && isDocAiPageLimitError(error)) {
+      console.log("[SmartRouter] DocAI page limit — falling back to Gemini OCR", {
+        docId,
+        routingClass,
+        error: error?.message,
+      });
+
+      await logLedgerEvent({
+        dealId: doc.deal_id,
+        bankId: doc.bank_id,
+        eventKey: "extract.docai.page_limit_fallback",
+        uiState: "working",
+        uiMessage: "Document too large for Document AI — using Gemini OCR",
+        meta: {
+          docId,
+          docType: doc.type,
+          routingClass,
+          originalError: error?.message,
+        },
+      });
+
+      try {
+        const fallbackResult = await extractWithGeminiOcr(doc);
+
+        const elapsedMs = Date.now() - started;
+        console.log("[SmartRouter] Gemini OCR fallback succeeded", {
+          docId,
+          elapsed_ms: elapsedMs,
+        });
+
+        return {
+          doc,
+          result: fallbackResult.result,
+          provider_metrics: {
+            ...fallbackResult.provider_metrics,
+            fallback_from: "DOC_AI",
+            fallback_reason: "PAGE_LIMIT",
+          },
+        };
+      } catch (fallbackError: any) {
+        // Both engines failed — log combined error, throw the fallback error
+        await logLedgerEvent({
+          dealId: doc.deal_id,
+          bankId: doc.bank_id,
+          eventKey: "extract.failed",
+          uiState: "error",
+          uiMessage: `Extraction failed (DocAI page limit + Gemini OCR fallback): ${fallbackError?.message}`,
+          meta: {
+            docId,
+            docType: doc.type,
+            routingClass,
+            route: "gemini_ocr_fallback",
+            docai_error: error?.message,
+            gemini_error: fallbackError?.message,
+            elapsed_ms: Date.now() - started,
+          },
+        });
+
+        throw fallbackError;
+      }
+    }
+
+    // ── Non-page-limit error: original behavior ─────────────────────────
     await logLedgerEvent({
       dealId: doc.deal_id,
       bankId: doc.bank_id,
