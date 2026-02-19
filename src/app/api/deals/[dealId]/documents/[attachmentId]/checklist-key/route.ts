@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 
 export const runtime = "nodejs";
@@ -99,7 +100,7 @@ export async function PATCH(
   const currentDoc = await sb
     .from("deal_documents")
     .select(
-      "id, original_filename, checklist_key, document_type, doc_year, match_source, bank_id",
+      "id, original_filename, checklist_key, document_type, doc_year, match_source, bank_id, classification_tier, classification_version",
     )
     .eq("deal_id", dealId)
     .eq("id", attachmentId)
@@ -246,6 +247,31 @@ export async function PATCH(
     });
   } catch (e) {
     console.warn("[checklist-key] ledger event failed (non-fatal)", e);
+  }
+
+  // Spine v2: classification.manual_override event
+  if (!isClearing) {
+    try {
+      await writeEvent({
+        dealId,
+        kind: "classification.manual_override",
+        actorUserId: userId,
+        scope: "classification",
+        action: "manual_override",
+        confidence: 1.0,
+        meta: {
+          document_id: attachmentId,
+          original_type: previousState.document_type,
+          original_tier: (currentDoc.data as any).classification_tier ?? null,
+          original_version: (currentDoc.data as any).classification_version ?? null,
+          corrected_type: documentType,
+          corrected_checklist_key: checklistKey,
+          classified_by: userId,
+        },
+      });
+    } catch (e) {
+      console.warn("[checklist-key] classification.manual_override ledger event failed (non-fatal)", e);
+    }
   }
 
   // Pulse: manual override applied

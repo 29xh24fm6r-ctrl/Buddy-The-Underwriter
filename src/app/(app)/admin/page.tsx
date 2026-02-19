@@ -139,6 +139,15 @@ export default async function AdminHome() {
         />
 
         <GlassActionCard
+          icon="insights"
+          iconColor="text-indigo-400"
+          title="Intake Metrics"
+          description="Auto-attach rates, review routing, override confusion heatmap."
+          href="/admin/intake"
+          actionLabel="View Intake Metrics"
+        />
+
+        <GlassActionCard
           icon="key"
           iconColor="text-yellow-400"
           title="Demo Access"

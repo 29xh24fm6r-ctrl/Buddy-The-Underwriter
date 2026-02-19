@@ -36,6 +36,9 @@ export type SlotDefinition = {
   help_reason?: string | null;
   help_examples?: string[] | null;
   help_alternatives?: string[] | null;
+  /** Entity-aware routing — null = entity-agnostic (backward compatible). */
+  required_entity_id?: string | null;
+  required_entity_role?: string | null;
 };
 
 /** A slot policy generates deterministic slots for a given scenario. */

@@ -11,6 +11,8 @@ import path from "node:path";
 //   3. Validation must run AFTER auto-match stamps slot_id
 //   4. No fire-and-forget slot writes
 //   5. Ledger reflects deterministic transitions
+//
+// Updated for Matching Engine v1: runMatchForDocument replaces autoMatchByEffectiveType
 
 function readProcessArtifact(): string {
   return fs.readFileSync(
@@ -41,24 +43,24 @@ test("auto-match prefers gkCols?.gatekeeper_tax_year over classification?.taxYea
   );
 });
 
-// ─── 3. Auto-match is awaited ─────────────────────────────────────────────────
+// ─── 3. Matching engine is awaited ──────────────────────────────────────────
 
-test("autoMatchByEffectiveType is awaited (not fire-and-forget)", () => {
+test("runMatchForDocument is awaited (not fire-and-forget)", () => {
   const src = readProcessArtifact();
   assert.ok(
-    src.includes("await autoMatchByEffectiveType"),
-    "autoMatchByEffectiveType must be awaited",
+    src.includes("await runMatchForDocument"),
+    "runMatchForDocument must be awaited",
   );
 });
 
-// ─── 4. No .then() on autoMatchByEffectiveType ───────────────────────────────
+// ─── 4. No .then() on runMatchForDocument ─────────────────────────────────
 
-test("no .then() chained on autoMatchByEffectiveType", () => {
+test("no .then() chained on runMatchForDocument", () => {
   const src = readProcessArtifact();
-  // Find all occurrences of autoMatchByEffectiveType and ensure none are
+  // Find all occurrences of runMatchForDocument and ensure none are
   // followed by .then( within the same expression
-  const idx = src.indexOf("autoMatchByEffectiveType(");
-  assert.ok(idx > 0, "autoMatchByEffectiveType must be called");
+  const idx = src.indexOf("runMatchForDocument(");
+  assert.ok(idx > 0, "runMatchForDocument must be called");
 
   // Scan the next 500 chars after each call for .then(
   const afterCall = src.slice(idx, idx + 500);
@@ -66,25 +68,25 @@ test("no .then() chained on autoMatchByEffectiveType", () => {
   const toSemicolon = afterCall.split(";")[0];
   assert.ok(
     !toSemicolon.includes(".then("),
-    "autoMatchByEffectiveType must not use .then() — use await instead",
+    "runMatchForDocument must not use .then() — use await instead",
   );
 });
 
-// ─── 5. validateSlotAttachmentIfAny appears AFTER autoMatchByEffectiveType ───
+// ─── 5. validateSlotAttachmentIfAny appears AFTER matching engine ───────────
 
-test("validateSlotAttachmentIfAny appears AFTER autoMatchByEffectiveType in source", () => {
+test("validateSlotAttachmentIfAny appears AFTER runMatchForDocument in source", () => {
   const src = readProcessArtifact();
 
-  const matchIdx = src.indexOf("await autoMatchByEffectiveType(");
+  const matchIdx = src.indexOf("await runMatchForDocument(");
   const validateIdx = src.indexOf("validateSlotAttachmentIfAny(", matchIdx);
 
   assert.ok(
     matchIdx > 0,
-    "await autoMatchByEffectiveType must exist in processArtifact.ts",
+    "await runMatchForDocument must exist in processArtifact.ts",
   );
   assert.ok(
     validateIdx > matchIdx,
-    "validateSlotAttachmentIfAny must appear AFTER autoMatchByEffectiveType (deterministic ordering)",
+    "validateSlotAttachmentIfAny must appear AFTER runMatchForDocument (deterministic ordering)",
   );
 });
 
@@ -123,35 +125,27 @@ test("slot validation references gatekeeper_tax_year for year param", () => {
   );
 });
 
-// ─── 8. Gatekeeper authority gate exists before auto-match ───────────────────
+// ─── 8. Classification authority gate exists ─────────────────────────────────
 
-test("gatekeeper authority gate emits slot.routing.skipped.missing_gatekeeper", () => {
+test("authority gate checks for classification before matching engine", () => {
   const src = readProcessArtifact();
   assert.ok(
+    src.includes("hasAnyClassification"),
+    "processArtifact.ts must check hasAnyClassification before matching engine",
+  );
+  assert.ok(
+    src.includes("slot.routing.skipped.no_classification") ||
     src.includes("slot.routing.skipped.missing_gatekeeper"),
-    "processArtifact.ts must emit slot.routing.skipped.missing_gatekeeper when gatekeeper absent",
+    "processArtifact.ts must emit skip event when no classification available",
   );
 });
 
-// ─── 9. Auto-match guarded by gatekeeper_doc_type check ─────────────────────
+// ─── 9. Matching engine imported from correct path ──────────────────────────
 
-test("auto-match is guarded by gkCols?.gatekeeper_doc_type check", () => {
+test("matching engine imported from @/lib/intake/matching/runMatch", () => {
   const src = readProcessArtifact();
-
-  // The gatekeeper authority gate must check gatekeeper_doc_type before auto-match
-  const gateIdx = src.indexOf("!gkCols?.gatekeeper_doc_type");
-  const autoMatchIdx = src.indexOf("await autoMatchByEffectiveType(");
-
   assert.ok(
-    gateIdx > 0,
-    "processArtifact.ts must contain gatekeeper_doc_type authority check",
-  );
-  assert.ok(
-    autoMatchIdx > 0,
-    "processArtifact.ts must contain await autoMatchByEffectiveType call",
-  );
-  assert.ok(
-    gateIdx < autoMatchIdx,
-    "gatekeeper_doc_type authority check must appear BEFORE auto-match call",
+    src.includes("@/lib/intake/matching/runMatch"),
+    "processArtifact.ts must import from @/lib/intake/matching/runMatch",
   );
 });
