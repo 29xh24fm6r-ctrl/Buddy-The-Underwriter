@@ -23,7 +23,8 @@ import {
   type PeriodInfo,
   type EntityInfo,
 } from "./types";
-import { ENTITY_GRAPH_VERSION } from "../identity/version";
+import { ENTITY_GRAPH_VERSION, ENTITY_PROTECTION_THRESHOLD } from "../identity/version";
+import { evaluateConstraints } from "./constraints";
 
 // ---------------------------------------------------------------------------
 // Input type
@@ -162,10 +163,74 @@ export async function runMatchForDocument(
     // ── Step 3: Run pure engine ─────────────────────────────────────────
     const result = matchDocumentToSlot(identity, slots, SLOT_POLICY_VERSION);
 
-    // Lookup matched slot for metadata enrichment (Sprint B)
+    // Lookup matched slot for metadata enrichment
     const matchedSlot = result.slotId
       ? slots.find((s) => s.slotId === result.slotId)
       : null;
+
+    // ── Layer 2.1: Identity Enforcement ──────────────────────────────────────
+    // Intercepts identity conflicts at the orchestration layer.
+    // Case 1: auto_attached to wrong entity slot (defense-in-depth).
+    // Case 2: no_match due to entity mismatch → upgrade to routed_to_review.
+    //
+    // Activates only when:
+    //   ENABLE_ENTITY_GRAPH=true  AND  entity resolved  AND  confidence >= ENTITY_PROTECTION_THRESHOLD
+    // Fail-open: flag off | entity null | low confidence | no entity-aware slots = no enforcement.
+    {
+      let enforcementSlot: typeof matchedSlot | null = null;
+
+      if (
+        process.env.ENABLE_ENTITY_GRAPH === "true" &&
+        identity.entity?.entityId != null &&
+        identity.entity.confidence >= ENTITY_PROTECTION_THRESHOLD
+      ) {
+        if (
+          // Case 1: auto_attached but matched slot has a different requiredEntityId
+          result.decision === "auto_attached" &&
+          matchedSlot?.requiredEntityId != null &&
+          matchedSlot.requiredEntityId !== identity.entity.entityId
+        ) {
+          enforcementSlot = matchedSlot;
+        } else if (result.decision === "no_match") {
+          // Case 2: find the near-miss slot — would have matched but for entity constraint
+          enforcementSlot =
+            slots.find((s) => {
+              if (!s.requiredEntityId || s.requiredEntityId === identity.entity!.entityId)
+                return false;
+              const cs = evaluateConstraints(identity, s);
+              return cs
+                .filter(
+                  (c) =>
+                    c.constraint !== "entity_id_match" && c.constraint !== "entity_role_match",
+                )
+                .every((c) => c.satisfied);
+            }) ?? null;
+        }
+      }
+
+      if (enforcementSlot) {
+        result.decision = "routed_to_review";
+        result.reason = "identity_enforcement";
+
+        writeEvent({
+          dealId,
+          kind: "match.identity_mismatch",
+          scope: "matching",
+          requiresHumanReview: true,
+          meta: {
+            document_id: documentId,
+            slot_id: enforcementSlot.slotId,
+            slot_key: enforcementSlot.slotKey,
+            effective_doc_type: identity.effectiveDocType,
+            engine_version: MATCHING_ENGINE_VERSION,
+            entity_graph_version: ENTITY_GRAPH_VERSION,
+            resolved_entity_id: identity.entity!.entityId,
+            slot_entity_id: enforcementSlot.requiredEntityId,
+            entity_confidence: identity.entity!.confidence,
+          },
+        }).catch(() => {});
+      }
+    }
 
     // ── Step 4: Attach if auto_attached ─────────────────────────────────
     let persisted = false;

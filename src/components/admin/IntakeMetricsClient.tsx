@@ -169,9 +169,16 @@ type IdentityAmbiguityRow = {
   ambiguity_rate: number | null;
 };
 
+type IdentityEnforcementRow = {
+  doc_type: string;
+  engine_version: string | null;
+  enforcement_count: number;
+};
+
 type IdentityLayerData = {
   coverage: IdentityCoverageRow[];
   ambiguityHotspots: IdentityAmbiguityRow[];
+  enforcementEvents: IdentityEnforcementRow[];
 };
 
 // ---------------------------------------------------------------------------
@@ -307,6 +314,7 @@ export default function IntakeMetricsClient() {
           setIdentityData({
             coverage: json.coverage,
             ambiguityHotspots: json.ambiguityHotspots,
+            enforcementEvents: json.enforcementEvents ?? [],
           });
         }
       } catch {
@@ -1182,6 +1190,47 @@ export default function IntakeMetricsClient() {
                 </table>
               </div>
             )}
+
+            {/* Panel 3: Identity Enforcement Activity (Layer 2.1) */}
+            <div className="mb-6">
+              <h3 className="mb-3 text-sm font-medium text-white/60">
+                Identity Enforcement Activity
+              </h3>
+              {identityData.enforcementEvents.length === 0 ? (
+                <p className="text-xs text-white/40 italic">
+                  No enforcement events recorded (ENABLE_ENTITY_GRAPH may be off)
+                </p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-left text-white/40">
+                      <th className="pb-2 pr-3">Doc Type</th>
+                      <th className="pb-2 pr-3">Engine</th>
+                      <th className="pb-2 text-right">Enforcement Count</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...identityData.enforcementEvents]
+                      .sort((a, b) => b.enforcement_count - a.enforcement_count)
+                      .map((row, i) => (
+                        <tr key={i} className="border-b border-white/5">
+                          <td className="py-1 pr-3 font-mono text-white/90">{row.doc_type}</td>
+                          <td className="py-1 pr-3 text-white/50">{row.engine_version ?? "—"}</td>
+                          <td className={`py-1 text-right font-semibold ${
+                            row.enforcement_count > 15
+                              ? "text-red-400"
+                              : row.enforcement_count > 5
+                                ? "text-amber-400"
+                                : "text-emerald-400"
+                          }`}>
+                            {row.enforcement_count}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </>
       )}
