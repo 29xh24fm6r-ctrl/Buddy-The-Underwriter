@@ -2,6 +2,9 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { IntakeScenario, BusinessStage } from "./types";
 import { generateSlotsForScenario } from "./policies";
+import { ENTITY_SCOPED_DOC_TYPES } from "../identity/entityScopedDocTypes";
+import { writeEvent } from "@/lib/ledger/writeEvent";
+import { ensureEntityBindings } from "./repair/ensureEntityBindings";
 
 // ---------------------------------------------------------------------------
 // Phase 15B — Deterministic Slot Orchestrator
@@ -62,6 +65,12 @@ export async function ensureDeterministicSlotsForScenario(params: {
   const scenario = await loadIntakeScenario(dealId);
   const effectiveScenario = scenario ?? CONVENTIONAL_FALLBACK;
 
+  // Load entity count for structural integrity check (Layer 2.3)
+  const { count: entityCount } = await (sb as any)
+    .from("deal_entities")
+    .select("*", { count: "exact", head: true })
+    .eq("deal_id", dealId);
+
   const definitions = generateSlotsForScenario(effectiveScenario);
 
   if (definitions.length === 0) {
@@ -103,6 +112,36 @@ export async function ensureDeterministicSlotsForScenario(params: {
       error: error.message,
     });
     return { ok: false, slotsUpserted: 0, error: error.message };
+  }
+
+  // ── Layer 2.3: Slot entity structural integrity ────────────────────────────
+  // Emits slot.entity_binding_missing as a first-class structural finding
+  // for each entity-scoped slot definition lacking required_entity_id
+  // on a multi-entity deal. This is a finding, not a blocker.
+  // Fail-open: flag off | single entity | count query error → no events.
+  if (process.env.ENABLE_ENTITY_GRAPH === "true" && (entityCount ?? 0) > 1) {
+    for (const def of definitions) {
+      if (ENTITY_SCOPED_DOC_TYPES.has(def.required_doc_type) && !def.required_entity_id) {
+        writeEvent({
+          dealId,
+          kind: "slot.entity_binding_missing",
+          scope: "slots",
+          meta: {
+            slot_key: def.slot_key,
+            required_doc_type: def.required_doc_type,
+            entity_count: entityCount,
+            product_type: effectiveScenario.product_type,
+          },
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // ── Layer 2.4: Identity graph structural closure ────────────────────────────
+  // Synchronous. Throws on structural invariant violation.
+  // ENABLE_ENTITY_GRAPH=false → no-op (flag guard inside ensureEntityBindings).
+  if (process.env.ENABLE_ENTITY_GRAPH === "true") {
+    await ensureEntityBindings(dealId);
   }
 
   // Prune stale empty slots (key not in new policy + status === "empty")

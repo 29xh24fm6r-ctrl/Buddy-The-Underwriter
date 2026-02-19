@@ -40,6 +40,9 @@ import { isGatekeeperReadinessEnabled } from "@/lib/flags/openaiGatekeeper";
 import type { ReadinessMode } from "./model";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { computeBlockers } from "./computeBlockers";
+import { isIntakeSloEnforcementEnabled } from "@/lib/flags/intakeSloEnforcement";
+import { computeIntakeHealthScore } from "@/lib/intake/slo/computeIntakeHealthScore";
+import type { IntakeHealthInput } from "@/lib/intake/slo/computeIntakeHealthScore";
 
 // Type for the internal lifecycle stage from deals table
 type DealLifecycleStage = "created" | "intake" | "collecting" | "underwriting" | "ready";
@@ -478,10 +481,32 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   const stage = mapToUnifiedStage(lifecycleStage, dealStatusStage, derived);
 
   // Compute blockers (merge with any runtime fetch failures)
-  const blockers = [
+  const blockers: LifecycleBlocker[] = [
     ...computeBlockers(stage, derived, checklist.length, loanRequestCount, loanRequestHasIncomplete),
     ...runtimeBlockers,
   ];
+
+  // Intake health gate — only active in docs_requested / docs_in_progress stages
+  // when ENABLE_INTAKE_SLO_ENFORCEMENT=true. Never throws.
+  if (
+    (stage === "docs_requested" || stage === "docs_in_progress") &&
+    isIntakeSloEnforcementEnabled()
+  ) {
+    try {
+      const healthInput = await buildIntakeHealthInput(dealId, sb, derived);
+      const { score } = computeIntakeHealthScore(healthInput);
+      const INTAKE_HEALTH_THRESHOLD = 70;
+      if (score < INTAKE_HEALTH_THRESHOLD) {
+        blockers.push({
+          code: "intake_health_below_threshold",
+          message: `Intake health score ${score}/100 is below threshold ${INTAKE_HEALTH_THRESHOLD} — review the intake governance dashboard`,
+          evidence: { score, threshold: INTAKE_HEALTH_THRESHOLD },
+        });
+      }
+    } catch {
+      // Non-fatal — health gate failure must never block lifecycle derivation
+    }
+  }
 
   // Gatekeeper blocker telemetry — fire-and-forget, always emit when present
   if (deal.bank_id) {
@@ -559,6 +584,104 @@ function mapToUnifiedStage(
     default:
       return "intake_created";
   }
+}
+
+// ---------------------------------------------------------------------------
+// buildIntakeHealthInput — DB query helper for computeIntakeHealthScore
+// @internal — not exported; used only by deriveLifecycleStateInternal
+// ---------------------------------------------------------------------------
+
+/**
+ * Gathers the 6 boolean signals needed by computeIntakeHealthScore.
+ * Combines deal-specific signals from deal_events with system-level
+ * signals from the governance views.
+ *
+ * Uses parallel queries for efficiency. Non-fatal: any query failure
+ * defaults to false (healthy assumption) to prevent false gate triggers.
+ */
+async function buildIntakeHealthInput(
+  dealId: string,
+  sb: ReturnType<typeof supabaseAdmin>,
+  derived: LifecycleDerived,
+): Promise<IntakeHealthInput> {
+  // hasReviewRequired: derived from gatekeeper state already computed
+  const SOFT_REVIEW_REASONS = new Set(["LOW_CONFIDENCE"]);
+  const reasons = derived.gatekeeperNeedsReviewReasons ?? {};
+  let hardCount = 0;
+  for (const [code, count] of Object.entries(reasons)) {
+    if (!SOFT_REVIEW_REASONS.has(code)) hardCount += count;
+  }
+  const hasReviewRequired = hardCount > 0;
+
+  // Parallel DB queries for the remaining 5 signals
+  const sevenDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const [manualOverrideRes, segFailedRes, queueBacklogRes, sloViolationRes, workerUnhealthyRes] =
+    await Promise.allSettled([
+      (sb as any)
+        .from("deal_events")
+        .select("id", { head: true, count: "exact" })
+        .eq("deal_id", dealId)
+        .eq("kind", "classification.manual_override")
+        .limit(1),
+      (sb as any)
+        .from("deal_events")
+        .select("id", { head: true, count: "exact" })
+        .eq("deal_id", dealId)
+        .eq("kind", "document.segmentation_failed")
+        .limit(1),
+      (sb as any)
+        .from("intake_queue_latency_v1")
+        .select("job_type")
+        .eq("health_color", "red")
+        .limit(1),
+      (sb as any)
+        .from("deal_events")
+        .select("id", { head: true, count: "exact" })
+        .eq("deal_id", "system")
+        .eq("kind", "intake.classification_slo_violation")
+        .gte("created_at", sevenDayAgo)
+        .limit(1),
+      (sb as any)
+        .from("intake_worker_health_v1")
+        .select("worker_id")
+        .eq("health_color", "red")
+        .limit(1),
+    ]);
+
+  const hasManualOverride =
+    manualOverrideRes.status === "fulfilled"
+      ? (manualOverrideRes.value.count ?? 0) > 0
+      : false;
+
+  const hasSegmentationFailed =
+    segFailedRes.status === "fulfilled"
+      ? (segFailedRes.value.count ?? 0) > 0
+      : false;
+
+  const queueBacklogActive =
+    queueBacklogRes.status === "fulfilled"
+      ? (queueBacklogRes.value.data?.length ?? 0) > 0
+      : false;
+
+  const classificationSloViolation =
+    sloViolationRes.status === "fulfilled"
+      ? (sloViolationRes.value.count ?? 0) > 0
+      : false;
+
+  const workerUnhealthy =
+    workerUnhealthyRes.status === "fulfilled"
+      ? (workerUnhealthyRes.value.data?.length ?? 0) > 0
+      : false;
+
+  return {
+    hasReviewRequired,
+    hasManualOverride,
+    hasSegmentationFailed,
+    queueBacklogActive,
+    classificationSloViolation,
+    workerUnhealthy,
+  };
 }
 
 /**

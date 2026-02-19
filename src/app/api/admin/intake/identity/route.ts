@@ -37,6 +37,29 @@ type IdentityPrecisionRow = {
   precision_auto_attached: number;
 };
 
+type IdentitySlotBindingRow = {
+  doc_type: string;
+  total_slots: number;
+  bound_slots: number;
+  unbound_slots: number;
+  binding_rate_pct: number | null;
+};
+
+type IdentityRepairRow = {
+  entity_kind: string | null;
+  auto_bound: number;
+  synthetic_bound: number;
+  review_required: number;
+  synthetic_created: number;
+};
+
+type IdentityIntelligenceRow = {
+  entity_kind: string | null;
+  synthetics_refined: number;
+  relationships_inferred: number;
+  manual_confirmations: number;
+};
+
 type IdentityResponse =
   | {
       ok: true;
@@ -44,6 +67,9 @@ type IdentityResponse =
       ambiguityHotspots: IdentityAmbiguityRow[];
       enforcementEvents: IdentityEnforcementRow[];
       precisionMetrics: IdentityPrecisionRow[];
+      slotBindingCoverage: IdentitySlotBindingRow[];
+      repairMetrics: IdentityRepairRow[];
+      intelligenceMetrics: IdentityIntelligenceRow[];
     }
   | {
       ok: false;
@@ -69,11 +95,14 @@ export async function GET(
   try {
     const sb = supabaseAdmin();
 
-    const [coverageResult, ambiguityResult, enforcementResult, precisionResult] = await Promise.all([
+    const [coverageResult, ambiguityResult, enforcementResult, precisionResult, bindingResult, repairResult, intelligenceResult] = await Promise.all([
       sb.from("identity_resolution_coverage_v1").select("*"),
       sb.from("identity_ambiguity_hotspots_v1").select("*"),
       sb.from("identity_enforcement_events_v1").select("*"),
       sb.from("identity_precision_effect_v1").select("*"),
+      sb.from("slot_entity_binding_coverage_v1").select("*"),
+      sb.from("slot_entity_binding_repair_v1").select("*"),
+      sb.from("identity_intelligence_metrics_v1").select("*"),
     ]);
 
     if (coverageResult.error) {
@@ -137,12 +166,59 @@ export async function GET(
       console.warn("[identity] precision query error (non-fatal):", precisionResult.error);
     }
 
+    // Slot binding coverage — fail-safe empty array if view not yet populated or errored
+    const slotBindingCoverage: IdentitySlotBindingRow[] = bindingResult.error
+      ? []
+      : (bindingResult.data ?? []).map((r: any) => ({
+          doc_type: r.doc_type ?? "unknown",
+          total_slots: Number(r.total_slots ?? 0),
+          bound_slots: Number(r.bound_slots ?? 0),
+          unbound_slots: Number(r.unbound_slots ?? 0),
+          binding_rate_pct: r.binding_rate_pct != null ? Number(r.binding_rate_pct) : null,
+        }));
+
+    if (bindingResult.error) {
+      console.warn("[identity] slot binding query error (non-fatal):", bindingResult.error);
+    }
+
+    // Repair metrics — fail-safe empty array if view not yet populated or errored
+    const repairMetrics: IdentityRepairRow[] = repairResult.error
+      ? []
+      : (repairResult.data ?? []).map((r: any) => ({
+          entity_kind: r.entity_kind ?? null,
+          auto_bound: Number(r.auto_bound ?? 0),
+          synthetic_bound: Number(r.synthetic_bound ?? 0),
+          review_required: Number(r.review_required ?? 0),
+          synthetic_created: Number(r.synthetic_created ?? 0),
+        }));
+
+    if (repairResult.error) {
+      console.warn("[identity] repair metrics query error (non-fatal):", repairResult.error);
+    }
+
+    // Intelligence metrics — fail-safe empty array if view not yet populated or errored
+    const intelligenceMetrics: IdentityIntelligenceRow[] = intelligenceResult.error
+      ? []
+      : (intelligenceResult.data ?? []).map((r: any) => ({
+          entity_kind: r.entity_kind ?? null,
+          synthetics_refined: Number(r.synthetics_refined ?? 0),
+          relationships_inferred: Number(r.relationships_inferred ?? 0),
+          manual_confirmations: Number(r.manual_confirmations ?? 0),
+        }));
+
+    if (intelligenceResult.error) {
+      console.warn("[identity] intelligence metrics query error (non-fatal):", intelligenceResult.error);
+    }
+
     return NextResponse.json({
       ok: true,
       coverage,
       ambiguityHotspots,
       enforcementEvents,
       precisionMetrics,
+      slotBindingCoverage,
+      repairMetrics,
+      intelligenceMetrics,
     });
   } catch (e: any) {
     console.error("[identity] unexpected error:", e);

@@ -76,6 +76,20 @@ const STRONG_ANCHORS: AnchorPattern[] = [
     confidence: 0.95,
     formLabel: "1099",
   },
+  // W-2 wage and tax statement (confidence 0.95)
+  // Common in 1040 + W-2 bundles — unambiguously distinct from 1040
+  {
+    type: "irs_form_header",
+    pattern: /Form\s+W-?2\b/i,
+    confidence: 0.95,
+    formLabel: "W-2",
+  },
+  {
+    type: "irs_form_header",
+    pattern: /W-?2\s+Wage\s+and\s+Tax\b/i,
+    confidence: 0.95,
+    formLabel: "W-2",
+  },
   // SBA form headers (confidence 0.92)
   {
     type: "sba_form_header",

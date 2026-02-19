@@ -73,6 +73,8 @@ export type LifecycleBlockerCode =
   | "readiness_fetch_failed"
   // Schema / infrastructure errors
   | "schema_mismatch"
+  // Intake governance blocker — emitted when ENABLE_INTAKE_SLO_ENFORCEMENT=true
+  | "intake_health_below_threshold"
   // Generic fallbacks (use specific codes above when possible)
   | "data_fetch_failed"
   | "internal_error";

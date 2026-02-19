@@ -182,11 +182,162 @@ type IdentityPrecisionRow = {
   precision_auto_attached: number;
 };
 
+type IdentitySlotBindingRow = {
+  doc_type: string;
+  total_slots: number;
+  bound_slots: number;
+  unbound_slots: number;
+  binding_rate_pct: number | null;
+};
+
+type IdentityRepairRow = {
+  entity_kind: string | null;
+  auto_bound: number;
+  synthetic_bound: number;
+  review_required: number;
+  synthetic_created: number;
+};
+
+type IdentityIntelligenceRow = {
+  entity_kind: string | null;
+  synthetics_refined: number;
+  relationships_inferred: number;
+  manual_confirmations: number;
+};
+
 type IdentityLayerData = {
   coverage: IdentityCoverageRow[];
   ambiguityHotspots: IdentityAmbiguityRow[];
   enforcementEvents: IdentityEnforcementRow[];
   precisionMetrics: IdentityPrecisionRow[];
+  slotBindingCoverage: IdentitySlotBindingRow[];
+  repairMetrics: IdentityRepairRow[];
+  intelligenceMetrics: IdentityIntelligenceRow[];
+};
+
+// ── Phase A — Segmentation Health ────────────────────────────────────────────
+
+type SegmentationMetricRow = {
+  document_type: string | null;
+  parent_docs_split: number;
+  total_segments_created: number;
+  split_failures: number;
+  avg_children: number | null;
+};
+
+// ── Phase C — Intake Governance ───────────────────────────────────────────────
+
+type WorkerHealthRow = {
+  worker_id: string | null;
+  worker_type: string | null;
+  status: string | null;
+  last_heartbeat_at: string | null;
+  seconds_since_heartbeat: number | null;
+  consecutive_failures: number | null;
+  health_color: string | null;
+};
+
+type QueueLatencyRow = {
+  job_type: string | null;
+  queued_count: number | null;
+  max_queue_age_seconds: number | null;
+  health_color: string | null;
+};
+
+type OcrFailuresRow = {
+  failed_count_24h: number;
+  empty_ocr_count_24h: number;
+  total_24h: number;
+  health_color: string | null;
+};
+
+type IntakeGovernanceData = {
+  workerHealth: WorkerHealthRow[];
+  queueLatency: QueueLatencyRow[];
+  ocrFailures: OcrFailuresRow;
+};
+
+// ── Phase D — Signal Intelligence ────────────────────────────────────────────
+
+type SignalStrengthRow = {
+  effective_doc_type: string | null;
+  total_docs: number | null;
+  avg_confidence: number | null;
+  min_confidence: number | null;
+  max_confidence: number | null;
+  confidence_stddev: number | null;
+  low_confidence_count: number | null;
+  health_color: string | null;
+};
+
+type ClassifierSourceMixRow = {
+  effective_doc_type: string | null;
+  match_source: string | null;
+  doc_count: number | null;
+  fraction_within_type: number | null;
+  avg_confidence: number | null;
+};
+
+type SegmentationImpactRow = {
+  document_class: string | null;
+  doc_count: number | null;
+  avg_confidence: number | null;
+  avg_classification_seconds: number | null;
+  manual_override_rate: number | null;
+};
+
+type EntityBindingRow = {
+  [key: string]: unknown;
+};
+
+type OverrideCorrelationRow = {
+  effective_doc_type: string | null;
+  total_docs: number | null;
+  manual_override_count: number | null;
+  recent_manual_count: number | null;
+  manual_override_rate: number | null;
+  avg_confidence: number | null;
+  confidence_stddev: number | null;
+  health_color: string | null;
+};
+
+type IntakeSignalData = {
+  signalStrength: SignalStrengthRow[];
+  classifierSourceMix: ClassifierSourceMixRow[];
+  segmentationImpact: SegmentationImpactRow[];
+  entityBindingCoverage: EntityBindingRow[];
+  overrideSignalCorrelation: OverrideCorrelationRow[];
+};
+
+// ── Phase B — Override Intelligence ──────────────────────────────────────────
+
+type OverrideClusterRow = {
+  from_type: string | null;
+  to_type: string | null;
+  override_count: number;
+  avg_confidence_at_time: number | null;
+  dominant_classifier_source: string | null;
+  dominant_confidence_bucket: string | null;
+  classification_version_range: string | null;
+  segmentation_presence_ratio: number | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+};
+
+type OverrideDriftRow = {
+  week_start: string | null;
+  from_type: string | null;
+  to_type: string | null;
+  classifier_source: string | null;
+  classification_version: string | null;
+  weekly_count: number;
+  prev_week_count: number | null;
+  delta: number;
+};
+
+type OverrideIntelligenceData = {
+  clusters: OverrideClusterRow[];
+  drift: OverrideDriftRow[];
 };
 
 // ---------------------------------------------------------------------------
@@ -217,6 +368,10 @@ export default function IntakeMetricsClient() {
   const [atomicData, setAtomicData] = useState<AtomicMetricsData | null>(null);
   const [topLeaksData, setTopLeaksData] = useState<TopLeaksData | null>(null);
   const [identityData, setIdentityData] = useState<IdentityLayerData | null>(null);
+  const [segmentationData, setSegmentationData] = useState<SegmentationMetricRow[] | null>(null);
+  const [overrideIntelligence, setOverrideIntelligence] = useState<OverrideIntelligenceData | null>(null);
+  const [intakeGovernance, setIntakeGovernance] = useState<IntakeGovernanceData | null>(null);
+  const [intakeSignal, setIntakeSignal] = useState<IntakeSignalData | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -324,6 +479,9 @@ export default function IntakeMetricsClient() {
             ambiguityHotspots: json.ambiguityHotspots,
             enforcementEvents: json.enforcementEvents ?? [],
             precisionMetrics: json.precisionMetrics ?? [],
+            slotBindingCoverage: json.slotBindingCoverage ?? [],
+            repairMetrics: json.repairMetrics ?? [],
+            intelligenceMetrics: json.intelligenceMetrics ?? [],
           });
         }
       } catch {
@@ -332,6 +490,120 @@ export default function IntakeMetricsClient() {
     }
 
     void loadIdentity();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ── Segmentation Health fetch (parallel, non-blocking) ───────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSegmentation() {
+      try {
+        const res = await fetch("/api/admin/intake/segmentation", {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (!cancelled && json.ok) {
+          setSegmentationData(json.segmentationMetrics);
+        }
+      } catch {
+        // Segmentation metrics are best-effort — don't block main dashboard
+      }
+    }
+
+    void loadSegmentation();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ── Override Intelligence fetch (parallel, non-blocking) ─────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadOverrideIntelligence() {
+      try {
+        const res = await fetch("/api/admin/intake/override", {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (!cancelled && json.ok) {
+          setOverrideIntelligence({
+            clusters: json.clusters ?? [],
+            drift: json.drift ?? [],
+          });
+        }
+      } catch {
+        // Override intelligence is best-effort — don't block main dashboard
+      }
+    }
+
+    void loadOverrideIntelligence();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ── Intake Governance fetch (parallel, non-blocking) ─────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadIntakeGovernance() {
+      try {
+        const res = await fetch("/api/admin/intake/reliability", {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (!cancelled && json.ok) {
+          setIntakeGovernance({
+            workerHealth: json.workerHealth ?? [],
+            queueLatency: json.queueLatency ?? [],
+            ocrFailures: json.ocrFailures ?? {
+              failed_count_24h: 0,
+              empty_ocr_count_24h: 0,
+              total_24h: 0,
+              health_color: null,
+            },
+          });
+        }
+      } catch {
+        // Governance metrics are best-effort — don't block main dashboard
+      }
+    }
+
+    void loadIntakeGovernance();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ── Intake Signal Intelligence fetch (parallel, non-blocking) ────────
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadIntakeSignal() {
+      try {
+        const res = await fetch("/api/admin/intake/signal", {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (!cancelled && json.ok) {
+          setIntakeSignal({
+            signalStrength: json.signalStrength ?? [],
+            classifierSourceMix: json.classifierSourceMix ?? [],
+            segmentationImpact: json.segmentationImpact ?? [],
+            entityBindingCoverage: json.entityBindingCoverage ?? [],
+            overrideSignalCorrelation: json.overrideSignalCorrelation ?? [],
+          });
+        }
+      } catch {
+        // Signal intelligence is best-effort — don't block main dashboard
+      }
+    }
+
+    void loadIntakeSignal();
     return () => {
       cancelled = true;
     };
@@ -1294,8 +1566,816 @@ export default function IntakeMetricsClient() {
                 </table>
               )}
             </div>
+
+            {/* Panel 5: Slot Entity Binding Coverage (Layer 2.3) */}
+            <div className="mb-6">
+              <h3 className="mb-3 text-sm font-medium text-white/60">
+                Slot Entity Binding Coverage
+              </h3>
+              {identityData.slotBindingCoverage.length === 0 ? (
+                <p className="text-xs text-white/40 italic">
+                  No entity-scoped slots found
+                </p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-left text-white/40">
+                      <th className="pb-2 pr-3">Doc Type</th>
+                      <th className="pb-2 pr-3 text-right">Bound</th>
+                      <th className="pb-2 pr-3 text-right">Unbound</th>
+                      <th className="pb-2 pr-3 text-right">Total</th>
+                      <th className="pb-2 text-right">Binding Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...identityData.slotBindingCoverage]
+                      .sort((a, b) => b.unbound_slots - a.unbound_slots)
+                      .map((row, i) => (
+                        <tr key={i} className="border-b border-white/5">
+                          <td className="py-1 pr-3 font-mono text-white/90">{row.doc_type}</td>
+                          <td className="py-1 pr-3 text-right text-emerald-400">{row.bound_slots}</td>
+                          <td className={`py-1 pr-3 text-right ${
+                            row.unbound_slots > 0 ? "text-amber-400" : "text-white/40"
+                          }`}>
+                            {row.unbound_slots}
+                          </td>
+                          <td className="py-1 pr-3 text-right text-white/50">{row.total_slots}</td>
+                          <td className={`py-1 text-right font-semibold ${
+                            row.binding_rate_pct != null && row.binding_rate_pct < 50
+                              ? "text-red-400"
+                              : row.binding_rate_pct != null && row.binding_rate_pct < 90
+                                ? "text-amber-400"
+                                : "text-emerald-400"
+                          }`}>
+                            {row.binding_rate_pct != null ? `${row.binding_rate_pct}%` : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Panel 6: Entity Binding Integrity (Layer 2.4) */}
+            <div className="mb-6">
+              <h3 className="mb-3 text-sm font-medium text-white/60">
+                Entity Binding Integrity
+              </h3>
+              {identityData.repairMetrics.length === 0 ? (
+                <p className="text-xs text-white/40 italic">
+                  No repair events yet (runs after first deal with ENABLE_ENTITY_GRAPH=true)
+                </p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-left text-white/40">
+                      <th className="pb-2 pr-3">Entity Kind</th>
+                      <th className="pb-2 pr-3 text-right">Auto-Bound</th>
+                      <th className="pb-2 pr-3 text-right">Synthetic Bound</th>
+                      <th className="pb-2 pr-3 text-right">Review Required</th>
+                      <th className="pb-2 text-right">Synthetic Created</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...identityData.repairMetrics]
+                      .sort((a, b) => b.auto_bound - a.auto_bound)
+                      .map((row, i) => (
+                        <tr key={i} className="border-b border-white/5">
+                          <td className="py-1 pr-3 font-mono text-white/90">
+                            {row.entity_kind ?? "—"}
+                            {row.synthetic_created > 0 && (
+                              <span className="ml-2 rounded bg-amber-400/10 px-1 py-0.5 text-[10px] font-medium text-amber-300">
+                                Synthetic — Banker Confirmation Required
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-1 pr-3 text-right text-emerald-400">
+                            {row.auto_bound}
+                          </td>
+                          <td className={`py-1 pr-3 text-right ${
+                            row.synthetic_bound > 0 ? "text-amber-400" : "text-white/40"
+                          }`}>
+                            {row.synthetic_bound}
+                          </td>
+                          <td className={`py-1 pr-3 text-right font-semibold ${
+                            row.review_required > 0 ? "text-red-400" : "text-white/40"
+                          }`}>
+                            {row.review_required}
+                          </td>
+                          <td className={`py-1 text-right ${
+                            row.synthetic_created > 0 ? "text-amber-400" : "text-white/40"
+                          }`}>
+                            {row.synthetic_created}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Panel 7: Identity Intelligence (Layer 2.5) */}
+            <div className="mb-6">
+              <h3 className="mb-3 text-sm font-medium text-white/60">
+                Identity Intelligence
+              </h3>
+              {identityData.intelligenceMetrics.length === 0 ? (
+                <p className="text-xs text-white/40 italic">
+                  No intelligence events yet (ENABLE_IDENTITY_INTELLIGENCE may be off)
+                </p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-left text-white/40">
+                      <th className="pb-2 pr-3">Entity Kind</th>
+                      <th className="pb-2 pr-3 text-right">Synthetics Refined</th>
+                      <th className="pb-2 pr-3 text-right">Relationships Inferred</th>
+                      <th className="pb-2 text-right">Manual Confirmations</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...identityData.intelligenceMetrics]
+                      .sort((a, b) => b.synthetics_refined - a.synthetics_refined)
+                      .map((row, i) => (
+                        <tr key={i} className="border-b border-white/5">
+                          <td className="py-1 pr-3 font-mono text-white/90">
+                            {row.entity_kind ?? "—"}
+                          </td>
+                          <td className={`py-1 pr-3 text-right ${
+                            row.synthetics_refined > 0 ? "text-emerald-400" : "text-white/40"
+                          }`}>
+                            {row.synthetics_refined}
+                          </td>
+                          <td className={`py-1 pr-3 text-right ${
+                            row.relationships_inferred > 0 ? "text-emerald-400" : "text-white/40"
+                          }`}>
+                            {row.relationships_inferred}
+                          </td>
+                          <td className={`py-1 text-right ${
+                            row.manual_confirmations > 0 ? "text-sky-400" : "text-white/40"
+                          }`}>
+                            {row.manual_confirmations}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </>
+      )}
+      {/* ── Panel 8: Segmentation Health (Phase A) ───────────────────── */}
+      {segmentationData !== null && (
+        <div className="mt-10 border-t border-white/10 pt-8">
+          <h2 className="mb-6 text-lg font-semibold text-white/80">
+            Segmentation Health
+          </h2>
+          <div className="mb-6">
+            <h3 className="mb-3 text-sm font-medium text-white/60">
+              Multi-form PDF Split Metrics
+            </h3>
+            {segmentationData.length === 0 ? (
+              <p className="text-xs text-white/40 italic">
+                No segmentation events yet (ENABLE_SEGMENTATION_ENGINE may be off)
+              </p>
+            ) : (
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-white/10 text-left text-white/40">
+                    <th className="pb-2 pr-3">Document Type</th>
+                    <th className="pb-2 pr-3 text-right">Parents Split</th>
+                    <th className="pb-2 pr-3 text-right">Total Segments</th>
+                    <th className="pb-2 pr-3 text-right">Split Failures</th>
+                    <th className="pb-2 text-right">Avg Children</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...segmentationData]
+                    .sort((a, b) => b.total_segments_created - a.total_segments_created)
+                    .map((row, i) => (
+                      <tr key={i} className="border-b border-white/5">
+                        <td className="py-1 pr-3 font-mono text-white/90">
+                          {row.document_type ?? "—"}
+                        </td>
+                        <td className={`py-1 pr-3 text-right ${
+                          row.total_segments_created > 0 ? "text-emerald-400" : "text-white/40"
+                        }`}>
+                          {row.parent_docs_split}
+                        </td>
+                        <td className={`py-1 pr-3 text-right ${
+                          row.total_segments_created > 0 ? "text-emerald-400 font-semibold" : "text-white/40"
+                        }`}>
+                          {row.total_segments_created}
+                        </td>
+                        <td className={`py-1 pr-3 text-right font-semibold ${
+                          row.split_failures > 0 ? "text-amber-400" : "text-white/40"
+                        }`}>
+                          {row.split_failures}
+                        </td>
+                        <td className="py-1 text-right text-white/60">
+                          {row.avg_children != null ? row.avg_children.toFixed(1) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+      {/* ── Panel 9: Override Intelligence (Phase B) ─────────────────── */}
+      {overrideIntelligence !== null && (
+        <div className="mt-10 border-t border-white/10 pt-8">
+          <h2 className="mb-6 text-lg font-semibold text-white/80">
+            Override Intelligence
+          </h2>
+
+          {/* A. Clusters — Stability View */}
+          <div className="mb-8">
+            <h3 className="mb-3 text-sm font-medium text-white/60">
+              Classification Correction Clusters (≥3 overrides)
+            </h3>
+            {overrideIntelligence.clusters.length === 0 ? (
+              <p className="text-xs text-white/40 italic">
+                No override clusters yet (need ≥ 3 identical corrections).{" "}
+                Note: ENABLE_OVERRIDE_INTELLIGENCE controls cluster analysis only — override events always emit.
+              </p>
+            ) : (
+              <table className="w-full text-xs text-white/70">
+                <thead>
+                  <tr className="border-b border-white/10 text-white/40">
+                    <th className="pb-2 pr-3 text-left">From → To</th>
+                    <th className="pb-2 pr-3 text-right">Count</th>
+                    <th className="pb-2 pr-3 text-right">Avg Confidence</th>
+                    <th className="pb-2 pr-3 text-left">Source</th>
+                    <th className="pb-2 pr-3 text-left">Version Range</th>
+                    <th className="pb-2 pr-3 text-right">Seg Ratio</th>
+                    <th className="pb-2 text-left">First Seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overrideIntelligence.clusters.map((row, i) => (
+                    <tr key={i} className="border-b border-white/5">
+                      <td className="py-1 pr-3 font-mono text-white/90">
+                        {row.from_type ?? "—"} → {row.to_type ?? "—"}
+                      </td>
+                      <td className={`py-1 pr-3 text-right font-semibold ${
+                        row.override_count >= 20
+                          ? "text-red-400"
+                          : row.override_count >= 10
+                            ? "text-amber-400"
+                            : "text-white/70"
+                      }`}>
+                        {row.override_count}
+                      </td>
+                      <td className="py-1 pr-3 text-right text-white/60">
+                        {row.avg_confidence_at_time != null
+                          ? row.avg_confidence_at_time.toFixed(3)
+                          : "—"}
+                      </td>
+                      <td className="py-1 pr-3 text-white/60">
+                        {row.dominant_classifier_source ?? "—"}
+                      </td>
+                      <td className="py-1 pr-3 font-mono text-white/40">
+                        {row.classification_version_range ?? "—"}
+                      </td>
+                      <td className="py-1 pr-3 text-right text-white/60">
+                        {row.segmentation_presence_ratio != null
+                          ? `${(row.segmentation_presence_ratio * 100).toFixed(0)}%`
+                          : "—"}
+                      </td>
+                      <td className="py-1 text-white/40">
+                        {row.first_seen_at
+                          ? new Date(row.first_seen_at).toLocaleDateString()
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* B. Drift — Velocity View */}
+          <div>
+            <h3 className="mb-3 text-sm font-medium text-white/60">
+              Override Rate Drift (Week-over-Week)
+            </h3>
+            {overrideIntelligence.drift.length === 0 ? (
+              <p className="text-xs text-white/40 italic">
+                No drift data yet — needs multiple weeks of override events.
+              </p>
+            ) : (
+              <table className="w-full text-xs text-white/70">
+                <thead>
+                  <tr className="border-b border-white/10 text-white/40">
+                    <th className="pb-2 pr-3 text-left">Week</th>
+                    <th className="pb-2 pr-3 text-left">From → To</th>
+                    <th className="pb-2 pr-3 text-right">Count</th>
+                    <th className="pb-2 pr-3 text-right">Delta</th>
+                    <th className="pb-2 pr-3 text-left">Classifier</th>
+                    <th className="pb-2 text-left">Version</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overrideIntelligence.drift
+                    .filter((row) => row.delta !== 0)
+                    .slice(0, 40)
+                    .map((row, i) => (
+                      <tr key={i} className="border-b border-white/5">
+                        <td className="py-1 pr-3 text-white/40">
+                          {row.week_start
+                            ? new Date(row.week_start).toLocaleDateString()
+                            : "—"}
+                        </td>
+                        <td className="py-1 pr-3 font-mono text-white/90">
+                          {row.from_type ?? "—"} → {row.to_type ?? "—"}
+                        </td>
+                        <td className="py-1 pr-3 text-right text-white/70">
+                          {row.weekly_count}
+                        </td>
+                        <td className={`py-1 pr-3 text-right font-semibold ${
+                          row.delta >= 5
+                            ? "text-red-400"
+                            : row.delta >= 3
+                              ? "text-amber-400"
+                              : row.delta > 0
+                                ? "text-white/60"
+                                : "text-emerald-400"
+                        }`}>
+                          {row.delta > 0 ? `+${row.delta}` : row.delta}
+                        </td>
+                        <td className="py-1 pr-3 text-white/50">
+                          {row.classifier_source ?? "—"}
+                        </td>
+                        <td className="py-1 font-mono text-white/40">
+                          {row.classification_version ?? "—"}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Panel 10: Intake Governance (Phase C) ─────────────────────── */}
+      {intakeGovernance !== null && (
+        <div className="mt-10 border-t border-white/10 pt-8">
+          <h2 className="mb-6 text-lg font-semibold text-white/80">
+            Intake Governance
+          </h2>
+
+          {/* Worker Health */}
+          <div className="mb-6">
+            <h3 className="mb-3 text-sm font-medium text-white/60">
+              Worker Health
+            </h3>
+            {intakeGovernance.workerHealth.length === 0 ? (
+              <p className="text-xs text-white/40 italic">All systems healthy — no workers registered.</p>
+            ) : (
+              <table className="w-full text-xs text-white/70">
+                <thead>
+                  <tr className="border-b border-white/10 text-white/40">
+                    <th className="pb-2 pr-3 text-left">Worker ID</th>
+                    <th className="pb-2 pr-3 text-left">Type</th>
+                    <th className="pb-2 pr-3 text-left">Status</th>
+                    <th className="pb-2 pr-3 text-right">Secs Since Heartbeat</th>
+                    <th className="pb-2 pr-3 text-right">Consecutive Failures</th>
+                    <th className="pb-2 text-center">Health</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {intakeGovernance.workerHealth.map((row, i) => (
+                    <tr key={i} className="border-b border-white/5">
+                      <td className="py-1 pr-3 font-mono text-white/90 text-xs">{row.worker_id ?? "—"}</td>
+                      <td className="py-1 pr-3 text-white/60">{row.worker_type ?? "—"}</td>
+                      <td className="py-1 pr-3 text-white/50">{row.status ?? "—"}</td>
+                      <td className={`py-1 pr-3 text-right font-mono ${
+                        (row.seconds_since_heartbeat ?? 0) > 180
+                          ? "text-red-400 font-semibold"
+                          : (row.seconds_since_heartbeat ?? 0) > 60
+                            ? "text-amber-400"
+                            : "text-emerald-400"
+                      }`}>
+                        {row.seconds_since_heartbeat != null ? row.seconds_since_heartbeat : "—"}
+                      </td>
+                      <td className={`py-1 pr-3 text-right ${
+                        (row.consecutive_failures ?? 0) > 0 ? "text-amber-400" : "text-white/40"
+                      }`}>
+                        {row.consecutive_failures ?? 0}
+                      </td>
+                      <td className="py-1 text-center">
+                        <span className={`inline-block h-2.5 w-2.5 rounded-full ${
+                          row.health_color === "red"
+                            ? "bg-red-400"
+                            : row.health_color === "amber"
+                              ? "bg-amber-400"
+                              : "bg-emerald-400"
+                        }`} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Queue Latency */}
+          <div className="mb-6">
+            <h3 className="mb-3 text-sm font-medium text-white/60">
+              Queue Latency
+            </h3>
+            {intakeGovernance.queueLatency.length === 0 ? (
+              <p className="text-xs text-white/40 italic">All systems healthy — no queued jobs detected.</p>
+            ) : (
+              <table className="w-full text-xs text-white/70">
+                <thead>
+                  <tr className="border-b border-white/10 text-white/40">
+                    <th className="pb-2 pr-3 text-left">Job Type</th>
+                    <th className="pb-2 pr-3 text-right">Queued Count</th>
+                    <th className="pb-2 pr-3 text-right">Max Age (secs)</th>
+                    <th className="pb-2 text-center">Health</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {intakeGovernance.queueLatency.map((row, i) => (
+                    <tr key={i} className="border-b border-white/5">
+                      <td className="py-1 pr-3 font-mono text-white/90">{row.job_type ?? "—"}</td>
+                      <td className={`py-1 pr-3 text-right ${
+                        (row.queued_count ?? 0) > 10 ? "text-amber-400" : "text-white/70"
+                      }`}>
+                        {row.queued_count ?? 0}
+                      </td>
+                      <td className={`py-1 pr-3 text-right font-mono ${
+                        (row.max_queue_age_seconds ?? 0) > 300
+                          ? "text-red-400 font-semibold"
+                          : (row.max_queue_age_seconds ?? 0) > 120
+                            ? "text-amber-400"
+                            : "text-emerald-400"
+                      }`}>
+                        {row.max_queue_age_seconds != null ? row.max_queue_age_seconds : "—"}
+                      </td>
+                      <td className="py-1 text-center">
+                        <span className={`inline-block h-2.5 w-2.5 rounded-full ${
+                          row.health_color === "red"
+                            ? "bg-red-400"
+                            : row.health_color === "amber"
+                              ? "bg-amber-400"
+                              : "bg-emerald-400"
+                        }`} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* OCR Failures */}
+          <div className="mb-6">
+            <h3 className="mb-3 text-sm font-medium text-white/60">
+              OCR Health (last 24h)
+            </h3>
+            {intakeGovernance.ocrFailures.total_24h === 0 ? (
+              <p className="text-xs text-white/40 italic">All systems healthy — no OCR jobs in last 24h.</p>
+            ) : (
+              <div className="flex items-center gap-6">
+                <div className="flex flex-col">
+                  <span className="text-xs text-white/40 uppercase tracking-wider">Total</span>
+                  <span className="mt-1 text-xl font-semibold text-white/70">
+                    {intakeGovernance.ocrFailures.total_24h}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-white/40 uppercase tracking-wider">Failed</span>
+                  <span className={`mt-1 text-xl font-semibold ${
+                    intakeGovernance.ocrFailures.failed_count_24h > 5
+                      ? "text-red-400"
+                      : intakeGovernance.ocrFailures.failed_count_24h > 0
+                        ? "text-amber-400"
+                        : "text-emerald-400"
+                  }`}>
+                    {intakeGovernance.ocrFailures.failed_count_24h}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-white/40 uppercase tracking-wider">Empty OCR</span>
+                  <span className={`mt-1 text-xl font-semibold ${
+                    intakeGovernance.ocrFailures.empty_ocr_count_24h > 0
+                      ? "text-amber-400"
+                      : "text-emerald-400"
+                  }`}>
+                    {intakeGovernance.ocrFailures.empty_ocr_count_24h}
+                  </span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <span className="text-xs text-white/40 uppercase tracking-wider">Health</span>
+                  <span className={`mt-1 inline-block h-3 w-3 rounded-full ${
+                    intakeGovernance.ocrFailures.health_color === "red"
+                      ? "bg-red-400"
+                      : intakeGovernance.ocrFailures.health_color === "amber"
+                        ? "bg-amber-400"
+                        : "bg-emerald-400"
+                  }`} />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Panel 11: Intake Signal Intelligence (Phase D) ────────────────── */}
+      {intakeSignal !== null && (
+        <div className="mt-10 border-t border-white/10 pt-8">
+          <h2 className="mb-6 text-lg font-semibold text-white/80">
+            Intake Signal Intelligence
+          </h2>
+
+          {/* D1: Signal Strength Heatmap */}
+          <div className="mb-6">
+            <h3 className="mb-3 text-sm font-medium text-white/60">
+              Signal Strength by Doc Type
+            </h3>
+            {intakeSignal.signalStrength.length === 0 ? (
+              <p className="text-xs text-white/40 italic">No signal data available.</p>
+            ) : (
+              <table className="w-full text-xs text-white/70">
+                <thead>
+                  <tr className="border-b border-white/10 text-white/40">
+                    <th className="pb-2 pr-3 text-left">Doc Type</th>
+                    <th className="pb-2 pr-3 text-right">Total</th>
+                    <th className="pb-2 pr-3 text-right">Avg Conf</th>
+                    <th className="pb-2 pr-3 text-right">Stddev</th>
+                    <th className="pb-2 pr-3 text-right">Low Conf</th>
+                    <th className="pb-2 text-center">Signal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {intakeSignal.signalStrength.map((row, i) => (
+                    <tr key={i} className="border-b border-white/5">
+                      <td className="py-1 pr-3 font-mono text-white/90">
+                        {row.effective_doc_type ?? "—"}
+                      </td>
+                      <td className="py-1 pr-3 text-right text-white/60">
+                        {row.total_docs ?? "—"}
+                      </td>
+                      <td className={`py-1 pr-3 text-right font-semibold ${
+                        (row.avg_confidence ?? 0) >= 0.85
+                          ? "text-emerald-400"
+                          : (row.avg_confidence ?? 0) >= 0.70
+                            ? "text-amber-400"
+                            : "text-red-400"
+                      }`}>
+                        {row.avg_confidence != null
+                          ? (row.avg_confidence * 100).toFixed(1) + "%"
+                          : "—"}
+                      </td>
+                      <td className="py-1 pr-3 text-right text-white/50">
+                        {row.confidence_stddev != null
+                          ? row.confidence_stddev.toFixed(3)
+                          : "—"}
+                      </td>
+                      <td className={`py-1 pr-3 text-right ${
+                        (row.low_confidence_count ?? 0) > 0 ? "text-amber-400" : "text-white/40"
+                      }`}>
+                        {row.low_confidence_count ?? 0}
+                      </td>
+                      <td className="py-1 text-center">
+                        <span className={`inline-block h-2.5 w-2.5 rounded-full ${
+                          row.health_color === "red"
+                            ? "bg-red-400"
+                            : row.health_color === "amber"
+                              ? "bg-amber-400"
+                              : "bg-emerald-400"
+                        }`} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* D2: Source Dependency Matrix */}
+          <div className="mb-6">
+            <h3 className="mb-3 text-sm font-medium text-white/60">
+              Source Dependency Matrix
+            </h3>
+            {intakeSignal.classifierSourceMix.length === 0 ? (
+              <p className="text-xs text-white/40 italic">No signal data available.</p>
+            ) : (
+              <table className="w-full text-xs text-white/70">
+                <thead>
+                  <tr className="border-b border-white/10 text-white/40">
+                    <th className="pb-2 pr-3 text-left">Doc Type</th>
+                    <th className="pb-2 pr-3 text-left">Source</th>
+                    <th className="pb-2 pr-3 text-right">Count</th>
+                    <th className="pb-2 pr-3 text-right">Fraction</th>
+                    <th className="pb-2 text-right">Avg Conf</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {intakeSignal.classifierSourceMix.map((row, i) => (
+                    <tr key={i} className="border-b border-white/5">
+                      <td className="py-1 pr-3 font-mono text-white/70">
+                        {row.effective_doc_type ?? "—"}
+                      </td>
+                      <td className="py-1 pr-3 text-white/60">
+                        {row.match_source ?? "—"}
+                      </td>
+                      <td className="py-1 pr-3 text-right text-white/60">
+                        {row.doc_count ?? "—"}
+                      </td>
+                      <td className={`py-1 pr-3 text-right font-semibold ${
+                        row.match_source === "ai_classification" &&
+                        (row.fraction_within_type ?? 0) > 0.40
+                          ? "text-amber-400"
+                          : "text-white/60"
+                      }`}>
+                        {row.fraction_within_type != null
+                          ? (row.fraction_within_type * 100).toFixed(1) + "%"
+                          : "—"}
+                      </td>
+                      <td className="py-1 text-right text-white/50">
+                        {row.avg_confidence != null
+                          ? (row.avg_confidence * 100).toFixed(1) + "%"
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* D3: Segmentation ROI */}
+          <div className="mb-6">
+            <h3 className="mb-3 text-sm font-medium text-white/60">
+              Segmentation ROI
+            </h3>
+            {intakeSignal.segmentationImpact.length === 0 ? (
+              <p className="text-xs text-white/40 italic">No signal data available.</p>
+            ) : (
+              <table className="w-full text-xs text-white/70">
+                <thead>
+                  <tr className="border-b border-white/10 text-white/40">
+                    <th className="pb-2 pr-3 text-left">Class</th>
+                    <th className="pb-2 pr-3 text-right">Count</th>
+                    <th className="pb-2 pr-3 text-right">Avg Conf</th>
+                    <th className="pb-2 pr-3 text-right">Avg Seconds</th>
+                    <th className="pb-2 text-right">Override Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {intakeSignal.segmentationImpact.map((row, i) => (
+                    <tr key={i} className="border-b border-white/5">
+                      <td className="py-1 pr-3 font-semibold text-white/80">
+                        {row.document_class ?? "—"}
+                      </td>
+                      <td className="py-1 pr-3 text-right text-white/60">
+                        {row.doc_count ?? "—"}
+                      </td>
+                      <td className={`py-1 pr-3 text-right ${
+                        (row.avg_confidence ?? 0) >= 0.85
+                          ? "text-emerald-400"
+                          : (row.avg_confidence ?? 0) >= 0.70
+                            ? "text-amber-400"
+                            : "text-red-400"
+                      }`}>
+                        {row.avg_confidence != null
+                          ? (row.avg_confidence * 100).toFixed(1) + "%"
+                          : "—"}
+                      </td>
+                      <td className="py-1 pr-3 text-right text-white/50">
+                        {row.avg_classification_seconds != null
+                          ? row.avg_classification_seconds.toFixed(1) + "s"
+                          : "—"}
+                      </td>
+                      <td className={`py-1 text-right ${
+                        (row.manual_override_rate ?? 0) > 0.25
+                          ? "text-red-400 font-semibold"
+                          : (row.manual_override_rate ?? 0) > 0.10
+                            ? "text-amber-400"
+                            : "text-white/60"
+                      }`}>
+                        {row.manual_override_rate != null
+                          ? (row.manual_override_rate * 100).toFixed(1) + "%"
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* D4: Entity Binding Stability */}
+          <div className="mb-6">
+            <h3 className="mb-3 text-sm font-medium text-white/60">
+              Entity Binding Stability
+            </h3>
+            {intakeSignal.entityBindingCoverage.length === 0 ? (
+              <p className="text-xs text-white/40 italic">No signal data available.</p>
+            ) : (
+              <table className="w-full text-xs text-white/70">
+                <thead>
+                  <tr className="border-b border-white/10 text-white/40">
+                    {Object.keys(intakeSignal.entityBindingCoverage[0]).map((col) => (
+                      <th key={col} className="pb-2 pr-3 text-left">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {intakeSignal.entityBindingCoverage.map((row, i) => (
+                    <tr key={i} className="border-b border-white/5">
+                      {Object.values(row).map((val, j) => (
+                        <td key={j} className="py-1 pr-3 font-mono text-white/70">
+                          {val != null ? String(val) : "—"}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* D5: Override Signal Correlation */}
+          <div className="mb-6">
+            <h3 className="mb-3 text-sm font-medium text-white/60">
+              Override Signal Correlation
+            </h3>
+            {intakeSignal.overrideSignalCorrelation.length === 0 ? (
+              <p className="text-xs text-white/40 italic">No signal data available.</p>
+            ) : (
+              <table className="w-full text-xs text-white/70">
+                <thead>
+                  <tr className="border-b border-white/10 text-white/40">
+                    <th className="pb-2 pr-3 text-left">Doc Type</th>
+                    <th className="pb-2 pr-3 text-right">Total</th>
+                    <th className="pb-2 pr-3 text-right">Override Rate</th>
+                    <th className="pb-2 pr-3 text-right">Recent (7d)</th>
+                    <th className="pb-2 pr-3 text-right">Avg Conf</th>
+                    <th className="pb-2 pr-3 text-right">Stddev</th>
+                    <th className="pb-2 text-center">Signal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {intakeSignal.overrideSignalCorrelation.map((row, i) => (
+                    <tr key={i} className="border-b border-white/5">
+                      <td className="py-1 pr-3 font-mono text-white/90">
+                        {row.effective_doc_type ?? "—"}
+                      </td>
+                      <td className="py-1 pr-3 text-right text-white/60">
+                        {row.total_docs ?? "—"}
+                      </td>
+                      <td className={`py-1 pr-3 text-right font-semibold ${
+                        (row.manual_override_rate ?? 0) > 0.25
+                          ? "text-red-400"
+                          : (row.manual_override_rate ?? 0) > 0.10
+                            ? "text-amber-400"
+                            : "text-white/60"
+                      }`}>
+                        {row.manual_override_rate != null
+                          ? (row.manual_override_rate * 100).toFixed(1) + "%"
+                          : "—"}
+                      </td>
+                      <td className={`py-1 pr-3 text-right ${
+                        (row.recent_manual_count ?? 0) > 0 ? "text-amber-400" : "text-white/40"
+                      }`}>
+                        {row.recent_manual_count ?? 0}
+                      </td>
+                      <td className="py-1 pr-3 text-right text-white/50">
+                        {row.avg_confidence != null
+                          ? (row.avg_confidence * 100).toFixed(1) + "%"
+                          : "—"}
+                      </td>
+                      <td className="py-1 pr-3 text-right text-white/40">
+                        {row.confidence_stddev != null
+                          ? row.confidence_stddev.toFixed(3)
+                          : "—"}
+                      </td>
+                      <td className="py-1 text-center">
+                        <span className={`inline-block h-2.5 w-2.5 rounded-full ${
+                          row.health_color === "red"
+                            ? "bg-red-400"
+                            : row.health_color === "amber"
+                              ? "bg-amber-400"
+                              : "bg-emerald-400"
+                        }`} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
       )}
     </GlassShell>
   );

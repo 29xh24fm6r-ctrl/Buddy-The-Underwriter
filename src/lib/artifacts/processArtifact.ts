@@ -721,6 +721,8 @@ export async function processArtifact(
     // ── Multi-form PDF segmentation check (fail-open) ───────────────
     // Detects bundled PDFs (e.g., 1040 + K-1 stapled together) and routes
     // to review with per-segment classification for human reviewers.
+    // When ENABLE_SEGMENTATION_ENGINE=true: physically splits into child artifacts.
+    // Each child enters canonical CLASSIFY → MATCH independently.
     // Only attempts on non-trivial documents (> 3000 chars).
     // Fail-open: any error → continues normal single-doc pipeline.
     if (text && text.length > 3000) {
@@ -728,6 +730,27 @@ export async function processArtifact(
         const { orchestrateSegmentation } = await import(
           "@/lib/intake/segmentation/orchestrateSegmentation"
         );
+        const { isSegmentationEngineEnabled } = await import(
+          "@/lib/flags/segmentationEngine"
+        );
+
+        // Fetch storage context for physical splitting (flag-gated to avoid extra DB hit)
+        let storageContext: { storageBucket: string; storagePath: string; originalFilename: string } | undefined;
+        if (isSegmentationEngineEnabled() && source_table === "deal_documents") {
+          const { data: storMeta } = await (sb as any)
+            .from("deal_documents")
+            .select("storage_path, storage_bucket, original_filename")
+            .eq("id", source_id)
+            .maybeSingle();
+          if (storMeta?.storage_path) {
+            storageContext = {
+              storageBucket: storMeta.storage_bucket || "deal-files",
+              storagePath: storMeta.storage_path,
+              originalFilename: storMeta.original_filename || filename,
+            };
+          }
+        }
+
         const segResult = await orchestrateSegmentation({
           ocrText: text,
           filename,
@@ -736,15 +759,23 @@ export async function processArtifact(
           bankId,
           documentId: source_id,
           docAiSignals,
+          storageContext,
         });
 
         if (segResult.segmented) {
-          console.log("[processArtifact] multi-form PDF detected — routed to review", {
-            artifactId,
-            source_id,
-            segmentCount: segResult.segmentCount,
-            reason: segResult.reason,
-          });
+          const physicallySplit = "physically_split" in segResult && segResult.physically_split;
+          console.log(
+            physicallySplit
+              ? "[processArtifact] multi-form PDF physically split — children enqueued"
+              : "[processArtifact] multi-form PDF detected — routed to review",
+            {
+              artifactId,
+              source_id,
+              segmentCount: segResult.segmentCount,
+              reason: segResult.reason,
+              physicallySplit,
+            },
+          );
 
           return {
             ok: true,

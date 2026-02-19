@@ -8,6 +8,36 @@ import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
+import { SEGMENTATION_VERSION } from "@/lib/intake/segmentation/types";
+
+// ---------------------------------------------------------------------------
+// extractFilenamePattern — strips PII tokens, keeps structural shape
+// e.g. "John_Smith_1040_2023.pdf" → "*_*_1040_*.pdf"
+// ---------------------------------------------------------------------------
+function extractFilenamePattern(filename: string | null | undefined): string | null {
+  if (!filename) return null;
+  // Strip extension for processing, restore at end
+  const dotIdx = filename.lastIndexOf(".");
+  const ext = dotIdx >= 0 ? filename.slice(dotIdx) : "";
+  const base = dotIdx >= 0 ? filename.slice(0, dotIdx) : filename;
+
+  // Replace 4-digit years (1900-2099), UUIDs, and long digit sequences with *
+  // then replace any remaining alpha-only token that looks like a name with *
+  const normalized = base
+    .replace(/\b(19|20)\d{2}\b/g, "*")                       // years
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "*") // UUID
+    .replace(/\b\d{5,}\b/g, "*")                              // long digit sequences
+    .replace(/\b[A-Za-z]{2,}\b(?=(_|\s|$))/g, (token) => {
+      // Keep known form identifiers (all-caps or known IRS/SBA codes), mask the rest
+      if (/^(1040|1120|1065|1099|W2|K1|PFS|BTR|PTR|SBA|T12)$/.test(token.toUpperCase())) {
+        return token.toUpperCase();
+      }
+      return "*";
+    })
+    .replace(/\*+/g, "*");                                    // collapse consecutive *
+
+  return normalized + ext;
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,7 +130,7 @@ export async function PATCH(
   const currentDoc = await sb
     .from("deal_documents")
     .select(
-      "id, original_filename, checklist_key, document_type, doc_year, match_source, bank_id, classification_tier, classification_version",
+      "id, original_filename, checklist_key, document_type, doc_year, match_source, bank_id, classification_tier, classification_version, match_confidence, gatekeeper_route",
     )
     .eq("deal_id", dealId)
     .eq("id", attachmentId)
@@ -267,6 +297,15 @@ export async function PATCH(
           corrected_type: documentType,
           corrected_checklist_key: checklistKey,
           classified_by: userId,
+          // Phase B: Override Intelligence enrichment fields
+          confidence_at_time: (currentDoc.data as any).match_confidence ?? null,
+          classifier_source: currentDoc.data.match_source ?? null,
+          classification_version: (currentDoc.data as any).classification_version ?? null,
+          filename_pattern: extractFilenamePattern(currentDoc.data.original_filename),
+          match_result_state: (currentDoc.data as any).gatekeeper_route ?? null,
+          segmentation_version: SEGMENTATION_VERSION,
+          entity_binding_state: null,              // reserved — populated in Phase C
+          intake_health_score_at_time: null,        // reserved — populated in Phase C
         },
       });
     } catch (e) {

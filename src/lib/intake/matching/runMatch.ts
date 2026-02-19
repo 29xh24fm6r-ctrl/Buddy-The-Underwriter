@@ -77,6 +77,34 @@ export async function runMatchForDocument(
   const { dealId, bankId, documentId, spine, gatekeeper, matchSource, ocrText, filename } = params;
 
   try {
+    // ── Step 0: Segmentation exclusion guard ─────────────────────────────
+    // Belt-and-suspenders: split parent documents (segmented=true) must never
+    // enter the matching engine. Their children own the CLASSIFY→MATCH pipeline.
+    // Primary prevention is processArtifact.ts early-return; this is the fallback.
+    {
+      const sbGuard = supabaseAdmin();
+      const { data: docMeta } = await (sbGuard as any)
+        .from("deal_documents")
+        .select("segmented, parent_document_id")
+        .eq("id", documentId)
+        .maybeSingle();
+
+      if (docMeta?.segmented === true) {
+        console.warn("[runMatchForDocument] segmented parent excluded from matching", {
+          dealId, documentId,
+        });
+        return {
+          decision: "no_match",
+          slotId: null,
+          slotKey: null,
+          confidence: 0,
+          evidence: null,
+          reason: "segmented_parent_excluded",
+          persisted: false,
+        };
+      }
+    }
+
     // ── Step 1a: Period extraction (v1.1) ────────────────────────────────
     let period: PeriodInfo | null = null;
     if (ocrText) {
