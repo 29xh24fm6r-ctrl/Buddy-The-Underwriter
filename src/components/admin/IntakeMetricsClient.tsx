@@ -92,6 +92,66 @@ type AtomicMetricsData = {
   confidenceDistribution: ConfidenceBucket[];
 };
 
+// ── Layer 1.5 — Top Leaks Command Center ─────────────────────────────────────
+
+type SlotOverrideRow = {
+  slot_key: string;
+  slot_id: string | null;
+  effective_doc_type: string | null;
+  required_doc_type: string | null;
+  engine_version: string | null;
+  auto_attached: number;
+  routed_to_review: number;
+  total_attempts: number;
+  precision_rate: number | null;
+  friction_rate: number | null;
+  override_count: number;
+  override_rate: number;
+};
+
+type SlotReviewRow = {
+  slot_key: string;
+  slot_id: string | null;
+  effective_doc_type: string | null;
+  required_doc_type: string | null;
+  engine_version: string | null;
+  routed_to_review: number;
+  total_attempts: number;
+  review_rate: number | null;
+};
+
+type DocTypeReviewRow = {
+  doc_type: string;
+  engine_version: string | null;
+  total_match_events: number;
+  routed_to_review: number;
+  review_rate: number | null;
+};
+
+type RegressionRow = {
+  doc_type: string;
+  engine_version: string;
+  auto_attach_rate: number | null;
+  prior_attach_rate: number | null;
+  delta: number | null;
+};
+
+type AnomalyRow = {
+  doc_type: string;
+  engine_version: string | null;
+  avg_confidence: number | null;
+  sample_count: number;
+  auto_attach_rate: number | null;
+};
+
+type TopLeaksData = {
+  topSlotOverrides: SlotOverrideRow[];
+  topSlotReview: SlotReviewRow[];
+  topDocTypeReview: DocTypeReviewRow[];
+  engineRegression: RegressionRow[];
+  confidenceAnomalies: AnomalyRow[];
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -118,6 +178,7 @@ export default function IntakeMetricsClient() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<IntakeMetricsData | null>(null);
   const [atomicData, setAtomicData] = useState<AtomicMetricsData | null>(null);
+  const [topLeaksData, setTopLeaksData] = useState<TopLeaksData | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -174,6 +235,36 @@ export default function IntakeMetricsClient() {
     }
 
     void loadAtomic();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ── Top Leaks Command Center fetch (parallel, non-blocking) ───────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTopLeaks() {
+      try {
+        const res = await fetch("/api/admin/intake/top-leaks", {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (!cancelled && json.ok) {
+          setTopLeaksData({
+            topSlotOverrides: json.topSlotOverrides,
+            topSlotReview: json.topSlotReview,
+            topDocTypeReview: json.topDocTypeReview,
+            engineRegression: json.engineRegression,
+            confidenceAnomalies: json.confidenceAnomalies,
+          });
+        }
+      } catch {
+        // Top leaks are best-effort — don't block main dashboard
+      }
+    }
+
+    void loadTopLeaks();
     return () => {
       cancelled = true;
     };
@@ -706,6 +797,254 @@ export default function IntakeMetricsClient() {
                     />
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── Intake Command Center (Layer 1.5) ─────────────────────────── */}
+      {topLeaksData && (
+        <>
+          <div className="mb-2 mt-8 text-sm font-semibold text-white/80 uppercase tracking-widest">
+            Intake Command Center
+          </div>
+
+          {/* Panel 1: Top Slot Overrides */}
+          <div className="mb-6 rounded-xl border border-white/10 bg-white/5 p-4">
+            <div className="mb-3 text-xs font-semibold text-white/70 uppercase tracking-wider">
+              Top Slot Overrides (by override rate)
+            </div>
+            {topLeaksData.topSlotOverrides.length === 0 ? (
+              <p className="text-xs text-white/40 italic">No slots above minimum threshold yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-white/50">
+                      <th className="py-1 pr-3 text-left font-medium">Slot Key</th>
+                      <th className="py-1 pr-3 text-left font-medium">Doc Type</th>
+                      <th className="py-1 pr-3 text-left font-medium">Engine</th>
+                      <th className="py-1 pr-3 text-right font-medium">Attempts</th>
+                      <th className="py-1 pr-3 text-right font-medium">Overrides</th>
+                      <th className="py-1 pr-3 text-right font-medium">Override Rate</th>
+                      <th className="py-1 text-right font-medium">Precision</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...topLeaksData.topSlotOverrides]
+                      .sort((a, b) => b.override_rate - a.override_rate)
+                      .slice(0, 10)
+                      .map((row, i) => (
+                        <tr key={i} className="border-b border-white/5">
+                          <td className="py-1 pr-3 font-mono text-white/90">{row.slot_key}</td>
+                          <td className="py-1 pr-3 text-white/60">{row.effective_doc_type ?? "—"}</td>
+                          <td className="py-1 pr-3 text-white/50">{row.engine_version ?? "—"}</td>
+                          <td className="py-1 pr-3 text-right text-white/70">{row.total_attempts}</td>
+                          <td className="py-1 pr-3 text-right">
+                            <span className={row.override_count > 0 ? "text-red-400" : "text-white/40"}>
+                              {row.override_count}
+                            </span>
+                          </td>
+                          <td className="py-1 pr-3 text-right">
+                            <span className={
+                              row.override_rate > 0.15 ? "text-red-400 font-semibold"
+                              : row.override_rate > 0.05 ? "text-amber-400"
+                              : "text-emerald-400"
+                            }>
+                              {pct(row.override_rate)}
+                            </span>
+                          </td>
+                          <td className="py-1 text-right text-white/60">
+                            {row.precision_rate != null ? pct(row.precision_rate) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Panel 2: Top Slot Review Friction */}
+          <div className="mb-6 rounded-xl border border-white/10 bg-white/5 p-4">
+            <div className="mb-3 text-xs font-semibold text-white/70 uppercase tracking-wider">
+              Top Slot Review Friction (by review rate)
+            </div>
+            {topLeaksData.topSlotReview.length === 0 ? (
+              <p className="text-xs text-white/40 italic">No slots above minimum threshold yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-white/50">
+                      <th className="py-1 pr-3 text-left font-medium">Slot Key</th>
+                      <th className="py-1 pr-3 text-left font-medium">Doc Type</th>
+                      <th className="py-1 pr-3 text-left font-medium">Engine</th>
+                      <th className="py-1 pr-3 text-right font-medium">Attempts</th>
+                      <th className="py-1 pr-3 text-right font-medium">Reviewed</th>
+                      <th className="py-1 text-right font-medium">Review Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...topLeaksData.topSlotReview]
+                      .sort((a, b) => (b.review_rate ?? 0) - (a.review_rate ?? 0))
+                      .slice(0, 10)
+                      .map((row, i) => (
+                        <tr key={i} className="border-b border-white/5">
+                          <td className="py-1 pr-3 font-mono text-white/90">{row.slot_key}</td>
+                          <td className="py-1 pr-3 text-white/60">{row.effective_doc_type ?? "—"}</td>
+                          <td className="py-1 pr-3 text-white/50">{row.engine_version ?? "—"}</td>
+                          <td className="py-1 pr-3 text-right text-white/70">{row.total_attempts}</td>
+                          <td className="py-1 pr-3 text-right text-white/60">{row.routed_to_review}</td>
+                          <td className="py-1 text-right">
+                            <span className={
+                              (row.review_rate ?? 0) > 0.25 ? "text-red-400 font-semibold"
+                              : (row.review_rate ?? 0) > 0.10 ? "text-amber-400"
+                              : "text-emerald-400"
+                            }>
+                              {row.review_rate != null ? pct(row.review_rate) : "—"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Panel 3: Top Doc Type Review */}
+          <div className="mb-6 rounded-xl border border-white/10 bg-white/5 p-4">
+            <div className="mb-3 text-xs font-semibold text-white/70 uppercase tracking-wider">
+              Top Doc Type Review Friction
+            </div>
+            {topLeaksData.topDocTypeReview.length === 0 ? (
+              <p className="text-xs text-white/40 italic">No doc types above minimum threshold yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-white/50">
+                      <th className="py-1 pr-3 text-left font-medium">Doc Type</th>
+                      <th className="py-1 pr-3 text-left font-medium">Engine</th>
+                      <th className="py-1 pr-3 text-right font-medium">Total</th>
+                      <th className="py-1 pr-3 text-right font-medium">Reviewed</th>
+                      <th className="py-1 text-right font-medium">Review Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...topLeaksData.topDocTypeReview]
+                      .sort((a, b) => (b.review_rate ?? 0) - (a.review_rate ?? 0))
+                      .map((row, i) => (
+                        <tr key={i} className="border-b border-white/5">
+                          <td className="py-1 pr-3 font-mono text-white/90">{row.doc_type}</td>
+                          <td className="py-1 pr-3 text-white/50">{row.engine_version ?? "—"}</td>
+                          <td className="py-1 pr-3 text-right text-white/70">{row.total_match_events}</td>
+                          <td className="py-1 pr-3 text-right text-white/60">{row.routed_to_review}</td>
+                          <td className="py-1 text-right">
+                            <span className={
+                              (row.review_rate ?? 0) > 0.30 ? "text-red-400 font-semibold"
+                              : (row.review_rate ?? 0) > 0.15 ? "text-amber-400"
+                              : "text-emerald-400"
+                            }>
+                              {row.review_rate != null ? pct(row.review_rate) : "—"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Panel 4: Engine Version Regression */}
+          <div className="mb-6 rounded-xl border border-white/10 bg-white/5 p-4">
+            <div className="mb-3 text-xs font-semibold text-white/70 uppercase tracking-wider">
+              Engine Version Regression Delta
+            </div>
+            {topLeaksData.engineRegression.length === 0 ? (
+              <p className="text-xs text-white/40 italic">No multi-version data available yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-white/50">
+                      <th className="py-1 pr-3 text-left font-medium">Doc Type</th>
+                      <th className="py-1 pr-3 text-left font-medium">Engine</th>
+                      <th className="py-1 pr-3 text-right font-medium">Current Rate</th>
+                      <th className="py-1 pr-3 text-right font-medium">Prior Rate</th>
+                      <th className="py-1 text-right font-medium">Delta</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...topLeaksData.engineRegression]
+                      .sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0))
+                      .map((row, i) => (
+                        <tr key={i} className="border-b border-white/5">
+                          <td className="py-1 pr-3 font-mono text-white/90">{row.doc_type}</td>
+                          <td className="py-1 pr-3 text-white/50">{row.engine_version}</td>
+                          <td className="py-1 pr-3 text-right text-white/70">
+                            {row.auto_attach_rate != null ? pct(row.auto_attach_rate) : "—"}
+                          </td>
+                          <td className="py-1 pr-3 text-right text-white/50">
+                            {row.prior_attach_rate != null ? pct(row.prior_attach_rate) : "—"}
+                          </td>
+                          <td className="py-1 text-right">
+                            <span className={
+                              (row.delta ?? 0) < -0.05 ? "text-red-400 font-semibold"
+                              : (row.delta ?? 0) < 0 ? "text-amber-400"
+                              : "text-emerald-400"
+                            }>
+                              {row.delta != null ? `${row.delta > 0 ? "+" : ""}${pct(row.delta)}` : "—"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Panel 5: Confidence Anomalies */}
+          <div className="mb-8 rounded-xl border border-white/10 bg-white/5 p-4">
+            <div className="mb-3 text-xs font-semibold text-white/70 uppercase tracking-wider">
+              Confidence Anomalies (high confidence → low attach)
+            </div>
+            {topLeaksData.confidenceAnomalies.length === 0 ? (
+              <p className="text-xs text-white/40 italic">No confidence anomalies detected.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-white/50">
+                      <th className="py-1 pr-3 text-left font-medium">Doc Type</th>
+                      <th className="py-1 pr-3 text-left font-medium">Engine</th>
+                      <th className="py-1 pr-3 text-right font-medium">Avg Confidence</th>
+                      <th className="py-1 pr-3 text-right font-medium">Samples</th>
+                      <th className="py-1 text-right font-medium">Auto-Attach Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...topLeaksData.confidenceAnomalies]
+                      .sort((a, b) => (b.avg_confidence ?? 0) - (a.avg_confidence ?? 0))
+                      .map((row, i) => (
+                        <tr key={i} className="border-b border-white/5">
+                          <td className="py-1 pr-3 font-mono text-white/90">{row.doc_type}</td>
+                          <td className="py-1 pr-3 text-white/50">{row.engine_version ?? "—"}</td>
+                          <td className="py-1 pr-3 text-right text-amber-300">
+                            {row.avg_confidence != null ? pct(row.avg_confidence) : "—"}
+                          </td>
+                          <td className="py-1 pr-3 text-right text-white/50">{row.sample_count}</td>
+                          <td className="py-1 text-right text-red-400 font-semibold">
+                            {row.auto_attach_rate != null ? pct(row.auto_attach_rate) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
