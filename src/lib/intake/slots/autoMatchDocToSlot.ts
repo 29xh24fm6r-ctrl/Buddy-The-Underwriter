@@ -57,6 +57,9 @@ export type AutoMatchResult = {
 };
 
 /**
+ * @deprecated Replaced by Matching Engine v1 (src/lib/intake/matching/runMatch.ts).
+ * Kept for rollback. Use runMatchForDocument() for new code.
+ *
  * Core auto-match function — accepts effectiveDocType directly.
  *
  * Used by both the gatekeeper path (via wrapper) and the classify path

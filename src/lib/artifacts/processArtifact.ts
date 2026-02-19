@@ -12,11 +12,11 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { classifyDocumentSpine } from "@/lib/classification/classifyDocumentSpine";
+import type { SpineClassificationResult, DocAiSignals } from "@/lib/classification/types";
+import { CLASSIFICATION_SCHEMA_VERSION } from "@/lib/classification/types";
 import {
-  classifyDocument,
   mapDocTypeToChecklistKeys,
-  type ClassificationResult,
-  type DocAiSignals,
 } from "./classifyDocument";
 import { resolveDocTyping } from "@/lib/docs/typing/resolveDocTyping";
 import { isExtractionErrorPayload, extractErrorMessage } from "./extractionError";
@@ -28,7 +28,7 @@ import { isGatekeeperInlineEnabled } from "@/lib/flags/openaiGatekeeper";
 export type ProcessArtifactResult = {
   ok: boolean;
   artifactId: string;
-  classification?: ClassificationResult;
+  classification?: SpineClassificationResult;
   matchedKeys?: string[];
   error?: string;
   ocrTriggered?: boolean;
@@ -716,8 +716,55 @@ export async function processArtifact(
       // DocAI data is best-effort — continue without it
     }
 
-    // 2. Classify the document (3-tier: DocAI → Rules → Gemini)
-    const classification = await classifyDocument(text, filename, mimeType, docAiSignals);
+    // ── Multi-form PDF segmentation check (fail-open) ───────────────
+    // Detects bundled PDFs (e.g., 1040 + K-1 stapled together) and routes
+    // to review with per-segment classification for human reviewers.
+    // Only attempts on non-trivial documents (> 3000 chars).
+    // Fail-open: any error → continues normal single-doc pipeline.
+    if (text && text.length > 3000) {
+      try {
+        const { orchestrateSegmentation } = await import(
+          "@/lib/intake/segmentation/orchestrateSegmentation"
+        );
+        const segResult = await orchestrateSegmentation({
+          ocrText: text,
+          filename,
+          mimeType,
+          dealId,
+          bankId,
+          documentId: source_id,
+          docAiSignals,
+        });
+
+        if (segResult.segmented) {
+          console.log("[processArtifact] multi-form PDF detected — routed to review", {
+            artifactId,
+            source_id,
+            segmentCount: segResult.segmentCount,
+            reason: segResult.reason,
+          });
+
+          return {
+            ok: true,
+            artifactId,
+            matchedKeys: [],
+            skipped: true,
+            skipReason: `multi_form_segmented:${segResult.reason}`,
+          };
+        }
+        // Not multi-form → fall through to normal pipeline
+      } catch (segErr: any) {
+        // Fail-open: segmentation error → continue with normal pipeline
+        console.warn("[processArtifact] segmentation check failed (non-fatal)", {
+          artifactId,
+          source_id,
+          error: segErr?.message,
+        });
+      }
+    }
+
+    // 2. Classify the document (Spine v2: Tier 1 → Tier 2 → Gate → Tier 3)
+    const classification = await classifyDocumentSpine(text, filename, mimeType, docAiSignals);
 
     // ── PIPELINE INTEGRITY GUARD ────────────────────────────────────
     // classifyDocument() swallows API errors and returns { error: "..." }
@@ -875,7 +922,14 @@ export async function processArtifact(
             ai_period_end: classification.periodEnd,
             ai_extracted_json: isExtractionErrorPayload(classification.rawExtraction)
               ? null
-              : classification.rawExtraction,
+              : {
+                  ...classification.rawExtraction,
+                  spine_evidence: (classification as SpineClassificationResult).evidence,
+                  spine_confusion_candidates: (classification as SpineClassificationResult).confusionCandidates,
+                },
+            // Spine v2 traceability
+            classification_version: (classification as SpineClassificationResult).spineVersion ?? null,
+            classification_tier: (classification as SpineClassificationResult).spineTier ?? null,
             // Resolved typing fields
             canonical_type: typingResult.canonical_type,
             routing_class: typingResult.routing_class,
@@ -947,6 +1001,34 @@ export async function processArtifact(
             canonical_type: stampResult.data.canonical_type,
             routing_class: stampResult.data.routing_class,
           });
+
+          // ── Spine v2: classification.decided ledger event ──────────────
+          const spineResult = classification as SpineClassificationResult;
+          if (spineResult.spineTier) {
+            try {
+              await writeEvent({
+                dealId,
+                kind: "classification.decided",
+                scope: "classification",
+                action: "classify",
+                confidence: spineResult.confidence,
+                evidence: {
+                  tier: spineResult.spineTier,
+                  version: spineResult.spineVersion,
+                  evidence: spineResult.evidence,
+                  confusionCandidates: spineResult.confusionCandidates,
+                },
+                meta: {
+                  document_id: source_id,
+                  doc_type: spineResult.docType,
+                  anchor_id: spineResult.evidence?.[0]?.anchorId ?? null,
+                  schema_version: CLASSIFICATION_SCHEMA_VERSION,
+                },
+              });
+            } catch (e) {
+              console.warn("[processArtifact] classification.decided ledger event failed (non-fatal)", e);
+            }
+          }
         }
       }
     }
@@ -1026,48 +1108,77 @@ export async function processArtifact(
       // ── Upload-group auto-fill (awaited; slot_id must be stamped before validation) ──
       // Attaches document to an empty upload-group slot so Core Docs UI populates.
       // Must complete before slot validation runs (deterministic state machine).
+      // Uses Matching Engine v1 — constraint-based, evidence-backed, zero-wrong-attach.
       if (!gkBlockedByReview && effectiveDocType) {
-        // ── Gatekeeper authority gate ──
-        // AI-only classification must NOT stamp slot_id.
-        // Gatekeeper is authoritative. If it hasn't run, skip auto-match.
-        if (!gkCols?.gatekeeper_doc_type) {
-          console.log("[processArtifact] skipping auto-match — gatekeeper not classified", {
+        // Authority gate: need SOME classification (spine or gatekeeper) to match
+        const hasAnyClassification = !!gkCols?.gatekeeper_doc_type ||
+          (classification?.spineTier && classification.confidence > 0);
+
+        if (!hasAnyClassification) {
+          console.log("[processArtifact] skipping auto-match — no classification", {
             documentId: source_id, effectiveDocType,
           });
 
           logLedgerEvent({
             dealId,
             bankId,
-            eventKey: "slot.routing.skipped.missing_gatekeeper",
+            eventKey: "slot.routing.skipped.no_classification",
             uiState: "waiting",
-            uiMessage: "Slot routing skipped: gatekeeper has not classified this document",
+            uiMessage: "Slot routing skipped: no classification available",
             meta: {
               documentId: source_id,
               effectiveDocType,
-              reason: "gatekeeper_not_classified",
+              reason: "no_classification",
             },
           }).catch(() => {});
         } else {
           try {
-            const { autoMatchByEffectiveType } = await import(
-              "@/lib/intake/slots/autoMatchDocToSlot"
+            const { runMatchForDocument } = await import(
+              "@/lib/intake/matching/runMatch"
             );
 
-            const matchResult = await autoMatchByEffectiveType({
+            // Build gatekeeper signals for identity builder
+            const gkSignals = gkCols?.gatekeeper_doc_type
+              ? {
+                  docType: gkCols.gatekeeper_doc_type as string,
+                  confidence: (gkCols.gatekeeper_confidence as number) ?? 0,
+                  taxYear: (gkCols.gatekeeper_tax_year as number | null) ?? null,
+                  formNumbers: [] as string[],
+                  effectiveDocType,
+                }
+              : null;
+
+            // Build spine signals for identity builder
+            const spineSignals = classification
+              ? {
+                  docType: classification.docType,
+                  confidence: classification.confidence,
+                  spineTier: classification.spineTier,
+                  taxYear: classification.taxYear,
+                  entityType: classification.entityType,
+                  formNumbers: classification.formNumbers,
+                  evidence: classification.evidence,
+                }
+              : null;
+
+            const matchResult = await runMatchForDocument({
               dealId,
               bankId,
               documentId: source_id,
-              effectiveDocType,
-              taxYear: gkCols?.gatekeeper_tax_year ?? classification?.taxYear ?? null,
+              spine: spineSignals,
+              gatekeeper: gkSignals,
+              ocrText: text || null,
+              filename: filename || null,
             });
 
-            if (matchResult.matched) {
-              console.log("[processArtifact] auto-match hit", {
-                documentId: source_id, effectiveDocType, slotId: matchResult.slotId,
+            if (matchResult.decision === "auto_attached") {
+              console.log("[processArtifact] matching engine attached", {
+                documentId: source_id, effectiveDocType,
+                slotId: matchResult.slotId, slotKey: matchResult.slotKey,
               });
             }
           } catch (matchErr: any) {
-            console.warn("[processArtifact] auto-match error (non-fatal)", {
+            console.warn("[processArtifact] matching engine error (non-fatal)", {
               documentId: source_id, effectiveDocType, error: matchErr?.message,
             });
           }
