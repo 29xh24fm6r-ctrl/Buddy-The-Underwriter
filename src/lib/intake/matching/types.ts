@@ -73,6 +73,8 @@ export type EntityInfo = {
   entityRole: string | null;
   confidence: number;
   ambiguous: boolean;
+  /** v1.1 — resolution tier from EntityResolution (e.g. "ein_match", "name_exact", "none") */
+  tier?: string | null;
 };
 
 // ---------------------------------------------------------------------------

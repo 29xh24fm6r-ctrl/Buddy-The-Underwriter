@@ -152,6 +152,28 @@ type TopLeaksData = {
   confidenceAnomalies: AnomalyRow[];
 };
 
+// ── Layer 2 — Identity Layer Coverage ────────────────────────────────────────
+
+type IdentityCoverageRow = {
+  doc_type: string;
+  engine_version: string | null;
+  total_events: number;
+  resolved_count: number;
+  resolution_rate: number | null;
+};
+
+type IdentityAmbiguityRow = {
+  doc_type: string;
+  total_events: number;
+  ambiguous_count: number;
+  ambiguity_rate: number | null;
+};
+
+type IdentityLayerData = {
+  coverage: IdentityCoverageRow[];
+  ambiguityHotspots: IdentityAmbiguityRow[];
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -179,6 +201,7 @@ export default function IntakeMetricsClient() {
   const [data, setData] = useState<IntakeMetricsData | null>(null);
   const [atomicData, setAtomicData] = useState<AtomicMetricsData | null>(null);
   const [topLeaksData, setTopLeaksData] = useState<TopLeaksData | null>(null);
+  const [identityData, setIdentityData] = useState<IdentityLayerData | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -265,6 +288,33 @@ export default function IntakeMetricsClient() {
     }
 
     void loadTopLeaks();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ── Identity Layer Coverage fetch (parallel, non-blocking) ───────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadIdentity() {
+      try {
+        const res = await fetch("/api/admin/intake/identity", {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (!cancelled && json.ok) {
+          setIdentityData({
+            coverage: json.coverage,
+            ambiguityHotspots: json.ambiguityHotspots,
+          });
+        }
+      } catch {
+        // Identity metrics are best-effort — don't block main dashboard
+      }
+    }
+
+    void loadIdentity();
     return () => {
       cancelled = true;
     };
@@ -1040,6 +1090,91 @@ export default function IntakeMetricsClient() {
                           <td className="py-1 pr-3 text-right text-white/50">{row.sample_count}</td>
                           <td className="py-1 text-right text-red-400 font-semibold">
                             {row.auto_attach_rate != null ? pct(row.auto_attach_rate) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── Identity Layer Coverage (Layer 2 v1.0) ─────────────────────── */}
+      {identityData && (
+        <>
+          <div className="mt-10 border-t border-white/10 pt-8">
+            <h2 className="mb-6 text-lg font-semibold text-white/80">
+              Identity Layer Coverage
+            </h2>
+
+            {/* Panel 1: Resolution Rate by Doc Type */}
+            {identityData.coverage.length > 0 && (
+              <div className="mb-6">
+                <h3 className="mb-3 text-sm font-medium text-white/60">
+                  Resolution Rate by Doc Type
+                </h3>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-left text-white/40">
+                      <th className="pb-2 pr-3">Doc Type</th>
+                      <th className="pb-2 pr-3 text-right">Total Events</th>
+                      <th className="pb-2 pr-3 text-right">Resolved</th>
+                      <th className="pb-2 text-right">Resolution Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...identityData.coverage]
+                      .sort((a, b) => (b.resolution_rate ?? 0) - (a.resolution_rate ?? 0))
+                      .map((row, i) => (
+                        <tr key={i} className="border-b border-white/5">
+                          <td className="py-1 pr-3 font-mono text-white/90">{row.doc_type}</td>
+                          <td className="py-1 pr-3 text-right text-white/50">{row.total_events}</td>
+                          <td className="py-1 pr-3 text-right text-white/50">{row.resolved_count}</td>
+                          <td className={`py-1 text-right font-semibold ${
+                            row.resolution_rate != null && row.resolution_rate < 0.50
+                              ? "text-amber-400"
+                              : "text-emerald-400"
+                          }`}>
+                            {row.resolution_rate != null ? pct(row.resolution_rate) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Panel 2: Ambiguity Hotspots */}
+            {identityData.ambiguityHotspots.length > 0 && (
+              <div className="mb-6">
+                <h3 className="mb-3 text-sm font-medium text-white/60">
+                  Ambiguity Hotspots
+                </h3>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-left text-white/40">
+                      <th className="pb-2 pr-3">Doc Type</th>
+                      <th className="pb-2 pr-3 text-right">Events</th>
+                      <th className="pb-2 pr-3 text-right">Ambiguous</th>
+                      <th className="pb-2 text-right">Ambiguity Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...identityData.ambiguityHotspots]
+                      .sort((a, b) => (b.ambiguity_rate ?? 0) - (a.ambiguity_rate ?? 0))
+                      .map((row, i) => (
+                        <tr key={i} className="border-b border-white/5">
+                          <td className="py-1 pr-3 font-mono text-white/90">{row.doc_type}</td>
+                          <td className="py-1 pr-3 text-right text-white/50">{row.total_events}</td>
+                          <td className="py-1 pr-3 text-right text-white/50">{row.ambiguous_count}</td>
+                          <td className={`py-1 text-right font-semibold ${
+                            row.ambiguity_rate != null && row.ambiguity_rate > 0.20
+                              ? "text-red-400"
+                              : "text-white/70"
+                          }`}>
+                            {row.ambiguity_rate != null ? pct(row.ambiguity_rate) : "—"}
                           </td>
                         </tr>
                       ))}
