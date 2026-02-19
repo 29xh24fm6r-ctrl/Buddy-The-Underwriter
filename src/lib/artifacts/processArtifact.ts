@@ -24,6 +24,8 @@ import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { isGatekeeperInlineEnabled } from "@/lib/flags/openaiGatekeeper";
+import { ENTITY_GRAPH_VERSION } from "@/lib/intake/identity/version";
+import type { EntityResolution } from "@/lib/intake/identity/entityResolver";
 
 export type ProcessArtifactResult = {
   ok: boolean;
@@ -1002,6 +1004,28 @@ export async function processArtifact(
             routing_class: stampResult.data.routing_class,
           });
 
+          // ── Identity layer resolution (v1.0 — observability only) ────────
+          // Independent resolution call for classification.decided event.
+          // Fails open: resolution failure never blocks classification.
+          let classificationEntityResolution: EntityResolution | null = null;
+          if (process.env.ENABLE_ENTITY_GRAPH === "true") {
+            try {
+              const { resolveDocumentEntityForDeal } = await import(
+                "@/lib/intake/identity/resolveDocumentEntity"
+              );
+              classificationEntityResolution = await resolveDocumentEntityForDeal({
+                dealId,
+                text: text ?? "",
+                filename: filename ?? "",
+                hasEin: classification.entityType !== "personal",
+                hasSsn: classification.entityType !== "business",
+                entityType: classification.entityType ?? null,
+              });
+            } catch {
+              // Fail-open
+            }
+          }
+
           // ── Spine v2: classification.decided ledger event ──────────────
           const spineResult = classification as SpineClassificationResult;
           if (spineResult.spineTier) {
@@ -1023,6 +1047,12 @@ export async function processArtifact(
                   doc_type: spineResult.docType,
                   anchor_id: spineResult.evidence?.[0]?.anchorId ?? null,
                   schema_version: CLASSIFICATION_SCHEMA_VERSION,
+                  // Identity layer (v1.0 — observability only)
+                  entity_graph_version: ENTITY_GRAPH_VERSION,
+                  resolved_entity_id: classificationEntityResolution?.entityId ?? null,
+                  entity_confidence: classificationEntityResolution?.confidence ?? null,
+                  entity_tier: classificationEntityResolution?.tier ?? null,
+                  entity_ambiguous: classificationEntityResolution?.ambiguous ?? null,
                 },
               });
             } catch (e) {

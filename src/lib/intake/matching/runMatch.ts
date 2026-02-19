@@ -23,6 +23,7 @@ import {
   type PeriodInfo,
   type EntityInfo,
 } from "./types";
+import { ENTITY_GRAPH_VERSION } from "../identity/version";
 
 // ---------------------------------------------------------------------------
 // Input type
@@ -94,36 +95,39 @@ export async function runMatchForDocument(
       }
     }
 
-    // ── Step 1b: Entity resolution (v1.1) ────────────────────────────────
+    // ── Step 1b: Entity resolution (v1.1 — identity layer, feature-flagged) ─
     let entity: EntityInfo | null = null;
-    try {
-      const hasEin = spine?.evidence?.some(
-        (e) => e.type === "form_match" && /EIN/i.test(e.matchedText),
-      ) ?? false;
-      const hasSsn = false; // Will be enriched from gatekeeper detected_signals when available
-      const entityType = spine?.entityType ?? null;
+    if (process.env.ENABLE_ENTITY_GRAPH === "true") {
+      try {
+        const hasEin = spine?.evidence?.some(
+          (e) => e.type === "form_match" && /EIN/i.test(e.matchedText),
+        ) ?? false;
+        const hasSsn = false; // Will be enriched from gatekeeper detected_signals when available
+        const entityType = spine?.entityType ?? null;
 
-      const er = await resolveDocumentEntityForDeal({
-        dealId,
-        text: ocrText ?? "",
-        filename: filename ?? "",
-        hasEin,
-        hasSsn,
-        entityType,
-      });
+        const er = await resolveDocumentEntityForDeal({
+          dealId,
+          text: ocrText ?? "",
+          filename: filename ?? "",
+          hasEin,
+          hasSsn,
+          entityType,
+        });
 
-      if (er) {
-        entity = {
-          entityId: er.entityId,
-          entityRole: er.entityRole,
-          confidence: er.confidence,
-          ambiguous: er.ambiguous,
-        };
+        if (er) {
+          entity = {
+            entityId: er.entityId,
+            entityRole: er.entityRole,
+            confidence: er.confidence,
+            ambiguous: er.ambiguous,
+            tier: er.tier,
+          };
+        }
+      } catch (e: any) {
+        console.warn("[runMatchForDocument] resolveDocumentEntity failed (non-fatal)", {
+          documentId, error: e?.message,
+        });
       }
-    } catch (e: any) {
-      console.warn("[runMatchForDocument] resolveDocumentEntity failed (non-fatal)", {
-        documentId, error: e?.message,
-      });
     }
 
     // ── Step 1c: Build identity ──────────────────────────────────────────
@@ -226,6 +230,12 @@ export async function runMatchForDocument(
         required_doc_type: matchedSlot?.requiredDocType ?? null,
         slot_policy_version: SLOT_POLICY_VERSION,
         reason: result.reason,
+        // Identity layer (v1.0 — observability only, never affects attach decisions)
+        entity_graph_version: ENTITY_GRAPH_VERSION,
+        resolved_entity_id: identity.entity?.entityId ?? null,
+        entity_confidence: identity.entity?.confidence ?? null,
+        entity_tier: identity.entity?.tier ?? null,
+        entity_ambiguous: identity.entity?.ambiguous ?? null,
       },
     }).catch((e: any) => {
       console.warn("[runMatchForDocument] ledger emit failed (non-fatal)", {
