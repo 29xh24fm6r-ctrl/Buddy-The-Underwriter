@@ -24,6 +24,7 @@ import {
   type ConstraintResult,
   type NegativeRuleResult,
 } from "./types";
+import { ENTITY_PRECISION_THRESHOLD } from "../identity/version";
 
 // ---------------------------------------------------------------------------
 // Evidence builder
@@ -114,6 +115,28 @@ export function matchDocumentToSlot(
     }
 
     candidates.push({ slot, constraints, negativeRules });
+  }
+
+  // ── Step 2.5: Entity-assisted precision ranking (Layer 2.2) ─────────────
+  // Feature-flagged off by default (ENABLE_ENTITY_PRECISION=false).
+  // When enabled with high-confidence entity resolution:
+  //   Promotes entity-matched candidates to front of the list.
+  //   Does not alter constraint evaluation.
+  //   Does not allow mismatched entity slots to pass.
+  //   Constraints remain authoritative — sort only reorders valid candidates.
+  if (
+    process.env.ENABLE_ENTITY_GRAPH === "true" &&
+    process.env.ENABLE_ENTITY_PRECISION === "true" &&
+    identity.entity?.entityId &&
+    identity.entity.confidence >= ENTITY_PRECISION_THRESHOLD
+  ) {
+    candidates.sort((a, b) => {
+      const aMatch = a.slot.requiredEntityId === identity.entity!.entityId;
+      const bMatch = b.slot.requiredEntityId === identity.entity!.entityId;
+      if (aMatch && !bMatch) return -1;
+      if (!aMatch && bMatch) return 1;
+      return 0;
+    });
   }
 
   // ── Step 3: Disambiguation ──────────────────────────────────────────
