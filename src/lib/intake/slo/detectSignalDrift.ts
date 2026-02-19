@@ -117,7 +117,8 @@ async function queryTopDocTypeConfidence(
 ): Promise<DocTypeConfidenceRow[] | null> {
   const { data, error } = await (sb as any)
     .from("deal_documents")
-    .select("effective_doc_type, classification_confidence")
+    // deal_documents uses canonical_type (not effective_doc_type — that's event payload only)
+    .select("canonical_type, classification_confidence")
     .not("finalized_at", "is", null)
     .not("classification_confidence", "is", null)
     .gte("created_at", windowStart.toISOString())
@@ -130,10 +131,10 @@ async function queryTopDocTypeConfidence(
 
   if (!data || data.length === 0) return [];
 
-  // Aggregate by effective_doc_type
+  // Aggregate by canonical_type (exposed as effective_doc_type for consistency)
   const byType: Record<string, { count: number; confSum: number }> = {};
   for (const row of data) {
-    const t = row.effective_doc_type ?? "unknown";
+    const t = row.canonical_type ?? "unknown";
     if (!byType[t]) byType[t] = { count: 0, confSum: 0 };
     byType[t].count += 1;
     byType[t].confSum += Number(row.classification_confidence);

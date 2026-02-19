@@ -6,6 +6,9 @@
 -- All use existing deal_documents columns — no schema changes.
 -- All use CREATE OR REPLACE — safe to apply in any environment.
 --
+-- Note: deal_documents uses canonical_type (not effective_doc_type).
+--       Views expose it AS effective_doc_type for API/TypeScript consistency.
+--
 -- Views:
 --   intake_signal_strength_v1         — confidence distribution per doc type
 --   intake_classifier_source_mix_v1   — per-type source dependency curves
@@ -25,7 +28,7 @@
 
 CREATE OR REPLACE VIEW intake_signal_strength_v1 AS
 SELECT
-  effective_doc_type,
+  canonical_type                                                    AS effective_doc_type,
   COUNT(*)                                                          AS total_docs,
   ROUND(AVG(classification_confidence)::numeric, 4)                AS avg_confidence,
   ROUND(MIN(classification_confidence)::numeric, 4)                AS min_confidence,
@@ -44,24 +47,24 @@ WHERE
   finalized_at IS NOT NULL
   AND created_at >= NOW() - INTERVAL '30 days'
   AND classification_confidence IS NOT NULL
-GROUP BY effective_doc_type
+GROUP BY canonical_type
 ORDER BY total_docs DESC;
 
 -- ---------------------------------------------------------------------------
 -- D2: intake_classifier_source_mix_v1
--- Source dependency curves PARTITIONED BY effective_doc_type.
+-- Source dependency curves PARTITIONED BY canonical_type.
 -- Per-type curves reveal hidden LLM dependency.
 -- A doc type going 40% LLM is signal. Globally 40% is noise.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE VIEW intake_classifier_source_mix_v1 AS
 SELECT
-  effective_doc_type,
+  canonical_type                                                    AS effective_doc_type,
   match_source,
   COUNT(*)                                                          AS doc_count,
   ROUND(
     COUNT(*)::numeric
-    / NULLIF(SUM(COUNT(*)) OVER (PARTITION BY effective_doc_type), 0),
+    / NULLIF(SUM(COUNT(*)) OVER (PARTITION BY canonical_type), 0),
     4
   )                                                                 AS fraction_within_type,
   ROUND(AVG(classification_confidence)::numeric, 4)                AS avg_confidence
@@ -69,8 +72,8 @@ FROM deal_documents
 WHERE
   finalized_at IS NOT NULL
   AND created_at >= NOW() - INTERVAL '30 days'
-GROUP BY effective_doc_type, match_source
-ORDER BY effective_doc_type, doc_count DESC;
+GROUP BY canonical_type, match_source
+ORDER BY canonical_type, doc_count DESC;
 
 -- ---------------------------------------------------------------------------
 -- D3: intake_segmentation_impact_v1
@@ -112,7 +115,7 @@ GROUP BY document_class;
 
 CREATE OR REPLACE VIEW intake_override_signal_correlation_v1 AS
 SELECT
-  effective_doc_type,
+  canonical_type                                                    AS effective_doc_type,
   COUNT(*)                                                          AS total_docs,
   COUNT(*) FILTER (WHERE match_source = 'manual')                  AS manual_override_count,
   COUNT(*) FILTER (
@@ -137,5 +140,5 @@ FROM deal_documents
 WHERE
   finalized_at IS NOT NULL
   AND created_at >= NOW() - INTERVAL '30 days'
-GROUP BY effective_doc_type
+GROUP BY canonical_type
 ORDER BY manual_override_rate DESC NULLS LAST;
