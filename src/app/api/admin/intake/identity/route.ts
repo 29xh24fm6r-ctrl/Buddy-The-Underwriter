@@ -24,11 +24,18 @@ type IdentityAmbiguityRow = {
   ambiguity_rate: number | null;
 };
 
+type IdentityEnforcementRow = {
+  doc_type: string;
+  engine_version: string | null;
+  enforcement_count: number;
+};
+
 type IdentityResponse =
   | {
       ok: true;
       coverage: IdentityCoverageRow[];
       ambiguityHotspots: IdentityAmbiguityRow[];
+      enforcementEvents: IdentityEnforcementRow[];
     }
   | {
       ok: false;
@@ -54,9 +61,10 @@ export async function GET(
   try {
     const sb = supabaseAdmin();
 
-    const [coverageResult, ambiguityResult] = await Promise.all([
+    const [coverageResult, ambiguityResult, enforcementResult] = await Promise.all([
       sb.from("identity_resolution_coverage_v1").select("*"),
       sb.from("identity_ambiguity_hotspots_v1").select("*"),
+      sb.from("identity_enforcement_events_v1").select("*"),
     ]);
 
     if (coverageResult.error) {
@@ -93,10 +101,24 @@ export async function GET(
       ambiguity_rate: r.ambiguity_rate != null ? Number(r.ambiguity_rate) : null,
     }));
 
+    // Enforcement events — fail-safe empty array if view is empty or errored
+    const enforcementEvents: IdentityEnforcementRow[] = enforcementResult.error
+      ? []
+      : (enforcementResult.data ?? []).map((r: any) => ({
+          doc_type: r.doc_type ?? "unknown",
+          engine_version: r.engine_version ?? null,
+          enforcement_count: Number(r.enforcement_count ?? 0),
+        }));
+
+    if (enforcementResult.error) {
+      console.warn("[identity] enforcement query error (non-fatal):", enforcementResult.error);
+    }
+
     return NextResponse.json({
       ok: true,
       coverage,
       ambiguityHotspots,
+      enforcementEvents,
     });
   } catch (e: any) {
     console.error("[identity] unexpected error:", e);
