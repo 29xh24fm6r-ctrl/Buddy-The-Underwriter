@@ -175,10 +175,18 @@ type IdentityEnforcementRow = {
   enforcement_count: number;
 };
 
+type IdentityPrecisionRow = {
+  doc_type: string;
+  engine_version: string | null;
+  high_confidence_events: number;
+  precision_auto_attached: number;
+};
+
 type IdentityLayerData = {
   coverage: IdentityCoverageRow[];
   ambiguityHotspots: IdentityAmbiguityRow[];
   enforcementEvents: IdentityEnforcementRow[];
+  precisionMetrics: IdentityPrecisionRow[];
 };
 
 // ---------------------------------------------------------------------------
@@ -315,6 +323,7 @@ export default function IntakeMetricsClient() {
             coverage: json.coverage,
             ambiguityHotspots: json.ambiguityHotspots,
             enforcementEvents: json.enforcementEvents ?? [],
+            precisionMetrics: json.precisionMetrics ?? [],
           });
         }
       } catch {
@@ -1227,6 +1236,60 @@ export default function IntakeMetricsClient() {
                           </td>
                         </tr>
                       ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Panel 4: Identity Precision Impact (Layer 2.2) */}
+            <div className="mb-6">
+              <h3 className="mb-3 text-sm font-medium text-white/60">
+                Identity Precision Impact
+              </h3>
+              {identityData.precisionMetrics.length === 0 ? (
+                <p className="text-xs text-white/40 italic">
+                  No precision events recorded (ENABLE_ENTITY_PRECISION may be off)
+                </p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-left text-white/40">
+                      <th className="pb-2 pr-3">Doc Type</th>
+                      <th className="pb-2 pr-3">Engine</th>
+                      <th className="pb-2 pr-3 text-right">High-Conf Events</th>
+                      <th className="pb-2 text-right">Precision Auto-Attached</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...identityData.precisionMetrics]
+                      .sort((a, b) => b.high_confidence_events - a.high_confidence_events)
+                      .map((row, i) => {
+                        const precisionRate =
+                          row.high_confidence_events > 0
+                            ? row.precision_auto_attached / row.high_confidence_events
+                            : null;
+                        return (
+                          <tr key={i} className="border-b border-white/5">
+                            <td className="py-1 pr-3 font-mono text-white/90">{row.doc_type}</td>
+                            <td className="py-1 pr-3 text-white/50">{row.engine_version ?? "—"}</td>
+                            <td className="py-1 pr-3 text-right text-white/60">
+                              {row.high_confidence_events}
+                            </td>
+                            <td className={`py-1 text-right font-semibold ${
+                              precisionRate != null && precisionRate < 0.60
+                                ? "text-amber-400"
+                                : "text-emerald-400"
+                            }`}>
+                              {row.precision_auto_attached}
+                              {precisionRate != null && (
+                                <span className="ml-1 font-normal text-white/40">
+                                  ({pct(precisionRate)})
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               )}

@@ -30,12 +30,20 @@ type IdentityEnforcementRow = {
   enforcement_count: number;
 };
 
+type IdentityPrecisionRow = {
+  doc_type: string;
+  engine_version: string | null;
+  high_confidence_events: number;
+  precision_auto_attached: number;
+};
+
 type IdentityResponse =
   | {
       ok: true;
       coverage: IdentityCoverageRow[];
       ambiguityHotspots: IdentityAmbiguityRow[];
       enforcementEvents: IdentityEnforcementRow[];
+      precisionMetrics: IdentityPrecisionRow[];
     }
   | {
       ok: false;
@@ -61,10 +69,11 @@ export async function GET(
   try {
     const sb = supabaseAdmin();
 
-    const [coverageResult, ambiguityResult, enforcementResult] = await Promise.all([
+    const [coverageResult, ambiguityResult, enforcementResult, precisionResult] = await Promise.all([
       sb.from("identity_resolution_coverage_v1").select("*"),
       sb.from("identity_ambiguity_hotspots_v1").select("*"),
       sb.from("identity_enforcement_events_v1").select("*"),
+      sb.from("identity_precision_effect_v1").select("*"),
     ]);
 
     if (coverageResult.error) {
@@ -114,11 +123,26 @@ export async function GET(
       console.warn("[identity] enforcement query error (non-fatal):", enforcementResult.error);
     }
 
+    // Precision metrics — fail-safe empty array if view not yet populated or errored
+    const precisionMetrics: IdentityPrecisionRow[] = precisionResult.error
+      ? []
+      : (precisionResult.data ?? []).map((r: any) => ({
+          doc_type: r.doc_type ?? "unknown",
+          engine_version: r.engine_version ?? null,
+          high_confidence_events: Number(r.high_confidence_events ?? 0),
+          precision_auto_attached: Number(r.precision_auto_attached ?? 0),
+        }));
+
+    if (precisionResult.error) {
+      console.warn("[identity] precision query error (non-fatal):", precisionResult.error);
+    }
+
     return NextResponse.json({
       ok: true,
       coverage,
       ambiguityHotspots,
       enforcementEvents,
+      precisionMetrics,
     });
   } catch (e: any) {
     console.error("[identity] unexpected error:", e);
