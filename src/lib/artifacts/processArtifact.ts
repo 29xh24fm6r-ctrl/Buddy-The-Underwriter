@@ -790,9 +790,24 @@ export async function processArtifact(
                 (best, seg) => (seg.confidence > best.confidence ? seg : best),
                 segResult.segmentClassifications[0],
               );
-              const preliminaryType = bestSeg?.docType ?? null;
               const preliminaryConfidence = bestSeg?.confidence ?? null;
               const preliminaryYear = bestSeg?.taxYear ?? null;
+
+              // Resolve canonical typing with form-number guardrails (SAME as normal path)
+              const segTypingResult = bestSeg?.docType
+                ? resolveDocTyping({
+                    aiDocType: bestSeg.docType,
+                    aiFormNumbers: bestSeg.formNumbers ?? null,
+                    aiConfidence: bestSeg.confidence,
+                    aiTaxYear: bestSeg.taxYear ?? null,
+                    aiEntityType: bestSeg.entityType ?? null,
+                  })
+                : null;
+
+              const canonicalType = segTypingResult?.canonical_type ?? bestSeg?.docType ?? null;
+              const routingClass = segTypingResult?.routing_class ?? null;
+              const documentType = segTypingResult?.document_type ?? bestSeg?.docType ?? null;
+              const checklistKey = segTypingResult?.checklist_key ?? null;
 
               // Evaluate quality using the SAME evaluator as the normal classification path
               const segQualityResult = evaluateDocumentQuality({
@@ -801,13 +816,16 @@ export async function processArtifact(
                 classificationConfidence: preliminaryConfidence,
               });
 
-              // Stamp document with preliminary classification + CLASSIFIED_PENDING_REVIEW
+              // Stamp document with resolved canonical type + CLASSIFIED_PENDING_REVIEW
               await (sb as any)
                 .from("deal_documents")
                 .update({
                   intake_status: "CLASSIFIED_PENDING_REVIEW",
-                  canonical_type: preliminaryType,
-                  ai_doc_type: preliminaryType,
+                  canonical_type: canonicalType,
+                  routing_class: routingClass,
+                  document_type: documentType,
+                  checklist_key: checklistKey,
+                  ai_doc_type: bestSeg?.docType ?? null,
                   ai_confidence: preliminaryConfidence,
                   ai_tax_year: preliminaryYear,
                   doc_year: preliminaryYear,
@@ -837,7 +855,7 @@ export async function processArtifact(
                 .update({
                   status: "classified",
                   doc_type_confidence: preliminaryConfidence,
-                  doc_type_reason: `multi_form_segmented:${segResult.reason} (preliminary: ${preliminaryType})`,
+                  doc_type_reason: `multi_form_segmented:${segResult.reason} (canonical: ${canonicalType})`,
                 } as any)
                 .eq("id", artifactId);
 
@@ -852,7 +870,8 @@ export async function processArtifact(
                   intake_phase: phase,
                   multi_form: true,
                   segment_count: segResult.segmentCount,
-                  preliminary_type: preliminaryType,
+                  canonical_type: canonicalType,
+                  ai_doc_type: bestSeg?.docType ?? null,
                   segmentation_reason: segResult.reason,
                 },
               });

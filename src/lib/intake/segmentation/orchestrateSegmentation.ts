@@ -57,6 +57,8 @@ type SegmentClassificationSummary = {
   confidence: number;
   spineTier: string | null;
   taxYear: number | null;
+  formNumbers: string[] | null;
+  entityType: "business" | "personal" | null;
 };
 
 export type StorageContext = {
@@ -168,6 +170,8 @@ export async function orchestrateSegmentation(
       confidence: classification.confidence,
       spineTier: classification.spineTier ?? null,
       taxYear: classification.taxYear ?? null,
+      formNumbers: classification.formNumbers ?? null,
+      entityType: classification.entityType ?? null,
     };
 
     segmentClassifications.push(summary);
