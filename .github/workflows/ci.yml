@@ -26,6 +26,8 @@ jobs:
         run: pnpm -s typecheck
       - name: Lint
         run: pnpm -s lint
+      - name: Unit tests (CI-blocking)
+        run: pnpm -s test:unit
       - name: Check cockpit polling guardrail
         run: bash scripts/check-cockpit-polling.sh
       - name: Check Never-500 API invariant

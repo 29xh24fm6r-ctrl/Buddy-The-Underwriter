@@ -6,8 +6,8 @@ import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { normalizeGoogleError } from "@/lib/google/errors";
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
 import { isOpenAiGatekeeperEnabled } from "@/lib/flags/openaiGatekeeper";
-import { classifyDocument } from "@/lib/intelligence/classifyDocument";
-import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
+import { classifyDocumentSpine } from "@/lib/classification/classifyDocumentSpine";
+import { resolveDocTyping } from "@/lib/docs/typing/resolveDocTyping";
 import { extractBorrowerFromDocs } from "@/lib/borrower/extractBorrowerFromDocs";
 import { extractPrincipalsFromDocs } from "@/lib/principals/extractPrincipalsFromDocs";
 import { buildFinancialSnapshot } from "@/lib/financials/buildFinancialSnapshot";
@@ -53,29 +53,17 @@ async function logLedgerOnce(args: {
   return true;
 }
 
-function mapClassifierDocTypeToCanonicalBucket(docTypeRaw: any): string | null {
-  const dt = String(docTypeRaw || "").trim().toUpperCase();
-  if (!dt) return null;
-  if (dt === "INCOME_STATEMENT") return "income_statement";
-  if (dt === "BALANCE_SHEET") return "balance_sheet";
-  if (dt === "FINANCIAL_STATEMENT") return "financial_statement";
-  if (dt === "IRS_1120" || dt === "IRS_1120S" || dt === "IRS_1065" || dt === "IRS_BUSINESS") {
-    return "business_tax_return";
-  }
-  if (dt === "IRS_1040" || dt === "IRS_PERSONAL") return "personal_tax_return";
-  if (dt === "K1") return "k1";
-  return null;
-}
-
 async function ensureDocumentClassification(args: { dealId: string; bankId: string }) {
   const sb = supabaseAdmin();
   const { data: docs } = await sb
     .from("deal_documents")
-    .select("id, document_type, doc_year, doc_years")
+    .select("id, canonical_type, document_type, original_filename, mime_type, doc_year")
     .eq("deal_id", args.dealId)
     .eq("bank_id", args.bankId);
 
-  const missing = (docs ?? []).filter((d: any) => !d.document_type || d.document_type === "unknown");
+  const missing = (docs ?? []).filter(
+    (d: any) => !d.canonical_type || d.canonical_type === "unknown",
+  );
   if (!missing.length) return "already_classified";
 
   const docIds = missing.map((d: any) => String(d.id));
@@ -99,22 +87,31 @@ async function ensureDocumentClassification(args: { dealId: string; bankId: stri
     const text = ocrByDoc.get(docId) || "";
     if (!text) continue;
 
-    const inferred = inferDocumentMetadata({ originalFilename: null, extractedText: text });
-    const classified = await classifyDocument({ ocrText: text });
+    const spine = await classifyDocumentSpine(
+      text,
+      (doc as any).original_filename || "",
+      (doc as any).mime_type || null,
+    );
 
-    const inferredType = inferred.document_type !== "unknown" ? inferred.document_type : null;
-    const classifierType = mapClassifierDocTypeToCanonicalBucket(classified.doc_type);
-    const nextType = inferredType ?? classifierType;
+    const typing = resolveDocTyping({
+      aiDocType: spine.docType,
+      aiFormNumbers: spine.formNumbers ?? null,
+      aiConfidence: spine.confidence,
+      aiTaxYear: spine.taxYear ?? null,
+      aiEntityType: spine.entityType ?? null,
+    });
 
     const res = await sb
       .from("deal_documents")
       .update({
-        document_type: (doc as any).document_type ?? nextType,
-        doc_year: (doc as any).doc_year ?? inferred.doc_year,
-        doc_years: (doc as any).doc_years ?? inferred.doc_years,
-        match_confidence: inferred.confidence,
-        match_reason: `ocr_infer:${inferred.reason}`,
-        match_source: "ocr",
+        canonical_type: typing.canonical_type,
+        document_type: typing.document_type,
+        routing_class: typing.routing_class,
+        checklist_key: typing.checklist_key,
+        classification_confidence: spine.confidence,
+        match_source: "spine",
+        match_reason: spine.reason,
+        doc_year: spine.taxYear ?? (doc as any).doc_year ?? null,
       })
       .eq("id", docId);
 

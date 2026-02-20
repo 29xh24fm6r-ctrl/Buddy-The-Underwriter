@@ -1,1 +1,47 @@
-[]
+[
+  {
+    "original_type": "INCOME_STATEMENT",
+    "corrected_type": "BALANCE_SHEET",
+    "signals": [
+      "document contains assets, liabilities, equity sections",
+      "no revenue or expense line items",
+      "header reads 'Statement of Financial Position'"
+    ]
+  },
+  {
+    "original_type": "INCOME_STATEMENT",
+    "corrected_type": "RENT_ROLL",
+    "signals": [
+      "table lists unit numbers, tenant names, monthly rent",
+      "columns include lease start/end dates",
+      "no EBITDA or net income totals"
+    ]
+  },
+  {
+    "original_type": "IRS_PERSONAL",
+    "corrected_type": "K1",
+    "signals": [
+      "header reads 'Schedule K-1' not Form 1040",
+      "shows partner/shareholder share of income",
+      "no standard deductions or personal exemptions"
+    ]
+  },
+  {
+    "original_type": "BALANCE_SHEET",
+    "corrected_type": "PFS",
+    "signals": [
+      "titled 'Personal Financial Statement' or 'Statement of Personal Assets'",
+      "lists personal real estate, vehicles, retirement accounts",
+      "signed by individual not corporate officer"
+    ]
+  },
+  {
+    "original_type": "IRS_PERSONAL",
+    "corrected_type": "IRS_BUSINESS",
+    "signals": [
+      "Form 1120S or 1065 header present",
+      "shows corporate or partnership income",
+      "EIN present, not SSN"
+    ]
+  }
+]
