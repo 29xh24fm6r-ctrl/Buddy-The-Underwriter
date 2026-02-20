@@ -344,11 +344,11 @@ export function IntakeReviewTable({
                             canonical_type: e.target.value,
                           }))
                         }
-                        className="bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white/80 w-full"
+                        className="bg-gray-900 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white w-full"
                       >
-                        <option value="">Select type...</option>
+                        <option value="" className="bg-gray-900 text-white">Select type...</option>
                         {DOC_TYPE_OPTIONS.map((t) => (
-                          <option key={t} value={t}>
+                          <option key={t} value={t} className="bg-gray-900 text-white">
                             {t.replace(/_/g, " ")}
                           </option>
                         ))}
@@ -376,7 +376,7 @@ export function IntakeReviewTable({
                               : undefined,
                           }))
                         }
-                        className="bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white/80 w-16"
+                        className="bg-gray-900 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white w-16"
                       />
                     ) : (
                       <span className="text-white/60">
