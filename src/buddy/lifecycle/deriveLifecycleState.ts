@@ -41,6 +41,7 @@ import type { ReadinessMode } from "./model";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { computeBlockers } from "./computeBlockers";
 import { isIntakeSloEnforcementEnabled } from "@/lib/flags/intakeSloEnforcement";
+import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import { computeIntakeHealthScore } from "@/lib/intake/slo/computeIntakeHealthScore";
 import type { IntakeHealthInput } from "@/lib/intake/slo/computeIntakeHealthScore";
 
@@ -505,6 +506,32 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
       }
     } catch {
       // Non-fatal — health gate failure must never block lifecycle derivation
+    }
+  }
+
+  // Intake confirmation gate — blocks when gate is enabled and intake not yet confirmed.
+  // Active in docs_requested / docs_in_progress stages. Never throws.
+  if (
+    (stage === "docs_requested" || stage === "docs_in_progress") &&
+    isIntakeConfirmationGateEnabled()
+  ) {
+    try {
+      const { data: dealPhase } = await sb
+        .from("deals")
+        .select("intake_phase")
+        .eq("id", dealId)
+        .maybeSingle();
+
+      const phase = (dealPhase as any)?.intake_phase;
+      if (phase && phase !== "CONFIRMED_READY_FOR_PROCESSING") {
+        blockers.push({
+          code: "intake_confirmation_required",
+          message: "Documents must be reviewed and confirmed before processing can begin",
+          evidence: { intake_phase: phase },
+        });
+      }
+    } catch {
+      // Non-fatal — gate failure must never block lifecycle derivation
     }
   }
 

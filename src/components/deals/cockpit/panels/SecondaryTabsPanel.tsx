@@ -15,6 +15,7 @@ import { PreviewUnderwritePanel } from "@/components/deals/PreviewUnderwritePane
 import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
 import { ForceAdvancePanel } from "@/components/deals/ForceAdvancePanel";
 import { LoanRequestsSection } from "@/components/loanRequests/LoanRequestsSection";
+import { IntakeReviewTable } from "@/components/deals/intake/IntakeReviewTable";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
@@ -45,18 +46,21 @@ const TABS = [
 ] as const;
 
 const ADMIN_TAB = { key: "admin" as const, label: "Admin", icon: "admin_panel_settings" };
+const INTAKE_TAB = { key: "intake" as const, label: "Intake Review", icon: "fact_check" };
 
-type TabKey = (typeof TABS)[number]["key"] | "admin";
+type TabKey = (typeof TABS)[number]["key"] | "admin" | "intake";
 
 const VALID_TAB_KEYS = new Set<string>(TABS.map((t) => t.key));
-// Admin is conditionally valid but always recognized for URL parsing
+// Admin + Intake are conditionally valid but always recognized for URL parsing
 VALID_TAB_KEYS.add("admin");
+VALID_TAB_KEYS.add("intake");
 
 type Props = {
   dealId: string;
   isAdmin?: boolean;
   lifecycleStage?: string | null;
   intakeInitialized?: boolean;
+  intakePhase?: string | null;
   verify: VerifyUnderwriteResult;
   verifyLedger?: VerifyLedgerEvent | null;
   unifiedLifecycleState?: any;
@@ -68,6 +72,7 @@ export function SecondaryTabsPanel({
   isAdmin,
   lifecycleStage,
   intakeInitialized,
+  intakePhase,
   verify,
   verifyLedger,
   unifiedLifecycleState,
@@ -105,7 +110,12 @@ export function SecondaryTabsPanel({
     }
   }, [urlTab]);
 
-  const tabs = isAdmin ? [...TABS, ADMIN_TAB] : [...TABS];
+  const showIntakeTab = intakePhase != null && intakePhase !== "CONFIRMED_READY_FOR_PROCESSING";
+  const tabs = [
+    ...TABS,
+    ...(showIntakeTab ? [INTAKE_TAB] : []),
+    ...(isAdmin ? [ADMIN_TAB] : []),
+  ];
 
   const handleTabChange = (tab: TabKey) => {
     setActiveTab(tab);
@@ -202,6 +212,12 @@ export function SecondaryTabsPanel({
               <DealStoryTimeline dealId={dealId} />
             </SafeBoundary>
           </>
+        )}
+
+        {activeTab === "intake" && showIntakeTab && (
+          <SafeBoundary>
+            <IntakeReviewTable dealId={dealId} />
+          </SafeBoundary>
         )}
 
         {activeTab === "admin" && isAdmin && (

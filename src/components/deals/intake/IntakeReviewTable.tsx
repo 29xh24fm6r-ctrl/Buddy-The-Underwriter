@@ -1,0 +1,459 @@
+"use client";
+
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { cn } from "@/lib/utils";
+
+// ── Types ──────────────────────────────────────────────────────────────
+
+type IntakeDoc = {
+  id: string;
+  original_filename: string | null;
+  canonical_type: string | null;
+  document_type: string | null;
+  checklist_key: string | null;
+  doc_year: number | null;
+  ai_doc_type: string | null;
+  ai_confidence: number | null;
+  classification_tier: string | null;
+  gatekeeper_doc_type: string | null;
+  gatekeeper_confidence: number | null;
+  gatekeeper_needs_review: boolean | null;
+  intake_status: string | null;
+  intake_confirmed_at: string | null;
+  intake_confirmed_by: string | null;
+  intake_locked_at: string | null;
+  created_at: string | null;
+};
+
+type ReviewData = {
+  ok: boolean;
+  intake_phase: string;
+  feature_enabled: boolean;
+  documents: IntakeDoc[];
+};
+
+type Filter = "all" | "red" | "amber" | "pending";
+
+// ── Helpers ────────────────────────────────────────────────────────────
+
+function confidenceBand(c: number | null | undefined): "red" | "amber" | "green" {
+  if (c == null || c < 0.75) return "red";
+  if (c < 0.90) return "amber";
+  return "green";
+}
+
+const BAND_STYLES = {
+  red: "bg-red-500/20 text-red-400 border-red-500/30",
+  amber: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  green: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+} as const;
+
+const STATUS_LABELS: Record<string, string> = {
+  UPLOADED: "Uploaded",
+  CLASSIFIED_PENDING_REVIEW: "Pending Review",
+  AUTO_CONFIRMED: "Auto-Confirmed",
+  USER_CONFIRMED: "Confirmed",
+  LOCKED_FOR_PROCESSING: "Locked",
+};
+
+const DOC_TYPE_OPTIONS = [
+  "BUSINESS_TAX_RETURN",
+  "PERSONAL_TAX_RETURN",
+  "INCOME_STATEMENT",
+  "BALANCE_SHEET",
+  "RENT_ROLL",
+  "PERSONAL_FINANCIAL_STATEMENT",
+  "PERSONAL_INCOME",
+  "SCHEDULE_K1",
+  "BANK_STATEMENT",
+  "LEASE",
+  "INSURANCE",
+  "APPRAISAL",
+  "OPERATING_AGREEMENT",
+  "ARTICLES",
+  "W2",
+  "1099",
+  "OTHER",
+];
+
+// ── Component ──────────────────────────────────────────────────────────
+
+export function IntakeReviewTable({ dealId }: { dealId: string }) {
+  const [data, setData] = useState<ReviewData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [submitting, setSubmitting] = useState(false);
+  const [editingDoc, setEditingDoc] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<{
+    canonical_type?: string;
+    tax_year?: number;
+  }>({});
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/deals/${dealId}/intake/review`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        setError(json?.error ?? "Failed to load intake review data");
+        return;
+      }
+      setData(json);
+      setError(null);
+    } catch (err: any) {
+      setError(err?.message ?? "Network error");
+    } finally {
+      setLoading(false);
+    }
+  }, [dealId]);
+
+  useEffect(() => {
+    void refresh();
+    const interval = setInterval(() => void refresh(), 8000);
+    return () => clearInterval(interval);
+  }, [refresh]);
+
+  const filteredDocs = useMemo(() => {
+    if (!data?.documents) return [];
+    if (filter === "all") return data.documents;
+    return data.documents.filter((d) => {
+      const band = confidenceBand(d.ai_confidence);
+      if (filter === "red") return band === "red";
+      if (filter === "amber") return band === "amber";
+      if (filter === "pending")
+        return (
+          d.intake_status === "UPLOADED" ||
+          d.intake_status === "CLASSIFIED_PENDING_REVIEW"
+        );
+      return true;
+    });
+  }, [data?.documents, filter]);
+
+  const counts = useMemo(() => {
+    const docs = data?.documents ?? [];
+    return {
+      total: docs.length,
+      red: docs.filter((d) => confidenceBand(d.ai_confidence) === "red").length,
+      amber: docs.filter((d) => confidenceBand(d.ai_confidence) === "amber").length,
+      pending: docs.filter(
+        (d) =>
+          d.intake_status === "UPLOADED" ||
+          d.intake_status === "CLASSIFIED_PENDING_REVIEW",
+      ).length,
+    };
+  }, [data?.documents]);
+
+  const canSubmit = useMemo(() => {
+    if (!data?.documents?.length) return false;
+    return !data.documents.some(
+      (d) =>
+        d.intake_status === "UPLOADED" ||
+        d.intake_status === "CLASSIFIED_PENDING_REVIEW",
+    );
+  }, [data?.documents]);
+
+  const isLocked =
+    data?.intake_phase === "CONFIRMED_READY_FOR_PROCESSING";
+
+  // ── Actions ────────────────────────────────────────────────────────
+
+  async function confirmDoc(docId: string, patch?: { canonical_type?: string; tax_year?: number }) {
+    try {
+      const body: Record<string, unknown> = {};
+      if (patch?.canonical_type) body.canonical_type = patch.canonical_type;
+      if (patch?.tax_year) body.tax_year = patch.tax_year;
+
+      const res = await fetch(
+        `/api/deals/${dealId}/intake/documents/${docId}/confirm`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        setError(json?.error ?? "Failed to confirm document");
+        return;
+      }
+      setEditingDoc(null);
+      setEditValues({});
+      await refresh();
+    } catch (err: any) {
+      setError(err?.message ?? "Confirm failed");
+    }
+  }
+
+  async function submitToProcessing() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/intake/confirm`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        setError(json?.error ?? "Failed to submit");
+        return;
+      }
+      await refresh();
+    } catch (err: any) {
+      setError(err?.message ?? "Submit failed");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="text-white/40 text-sm p-4">
+        Loading intake review...
+      </div>
+    );
+  }
+
+  if (!data?.feature_enabled) {
+    return null;
+  }
+
+  if (isLocked) {
+    return (
+      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+        <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium">
+          <span className="material-symbols-outlined text-[16px]">check_circle</span>
+          Intake confirmed and processing complete
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider">
+          Intake Review
+        </h3>
+        <div className="flex items-center gap-2">
+          {counts.red > 0 && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400">
+              {counts.red} low confidence
+            </span>
+          )}
+          {counts.amber > 0 && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+              {counts.amber} moderate
+            </span>
+          )}
+          {counts.pending > 0 && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400">
+              {counts.pending} pending
+            </span>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+          {error}
+        </div>
+      )}
+
+      {/* Filter bar */}
+      <div className="flex items-center gap-1">
+        {(["all", "red", "amber", "pending"] as Filter[]).map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={cn(
+              "text-xs px-2.5 py-1 rounded-md transition-colors",
+              filter === f
+                ? "bg-white/10 text-white"
+                : "text-white/40 hover:text-white/60 hover:bg-white/5",
+            )}
+          >
+            {f === "all" ? `All (${counts.total})` :
+             f === "red" ? `Red (${counts.red})` :
+             f === "amber" ? `Amber (${counts.amber})` :
+             `Pending (${counts.pending})`}
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-white/40 border-b border-white/10">
+              <th className="text-left py-2 px-2 font-medium">Filename</th>
+              <th className="text-left py-2 px-2 font-medium">Type</th>
+              <th className="text-left py-2 px-2 font-medium">Year</th>
+              <th className="text-center py-2 px-2 font-medium">Confidence</th>
+              <th className="text-center py-2 px-2 font-medium">Status</th>
+              <th className="text-right py-2 px-2 font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredDocs.map((doc) => {
+              const band = confidenceBand(doc.ai_confidence);
+              const isEditing = editingDoc === doc.id;
+              const pct = doc.ai_confidence != null
+                ? `${(doc.ai_confidence * 100).toFixed(0)}%`
+                : "N/A";
+
+              return (
+                <tr
+                  key={doc.id}
+                  className="border-b border-white/5 hover:bg-white/[0.02]"
+                >
+                  <td className="py-2 px-2 text-white/70 max-w-[200px] truncate">
+                    {doc.original_filename ?? "—"}
+                  </td>
+                  <td className="py-2 px-2">
+                    {isEditing ? (
+                      <select
+                        value={editValues.canonical_type ?? doc.canonical_type ?? ""}
+                        onChange={(e) =>
+                          setEditValues((prev) => ({
+                            ...prev,
+                            canonical_type: e.target.value,
+                          }))
+                        }
+                        className="bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white/80 w-full"
+                      >
+                        <option value="">Select type...</option>
+                        {DOC_TYPE_OPTIONS.map((t) => (
+                          <option key={t} value={t}>
+                            {t.replace(/_/g, " ")}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-white/60">
+                        {doc.canonical_type?.replace(/_/g, " ") ??
+                          doc.document_type?.replace(/_/g, " ") ??
+                          "Unclassified"}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 px-2">
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        min={1990}
+                        max={2100}
+                        value={editValues.tax_year ?? doc.doc_year ?? ""}
+                        onChange={(e) =>
+                          setEditValues((prev) => ({
+                            ...prev,
+                            tax_year: e.target.value
+                              ? parseInt(e.target.value, 10)
+                              : undefined,
+                          }))
+                        }
+                        className="bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white/80 w-16"
+                      />
+                    ) : (
+                      <span className="text-white/60">
+                        {doc.doc_year ?? "—"}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    <span
+                      className={cn(
+                        "inline-block px-2 py-0.5 rounded-full text-[10px] font-medium border",
+                        BAND_STYLES[band],
+                      )}
+                    >
+                      {pct}
+                    </span>
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    <span className="text-white/50">
+                      {STATUS_LABELS[doc.intake_status ?? ""] ?? doc.intake_status ?? "—"}
+                    </span>
+                  </td>
+                  <td className="py-2 px-2 text-right">
+                    {isEditing ? (
+                      <div className="flex items-center gap-1 justify-end">
+                        <button
+                          onClick={() => {
+                            setEditingDoc(null);
+                            setEditValues({});
+                          }}
+                          className="text-white/40 hover:text-white/60 px-1.5 py-0.5 rounded text-[10px]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => void confirmDoc(doc.id, editValues)}
+                          className="bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 px-2 py-0.5 rounded text-[10px] font-medium"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 justify-end">
+                        <button
+                          onClick={() => {
+                            setEditingDoc(doc.id);
+                            setEditValues({
+                              canonical_type: doc.canonical_type ?? undefined,
+                              tax_year: doc.doc_year ?? undefined,
+                            });
+                          }}
+                          className="text-white/40 hover:text-white/60 px-1.5 py-0.5 rounded text-[10px]"
+                        >
+                          Edit
+                        </button>
+                        {(doc.intake_status === "CLASSIFIED_PENDING_REVIEW" ||
+                          doc.intake_status === "UPLOADED") && (
+                          <button
+                            onClick={() => void confirmDoc(doc.id)}
+                            className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-medium"
+                          >
+                            Confirm
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {filteredDocs.length === 0 && (
+              <tr>
+                <td colSpan={6} className="py-4 text-center text-white/30">
+                  No documents match the current filter.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Submit CTA */}
+      <div className="flex justify-end pt-2">
+        <button
+          onClick={() => void submitToProcessing()}
+          disabled={!canSubmit || submitting}
+          className={cn(
+            "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+            canSubmit && !submitting
+              ? "bg-blue-600 text-white hover:bg-blue-500"
+              : "bg-white/5 text-white/20 cursor-not-allowed",
+          )}
+        >
+          {submitting ? "Processing..." : "Submit to Processing"}
+        </button>
+      </div>
+    </div>
+  );
+}

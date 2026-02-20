@@ -24,6 +24,7 @@ import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { isGatekeeperInlineEnabled } from "@/lib/flags/openaiGatekeeper";
+import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import { ENTITY_GRAPH_VERSION } from "@/lib/intake/identity/version";
 import type { EntityResolution } from "@/lib/intake/identity/entityResolver";
 
@@ -1091,6 +1092,110 @@ export async function processArtifact(
             }
           }
         }
+      }
+    }
+
+    // ── Phase E0: Intake Confirmation Gate (fail-closed) ──────────────────
+    // When enabled, stop after classification. No matching, no extraction,
+    // no spreads, no lifecycle. Downstream deferred to processConfirmedIntake.
+    if (isIntakeConfirmationGateEnabled() && source_table === "deal_documents") {
+      try {
+        const { data: dealPhaseRow } = await sb
+          .from("deals")
+          .select("intake_phase")
+          .eq("id", dealId)
+          .maybeSingle();
+
+        const phase = (dealPhaseRow as any)?.intake_phase as string | null;
+
+        // Set doc intake_status based on confidence
+        const { deriveIntakeStatus, INTAKE_CONFIRMATION_VERSION } = await import(
+          "@/lib/intake/confirmation/types"
+        );
+        const intakeStatus = deriveIntakeStatus(classification.confidence);
+
+        await (sb as any)
+          .from("deal_documents")
+          .update({ intake_status: intakeStatus } as any)
+          .eq("id", source_id);
+
+        // Auto-transition deal from BULK_UPLOADED to CLASSIFIED_PENDING_CONFIRMATION
+        if (phase === "BULK_UPLOADED") {
+          await (sb as any)
+            .from("deals")
+            .update({ intake_phase: "CLASSIFIED_PENDING_CONFIRMATION" } as any)
+            .eq("id", dealId);
+        }
+
+        // Gate: if not confirmed, stop here
+        if (phase !== "CONFIRMED_READY_FOR_PROCESSING") {
+          // Mark artifact as classified (deferred, not matched)
+          await (sb as any)
+            .from("document_artifacts")
+            .update({
+              status: "classified",
+              doc_type_confidence: classification.confidence,
+              doc_type_reason: `Classified (awaiting confirmation: ${intakeStatus})`,
+            } as any)
+            .eq("id", artifactId);
+
+          void writeEvent({
+            dealId,
+            kind: "intake.gate_held",
+            scope: "intake",
+            confidence: classification.confidence,
+            meta: {
+              document_id: source_id,
+              intake_status: intakeStatus,
+              intake_phase: phase,
+              confirmation_version: INTAKE_CONFIRMATION_VERSION,
+              doc_type: typingResult.effective_doc_type,
+            },
+          });
+
+          console.log("[processArtifact] intake gate held — downstream deferred", {
+            artifactId,
+            source_id,
+            intakeStatus,
+            phase,
+          });
+
+          return {
+            ok: true,
+            artifactId,
+            classification,
+            matchedKeys: [],
+            skipped: true,
+            skipReason: `intake_gate_held:${intakeStatus}`,
+          };
+        }
+        // If CONFIRMED_READY_FOR_PROCESSING, fall through to downstream steps
+      } catch (gateErr: any) {
+        // FAIL-CLOSED: gate error blocks downstream processing
+        // Processing NEVER runs if intake state is ambiguous
+        console.error("[processArtifact] intake gate error — FAIL-CLOSED", {
+          artifactId,
+          source_id,
+          error: gateErr?.message,
+        });
+
+        void writeEvent({
+          dealId,
+          kind: "intake.gate_error_detected",
+          scope: "intake",
+          meta: {
+            document_id: source_id,
+            artifact_id: artifactId,
+            error: gateErr?.message,
+            gate_version: "confirmation_v1",
+          },
+        });
+
+        return {
+          ok: false,
+          artifactId,
+          error: `intake_gate_error: ${gateErr?.message}`,
+        };
       }
     }
 

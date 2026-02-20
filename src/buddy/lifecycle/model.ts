@@ -75,6 +75,8 @@ export type LifecycleBlockerCode =
   | "schema_mismatch"
   // Intake governance blocker — emitted when ENABLE_INTAKE_SLO_ENFORCEMENT=true
   | "intake_health_below_threshold"
+  // Intake confirmation gate — emitted when ENABLE_INTAKE_CONFIRMATION_GATE=true
+  | "intake_confirmation_required"
   // Generic fallbacks (use specific codes above when possible)
   | "data_fetch_failed"
   | "internal_error";
