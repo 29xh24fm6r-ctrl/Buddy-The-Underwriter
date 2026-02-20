@@ -18,6 +18,7 @@ import {
   INTAKE_SNAPSHOT_VERSION,
   computeIntakeSnapshotHash,
 } from "@/lib/intake/confirmation/types";
+import { QUALITY_VERSION } from "@/lib/intake/quality/evaluateDocumentQuality";
 
 // ── Extract-eligible canonical types (mirrors processArtifact routing) ──
 
@@ -145,6 +146,36 @@ export async function processConfirmedIntake(
   }
 
   // ── END SNAPSHOT VERIFICATION ───────────────────────────────────────
+
+  // ── QUALITY VERIFICATION (defense-in-depth) ──────────────────────
+  const { data: failedQualityDocs, error: qualityCheckErr } = await (sb as any)
+    .from("deal_documents")
+    .select("id, quality_status")
+    .eq("deal_id", dealId)
+    .or("quality_status.is.null,quality_status.neq.PASSED");
+
+  if (qualityCheckErr) {
+    throw new Error(
+      `[processConfirmedIntake] quality check failed: ${qualityCheckErr.message}`,
+    );
+  }
+
+  if (failedQualityDocs && failedQualityDocs.length > 0) {
+    void writeEvent({
+      dealId,
+      kind: "intake.processing_blocked_quality_violation",
+      scope: "intake",
+      meta: {
+        failed_count: failedQualityDocs.length,
+        failed_ids: failedQualityDocs.map((d: any) => d.id),
+        quality_version: QUALITY_VERSION,
+      },
+    });
+    throw new Error(
+      `[processConfirmedIntake] ${failedQualityDocs.length} docs failed quality gate for deal ${dealId}`,
+    );
+  }
+  // ── END QUALITY VERIFICATION ─────────────────────────────────────
 
   // 1. Load all confirmed docs
   const { data: docs, error: loadErr } = await (sb as any)

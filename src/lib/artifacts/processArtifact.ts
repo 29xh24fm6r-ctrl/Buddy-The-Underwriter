@@ -27,6 +27,7 @@ import { isGatekeeperInlineEnabled } from "@/lib/flags/openaiGatekeeper";
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import { ENTITY_GRAPH_VERSION } from "@/lib/intake/identity/version";
 import type { EntityResolution } from "@/lib/intake/identity/entityResolver";
+import { evaluateDocumentQuality, QUALITY_VERSION } from "@/lib/intake/quality/evaluateDocumentQuality";
 
 export type ProcessArtifactResult = {
   ok: boolean;
@@ -932,6 +933,13 @@ export async function processArtifact(
           if (typingResult.document_type === "PERSONAL_TAX_RETURN" || typingResult.document_type === "PFS") entityPatch.ai_borrower_name = entityName;
         }
 
+        // Phase E2: Evaluate document quality before stamp
+        const qualityResult = evaluateDocumentQuality({
+          ocrTextLength: text?.length ?? null,
+          ocrSucceeded: text != null && text.length > 0,
+          classificationConfidence: classification.confidence,
+        });
+
         const stampResult = await sb
           .from("deal_documents")
           .update({
@@ -971,6 +979,9 @@ export async function processArtifact(
             classification_reason: typingResult.guardrail_applied
               ? `${classification.reason} [guardrail: ${typingResult.guardrail_reason}]`
               : classification.reason,
+            // Phase E2: Quality gate fields
+            ocr_text_length: text?.length ?? null,
+            quality_status: qualityResult.status,
             // Entity routing
             ...entityPatch,
           } as any)
@@ -1034,6 +1045,23 @@ export async function processArtifact(
             match_source: stampResult.data.match_source,
             canonical_type: stampResult.data.canonical_type,
             routing_class: stampResult.data.routing_class,
+          });
+
+          // Phase E2: Quality evaluation ledger event
+          void logLedgerEvent({
+            dealId,
+            bankId,
+            eventKey: "intake.document_quality_evaluated",
+            uiState: qualityResult.status === "PASSED" ? "done" : "error",
+            uiMessage: `Quality: ${qualityResult.status}`,
+            meta: {
+              document_id: source_id,
+              quality_status: qualityResult.status,
+              quality_reasons: qualityResult.reasons,
+              ocr_text_length: text?.length ?? null,
+              classification_confidence: classification.confidence,
+              quality_version: QUALITY_VERSION,
+            },
           });
 
           // ── Identity layer resolution (v1.0 — observability only) ────────

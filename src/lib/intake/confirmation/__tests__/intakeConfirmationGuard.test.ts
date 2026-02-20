@@ -1,8 +1,9 @@
 /**
- * Phase E0 + E1 — Intake Confirmation Gate CI Guards
+ * Phase E0 + E1 + E2 — Intake Confirmation Gate CI Guards
  *
  * Guards 1-10: E0 confirmation gate structural integrity
  * Guards 11-17: E1 snapshot enforcement & processing boundary lock
+ * Guards 18-27: E2 OCR quality gate & confidence enforcement
  */
 
 import test from "node:test";
@@ -17,6 +18,11 @@ import {
   deriveIntakeStatus,
   computeIntakeSnapshotHash,
 } from "../types";
+import {
+  evaluateDocumentQuality,
+  QUALITY_VERSION,
+  QUALITY_THRESHOLDS,
+} from "../../quality/evaluateDocumentQuality";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -290,5 +296,130 @@ test("[guard-17] confirm route stores intake_snapshot_version via INTAKE_SNAPSHO
   assert.ok(
     src.includes("intake_snapshot_version"),
     "confirm route must store intake_snapshot_version on deals",
+  );
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase E2 — OCR Quality Gate & Confidence Enforcement
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Guard 18: QUALITY_VERSION CI-locked ──────────────────────────────
+
+test("[guard-18] QUALITY_VERSION is CI-locked (quality_v1)", () => {
+  assert.equal(QUALITY_VERSION, "quality_v1");
+});
+
+// ── Guard 19: MIN_TEXT_LENGTH floor lock ─────────────────────────────
+
+test("[guard-19] MIN_TEXT_LENGTH >= 300 (floor lock — prevents softening)", () => {
+  assert.ok(
+    QUALITY_THRESHOLDS.MIN_TEXT_LENGTH >= 300,
+    `MIN_TEXT_LENGTH must be >= 300, got ${QUALITY_THRESHOLDS.MIN_TEXT_LENGTH}`,
+  );
+});
+
+// ── Guard 20: MIN_CLASSIFICATION_CONFIDENCE floor lock ──────────────
+
+test("[guard-20] MIN_CLASSIFICATION_CONFIDENCE >= 0.60 (floor lock)", () => {
+  assert.ok(
+    QUALITY_THRESHOLDS.MIN_CLASSIFICATION_CONFIDENCE >= 0.60,
+    `MIN_CLASSIFICATION_CONFIDENCE must be >= 0.60, got ${QUALITY_THRESHOLDS.MIN_CLASSIFICATION_CONFIDENCE}`,
+  );
+});
+
+// ── Guard 21: Low text fails ────────────────────────────────────────
+
+test("[guard-21] evaluateDocumentQuality: low text → FAILED_LOW_TEXT", () => {
+  const result = evaluateDocumentQuality({
+    ocrTextLength: 0,
+    ocrSucceeded: true,
+    classificationConfidence: 0.9,
+  });
+  assert.equal(result.status, "FAILED_LOW_TEXT");
+  assert.ok(result.reasons.length > 0);
+
+  // null text length also fails
+  const result2 = evaluateDocumentQuality({
+    ocrTextLength: null,
+    ocrSucceeded: true,
+    classificationConfidence: 0.9,
+  });
+  assert.equal(result2.status, "FAILED_LOW_TEXT");
+});
+
+// ── Guard 22: OCR failure fails ─────────────────────────────────────
+
+test("[guard-22] evaluateDocumentQuality: OCR failure → FAILED_OCR_ERROR", () => {
+  const result = evaluateDocumentQuality({
+    ocrTextLength: 1000,
+    ocrSucceeded: false,
+    classificationConfidence: 0.9,
+  });
+  assert.equal(result.status, "FAILED_OCR_ERROR");
+  assert.ok(result.reasons.length > 0);
+});
+
+// ── Guard 23: Low confidence fails ──────────────────────────────────
+
+test("[guard-23] evaluateDocumentQuality: low confidence → FAILED_LOW_CONFIDENCE", () => {
+  const result = evaluateDocumentQuality({
+    ocrTextLength: 1000,
+    ocrSucceeded: true,
+    classificationConfidence: 0.5,
+  });
+  assert.equal(result.status, "FAILED_LOW_CONFIDENCE");
+
+  // null confidence also fails
+  const result2 = evaluateDocumentQuality({
+    ocrTextLength: 1000,
+    ocrSucceeded: true,
+    classificationConfidence: null,
+  });
+  assert.equal(result2.status, "FAILED_LOW_CONFIDENCE");
+});
+
+// ── Guard 24: Passing case ──────────────────────────────────────────
+
+test("[guard-24] evaluateDocumentQuality: good inputs → PASSED", () => {
+  const result = evaluateDocumentQuality({
+    ocrTextLength: 1000,
+    ocrSucceeded: true,
+    classificationConfidence: 0.9,
+  });
+  assert.equal(result.status, "PASSED");
+  assert.equal(result.reasons.length, 0);
+});
+
+// ── Guard 25: Confirm route contains quality gate logic ─────────────
+
+test("[guard-25] confirm route contains quality_gate_failed + quality_status", () => {
+  const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+  assert.ok(
+    src.includes("quality_gate_failed"),
+    "confirm route must reject with quality_gate_failed error",
+  );
+  assert.ok(
+    src.includes("quality_status"),
+    "confirm route must check quality_status",
+  );
+});
+
+// ── Guard 26: processConfirmedIntake contains quality violation guard ─
+
+test("[guard-26] processConfirmedIntake contains processing_blocked_quality_violation", () => {
+  const src = readSource("src/lib/intake/processing/processConfirmedIntake.ts");
+  assert.ok(
+    src.includes("intake.processing_blocked_quality_violation"),
+    "processConfirmedIntake must emit intake.processing_blocked_quality_violation",
+  );
+});
+
+// ── Guard 27: Confirm route quality check uses NULL = fail-closed ────
+
+test("[guard-27] confirm route quality check catches NULL quality_status (fail-closed)", () => {
+  const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+  assert.ok(
+    src.includes("quality_status.is.null"),
+    "confirm route must check for NULL quality_status (fail-closed)",
   );
 });

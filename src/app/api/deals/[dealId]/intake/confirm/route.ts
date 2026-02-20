@@ -95,6 +95,38 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       );
     }
 
+    // E2: Quality gate — NULL or non-PASSED blocks confirmation (fail-closed)
+    const { count: failedQualityCount, error: qualityErr } = await (sb as any)
+      .from("deal_documents")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .or("quality_status.is.null,quality_status.neq.PASSED");
+
+    if (qualityErr) {
+      return NextResponse.json(
+        { ok: false, error: "quality_check_failed", detail: qualityErr.message },
+        { status: 500 },
+      );
+    }
+
+    if ((failedQualityCount ?? 0) > 0) {
+      void writeEvent({
+        dealId,
+        kind: "intake.confirmation_blocked_quality_failure",
+        actorUserId: access.userId,
+        scope: "intake",
+        meta: { failed_count: failedQualityCount },
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "quality_gate_failed",
+          failed_count: failedQualityCount,
+        },
+        { status: 422 },
+      );
+    }
+
     // Load all docs for locking + snapshot hash
     const { data: allDocs, error: docsErr } = await (sb as any)
       .from("deal_documents")
