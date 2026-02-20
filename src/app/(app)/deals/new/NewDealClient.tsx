@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { uploadFileWithSignedUrl } from "@/lib/uploads/uploadFile";
@@ -8,6 +8,9 @@ import { createUploadSession } from "@/lib/api/uploads";
 import { markUploadsCompletedAction } from "./actions";
 import { computeTaxYears } from "@/lib/intake/slots/taxYears";
 import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
+import { IntakeReviewTable } from "@/components/deals/intake/IntakeReviewTable";
+
+type DealMode = "staging" | "classifying" | "review" | "submitting";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -292,6 +295,21 @@ export default function NewDealClient({
   const [needsRestart, setNeedsRestart] = useState(false);
   const [showErrorDetails, setShowErrorDetails] = useState(false);
 
+  // Inline review state machine: staging → classifying → review → submitting
+  const [mode, setMode] = useState<DealMode>("staging");
+  const [createdDealId, setCreatedDealId] = useState<string | null>(null);
+  const [createdDealName, setCreatedDealName] = useState<string | null>(null);
+
+  // Navigation guard: warn if leaving during classification or review
+  useEffect(() => {
+    if (mode === "staging" || mode === "submitting" || !createdDealId) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [mode, createdDealId]);
+
   // Slot handlers
   const handleSlotFileSelect = useCallback((slotKey: string, file: File) => {
     setSlotFiles((prev) => new Map(prev).set(slotKey, file));
@@ -346,6 +364,9 @@ export default function NewDealClient({
     setNeedsRestart(false);
     setUploadProgress({ current: 0, total: 0 });
     setDebugInfo({ requestId: null, stage: null });
+    setMode("staging");
+    setCreatedDealId(null);
+    setCreatedDealName(null);
   }, []);
 
   // Total file count for enabling the upload button
@@ -631,17 +652,36 @@ export default function NewDealClient({
         throw new Error(`Intake run failed (${runRes.status}): ${runJson?.error || "unknown"}`);
       }
 
-      // 4. Poll intake status
-      setDebugInfo({ requestId: null, stage: "intake_poll" });
-      const pollResult = await pollIntakeStatus(dealId);
-      if (!pollResult.ok) {
-        throw new Error(`Intake status error: ${pollResult.error || "unknown"}`);
+      // 4. Check if confirmation gate is active
+      // If gate is OFF, redirect straight to cockpit (no inline review).
+      // If gate is ON, transition to classifying mode — IntakeReviewTable
+      // polls and calls onNeedsReview/onSubmitted as phase progresses.
+      setDebugInfo({ requestId: null, stage: "checking_gate" });
+      let gateActive = true;
+      try {
+        const reviewRes = await fetch(`/api/deals/${dealId}/intake/review`, { cache: "no-store" });
+        const reviewJson = await reviewRes.json().catch(() => ({}));
+        gateActive = Boolean(reviewJson?.ok && reviewJson?.feature_enabled);
+      } catch {
+        // If we can't reach the review endpoint, assume gate is active (fail closed)
       }
 
-      // 5. Redirect to cockpit
-      router.push(
-        `/deals/${dealId}/cockpit${createdName ? `?n=${encodeURIComponent(createdName)}` : ""}`,
-      );
+      if (!gateActive) {
+        // Gate OFF — poll for readiness and redirect
+        setDebugInfo({ requestId: null, stage: "intake_poll" });
+        const pollResult = await pollIntakeStatus(dealId);
+        if (!pollResult.ok) {
+          throw new Error(`Intake status error: ${pollResult.error || "unknown"}`);
+        }
+        router.push(
+          `/deals/${dealId}/cockpit${createdName ? `?n=${encodeURIComponent(createdName)}` : ""}`,
+        );
+      } else {
+        // Gate ON — show inline review
+        setCreatedDealId(dealId);
+        setCreatedDealName(createdName || null);
+        setMode("classifying");
+      }
     } catch (error) {
       console.error("Upload failed:", error);
 
@@ -698,6 +738,54 @@ export default function NewDealClient({
 
   const isWorking = uploading || processing;
 
+  // ── Review mode: full-screen review surface ──
+  if (mode === "review" && createdDealId) {
+    return (
+      <div className="h-full flex flex-col bg-[#0a0d12]">
+        <div className="border-b border-gray-800 px-8 py-6 bg-[#0f1318]">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-1">Review Classifications</h1>
+              <p className="text-sm text-gray-400">
+                Review and confirm document classifications before processing begins.
+                Documents must be confirmed before underwriting begins.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-6xl mx-auto p-8">
+            <IntakeReviewTable
+              dealId={createdDealId}
+              onNeedsReview={() => {}}
+              onSubmitted={() => {
+                setMode("submitting");
+                router.push(
+                  `/deals/${createdDealId}/cockpit${createdDealName ? `?n=${encodeURIComponent(createdDealName)}` : ""}`,
+                );
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Submitting mode: redirect in progress ──
+  if (mode === "submitting") {
+    return (
+      <div className="h-full flex flex-col bg-[#0a0d12] items-center justify-center">
+        <div className="text-center space-y-3">
+          <span className="animate-spin material-symbols-outlined text-[32px] text-blue-400">
+            progress_activity
+          </span>
+          <p className="text-white text-lg font-medium">Processing started. Taking you to cockpit...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Staging / Classifying mode: upload form ──
   return (
     <div className="h-full flex flex-col bg-[#0a0d12]">
       {/* Header */}
@@ -978,16 +1066,38 @@ export default function NewDealClient({
               <div>
                 <h4 className="text-sm font-semibold text-white mb-2">What happens next?</h4>
                 <ul className="text-sm text-gray-300 space-y-1">
-                  <li>
-                    {"\u2022"} Core documents are routed through Google Document AI for precise extraction
-                  </li>
-                  <li>{"\u2022"} Financial data will be parsed, spread, and analyzed</li>
-                  <li>{"\u2022"} Conditions and requirements will be generated</li>
+                  <li>{"\u2022"} Documents will be classified by AI</li>
+                  <li>{"\u2022"} You'll review and confirm each classification right here</li>
+                  <li>{"\u2022"} After confirmation, processing begins automatically</li>
                   <li>{"\u2022"} You'll be redirected to the deal cockpit when ready</li>
                 </ul>
               </div>
             </div>
           </div>
+
+          {/* Classifying: show classification progress + IntakeReviewTable below */}
+          {mode === "classifying" && createdDealId && (
+            <div className="mt-8">
+              <div className="mb-4 rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3">
+                <div className="flex items-center gap-2 text-blue-300 text-sm">
+                  <span className="animate-spin material-symbols-outlined text-[16px]">
+                    progress_activity
+                  </span>
+                  Processing uploads... Documents will appear below as classification completes.
+                </div>
+              </div>
+              <IntakeReviewTable
+                dealId={createdDealId}
+                onNeedsReview={() => setMode("review")}
+                onSubmitted={() => {
+                  setMode("submitting");
+                  router.push(
+                    `/deals/${createdDealId}/cockpit${createdDealName ? `?n=${encodeURIComponent(createdDealName)}` : ""}`,
+                  );
+                }}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

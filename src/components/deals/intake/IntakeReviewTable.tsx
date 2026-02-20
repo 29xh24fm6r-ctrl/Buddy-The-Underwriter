@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -78,8 +78,17 @@ const DOC_TYPE_OPTIONS = [
 
 // ── Component ──────────────────────────────────────────────────────────
 
-export function IntakeReviewTable({ dealId }: { dealId: string }) {
+export function IntakeReviewTable({
+  dealId,
+  onNeedsReview,
+  onSubmitted,
+}: {
+  dealId: string;
+  onNeedsReview?: () => void;
+  onSubmitted?: () => void;
+}) {
   const [data, setData] = useState<ReviewData | null>(null);
+  const needsReviewFired = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -102,12 +111,20 @@ export function IntakeReviewTable({ dealId }: { dealId: string }) {
       }
       setData(json);
       setError(null);
+      // Fire onNeedsReview once when phase reaches CLASSIFIED_PENDING_CONFIRMATION
+      if (
+        json?.intake_phase === "CLASSIFIED_PENDING_CONFIRMATION" &&
+        !needsReviewFired.current
+      ) {
+        needsReviewFired.current = true;
+        onNeedsReview?.();
+      }
     } catch (err: any) {
       setError(err?.message ?? "Network error");
     } finally {
       setLoading(false);
     }
-  }, [dealId]);
+  }, [dealId, onNeedsReview]);
 
   useEffect(() => {
     void refresh();
@@ -201,6 +218,8 @@ export function IntakeReviewTable({ dealId }: { dealId: string }) {
         return;
       }
       await refresh();
+      // After successful submit, notify parent that processing is enqueued
+      onSubmitted?.();
     } catch (err: any) {
       setError(err?.message ?? "Submit failed");
     } finally {

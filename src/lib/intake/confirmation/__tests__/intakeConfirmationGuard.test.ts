@@ -10,6 +10,7 @@
  * Guards 57-70: S1 spread invariant harness
  * Guards 71-76: E2E regression tripwires (bulk upload, tax year, documents 500)
  * Guard 77: Production hardening invariant (gate fail-closed)
+ * Guards 78-82: Inline review on /deals/new (pre-cockpit confirmation)
  */
 
 import test from "node:test";
@@ -1234,5 +1235,61 @@ test("[guard-77] Intake confirmation gate is fail-closed in production", () => {
   assert.ok(
     src.includes("[CRITICAL]"),
     "intakeConfirmationGate must log CRITICAL when gate is forced ON",
+  );
+});
+
+// ── Guards 78–82: Inline review on /deals/new ──────────────────────────
+
+test("[guard-78] NewDealClient renders IntakeReviewTable for inline review", () => {
+  const src = readSource("src/app/(app)/deals/new/NewDealClient.tsx");
+  assert.ok(
+    src.includes("IntakeReviewTable"),
+    "NewDealClient must import IntakeReviewTable for inline review",
+  );
+  assert.ok(
+    src.includes("createdDealId"),
+    "NewDealClient must track createdDealId state for inline review",
+  );
+});
+
+test("[guard-79] NewDealClient does not redirect until onSubmitted path", () => {
+  const src = readSource("src/app/(app)/deals/new/NewDealClient.tsx");
+  assert.ok(
+    src.includes("onSubmitted"),
+    "NewDealClient must use onSubmitted callback for redirect",
+  );
+  assert.ok(
+    src.includes("onNeedsReview"),
+    "NewDealClient must use onNeedsReview to detect classification phase",
+  );
+});
+
+test("[guard-80] IntakeReviewTable exposes onSubmitted and onNeedsReview as optional props", () => {
+  const src = readSource("src/components/deals/intake/IntakeReviewTable.tsx");
+  assert.ok(
+    src.includes("onSubmitted"),
+    "IntakeReviewTable must expose onSubmitted callback",
+  );
+  assert.ok(
+    src.includes("onNeedsReview"),
+    "IntakeReviewTable must expose onNeedsReview callback",
+  );
+});
+
+test("[guard-81] NewDealClient never calls enqueueDealProcessing directly", () => {
+  const src = readSource("src/app/(app)/deals/new/NewDealClient.tsx");
+  assert.ok(
+    !src.includes("enqueueDealProcessing"),
+    "NewDealClient must not call enqueueDealProcessing — only via confirm route",
+  );
+});
+
+test("[guard-82] No processing state reachable without confirmed phase", () => {
+  const src = readSource("src/app/(app)/deals/new/NewDealClient.tsx");
+  // The submitting mode must only be set in the onSubmitted callback paths
+  const submittingMatches = src.match(/setMode\("submitting"\)/g) ?? [];
+  assert.ok(
+    submittingMatches.length <= 2,
+    `submitting mode should only be set in onSubmitted callback paths (found ${submittingMatches.length})`,
   );
 });
