@@ -214,7 +214,13 @@ export function IntakeReviewTable({
       });
       const json = await res.json();
       if (!res.ok || !json?.ok) {
-        setError(json?.error ?? "Failed to submit");
+        const errMsg =
+          json?.error === "quality_gate_failed"
+            ? "Some document(s) failed automated quality checks (e.g., unreadable scan or insufficient OCR text). Please re-upload a clearer copy."
+            : json?.error === "pending_documents_exist"
+            ? `${json.pending_count ?? "Some"} document(s) still need confirmation before processing.`
+            : json?.error ?? "Failed to submit";
+        setError(errMsg);
         return;
       }
       await refresh();

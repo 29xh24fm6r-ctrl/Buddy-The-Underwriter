@@ -794,6 +794,13 @@ export async function processArtifact(
               const preliminaryConfidence = bestSeg?.confidence ?? null;
               const preliminaryYear = bestSeg?.taxYear ?? null;
 
+              // Evaluate quality using the SAME evaluator as the normal classification path
+              const segQualityResult = evaluateDocumentQuality({
+                ocrTextLength: text?.length ?? null,
+                ocrSucceeded: !!text && text.length > 0,
+                classificationConfidence: preliminaryConfidence,
+              });
+
               // Stamp document with preliminary classification + CLASSIFIED_PENDING_REVIEW
               await (sb as any)
                 .from("deal_documents")
@@ -805,6 +812,8 @@ export async function processArtifact(
                   ai_tax_year: preliminaryYear,
                   doc_year: preliminaryYear,
                   classification_tier: bestSeg?.spineTier ?? null,
+                  quality_status: segQualityResult.status,
+                  ocr_text_length: text?.length ?? null,
                 } as any)
                 .eq("id", source_id);
 

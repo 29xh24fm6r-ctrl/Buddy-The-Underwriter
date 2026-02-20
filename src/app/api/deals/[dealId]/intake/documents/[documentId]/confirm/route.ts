@@ -8,6 +8,8 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import { INTAKE_CONFIRMATION_VERSION } from "@/lib/intake/confirmation/types";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { SEGMENTATION_VERSION } from "@/lib/intake/segmentation/types";
+import { extractFilenamePattern } from "@/lib/intake/overrideIntelligence/extractFilenamePattern";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,7 +90,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       .from("deal_documents")
       .select(
         `id, canonical_type, document_type, checklist_key, doc_year,
-         ai_confidence, classification_tier, intake_status`,
+         ai_confidence, classification_tier, intake_status,
+         original_filename, match_source, classification_version, gatekeeper_route`,
       )
       .eq("id", documentId)
       .eq("deal_id", dealId)
@@ -171,7 +174,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       afterState.checklist_key !== beforeState.checklist_key ||
       afterState.doc_year !== beforeState.doc_year;
 
-    // Emit event
+    // Emit intake event
     void writeEvent({
       dealId,
       kind: hasDelta
@@ -189,6 +192,33 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         intake_confirmation_version: INTAKE_CONFIRMATION_VERSION,
       },
     });
+
+    // Override Intelligence: emit classification.manual_override when canonical_type changed
+    // Feeds into override_clusters_v1, override_drift_v1, drift detection, golden corpus
+    if (hasDelta && afterState.canonical_type !== beforeState.canonical_type) {
+      void writeEvent({
+        dealId,
+        kind: "classification.manual_override",
+        actorUserId: access.userId,
+        scope: "classification",
+        action: "manual_override",
+        confidence: 1.0,
+        meta: {
+          document_id: documentId,
+          original_type: beforeState.canonical_type,
+          corrected_type: afterState.canonical_type,
+          classified_by: access.userId,
+          // Override Intelligence enrichment (Phase B)
+          confidence_at_time: (doc as any).ai_confidence ?? null,
+          classifier_source: (doc as any).match_source ?? null,
+          classification_version: (doc as any).classification_version ?? null,
+          filename_pattern: extractFilenamePattern((doc as any).original_filename),
+          match_result_state: (doc as any).gatekeeper_route ?? null,
+          segmentation_version: SEGMENTATION_VERSION,
+          source: "intake_review_table",
+        },
+      });
+    }
 
     return NextResponse.json({
       ok: true,

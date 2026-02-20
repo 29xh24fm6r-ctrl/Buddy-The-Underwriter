@@ -1313,3 +1313,70 @@ test("[guard-83] Segmentation early-return stamps documents before returning", (
     "segmentation stamp must transition deal phase",
   );
 });
+
+test("[guard-84] Segmentation stamp includes quality_status and ocr_text_length", () => {
+  const src = readSource("src/lib/artifacts/processArtifact.ts");
+  // The segmentation stamp block must evaluate quality using evaluateDocumentQuality
+  // and stamp quality_status + ocr_text_length to prevent quality_gate_failed 422
+  assert.ok(
+    src.includes("segQualityResult") || src.includes("evaluateDocumentQuality"),
+    "segmentation stamp must call evaluateDocumentQuality",
+  );
+  assert.ok(
+    src.includes("quality_status: segQualityResult.status"),
+    "segmentation stamp must write quality_status from evaluateDocumentQuality result",
+  );
+  assert.ok(
+    src.includes("ocr_text_length"),
+    "segmentation stamp must write ocr_text_length",
+  );
+});
+
+test("[guard-85] Per-doc confirm emits classification.manual_override on type change", () => {
+  const src = readSource(
+    "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts",
+  );
+  assert.ok(
+    src.includes("classification.manual_override"),
+    "per-doc confirm must emit classification.manual_override for Override Intelligence",
+  );
+  assert.ok(
+    src.includes("extractFilenamePattern"),
+    "per-doc confirm must use shared extractFilenamePattern for enrichment",
+  );
+  assert.ok(
+    src.includes("SEGMENTATION_VERSION"),
+    "per-doc confirm must include SEGMENTATION_VERSION in override event",
+  );
+  assert.ok(
+    src.includes('source: "intake_review_table"'),
+    "per-doc confirm must tag override source as intake_review_table",
+  );
+});
+
+test("[guard-86] Shared extractFilenamePattern imported in both override surfaces", () => {
+  const checklistKey = readSource(
+    "src/app/api/deals/[dealId]/documents/[attachmentId]/checklist-key/route.ts",
+  );
+  const intakeConfirm = readSource(
+    "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts",
+  );
+  const sharedModulePath = "@/lib/intake/overrideIntelligence/extractFilenamePattern";
+  assert.ok(
+    checklistKey.includes(sharedModulePath),
+    "checklist-key route must import extractFilenamePattern from shared module",
+  );
+  assert.ok(
+    intakeConfirm.includes(sharedModulePath),
+    "per-doc confirm route must import extractFilenamePattern from shared module",
+  );
+  // No local definition should exist in either file
+  assert.ok(
+    !checklistKey.includes("function extractFilenamePattern"),
+    "checklist-key route must NOT define extractFilenamePattern locally (use shared module)",
+  );
+  assert.ok(
+    !intakeConfirm.includes("function extractFilenamePattern"),
+    "per-doc confirm route must NOT define extractFilenamePattern locally (use shared module)",
+  );
+});
