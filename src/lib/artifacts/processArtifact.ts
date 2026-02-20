@@ -780,6 +780,80 @@ export async function processArtifact(
             },
           );
 
+          // ── Stamp document so Intake Review Table shows classification data ──
+          // Multi-form PDFs always route to CLASSIFIED_PENDING_REVIEW.
+          // Use the best segment classification as preliminary doc type.
+          if (isIntakeConfirmationGateEnabled() && source_table === "deal_documents") {
+            try {
+              // Pick best-confidence segment for preliminary type
+              const bestSeg = segResult.segmentClassifications.reduce(
+                (best, seg) => (seg.confidence > best.confidence ? seg : best),
+                segResult.segmentClassifications[0],
+              );
+              const preliminaryType = bestSeg?.docType ?? null;
+              const preliminaryConfidence = bestSeg?.confidence ?? null;
+
+              // Stamp document with preliminary classification + CLASSIFIED_PENDING_REVIEW
+              await (sb as any)
+                .from("deal_documents")
+                .update({
+                  intake_status: "CLASSIFIED_PENDING_REVIEW",
+                  canonical_type: preliminaryType,
+                  ai_doc_type: preliminaryType,
+                  ai_confidence: preliminaryConfidence,
+                  classification_tier: bestSeg?.spineTier ?? null,
+                } as any)
+                .eq("id", source_id);
+
+              // Transition deal phase BULK_UPLOADED → CLASSIFIED_PENDING_CONFIRMATION
+              const { data: dealPhaseRow } = await sb
+                .from("deals")
+                .select("intake_phase")
+                .eq("id", dealId)
+                .maybeSingle();
+              const phase = (dealPhaseRow as any)?.intake_phase as string | null;
+              if (phase === "BULK_UPLOADED") {
+                await (sb as any)
+                  .from("deals")
+                  .update({ intake_phase: "CLASSIFIED_PENDING_CONFIRMATION" } as any)
+                  .eq("id", dealId);
+              }
+
+              // Mark artifact as classified (deferred)
+              await (sb as any)
+                .from("document_artifacts")
+                .update({
+                  status: "classified",
+                  doc_type_confidence: preliminaryConfidence,
+                  doc_type_reason: `multi_form_segmented:${segResult.reason} (preliminary: ${preliminaryType})`,
+                } as any)
+                .eq("id", artifactId);
+
+              void writeEvent({
+                dealId,
+                kind: "intake.gate_held",
+                scope: "intake",
+                confidence: preliminaryConfidence,
+                meta: {
+                  document_id: source_id,
+                  intake_status: "CLASSIFIED_PENDING_REVIEW",
+                  intake_phase: phase,
+                  multi_form: true,
+                  segment_count: segResult.segmentCount,
+                  preliminary_type: preliminaryType,
+                  segmentation_reason: segResult.reason,
+                },
+              });
+            } catch (stampErr: any) {
+              // Non-fatal: if stamp fails, doc stays unclassified but pipeline continues
+              console.warn("[processArtifact] segmentation stamp failed (non-fatal)", {
+                artifactId,
+                source_id,
+                error: stampErr?.message,
+              });
+            }
+          }
+
           return {
             ok: true,
             artifactId,

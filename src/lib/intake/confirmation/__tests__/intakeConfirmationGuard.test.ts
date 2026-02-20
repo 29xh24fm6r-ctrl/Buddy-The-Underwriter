@@ -1293,3 +1293,23 @@ test("[guard-82] No processing state reachable without confirmed phase", () => {
     `submitting mode should only be set in onSubmitted callback paths (found ${submittingMatches.length})`,
   );
 });
+
+test("[guard-83] Segmentation early-return stamps documents before returning", () => {
+  const src = readSource("src/lib/artifacts/processArtifact.ts");
+  // The segmentation early-return path must stamp intake_status before returning
+  // so that multi-form PDFs appear with classification data in the Intake Review Table
+  assert.ok(
+    src.includes("CLASSIFIED_PENDING_REVIEW") && src.includes("multi_form_segmented"),
+    "segmentation early-return must stamp intake_status = CLASSIFIED_PENDING_REVIEW",
+  );
+  // Must set preliminary canonical_type from segment classifications
+  assert.ok(
+    src.includes("segResult.segmentClassifications"),
+    "segmentation stamp must use segment classifications for preliminary type",
+  );
+  // Must transition deal phase from BULK_UPLOADED
+  assert.ok(
+    src.includes("BULK_UPLOADED") && src.includes("CLASSIFIED_PENDING_CONFIRMATION"),
+    "segmentation stamp must transition deal phase",
+  );
+});
