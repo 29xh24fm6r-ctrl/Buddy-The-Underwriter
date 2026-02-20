@@ -920,7 +920,7 @@ export default function NewDealClient({
               ) : (
                 <>
                   <span className="material-symbols-outlined text-[20px]">upload</span>
-                  Start Deal Processing
+                  Create Deal &amp; Begin Classification
                 </>
               )}
             </button>

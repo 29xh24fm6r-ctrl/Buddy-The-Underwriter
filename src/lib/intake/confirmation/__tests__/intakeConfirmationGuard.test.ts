@@ -9,6 +9,7 @@
  * Guard 56: Canonical Intake Invariant locked in MEMORY.md
  * Guards 57-70: S1 spread invariant harness
  * Guards 71-76: E2E regression tripwires (bulk upload, tax year, documents 500)
+ * Guard 77: Production hardening invariant (gate fail-closed)
  */
 
 import test from "node:test";
@@ -1213,4 +1214,25 @@ test("[guard-76] No naive highest-year selection in any classifier", () => {
       `${f} must NOT use years[years.length - 1] for year selection`,
     );
   }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Production Hardening (Guard 77)
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Guard 77: Gate forced ON in production regardless of env var ─────
+test("[guard-77] Intake confirmation gate is fail-closed in production", () => {
+  const src = readSource("src/lib/flags/intakeConfirmationGate.ts");
+  assert.ok(
+    src.includes('NODE_ENV') && src.includes('"production"'),
+    "intakeConfirmationGate must check NODE_ENV === production",
+  );
+  assert.ok(
+    src.includes("return true"),
+    "intakeConfirmationGate must return true (forced ON) in production fallback",
+  );
+  assert.ok(
+    src.includes("[CRITICAL]"),
+    "intakeConfirmationGate must log CRITICAL when gate is forced ON",
+  );
 });
