@@ -13,7 +13,11 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { writeEvent } from "@/lib/ledger/writeEvent";
-import { INTAKE_CONFIRMATION_VERSION } from "@/lib/intake/confirmation/types";
+import {
+  INTAKE_CONFIRMATION_VERSION,
+  INTAKE_SNAPSHOT_VERSION,
+  computeIntakeSnapshotHash,
+} from "@/lib/intake/confirmation/types";
 
 // ── Extract-eligible canonical types (mirrors processArtifact routing) ──
 
@@ -65,6 +69,82 @@ export async function processConfirmedIntake(
   const errors: string[] = [];
   const matchResults: Array<{ documentId: string; decision: string }> = [];
   const extractResults: Array<{ documentId: string; ok: boolean }> = [];
+
+  // ── SNAPSHOT VERIFICATION (fail-closed) ─────────────────────────────
+  // The execution root defends itself: recompute hash, compare to stored.
+  // No downstream work executes until this block passes.
+
+  const { data: dealRow, error: dealLoadErr } = await sb
+    .from("deals")
+    .select("intake_phase, intake_snapshot_hash")
+    .eq("id", dealId)
+    .maybeSingle();
+
+  if (dealLoadErr || !dealRow) {
+    throw new Error(`[processConfirmedIntake] deal not found: ${dealId}`);
+  }
+
+  if ((dealRow as any).intake_phase !== "CONFIRMED_READY_FOR_PROCESSING") {
+    throw new Error(
+      `[processConfirmedIntake] deal ${dealId} not in CONFIRMED phase (got: ${(dealRow as any).intake_phase})`,
+    );
+  }
+
+  const storedHash = (dealRow as any).intake_snapshot_hash as string | null;
+  if (!storedHash) {
+    void writeEvent({
+      dealId,
+      kind: "intake.snapshot_hash_missing",
+      scope: "intake",
+      meta: {
+        snapshot_version: INTAKE_SNAPSHOT_VERSION,
+        confirmation_version: INTAKE_CONFIRMATION_VERSION,
+      },
+    });
+    throw new Error(
+      `[processConfirmedIntake] intake_snapshot_hash is null for confirmed deal ${dealId}`,
+    );
+  }
+
+  // Load docs for hash recomputation
+  const { data: hashDocs, error: hashDocsErr } = await (sb as any)
+    .from("deal_documents")
+    .select("id, canonical_type, doc_year")
+    .eq("deal_id", dealId);
+
+  if (hashDocsErr || !hashDocs?.length) {
+    throw new Error(
+      `[processConfirmedIntake] cannot load docs for hash verification: ${hashDocsErr?.message ?? "no_docs"}`,
+    );
+  }
+
+  const recomputedHash = computeIntakeSnapshotHash(
+    hashDocs.map((d: any) => ({
+      id: d.id,
+      canonical_type: d.canonical_type,
+      doc_year: d.doc_year,
+    })),
+  );
+
+  if (recomputedHash !== storedHash) {
+    void writeEvent({
+      dealId,
+      kind: "intake.snapshot_mismatch_detected",
+      scope: "intake",
+      meta: {
+        stored_hash: storedHash,
+        recomputed_hash: recomputedHash,
+        doc_count: hashDocs.length,
+        snapshot_version: INTAKE_SNAPSHOT_VERSION,
+        confirmation_version: INTAKE_CONFIRMATION_VERSION,
+      },
+    });
+    throw new Error(
+      `[processConfirmedIntake] snapshot mismatch for deal ${dealId} — stored: ${storedHash.slice(0, 12)}… recomputed: ${recomputedHash.slice(0, 12)}…`,
+    );
+  }
+
+  // ── END SNAPSHOT VERIFICATION ───────────────────────────────────────
 
   // 1. Load all confirmed docs
   const { data: docs, error: loadErr } = await (sb as any)

@@ -739,6 +739,11 @@ export async function POST(req: NextRequest, ctx: Context) {
       }
     }
 
+    // Phase E1: Invalidate snapshot if deal was already confirmed
+    void import("@/lib/intake/confirmation/invalidateIntakeSnapshot")
+      .then((m) => m.invalidateIntakeSnapshot(dealId, "banker_upload"))
+      .catch(() => {});
+
     // ❌ NO reconcile here — classification must happen FIRST.
     // The artifact processor (processArtifact.ts) handles:
     //   OCR → classify → stamp deal_documents → reconcile → recomputeReadiness

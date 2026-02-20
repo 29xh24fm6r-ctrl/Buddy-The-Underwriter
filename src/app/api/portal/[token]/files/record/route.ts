@@ -342,6 +342,11 @@ export async function POST(req: NextRequest, ctx: Context) {
       metadata: { task_checklist_key: checklist_key, skip_filename_match: true },
     });
 
+    // Phase E1: Invalidate snapshot if deal was already confirmed
+    void import("@/lib/intake/confirmation/invalidateIntakeSnapshot")
+      .then((m) => m.invalidateIntakeSnapshot(dealId, "borrower_portal"))
+      .catch(() => {});
+
     await writeEvent({
       dealId,
       kind: "deal.document.uploaded",

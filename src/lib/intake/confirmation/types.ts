@@ -29,6 +29,7 @@ export const CONFIDENCE_THRESHOLDS = {
 } as const;
 
 export const INTAKE_CONFIRMATION_VERSION = "confirmation_v1";
+export const INTAKE_SNAPSHOT_VERSION = "snapshot_v1" as const;
 
 // ── Pure Functions ─────────────────────────────────────────────────────
 

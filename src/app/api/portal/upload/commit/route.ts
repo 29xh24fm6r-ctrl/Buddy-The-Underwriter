@@ -308,6 +308,11 @@ export async function POST(req: Request) {
       },
     });
 
+    // Phase E1: Invalidate snapshot if deal was already confirmed
+    void import("@/lib/intake/confirmation/invalidateIntakeSnapshot")
+      .then((m) => m.invalidateIntakeSnapshot(invite.deal_id, "portal_commit"))
+      .catch(() => {});
+
     await writeEvent({
       dealId: invite.deal_id,
       kind: "deal.document.uploaded",

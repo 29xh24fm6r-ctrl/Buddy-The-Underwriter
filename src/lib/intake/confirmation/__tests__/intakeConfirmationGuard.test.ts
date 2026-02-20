@@ -1,8 +1,8 @@
 /**
- * Phase E0 — Intake Confirmation Gate CI Guards
+ * Phase E0 + E1 — Intake Confirmation Gate CI Guards
  *
- * 10 CI-blocking guards ensuring the confirmation gate
- * remains structurally sound across all changes.
+ * Guards 1-10: E0 confirmation gate structural integrity
+ * Guards 11-17: E1 snapshot enforcement & processing boundary lock
  */
 
 import test from "node:test";
@@ -12,6 +12,7 @@ import path from "node:path";
 import {
   CONFIDENCE_THRESHOLDS,
   INTAKE_CONFIRMATION_VERSION,
+  INTAKE_SNAPSHOT_VERSION,
   confidenceBand,
   deriveIntakeStatus,
   computeIntakeSnapshotHash,
@@ -192,4 +193,102 @@ test("[guard-10] computeIntakeSnapshotHash() is deterministic", () => {
 
   // Confirmation version is stable
   assert.equal(INTAKE_CONFIRMATION_VERSION, "confirmation_v1");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase E1 — Snapshot Enforcement & Processing Boundary Lock
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Guard 11: INTAKE_SNAPSHOT_VERSION CI-locked ──────────────────────
+
+test("[guard-11] INTAKE_SNAPSHOT_VERSION is CI-locked (snapshot_v1)", () => {
+  assert.equal(INTAKE_SNAPSHOT_VERSION, "snapshot_v1");
+});
+
+// ── Guard 12: processConfirmedIntake verifies snapshot hash ──────────
+
+test("[guard-12] processConfirmedIntake contains computeIntakeSnapshotHash (verification at execution root)", () => {
+  const src = readSource("src/lib/intake/processing/processConfirmedIntake.ts");
+  assert.ok(
+    src.includes("computeIntakeSnapshotHash"),
+    "processConfirmedIntake.ts must call computeIntakeSnapshotHash for verification",
+  );
+  assert.ok(
+    src.includes("intake_snapshot_hash"),
+    "processConfirmedIntake.ts must read stored intake_snapshot_hash",
+  );
+});
+
+// ── Guard 13: processConfirmedIntake emits snapshot_mismatch_detected ─
+
+test("[guard-13] processConfirmedIntake emits intake.snapshot_mismatch_detected", () => {
+  const src = readSource("src/lib/intake/processing/processConfirmedIntake.ts");
+  assert.ok(
+    src.includes("intake.snapshot_mismatch_detected"),
+    "processConfirmedIntake.ts must emit intake.snapshot_mismatch_detected on hash mismatch",
+  );
+  assert.ok(
+    src.includes("intake.snapshot_hash_missing"),
+    "processConfirmedIntake.ts must emit intake.snapshot_hash_missing when hash is null",
+  );
+});
+
+// ── Guard 14: Correction endpoint has LOCKED_FOR_PROCESSING guard ────
+
+test("[guard-14] correction endpoint blocks LOCKED_FOR_PROCESSING documents", () => {
+  const src = readSource(
+    "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts",
+  );
+  assert.ok(
+    src.includes("LOCKED_FOR_PROCESSING"),
+    "correction endpoint must check for LOCKED_FOR_PROCESSING status",
+  );
+  assert.ok(
+    src.includes("document_locked_for_processing"),
+    "correction endpoint must reject with document_locked_for_processing error",
+  );
+});
+
+// ── Guard 15: invalidateIntakeSnapshot structural integrity ──────────
+
+test("[guard-15] invalidateIntakeSnapshot is server-only and emits correct events", () => {
+  const src = readSource(
+    "src/lib/intake/confirmation/invalidateIntakeSnapshot.ts",
+  );
+  assert.ok(
+    src.includes('import "server-only"'),
+    "invalidateIntakeSnapshot.ts must be server-only",
+  );
+  assert.ok(
+    src.includes("intake.snapshot_invalidated_new_upload"),
+    "invalidateIntakeSnapshot.ts must emit intake.snapshot_invalidated_new_upload",
+  );
+  assert.ok(
+    src.includes("CLASSIFIED_PENDING_CONFIRMATION"),
+    "invalidateIntakeSnapshot.ts must reset to CLASSIFIED_PENDING_CONFIRMATION",
+  );
+});
+
+// ── Guard 16: Banker upload route references invalidateIntakeSnapshot ─
+
+test("[guard-16] banker upload route calls invalidateIntakeSnapshot", () => {
+  const src = readSource("src/app/api/deals/[dealId]/files/record/route.ts");
+  assert.ok(
+    src.includes("invalidateIntakeSnapshot"),
+    "banker upload route must reference invalidateIntakeSnapshot",
+  );
+});
+
+// ── Guard 17: Confirm route stores intake_snapshot_version ───────────
+
+test("[guard-17] confirm route stores intake_snapshot_version via INTAKE_SNAPSHOT_VERSION", () => {
+  const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+  assert.ok(
+    src.includes("INTAKE_SNAPSHOT_VERSION"),
+    "confirm route must import and use INTAKE_SNAPSHOT_VERSION",
+  );
+  assert.ok(
+    src.includes("intake_snapshot_version"),
+    "confirm route must store intake_snapshot_version on deals",
+  );
 });

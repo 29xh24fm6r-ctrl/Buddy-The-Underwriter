@@ -7,6 +7,7 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import {
   INTAKE_CONFIRMATION_VERSION,
+  INTAKE_SNAPSHOT_VERSION,
   computeIntakeSnapshotHash,
 } from "@/lib/intake/confirmation/types";
 import { enqueueDealProcessing } from "@/lib/intake/processing/enqueueDealProcessing";
@@ -140,6 +141,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       .update({
         intake_phase: "CONFIRMED_READY_FOR_PROCESSING",
         intake_snapshot_hash: snapshotHash,
+        intake_snapshot_version: INTAKE_SNAPSHOT_VERSION,
       })
       .eq("id", dealId);
 
@@ -159,6 +161,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       meta: {
         docs_locked: allDocs.length,
         snapshot_hash: snapshotHash,
+        snapshot_version: INTAKE_SNAPSHOT_VERSION,
         confirmed_by: access.userId,
         intake_confirmation_version: INTAKE_CONFIRMATION_VERSION,
       },

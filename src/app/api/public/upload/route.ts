@@ -257,6 +257,11 @@ export async function POST(req: Request) {
       },
     });
 
+    // Phase E1: Invalidate snapshot if deal was already confirmed
+    void import("@/lib/intake/confirmation/invalidateIntakeSnapshot")
+      .then((m) => m.invalidateIntakeSnapshot(dealId, "public_link"))
+      .catch(() => {});
+
     // ✅ Audit trail: record borrower_uploads row for this upload (idempotent)
     // Note: borrower_uploads.request_id is a FK to borrower_document_requests, so we do NOT store link.id there.
     await recordBorrowerUploadAndMaterialize({

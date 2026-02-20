@@ -101,6 +101,25 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       );
     }
 
+    // Defense-in-depth: reject mutations on locked documents
+    if ((doc as any).intake_status === "LOCKED_FOR_PROCESSING") {
+      void writeEvent({
+        dealId,
+        kind: "intake.document_mutation_blocked_locked",
+        actorUserId: access.userId,
+        scope: "intake",
+        meta: {
+          document_id: documentId,
+          intake_status: "LOCKED_FOR_PROCESSING",
+          intake_confirmation_version: INTAKE_CONFIRMATION_VERSION,
+        },
+      });
+      return NextResponse.json(
+        { ok: false, error: "document_locked_for_processing" },
+        { status: 409 },
+      );
+    }
+
     const beforeState = {
       canonical_type: (doc as any).canonical_type,
       document_type: (doc as any).document_type,
