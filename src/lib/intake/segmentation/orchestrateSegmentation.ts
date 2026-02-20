@@ -56,6 +56,7 @@ type SegmentClassificationSummary = {
   docType: string | null;
   confidence: number;
   spineTier: string | null;
+  taxYear: number | null;
 };
 
 export type StorageContext = {
@@ -166,6 +167,7 @@ export async function orchestrateSegmentation(
       docType: classification.docType ?? null,
       confidence: classification.confidence,
       spineTier: classification.spineTier ?? null,
+      taxYear: classification.taxYear ?? null,
     };
 
     segmentClassifications.push(summary);

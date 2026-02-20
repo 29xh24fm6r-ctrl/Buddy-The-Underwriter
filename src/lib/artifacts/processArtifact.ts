@@ -792,6 +792,7 @@ export async function processArtifact(
               );
               const preliminaryType = bestSeg?.docType ?? null;
               const preliminaryConfidence = bestSeg?.confidence ?? null;
+              const preliminaryYear = bestSeg?.taxYear ?? null;
 
               // Stamp document with preliminary classification + CLASSIFIED_PENDING_REVIEW
               await (sb as any)
@@ -801,6 +802,8 @@ export async function processArtifact(
                   canonical_type: preliminaryType,
                   ai_doc_type: preliminaryType,
                   ai_confidence: preliminaryConfidence,
+                  ai_tax_year: preliminaryYear,
+                  doc_year: preliminaryYear,
                   classification_tier: bestSeg?.spineTier ?? null,
                 } as any)
                 .eq("id", source_id);
