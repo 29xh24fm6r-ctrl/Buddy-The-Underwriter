@@ -7,6 +7,7 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
 import { deriveLifecycleState } from "@/buddy/lifecycle";
 import { isGatekeeperPrimaryRoutingEnabled } from "@/lib/flags/openaiGatekeeper";
+import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 import type { LifecycleState } from "@/buddy/lifecycle";
 
@@ -84,6 +85,7 @@ export default async function DealCockpitPage({ params }: Props) {
     missingDocsCount: number;
   } | null = null;
   let lifecycleStage: string | null = null;
+  let intakePhase: string | null = null;
   let intakeInitialized = false;
   let ignitedEvent: { source: string | null; createdAt: string | null } | null = null;
   let verify: VerifyUnderwriteResult = {
@@ -152,7 +154,7 @@ export default async function DealCockpitPage({ params }: Props) {
     // Fetch deal metadata (name, borrower info)
     const { data: deal } = await sb
       .from("deals")
-      .select("display_name, nickname, borrower_name, borrower_id, lifecycle_stage, name")
+      .select("display_name, nickname, borrower_name, borrower_id, lifecycle_stage, name, intake_phase")
       .eq("id", dealId)
       .eq("bank_id", access.bankId)
       .maybeSingle();
@@ -164,6 +166,7 @@ export default async function DealCockpitPage({ params }: Props) {
       name: (deal as any)?.name ?? null,
     };
     lifecycleStage = (deal as any)?.lifecycle_stage ?? null;
+    intakePhase = (deal as any)?.intake_phase ?? null;
 
     const hasDisplayName = Boolean(
       (deal as any)?.display_name && String((deal as any).display_name).trim(),
@@ -264,6 +267,8 @@ export default async function DealCockpitPage({ params }: Props) {
           unifiedLifecycleState={unifiedLifecycleState}
           lifecycleAvailable={lifecycleAvailable}
           gatekeeperPrimaryRouting={isGatekeeperPrimaryRoutingEnabled()}
+          intakePhase={intakePhase}
+          intakeGateEnabled={isIntakeConfirmationGateEnabled()}
         />
       </Suspense>
     </div>

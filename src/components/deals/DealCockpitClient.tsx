@@ -75,6 +75,8 @@ type DealCockpitClientProps = {
   unifiedLifecycleState?: LifecycleState | null;
   lifecycleAvailable?: boolean;
   gatekeeperPrimaryRouting?: boolean;
+  intakePhase?: string | null;
+  intakeGateEnabled?: boolean;
 };
 
 export default function DealCockpitClient(props: DealCockpitClientProps) {
@@ -95,6 +97,8 @@ function DealCockpitClientInner({
   unifiedLifecycleState,
   lifecycleAvailable: _lifecycleAvailable = true,
   gatekeeperPrimaryRouting = false,
+  intakePhase,
+  intakeGateEnabled = false,
 }: DealCockpitClientProps) {
   const [stage, setStage] = useState<string | null>(lifecycleStage ?? null);
   const { deal: dealMeta, refresh: refreshMeta, setDeal: setDealMeta } = useDealMeta(dealId);
@@ -324,6 +328,8 @@ function DealCockpitClientInner({
               isAdmin={isAdmin}
               lifecycleStage={stage}
               intakeInitialized={intakeInitialized}
+              intakePhase={intakePhase}
+              intakeGateEnabled={intakeGateEnabled}
               verify={verify}
               verifyLedger={verifyLedger}
               unifiedLifecycleState={unifiedLifecycleState}

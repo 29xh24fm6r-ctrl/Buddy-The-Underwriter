@@ -61,6 +61,7 @@ type Props = {
   lifecycleStage?: string | null;
   intakeInitialized?: boolean;
   intakePhase?: string | null;
+  intakeGateEnabled?: boolean;
   verify: VerifyUnderwriteResult;
   verifyLedger?: VerifyLedgerEvent | null;
   unifiedLifecycleState?: any;
@@ -73,6 +74,7 @@ export function SecondaryTabsPanel({
   lifecycleStage,
   intakeInitialized,
   intakePhase,
+  intakeGateEnabled = false,
   verify,
   verifyLedger,
   unifiedLifecycleState,
@@ -82,7 +84,13 @@ export function SecondaryTabsPanel({
   const router = useRouter();
   const pathname = usePathname();
   const urlTab = searchParams?.get("tab") as TabKey | null;
-  const [activeTab, setActiveTab] = useState<TabKey>(urlTab || "setup");
+  const defaultTab: TabKey = (() => {
+    if (urlTab && VALID_TAB_KEYS.has(urlTab)) return urlTab;
+    if (!intakeGateEnabled) return "setup";
+    if (intakePhase === "CLASSIFIED_PENDING_CONFIRMATION") return "intake";
+    return "setup";
+  })();
+  const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
   const panelRef = useRef<HTMLDivElement>(null);
   const isFirstRender = useRef(true);
 

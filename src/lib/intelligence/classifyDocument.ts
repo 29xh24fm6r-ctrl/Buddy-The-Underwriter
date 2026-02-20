@@ -38,11 +38,55 @@ function norm(s: string) {
 }
 
 function pickTaxYear(text: string): string | null {
-  const m = text.match(/\b(19|20)\d{2}\b/g);
-  if (!m || m.length === 0) return null;
-  // prefer the latest year mentioned
-  const years = Array.from(new Set(m)).sort();
-  return years[years.length - 1] ?? null;
+  if (!text) return null;
+
+  // 1. Highest signal: explicit "for calendar/tax year YYYY"
+  const explicit = text.match(
+    /for\s+(?:the\s+)?(?:calendar|tax)\s+year\s+(20[0-3]\d)\b/i,
+  );
+  if (explicit?.[1]) return explicit[1];
+
+  // 2. Common 1040: "For the year Jan. 1–Dec. 31, YYYY"
+  const forYear = text.match(
+    /for\s+the\s+year[\s\S]{0,40}?(20[0-3]\d)\b/i,
+  );
+  if (forYear?.[1]) return forYear[1];
+
+  // 3. Corporate/partnership: "beginning YYYY and ending YYYY" → pick beginning
+  const beginEnd = text.match(
+    /(?:tax\s+year\s+)?beginning[\s\S]{0,60}?(20[0-3]\d)\b[\s\S]{0,60}?and\s+ending[\s\S]{0,60}?(20[0-3]\d)\b/i,
+  );
+  if (beginEnd?.[1]) return beginEnd[1];
+
+  // 4. Calendar year end: "December 31, YYYY" or "12/31/YYYY"
+  const calYear = text.match(/(?:december\s+31|12\/31)[,\s]+(\d{4})/i);
+  if (calYear?.[1]) {
+    const y = Number(calYear[1]);
+    if (y >= 2000 && y <= 2039) return String(y);
+  }
+
+  // 5. Fallback: first 500 chars, prefer the LOWEST plausible year (tax year,
+  //    not preparation/filing year) to avoid picking future dates.
+  const head = text.slice(0, 500);
+  const allYears = [...head.matchAll(/\b(20[0-3]\d)\b/g)]
+    .map((m) => Number(m[1]))
+    .filter((y) => y >= 2000 && y <= 2039);
+  if (allYears.length > 0) {
+    // Remove years > current year (can't file a return for the future)
+    const currentYear = new Date().getFullYear();
+    const valid = allYears.filter((y) => y <= currentYear);
+    if (valid.length > 0) {
+      // Among valid years, prefer the most common; break ties with lowest
+      const freq = new Map<number, number>();
+      for (const y of valid) freq.set(y, (freq.get(y) ?? 0) + 1);
+      const sorted = [...freq.entries()].sort(
+        (a, b) => b[1] - a[1] || a[0] - b[0],
+      );
+      return String(sorted[0][0]);
+    }
+  }
+
+  return null;
 }
 
 function looksLikePAndL(t: string) {

@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
+import { queueArtifact } from "@/lib/artifacts/queueArtifact";
 
 function stableDocumentKeyFromUpload(upload: {
   storage_bucket: string | null;
@@ -110,6 +111,29 @@ export async function reconcileUploadsForDeal(dealId: string, bankId: string) {
 
   // Canonical checklist reconcile (stamps missing keys/years, triggers satisfaction)
   await reconcileChecklistForDeal({ sb, dealId });
+
+  // Queue all reconciled documents for artifact processing (classification/matching).
+  // This is idempotent — already-queued documents are skipped.
+  if (matched > 0) {
+    const { data: dealDocs } = await sb
+      .from("deal_documents")
+      .select("id")
+      .eq("deal_id", dealId)
+      .eq("bank_id", bankId);
+
+    if (dealDocs && dealDocs.length > 0) {
+      await Promise.all(
+        dealDocs.map((doc) =>
+          queueArtifact({
+            dealId,
+            bankId,
+            sourceTable: "deal_documents",
+            sourceId: doc.id,
+          }),
+        ),
+      );
+    }
+  }
 
   return { matched };
 }

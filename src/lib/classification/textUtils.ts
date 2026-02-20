@@ -28,13 +28,25 @@ export function extractTaxYear(text: string): number | null {
   const calYear = head.match(/(?:december\s+31|12\/31)[,\s]+(\d{4})/i);
   if (calYear) return Number(calYear[1]);
 
-  // Fallback: find 4-digit years in reasonable range in first 500 chars
+  // Fallback: find 4-digit years in reasonable range in first 500 chars.
+  // Prefer the most frequent year ≤ current year (tax year, not filing date).
   const shortHead = head.slice(0, 500);
   const years = [...shortHead.matchAll(/\b(20[12]\d)\b/g)].map((m) =>
     Number(m[1]),
   );
   if (years.length > 0) {
-    return Math.max(...years);
+    const currentYear = new Date().getFullYear();
+    const valid = years.filter((y) => y <= currentYear);
+    if (valid.length > 0) {
+      const freq = new Map<number, number>();
+      for (const y of valid) freq.set(y, (freq.get(y) ?? 0) + 1);
+      const sorted = [...freq.entries()].sort(
+        (a, b) => b[1] - a[1] || a[0] - b[0],
+      );
+      return sorted[0][0];
+    }
+    // All years are future — return the lowest (least wrong)
+    return Math.min(...years);
   }
 
   return null;

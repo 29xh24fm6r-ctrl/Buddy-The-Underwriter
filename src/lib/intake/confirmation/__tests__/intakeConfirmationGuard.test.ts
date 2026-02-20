@@ -6,6 +6,9 @@
  * Guards 18-27: E2 OCR quality gate & confidence enforcement
  * Guards 28-40: E3 deterministic supersession & ambiguity elimination
  * Guards 41-55: E4 institutional invariant harness
+ * Guard 56: Canonical Intake Invariant locked in MEMORY.md
+ * Guards 57-70: S1 spread invariant harness
+ * Guards 71-76: E2E regression tripwires (bulk upload, tax year, documents 500)
  */
 
 import test from "node:test";
@@ -895,4 +898,319 @@ test("[guard-55] review + invalidateIntakeSnapshot both filter is_active", () =>
     invalidateSrc.includes("is_active"),
     "invalidateIntakeSnapshot must filter by is_active",
   );
+});
+
+// ── Guard 56: Canonical Intake Invariant locked in MEMORY.md ──────────
+
+test("[guard-56] Canonical Intake Invariant text exists in MEMORY.md", () => {
+  const memoryPath = path.resolve(
+    process.env.HOME ?? "/home/user",
+    ".claude/projects/-home-user-Buddy-The-Underwriter/memory/MEMORY.md",
+  );
+  const src = fs.readFileSync(memoryPath, "utf-8");
+  assert.ok(src.includes("quality PASSED"), "MEMORY.md must contain 'quality PASSED'");
+  assert.ok(src.includes("identity resolved"), "MEMORY.md must contain 'identity resolved'");
+  assert.ok(src.includes("ambiguity-free"), "MEMORY.md must contain 'ambiguity-free'");
+  assert.ok(src.includes("snapshot-hash verified"), "MEMORY.md must contain 'snapshot-hash verified'");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// S1 — Spread Invariant Harness (Guards 57-70)
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Guard 57: resolveOwnerType routing ────────────────────────────────
+
+test("[guard-57] resolveOwnerType: PI→PERSONAL, PFS→PERSONAL, GCF→GLOBAL, rest→DEAL", async () => {
+  const { resolveOwnerType } = await import(
+    "@/lib/financialSpreads/resolveOwnerType"
+  );
+  assert.strictEqual(resolveOwnerType("PERSONAL_INCOME"), "PERSONAL");
+  assert.strictEqual(resolveOwnerType("PERSONAL_FINANCIAL_STATEMENT"), "PERSONAL");
+  assert.strictEqual(resolveOwnerType("GLOBAL_CASH_FLOW"), "GLOBAL");
+  assert.strictEqual(resolveOwnerType("T12"), "DEAL");
+  assert.strictEqual(resolveOwnerType("BALANCE_SHEET"), "DEAL");
+  assert.strictEqual(resolveOwnerType("RENT_ROLL"), "DEAL");
+  assert.strictEqual(resolveOwnerType("STANDARD"), "DEAL");
+});
+
+// ── Guard 58: spreadsForDocType canonical routing ─────────────────────
+
+test("[guard-58] spreadsForDocType: T12→[T12], RENT_ROLL→[RENT_ROLL], PTR→[PI,GCF]", async () => {
+  const { spreadsForDocType } = await import(
+    "@/lib/financialSpreads/docTypeToSpreadTypes"
+  );
+  assert.deepStrictEqual(spreadsForDocType("T12"), ["T12"]);
+  assert.deepStrictEqual(spreadsForDocType("RENT_ROLL"), ["RENT_ROLL"]);
+  assert.deepStrictEqual(spreadsForDocType("PERSONAL_TAX_RETURN"), ["PERSONAL_INCOME", "GLOBAL_CASH_FLOW"]);
+  assert.deepStrictEqual(spreadsForDocType("BALANCE_SHEET"), ["BALANCE_SHEET"]);
+  assert.deepStrictEqual(spreadsForDocType("PFS"), ["PERSONAL_FINANCIAL_STATEMENT", "GLOBAL_CASH_FLOW"]);
+});
+
+// ── Guard 59: spreadsForDocType edge cases ────────────────────────────
+
+test("[guard-59] spreadsForDocType: unknown→[], null→[], empty→[]", async () => {
+  const { spreadsForDocType } = await import(
+    "@/lib/financialSpreads/docTypeToSpreadTypes"
+  );
+  assert.deepStrictEqual(spreadsForDocType("UNKNOWN"), []);
+  assert.deepStrictEqual(spreadsForDocType(null as any), []);
+  assert.deepStrictEqual(spreadsForDocType(""), []);
+});
+
+// ── Guard 60: evaluatePrereq empty prereq ─────────────────────────────
+
+test("[guard-60] evaluatePrereq: empty prereq → always ready", async () => {
+  const { evaluatePrereq } = await import(
+    "@/lib/financialSpreads/evaluatePrereq"
+  );
+  const result = evaluatePrereq(
+    {},
+    { byFactType: {}, total: 0 } as any,
+    0,
+  );
+  assert.strictEqual(result.ready, true);
+  assert.strictEqual(result.missing.length, 0);
+});
+
+// ── Guard 61: evaluatePrereq missing fact ─────────────────────────────
+
+test("[guard-61] evaluatePrereq: missing fact → not ready with specific key", async () => {
+  const { evaluatePrereq } = await import(
+    "@/lib/financialSpreads/evaluatePrereq"
+  );
+  const result = evaluatePrereq(
+    { facts: { fact_types: ["INCOME_STATEMENT", "TAX_RETURN"] } },
+    { byFactType: { INCOME_STATEMENT: 3 }, total: 3 } as any,
+    0,
+  );
+  assert.strictEqual(result.ready, false);
+  assert.ok(result.missing.includes("fact_type:TAX_RETURN"));
+});
+
+// ── Guard 62: evaluatePrereq rent_roll_rows ───────────────────────────
+
+test("[guard-62] evaluatePrereq: rent_roll_rows=0 → not ready", async () => {
+  const { evaluatePrereq } = await import(
+    "@/lib/financialSpreads/evaluatePrereq"
+  );
+  const result = evaluatePrereq(
+    { tables: { rent_roll_rows: true } },
+    { byFactType: {}, total: 0 } as any,
+    0,
+  );
+  assert.strictEqual(result.ready, false);
+  assert.ok(result.missing.includes("table:rent_roll_rows"));
+});
+
+// ── Guard 63: CAS claim pins spread_version ───────────────────────────
+
+test("[guard-63] CAS claim pins spread_version in WHERE clause", () => {
+  const src = readSource("src/lib/jobs/processors/spreadsProcessor.ts");
+  const casStart = src.indexOf("transition queued");
+  const casEnd = src.indexOf(".maybeSingle()", casStart);
+  const casBlock = src.slice(casStart, casEnd);
+  assert.ok(
+    casBlock.includes('.eq("spread_version"'),
+    "CAS claim must include .eq(\"spread_version\")",
+  );
+});
+
+// ── Guard 64: Job merge handles 23505 unique violation ────────────────
+
+test("[guard-64] Job merge handles 23505 unique violation", () => {
+  const src = readSource("src/lib/financialSpreads/enqueueSpreadRecompute.ts");
+  assert.ok(src.includes("23505"), "enqueueSpreadRecompute must handle 23505");
+  const mergeBlock = src.slice(src.indexOf("23505"));
+  assert.ok(
+    mergeBlock.includes("requested_spread_types"),
+    "23505 handler must merge requested_spread_types",
+  );
+});
+
+// ── Guard 65: Enqueue uses tpl.version ────────────────────────────────
+
+test("[guard-65] Enqueue uses tpl.version (not hardcoded)", () => {
+  const src = readSource("src/lib/financialSpreads/enqueueSpreadRecompute.ts");
+  assert.ok(src.includes("tpl.version"), "enqueueSpreadRecompute must use tpl.version");
+  assert.ok(
+    !src.includes("spread_version: 1,"),
+    "enqueueSpreadRecompute must NOT hardcode spread_version: 1",
+  );
+});
+
+// ── Guard 66: Priority sort applied in processor ──────────────────────
+
+test("[guard-66] Priority sort applied in processor", () => {
+  const src = readSource("src/lib/jobs/processors/spreadsProcessor.ts");
+  assert.ok(src.includes("requested.sort"), "spreadsProcessor must sort requested");
+  assert.ok(
+    src.includes("getSpreadTemplate(a)?.priority"),
+    "spreadsProcessor must sort by template priority",
+  );
+});
+
+// ── Guard 67: Error-path cleanup pins spread_version ──────────────────
+
+test("[guard-67] Error-path cleanup pins spread_version", () => {
+  const src = readSource("src/lib/jobs/processors/spreadsProcessor.ts");
+  const errorStart = src.indexOf("NON-NEGOTIABLE: clean up");
+  assert.ok(errorStart > 0, "NON-NEGOTIABLE error path must exist");
+  const errorBlock = src.slice(errorStart, errorStart + 2000);
+  assert.ok(
+    errorBlock.includes('.eq("spread_version"'),
+    "Error-path must pin spread_version",
+  );
+  assert.ok(
+    errorBlock.includes('.eq("last_run_id", runId)'),
+    "Error-path must pin last_run_id (strict CAS)",
+  );
+});
+
+// ── Guard 68: ALL_SPREAD_TYPES has 7 members, no duplicates ───────────
+
+test("[guard-68] ALL_SPREAD_TYPES has 7 members, no duplicates", async () => {
+  const { ALL_SPREAD_TYPES } = await import("@/lib/financialSpreads/types");
+  assert.strictEqual(ALL_SPREAD_TYPES.length, 7, "Must have 7 spread types");
+  const unique = new Set(ALL_SPREAD_TYPES);
+  assert.strictEqual(unique.size, 7, "Must have no duplicates");
+});
+
+// ── Guard 69: Observer auto-heals stuck generating spreads ────────────
+
+test("[guard-69] Observer auto-heals stuck generating spreads", () => {
+  const src = readSource("src/lib/aegis/spreadsInvariants.ts");
+  assert.ok(
+    src.includes("GENERATING_CRITICAL_MIN"),
+    "Observer must define GENERATING_CRITICAL_MIN threshold",
+  );
+  assert.ok(
+    src.includes("auto-healed"),
+    "Observer must reference auto-heal behavior",
+  );
+  assert.ok(
+    src.includes('status: "error"'),
+    "Observer must set stuck spreads to error status",
+  );
+});
+
+// ── Guard 70: No __invariants__/ test uses setTimeout or Math.random ──
+
+test("[guard-70] No __invariants__/ test uses setTimeout or Math.random (determinism)", () => {
+  const invariantDirs = [
+    "src/lib/intake/__invariants__",
+    "src/lib/spreads/__invariants__",
+  ];
+
+  for (const dir of invariantDirs) {
+    let files: string[];
+    try {
+      files = fs.readdirSync(path.resolve(process.cwd(), dir));
+    } catch {
+      continue; // dir may not exist yet
+    }
+
+    for (const file of files) {
+      if (!file.endsWith(".test.ts")) continue;
+      const src = fs.readFileSync(
+        path.resolve(process.cwd(), dir, file),
+        "utf-8",
+      );
+      assert.ok(
+        !src.includes("setTimeout"),
+        `${dir}/${file} must NOT use setTimeout`,
+      );
+      assert.ok(
+        !src.includes("Math.random"),
+        `${dir}/${file} must NOT use Math.random`,
+      );
+    }
+  }
+});
+
+// ── Guards 71-76: E2E Regression Tripwires ─────────────────────────────
+
+// ── Guard 71: reconcileUploadsForDeal must call queueArtifact ──────────
+test("[guard-71] reconcileUploadsForDeal queues artifacts for processing", () => {
+  const src = readSource("src/lib/documents/reconcileUploads.ts");
+  assert.ok(
+    src.includes("queueArtifact"),
+    "reconcileUploads.ts must call queueArtifact to trigger processing after reconcile",
+  );
+});
+
+// ── Guard 72: pickTaxYear must NOT use naive sort() for highest year ───
+test("[guard-72] pickTaxYear uses pattern-based extraction (not naive sort)", () => {
+  const src = readSource("src/lib/intelligence/classifyDocument.ts");
+  assert.ok(
+    !src.includes("years[years.length - 1]"),
+    "pickTaxYear must NOT pick the last element of a sorted array (naive highest year)",
+  );
+  assert.ok(
+    src.includes("calendar") || src.includes("tax\\s+year"),
+    "pickTaxYear must use explicit tax year patterns",
+  );
+});
+
+// ── Guard 73: extractTaxYear must clamp against future years ───────────
+test("[guard-73] extractTaxYear clamps against future years in fallback", () => {
+  const src = readSource("src/lib/classification/textUtils.ts");
+  const fallbackStart = src.indexOf("Fallback:");
+  assert.ok(fallbackStart > 0, "extractTaxYear must have Fallback section");
+  const fallbackBlock = src.slice(fallbackStart, fallbackStart + 600);
+  assert.ok(
+    fallbackBlock.includes("currentYear") || fallbackBlock.includes("getFullYear"),
+    "extractTaxYear fallback must clamp against current year",
+  );
+  assert.ok(
+    !fallbackBlock.includes("Math.max(...years)"),
+    "extractTaxYear must NOT use Math.max(...years) in fallback (picks future years)",
+  );
+});
+
+// ── Guard 74: documents GET endpoint has try/catch error handler ───────
+test("[guard-74] documents GET endpoint has try/catch with AuthorizationError handling", () => {
+  const src = readSource("src/app/api/deals/[dealId]/documents/route.ts");
+  assert.ok(
+    src.includes("try {") && src.includes("catch"),
+    "documents GET must wrap handler in try/catch",
+  );
+  assert.ok(
+    src.includes("AuthorizationError"),
+    "documents GET must handle AuthorizationError",
+  );
+  assert.ok(
+    src.includes("rethrowNextErrors"),
+    "documents GET must call rethrowNextErrors in catch block",
+  );
+});
+
+// ── Guard 75: pickTaxYear prefers tax year over preparation date ───────
+test("[guard-75] pickTaxYear prefers beginning year in beginning/ending pattern", () => {
+  const src = readSource("src/lib/intelligence/classifyDocument.ts");
+  assert.ok(
+    src.includes("beginning") && src.includes("ending"),
+    "pickTaxYear must handle beginning/ending year pattern",
+  );
+  // The beginning year must be captured first (group 1)
+  const beginEndMatch = src.match(/beginning[\s\S]{0,80}?\(20\[0-3\]\\d\)/);
+  assert.ok(
+    beginEndMatch,
+    "pickTaxYear must capture beginning year as first group in beginning/ending pattern",
+  );
+});
+
+// ── Guard 76: No naive Math.max or sort-last for year selection ────────
+test("[guard-76] No naive highest-year selection in any classifier", () => {
+  const files = [
+    "src/lib/intelligence/classifyDocument.ts",
+    "src/lib/classification/textUtils.ts",
+  ];
+  for (const f of files) {
+    const src = readSource(f);
+    // Ensure no function simply takes the last sorted element as the year
+    assert.ok(
+      !src.includes("years[years.length - 1]"),
+      `${f} must NOT use years[years.length - 1] for year selection`,
+    );
+  }
 });
