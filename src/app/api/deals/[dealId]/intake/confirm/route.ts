@@ -70,11 +70,12 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       );
     }
 
-    // Reject if any docs are still unreviewed
+    // Reject if any active docs are still unreviewed
     const { count: pendingCount, error: countErr } = await (sb as any)
       .from("deal_documents")
       .select("id", { count: "exact", head: true })
       .eq("deal_id", dealId)
+      .eq("is_active", true)
       .in("intake_status", ["UPLOADED", "CLASSIFIED_PENDING_REVIEW"]);
 
     if (countErr) {
@@ -100,6 +101,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       .from("deal_documents")
       .select("id", { count: "exact", head: true })
       .eq("deal_id", dealId)
+      .eq("is_active", true)
       .or("quality_status.is.null,quality_status.neq.PASSED");
 
     if (qualityErr) {
@@ -127,11 +129,64 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       );
     }
 
-    // Load all docs for locking + snapshot hash
+    // E3: Entity ambiguity gate — fail-closed
+    // Cannot seal multiple unresolved entity-scoped docs of same type+year
+    const { data: ambiguousDocs, error: ambiguityErr } = await (sb as any)
+      .from("deal_documents")
+      .select("canonical_type, doc_year")
+      .eq("deal_id", dealId)
+      .eq("is_active", true)
+      .is("logical_key", null)
+      .in("canonical_type", [
+        "PERSONAL_TAX_RETURN",
+        "PERSONAL_FINANCIAL_STATEMENT",
+        "BUSINESS_TAX_RETURN",
+      ]);
+
+    if (ambiguityErr) {
+      return NextResponse.json(
+        { ok: false, error: "ambiguity_check_failed", detail: ambiguityErr.message },
+        { status: 500 },
+      );
+    }
+
+    if (ambiguousDocs && ambiguousDocs.length > 0) {
+      // Group by canonical_type + doc_year, check for duplicates
+      const groups = new Map<string, number>();
+      for (const d of ambiguousDocs) {
+        const key = `${d.canonical_type}|${d.doc_year ?? "NA"}`;
+        groups.set(key, (groups.get(key) ?? 0) + 1);
+      }
+      const duplicateGroups = [...groups.entries()].filter(([, count]) => count > 1);
+
+      if (duplicateGroups.length > 0) {
+        void writeEvent({
+          dealId,
+          kind: "intake.confirmation_blocked_entity_ambiguity",
+          actorUserId: access.userId,
+          scope: "intake",
+          meta: {
+            ambiguous_groups: duplicateGroups.map(([key, count]) => ({ key, count })),
+            total_unresolved: ambiguousDocs.length,
+          },
+        });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "entity_ambiguity_unresolved",
+            ambiguous_groups: duplicateGroups.map(([key, count]) => ({ key, count })),
+          },
+          { status: 422 },
+        );
+      }
+    }
+
+    // Load all active docs for locking + snapshot hash
     const { data: allDocs, error: docsErr } = await (sb as any)
       .from("deal_documents")
-      .select("id, canonical_type, doc_year")
-      .eq("deal_id", dealId);
+      .select("id, canonical_type, doc_year, logical_key")
+      .eq("deal_id", dealId)
+      .eq("is_active", true);
 
     if (docsErr || !allDocs?.length) {
       return NextResponse.json(
@@ -142,14 +197,15 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
 
     const now = new Date().toISOString();
 
-    // Lock all docs
+    // Lock all active docs
     const { error: lockErr } = await (sb as any)
       .from("deal_documents")
       .update({
         intake_status: "LOCKED_FOR_PROCESSING",
         intake_locked_at: now,
       })
-      .eq("deal_id", dealId);
+      .eq("deal_id", dealId)
+      .eq("is_active", true);
 
     if (lockErr) {
       return NextResponse.json(
@@ -158,9 +214,10 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       );
     }
 
-    // Compute snapshot hash
+    // Compute snapshot hash — only identity-resolved docs (logical_key IS NOT NULL)
+    const sealableDocs = allDocs.filter((d: any) => d.logical_key != null);
     const snapshotHash = computeIntakeSnapshotHash(
-      allDocs.map((d: any) => ({
+      sealableDocs.map((d: any) => ({
         id: d.id,
         canonical_type: d.canonical_type,
         doc_year: d.doc_year,

@@ -46,7 +46,7 @@ export async function invalidateIntakeSnapshot(
       })
       .eq("id", dealId);
 
-    // Unlock all LOCKED_FOR_PROCESSING docs → AUTO_CONFIRMED
+    // Unlock all active LOCKED_FOR_PROCESSING docs → AUTO_CONFIRMED
     await (sb as any)
       .from("deal_documents")
       .update({
@@ -54,6 +54,7 @@ export async function invalidateIntakeSnapshot(
         intake_locked_at: null,
       })
       .eq("deal_id", dealId)
+      .eq("is_active", true)
       .eq("intake_status", "LOCKED_FOR_PROCESSING");
 
     // Emit event

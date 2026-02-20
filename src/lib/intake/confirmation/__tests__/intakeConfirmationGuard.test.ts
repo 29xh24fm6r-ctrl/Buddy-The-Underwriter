@@ -1,9 +1,10 @@
 /**
- * Phase E0 + E1 + E2 — Intake Confirmation Gate CI Guards
+ * Phase E0 + E1 + E2 + E3 — Intake Confirmation Gate CI Guards
  *
  * Guards 1-10: E0 confirmation gate structural integrity
  * Guards 11-17: E1 snapshot enforcement & processing boundary lock
  * Guards 18-27: E2 OCR quality gate & confidence enforcement
+ * Guards 28-40: E3 deterministic supersession & ambiguity elimination
  */
 
 import test from "node:test";
@@ -23,6 +24,10 @@ import {
   QUALITY_VERSION,
   QUALITY_THRESHOLDS,
 } from "../../quality/evaluateDocumentQuality";
+import {
+  computeLogicalKey,
+  SUPERSESSION_VERSION,
+} from "../../supersession/computeLogicalKey";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -421,5 +426,216 @@ test("[guard-27] confirm route quality check catches NULL quality_status (fail-c
   assert.ok(
     src.includes("quality_status.is.null"),
     "confirm route must check for NULL quality_status (fail-closed)",
+  );
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase E3 — Deterministic Supersession & Ambiguity Elimination
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Guard 28: computeLogicalKey deterministic + version CI-locked ────
+
+test("[guard-28] computeLogicalKey deterministic + SUPERSESSION_VERSION CI-locked", () => {
+  assert.equal(SUPERSESSION_VERSION, "supersession_v1");
+
+  // Deterministic: same input → same output
+  const key1 = computeLogicalKey({
+    canonicalType: "BUSINESS_TAX_RETURN",
+    taxYear: 2024,
+    qualityStatus: "PASSED",
+    entityId: "entity-1",
+  });
+  const key2 = computeLogicalKey({
+    canonicalType: "BUSINESS_TAX_RETURN",
+    taxYear: 2024,
+    qualityStatus: "PASSED",
+    entityId: "entity-1",
+  });
+  assert.equal(key1, key2, "Same input must produce same key");
+  assert.equal(key1, "BUSINESS_TAX_RETURN|2024|entity-1");
+
+  // Non-entity-scoped type uses "NA" for entity
+  const nonEntity = computeLogicalKey({
+    canonicalType: "RENT_ROLL",
+    taxYear: 2023,
+    qualityStatus: "PASSED",
+    entityId: null,
+  });
+  assert.equal(nonEntity, "RENT_ROLL|2023|NA");
+
+  // No tax year → "NA"
+  const noYear = computeLogicalKey({
+    canonicalType: "BALANCE_SHEET",
+    taxYear: null,
+    qualityStatus: "PASSED",
+    entityId: null,
+  });
+  assert.equal(noYear, "BALANCE_SHEET|NA|NA");
+});
+
+// ── Guard 29: computeLogicalKey returns null for null canonicalType ──
+
+test("[guard-29] computeLogicalKey returns null for null canonicalType", () => {
+  const key = computeLogicalKey({
+    canonicalType: null,
+    taxYear: 2024,
+    qualityStatus: "PASSED",
+    entityId: "entity-1",
+  });
+  assert.equal(key, null, "Unclassified docs must return null key");
+});
+
+// ── Guard 30: Entity-scoped types require entityId ──────────────────
+
+test("[guard-30] computeLogicalKey returns null for entity-scoped type with null entityId", () => {
+  const ptr = computeLogicalKey({
+    canonicalType: "PERSONAL_TAX_RETURN",
+    taxYear: 2024,
+    qualityStatus: "PASSED",
+    entityId: null,
+  });
+  assert.equal(ptr, null, "PTR without entityId must return null");
+
+  const pfs = computeLogicalKey({
+    canonicalType: "PERSONAL_FINANCIAL_STATEMENT",
+    taxYear: null,
+    qualityStatus: "PASSED",
+    entityId: null,
+  });
+  assert.equal(pfs, null, "PFS without entityId must return null");
+
+  const btr = computeLogicalKey({
+    canonicalType: "BUSINESS_TAX_RETURN",
+    taxYear: 2024,
+    qualityStatus: "PASSED",
+    entityId: null,
+  });
+  assert.equal(btr, null, "BTR without entityId must return null");
+});
+
+// ── Guard 31: Entity-scoped types include entityId in key ───────────
+
+test("[guard-31] computeLogicalKey includes entityId for entity-scoped types", () => {
+  const ptr = computeLogicalKey({
+    canonicalType: "PERSONAL_TAX_RETURN",
+    taxYear: 2024,
+    qualityStatus: "PASSED",
+    entityId: "person-abc",
+  });
+  assert.equal(ptr, "PERSONAL_TAX_RETURN|2024|person-abc");
+
+  const btr = computeLogicalKey({
+    canonicalType: "BUSINESS_TAX_RETURN",
+    taxYear: 2023,
+    qualityStatus: "PASSED",
+    entityId: "opco-xyz",
+  });
+  assert.equal(btr, "BUSINESS_TAX_RETURN|2023|opco-xyz");
+
+  // Quality-failed docs don't participate
+  const failed = computeLogicalKey({
+    canonicalType: "PERSONAL_TAX_RETURN",
+    taxYear: 2024,
+    qualityStatus: "FAILED_LOW_TEXT",
+    entityId: "person-abc",
+  });
+  assert.equal(failed, null, "Quality-failed docs must return null key");
+});
+
+// ── Guard 32: Confirm route contains is_active filter ───────────────
+
+test("[guard-32] confirm route contains is_active filter", () => {
+  const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+  assert.ok(
+    src.includes("is_active"),
+    "confirm route must filter by is_active",
+  );
+});
+
+// ── Guard 33: processConfirmedIntake contains is_active filter ──────
+
+test("[guard-33] processConfirmedIntake contains is_active filter", () => {
+  const src = readSource("src/lib/intake/processing/processConfirmedIntake.ts");
+  assert.ok(
+    src.includes("is_active"),
+    "processConfirmedIntake must filter by is_active",
+  );
+});
+
+// ── Guard 34: Review route contains is_active filter ────────────────
+
+test("[guard-34] review route contains is_active filter", () => {
+  const src = readSource("src/app/api/deals/[dealId]/intake/review/route.ts");
+  assert.ok(
+    src.includes("is_active"),
+    "review route must filter by is_active",
+  );
+});
+
+// ── Guard 35: processConfirmedIntake contains duplicate violation guard ─
+
+test("[guard-35] processConfirmedIntake contains processing_blocked_duplicate_violation", () => {
+  const src = readSource("src/lib/intake/processing/processConfirmedIntake.ts");
+  assert.ok(
+    src.includes("intake.processing_blocked_duplicate_violation"),
+    "processConfirmedIntake must emit intake.processing_blocked_duplicate_violation",
+  );
+});
+
+// ── Guard 36: Confirm route contains entity ambiguity gate ──────────
+
+test("[guard-36] confirm route contains confirmation_blocked_entity_ambiguity", () => {
+  const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+  assert.ok(
+    src.includes("intake.confirmation_blocked_entity_ambiguity"),
+    "confirm route must emit intake.confirmation_blocked_entity_ambiguity",
+  );
+  assert.ok(
+    src.includes("entity_ambiguity_unresolved"),
+    "confirm route must reject with entity_ambiguity_unresolved error",
+  );
+});
+
+// ── Guard 37: Confirm route snapshot filters by logical_key ─────────
+
+test("[guard-37] confirm route snapshot filters by logical_key", () => {
+  const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+  assert.ok(
+    src.includes("logical_key"),
+    "confirm route must reference logical_key for snapshot filtering",
+  );
+});
+
+// ── Guard 38: processConfirmedIntake blocks identity ambiguity ──────
+
+test("[guard-38] processConfirmedIntake contains processing_blocked_identity_ambiguity", () => {
+  const src = readSource("src/lib/intake/processing/processConfirmedIntake.ts");
+  assert.ok(
+    src.includes("intake.processing_blocked_identity_ambiguity"),
+    "processConfirmedIntake must emit intake.processing_blocked_identity_ambiguity",
+  );
+});
+
+// ── Guard 39: processArtifact contains resolveSupersession ──────────
+
+test("[guard-39] processArtifact contains resolveSupersession", () => {
+  const src = readSource("src/lib/artifacts/processArtifact.ts");
+  assert.ok(
+    src.includes("resolveSupersession"),
+    "processArtifact must call resolveSupersession",
+  );
+});
+
+// ── Guard 40: processArtifact references snapshot invalidation on supersession ─
+
+test("[guard-40] processArtifact references invalidateIntakeSnapshot for supersession", () => {
+  const src = readSource("src/lib/artifacts/processArtifact.ts");
+  assert.ok(
+    src.includes("invalidateIntakeSnapshot"),
+    "processArtifact must call invalidateIntakeSnapshot on supersession",
+  );
+  assert.ok(
+    src.includes('"supersession"'),
+    "processArtifact must pass 'supersession' as source to invalidateIntakeSnapshot",
   );
 });

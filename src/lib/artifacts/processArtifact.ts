@@ -28,6 +28,7 @@ import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationG
 import { ENTITY_GRAPH_VERSION } from "@/lib/intake/identity/version";
 import type { EntityResolution } from "@/lib/intake/identity/entityResolver";
 import { evaluateDocumentQuality, QUALITY_VERSION } from "@/lib/intake/quality/evaluateDocumentQuality";
+import { computeLogicalKey, SUPERSESSION_VERSION } from "@/lib/intake/supersession/computeLogicalKey";
 
 export type ProcessArtifactResult = {
   ok: boolean;
@@ -1084,6 +1085,51 @@ export async function processArtifact(
             } catch {
               // Fail-open
             }
+          }
+
+          // ── Phase E3: Deterministic Supersession ────────────────────────
+          // Fail-open during classification: supersession error never blocks.
+          let supersessionOutcome: string | null = null;
+          try {
+            const logicalKey = computeLogicalKey({
+              canonicalType: typingResult.canonical_type,
+              taxYear: classification.taxYear ?? null,
+              qualityStatus: qualityResult.status,
+              entityId: classificationEntityResolution?.entityId ?? null,
+            });
+
+            const { resolveSupersession } = await import(
+              "@/lib/intake/supersession/resolveSupersession"
+            );
+            const ssResult = await resolveSupersession({
+              dealId,
+              documentId: source_id,
+              logicalKey,
+            });
+
+            supersessionOutcome = ssResult.outcome;
+
+            // If supersession and deal is confirmed → invalidate snapshot
+            if (ssResult.outcome === "superseded") {
+              const { invalidateIntakeSnapshot } = await import(
+                "@/lib/intake/confirmation/invalidateIntakeSnapshot"
+              );
+              void invalidateIntakeSnapshot(dealId, "supersession");
+            }
+
+            // If duplicate → early return (doc is deactivated)
+            if (ssResult.outcome === "duplicate_rejected") {
+              return {
+                ok: true,
+                artifactId,
+                classification,
+                matchedKeys: [],
+                skipped: true,
+                skipReason: `duplicate_rejected:${ssResult.existingDocId}`,
+              };
+            }
+          } catch {
+            // Fail-open during classification: supersession error never blocks
           }
 
           // ── Spine v2: classification.decided ledger event ──────────────

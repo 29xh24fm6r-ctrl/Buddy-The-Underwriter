@@ -107,11 +107,12 @@ export async function processConfirmedIntake(
     );
   }
 
-  // Load docs for hash recomputation
+  // Load active docs for hash recomputation
   const { data: hashDocs, error: hashDocsErr } = await (sb as any)
     .from("deal_documents")
-    .select("id, canonical_type, doc_year")
-    .eq("deal_id", dealId);
+    .select("id, canonical_type, doc_year, logical_key")
+    .eq("deal_id", dealId)
+    .eq("is_active", true);
 
   if (hashDocsErr || !hashDocs?.length) {
     throw new Error(
@@ -119,8 +120,10 @@ export async function processConfirmedIntake(
     );
   }
 
+  // Snapshot hash: only identity-resolved docs (matches confirm route)
+  const sealableDocs = hashDocs.filter((d: any) => d.logical_key != null);
   const recomputedHash = computeIntakeSnapshotHash(
-    hashDocs.map((d: any) => ({
+    sealableDocs.map((d: any) => ({
       id: d.id,
       canonical_type: d.canonical_type,
       doc_year: d.doc_year,
@@ -152,6 +155,7 @@ export async function processConfirmedIntake(
     .from("deal_documents")
     .select("id, quality_status")
     .eq("deal_id", dealId)
+    .eq("is_active", true)
     .or("quality_status.is.null,quality_status.neq.PASSED");
 
   if (qualityCheckErr) {
@@ -177,7 +181,73 @@ export async function processConfirmedIntake(
   }
   // ── END QUALITY VERIFICATION ─────────────────────────────────────
 
-  // 1. Load all confirmed docs
+  // ── E3: SUPERSESSION DEFENSE-IN-DEPTH ──────────────────────────────
+
+  // Guard 1: No inactive docs in LOCKED set (should be DB-impossible)
+  const { data: inactiveInLocked } = await (sb as any)
+    .from("deal_documents")
+    .select("id")
+    .eq("deal_id", dealId)
+    .eq("is_active", false)
+    .eq("intake_status", "LOCKED_FOR_PROCESSING");
+
+  if (inactiveInLocked && inactiveInLocked.length > 0) {
+    void writeEvent({
+      dealId,
+      kind: "intake.processing_blocked_duplicate_violation",
+      scope: "intake",
+      meta: {
+        inactive_locked_ids: inactiveInLocked.map((d: any) => d.id),
+        count: inactiveInLocked.length,
+      },
+    });
+    throw new Error(
+      `[processConfirmedIntake] ${inactiveInLocked.length} inactive docs in LOCKED set for deal ${dealId}`,
+    );
+  }
+
+  // Guard 2: No identity-ambiguous entity-scoped duplicates in active locked set
+  const { data: nullKeyLocked } = await (sb as any)
+    .from("deal_documents")
+    .select("id, canonical_type, doc_year")
+    .eq("deal_id", dealId)
+    .eq("is_active", true)
+    .is("logical_key", null)
+    .eq("intake_status", "LOCKED_FOR_PROCESSING")
+    .in("canonical_type", [
+      "PERSONAL_TAX_RETURN",
+      "PERSONAL_FINANCIAL_STATEMENT",
+      "BUSINESS_TAX_RETURN",
+    ]);
+
+  if (nullKeyLocked && nullKeyLocked.length > 0) {
+    // Group by canonical_type + doc_year, check for duplicates
+    const groups = new Map<string, number>();
+    for (const d of nullKeyLocked) {
+      const key = `${d.canonical_type}|${d.doc_year ?? "NA"}`;
+      groups.set(key, (groups.get(key) ?? 0) + 1);
+    }
+    const duplicateGroups = [...groups.entries()].filter(([, count]) => count > 1);
+
+    if (duplicateGroups.length > 0) {
+      void writeEvent({
+        dealId,
+        kind: "intake.processing_blocked_identity_ambiguity",
+        scope: "intake",
+        meta: {
+          ambiguous_groups: duplicateGroups.map(([key, count]) => ({ key, count })),
+          null_key_locked_count: nullKeyLocked.length,
+        },
+      });
+      throw new Error(
+        `[processConfirmedIntake] identity-ambiguous entity-scoped duplicates in locked set for deal ${dealId}`,
+      );
+    }
+  }
+
+  // ── END SUPERSESSION DEFENSE-IN-DEPTH ──────────────────────────────
+
+  // 1. Load all active confirmed docs
   const { data: docs, error: loadErr } = await (sb as any)
     .from("deal_documents")
     .select(
@@ -188,6 +258,7 @@ export async function processConfirmedIntake(
        gatekeeper_needs_review, gatekeeper_tax_year`,
     )
     .eq("deal_id", dealId)
+    .eq("is_active", true)
     .in("intake_status", [
       "AUTO_CONFIRMED",
       "USER_CONFIRMED",

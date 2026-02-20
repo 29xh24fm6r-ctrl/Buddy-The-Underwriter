@@ -45,7 +45,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       );
     }
 
-    // Load documents sorted by confidence ASC (nulls first = worst first)
+    // Load active documents sorted by confidence ASC (nulls first = worst first)
     const { data: docs, error: docsErr } = await (sb as any)
       .from("deal_documents")
       .select(
@@ -59,6 +59,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
          intake_locked_at, created_at`,
       )
       .eq("deal_id", dealId)
+      .eq("is_active", true)
       .order("ai_confidence", { ascending: true, nullsFirst: true });
 
     if (docsErr) {
