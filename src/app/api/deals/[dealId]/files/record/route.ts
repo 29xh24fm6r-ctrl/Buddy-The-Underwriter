@@ -748,6 +748,50 @@ export async function POST(req: NextRequest, ctx: Context) {
     // The artifact processor (processArtifact.ts) handles:
     //   OCR → classify → stamp deal_documents → reconcile → recomputeReadiness
 
+    // ── Phase E1.1: Strip slot_id/slot_key pre-confirmation ──────────────
+    // Bankers can upload, but slot attachment authority flows through the
+    // Intake Confirmation Gate only. Before confirmation, any slot_id/slot_key
+    // is silently stripped (document still created + queued for classification).
+    let slotStrippedPreConfirmation = false;
+    if (slot_id || slot_key) {
+      try {
+        const { data: phaseRow } = await sb
+          .from("deals")
+          .select("intake_phase")
+          .eq("id", dealId)
+          .maybeSingle();
+
+        const { isPreConfirmationPhase } = await import(
+          "@/lib/intake/confirmation/isPreConfirmationPhase"
+        );
+        const dealPhase = (phaseRow as any)?.intake_phase ?? null;
+        if (isPreConfirmationPhase(dealPhase)) {
+          slotStrippedPreConfirmation = true;
+          void writeEvent({
+            dealId,
+            kind: "intake.slot_attach_blocked_pre_confirmation",
+            scope: "intake",
+            meta: {
+              requested_slot_id: slot_id ?? null,
+              requested_slot_key: slot_key ?? null,
+              intake_phase: dealPhase,
+              authority_version: "authority_v1.1",
+            },
+          });
+          console.log("[files/record] slot attach stripped pre-confirmation", {
+            dealId,
+            slot_id,
+            slot_key,
+            intake_phase: dealPhase,
+          });
+        }
+      } catch {
+        // Fail-closed: if we can't determine phase, strip the attachment
+        slotStrippedPreConfirmation = true;
+        console.warn("[files/record] phase check failed, stripping slot attach (fail-closed)", { dealId });
+      }
+    }
+
     // Phase 15C: Resolve slot_key → slot_id and track attachment outcome
     let resolvedSlotId = slot_id;
     const slotAttach: {
@@ -768,7 +812,13 @@ export async function POST(req: NextRequest, ctx: Context) {
       reason: null,
     };
 
-    if (typeof slot_id === "string" && slot_id.length > 0) {
+    // Phase E1.1: Skip slot resolution entirely if stripped pre-confirmation
+    if (slotStrippedPreConfirmation && (slot_id || slot_key)) {
+      slotAttach.requested = true;
+      slotAttach.used = typeof slot_id === "string" && slot_id.length > 0 ? "slot_id" : "slot_key";
+      slotAttach.reason = "blocked_pre_confirmation";
+      resolvedSlotId = null;
+    } else if (typeof slot_id === "string" && slot_id.length > 0) {
       slotAttach.requested = true;
       slotAttach.used = "slot_id";
       resolvedSlotId = slot_id;

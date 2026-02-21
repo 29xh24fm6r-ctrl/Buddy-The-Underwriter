@@ -61,6 +61,16 @@ const STATUS_LABELS: Record<string, string> = {
   LOCKED_FOR_PROCESSING: "Locked",
 };
 
+// E1.2: Per-doc blocker labels — each maps to a concrete banker action
+const BLOCKER_LABELS: Record<string, string> = {
+  needs_confirmation: "Needs Confirmation",
+  quality_not_passed: "Quality Failed",
+  segmented_parent: "Segmentation Incomplete",
+  entity_ambiguous: "Entity Ambiguous",
+  unclassified: "Unclassified",
+  missing_required_year: "Missing Year",
+};
+
 const DOC_TYPE_OPTIONS = [
   "BUSINESS_TAX_RETURN",
   "PERSONAL_TAX_RETURN",
@@ -105,6 +115,9 @@ export function IntakeReviewTable({
     canonical_type?: string;
     tax_year?: number;
   }>({});
+  // E1.2: Per-doc blocker state — populated on confirmation_blocked response
+  const [blockedDocs, setBlockedDocs] = useState<Map<string, string[]>>(new Map());
+  const [blockerSummary, setBlockerSummary] = useState<Record<string, number> | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -254,6 +267,12 @@ export function IntakeReviewTable({
       }
       setEditingDoc(null);
       setEditValues({});
+      // E1.2: Clear blocker for this doc on successful confirm
+      setBlockedDocs((prev) => {
+        const next = new Map(prev);
+        next.delete(docId);
+        return next;
+      });
       await refresh();
     } catch (err: any) {
       setError(err?.message ?? "Confirm failed");
@@ -271,15 +290,40 @@ export function IntakeReviewTable({
       });
       const json = await res.json();
       if (!res.ok || !json?.ok) {
-        const errMsg =
-          json?.error === "quality_gate_failed"
-            ? "Some document(s) failed automated quality checks (e.g., unreadable scan or insufficient OCR text). Please re-upload a clearer copy."
-            : json?.error === "pending_documents_exist"
-            ? `${json.pending_count ?? "Some"} document(s) still need confirmation before processing.`
-            : json?.error ?? "Failed to submit";
-        setError(errMsg);
+        // E1.2: Parse structured per-doc blocker response
+        if (json?.error === "confirmation_blocked" && json?.blocked_documents) {
+          const docMap = new Map<string, string[]>();
+          for (const bd of json.blocked_documents as Array<{ document_id: string; blockers: string[] }>) {
+            docMap.set(bd.document_id, bd.blockers);
+          }
+          setBlockedDocs(docMap);
+          setBlockerSummary(json.summary ?? null);
+
+          // Build user-friendly summary
+          const parts: string[] = [];
+          const s = json.summary as Record<string, number> | undefined;
+          if (s?.needs_confirmation) parts.push(`${s.needs_confirmation} need confirmation`);
+          if (s?.quality_not_passed) parts.push(`${s.quality_not_passed} quality failed`);
+          if (s?.segmented_parent) parts.push(`${s.segmented_parent} segmentation incomplete`);
+          if (s?.entity_ambiguous) parts.push(`${s.entity_ambiguous} entity ambiguous`);
+          if (s?.unclassified) parts.push(`${s.unclassified} unclassified`);
+          if (s?.missing_required_year) parts.push(`${s.missing_required_year} missing year`);
+          setError(parts.length > 0 ? parts.join(" \u2022 ") : "Some documents have issues preventing confirmation.");
+        } else {
+          // Legacy fallback for older error shapes
+          const errMsg =
+            json?.error === "quality_gate_failed"
+              ? "Some document(s) failed automated quality checks (e.g., unreadable scan or insufficient OCR text). Please re-upload a clearer copy."
+              : json?.error === "pending_documents_exist"
+              ? `${json.pending_count ?? "Some"} document(s) still need confirmation before processing.`
+              : json?.error ?? "Failed to submit";
+          setError(errMsg);
+        }
         return;
       }
+      // Clear blockers on success
+      setBlockedDocs(new Map());
+      setBlockerSummary(null);
       // Start the processing timer immediately for instant feedback
       setProcessingStartedAt(Date.now());
       setElapsed(0);
@@ -514,13 +558,30 @@ export function IntakeReviewTable({
                   <td className="py-2 px-2 text-center">
                     <ConfidenceBadge
                       confidence={doc.ai_confidence}
-                      confirmed={doc.match_source === "manual"}
+                      confirmed={doc.match_source === "manual" || doc.match_source === "manual_confirmed"}
                     />
                   </td>
                   <td className="py-2 px-2 text-center">
-                    <span className="text-white/50">
-                      {STATUS_LABELS[doc.intake_status ?? ""] ?? doc.intake_status ?? "—"}
-                    </span>
+                    <div className="flex flex-wrap items-center justify-center gap-1">
+                      <span className="text-white/50">
+                        {STATUS_LABELS[doc.intake_status ?? ""] ?? doc.intake_status ?? "—"}
+                      </span>
+                      {/* E1.2: Per-doc blocker badges */}
+                      {blockedDocs.has(doc.id) &&
+                        blockedDocs.get(doc.id)!.map((code) => (
+                          <span
+                            key={code}
+                            className={cn(
+                              "text-[9px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap",
+                              code === "quality_not_passed" || code === "unclassified"
+                                ? "bg-red-500/20 text-red-400"
+                                : "bg-amber-500/20 text-amber-400",
+                            )}
+                          >
+                            {BLOCKER_LABELS[code] ?? code}
+                          </span>
+                        ))}
+                    </div>
                   </td>
                   <td className="py-2 px-2 text-right">
                     {isEditing ? (

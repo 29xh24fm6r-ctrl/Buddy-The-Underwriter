@@ -82,7 +82,8 @@ function detectPFS(doc: NormalizedDocument): string[] | null {
   const hasSBA413 = /SBA\s+(?:Form\s+)?413/i.test(text);
 
   // Personal financial indicators that distinguish PFS from corporate Balance Sheet
-  const hasPersonalIndicators = /(?:contingent\s+liabilities|life\s+insurance|annual\s+(?:income|salary)|other\s+personal\s+property|installment\s+account|notes\s+payable\s+to\s+banks|guarantor|statement\s+of\s+personal)/i.test(text);
+  // E1.2: Expanded with additional personal-only signals to reduce PFS→BS misclassification
+  const hasPersonalIndicators = /(?:contingent\s+liabilities|life\s+insurance|annual\s+(?:income|salary)|other\s+personal\s+property|installment\s+account|notes\s+payable\s+to\s+banks|guarantor|statement\s+of\s+personal|spouse|joint\s+(?:assets|statement)|social\s+security|(?:date\s+of\s+birth|DOB)|(?:home|primary)\s+(?:address|residence)|IRA|retirement\s+account|401\s*\(?\s*k\s*\)?|auto(?:mobile)?\s+(?:loan|value)|cash\s+surrender\s+value)/i.test(text);
 
   if (hasAssets) signals.push("Assets section detected");
   if (hasLiabilities) signals.push("Liabilities section detected");
@@ -91,11 +92,14 @@ function detectPFS(doc: NormalizedDocument): string[] | null {
   if (hasSBA413) signals.push("SBA Form 413 detected");
   if (hasPersonalIndicators) signals.push("Personal financial indicators detected");
 
-  // Need assets + liabilities + net worth, OR PFS/SBA413 title + one of assets/liabilities
+  // Rule 1: Assets + Liabilities + Net Worth
   if (hasAssets && hasLiabilities && hasNetWorth) return signals;
+  // Rule 2: PFS/SBA413 title + one of assets/liabilities
   if ((hasPFSTitle || hasSBA413) && (hasAssets || hasLiabilities)) return signals;
-  // Assets + Liabilities + personal-only indicators (not found on corporate balance sheets)
+  // Rule 3: Assets + Liabilities + personal-only indicators (not found on corporate balance sheets)
   if (hasAssets && hasLiabilities && hasPersonalIndicators) return signals;
+  // Rule 4: PFS/SBA413 title + personal indicators (even without explicit asset/liability headers)
+  if ((hasPFSTitle || hasSBA413) && hasPersonalIndicators) return signals;
 
   return null;
 }

@@ -131,11 +131,21 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       doc_year: (doc as any).doc_year,
     };
 
+    // Phase E1.1: Pre-compute whether this is a correction or confirmation-only
+    // "manual" = banker changed type/year (correction)
+    // "manual_confirmed" = banker accepted AI classification as-is (confirmation)
+    const willCorrect =
+      (body.canonical_type !== undefined && body.canonical_type !== beforeState.canonical_type) ||
+      (body.document_type !== undefined && body.document_type !== beforeState.document_type) ||
+      (body.checklist_key !== undefined && body.checklist_key !== beforeState.checklist_key) ||
+      (body.tax_year !== undefined && body.tax_year !== beforeState.doc_year);
+
     // Build patch
     const patch: Record<string, unknown> = {
       intake_status: "USER_CONFIRMED",
       intake_confirmed_at: new Date().toISOString(),
       intake_confirmed_by: access.userId,
+      match_source: willCorrect ? "manual" : "manual_confirmed",
     };
 
     if (body.canonical_type !== undefined) patch.canonical_type = body.canonical_type;

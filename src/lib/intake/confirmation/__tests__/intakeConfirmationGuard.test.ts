@@ -94,20 +94,28 @@ test("[guard-3] enqueueDealProcessing checks intake_phase before downstream work
 });
 
 // ── Guard 4: Confirm route rejects when pending/uploaded docs exist ──
+// E1.2: Refactored to single-pass via computeAllBlockers. UPLOADED/CLASSIFIED_PENDING_REVIEW
+// checks now live in computeDocBlockers.ts. Confirm route delegates to that pure module.
 
 test("[guard-4] confirm route rejects when pending/uploaded docs exist", () => {
-  const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+  const routeSrc = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
   assert.ok(
-    src.includes("UPLOADED"),
-    "confirm route must check for UPLOADED status",
+    routeSrc.includes("computeAllBlockers"),
+    "confirm route must use computeAllBlockers for gate checks",
+  );
+  // Verify the pure module handles UPLOADED/CLASSIFIED_PENDING_REVIEW
+  const blockerSrc = readSource("src/lib/intake/confirmation/computeDocBlockers.ts");
+  assert.ok(
+    blockerSrc.includes("UPLOADED"),
+    "computeDocBlockers must check for UPLOADED status",
   );
   assert.ok(
-    src.includes("CLASSIFIED_PENDING_REVIEW"),
-    "confirm route must check for CLASSIFIED_PENDING_REVIEW status",
+    blockerSrc.includes("CLASSIFIED_PENDING_REVIEW"),
+    "computeDocBlockers must check for CLASSIFIED_PENDING_REVIEW status",
   );
   assert.ok(
-    src.includes("pending_documents_exist"),
-    "confirm route must reject with pending_documents_exist error",
+    blockerSrc.includes("needs_confirmation"),
+    "computeDocBlockers must emit needs_confirmation blocker",
   );
 });
 
@@ -404,15 +412,22 @@ test("[guard-24] evaluateDocumentQuality: good inputs → PASSED", () => {
 
 // ── Guard 25: Confirm route contains quality gate logic ─────────────
 
+// E1.2: Quality gate now handled by computeDocBlockers. Confirm route uses computeAllBlockers.
 test("[guard-25] confirm route contains quality_gate_failed + quality_status", () => {
-  const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+  const routeSrc = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
   assert.ok(
-    src.includes("quality_gate_failed"),
-    "confirm route must reject with quality_gate_failed error",
+    routeSrc.includes("computeAllBlockers") || routeSrc.includes("quality_status"),
+    "confirm route must use computeAllBlockers or check quality_status directly",
+  );
+  // Verify the pure module handles quality
+  const blockerSrc = readSource("src/lib/intake/confirmation/computeDocBlockers.ts");
+  assert.ok(
+    blockerSrc.includes("quality_not_passed"),
+    "computeDocBlockers must emit quality_not_passed blocker",
   );
   assert.ok(
-    src.includes("quality_status"),
-    "confirm route must check quality_status",
+    blockerSrc.includes("quality_status"),
+    "computeDocBlockers must check quality_status",
   );
 });
 
@@ -428,11 +443,16 @@ test("[guard-26] processConfirmedIntake contains processing_blocked_quality_viol
 
 // ── Guard 27: Confirm route quality check uses NULL = fail-closed ────
 
+// E1.2: NULL quality_status handling now in computeDocBlockers (fail-closed: null == blocked)
 test("[guard-27] confirm route quality check catches NULL quality_status (fail-closed)", () => {
-  const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+  const blockerSrc = readSource("src/lib/intake/confirmation/computeDocBlockers.ts");
   assert.ok(
-    src.includes("quality_status.is.null"),
-    "confirm route must check for NULL quality_status (fail-closed)",
+    blockerSrc.includes("quality_status == null") || blockerSrc.includes("quality_status === null"),
+    "computeDocBlockers must check for NULL quality_status (fail-closed)",
+  );
+  assert.ok(
+    blockerSrc.includes("quality_not_passed"),
+    "computeDocBlockers must emit quality_not_passed when quality_status is null",
   );
 });
 
@@ -591,15 +611,23 @@ test("[guard-35] processConfirmedIntake contains processing_blocked_duplicate_vi
 
 // ── Guard 36: Confirm route contains entity ambiguity gate ──────────
 
+// E1.2: Entity ambiguity now handled by computeDocBlockers. Confirm route emits
+// consolidated "intake.confirmation_blocked" event with all blockers.
 test("[guard-36] confirm route contains confirmation_blocked_entity_ambiguity", () => {
-  const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+  const routeSrc = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
   assert.ok(
-    src.includes("intake.confirmation_blocked_entity_ambiguity"),
-    "confirm route must emit intake.confirmation_blocked_entity_ambiguity",
+    routeSrc.includes("confirmation_blocked"),
+    "confirm route must reject with confirmation_blocked error (consolidated)",
+  );
+  // Verify the pure module handles entity ambiguity
+  const blockerSrc = readSource("src/lib/intake/confirmation/computeDocBlockers.ts");
+  assert.ok(
+    blockerSrc.includes("entity_ambiguous"),
+    "computeDocBlockers must emit entity_ambiguous blocker",
   );
   assert.ok(
-    src.includes("entity_ambiguity_unresolved"),
-    "confirm route must reject with entity_ambiguity_unresolved error",
+    blockerSrc.includes("logical_key"),
+    "computeDocBlockers must check logical_key for ambiguity",
   );
 });
 
@@ -854,7 +882,9 @@ test("[guard-52] confirm route snapshot query filters by logical_key", () => {
 
 // ── Guard 53: Confirm route queries filter is_active (≥4) ───────────
 
-test("[guard-53] confirm route filters is_active on ≥ 4 queries", () => {
+// E1.2: Single-pass refactor reduced query count. Still need is_active on:
+// 1. lock TTL check, 2. single docs load, 3. lock update = 3 references
+test("[guard-53] confirm route filters is_active on ≥ 3 queries", () => {
   const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
   let count = 0;
   let idx = 0;
@@ -863,8 +893,8 @@ test("[guard-53] confirm route filters is_active on ≥ 4 queries", () => {
     idx += 9;
   }
   assert.ok(
-    count >= 4,
-    `Confirm route must reference is_active ≥ 4 times (got ${count})`,
+    count >= 3,
+    `Confirm route must reference is_active ≥ 3 times (got ${count})`,
   );
 });
 

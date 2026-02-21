@@ -10,6 +10,8 @@ import {
   INTAKE_SNAPSHOT_VERSION,
   computeIntakeSnapshotHash,
 } from "@/lib/intake/confirmation/types";
+import { computeAllBlockers } from "@/lib/intake/confirmation/computeDocBlockers";
+import type { ActiveDoc } from "@/lib/intake/confirmation/computeDocBlockers";
 import { enqueueDealProcessing } from "@/lib/intake/processing/enqueueDealProcessing";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { MAX_PROCESSING_WINDOW_MS } from "@/lib/intake/constants";
@@ -22,14 +24,16 @@ type Ctx = { params: Promise<{ dealId: string }> };
 /**
  * POST /api/deals/[dealId]/intake/confirm
  *
- * Lock + Start Processing:
- * 1. Rejects if any docs are still UPLOADED or CLASSIFIED_PENDING_REVIEW
- * 2. Locks all docs: intake_status = LOCKED_FOR_PROCESSING
- * 3. Computes intake_snapshot_hash → stores on deals
- * 4. Sets deals.intake_phase = CONFIRMED_READY_FOR_PROCESSING
- * 5. Calls enqueueDealProcessing → runs all downstream processing
+ * E1.2 God Tier — Single-pass fail-closed confirmation gate.
+ *
+ * 1. Loads all active docs in ONE query
+ * 2. Computes per-doc blockers (E1–E4: confirmation, quality, segmentation, ambiguity, classification, year)
+ * 3. Rejects with structured per-doc blocker response if any doc blocked
+ * 4. If clean: locks all docs, computes snapshot hash, transitions deal, enqueues processing
+ *
+ * Supports ?dry_run=true — returns blockers without mutating.
  */
-export async function POST(_req: NextRequest, ctx: Ctx) {
+export async function POST(req: NextRequest, ctx: Ctx) {
   try {
     const { dealId } = await ctx.params;
 
@@ -48,9 +52,10 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: access.error }, { status });
     }
 
+    const isDryRun = req.nextUrl.searchParams.get("dry_run") === "true";
     const sb = supabaseAdmin();
 
-    // Check deal is in correct phase
+    // ── Deal phase check ───────────────────────────────────────────────
     const { data: deal, error: dealErr } = await sb
       .from("deals")
       .select("intake_phase")
@@ -65,7 +70,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     }
 
     if ((deal as any).intake_phase === "CONFIRMED_READY_FOR_PROCESSING") {
-      // Part 3: Lock TTL guard — if processing has been stuck longer than
+      // Lock TTL guard — if processing has been stuck longer than
       // MAX_PROCESSING_WINDOW_MS, auto-recover by transitioning to error
       // state so the banker can retry.
       const { data: lockCheck } = await (sb as any)
@@ -110,131 +115,82 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       }
     }
 
-    // Reject if any active docs are still unreviewed
-    const { count: pendingCount, error: countErr } = await (sb as any)
+    // ── Single-pass: Load all active docs (E1.2 refactor) ─────────────
+    const { data: rawDocs, error: docsErr } = await (sb as any)
       .from("deal_documents")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId)
-      .eq("is_active", true)
-      .in("intake_status", ["UPLOADED", "CLASSIFIED_PENDING_REVIEW"]);
-
-    if (countErr) {
-      return NextResponse.json(
-        { ok: false, error: "count_query_failed", detail: countErr.message },
-        { status: 500 },
-      );
-    }
-
-    if ((pendingCount ?? 0) > 0) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "pending_documents_exist",
-          pending_count: pendingCount,
-        },
-        { status: 422 },
-      );
-    }
-
-    // E2: Quality gate — NULL or non-PASSED blocks confirmation (fail-closed)
-    const { count: failedQualityCount, error: qualityErr } = await (sb as any)
-      .from("deal_documents")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId)
-      .eq("is_active", true)
-      .or("quality_status.is.null,quality_status.neq.PASSED");
-
-    if (qualityErr) {
-      return NextResponse.json(
-        { ok: false, error: "quality_check_failed", detail: qualityErr.message },
-        { status: 500 },
-      );
-    }
-
-    if ((failedQualityCount ?? 0) > 0) {
-      void writeEvent({
-        dealId,
-        kind: "intake.confirmation_blocked_quality_failure",
-        actorUserId: access.userId,
-        scope: "intake",
-        meta: { failed_count: failedQualityCount },
-      });
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "quality_gate_failed",
-          failed_count: failedQualityCount,
-        },
-        { status: 422 },
-      );
-    }
-
-    // E3: Entity ambiguity gate — fail-closed
-    // Cannot seal multiple unresolved entity-scoped docs of same type+year
-    const { data: ambiguousDocs, error: ambiguityErr } = await (sb as any)
-      .from("deal_documents")
-      .select("canonical_type, doc_year")
-      .eq("deal_id", dealId)
-      .eq("is_active", true)
-      .is("logical_key", null)
-      .in("canonical_type", [
-        "PERSONAL_TAX_RETURN",
-        "PERSONAL_FINANCIAL_STATEMENT",
-        "BUSINESS_TAX_RETURN",
-      ]);
-
-    if (ambiguityErr) {
-      return NextResponse.json(
-        { ok: false, error: "ambiguity_check_failed", detail: ambiguityErr.message },
-        { status: 500 },
-      );
-    }
-
-    if (ambiguousDocs && ambiguousDocs.length > 0) {
-      // Group by canonical_type + doc_year, check for duplicates
-      const groups = new Map<string, number>();
-      for (const d of ambiguousDocs) {
-        const key = `${d.canonical_type}|${d.doc_year ?? "NA"}`;
-        groups.set(key, (groups.get(key) ?? 0) + 1);
-      }
-      const duplicateGroups = [...groups.entries()].filter(([, count]) => count > 1);
-
-      if (duplicateGroups.length > 0) {
-        void writeEvent({
-          dealId,
-          kind: "intake.confirmation_blocked_entity_ambiguity",
-          actorUserId: access.userId,
-          scope: "intake",
-          meta: {
-            ambiguous_groups: duplicateGroups.map(([key, count]) => ({ key, count })),
-            total_unresolved: ambiguousDocs.length,
-          },
-        });
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "entity_ambiguity_unresolved",
-            ambiguous_groups: duplicateGroups.map(([key, count]) => ({ key, count })),
-          },
-          { status: 422 },
-        );
-      }
-    }
-
-    // Load all active docs for locking + snapshot hash
-    const { data: allDocs, error: docsErr } = await (sb as any)
-      .from("deal_documents")
-      .select("id, canonical_type, doc_year, logical_key")
+      .select(
+        "id, original_filename, intake_status, quality_status, segmented, " +
+        "canonical_type, doc_year, logical_key",
+      )
       .eq("deal_id", dealId)
       .eq("is_active", true);
 
-    if (docsErr || !allDocs?.length) {
+    if (docsErr) {
+      return NextResponse.json(
+        { ok: false, error: "doc_load_failed", detail: docsErr.message },
+        { status: 500 },
+      );
+    }
+
+    if (!rawDocs || rawDocs.length === 0) {
       return NextResponse.json(
         { ok: false, error: "no_documents_found" },
         { status: 422 },
       );
     }
 
+    // Cast to ActiveDoc shape for pure blocker computation
+    const activeDocs: ActiveDoc[] = (rawDocs as any[]).map((d) => ({
+      id: d.id,
+      original_filename: d.original_filename,
+      intake_status: d.intake_status,
+      quality_status: d.quality_status,
+      segmented: d.segmented ?? null,
+      canonical_type: d.canonical_type,
+      doc_year: d.doc_year,
+      logical_key: d.logical_key,
+    }));
+
+    // ── E1-E4: Compute per-doc blockers (pure) ────────────────────────
+    const { blocked_documents, summary } = computeAllBlockers(activeDocs);
+
+    if (blocked_documents.length > 0) {
+      // Emit consolidated blocker event
+      void writeEvent({
+        dealId,
+        kind: "intake.confirmation_blocked",
+        actorUserId: access.userId,
+        scope: "intake",
+        meta: {
+          summary,
+          blocked_count: blocked_documents.length,
+          total_active: activeDocs.length,
+          intake_confirmation_version: INTAKE_CONFIRMATION_VERSION,
+        },
+      });
+
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "confirmation_blocked",
+          blocked_documents,
+          summary,
+        },
+        { status: 422 },
+      );
+    }
+
+    // ── Dry run: return clean status without mutating ──────────────────
+    if (isDryRun) {
+      return NextResponse.json({
+        ok: true,
+        dry_run: true,
+        blocked_documents: [],
+        summary,
+      });
+    }
+
+    // ── All gates passed — lock, seal, process ────────────────────────
     const now = new Date().toISOString();
 
     // Lock all active docs
@@ -255,9 +211,9 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     }
 
     // Compute snapshot hash — only identity-resolved docs (logical_key IS NOT NULL)
-    const sealableDocs = allDocs.filter((d: any) => d.logical_key != null);
+    const sealableDocs = activeDocs.filter((d) => d.logical_key != null);
     const snapshotHash = computeIntakeSnapshotHash(
-      sealableDocs.map((d: any) => ({
+      sealableDocs.map((d) => ({
         id: d.id,
         canonical_type: d.canonical_type,
         doc_year: d.doc_year,
@@ -288,7 +244,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       actorUserId: access.userId,
       scope: "intake",
       meta: {
-        docs_locked: allDocs.length,
+        docs_locked: activeDocs.length,
         snapshot_hash: snapshotHash,
         snapshot_version: INTAKE_SNAPSHOT_VERSION,
         confirmed_by: access.userId,
@@ -311,7 +267,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       dealId,
       intake_phase: "CONFIRMED_READY_FOR_PROCESSING",
       snapshot_hash: snapshotHash,
-      docs_locked: allDocs.length,
+      docs_locked: activeDocs.length,
       processing_queued: true,
     });
   } catch (e: any) {

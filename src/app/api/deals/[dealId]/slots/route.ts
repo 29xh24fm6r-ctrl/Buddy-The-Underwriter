@@ -141,6 +141,46 @@ export async function POST(
     );
   }
 
+  // ── Phase E1.1: Block manual slot attachment pre-confirmation ──
+  // Slot attachment authority flows through the Intake Confirmation Gate.
+  // Before confirmation, manual slot assignment is not allowed.
+  {
+    const sb = supabaseAdmin();
+    const { data: dealRow } = await sb
+      .from("deals")
+      .select("intake_phase")
+      .eq("id", dealId)
+      .maybeSingle();
+
+    const { isPreConfirmationPhase } = await import(
+      "@/lib/intake/confirmation/isPreConfirmationPhase"
+    );
+    const dealPhase = (dealRow as any)?.intake_phase ?? null;
+    if (isPreConfirmationPhase(dealPhase)) {
+      const { writeEvent } = await import("@/lib/ledger/writeEvent");
+      void writeEvent({
+        dealId,
+        kind: "intake.slot_attach_blocked_pre_confirmation",
+        scope: "intake",
+        meta: {
+          slot_id,
+          document_id,
+          intake_phase: dealPhase,
+          source: "manual_slot_assign",
+          authority_version: "authority_v1.1",
+        },
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "slot_attach_blocked_pre_confirmation",
+          detail: "Documents can only be attached to slots after intake is confirmed.",
+        },
+        { status: 409 },
+      );
+    }
+  }
+
   const { attachDocumentToSlot } = await import(
     "@/lib/intake/slots/attachDocumentToSlot"
   );
