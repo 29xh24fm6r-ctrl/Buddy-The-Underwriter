@@ -81,15 +81,21 @@ function detectPFS(doc: NormalizedDocument): string[] | null {
   const hasPFSTitle = /personal\s+financial\s+statement/i.test(text);
   const hasSBA413 = /SBA\s+(?:Form\s+)?413/i.test(text);
 
+  // Personal financial indicators that distinguish PFS from corporate Balance Sheet
+  const hasPersonalIndicators = /(?:contingent\s+liabilities|life\s+insurance|annual\s+(?:income|salary)|other\s+personal\s+property|installment\s+account|notes\s+payable\s+to\s+banks|guarantor|statement\s+of\s+personal)/i.test(text);
+
   if (hasAssets) signals.push("Assets section detected");
   if (hasLiabilities) signals.push("Liabilities section detected");
   if (hasNetWorth) signals.push("Net Worth line detected");
   if (hasPFSTitle) signals.push("PFS title detected");
   if (hasSBA413) signals.push("SBA Form 413 detected");
+  if (hasPersonalIndicators) signals.push("Personal financial indicators detected");
 
   // Need assets + liabilities + net worth, OR PFS/SBA413 title + one of assets/liabilities
   if (hasAssets && hasLiabilities && hasNetWorth) return signals;
   if ((hasPFSTitle || hasSBA413) && (hasAssets || hasLiabilities)) return signals;
+  // Assets + Liabilities + personal-only indicators (not found on corporate balance sheets)
+  if (hasAssets && hasLiabilities && hasPersonalIndicators) return signals;
 
   return null;
 }

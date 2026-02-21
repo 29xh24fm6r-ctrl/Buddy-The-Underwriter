@@ -25,6 +25,52 @@ import { resolveEffectiveClassification } from "./resolveEffectiveClassification
 
 export type { GatekeeperReadinessResult } from "./readiness";
 
+// ---------------------------------------------------------------------------
+// Canonical → Gatekeeper vocabulary normalization
+// ---------------------------------------------------------------------------
+
+/**
+ * Readiness Vocabulary Normalization
+ *
+ * The COALESCE truth resolver (resolveEffectiveClassification) returns
+ * canonical types — the institutional truth. The pure readiness engine
+ * operates on readiness vocabulary (FINANCIAL_STATEMENT, BUSINESS_TAX_RETURN,
+ * PERSONAL_TAX_RETURN, PERSONAL_FINANCIAL_STATEMENT).
+ *
+ * This adapter translates canonical sub-types into readiness vocabulary
+ * at the server boundary, so the pure engine receives only types it
+ * understands. This is NOT downgrading canonical truth — it's a vocabulary
+ * translation for a specific consumer.
+ *
+ * After this normalization, the pure engine uses types directly with no
+ * further re-mapping.
+ */
+function toReadinessDocType(effectiveDocType: string): string {
+  switch (effectiveDocType) {
+    // Financial statement sub-types → readiness umbrella
+    case "INCOME_STATEMENT":
+    case "BALANCE_SHEET":
+    case "T12":
+      return "FINANCIAL_STATEMENT";
+    // PFS aliases
+    case "PFS":
+      return "PERSONAL_FINANCIAL_STATEMENT";
+    // Business tax return aliases (from spine classification)
+    case "IRS_BUSINESS":
+      return "BUSINESS_TAX_RETURN";
+    // Personal tax return alias (spine classification)
+    case "IRS_PERSONAL":
+      return "PERSONAL_TAX_RETURN";
+    // Supporting income docs — do NOT satisfy PTR requirements
+    case "W2":
+    case "FORM_1099":
+    case "K1":
+      return "OTHER";
+    default:
+      return effectiveDocType;
+  }
+}
+
 /**
  * Compute document readiness for a deal.
  *
@@ -81,7 +127,7 @@ export async function computeGatekeeperDocReadiness(
       : r.gatekeeper_needs_review === true;
 
     return {
-      gatekeeper_doc_type: resolved.effectiveDocType,
+      gatekeeper_doc_type: toReadinessDocType(resolved.effectiveDocType),
       gatekeeper_tax_year: resolved.effectiveTaxYear,
       gatekeeper_needs_review: needsReview,
       gatekeeper_review_reason_code: needsReview

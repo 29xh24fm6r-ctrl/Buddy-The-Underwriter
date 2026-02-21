@@ -184,35 +184,39 @@ describe("computeGatekeeperReadiness", () => {
     assert.equal(result.ready, true);
   });
 
-  it("W2 counts as PERSONAL_TAX_RETURN — satisfies personal year 2024", () => {
+  it("W2 normalized to OTHER — does NOT satisfy PTR requirement", () => {
     const req: ScenarioRequirements = {
       businessTaxYears: [],
       personalTaxYears: [2024],
       requiresFinancialStatements: false,
       requiresPFS: false,
     };
-    const docs = [makeDoc("W2", 2024)];
+    // Server normalizes W2 → OTHER (supporting income doc, not a tax return)
+    const docs = [makeDoc("OTHER", 2024)];
     const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
 
-    assert.deepEqual(result.present.personalTaxYears, [2024]);
-    assert.equal(result.readinessPct, 100);
+    assert.deepEqual(result.present.personalTaxYears, []);
+    assert.deepEqual(result.missing.personalTaxYears, [2024]);
+    assert.equal(result.readinessPct, 0);
   });
 
-  it("FORM_1099 and K1 map to PERSONAL_TAX_RETURN effective type", () => {
+  it("FORM_1099 and K1 normalized to OTHER — do NOT satisfy PTR requirements", () => {
     const req: ScenarioRequirements = {
       businessTaxYears: [],
       personalTaxYears: [2024, 2023],
       requiresFinancialStatements: false,
       requiresPFS: false,
     };
+    // Server normalizes FORM_1099/K1 → OTHER (supporting income docs)
     const docs = [
-      makeDoc("FORM_1099", 2024),
-      makeDoc("K1", 2023),
+      makeDoc("OTHER", 2024),
+      makeDoc("OTHER", 2023),
     ];
     const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
 
-    assert.deepEqual(result.present.personalTaxYears.sort(), [2023, 2024]);
-    assert.equal(result.readinessPct, 100);
+    assert.deepEqual(result.present.personalTaxYears, []);
+    assert.deepEqual(result.missing.personalTaxYears, [2024, 2023]);
+    assert.equal(result.readinessPct, 0);
   });
 
   it("FINANCIAL_STATEMENT present satisfies requiresFinancialStatements", () => {
@@ -476,5 +480,223 @@ describe("needsReviewReasons aggregation", () => {
     const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
 
     assert.deepEqual(result.needsReviewReasons, {});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CI Guards: Readiness Vocabulary Normalization
+//
+// These guards verify that canonical sub-types are visible to the readiness
+// engine when pre-normalized by the server layer. No canonical sub-type
+// should silently fall to "OTHER" and become invisible to readiness.
+// ---------------------------------------------------------------------------
+
+describe("readiness vocabulary — canonical sub-type visibility", () => {
+  it("INCOME_STATEMENT (normalized to FINANCIAL_STATEMENT) → counts as financial statement", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [],
+      personalTaxYears: [],
+      requiresFinancialStatements: true,
+      requiresPFS: false,
+    };
+    // Server normalizes INCOME_STATEMENT → FINANCIAL_STATEMENT
+    const docs = [makeDoc("FINANCIAL_STATEMENT", null)];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.equal(result.present.financialStatementsPresent, true);
+    assert.equal(result.missing.financialStatementsMissing, false);
+    assert.equal(result.readinessPct, 100);
+  });
+
+  it("BALANCE_SHEET (normalized to FINANCIAL_STATEMENT) → counts as financial statement", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [],
+      personalTaxYears: [],
+      requiresFinancialStatements: true,
+      requiresPFS: false,
+    };
+    // Server normalizes BALANCE_SHEET → FINANCIAL_STATEMENT
+    const docs = [makeDoc("FINANCIAL_STATEMENT", null)];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.equal(result.present.financialStatementsPresent, true);
+    assert.equal(result.readinessPct, 100);
+  });
+
+  it("T12 (normalized to FINANCIAL_STATEMENT) → counts as financial statement", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [],
+      personalTaxYears: [],
+      requiresFinancialStatements: true,
+      requiresPFS: false,
+    };
+    // Server normalizes T12 → FINANCIAL_STATEMENT
+    const docs = [makeDoc("FINANCIAL_STATEMENT", null)];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.equal(result.present.financialStatementsPresent, true);
+    assert.equal(result.readinessPct, 100);
+  });
+
+  it("PFS (normalized to PERSONAL_FINANCIAL_STATEMENT) → counts as PFS", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [],
+      personalTaxYears: [],
+      requiresFinancialStatements: false,
+      requiresPFS: true,
+    };
+    // Server normalizes PFS → PERSONAL_FINANCIAL_STATEMENT
+    const docs = [makeDoc("PERSONAL_FINANCIAL_STATEMENT", null)];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.equal(result.present.pfsPresent, true);
+    assert.equal(result.missing.pfsMissing, false);
+    assert.equal(result.readinessPct, 100);
+  });
+
+  it("IRS_BUSINESS (normalized to BUSINESS_TAX_RETURN) → counts as BTR", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [2024],
+      personalTaxYears: [],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    // Server normalizes IRS_BUSINESS → BUSINESS_TAX_RETURN
+    const docs = [makeDoc("BUSINESS_TAX_RETURN", 2024)];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.deepEqual(result.present.businessTaxYears, [2024]);
+    assert.equal(result.readinessPct, 100);
+  });
+
+  it("IRS_PERSONAL (normalized to PERSONAL_TAX_RETURN) → counts as PTR", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [],
+      personalTaxYears: [2024],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    // Server normalizes IRS_PERSONAL → PERSONAL_TAX_RETURN
+    const docs = [makeDoc("PERSONAL_TAX_RETURN", 2024)];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.deepEqual(result.present.personalTaxYears, [2024]);
+    assert.equal(result.readinessPct, 100);
+  });
+});
+
+describe("readiness vocabulary — no-OTHER-fallthrough guard", () => {
+  it("no canonical sub-type ever becomes OTHER in readiness (pure engine passthrough)", () => {
+    // The pure engine uses doc types as-is after server normalization.
+    // This test verifies that unknown types don't accidentally match
+    // any readiness category — they're simply invisible (not counted).
+    const req: ScenarioRequirements = {
+      businessTaxYears: [2024],
+      personalTaxYears: [2024],
+      requiresFinancialStatements: true,
+      requiresPFS: true,
+    };
+    // "OTHER" type should not satisfy any requirement
+    const docs = [
+      makeDoc("OTHER", null),
+      makeDoc("OTHER", 2024),
+    ];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.equal(result.present.businessTaxYears.length, 0, "OTHER must not count as BTR");
+    assert.equal(result.present.personalTaxYears.length, 0, "OTHER must not count as PTR");
+    assert.equal(result.present.financialStatementsPresent, false, "OTHER must not count as FS");
+    assert.equal(result.present.pfsPresent, false, "OTHER must not count as PFS");
+    assert.equal(result.readinessPct, 0);
+  });
+
+  it("UNKNOWN type does not satisfy any requirement", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [2024],
+      personalTaxYears: [],
+      requiresFinancialStatements: true,
+      requiresPFS: true,
+    };
+    const docs = [makeDoc("UNKNOWN", 2024)];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.equal(result.readinessPct, 0);
+    assert.equal(result.present.businessTaxYears.length, 0);
+    assert.equal(result.present.financialStatementsPresent, false);
+    assert.equal(result.present.pfsPresent, false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CI Guards: Supporting Income Docs ≠ Personal Tax Return
+//
+// W2 / 1099 / K-1 are supporting income documents. They do NOT satisfy
+// PTR (1040) requirements. Only PERSONAL_TAX_RETURN satisfies PTR.
+// ---------------------------------------------------------------------------
+
+describe("readiness vocabulary — supporting docs do NOT satisfy PTR", () => {
+  it("W2 (normalized to OTHER) does not satisfy PTR requirement", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [],
+      personalTaxYears: [2024],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    const docs = [makeDoc("OTHER", 2024)];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.deepEqual(result.present.personalTaxYears, [], "W2/OTHER must not satisfy PTR");
+    assert.deepEqual(result.missing.personalTaxYears, [2024]);
+  });
+
+  it("multiple supporting docs (W2 + 1099 + K1 all → OTHER) still leave PTR missing", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [],
+      personalTaxYears: [2024],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    // All three supporting doc types normalized to OTHER by server
+    const docs = [
+      makeDoc("OTHER", 2024),
+      makeDoc("OTHER", 2024),
+      makeDoc("OTHER", 2024),
+    ];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.deepEqual(result.present.personalTaxYears, [], "Supporting docs must not satisfy PTR");
+    assert.equal(result.readinessPct, 0);
+  });
+
+  it("PERSONAL_TAX_RETURN (1040) satisfies PTR requirement", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [],
+      personalTaxYears: [2024],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    const docs = [makeDoc("PERSONAL_TAX_RETURN", 2024)];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.deepEqual(result.present.personalTaxYears, [2024]);
+    assert.equal(result.missing.personalTaxYears.length, 0);
+    assert.equal(result.readinessPct, 100);
+  });
+
+  it("supporting docs alongside real PTR — PTR satisfies, supporting ignored", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [],
+      personalTaxYears: [2024],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    const docs = [
+      makeDoc("OTHER", 2024),              // W2 (supporting)
+      makeDoc("PERSONAL_TAX_RETURN", 2024), // actual 1040
+    ];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.deepEqual(result.present.personalTaxYears, [2024]);
+    assert.equal(result.readinessPct, 100);
   });
 });

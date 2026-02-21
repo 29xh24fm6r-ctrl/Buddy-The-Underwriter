@@ -14,6 +14,7 @@ type IntakeDoc = {
   document_type: string | null;
   checklist_key: string | null;
   doc_year: number | null;
+  match_source: string | null;
   ai_doc_type: string | null;
   ai_confidence: number | null;
   classification_tier: string | null;
@@ -385,7 +386,10 @@ export function IntakeReviewTable({
                     )}
                   </td>
                   <td className="py-2 px-2 text-center">
-                    <ConfidenceBadge confidence={doc.ai_confidence} />
+                    <ConfidenceBadge
+                      confidence={doc.ai_confidence}
+                      confirmed={doc.match_source === "manual"}
+                    />
                   </td>
                   <td className="py-2 px-2 text-center">
                     <span className="text-white/50">

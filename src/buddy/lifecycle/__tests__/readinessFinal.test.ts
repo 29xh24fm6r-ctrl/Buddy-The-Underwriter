@@ -71,6 +71,7 @@ describe("gatekeeper blockers", () => {
     const derived = baseDerived({
       documentsReady: false,
       documentsReadinessPct: 60,
+      readinessMode: "gatekeeper",
       gatekeeperMissingBtrYears: [2023],
       gatekeeperMissingPtrYears: [],
       gatekeeperMissingFinancialStatements: false,
@@ -85,11 +86,13 @@ describe("gatekeeper blockers", () => {
     const derived = baseDerived({
       documentsReady: false,
       documentsReadinessPct: 100,
+      readinessMode: "gatekeeper",
       gatekeeperMissingBtrYears: [],
       gatekeeperMissingPtrYears: [],
       gatekeeperMissingFinancialStatements: false,
       gatekeeperReadinessPct: 100,
       gatekeeperNeedsReviewCount: 2,
+      gatekeeperNeedsReviewReasons: { MISSING_TAX_YEAR: 2 },
     });
     const codes = blockerCodes("docs_in_progress", derived);
     assert.ok(codes.includes("gatekeeper_docs_need_review"), `Expected gatekeeper_docs_need_review, got: ${codes}`);
@@ -99,11 +102,13 @@ describe("gatekeeper blockers", () => {
     const derived = baseDerived({
       documentsReady: false,
       documentsReadinessPct: 50,
+      readinessMode: "gatekeeper",
       gatekeeperMissingBtrYears: [2022],
       gatekeeperMissingPtrYears: [],
       gatekeeperMissingFinancialStatements: true,
       gatekeeperReadinessPct: 50,
       gatekeeperNeedsReviewCount: 1,
+      gatekeeperNeedsReviewReasons: { UNKNOWN_DOC_TYPE: 1 },
     });
     const codes = blockerCodes("docs_in_progress", derived);
     assert.ok(codes.includes("gatekeeper_docs_incomplete"), "Gatekeeper incomplete fires");
@@ -114,6 +119,7 @@ describe("gatekeeper blockers", () => {
     const derived = baseDerived({
       documentsReady: true,
       documentsReadinessPct: 100,
+      readinessMode: "gatekeeper",
       gatekeeperMissingBtrYears: [],
       gatekeeperMissingPtrYears: [],
       gatekeeperMissingFinancialStatements: false,

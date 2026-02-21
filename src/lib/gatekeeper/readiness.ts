@@ -7,15 +7,14 @@
  * No DB, no IO, no side effects. Fully testable.
  *
  * Key design decisions:
- * - PFS is a first-class gatekeeper type — included in readinessPct
+ * - PFS is a first-class type — included in readinessPct
  * - Present year counts are capped at required count (no > 100%)
- * - W2 / FORM_1099 / K1 count as PERSONAL_TAX_RETURN via effective type mapping
+ * - Input types are pre-normalized to readiness vocabulary by the server layer
+ *   (no re-mapping inside the pure engine — prevents vocabulary drift)
  * - NEEDS_REVIEW docs are counted separately and prevent `ready: true`
  */
 
 import type { ScenarioRequirements } from "./requirements";
-import { mapGatekeeperDocTypeToEffectiveDocType } from "./routing";
-import type { GatekeeperDocType } from "./types";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -96,11 +95,9 @@ export function computeGatekeeperReadiness(params: {
   const usableDocs = documents.filter((d) => !d.gatekeeper_needs_review);
   const needsReviewCount = documents.filter((d) => d.gatekeeper_needs_review).length;
 
-  // Map each usable doc to its effective type
+  // Use doc types directly — server layer already normalized to readiness vocabulary
   const effectiveDocs = usableDocs.map((d) => ({
-    effectiveDocType: mapGatekeeperDocTypeToEffectiveDocType(
-      d.gatekeeper_doc_type as GatekeeperDocType,
-    ),
+    effectiveDocType: d.gatekeeper_doc_type,
     taxYear: d.gatekeeper_tax_year,
   }));
 

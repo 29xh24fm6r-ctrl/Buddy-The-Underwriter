@@ -95,7 +95,7 @@ export async function runMatchForDocument(
       const sbGuard = supabaseAdmin();
       const { data: docMeta } = await (sbGuard as any)
         .from("deal_documents")
-        .select("segmented, parent_document_id")
+        .select("segmented, parent_document_id, slot_id")
         .eq("id", documentId)
         .maybeSingle();
 
@@ -112,6 +112,36 @@ export async function runMatchForDocument(
           reason: "segmented_parent_excluded",
           persisted: false,
         };
+      }
+
+      // ── Step 0b: Release old slot if document is being re-matched ──────
+      // When a document already occupies a slot (e.g. manual override changes
+      // doc type), release the old slot so the pure engine sees it as empty.
+      // Safe for first-time matching (slot_id is null → no-op).
+      const existingSlotId: string | null = docMeta?.slot_id ?? null;
+      if (existingSlotId) {
+        const sbRelease = supabaseAdmin();
+        // Deactivate old attachments for this document on the old slot
+        await (sbRelease as any)
+          .from("deal_document_slot_attachments")
+          .update({ is_active: false })
+          .eq("slot_id", existingSlotId)
+          .eq("document_id", documentId)
+          .eq("is_active", true);
+        // Reset old slot status to empty
+        await (sbRelease as any)
+          .from("deal_document_slots")
+          .update({ status: "empty", validation_reason: null })
+          .eq("id", existingSlotId);
+        // Clear document's slot_id
+        await (sbRelease as any)
+          .from("deal_documents")
+          .update({ slot_id: null })
+          .eq("id", documentId);
+
+        console.log("[runMatchForDocument] released old slot before re-match", {
+          dealId, documentId, oldSlotId: existingSlotId,
+        });
       }
     }
 

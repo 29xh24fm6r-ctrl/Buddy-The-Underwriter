@@ -50,7 +50,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       .from("deal_documents")
       .select(
         `id, original_filename, canonical_type, document_type,
-         checklist_key, doc_year,
+         checklist_key, doc_year, match_source,
          ai_doc_type, ai_confidence, ai_tax_year,
          classification_tier,
          gatekeeper_doc_type, gatekeeper_confidence,

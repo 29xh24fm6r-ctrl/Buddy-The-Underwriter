@@ -159,19 +159,30 @@ export async function PATCH(
     );
   }
 
-  // 1b. Re-validate slot attachment after manual classification
+  // 1b. Re-match via matching engine after manual classification
+  // Single source of truth: slot routing always flows through the matching engine.
+  // runMatchForDocument handles old-slot release, constraint evaluation, and attachment.
   if (!isClearing && documentType) {
     try {
-      const { validateSlotAttachmentIfAny } = await import(
-        "@/lib/intake/slots/validateSlotAttachment"
+      const { runMatchForDocument } = await import(
+        "@/lib/intake/matching/runMatch"
       );
-      await validateSlotAttachmentIfAny({
+      await runMatchForDocument({
+        dealId,
+        bankId,
         documentId: attachmentId,
-        classifiedDocType: documentType,
-        classifiedTaxYear: taxYear,
+        spine: null,
+        gatekeeper: {
+          docType: documentType,
+          confidence: 1.0,
+          taxYear: taxYear,
+          formNumbers: [],
+          effectiveDocType: documentType,
+        },
+        matchSource: "manual",
       });
     } catch (e) {
-      console.warn("[checklist-key] slot re-validation failed (non-fatal)", e);
+      console.warn("[checklist-key] re-match after override failed (non-fatal)", e);
     }
   }
 
