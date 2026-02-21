@@ -12,6 +12,7 @@ import {
 } from "@/lib/intake/confirmation/types";
 import { enqueueDealProcessing } from "@/lib/intake/processing/enqueueDealProcessing";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { MAX_PROCESSING_WINDOW_MS } from "@/lib/intake/constants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,10 +65,49 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     }
 
     if ((deal as any).intake_phase === "CONFIRMED_READY_FOR_PROCESSING") {
-      return NextResponse.json(
-        { ok: false, error: "intake_already_confirmed" },
-        { status: 409 },
-      );
+      // Part 3: Lock TTL guard — if processing has been stuck longer than
+      // MAX_PROCESSING_WINDOW_MS, auto-recover by transitioning to error
+      // state so the banker can retry.
+      const { data: lockCheck } = await (sb as any)
+        .from("deal_documents")
+        .select("intake_locked_at")
+        .eq("deal_id", dealId)
+        .eq("is_active", true)
+        .eq("intake_status", "LOCKED_FOR_PROCESSING")
+        .order("intake_locked_at", { ascending: true })
+        .limit(1);
+
+      const oldestLock = lockCheck?.[0]?.intake_locked_at;
+      const lockAge = oldestLock
+        ? Date.now() - new Date(oldestLock).getTime()
+        : Infinity;
+
+      if (lockAge > MAX_PROCESSING_WINDOW_MS) {
+        // Stale lock detected — transition to error state for recovery
+        void writeEvent({
+          dealId,
+          kind: "intake.processing_timeout_recovery",
+          actorUserId: access.userId,
+          scope: "intake",
+          meta: {
+            lock_age_ms: lockAge,
+            max_processing_window_ms: MAX_PROCESSING_WINDOW_MS,
+            oldest_lock_at: oldestLock,
+          },
+        });
+
+        await (sb as any)
+          .from("deals")
+          .update({ intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS" })
+          .eq("id", dealId);
+
+        // Fall through to allow re-confirmation below
+      } else {
+        return NextResponse.json(
+          { ok: false, error: "intake_already_confirmed" },
+          { status: 409 },
+        );
+      }
     }
 
     // Reject if any active docs are still unreviewed

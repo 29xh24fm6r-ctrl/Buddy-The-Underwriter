@@ -19,6 +19,7 @@ import {
   computeIntakeSnapshotHash,
 } from "@/lib/intake/confirmation/types";
 import { QUALITY_VERSION } from "@/lib/intake/quality/evaluateDocumentQuality";
+import { PROCESSING_VERSION } from "@/lib/intake/constants";
 
 // ── Extract-eligible canonical types (mirrors processArtifact routing) ──
 
@@ -70,6 +71,14 @@ export async function processConfirmedIntake(
   const errors: string[] = [];
   const matchResults: Array<{ documentId: string; decision: string }> = [];
   const extractResults: Array<{ documentId: string; ok: boolean }> = [];
+  const startMs = Date.now();
+
+  // ── OUTER TRY/CATCH — GUARANTEES PHASE TRANSITION ─────────────────
+  // Part 5: processConfirmedIntake MUST transition intake_phase even if
+  // an unexpected error occurs. Without this, a deal stays stuck in
+  // CONFIRMED_READY_FOR_PROCESSING forever (no lock TTL can help if
+  // the function dies before reaching the phase-update block).
+  try {
 
   // ── SNAPSHOT VERIFICATION (fail-closed) ─────────────────────────────
   // The execution root defends itself: recompute hash, compare to stored.
@@ -458,6 +467,70 @@ export async function processConfirmedIntake(
   const finalPhase =
     errors.length === 0 ? "PROCESSING_COMPLETE" : "PROCESSING_COMPLETE_WITH_ERRORS";
 
+  await transitionPhaseAndEmit(sb, dealId, finalPhase, {
+    startMs,
+    docsProcessed: confirmedDocs.length,
+    matchCount: matchResults.length,
+    extractCount: extractResults.length,
+    errorCount: errors.length,
+  });
+
+  return {
+    ok: errors.length === 0,
+    docsProcessed: confirmedDocs.length,
+    matchResults,
+    extractResults,
+    errors,
+  };
+
+  } catch (outerErr: any) {
+    // ── GUARANTEED PHASE TRANSITION (Part 5) ──────────────────────────
+    // Even if snapshot verification, quality gate, or any processing step
+    // throws, we MUST transition the deal out of CONFIRMED_READY_FOR_PROCESSING
+    // so the UI doesn't stay stuck forever.
+    console.error("[processConfirmedIntake] outer catch — guaranteeing phase transition", {
+      dealId,
+      error: outerErr?.message,
+    });
+
+    errors.push(`fatal:${outerErr?.message}`);
+
+    await transitionPhaseAndEmit(sb, dealId, "PROCESSING_COMPLETE_WITH_ERRORS", {
+      startMs,
+      docsProcessed: 0,
+      matchCount: matchResults.length,
+      extractCount: extractResults.length,
+      errorCount: errors.length,
+      fatal: true,
+    });
+
+    return {
+      ok: false,
+      docsProcessed: 0,
+      matchResults,
+      extractResults,
+      errors,
+    };
+  }
+}
+
+// ── Phase transition + completion event helper ─────────────────────────
+
+async function transitionPhaseAndEmit(
+  sb: ReturnType<typeof supabaseAdmin>,
+  dealId: string,
+  finalPhase: string,
+  opts: {
+    startMs: number;
+    docsProcessed: number;
+    matchCount: number;
+    extractCount: number;
+    errorCount: number;
+    fatal?: boolean;
+  },
+): Promise<void> {
+  const durationMs = Date.now() - opts.startMs;
+
   try {
     await (sb as any)
       .from("deals")
@@ -471,26 +544,20 @@ export async function processConfirmedIntake(
     });
   }
 
-  // 5. Emit completion event
   void writeEvent({
     dealId,
     kind: "intake.confirmed_processing_complete",
     scope: "intake",
     meta: {
-      docs_processed: confirmedDocs.length,
-      match_results: matchResults.length,
-      extract_results: extractResults.length,
-      error_count: errors.length,
+      docs_processed: opts.docsProcessed,
+      match_results: opts.matchCount,
+      extract_results: opts.extractCount,
+      error_count: opts.errorCount,
       final_phase: finalPhase,
+      duration_ms: durationMs,
+      processing_version: PROCESSING_VERSION,
       confirmation_version: INTAKE_CONFIRMATION_VERSION,
+      fatal: opts.fatal ?? false,
     },
   });
-
-  return {
-    ok: errors.length === 0,
-    docsProcessed: confirmedDocs.length,
-    matchResults,
-    extractResults,
-    errors,
-  };
 }

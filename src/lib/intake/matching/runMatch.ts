@@ -210,10 +210,13 @@ export async function runMatchForDocument(
     });
 
     // ── Step 1d: Adaptive threshold resolution (v1.2) ─────────────────────
+    // Part 7: Manual overrides MUST NOT contaminate adaptive calibration.
+    // matchSource=manual → skip adaptive entirely, null adaptive fields.
+    // This prevents human corrections from distorting the feedback loop.
     let matchConfig: MatchConfig | undefined;
     let resolvedThreshold: ResolvedThreshold | null = null;
 
-    if (isAdaptiveAutoAttachEnabled() && identity.authority !== "manual") {
+    if (isAdaptiveAutoAttachEnabled() && identity.authority !== "manual" && matchSource !== "manual") {
       try {
         const tier = (spine?.spineTier ?? "fallback") as SpineTierKey;
         const band = deriveBand(identity.confidence);
@@ -399,6 +402,8 @@ export async function runMatchForDocument(
         entity_confidence: identity.entity?.confidence ?? null,
         entity_tier: identity.entity?.tier ?? null,
         entity_ambiguous: identity.entity?.ambiguous ?? null,
+        // Part 7: Manual overrides null adaptive fields to prevent contamination
+        match_source: matchSource ?? null,
         // Adaptive threshold (v1.2 — extends existing event, no new event kind)
         adaptive_threshold_version: resolvedThreshold ? ADAPTIVE_THRESHOLD_VERSION : null,
         adaptive_threshold: resolvedThreshold?.threshold ?? null,

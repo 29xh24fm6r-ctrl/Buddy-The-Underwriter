@@ -4,6 +4,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils";
 import { ConfidenceBadge } from "@/components/ui/ConfidenceBadge";
 import { CONFIDENCE_THRESHOLDS } from "@/lib/classification/calibrateConfidence";
+import {
+  MAX_PROCESSING_WINDOW_MS,
+  POLL_INITIAL_MS,
+  POLL_BACKOFF_MS,
+  POLL_MAX_MS,
+} from "@/lib/intake/constants";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -127,13 +133,30 @@ export function IntakeReviewTable({
     }
   }, [dealId, onNeedsReview]);
 
+  // Part 6: Exponential backoff polling — starts fast during processing,
+  // backs off to reduce server load, stops after completion.
+  const pollTickRef = useRef(0);
+
   useEffect(() => {
     void refresh();
-    // Poll faster during processing (3s), normal otherwise (8s)
-    const interval = setInterval(
-      () => void refresh(),
-      data?.intake_phase === "CONFIRMED_READY_FOR_PROCESSING" ? 3000 : 8000,
-    );
+
+    function getPollInterval(): number {
+      if (data?.intake_phase !== "CONFIRMED_READY_FOR_PROCESSING") {
+        pollTickRef.current = 0;
+        return 8000; // normal idle polling
+      }
+      // Backoff: 3s → 5s → 10s (capped)
+      const tick = pollTickRef.current;
+      if (tick < 3) return POLL_INITIAL_MS;
+      if (tick < 8) return POLL_BACKOFF_MS;
+      return POLL_MAX_MS;
+    }
+
+    const interval = setInterval(() => {
+      pollTickRef.current += 1;
+      void refresh();
+    }, getPollInterval());
+
     return () => clearInterval(interval);
   }, [refresh, data?.intake_phase]);
 
@@ -181,6 +204,14 @@ export function IntakeReviewTable({
   const isComplete =
     data?.intake_phase === "PROCESSING_COMPLETE" ||
     data?.intake_phase === "PROCESSING_COMPLETE_WITH_ERRORS";
+
+  // Part 1+2: Client-side timeout guard — UI-derived stuck state.
+  // Computed, not persisted. If processing exceeds MAX_PROCESSING_WINDOW_MS,
+  // show amber "taking longer than expected" state instead of spinner.
+  const isStuck =
+    isProcessing &&
+    processingStartedAt !== null &&
+    elapsed * 1000 >= MAX_PROCESSING_WINDOW_MS;
 
   // Track elapsed time during processing
   useEffect(() => {
@@ -281,6 +312,30 @@ export function IntakeReviewTable({
     const mins = Math.floor(elapsed / 60);
     const secs = elapsed % 60;
     const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+    // Part 1: Stuck state — amber UI when elapsed > MAX_PROCESSING_WINDOW_MS
+    if (isStuck) {
+      return (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5">
+          <div className="flex items-center gap-3">
+            <span className="material-symbols-outlined text-amber-400 text-[20px]">
+              schedule
+            </span>
+            <div>
+              <div className="text-amber-400 text-sm font-medium">
+                Processing is taking longer than expected
+              </div>
+              <div className="text-white/40 text-xs mt-0.5">
+                {timeStr} elapsed — Buddy is still working. If this persists, you may
+                re-submit or contact support.
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Part 9: UX copy — institutional framing
     return (
       <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-5">
         <div className="flex items-center gap-3">
@@ -290,7 +345,7 @@ export function IntakeReviewTable({
           </div>
           <div>
             <div className="text-blue-400 text-sm font-medium">
-              Processing your documents...
+              Buddy is processing your documents securely
             </div>
             <div className="text-white/40 text-xs mt-0.5">
               Matching, extracting, and computing spreads — {timeStr} elapsed
