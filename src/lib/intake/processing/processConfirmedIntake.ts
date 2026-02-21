@@ -287,16 +287,16 @@ export async function processConfirmedIntake(
   const confirmedDocs = docs as ConfirmedDoc[];
 
   // 2. Per-doc: matching + extraction + spread recompute
+  //
+  // IMPORTANT: ALL docs here are confirmed (AUTO_CONFIRMED, USER_CONFIRMED,
+  // or LOCKED_FOR_PROCESSING). The gatekeeper_needs_review flag is pre-confirmation
+  // metadata — the banker's confirmation IS the review. Never gate on it here.
   for (const doc of confirmedDocs) {
     const effectiveDocType =
       doc.canonical_type ?? doc.document_type ?? doc.ai_doc_type ?? "";
 
-    const gkBlockedByReview =
-      doc.gatekeeper_needs_review === true ||
-      doc.gatekeeper_route === "NEEDS_REVIEW";
-
     // 2a. Matching
-    if (!gkBlockedByReview && effectiveDocType) {
+    if (effectiveDocType) {
       try {
         const { runMatchForDocument } = await import(
           "@/lib/intake/matching/runMatch"
@@ -364,11 +364,7 @@ export async function processConfirmedIntake(
     }
 
     // 2b. Extraction
-    if (
-      !gkBlockedByReview &&
-      effectiveDocType &&
-      EXTRACT_ELIGIBLE.has(effectiveDocType)
-    ) {
+    if (effectiveDocType && EXTRACT_ELIGIBLE.has(effectiveDocType)) {
       try {
         const { extractByDocType } = await import(
           "@/lib/extract/router/extractByDocType"
