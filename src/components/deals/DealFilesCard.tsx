@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { CHECKLIST_KEY_OPTIONS, isTaxYearRequired, type ChecklistKeyOption } from "@/lib/checklist/checklistKeyOptions";
 import { useShouldPoll } from "@/buddy/cockpit";
+import { CONFIDENCE_THRESHOLDS } from "@/lib/classification/calibrateConfidence";
 
 type DealFile = {
   file_id: string;
@@ -420,13 +421,13 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                           {file.ai_confidence != null && (
                             <span
                               className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
-                                file.ai_confidence >= 0.85
+                                file.ai_confidence >= CONFIDENCE_THRESHOLDS.HIGH
                                   ? "bg-emerald-500"
-                                  : file.ai_confidence >= 0.6
+                                  : file.ai_confidence >= CONFIDENCE_THRESHOLDS.MEDIUM
                                     ? "bg-amber-500"
-                                    : "bg-red-500"
+                                    : "bg-slate-500"
                               }`}
-                              title={`${Math.round(file.ai_confidence * 100)}% confidence`}
+                              title={`${file.ai_confidence >= CONFIDENCE_THRESHOLDS.HIGH ? "HIGH" : file.ai_confidence >= CONFIDENCE_THRESHOLDS.MEDIUM ? "MEDIUM" : "LOW"} confidence`}
                             />
                           )}
                         </span>

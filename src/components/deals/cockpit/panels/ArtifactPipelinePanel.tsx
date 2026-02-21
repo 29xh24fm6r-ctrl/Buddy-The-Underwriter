@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { useCockpitDataContext } from "@/buddy/cockpit/useCockpitData";
+import { ConfidenceBadge } from "@/components/ui/ConfidenceBadge";
 
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
 const glassHeader = "border-b border-white/10 bg-white/[0.02] px-5 py-3";
@@ -178,9 +179,9 @@ export function ArtifactPipelinePanel({ dealId }: Props) {
                   <div className="text-xs text-white/80 truncate">
                     {match.checklist_key?.replace(/_/g, " ") || "Unknown"}
                   </div>
-                  <div className="text-[10px] text-white/40">
-                    {match.confidence !== null && `${Math.round(match.confidence * 100)}% confidence`}
-                    {match.tax_year && ` | ${match.tax_year}`}
+                  <div className="flex items-center gap-1 text-[10px] text-white/40">
+                    {match.confidence !== null && <ConfidenceBadge confidence={match.confidence} />}
+                    {match.tax_year && <span>| {match.tax_year}</span>}
                   </div>
                 </div>
                 <div className="flex gap-1">

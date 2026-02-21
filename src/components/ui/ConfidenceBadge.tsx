@@ -1,0 +1,61 @@
+"use client";
+
+import {
+  CONFIDENCE_THRESHOLDS,
+  type ConfidenceBand,
+} from "@/lib/classification/calibrateConfidence";
+
+// ---------------------------------------------------------------------------
+// Band derivation (mirrors deriveBand from calibrateConfidence.ts,
+// using the same exported thresholds — no duplicated constants)
+// ---------------------------------------------------------------------------
+
+function resolveBand(confidence: number | null | undefined): ConfidenceBand {
+  if (confidence != null && confidence >= CONFIDENCE_THRESHOLDS.HIGH) return "HIGH";
+  if (confidence != null && confidence >= CONFIDENCE_THRESHOLDS.MEDIUM) return "MEDIUM";
+  return "LOW";
+}
+
+// ---------------------------------------------------------------------------
+// Color model (no red — confidence is not failure)
+// ---------------------------------------------------------------------------
+
+const BAND_STYLES: Record<ConfidenceBand, string> = {
+  HIGH: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  MEDIUM: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  LOW: "bg-slate-500/20 text-slate-400 border-slate-500/30",
+};
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+type ConfidenceBadgeProps = {
+  /** Raw confidence value (0–1). Used to derive band if band not provided. */
+  confidence?: number | null;
+  /** Explicit band (from rawExtraction.calibration.band). Takes priority. */
+  band?: ConfidenceBand;
+};
+
+/**
+ * Institutional confidence badge for classification confidence.
+ *
+ * Displays HIGH / MEDIUM / LOW band label with color coding.
+ * No red — confidence is probabilistic, not a failure indicator.
+ *
+ * Resolution order:
+ *   1. Explicit band prop (from rawExtraction when available)
+ *   2. Derived from confidence using shared CONFIDENCE_THRESHOLDS
+ */
+export function ConfidenceBadge({ confidence, band }: ConfidenceBadgeProps) {
+  const resolved = band ?? resolveBand(confidence);
+
+  return (
+    <span
+      className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-medium border ${BAND_STYLES[resolved]}`}
+      title={confidence != null ? `${(confidence * 100).toFixed(0)}% confidence` : undefined}
+    >
+      {resolved}
+    </span>
+  );
+}

@@ -2,6 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { ConfidenceBadge } from "@/components/ui/ConfidenceBadge";
+import { CONFIDENCE_THRESHOLDS } from "@/lib/classification/calibrateConfidence";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -32,21 +34,17 @@ type ReviewData = {
   documents: IntakeDoc[];
 };
 
-type Filter = "all" | "red" | "amber" | "pending";
+type ConfBand = "LOW" | "MEDIUM" | "HIGH";
+type Filter = "all" | "LOW" | "MEDIUM" | "pending";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-function confidenceBand(c: number | null | undefined): "red" | "amber" | "green" {
-  if (c == null || c < 0.75) return "red";
-  if (c < 0.90) return "amber";
-  return "green";
+/** Derive confidence band using shared calibration thresholds (single source of truth). */
+function resolveConfBand(c: number | null | undefined): ConfBand {
+  if (c != null && c >= CONFIDENCE_THRESHOLDS.HIGH) return "HIGH";
+  if (c != null && c >= CONFIDENCE_THRESHOLDS.MEDIUM) return "MEDIUM";
+  return "LOW";
 }
-
-const BAND_STYLES = {
-  red: "bg-red-500/20 text-red-400 border-red-500/30",
-  amber: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  green: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-} as const;
 
 const STATUS_LABELS: Record<string, string> = {
   UPLOADED: "Uploaded",
@@ -136,9 +134,9 @@ export function IntakeReviewTable({
     if (!data?.documents) return [];
     if (filter === "all") return data.documents;
     return data.documents.filter((d) => {
-      const band = confidenceBand(d.ai_confidence);
-      if (filter === "red") return band === "red";
-      if (filter === "amber") return band === "amber";
+      const band = resolveConfBand(d.ai_confidence);
+      if (filter === "LOW") return band === "LOW";
+      if (filter === "MEDIUM") return band === "MEDIUM";
       if (filter === "pending")
         return (
           d.intake_status === "UPLOADED" ||
@@ -152,8 +150,8 @@ export function IntakeReviewTable({
     const docs = data?.documents ?? [];
     return {
       total: docs.length,
-      red: docs.filter((d) => confidenceBand(d.ai_confidence) === "red").length,
-      amber: docs.filter((d) => confidenceBand(d.ai_confidence) === "amber").length,
+      low: docs.filter((d) => resolveConfBand(d.ai_confidence) === "LOW").length,
+      medium: docs.filter((d) => resolveConfBand(d.ai_confidence) === "MEDIUM").length,
       pending: docs.filter(
         (d) =>
           d.intake_status === "UPLOADED" ||
@@ -266,14 +264,14 @@ export function IntakeReviewTable({
           Intake Review
         </h3>
         <div className="flex items-center gap-2">
-          {counts.red > 0 && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400">
-              {counts.red} low confidence
+          {counts.low > 0 && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-500/20 text-slate-400">
+              {counts.low} low confidence
             </span>
           )}
-          {counts.amber > 0 && (
+          {counts.medium > 0 && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
-              {counts.amber} moderate
+              {counts.medium} moderate
             </span>
           )}
           {counts.pending > 0 && (
@@ -292,7 +290,7 @@ export function IntakeReviewTable({
 
       {/* Filter bar */}
       <div className="flex items-center gap-1">
-        {(["all", "red", "amber", "pending"] as Filter[]).map((f) => (
+        {(["all", "LOW", "MEDIUM", "pending"] as Filter[]).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -304,8 +302,8 @@ export function IntakeReviewTable({
             )}
           >
             {f === "all" ? `All (${counts.total})` :
-             f === "red" ? `Red (${counts.red})` :
-             f === "amber" ? `Amber (${counts.amber})` :
+             f === "LOW" ? `Low (${counts.low})` :
+             f === "MEDIUM" ? `Medium (${counts.medium})` :
              `Pending (${counts.pending})`}
           </button>
         ))}
@@ -326,11 +324,7 @@ export function IntakeReviewTable({
           </thead>
           <tbody>
             {filteredDocs.map((doc) => {
-              const band = confidenceBand(doc.ai_confidence);
               const isEditing = editingDoc === doc.id;
-              const pct = doc.ai_confidence != null
-                ? `${(doc.ai_confidence * 100).toFixed(0)}%`
-                : "N/A";
 
               return (
                 <tr
@@ -391,14 +385,7 @@ export function IntakeReviewTable({
                     )}
                   </td>
                   <td className="py-2 px-2 text-center">
-                    <span
-                      className={cn(
-                        "inline-block px-2 py-0.5 rounded-full text-[10px] font-medium border",
-                        BAND_STYLES[band],
-                      )}
-                    >
-                      {pct}
-                    </span>
+                    <ConfidenceBadge confidence={doc.ai_confidence} />
                   </td>
                   <td className="py-2 px-2 text-center">
                     <span className="text-white/50">

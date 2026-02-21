@@ -33,11 +33,20 @@ type OverrideDriftRow = {
   delta: number;
 };
 
+type CalibrationCurveRow = {
+  band: string | null;
+  tier: string | null;
+  total: number;
+  overrides: number;
+  override_rate: number | null;
+};
+
 type OverrideResponse =
   | {
       ok: true;
       clusters: OverrideClusterRow[];
       drift: OverrideDriftRow[];
+      calibration: CalibrationCurveRow[];
     }
   | {
       ok: false;
@@ -110,7 +119,24 @@ export async function GET(
       delta: Number(r.delta ?? 0),
     }));
 
-    return NextResponse.json({ ok: true, clusters, drift });
+    // Query calibration curve — fail-safe: empty on error
+    const { data: calibrationData, error: calibrationError } = await (sb as any)
+      .from("classification_calibration_curve_v1")
+      .select("*");
+
+    if (calibrationError) {
+      console.warn("[admin/override] calibration query error (non-fatal):", calibrationError);
+    }
+
+    const calibration: CalibrationCurveRow[] = (calibrationData ?? []).map((r: any) => ({
+      band: r.band ?? null,
+      tier: r.tier ?? null,
+      total: Number(r.total ?? 0),
+      overrides: Number(r.overrides ?? 0),
+      override_rate: r.override_rate != null ? Number(r.override_rate) : null,
+    }));
+
+    return NextResponse.json({ ok: true, clusters, drift, calibration });
   } catch (e: any) {
     console.error("[admin/override] unexpected error:", e);
     return NextResponse.json(

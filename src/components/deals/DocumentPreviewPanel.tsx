@@ -2,6 +2,7 @@
 
 import React from "react";
 import type { PackDocument } from "@/lib/deals/pack/buildPackIndex";
+import { ConfidenceBadge } from "@/components/ui/ConfidenceBadge";
 
 export default function DocumentPreviewPanel({
   doc,
@@ -27,7 +28,7 @@ export default function DocumentPreviewPanel({
           <div className="text-xs text-neutral-500">{doc.doc_type}</div>
         </div>
         <div className="text-xs text-neutral-500">
-          {Math.round((doc.confidence ?? 0) * 100)}%
+          <ConfidenceBadge confidence={doc.confidence} />
         </div>
       </div>
 

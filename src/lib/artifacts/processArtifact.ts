@@ -1258,6 +1258,9 @@ export async function processArtifact(
                   doc_type: spineResult.docType,
                   anchor_id: spineResult.evidence?.[0]?.anchorId ?? null,
                   schema_version: CLASSIFICATION_SCHEMA_VERSION,
+                  // Calibration band + tax year — backtesting denominator
+                  confidence_band: (spineResult.rawExtraction as Record<string, any>)?.calibration?.band ?? null,
+                  tax_year: spineResult.taxYear ?? null,
                   // Identity layer (v1.0 — observability only)
                   entity_graph_version: ENTITY_GRAPH_VERSION,
                   resolved_entity_id: classificationEntityResolution?.entityId ?? null,

@@ -26,6 +26,15 @@ export const CONFIDENCE_CEILING = 0.97;
 export const BAND_HIGH_THRESHOLD = 0.88;
 export const BAND_MEDIUM_THRESHOLD = 0.75;
 
+/**
+ * Single source of truth for UI consumption.
+ * UI must import from here — no duplicated threshold math.
+ */
+export const CONFIDENCE_THRESHOLDS = {
+  HIGH: BAND_HIGH_THRESHOLD,
+  MEDIUM: BAND_MEDIUM_THRESHOLD,
+} as const;
+
 // ---------------------------------------------------------------------------
 // Penalty amounts
 // ---------------------------------------------------------------------------

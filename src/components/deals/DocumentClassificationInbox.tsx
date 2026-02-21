@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { ConfidenceBadge } from "@/components/ui/ConfidenceBadge";
 
 type Artifact = {
   id: string;
@@ -51,13 +52,7 @@ type ArtifactsResponse = {
   pending_matches: PendingMatch[];
 };
 
-function confBadge(conf: number | null) {
-  if (conf === null) return { label: "—", className: "bg-slate-100 text-slate-600" };
-  const pct = Math.round(conf * 100);
-  if (pct >= 85) return { label: `${pct}%`, className: "bg-emerald-100 text-emerald-700" };
-  if (pct >= 70) return { label: `${pct}%`, className: "bg-amber-100 text-amber-700" };
-  return { label: `${pct}%`, className: "bg-red-100 text-red-700" };
-}
+// confBadge replaced by ConfidenceBadge component (shared thresholds, no duplicated logic)
 
 function statusBadge(status: string) {
   const map: Record<string, { label: string; className: string }> = {
@@ -280,7 +275,6 @@ export function DocumentClassificationInbox({ dealId }: { dealId: string }) {
                 <div className="space-y-2">
                   {pendingMatches.map((match) => {
                     const artifact = artifacts.find((a) => a.id === match.artifact_id);
-                    const conf = confBadge(match.confidence);
                     const isBusy = actionBusy === match.id;
 
                     return (
@@ -291,11 +285,7 @@ export function DocumentClassificationInbox({ dealId }: { dealId: string }) {
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <span
-                                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${conf.className}`}
-                              >
-                                {conf.label}
-                              </span>
+                              <ConfidenceBadge confidence={match.confidence} />
                               <span className="text-sm font-medium text-white">
                                 → {match.checklist_key}
                               </span>
@@ -374,8 +364,6 @@ export function DocumentClassificationInbox({ dealId }: { dealId: string }) {
                 <div className="space-y-2">
                   {classifiedArtifacts.slice(0, 10).map((artifact) => {
                     const status = statusBadge(artifact.status);
-                    const conf = confBadge(artifact.doc_type_confidence);
-
                     return (
                       <div
                         key={artifact.id}
@@ -392,11 +380,7 @@ export function DocumentClassificationInbox({ dealId }: { dealId: string }) {
                               <span className="text-sm font-medium text-white">
                                 {artifact.doc_type || "Unknown"}
                               </span>
-                              <span
-                                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${conf.className}`}
-                              >
-                                {conf.label}
-                              </span>
+                              <ConfidenceBadge confidence={artifact.doc_type_confidence} />
                             </div>
                             <div className="mt-1 text-xs text-white/60">
                               {artifact.entity_name || "—"} •{" "}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { ConfidenceBadge } from "@/components/ui/ConfidenceBadge";
 
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
 const glassHeader = "border-b border-white/10 bg-white/[0.02] px-5 py-3";
@@ -63,12 +64,7 @@ function getDocTypeIcon(docType: string | null): string {
   return "insert_drive_file";
 }
 
-function getConfidenceColor(confidence: number | null): string {
-  if (confidence === null) return "text-white/40";
-  if (confidence >= 0.8) return "text-emerald-400";
-  if (confidence >= 0.6) return "text-amber-400";
-  return "text-red-400";
-}
+// getConfidenceColor replaced by ConfidenceBadge component (shared thresholds)
 
 type Props = {
   dealId: string;
@@ -371,9 +367,7 @@ export function OcrExtractedDataPanel({ dealId }: Props) {
                           <span className="text-white/40">• {doc.docYear}</span>
                         )}
                         {doc.confidence !== null && (
-                          <span className={getConfidenceColor(doc.confidence)}>
-                            {Math.round(doc.confidence * 100)}%
-                          </span>
+                          <ConfidenceBadge confidence={doc.confidence} />
                         )}
                       </div>
                     </div>
