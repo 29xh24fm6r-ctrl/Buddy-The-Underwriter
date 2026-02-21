@@ -329,6 +329,26 @@ export async function processConfirmedIntake(
           documentId: doc.id,
           decision: matchResult.decision,
         });
+
+        // 2a-ii. Validate slot attachment after successful matching
+        if (matchResult.decision === "auto_attached") {
+          try {
+            const { validateSlotAttachmentIfAny } = await import(
+              "@/lib/intake/slots/validateSlotAttachment"
+            );
+            await validateSlotAttachmentIfAny({
+              documentId: doc.id,
+              classifiedDocType: effectiveDocType,
+              classifiedTaxYear: doc.ai_tax_year ?? doc.gatekeeper_tax_year ?? null,
+            });
+          } catch (valErr: any) {
+            // Non-fatal — slot stays "attached" if validation fails
+            console.warn(
+              `[processConfirmedIntake] slot validation error for doc ${doc.id}:`,
+              valErr?.message,
+            );
+          }
+        }
       } catch (err: any) {
         errors.push(`match:${doc.id}:${err?.message}`);
       }

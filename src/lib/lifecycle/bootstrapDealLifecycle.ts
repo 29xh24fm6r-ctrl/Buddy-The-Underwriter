@@ -32,30 +32,39 @@ export async function bootstrapDealLifecycle(
     const sb = supabaseAdmin();
     const stage = opts?.stage ?? "intake";
 
-    // Upsert with ON CONFLICT DO NOTHING — idempotent
-    const { data, error } = await sb
+    // Check if row already exists
+    const { data: existing } = await sb
       .from("deal_status")
-      .upsert(
-        {
-          deal_id: dealId,
-          stage,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "deal_id", ignoreDuplicates: true },
-      )
       .select("deal_id")
+      .eq("deal_id", dealId)
       .maybeSingle();
 
+    if (existing) {
+      return { ok: true, created: false };
+    }
+
+    // Insert new row (no upsert — avoids PostgREST 406 on ignoreDuplicates + select)
+    const { error } = await sb
+      .from("deal_status")
+      .insert({
+        deal_id: dealId,
+        stage,
+        updated_at: new Date().toISOString(),
+      });
+
     if (error) {
-      console.warn("[bootstrapDealLifecycle] upsert failed (non-fatal)", {
+      // Race condition: another process created it between our check and insert
+      if (error.code === "23505") {
+        return { ok: true, created: false };
+      }
+      console.warn("[bootstrapDealLifecycle] insert failed (non-fatal)", {
         dealId,
         error: error.message,
       });
       return { ok: false, created: false, error: error.message };
     }
 
-    // If data is returned, a new row was created. If null, it already existed.
-    const created = data !== null;
+    const created = true;
 
     if (created) {
       console.log("[bootstrapDealLifecycle] created deal_status row", { dealId, stage });

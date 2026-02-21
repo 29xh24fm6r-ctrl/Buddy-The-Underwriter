@@ -60,17 +60,34 @@ export async function GET(
   const docIds = (attachments ?? []).map((a: any) => a.document_id);
   let docsMap: Record<string, any> = {};
   if (docIds.length > 0) {
-    const { data: docs } = await sb
-      .from("deal_documents")
-      .select(
-        "id, original_filename, display_name, document_type, canonical_type, " +
-        "ai_confidence, ai_doc_type, ai_tax_year, artifact_status, checklist_key, finalized_at, " +
-        "gatekeeper_route, gatekeeper_doc_type, gatekeeper_needs_review, gatekeeper_tax_year",
-      )
-      .in("id", docIds);
+    const [docResult, artifactResult] = await Promise.all([
+      sb
+        .from("deal_documents")
+        .select(
+          "id, original_filename, display_name, document_type, canonical_type, " +
+          "ai_confidence, ai_doc_type, ai_tax_year, checklist_key, finalized_at, " +
+          "gatekeeper_route, gatekeeper_doc_type, gatekeeper_needs_review, gatekeeper_tax_year",
+        )
+        .in("id", docIds),
+      sb
+        .from("document_artifacts")
+        .select("source_id, status, error_message")
+        .eq("source_table", "deal_documents")
+        .in("source_id", docIds),
+    ]);
 
-    for (const doc of (docs ?? []) as any[]) {
-      docsMap[doc.id] = doc;
+    const artifactMap = new Map<string, { status: string; error: string | null }>();
+    for (const a of (artifactResult.data ?? []) as any[]) {
+      artifactMap.set(a.source_id, { status: a.status, error: a.error_message });
+    }
+
+    for (const doc of (docResult.data ?? []) as any[]) {
+      const artifact = artifactMap.get(doc.id);
+      docsMap[doc.id] = {
+        ...doc,
+        artifact_status: artifact?.status ?? null,
+        artifact_error: artifact?.error ?? null,
+      };
     }
   }
 
