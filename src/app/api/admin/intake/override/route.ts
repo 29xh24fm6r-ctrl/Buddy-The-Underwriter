@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { isAdaptiveAutoAttachEnabled } from "@/lib/flags/adaptiveAutoAttach";
+import { resolveAutoAttachThreshold } from "@/lib/classification/thresholds/resolveAutoAttachThreshold";
+import {
+  BASELINE_THRESHOLDS,
+  ADAPTIVE_THRESHOLD_VERSION,
+  type SpineTierKey,
+  type CalibrationCurve,
+  type CalibrationCell,
+} from "@/lib/classification/thresholds/autoAttachThresholds";
+import type { ConfidenceBand } from "@/lib/classification/calibrateConfidence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,12 +51,24 @@ type CalibrationCurveRow = {
   override_rate: number | null;
 };
 
+type ResolvedThresholdRow = {
+  tier: string;
+  band: string;
+  baseline: number;
+  threshold: number;
+  adapted: boolean;
+  calibrationSamples: number;
+  calibrationOverrideRate: number | null;
+};
+
 type OverrideResponse =
   | {
       ok: true;
       clusters: OverrideClusterRow[];
       drift: OverrideDriftRow[];
       calibration: CalibrationCurveRow[];
+      resolvedThresholds: ResolvedThresholdRow[] | null;
+      adaptiveVersion: string | null;
     }
   | {
       ok: false;
@@ -136,7 +158,44 @@ export async function GET(
       override_rate: r.override_rate != null ? Number(r.override_rate) : null,
     }));
 
-    return NextResponse.json({ ok: true, clusters, drift, calibration });
+    // Compute resolved adaptive thresholds for all 12 cells (when flag is on)
+    let resolvedThresholds: ResolvedThresholdRow[] | null = null;
+    let adaptiveVersion: string | null = null;
+
+    if (isAdaptiveAutoAttachEnabled()) {
+      adaptiveVersion = ADAPTIVE_THRESHOLD_VERSION;
+      const ALL_TIERS: SpineTierKey[] = ["tier1_anchor", "tier2_structural", "tier3_llm", "fallback"];
+      const ALL_BANDS: ConfidenceBand[] = ["HIGH", "MEDIUM", "LOW"];
+
+      // Build CalibrationCurve from calibration rows
+      const curve: CalibrationCurve = calibration
+        .filter((r): r is CalibrationCurveRow & { band: string; tier: string } => r.band != null && r.tier != null)
+        .map((r) => ({
+          tier: r.tier as SpineTierKey,
+          band: r.band as ConfidenceBand,
+          total: r.total,
+          overrides: r.overrides,
+          overrideRate: r.override_rate ?? 0,
+        }));
+
+      resolvedThresholds = [];
+      for (const tier of ALL_TIERS) {
+        for (const band of ALL_BANDS) {
+          const result = resolveAutoAttachThreshold(tier, band, curve);
+          resolvedThresholds.push({
+            tier: result.tier,
+            band: result.band,
+            baseline: result.baseline,
+            threshold: result.threshold,
+            adapted: result.adapted,
+            calibrationSamples: result.calibrationSamples,
+            calibrationOverrideRate: result.calibrationOverrideRate,
+          });
+        }
+      }
+    }
+
+    return NextResponse.json({ ok: true, clusters, drift, calibration, resolvedThresholds, adaptiveVersion });
   } catch (e: any) {
     console.error("[admin/override] unexpected error:", e);
     return NextResponse.json(

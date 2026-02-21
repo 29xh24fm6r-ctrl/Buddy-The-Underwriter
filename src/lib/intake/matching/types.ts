@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 /** Bump on any constraint/rule/threshold change. */
-export const MATCHING_ENGINE_VERSION = "v1.1";
+export const MATCHING_ENGINE_VERSION = "v1.2";
 
 // ---------------------------------------------------------------------------
 // Classification Authority
@@ -145,6 +145,17 @@ export type MatchEvidence = {
   classificationEvidence: ClassificationEvidenceItem[];
   slotPolicyVersion: string;
   matchedAt: string;
+  /** v1.2: Adaptive threshold audit trail — null when flag OFF or not applicable. */
+  adaptiveThreshold?: {
+    version: string;
+    threshold: number;
+    baseline: number;
+    adapted: boolean;
+    tier: string;
+    band: string;
+    calibrationSamples: number;
+    calibrationOverrideRate: number | null;
+  } | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -171,4 +182,14 @@ export type ConfidenceGateDecision = "auto_attach" | "route_to_review";
 export type ConfidenceGateResult = {
   decision: ConfidenceGateDecision;
   reason: string;
+};
+
+// ---------------------------------------------------------------------------
+// Match Config (v1.2 — adaptive thresholds)
+// ---------------------------------------------------------------------------
+
+/** Optional config passed to the pure matching engine. */
+export type MatchConfig = {
+  /** Override confidence threshold from adaptive resolver. */
+  autoAttachThreshold?: number;
 };

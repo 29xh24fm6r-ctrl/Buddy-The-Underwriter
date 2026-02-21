@@ -113,3 +113,36 @@ test("ConfidenceGate: manual with no evidence still auto_attach", () => {
   );
   assert.equal(result.decision, "auto_attach");
 });
+
+// ---------------------------------------------------------------------------
+// v1.2: thresholdOverride tests
+// ---------------------------------------------------------------------------
+
+test("ConfidenceGate: thresholdOverride tightens → route_to_review", () => {
+  // Confidence 0.92 normally passes deterministic threshold (0.90)
+  // But override 0.95 tightens it → route_to_review
+  const result = shouldAutoAttach(
+    makeIdentity({ authority: "deterministic", confidence: 0.92 }),
+    0.95,
+  );
+  assert.equal(result.decision, "route_to_review");
+});
+
+test("ConfidenceGate: thresholdOverride loosens → auto_attach", () => {
+  // Confidence 0.87 normally fails deterministic threshold (0.90)
+  // But override 0.85 loosens it → auto_attach
+  const result = shouldAutoAttach(
+    makeIdentity({ authority: "deterministic", confidence: 0.87 }),
+    0.85,
+  );
+  assert.equal(result.decision, "auto_attach");
+});
+
+test("ConfidenceGate: thresholdOverride=undefined → static path", () => {
+  // Same behavior as no override — deterministic at 0.91 passes 0.90
+  const result = shouldAutoAttach(
+    makeIdentity({ authority: "deterministic", confidence: 0.91 }),
+    undefined,
+  );
+  assert.equal(result.decision, "auto_attach");
+});

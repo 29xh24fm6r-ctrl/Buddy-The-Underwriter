@@ -305,7 +305,7 @@ test("MatchEngine: evidence present on auto_attached", () => {
   );
   assert.equal(result.decision, "auto_attached");
   assert.ok(result.evidence);
-  assert.equal(result.evidence!.engineVersion, "v1.1");
+  assert.equal(result.evidence!.engineVersion, "v1.2");
   assert.equal(result.evidence!.authority, "deterministic");
   assert.ok(result.evidence!.constraintsSatisfied.length > 0);
   assert.ok(result.evidence!.negativeRulesEvaluated.length > 0);
@@ -318,7 +318,7 @@ test("MatchEngine: evidence present on routed_to_review", () => {
   );
   assert.equal(result.decision, "routed_to_review");
   assert.ok(result.evidence);
-  assert.equal(result.evidence!.engineVersion, "v1.1");
+  assert.equal(result.evidence!.engineVersion, "v1.2");
 });
 
 test("MatchEngine: evidence present on no_match", () => {

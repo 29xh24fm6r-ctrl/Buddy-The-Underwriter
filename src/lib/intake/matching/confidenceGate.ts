@@ -40,6 +40,7 @@ export const PROBABILISTIC_THRESHOLD = 0.85;
  */
 export function shouldAutoAttach(
   identity: DocumentIdentity,
+  thresholdOverride?: number,
 ): ConfidenceGateResult {
   // Manual authority always attaches
   if (identity.authority === "manual") {
@@ -57,11 +58,11 @@ export function shouldAutoAttach(
     };
   }
 
-  // Authority-class-aware thresholds
-  const threshold =
-    identity.authority === "deterministic"
+  // Authority-class-aware thresholds (v1.2: adaptive override takes precedence)
+  const threshold = thresholdOverride
+    ?? (identity.authority === "deterministic"
       ? DETERMINISTIC_THRESHOLD
-      : PROBABILISTIC_THRESHOLD;
+      : PROBABILISTIC_THRESHOLD);
 
   if (identity.confidence < threshold) {
     return {

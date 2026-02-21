@@ -20,6 +20,7 @@ export type {
   MatchResult,
   ConfidenceGateDecision,
   ConfidenceGateResult,
+  MatchConfig,
 } from "./types";
 
 // Constants

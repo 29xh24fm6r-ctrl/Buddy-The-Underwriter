@@ -21,6 +21,7 @@ import {
   type SlotSnapshot,
   type MatchResult,
   type MatchEvidence,
+  type MatchConfig,
   type ConstraintResult,
   type NegativeRuleResult,
 } from "./types";
@@ -64,9 +65,10 @@ export function matchDocumentToSlot(
   identity: DocumentIdentity,
   slots: SlotSnapshot[],
   slotPolicyVersion: string = "default",
+  config?: MatchConfig,
 ): MatchResult {
   // ── Step 1: Confidence gate ─────────────────────────────────────────
-  const gateResult = shouldAutoAttach(identity);
+  const gateResult = shouldAutoAttach(identity, config?.autoAttachThreshold);
 
   if (gateResult.decision === "route_to_review") {
     return {

@@ -19,12 +19,22 @@ import { resolveDocumentEntityForDeal } from "../identity/resolveDocumentEntity"
 import {
   MATCHING_ENGINE_VERSION,
   type MatchResult,
+  type MatchConfig,
   type SlotSnapshot,
   type PeriodInfo,
   type EntityInfo,
 } from "./types";
 import { ENTITY_GRAPH_VERSION, ENTITY_PROTECTION_THRESHOLD } from "../identity/version";
 import { evaluateConstraints } from "./constraints";
+import { isAdaptiveAutoAttachEnabled } from "@/lib/flags/adaptiveAutoAttach";
+import { deriveBand } from "@/lib/classification/calibrateConfidence";
+import { fetchCalibrationCurve } from "@/lib/classification/thresholds/fetchCalibrationCurve";
+import { resolveAutoAttachThreshold } from "@/lib/classification/thresholds/resolveAutoAttachThreshold";
+import {
+  ADAPTIVE_THRESHOLD_VERSION,
+  type SpineTierKey,
+  type ResolvedThreshold,
+} from "@/lib/classification/thresholds/autoAttachThresholds";
 
 // ---------------------------------------------------------------------------
 // Input type
@@ -169,6 +179,22 @@ export async function runMatchForDocument(
       entity,
     });
 
+    // ── Step 1d: Adaptive threshold resolution (v1.2) ─────────────────────
+    let matchConfig: MatchConfig | undefined;
+    let resolvedThreshold: ResolvedThreshold | null = null;
+
+    if (isAdaptiveAutoAttachEnabled() && identity.authority !== "manual") {
+      try {
+        const tier = (spine?.spineTier ?? "fallback") as SpineTierKey;
+        const band = deriveBand(identity.confidence);
+        const calibration = await fetchCalibrationCurve();
+        resolvedThreshold = resolveAutoAttachThreshold(tier, band, calibration);
+        matchConfig = { autoAttachThreshold: resolvedThreshold.threshold };
+      } catch {
+        // fail-closed: matchConfig stays undefined → static thresholds
+      }
+    }
+
     // ── Step 2: Load slots ──────────────────────────────────────────────
     const sb = supabaseAdmin();
     const { data: rawSlots } = await (sb as any)
@@ -189,7 +215,21 @@ export async function runMatchForDocument(
     }));
 
     // ── Step 3: Run pure engine ─────────────────────────────────────────
-    const result = matchDocumentToSlot(identity, slots, SLOT_POLICY_VERSION);
+    const result = matchDocumentToSlot(identity, slots, SLOT_POLICY_VERSION, matchConfig);
+
+    // ── Step 3b: Stamp adaptive threshold on evidence ───────────────────
+    if (resolvedThreshold && result.evidence) {
+      result.evidence.adaptiveThreshold = {
+        version: ADAPTIVE_THRESHOLD_VERSION,
+        threshold: resolvedThreshold.threshold,
+        baseline: resolvedThreshold.baseline,
+        adapted: resolvedThreshold.adapted,
+        tier: resolvedThreshold.tier,
+        band: resolvedThreshold.band,
+        calibrationSamples: resolvedThreshold.calibrationSamples,
+        calibrationOverrideRate: resolvedThreshold.calibrationOverrideRate,
+      };
+    }
 
     // Lookup matched slot for metadata enrichment
     const matchedSlot = result.slotId
@@ -329,6 +369,13 @@ export async function runMatchForDocument(
         entity_confidence: identity.entity?.confidence ?? null,
         entity_tier: identity.entity?.tier ?? null,
         entity_ambiguous: identity.entity?.ambiguous ?? null,
+        // Adaptive threshold (v1.2 — extends existing event, no new event kind)
+        adaptive_threshold_version: resolvedThreshold ? ADAPTIVE_THRESHOLD_VERSION : null,
+        adaptive_threshold: resolvedThreshold?.threshold ?? null,
+        adaptive_baseline: resolvedThreshold?.baseline ?? null,
+        adaptive_adapted: resolvedThreshold?.adapted ?? null,
+        adaptive_samples: resolvedThreshold?.calibrationSamples ?? null,
+        adaptive_override_rate: resolvedThreshold?.calibrationOverrideRate ?? null,
       },
     }).catch((e: any) => {
       console.warn("[runMatchForDocument] ledger emit failed (non-fatal)", {
