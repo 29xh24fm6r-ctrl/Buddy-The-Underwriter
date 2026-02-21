@@ -454,7 +454,24 @@ export async function processConfirmedIntake(
     }
   }
 
-  // 4. Emit completion event
+  // 4. Transition to PROCESSING_COMPLETE (or PROCESSING_FAILED)
+  const finalPhase =
+    errors.length === 0 ? "PROCESSING_COMPLETE" : "PROCESSING_COMPLETE_WITH_ERRORS";
+
+  try {
+    await (sb as any)
+      .from("deals")
+      .update({ intake_phase: finalPhase })
+      .eq("id", dealId);
+  } catch (phaseErr: any) {
+    console.error("[processConfirmedIntake] failed to update intake_phase", {
+      dealId,
+      phase: finalPhase,
+      error: phaseErr?.message,
+    });
+  }
+
+  // 5. Emit completion event
   void writeEvent({
     dealId,
     kind: "intake.confirmed_processing_complete",
@@ -464,6 +481,7 @@ export async function processConfirmedIntake(
       match_results: matchResults.length,
       extract_results: extractResults.length,
       error_count: errors.length,
+      final_phase: finalPhase,
       confirmation_version: INTAKE_CONFIRMATION_VERSION,
     },
   });

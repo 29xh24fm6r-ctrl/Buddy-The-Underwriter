@@ -256,8 +256,15 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       },
     });
 
-    // Trigger downstream processing
-    const result = await enqueueDealProcessing(dealId, access.bankId);
+    // Trigger downstream processing (fire-and-forget — do NOT await)
+    // Processing runs in the background; UI polls for PROCESSING_COMPLETE.
+    // This prevents Vercel 504 timeouts on large document sets.
+    void enqueueDealProcessing(dealId, access.bankId).catch((err) => {
+      console.error("[intake/confirm] background processing failed", {
+        dealId,
+        error: err?.message,
+      });
+    });
 
     return NextResponse.json({
       ok: true,
@@ -265,7 +272,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       intake_phase: "CONFIRMED_READY_FOR_PROCESSING",
       snapshot_hash: snapshotHash,
       docs_locked: allDocs.length,
-      processing: result,
+      processing_queued: true,
     });
   } catch (e: any) {
     rethrowNextErrors(e);

@@ -92,6 +92,8 @@ export function IntakeReviewTable({
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [submitting, setSubmitting] = useState(false);
+  const [processingStartedAt, setProcessingStartedAt] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const [editingDoc, setEditingDoc] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<{
     canonical_type?: string;
@@ -127,9 +129,13 @@ export function IntakeReviewTable({
 
   useEffect(() => {
     void refresh();
-    const interval = setInterval(() => void refresh(), 8000);
+    // Poll faster during processing (3s), normal otherwise (8s)
+    const interval = setInterval(
+      () => void refresh(),
+      data?.intake_phase === "CONFIRMED_READY_FOR_PROCESSING" ? 3000 : 8000,
+    );
     return () => clearInterval(interval);
-  }, [refresh]);
+  }, [refresh, data?.intake_phase]);
 
   const filteredDocs = useMemo(() => {
     if (!data?.documents) return [];
@@ -170,8 +176,29 @@ export function IntakeReviewTable({
     );
   }, [data?.documents]);
 
-  const isLocked =
+  const isProcessing =
     data?.intake_phase === "CONFIRMED_READY_FOR_PROCESSING";
+  const isComplete =
+    data?.intake_phase === "PROCESSING_COMPLETE" ||
+    data?.intake_phase === "PROCESSING_COMPLETE_WITH_ERRORS";
+
+  // Track elapsed time during processing
+  useEffect(() => {
+    if (isProcessing && processingStartedAt === null) {
+      setProcessingStartedAt(Date.now());
+    }
+    if (isComplete) {
+      setProcessingStartedAt(null);
+    }
+  }, [isProcessing, isComplete, processingStartedAt]);
+
+  useEffect(() => {
+    if (!isProcessing || processingStartedAt === null) return;
+    const timer = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - processingStartedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isProcessing, processingStartedAt]);
 
   // ── Actions ────────────────────────────────────────────────────────
 
@@ -222,11 +249,15 @@ export function IntakeReviewTable({
         setError(errMsg);
         return;
       }
+      // Start the processing timer immediately for instant feedback
+      setProcessingStartedAt(Date.now());
+      setElapsed(0);
       await refresh();
       // After successful submit, notify parent that processing is enqueued
       onSubmitted?.();
     } catch (err: any) {
       setError(err?.message ?? "Submit failed");
+      setProcessingStartedAt(null);
     } finally {
       setSubmitting(false);
     }
@@ -246,12 +277,52 @@ export function IntakeReviewTable({
     return null;
   }
 
-  if (isLocked) {
+  if (isProcessing) {
+    const mins = Math.floor(elapsed / 60);
+    const secs = elapsed % 60;
+    const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
     return (
-      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-        <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium">
-          <span className="material-symbols-outlined text-[16px]">check_circle</span>
-          Intake confirmed and processing complete
+      <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-5">
+        <div className="flex items-center gap-3">
+          <div className="relative h-5 w-5 flex-shrink-0">
+            <div className="absolute inset-0 rounded-full border-2 border-blue-500/30" />
+            <div className="absolute inset-0 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+          </div>
+          <div>
+            <div className="text-blue-400 text-sm font-medium">
+              Processing your documents...
+            </div>
+            <div className="text-white/40 text-xs mt-0.5">
+              Matching, extracting, and computing spreads — {timeStr} elapsed
+            </div>
+          </div>
+        </div>
+        <div className="mt-3 h-1 rounded-full bg-white/5 overflow-hidden">
+          <div className="h-full bg-blue-500/40 rounded-full animate-pulse" style={{ width: "100%" }} />
+        </div>
+      </div>
+    );
+  }
+
+  if (isComplete) {
+    const hasErrors = data?.intake_phase === "PROCESSING_COMPLETE_WITH_ERRORS";
+    return (
+      <div className={cn(
+        "rounded-xl border p-4",
+        hasErrors
+          ? "border-amber-500/20 bg-amber-500/5"
+          : "border-emerald-500/20 bg-emerald-500/5",
+      )}>
+        <div className={cn(
+          "flex items-center gap-2 text-sm font-medium",
+          hasErrors ? "text-amber-400" : "text-emerald-400",
+        )}>
+          <span className="material-symbols-outlined text-[16px]">
+            {hasErrors ? "warning" : "check_circle"}
+          </span>
+          {hasErrors
+            ? "Processing complete — some documents had issues"
+            : "Intake confirmed and processing complete"}
         </div>
       </div>
     );
