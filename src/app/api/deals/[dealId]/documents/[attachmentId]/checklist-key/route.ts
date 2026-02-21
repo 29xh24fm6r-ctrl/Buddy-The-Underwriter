@@ -323,35 +323,15 @@ export async function PATCH(
     console.warn("[checklist-key] readiness recompute failed (non-fatal)", e);
   }
 
-  // 6. Trigger spread recompute for affected spread types (C1)
+  // 6. E2: Trigger spread orchestration after doc change
   if (!isClearing && documentType) {
     try {
-      const { spreadsForDocType } = await import("@/lib/financialSpreads/docTypeToSpreadTypes");
-      const { enqueueSpreadRecompute } = await import("@/lib/financialSpreads/enqueueSpreadRecompute");
-      const spreadTypes = spreadsForDocType(documentType);
-      if (spreadTypes.length > 0) {
-        await enqueueSpreadRecompute({
-          dealId,
-          bankId,
-          sourceDocumentId: attachmentId,
-          spreadTypes,
-          meta: { source: "manual_reclassification", classified_by: userId },
-        });
-      }
+      const { orchestrateSpreads } = await import(
+        "@/lib/spreads/orchestrateSpreads"
+      );
+      await orchestrateSpreads(dealId, bankId, "doc_change", userId);
     } catch (e: any) {
-      console.warn("[checklist-key] spread recompute failed (non-fatal)", e);
-      import("@/lib/aegis").then(({ writeSystemEvent }) =>
-        writeSystemEvent({
-          event_type: "warning",
-          severity: "warning",
-          source_system: "checklist_key_endpoint",
-          deal_id: dealId,
-          bank_id: bankId,
-          error_code: "MANUAL_RECOMPUTE_FAILED",
-          error_message: `Spread recompute after manual reclassification failed: ${e?.message}`,
-          payload: { documentType, attachmentId },
-        }),
-      ).catch(() => {});
+      console.warn("[checklist-key] spread orchestration failed (non-fatal)", e);
     }
   }
 

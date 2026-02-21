@@ -4,7 +4,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { extractFactsFromDocument } from "@/lib/financialSpreads/extractFactsFromDocument";
-import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import type { SpreadType } from "@/lib/financialSpreads/types";
@@ -82,23 +81,20 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       }
     }
 
-    // Enqueue spread recompute for all needed spread types
-    let spreadJobResult: any = null;
-    if (spreadTypesNeeded.size > 0) {
-      try {
-        spreadJobResult = await enqueueSpreadRecompute({
-          dealId,
-          bankId: access.bankId,
-          spreadTypes: Array.from(spreadTypesNeeded),
-          meta: {
-            source: "re_extract_endpoint",
-            triggered_by: userId,
-            enqueued_at: new Date().toISOString(),
-          },
-        });
-      } catch (spreadErr: any) {
-        errors.push(`spread_recompute: ${spreadErr?.message ?? "unknown"}`);
-      }
+    // E2: Trigger spread orchestration after re-extraction
+    let orchestrateResult: any = null;
+    try {
+      const { orchestrateSpreads } = await import(
+        "@/lib/spreads/orchestrateSpreads"
+      );
+      orchestrateResult = await orchestrateSpreads(
+        dealId,
+        access.bankId,
+        "recompute",
+        userId,
+      );
+    } catch (orchErr: any) {
+      errors.push(`orchestrate: ${orchErr?.message ?? "unknown"}`);
     }
 
     await logLedgerEvent({
@@ -106,13 +102,13 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       bankId: access.bankId,
       eventKey: "deal.re_extract",
       uiState: "working",
-      uiMessage: `Re-extracted facts from ${processed} documents (${totalFacts} facts), enqueued ${spreadTypesNeeded.size} spread type(s)`,
+      uiMessage: `Re-extracted facts from ${processed} documents (${totalFacts} facts), orchestrated spreads`,
       meta: {
         triggered_by: userId,
         documents_processed: processed,
         total_facts_written: totalFacts,
         spread_types: Array.from(spreadTypesNeeded),
-        spread_job: spreadJobResult,
+        orchestrate: orchestrateResult,
         errors: errors.length > 0 ? errors : undefined,
       },
     });
@@ -122,7 +118,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       documents_processed: processed,
       total_facts_written: totalFacts,
       spread_types_enqueued: Array.from(spreadTypesNeeded),
-      spread_job: spreadJobResult,
+      orchestrate: orchestrateResult,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error: any) {

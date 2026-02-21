@@ -55,6 +55,20 @@ type PipelineStatus = {
 
 type LaneStatus = "green" | "yellow" | "red" | "grey";
 
+type PreflightBlocker = {
+  code: string;
+  message: string;
+  documentIds?: string[];
+  transient?: boolean;
+};
+
+type PreflightStatus = {
+  ok: boolean;
+  error?: string;
+  blockers?: PreflightBlocker[];
+  snapshot?: { computedHash: string; docCount: number; spreadTypes: string[] };
+};
+
 // ── Helpers ──
 
 function relativeTime(iso: string | null): string {
@@ -91,6 +105,16 @@ function isActive(bucket: JobBucket): boolean {
   return bucket.queued > 0 || bucket.running > 0;
 }
 
+function blockerColor(blocker: PreflightBlocker): string {
+  if (blocker.transient) return "text-amber-300/70";
+  return "text-red-300/70";
+}
+
+function blockerIcon(blocker: PreflightBlocker): string {
+  if (blocker.transient) return "hourglass_top";
+  return "warning";
+}
+
 // ── Component ──
 
 type Props = {
@@ -106,6 +130,8 @@ export function PipelinePanel({ dealId, isAdmin = false }: Props) {
   const [recomputeScope, setRecomputeScope] = useState("ALL");
   const [recomputeBusy, setRecomputeBusy] = useState(false);
   const [recomputeMsg, setRecomputeMsg] = useState<string | null>(null);
+  const [preflight, setPreflight] = useState<PreflightStatus | null>(null);
+  const [preflightBusy, setPreflightBusy] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -204,6 +230,21 @@ export function PipelinePanel({ dealId, isAdmin = false }: Props) {
       setRecomputeBusy(false);
     }
   }, [dealId, recomputeScope, fetchStatus]);
+
+  const handleCheckPreflight = useCallback(async () => {
+    setPreflightBusy(true);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/spreads/preflight`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
+      setPreflight(json as PreflightStatus);
+    } catch {
+      setPreflight({ ok: false, error: "network_error" });
+    } finally {
+      setPreflightBusy(false);
+    }
+  }, [dealId]);
 
   if (loading && !data) {
     return (
@@ -350,6 +391,45 @@ export function PipelinePanel({ dealId, isAdmin = false }: Props) {
           </div>
         </div>
 
+        {/* E2: Preflight Blockers */}
+        {preflight && !preflight.ok && preflight.blockers && (
+          <div className="space-y-1 rounded-lg bg-red-500/5 border border-red-500/10 p-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-red-300/60">
+              Spread Preflight Blocked
+            </div>
+            {preflight.blockers.map((b, i) => (
+              <div key={i} className="flex items-start gap-1.5">
+                <span
+                  className={cn(
+                    "material-symbols-outlined text-[14px] mt-0.5",
+                    blockerColor(b),
+                  )}
+                >
+                  {blockerIcon(b)}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className={cn("text-[10px]", blockerColor(b))}>
+                    {b.message}
+                  </div>
+                  {b.transient && (
+                    <div className="text-[9px] text-white/30">
+                      Will resolve automatically
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {preflight && preflight.ok && (
+          <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/10 p-2">
+            <div className="text-[10px] text-emerald-300/70">
+              Preflight passed — {preflight.snapshot?.spreadTypes?.length ?? 0} spread type(s) ready
+            </div>
+          </div>
+        )}
+
         {/* Collapsible Recent Events */}
         <div>
           <button
@@ -443,6 +523,18 @@ export function PipelinePanel({ dealId, isAdmin = false }: Props) {
                 {recomputeMsg}
               </div>
             )}
+            <button
+              onClick={handleCheckPreflight}
+              disabled={preflightBusy}
+              className={cn(
+                "rounded-lg px-3 py-1 text-[10px] font-semibold transition-colors",
+                preflightBusy
+                  ? "bg-white/5 text-white/30"
+                  : "bg-violet-500/20 text-violet-300 hover:bg-violet-500/30",
+              )}
+            >
+              {preflightBusy ? "Checking..." : "Check Preflight"}
+            </button>
           </div>
         )}
       </div>

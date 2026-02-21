@@ -377,30 +377,27 @@ export async function processConfirmedIntake(
       }
     }
 
-    // 2c. Spread recompute
-    try {
-      const { spreadsForDocType } = await import(
-        "@/lib/financialSpreads/docTypeToSpreadTypes"
+  }
+
+  // ── E2: Proof-driven spread orchestration ─────────────────────────
+  // Runs AFTER matching + extraction are complete for all docs.
+  // Orchestrator verifies intake proof, then enqueues spreads.
+  try {
+    const { orchestrateSpreads } = await import(
+      "@/lib/spreads/orchestrateSpreads"
+    );
+    const orchResult = await orchestrateSpreads(
+      dealId,
+      bankId,
+      "intake_confirmed",
+    );
+    if (!orchResult.ok) {
+      errors.push(
+        `orchestrate:preflight_blocked:${orchResult.blockers?.length ?? 0}_blockers`,
       );
-      const { enqueueSpreadRecompute } = await import(
-        "@/lib/financialSpreads/enqueueSpreadRecompute"
-      );
-      const spreadTypes = spreadsForDocType(effectiveDocType);
-      if (spreadTypes.length > 0) {
-        await enqueueSpreadRecompute({
-          dealId,
-          bankId,
-          sourceDocumentId: doc.id,
-          spreadTypes,
-          meta: {
-            source: "confirmed_intake",
-            confirmation_version: INTAKE_CONFIRMATION_VERSION,
-          },
-        });
-      }
-    } catch (err: any) {
-      errors.push(`spread:${doc.id}:${err?.message}`);
     }
+  } catch (err: any) {
+    errors.push(`orchestrate:${err?.message}`);
   }
 
   // 3. Deal-level operations

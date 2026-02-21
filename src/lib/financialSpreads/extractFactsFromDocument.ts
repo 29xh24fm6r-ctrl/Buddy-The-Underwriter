@@ -385,5 +385,31 @@ export async function extractFactsFromDocument(args: {
     throw new Error(`deal_financial_facts_upsert_failed:${hbResult.error}`);
   }
 
+  // ── E2: Extraction quality stamp ──────────────────────────────────
+  // Structural plausibility check — PASSED or SUSPECT. Fire-and-forget.
+  try {
+    const { validateExtractionQuality } = await import(
+      "@/lib/spreads/preflight/validateExtractedFinancials"
+    );
+    // Read back the facts we just wrote for this document
+    const { data: docFacts } = await (sb as any)
+      .from("deal_financial_facts")
+      .select("fact_key, fact_value_num, fact_value_text, fact_type")
+      .eq("deal_id", args.dealId)
+      .eq("source_document_id", args.documentId)
+      .neq("fact_type", "EXTRACTION_HEARTBEAT");
+
+    if (docFacts && docFacts.length > 0) {
+      const quality = validateExtractionQuality(normDocType, docFacts);
+      await (sb as any)
+        .from("deal_documents")
+        .update({ extraction_quality_status: quality.status })
+        .eq("id", args.documentId);
+    }
+  } catch (err) {
+    // Quality stamp is defense-in-depth, not blocking
+    console.warn("[extractFactsFromDocument] quality stamp failed:", err);
+  }
+
   return { ok: true as const, factsWritten: factsWritten + 1 };
 }
