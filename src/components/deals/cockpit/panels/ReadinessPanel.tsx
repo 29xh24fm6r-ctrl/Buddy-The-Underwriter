@@ -276,19 +276,33 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
               )}
             </div>
           )}
-          {/* Missing document year chips — API guarantees number[], guards are belt-and-suspenders */}
+          {/* Missing document year chips — amber (year mismatch) vs violet (truly missing) */}
           {!primaryReady && (
             (Array.isArray(derived?.gatekeeperMissingBtrYears) && derived.gatekeeperMissingBtrYears.length > 0) ||
             (Array.isArray(derived?.gatekeeperMissingPtrYears) && derived.gatekeeperMissingPtrYears.length > 0) ||
             derived?.gatekeeperMissingFinancialStatements
           ) && (
             <div className="flex flex-wrap gap-1">
-              {Array.isArray(derived?.gatekeeperMissingBtrYears) && derived.gatekeeperMissingBtrYears.map((y) => (
-                <span key={`btr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">BTR {y}</span>
-              ))}
-              {Array.isArray(derived?.gatekeeperMissingPtrYears) && derived.gatekeeperMissingPtrYears.map((y) => (
-                <span key={`ptr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">PTR {y}</span>
-              ))}
+              {Array.isArray(derived?.gatekeeperMissingBtrYears) && derived.gatekeeperMissingBtrYears.map((y) => {
+                const nearMiss = derived?.gatekeeperNearMissBtrYears?.find((nm) => nm.requiredYear === y);
+                return nearMiss ? (
+                  <span key={`btr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/15 text-[10px] text-amber-300/70">
+                    BTR {y} — have {nearMiss.foundYear}
+                  </span>
+                ) : (
+                  <span key={`btr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">BTR {y}</span>
+                );
+              })}
+              {Array.isArray(derived?.gatekeeperMissingPtrYears) && derived.gatekeeperMissingPtrYears.map((y) => {
+                const nearMiss = derived?.gatekeeperNearMissPtrYears?.find((nm) => nm.requiredYear === y);
+                return nearMiss ? (
+                  <span key={`ptr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/15 text-[10px] text-amber-300/70">
+                    PTR {y} — have {nearMiss.foundYear}
+                  </span>
+                ) : (
+                  <span key={`ptr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">PTR {y}</span>
+                );
+              })}
               {derived?.gatekeeperMissingFinancialStatements && (
                 <span className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">Financial Stmt</span>
               )}

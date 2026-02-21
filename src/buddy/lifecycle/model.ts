@@ -147,6 +147,10 @@ export type LifecycleDerived = {
   gatekeeperMissingBtrYears?: number[];
   /** Missing personal tax return years */
   gatekeeperMissingPtrYears?: number[];
+  /** Near-miss BTR years: doc of right type exists but with wrong year */
+  gatekeeperNearMissBtrYears?: Array<{ requiredYear: number; foundYear: number }>;
+  /** Near-miss PTR years: doc of right type exists but with wrong year */
+  gatekeeperNearMissPtrYears?: Array<{ requiredYear: number; foundYear: number }>;
   /** Whether financial statements are missing */
   gatekeeperMissingFinancialStatements?: boolean;
   /** Aggregated needs-review reason codes → count (e.g. { LOW_CONFIDENCE: 2 }) */

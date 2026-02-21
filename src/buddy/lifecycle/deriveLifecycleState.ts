@@ -412,6 +412,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     'gatekeeperDocsReady' | 'gatekeeperReadinessPct' | 'gatekeeperNeedsReviewCount'
     | 'gatekeeperMissingBtrYears' | 'gatekeeperMissingPtrYears' | 'gatekeeperMissingFinancialStatements'
     | 'gatekeeperNeedsReviewReasons'
+    | 'gatekeeperNearMissBtrYears' | 'gatekeeperNearMissPtrYears'
   >> = {};
 
   if (isGatekeeperReadinessEnabled()) {
@@ -428,6 +429,9 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
         gatekeeperMissingPtrYears: readiness.missing.personalTaxYears,
         gatekeeperMissingFinancialStatements: readiness.missing.financialStatementsMissing,
         gatekeeperNeedsReviewReasons: readiness.needsReviewReasons,
+        // Near-miss detection: year mismatch (amber) vs truly missing (violet)
+        gatekeeperNearMissBtrYears: readiness.nearMisses.businessTaxReturns,
+        gatekeeperNearMissPtrYears: readiness.nearMisses.personalTaxReturns,
       };
     } catch {
       readinessMode = "slot_fallback"; // gatekeeper errored → fall back

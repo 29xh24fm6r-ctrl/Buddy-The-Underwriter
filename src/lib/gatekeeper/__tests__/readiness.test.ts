@@ -282,6 +282,97 @@ describe("computeGatekeeperReadiness", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Near-miss detection
+// ---------------------------------------------------------------------------
+
+describe("near-miss detection", () => {
+  it("BTR near-miss — required 2024, only 2023 present → nearMiss, not truly missing", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [2024],
+      personalTaxYears: [],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    const docs = [makeDoc("BUSINESS_TAX_RETURN", 2023)];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.equal(result.nearMisses.businessTaxReturns.length, 1);
+    assert.equal(result.nearMisses.businessTaxReturns[0].requiredYear, 2024);
+    assert.equal(result.nearMisses.businessTaxReturns[0].foundYear, 2023);
+    assert.equal(result.missing.businessTaxYears.length, 1); // still missing from readiness perspective
+  });
+
+  it("PTR near-miss — required 2022, only 2023 present → nearMiss", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [],
+      personalTaxYears: [2022],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    const docs = [makeDoc("PERSONAL_TAX_RETURN", 2023)];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.equal(result.nearMisses.personalTaxReturns.length, 1);
+    assert.equal(result.nearMisses.personalTaxReturns[0].requiredYear, 2022);
+    assert.equal(result.nearMisses.personalTaxReturns[0].foundYear, 2023);
+  });
+
+  it("truly missing — no BTR docs at all → empty nearMisses", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [2024],
+      personalTaxYears: [],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    const result = computeGatekeeperReadiness({ requirements: req, documents: [] });
+
+    assert.equal(result.nearMisses.businessTaxReturns.length, 0);
+    assert.equal(result.missing.businessTaxYears.length, 1);
+  });
+
+  it("satisfied year → not in nearMisses", () => {
+    const req: ScenarioRequirements = {
+      businessTaxYears: [2024, 2023],
+      personalTaxYears: [],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    // 2024 satisfied, 2023 satisfied — no near-misses
+    const docs = [
+      makeDoc("BUSINESS_TAX_RETURN", 2024),
+      makeDoc("BUSINESS_TAX_RETURN", 2023),
+    ];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.equal(result.nearMisses.businessTaxReturns.length, 0);
+    assert.equal(result.missing.businessTaxYears.length, 0);
+  });
+
+  it("confirmed doc type feeds through pure engine — PTR via canonical_type", () => {
+    // Simulates what readinessServer does: resolves effective type upstream
+    // The pure engine receives already-resolved values
+    const req: ScenarioRequirements = {
+      businessTaxYears: [],
+      personalTaxYears: [2022],
+      requiresFinancialStatements: false,
+      requiresPFS: false,
+    };
+    // A confirmed doc: gatekeeper said W2 but human confirmed PTR 2022
+    // After resolveEffectiveClassification, readinessServer maps to:
+    const docs: GatekeeperDocRow[] = [{
+      gatekeeper_doc_type: "PERSONAL_TAX_RETURN", // effective type (resolved)
+      gatekeeper_tax_year: 2022,                   // effective year (resolved)
+      gatekeeper_needs_review: false,              // confirmed → never needs review
+    }];
+    const result = computeGatekeeperReadiness({ requirements: req, documents: docs });
+
+    assert.deepEqual(result.present.personalTaxYears, [2022]);
+    assert.equal(result.readinessPct, 100);
+    assert.equal(result.ready, true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // deriveScenarioRequirements
 // ---------------------------------------------------------------------------
 

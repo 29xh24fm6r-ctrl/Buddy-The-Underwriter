@@ -27,6 +27,12 @@ export type GatekeeperDocRow = {
   gatekeeper_review_reason_code?: string | null;
 };
 
+/** A near-miss: required year exists but doc has a different year. */
+export type NearMissYear = {
+  requiredYear: number;
+  foundYear: number;
+};
+
 export type GatekeeperReadinessResult = {
   required: {
     businessTaxYears: number[];
@@ -47,6 +53,12 @@ export type GatekeeperReadinessResult = {
     personalTaxYears: number[];
     financialStatementsMissing: boolean;
     pfsMissing: boolean;
+  };
+
+  /** Documents that match required type but have wrong year (year mismatch). */
+  nearMisses: {
+    businessTaxReturns: NearMissYear[];
+    personalTaxReturns: NearMissYear[];
   };
 
   needsReviewCount: number;
@@ -163,6 +175,43 @@ export function computeGatekeeperReadiness(params: {
 
   const ready = readinessPct === 100 && needsReviewCount === 0;
 
+  // ── Near-Miss Detection ─────────────────────────────────────────────────
+  // A near-miss is a missing required year where a doc of matching type
+  // exists but with a different year that doesn't satisfy any required year.
+  // "Year mismatch" (amber) vs "Truly missing" (violet).
+
+  const btrExtraYears = effectiveDocs
+    .filter(
+      (d) =>
+        d.effectiveDocType === "BUSINESS_TAX_RETURN" &&
+        d.taxYear != null &&
+        !requirements.businessTaxYears.includes(d.taxYear),
+    )
+    .map((d) => d.taxYear!);
+
+  const ptrExtraYears = effectiveDocs
+    .filter(
+      (d) =>
+        d.effectiveDocType === "PERSONAL_TAX_RETURN" &&
+        d.taxYear != null &&
+        !requirements.personalTaxYears.includes(d.taxYear),
+    )
+    .map((d) => d.taxYear!);
+
+  const nearMissBtr: NearMissYear[] = missingBtrYears
+    .filter(() => btrExtraYears.length > 0)
+    .map((requiredYear) => ({
+      requiredYear,
+      foundYear: btrExtraYears[0],
+    }));
+
+  const nearMissPtr: NearMissYear[] = missingPtrYears
+    .filter(() => ptrExtraYears.length > 0)
+    .map((requiredYear) => ({
+      requiredYear,
+      foundYear: ptrExtraYears[0],
+    }));
+
   // Aggregate needs-review reason codes
   const needsReviewReasons: Record<string, number> = {};
   for (const d of documents.filter((d) => d.gatekeeper_needs_review)) {
@@ -188,6 +237,10 @@ export function computeGatekeeperReadiness(params: {
       personalTaxYears: missingPtrYears,
       financialStatementsMissing,
       pfsMissing,
+    },
+    nearMisses: {
+      businessTaxReturns: nearMissBtr,
+      personalTaxReturns: nearMissPtr,
     },
     needsReviewCount,
     needsReviewReasons,

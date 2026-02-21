@@ -1,11 +1,12 @@
 /**
  * Gatekeeper Readiness — Server-Side Integration
  *
- * Queries deal_documents for gatekeeper-classified docs, loads the intake
- * scenario, and delegates to the pure readiness engine.
+ * Queries deal_documents for classified/confirmed docs, resolves effective
+ * classification via the system-wide truth resolver, and delegates to
+ * the pure readiness engine.
  *
- * This is the only file with DB access — readiness.ts and requirements.ts
- * are pure functions.
+ * This is the only file with DB access — readiness.ts, requirements.ts,
+ * and resolveEffectiveClassification.ts are pure functions.
  */
 import "server-only";
 
@@ -20,17 +21,19 @@ import {
   type GatekeeperReadinessResult,
   type GatekeeperDocRow,
 } from "./readiness";
+import { resolveEffectiveClassification } from "./resolveEffectiveClassification";
 
 export type { GatekeeperReadinessResult } from "./readiness";
 
 /**
- * Compute gatekeeper-derived document readiness for a deal.
+ * Compute document readiness for a deal.
  *
  * Steps:
  * 1. Load intake scenario (fallback to CONVENTIONAL_FALLBACK)
  * 2. Derive requirements from scenario
- * 3. Query ALL gatekeeper-classified docs (review + non-review)
- * 4. Delegate to pure matching engine
+ * 3. Query ALL classified OR confirmed docs
+ * 4. Resolve effective classification (confirmed truth > gatekeeper > AI)
+ * 5. Delegate to pure matching engine
  */
 export async function computeGatekeeperDocReadiness(
   dealId: string,
@@ -46,23 +49,48 @@ export async function computeGatekeeperDocReadiness(
     scenario: effectiveScenario,
   });
 
-  // 3. Query all gatekeeper-classified docs (both review and non-review)
+  // 3. Query all classified OR confirmed docs
+  //    Confirmed docs are always visible to readiness, even if gatekeeper never ran.
   const { data: rows } = await (sb as any)
     .from("deal_documents")
     .select(
-      "gatekeeper_doc_type, gatekeeper_tax_year, gatekeeper_needs_review, gatekeeper_review_reason_code",
+      `canonical_type, document_type, gatekeeper_doc_type, ai_doc_type,
+       doc_year, gatekeeper_tax_year, ai_tax_year,
+       gatekeeper_needs_review, gatekeeper_review_reason_code,
+       intake_confirmed_at`,
     )
     .eq("deal_id", dealId)
-    .not("gatekeeper_classified_at", "is", null);
+    .or("gatekeeper_classified_at.not.is.null,intake_confirmed_at.not.is.null");
 
-  const documents: GatekeeperDocRow[] = (rows ?? []).map((r: any) => ({
-    gatekeeper_doc_type: r.gatekeeper_doc_type ?? "UNKNOWN",
-    gatekeeper_tax_year: r.gatekeeper_tax_year ?? null,
-    gatekeeper_needs_review: r.gatekeeper_needs_review === true,
-    gatekeeper_review_reason_code: r.gatekeeper_review_reason_code ?? null,
-  }));
+  // 4. Resolve effective classification per doc
+  const documents: GatekeeperDocRow[] = (rows ?? []).map((r: any) => {
+    const resolved = resolveEffectiveClassification({
+      canonical_type: r.canonical_type,
+      document_type: r.document_type,
+      gatekeeper_doc_type: r.gatekeeper_doc_type,
+      ai_doc_type: r.ai_doc_type,
+      doc_year: r.doc_year,
+      gatekeeper_tax_year: r.gatekeeper_tax_year,
+      ai_tax_year: r.ai_tax_year,
+      intake_confirmed_at: r.intake_confirmed_at,
+    });
 
-  // 4. Delegate to pure engine
+    // Human-confirmed docs are never "needs review" — the human already reviewed
+    const needsReview = resolved.isConfirmed
+      ? false
+      : r.gatekeeper_needs_review === true;
+
+    return {
+      gatekeeper_doc_type: resolved.effectiveDocType,
+      gatekeeper_tax_year: resolved.effectiveTaxYear,
+      gatekeeper_needs_review: needsReview,
+      gatekeeper_review_reason_code: needsReview
+        ? (r.gatekeeper_review_reason_code ?? null)
+        : null,
+    };
+  });
+
+  // 5. Delegate to pure engine
   return computeGatekeeperReadiness({ requirements, documents });
 }
 
