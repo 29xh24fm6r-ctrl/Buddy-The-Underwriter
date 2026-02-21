@@ -18,12 +18,14 @@ import { runTier2Structural } from "./tier2Structural";
 import { applyConfidenceGate } from "./confidenceGate";
 import { runTier3LLM } from "./tier3LLM";
 import { extractTaxYear, extractFormNumbers } from "./textUtils";
+import { calibrateConfidence } from "./calibrateConfidence";
 import {
   CLASSIFICATION_SCHEMA_VERSION,
   type SpineClassificationResult,
   type SpineClassificationTier,
   type EvidenceItem,
   type DocAiSignals,
+  type NormalizedDocument,
   type Tier1Result,
   type GateDecision,
   type Tier3Result,
@@ -89,13 +91,25 @@ function mapSpineTierToLegacy(
 function finalizeFromTier1(
   tier1: Tier1Result,
   text: string,
+  doc: NormalizedDocument,
 ): SpineClassificationResult {
   const spineTier: SpineClassificationTier = "tier1_anchor";
+  const resolvedYear = tier1.taxYear ?? extractTaxYear(text);
+  const resolvedFormNumbers = tier1.formNumbers ?? extractFormNumbers(text);
+  const calibration = calibrateConfidence({
+    baseConfidence: tier1.confidence,
+    spineTier,
+    confusionCandidates: [],
+    formNumbers: resolvedFormNumbers,
+    detectedYears: doc.detectedYears,
+    taxYear: resolvedYear,
+    textLength: doc.fullText.length,
+  });
   return {
     docType: tier1.docType!,
-    confidence: tier1.confidence,
+    confidence: calibration.confidence,
     reason: `Tier 1 anchor: ${tier1.anchorId}`,
-    taxYear: tier1.taxYear ?? extractTaxYear(text),
+    taxYear: resolvedYear,
     entityName: null,
     entityType: tier1.entityType,
     proposedDealName: null,
@@ -103,8 +117,14 @@ function finalizeFromTier1(
     rawExtraction: {
       spine_tier: spineTier,
       anchor_id: tier1.anchorId,
+      calibration: {
+        originalConfidence: tier1.confidence,
+        adjustedConfidence: calibration.confidence,
+        band: calibration.band,
+        penalties: calibration.penalties,
+      },
     },
-    formNumbers: tier1.formNumbers ?? extractFormNumbers(text),
+    formNumbers: resolvedFormNumbers,
     issuer: null,
     periodStart: null,
     periodEnd: null,
@@ -119,17 +139,29 @@ function finalizeFromTier1(
 function finalizeFromGate(
   gate: GateDecision,
   text: string,
+  doc: NormalizedDocument,
 ): SpineClassificationResult {
   const spineTier: SpineClassificationTier =
     gate.source === "tier1" ? "tier1_anchor" : "tier2_structural";
+  const resolvedYear = gate.taxYear ?? extractTaxYear(text);
+  const resolvedFormNumbers = gate.formNumbers ?? extractFormNumbers(text);
+  const calibration = calibrateConfidence({
+    baseConfidence: gate.confidence,
+    spineTier,
+    confusionCandidates: [],
+    formNumbers: resolvedFormNumbers,
+    detectedYears: doc.detectedYears,
+    taxYear: resolvedYear,
+    textLength: doc.fullText.length,
+  });
   return {
     docType: gate.docType!,
-    confidence: gate.confidence,
+    confidence: calibration.confidence,
     reason:
       gate.source === "tier1"
         ? `Tier 1 anchor accepted`
         : `Tier 2 structural pattern accepted (confidence ${gate.confidence})`,
-    taxYear: gate.taxYear ?? extractTaxYear(text),
+    taxYear: resolvedYear,
     entityName: null,
     entityType: gate.entityType,
     proposedDealName: null,
@@ -137,8 +169,14 @@ function finalizeFromGate(
     rawExtraction: {
       spine_tier: spineTier,
       gate_source: gate.source,
+      calibration: {
+        originalConfidence: gate.confidence,
+        adjustedConfidence: calibration.confidence,
+        band: calibration.band,
+        penalties: calibration.penalties,
+      },
     },
-    formNumbers: gate.formNumbers ?? extractFormNumbers(text),
+    formNumbers: resolvedFormNumbers,
     issuer: null,
     periodStart: null,
     periodEnd: null,
@@ -150,11 +188,23 @@ function finalizeFromGate(
   };
 }
 
-function finalizeFromTier3(tier3: Tier3Result): SpineClassificationResult {
+function finalizeFromTier3(
+  tier3: Tier3Result,
+  doc: NormalizedDocument,
+): SpineClassificationResult {
   const spineTier: SpineClassificationTier = "tier3_llm";
+  const calibration = calibrateConfidence({
+    baseConfidence: tier3.confidence,
+    spineTier,
+    confusionCandidates: tier3.confusionCandidates,
+    formNumbers: tier3.formNumbers,
+    detectedYears: doc.detectedYears,
+    taxYear: tier3.taxYear,
+    textLength: doc.fullText.length,
+  });
   return {
     docType: tier3.docType,
-    confidence: tier3.confidence,
+    confidence: calibration.confidence,
     reason: tier3.reason || `Tier 3 LLM classification`,
     taxYear: tier3.taxYear,
     entityName: tier3.entityName,
@@ -165,6 +215,12 @@ function finalizeFromTier3(tier3: Tier3Result): SpineClassificationResult {
       spine_tier: spineTier,
       model: tier3.model,
       confusion_candidates: tier3.confusionCandidates,
+      calibration: {
+        originalConfidence: tier3.confidence,
+        adjustedConfidence: calibration.confidence,
+        band: calibration.band,
+        penalties: calibration.penalties,
+      },
     },
     formNumbers: tier3.formNumbers,
     issuer: tier3.issuer,
@@ -179,18 +235,39 @@ function finalizeFromTier3(tier3: Tier3Result): SpineClassificationResult {
   };
 }
 
-function finalizeFallback(text: string): SpineClassificationResult {
+function finalizeFallback(
+  text: string,
+  doc: NormalizedDocument,
+): SpineClassificationResult {
   const spineTier: SpineClassificationTier = "fallback";
+  const baseConfidence = 0.1;
+  const calibration = calibrateConfidence({
+    baseConfidence,
+    spineTier,
+    confusionCandidates: [],
+    formNumbers: extractFormNumbers(text),
+    detectedYears: doc.detectedYears,
+    taxYear: extractTaxYear(text),
+    textLength: doc.fullText.length,
+  });
   return {
     docType: "OTHER",
-    confidence: 0.1,
+    confidence: calibration.confidence,
     reason: "All classification tiers failed — fallback to OTHER",
     taxYear: extractTaxYear(text),
     entityName: null,
     entityType: null,
     proposedDealName: null,
     proposedDealNameSource: null,
-    rawExtraction: { spine_tier: spineTier },
+    rawExtraction: {
+      spine_tier: spineTier,
+      calibration: {
+        originalConfidence: baseConfidence,
+        adjustedConfidence: calibration.confidence,
+        band: calibration.band,
+        penalties: calibration.penalties,
+      },
+    },
     formNumbers: extractFormNumbers(text),
     issuer: null,
     periodStart: null,
@@ -210,6 +287,7 @@ function finalizeFromDocAi(
   tier1FormNumbers: string[] | null,
   tier1EntityType: "business" | "personal" | null,
   tier1TaxYear: number | null,
+  doc: NormalizedDocument,
 ): SpineClassificationResult {
   // DocAI results map to legacy "docai" tier for compat
   const spineTier: SpineClassificationTier = "tier1_anchor";
@@ -221,12 +299,24 @@ function finalizeFromDocAi(
       confidence: docAi.docTypeConfidence ?? 0,
     },
   ];
+  const baseConfidence = docAi.docTypeConfidence ?? 0.8;
+  const resolvedYear = tier1TaxYear ?? extractTaxYear(text);
+  const resolvedFormNumbers = tier1FormNumbers ?? extractFormNumbers(text);
+  const calibration = calibrateConfidence({
+    baseConfidence,
+    spineTier,
+    confusionCandidates: [],
+    formNumbers: resolvedFormNumbers,
+    detectedYears: doc.detectedYears,
+    taxYear: resolvedYear,
+    textLength: doc.fullText.length,
+  });
 
   return {
     docType,
-    confidence: docAi.docTypeConfidence ?? 0.8,
+    confidence: calibration.confidence,
     reason: `DocAI processor classified as "${docAi.docTypeLabel}" (confidence ${docAi.docTypeConfidence})`,
-    taxYear: tier1TaxYear ?? extractTaxYear(text),
+    taxYear: resolvedYear,
     entityName: null,
     entityType: tier1EntityType,
     proposedDealName: null,
@@ -236,8 +326,14 @@ function finalizeFromDocAi(
       docai_label: docAi.docTypeLabel,
       docai_confidence: docAi.docTypeConfidence,
       docai_processor: docAi.processorType,
+      calibration: {
+        originalConfidence: baseConfidence,
+        adjustedConfidence: calibration.confidence,
+        band: calibration.band,
+        penalties: calibration.penalties,
+      },
     },
-    formNumbers: tier1FormNumbers ?? extractFormNumbers(text),
+    formNumbers: resolvedFormNumbers,
     issuer: null,
     periodStart: null,
     periodEnd: null,
@@ -266,9 +362,10 @@ export async function classifyDocumentSpine(
   mimeType: string | null,
   docAi?: DocAiSignals,
 ): Promise<SpineClassificationResult> {
+  let doc: NormalizedDocument | null = null;
   try {
     // ── Step 1: Normalize ─────────────────────────────────────────────
-    const doc = normalizeDocument("spine", documentText, filename, mimeType);
+    doc = normalizeDocument("spine", documentText, filename, mimeType);
 
     // ── Step 2: Tier 1 — Deterministic Anchors ────────────────────────
     const tier1 = runTier1Anchors(doc);
@@ -282,7 +379,7 @@ export async function classifyDocumentSpine(
       if (mappedDocAiType) {
         // Cross-validation: Tier 1 anchor (≥0.90) beats DocAI
         if (tier1.matched && tier1.docType !== mappedDocAiType) {
-          return finalizeFromTier1(tier1, documentText);
+          return finalizeFromTier1(tier1, documentText, doc);
         }
 
         // Tier 1 agrees with DocAI, or Tier 1 didn't match — use DocAI
@@ -294,6 +391,7 @@ export async function classifyDocumentSpine(
             tier1.formNumbers,
             tier1.entityType,
             tier1.taxYear,
+            doc,
           );
         }
       }
@@ -301,7 +399,7 @@ export async function classifyDocumentSpine(
 
     // ── Step 4: Tier 1 matched (no DocAI or DocAI unmapped) → accept ──
     if (tier1.matched) {
-      return finalizeFromTier1(tier1, documentText);
+      return finalizeFromTier1(tier1, documentText, doc);
     }
 
     // ── Step 5: Tier 2 — Structural Patterns ──────────────────────────
@@ -310,22 +408,34 @@ export async function classifyDocumentSpine(
     // ── Step 6: Confidence Gate ───────────────────────────────────────
     const gate = applyConfidenceGate(tier1, tier2);
     if (gate.accepted) {
-      return finalizeFromGate(gate, documentText);
+      return finalizeFromGate(gate, documentText, doc);
     }
 
     // ── Step 7: Tier 3 — Domain LLM Escalation ───────────────────────
     const tier3 = await runTier3LLM(doc);
     if (tier3.matched) {
-      return finalizeFromTier3(tier3);
+      return finalizeFromTier3(tier3, doc);
     }
 
     // ── Step 8: Fallback ──────────────────────────────────────────────
-    return finalizeFallback(documentText);
+    return finalizeFallback(documentText, doc!);
   } catch (error: any) {
     console.error("[classifyDocumentSpine] Unexpected error — fallback", {
       filename,
       error: error?.message,
     });
-    return finalizeFallback(documentText);
+    // doc may be null if normalization threw — create minimal fallback
+    const fallbackDoc: NormalizedDocument = doc ?? {
+      artifactId: "fallback",
+      filename,
+      mimeType,
+      pageCount: 0,
+      firstPageText: "",
+      firstTwoPagesText: "",
+      fullText: documentText,
+      detectedYears: [],
+      hasTableLikeStructure: false,
+    };
+    return finalizeFallback(documentText, fallbackDoc);
   }
 }

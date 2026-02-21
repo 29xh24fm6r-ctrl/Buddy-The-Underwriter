@@ -10,6 +10,7 @@ import { INTAKE_CONFIRMATION_VERSION } from "@/lib/intake/confirmation/types";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { SEGMENTATION_VERSION } from "@/lib/intake/segmentation/types";
 import { extractFilenamePattern } from "@/lib/intake/overrideIntelligence/extractFilenamePattern";
+import { deriveBand } from "@/lib/classification/calibrateConfidence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -193,9 +194,12 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       },
     });
 
-    // Override Intelligence: emit classification.manual_override when canonical_type changed
+    // Override Intelligence: emit classification.manual_override when type or year changed
     // Feeds into override_clusters_v1, override_drift_v1, drift detection, golden corpus
-    if (hasDelta && afterState.canonical_type !== beforeState.canonical_type) {
+    const typeOverride = hasDelta && afterState.canonical_type !== beforeState.canonical_type;
+    const yearOverride = hasDelta && afterState.doc_year !== beforeState.doc_year;
+    if (typeOverride || yearOverride) {
+      const rawConfidence: number | null = (doc as any).ai_confidence ?? (doc as any).classification_confidence ?? null;
       void writeEvent({
         dealId,
         kind: "classification.manual_override",
@@ -207,10 +211,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           document_id: documentId,
           original_type: beforeState.canonical_type,
           corrected_type: afterState.canonical_type,
+          original_year: beforeState.doc_year ?? null,
+          confirmed_year: afterState.doc_year ?? null,
           classified_by: access.userId,
           // Override Intelligence enrichment (Phase B)
-          confidence_at_time: (doc as any).ai_confidence ?? null,
+          confidence_at_time: rawConfidence,
+          confidence_band: deriveBand(rawConfidence ?? 0),
           classifier_source: (doc as any).match_source ?? null,
+          classification_tier: (doc as any).classification_tier ?? null,
           classification_version: (doc as any).classification_version ?? null,
           filename_pattern: extractFilenamePattern((doc as any).original_filename),
           match_result_state: (doc as any).gatekeeper_route ?? null,
