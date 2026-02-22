@@ -43,6 +43,21 @@ const DOC_TYPE_EQUIVALENCE: Record<string, string[]> = {
 
   // Bank statement (exact match only)
   BANK_STATEMENT: ["BANK_STATEMENT"],
+
+  // K-1 (Schedule K-1)
+  K1: ["K1"],
+
+  // Articles of incorporation / formation
+  ARTICLES: ["ARTICLES"],
+
+  // SBA application (Form 1919)
+  SBA_APPLICATION: ["SBA_APPLICATION"],
+
+  // SBA misc forms (912, 159, 2483, 2484, 3506)
+  SBA_FORM: ["SBA_FORM"],
+
+  // Voided check
+  VOIDED_CHECK: ["VOIDED_CHECK"],
 };
 
 // Year-based slot doc types (require exact year match)
@@ -50,6 +65,20 @@ const YEAR_BASED_SLOT_TYPES = new Set([
   "BUSINESS_TAX_RETURN",
   "PERSONAL_TAX_RETURN",
 ]);
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract calendar year from an ISO date string ("YYYY-MM-DD" or full ISO).
+ * Returns null for invalid/null inputs.
+ */
+function yearFromDate(dateStr: string | null | undefined): number | null {
+  if (!dateStr) return null;
+  const y = parseInt(dateStr.substring(0, 4), 10);
+  return Number.isFinite(y) ? y : null;
+}
 
 // ---------------------------------------------------------------------------
 // Constraint evaluators
@@ -103,13 +132,33 @@ function checkTaxYearMatch(
     };
   }
 
-  const satisfied = identity.taxYear === slot.requiredTaxYear;
+  // Primary: strict doc_year match
+  if (identity.taxYear === slot.requiredTaxYear) {
+    return {
+      satisfied: true,
+      constraint: "tax_year_match",
+      detail: `Tax year ${identity.taxYear} matches slot year ${slot.requiredTaxYear}`,
+    };
+  }
+
+  // v1.3 Fallback: period-based year match
+  // If doc_year is null but period bounds contain the required year, accept
+  if (identity.taxYear == null && identity.period) {
+    const startYear = yearFromDate(identity.period.periodStart);
+    const endYear = yearFromDate(identity.period.periodEnd);
+    if (startYear === slot.requiredTaxYear || endYear === slot.requiredTaxYear) {
+      return {
+        satisfied: true,
+        constraint: "tax_year_match",
+        detail: `Period fallback: period ${identity.period.periodStart}–${identity.period.periodEnd} covers slot year ${slot.requiredTaxYear}`,
+      };
+    }
+  }
+
   return {
-    satisfied,
+    satisfied: false,
     constraint: "tax_year_match",
-    detail: satisfied
-      ? `Tax year ${identity.taxYear} matches slot year ${slot.requiredTaxYear}`
-      : `Tax year ${identity.taxYear ?? "null"} does not match slot year ${slot.requiredTaxYear}`,
+    detail: `Tax year ${identity.taxYear ?? "null"} does not match slot year ${slot.requiredTaxYear}`,
   };
 }
 
@@ -133,13 +182,32 @@ function checkYearRequired(
     };
   }
 
-  const satisfied = identity.taxYear != null;
+  // v1.3: period-based year also satisfies "year present" requirement
+  if (identity.taxYear != null) {
+    return {
+      satisfied: true,
+      constraint: "year_required",
+      detail: `Document has tax year ${identity.taxYear}`,
+    };
+  }
+
+  // Check period bounds as fallback
+  if (identity.period) {
+    const startYear = yearFromDate(identity.period.periodStart);
+    const endYear = yearFromDate(identity.period.periodEnd);
+    if (startYear != null || endYear != null) {
+      return {
+        satisfied: true,
+        constraint: "year_required",
+        detail: `Document has period year (${startYear ?? endYear}) via period extraction`,
+      };
+    }
+  }
+
   return {
-    satisfied,
+    satisfied: false,
     constraint: "year_required",
-    detail: satisfied
-      ? `Document has tax year ${identity.taxYear}`
-      : "Document has no tax year but slot requires one",
+    detail: "Document has no tax year but slot requires one",
   };
 }
 
@@ -214,6 +282,55 @@ function checkNotMultiYear(
     detail: satisfied
       ? "Document is not multi-year"
       : "Document spans multiple years — cannot auto-match to a single year slot",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// v1.3 Constraints: Year conflict detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Year conflict gate: if both doc_year AND period end year are present,
+ * they must agree. Disagreement indicates misclassified year signal —
+ * route to review for human verification.
+ * Skips when either signal is absent.
+ */
+function checkYearConflict(
+  identity: DocumentIdentity,
+  slot: SlotSnapshot,
+): ConstraintResult {
+  if (!YEAR_BASED_SLOT_TYPES.has(slot.requiredDocType) || slot.requiredTaxYear == null) {
+    return {
+      satisfied: true,
+      constraint: "year_conflict",
+      detail: "Slot is not year-bound — year conflict check skipped",
+    };
+  }
+
+  if (identity.taxYear == null || !identity.period?.periodEnd) {
+    return {
+      satisfied: true,
+      constraint: "year_conflict",
+      detail: "Insufficient signals for conflict check (need both doc_year and period end)",
+    };
+  }
+
+  const periodEndYear = yearFromDate(identity.period.periodEnd);
+  if (periodEndYear == null) {
+    return {
+      satisfied: true,
+      constraint: "year_conflict",
+      detail: "Could not parse period end year — check skipped",
+    };
+  }
+
+  const satisfied = identity.taxYear === periodEndYear;
+  return {
+    satisfied,
+    constraint: "year_conflict",
+    detail: satisfied
+      ? `Tax year ${identity.taxYear} consistent with period end year ${periodEndYear}`
+      : `Year conflict: doc_year ${identity.taxYear} differs from period end year ${periodEndYear}`,
   };
 }
 
@@ -309,6 +426,8 @@ export function evaluateConstraints(
     // v1.1: period gating
     checkYearConfidenceSufficient(identity, slot),
     checkNotMultiYear(identity, slot),
+    // v1.3: year conflict detection
+    checkYearConflict(identity, slot),
     // v1.1: entity routing
     checkEntityIdMatch(identity, slot),
     checkEntityRoleMatch(identity, slot),

@@ -1,0 +1,32 @@
+SBA Form 413 (07-22)
+
+PERSONAL FINANCIAL STATEMENT
+
+As of: December 31, 2023
+
+Name: JANE DOE
+Business Name: ACME OPERATIONS LLC
+Business Phone: (555) 123-4567
+Home Phone: (555) 987-6543
+
+ASSETS                                    LIABILITIES
+Cash on Hand & in Banks   $45,000         Notes Payable to Banks       $0
+Savings Accounts          $82,000         Notes Payable (Other)        $0
+IRA / Retirement          $425,000        Accounts Payable             $0
+Accounts Receivable       $0              Credit Card Debt             $8,500
+Life Insurance Cash Value $35,000         Auto Loans                   $22,000
+Real Estate (primary)     $650,000        Mortgage (primary)           $380,000
+Real Estate (rental)      $425,000        Mortgage (rental)            $285,000
+Automobiles               $45,000         Other Liabilities            $0
+Other Assets              $15,000
+
+Total Assets              $1,722,000      Total Liabilities            $695,500
+
+NET WORTH                 $1,026,500
+
+Annual Salary: $185,000
+Net Investment Income: $28,500
+Real Estate Income: $36,000
+Other Income: $0
+
+Contingent Liabilities: None

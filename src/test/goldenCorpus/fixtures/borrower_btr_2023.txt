@@ -1,0 +1,20 @@
+Form 1120
+U.S. Corporation Income Tax Return
+Department of the Treasury — Internal Revenue Service
+
+For calendar year 2023 or tax year beginning JAN 01, 2023, ending DEC 31, 2023
+
+Name: ACME OPERATIONS LLC
+Employer identification number: XX-XXX4567
+
+Number, street, and room or suite no.: 100 Main Street, Suite 200
+City or town, state or province, country, and ZIP: Anytown, ST 12345
+
+1a Gross receipts or sales .............. 2,450,000
+1b Returns and allowances ............... 12,500
+1c Balance. Subtract line 1b from 1a .... 2,437,500
+2 Cost of goods sold .................... 1,218,750
+3 Gross profit .......................... 1,218,750
+
+Total deductions ........................ 975,000
+Taxable income before NOL .............. 243,750

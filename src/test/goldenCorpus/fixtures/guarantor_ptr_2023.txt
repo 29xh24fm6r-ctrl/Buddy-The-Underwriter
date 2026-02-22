@@ -1,0 +1,24 @@
+Form 1040
+U.S. Individual Income Tax Return
+Department of the Treasury — Internal Revenue Service
+
+For calendar year 2023 or tax year beginning JAN 01, 2023, ending DEC 31, 2023
+
+Your first name and middle initial: JANE
+Last name: DOE
+Your social security number: XXX-XX-1234
+
+Filing Status: Married filing jointly
+
+1 Wages, salaries, tips, etc. .......... 185,000
+2a Tax-exempt interest .................. 0
+2b Taxable interest ..................... 3,200
+3a Qualified dividends .................. 4,500
+3b Ordinary dividends ................... 5,800
+
+Schedule E — Supplemental Income and Loss
+Rental real estate, royalties, partnerships, S corporations, trusts, etc.
+Net rental income ....................... 62,000
+
+Total income ............................ 256,000
+Adjusted gross income ................... 241,500

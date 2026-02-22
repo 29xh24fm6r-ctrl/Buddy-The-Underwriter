@@ -84,10 +84,17 @@ const NEGATIVE_RULES: NegativeRule[] = [
   },
   {
     ruleId: "NO_YEAR_NO_YEAR_SLOT",
-    evaluate: (id, slot) =>
-      id.taxYear == null &&
-      slot.requiredTaxYear != null,
-    reason: "Document has no tax year but slot requires a specific year",
+    evaluate: (id, slot) => {
+      if (id.taxYear != null || slot.requiredTaxYear == null) return false;
+      // v1.3: period-based year also satisfies this rule
+      if (id.period) {
+        const startYear = id.period.periodStart ? parseInt(id.period.periodStart.substring(0, 4), 10) : NaN;
+        const endYear = id.period.periodEnd ? parseInt(id.period.periodEnd.substring(0, 4), 10) : NaN;
+        if (Number.isFinite(startYear) || Number.isFinite(endYear)) return false;
+      }
+      return true;
+    },
+    reason: "Document has no tax year (or period year) but slot requires a specific year",
   },
   {
     ruleId: "BTR_NOT_PTR",

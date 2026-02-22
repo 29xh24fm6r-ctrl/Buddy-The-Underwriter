@@ -1170,26 +1170,24 @@ export async function processArtifact(
             },
           });
 
-          // ── Identity layer resolution (v1.0 — observability only) ────────
+          // ── Identity layer resolution (v1.3 — always-on) ─────────────────
           // Independent resolution call for classification.decided event.
           // Fails open: resolution failure never blocks classification.
           let classificationEntityResolution: EntityResolution | null = null;
-          if (process.env.ENABLE_ENTITY_GRAPH === "true") {
-            try {
-              const { resolveDocumentEntityForDeal } = await import(
-                "@/lib/intake/identity/resolveDocumentEntity"
-              );
-              classificationEntityResolution = await resolveDocumentEntityForDeal({
-                dealId,
-                text: text ?? "",
-                filename: filename ?? "",
-                hasEin: classification.entityType !== "personal",
-                hasSsn: classification.entityType !== "business",
-                entityType: classification.entityType ?? null,
-              });
-            } catch {
-              // Fail-open
-            }
+          try {
+            const { resolveDocumentEntityForDeal } = await import(
+              "@/lib/intake/identity/resolveDocumentEntity"
+            );
+            classificationEntityResolution = await resolveDocumentEntityForDeal({
+              dealId,
+              text: text ?? "",
+              filename: filename ?? "",
+              hasEin: classification.entityType !== "personal",
+              hasSsn: classification.entityType !== "business",
+              entityType: classification.entityType ?? null,
+            });
+          } catch {
+            // Fail-open
           }
 
           // ── Phase E3: Deterministic Supersession ────────────────────────

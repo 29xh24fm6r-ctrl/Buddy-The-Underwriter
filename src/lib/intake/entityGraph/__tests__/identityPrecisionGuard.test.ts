@@ -9,7 +9,7 @@
  *   4. wrongAttachCount == 0 across precision corpus
  *
  * Pure function tests — no DB, no IO, no side effects.
- * Env vars set/restored per test to simulate feature flag states.
+ * v1.3: Entity precision is always-on — no feature flag guards.
  */
 
 import test from "node:test";
@@ -71,7 +71,7 @@ type PrecisionEntry = {
   expectedSlotId: string | null;
 };
 
-// Corpus is evaluated with ENABLE_ENTITY_GRAPH=true, ENABLE_ENTITY_PRECISION=true
+// Corpus is evaluated with entity precision always-on (v1.3)
 const PRECISION_CORPUS: PrecisionEntry[] = [
   {
     label: "#Q1: High-confidence entity match, single slot → auto_attached",
@@ -216,64 +216,44 @@ test("ENTITY_PRECISION_THRESHOLD >= 0.85 (precision tier audit)", () => {
 // Guard 3: Pure engine still rejects entity mismatch with precision on
 // ---------------------------------------------------------------------------
 
-test("pure engine: entity mismatch → no_match even with ENABLE_ENTITY_PRECISION=true", () => {
-  // Simulate precision flag enabled
-  const origGraph = process.env.ENABLE_ENTITY_GRAPH;
-  const origPrecision = process.env.ENABLE_ENTITY_PRECISION;
-  process.env.ENABLE_ENTITY_GRAPH = "true";
-  process.env.ENABLE_ENTITY_PRECISION = "true";
-
-  try {
-    const result = matchDocumentToSlot(
-      makeIdentity({
-        effectiveDocType: "PERSONAL_TAX_RETURN",
-        rawDocType: "IRS_PERSONAL",
-        taxYear: 2024,
-        entityType: "personal",
-        entity: {
-          entityId: "guarantor-2",
-          entityRole: "guarantor",
-          confidence: 0.95, // above precision threshold
-          ambiguous: false,
-        },
+test("pure engine: entity mismatch → no_match (precision always-on, constraints authoritative)", () => {
+  const result = matchDocumentToSlot(
+    makeIdentity({
+      effectiveDocType: "PERSONAL_TAX_RETURN",
+      rawDocType: "IRS_PERSONAL",
+      taxYear: 2024,
+      entityType: "personal",
+      entity: {
+        entityId: "guarantor-2",
+        entityRole: "guarantor",
+        confidence: 0.95, // above precision threshold
+        ambiguous: false,
+      },
+    }),
+    [
+      makeSlot({
+        slotId: "ptr-2024-g1",
+        slotKey: "PTR_2024_G1",
+        requiredDocType: "PERSONAL_TAX_RETURN",
+        requiredTaxYear: 2024,
+        slotGroup: "tax",
+        sortOrder: 1,
+        requiredEntityId: "guarantor-1", // mismatch
       }),
-      [
-        makeSlot({
-          slotId: "ptr-2024-g1",
-          slotKey: "PTR_2024_G1",
-          requiredDocType: "PERSONAL_TAX_RETURN",
-          requiredTaxYear: 2024,
-          slotGroup: "tax",
-          sortOrder: 1,
-          requiredEntityId: "guarantor-1", // mismatch
-        }),
-      ],
-      "conventional_v1",
-    );
+    ],
+    "conventional_v1",
+  );
 
-    assert.strictEqual(
-      result.decision,
-      "no_match",
-      `Precision flag must not bypass entity constraint — expected no_match, got ${result.decision}`,
-    );
-    assert.notStrictEqual(
-      result.decision,
-      "auto_attached",
-      "Entity mismatch must never produce auto_attached even with precision enabled",
-    );
-  } finally {
-    // Restore env
-    if (origGraph === undefined) {
-      delete process.env.ENABLE_ENTITY_GRAPH;
-    } else {
-      process.env.ENABLE_ENTITY_GRAPH = origGraph;
-    }
-    if (origPrecision === undefined) {
-      delete process.env.ENABLE_ENTITY_PRECISION;
-    } else {
-      process.env.ENABLE_ENTITY_PRECISION = origPrecision;
-    }
-  }
+  assert.strictEqual(
+    result.decision,
+    "no_match",
+    `Precision must not bypass entity constraint — expected no_match, got ${result.decision}`,
+  );
+  assert.notStrictEqual(
+    result.decision,
+    "auto_attached",
+    "Entity mismatch must never produce auto_attached",
+  );
 
   console.log("[precisionGuard] entity mismatch → no_match with precision on confirmed ✓");
 });
@@ -282,71 +262,53 @@ test("pure engine: entity mismatch → no_match even with ENABLE_ENTITY_PRECISIO
 // Guard 4: wrongAttachCount == 0 across precision corpus
 // ---------------------------------------------------------------------------
 
-test("wrongAttachCount == 0 across precision corpus (with ENABLE_ENTITY_PRECISION=true)", () => {
-  const origGraph = process.env.ENABLE_ENTITY_GRAPH;
-  const origPrecision = process.env.ENABLE_ENTITY_PRECISION;
-  process.env.ENABLE_ENTITY_GRAPH = "true";
-  process.env.ENABLE_ENTITY_PRECISION = "true";
-
+test("wrongAttachCount == 0 across precision corpus (precision always-on)", () => {
   let wrongAttachCount = 0;
   const wrongAttaches: string[] = [];
 
-  try {
-    for (const entry of PRECISION_CORPUS) {
-      const result = matchDocumentToSlot(entry.identity, entry.slots, "conventional_v1");
+  for (const entry of PRECISION_CORPUS) {
+    const result = matchDocumentToSlot(entry.identity, entry.slots, "conventional_v1");
 
-      // Wrong attach: auto_attached to wrong slot
-      if (
-        result.decision === "auto_attached" &&
-        entry.expectedDecision === "auto_attached" &&
-        result.slotId !== entry.expectedSlotId
-      ) {
-        wrongAttachCount++;
-        wrongAttaches.push(
-          `${entry.label}: expected slotId="${entry.expectedSlotId}", got slotId="${result.slotId}"`,
-        );
-      }
-
-      // Wrong attach: auto_attached when we expected something else
-      if (
-        result.decision === "auto_attached" &&
-        entry.expectedDecision !== "auto_attached"
-      ) {
-        wrongAttachCount++;
-        wrongAttaches.push(
-          `${entry.label}: expected decision="${entry.expectedDecision}", got auto_attached to slotId="${result.slotId}"`,
-        );
-      }
-
-      // Verify decision matches expected
-      assert.strictEqual(
-        result.decision,
-        entry.expectedDecision,
-        `${entry.label}: expected="${entry.expectedDecision}", got="${result.decision}" (reason: ${result.reason})`,
+    // Wrong attach: auto_attached to wrong slot
+    if (
+      result.decision === "auto_attached" &&
+      entry.expectedDecision === "auto_attached" &&
+      result.slotId !== entry.expectedSlotId
+    ) {
+      wrongAttachCount++;
+      wrongAttaches.push(
+        `${entry.label}: expected slotId="${entry.expectedSlotId}", got slotId="${result.slotId}"`,
       );
+    }
 
-      // If auto_attached, verify correct slot
-      if (
-        entry.expectedDecision === "auto_attached" &&
-        result.decision === "auto_attached"
-      ) {
-        assert.strictEqual(
-          result.slotId,
-          entry.expectedSlotId,
-          `${entry.label}: expected slotId="${entry.expectedSlotId}", got "${result.slotId}"`,
-        );
-      }
+    // Wrong attach: auto_attached when we expected something else
+    if (
+      result.decision === "auto_attached" &&
+      entry.expectedDecision !== "auto_attached"
+    ) {
+      wrongAttachCount++;
+      wrongAttaches.push(
+        `${entry.label}: expected decision="${entry.expectedDecision}", got auto_attached to slotId="${result.slotId}"`,
+      );
     }
-  } finally {
-    if (origGraph === undefined) {
-      delete process.env.ENABLE_ENTITY_GRAPH;
-    } else {
-      process.env.ENABLE_ENTITY_GRAPH = origGraph;
-    }
-    if (origPrecision === undefined) {
-      delete process.env.ENABLE_ENTITY_PRECISION;
-    } else {
-      process.env.ENABLE_ENTITY_PRECISION = origPrecision;
+
+    // Verify decision matches expected
+    assert.strictEqual(
+      result.decision,
+      entry.expectedDecision,
+      `${entry.label}: expected="${entry.expectedDecision}", got="${result.decision}" (reason: ${result.reason})`,
+    );
+
+    // If auto_attached, verify correct slot
+    if (
+      entry.expectedDecision === "auto_attached" &&
+      result.decision === "auto_attached"
+    ) {
+      assert.strictEqual(
+        result.slotId,
+        entry.expectedSlotId,
+        `${entry.label}: expected slotId="${entry.expectedSlotId}", got "${result.slotId}"`,
+      );
     }
   }
 

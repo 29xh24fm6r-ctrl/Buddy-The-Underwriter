@@ -164,39 +164,37 @@ export async function runMatchForDocument(
       }
     }
 
-    // ── Step 1b: Entity resolution (v1.1 — identity layer, feature-flagged) ─
+    // ── Step 1b: Entity resolution (v1.3 — always-on) ─────────────────────
     let entity: EntityInfo | null = null;
-    if (process.env.ENABLE_ENTITY_GRAPH === "true") {
-      try {
-        const hasEin = spine?.evidence?.some(
-          (e) => e.type === "form_match" && /EIN/i.test(e.matchedText),
-        ) ?? false;
-        const hasSsn = false; // Will be enriched from gatekeeper detected_signals when available
-        const entityType = spine?.entityType ?? null;
+    try {
+      const hasEin = spine?.evidence?.some(
+        (e) => e.type === "form_match" && /EIN/i.test(e.matchedText),
+      ) ?? false;
+      const hasSsn = false; // Will be enriched from gatekeeper detected_signals when available
+      const entityType = spine?.entityType ?? null;
 
-        const er = await resolveDocumentEntityForDeal({
-          dealId,
-          text: ocrText ?? "",
-          filename: filename ?? "",
-          hasEin,
-          hasSsn,
-          entityType,
-        });
+      const er = await resolveDocumentEntityForDeal({
+        dealId,
+        text: ocrText ?? "",
+        filename: filename ?? "",
+        hasEin,
+        hasSsn,
+        entityType,
+      });
 
-        if (er) {
-          entity = {
-            entityId: er.entityId,
-            entityRole: er.entityRole,
-            confidence: er.confidence,
-            ambiguous: er.ambiguous,
-            tier: er.tier,
-          };
-        }
-      } catch (e: any) {
-        console.warn("[runMatchForDocument] resolveDocumentEntity failed (non-fatal)", {
-          documentId, error: e?.message,
-        });
+      if (er) {
+        entity = {
+          entityId: er.entityId,
+          entityRole: er.entityRole,
+          confidence: er.confidence,
+          ambiguous: er.ambiguous,
+          tier: er.tier,
+        };
       }
+    } catch (e: any) {
+      console.warn("[runMatchForDocument] resolveDocumentEntity failed (non-fatal)", {
+        documentId, error: e?.message,
+      });
     }
 
     // ── Step 1c: Build identity ──────────────────────────────────────────
@@ -269,19 +267,17 @@ export async function runMatchForDocument(
       ? slots.find((s) => s.slotId === result.slotId)
       : null;
 
-    // ── Layer 2.1: Identity Enforcement ──────────────────────────────────────
+    // ── Layer 2.1: Identity Enforcement (v1.3 — always-on) ──────────────────
     // Intercepts identity conflicts at the orchestration layer.
     // Case 1: auto_attached to wrong entity slot (defense-in-depth).
     // Case 2: no_match due to entity mismatch → upgrade to routed_to_review.
     //
-    // Activates only when:
-    //   ENABLE_ENTITY_GRAPH=true  AND  entity resolved  AND  confidence >= ENTITY_PROTECTION_THRESHOLD
-    // Fail-open: flag off | entity null | low confidence | no entity-aware slots = no enforcement.
+    // Activates when entity resolved AND confidence >= ENTITY_PROTECTION_THRESHOLD.
+    // Fail-open: entity null | low confidence | no entity-aware slots = no enforcement.
     {
       let enforcementSlot: typeof matchedSlot | null = null;
 
       if (
-        process.env.ENABLE_ENTITY_GRAPH === "true" &&
         identity.entity?.entityId != null &&
         identity.entity.confidence >= ENTITY_PROTECTION_THRESHOLD
       ) {

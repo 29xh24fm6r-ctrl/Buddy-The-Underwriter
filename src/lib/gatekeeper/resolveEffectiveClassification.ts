@@ -5,9 +5,14 @@
  * All subsystems consume this single resolver.
  * No subsystem reads raw gatekeeper values for decisions again.
  *
- * Resolution order:
- *   Type: canonical_type > document_type > gatekeeper_doc_type > ai_doc_type > "UNKNOWN"
+ * Resolution order (v1.3 — spine is sole type authority):
+ *   Type: canonical_type > document_type > ai_doc_type > "UNKNOWN"
  *   Year: doc_year > gatekeeper_tax_year > ai_tax_year > null
+ *
+ * gatekeeper_doc_type is excluded from type COALESCE — it is a routing
+ * signal only (extraction routing, NEEDS_REVIEW hard block), not a
+ * classification decision. Year COALESCE still includes gatekeeper_tax_year
+ * because gatekeeper can provide valid year signal.
  *
  * Human-confirmed truth (intake_confirmed_at != null) always takes source "CONFIRMED".
  *
@@ -48,9 +53,10 @@ export function resolveEffectiveClassification(
 ): ResolvedClassification {
   const isConfirmed = input.intake_confirmed_at != null;
 
-  // Type COALESCE: canonical_type > document_type > gatekeeper_doc_type > ai_doc_type
+  // Type COALESCE (v1.3): canonical_type > document_type > ai_doc_type
+  // gatekeeper_doc_type excluded — spine is sole type authority
   let effectiveDocType = "UNKNOWN";
-  let typeSource: "CANONICAL" | "GATEKEEPER" | "AI" | "UNKNOWN" = "UNKNOWN";
+  let typeSource: "CANONICAL" | "AI" | "UNKNOWN" = "UNKNOWN";
 
   if (input.canonical_type) {
     effectiveDocType = input.canonical_type;
@@ -58,9 +64,6 @@ export function resolveEffectiveClassification(
   } else if (input.document_type) {
     effectiveDocType = input.document_type;
     typeSource = "CANONICAL";
-  } else if (input.gatekeeper_doc_type) {
-    effectiveDocType = input.gatekeeper_doc_type;
-    typeSource = "GATEKEEPER";
   } else if (input.ai_doc_type) {
     effectiveDocType = input.ai_doc_type;
     typeSource = "AI";

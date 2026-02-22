@@ -147,6 +147,64 @@ const FORM_ANCHORS: AnchorRule[] = [
     entityType: null,
     formNumber: null,
   },
+  // --- v1.3 additions: Articles of Incorporation/Formation ---
+  {
+    anchorId: "ARTICLES_OF_INCORPORATION",
+    pattern: /articles\s+of\s+(?:incorporation|organization)/i,
+    docType: "ARTICLES",
+    confidence: 0.94,
+    entityType: "business",
+    formNumber: null,
+  },
+  {
+    anchorId: "CERTIFICATE_OF_FORMATION",
+    pattern: /certificate\s+of\s+(?:formation|organization|good\s+standing)/i,
+    docType: "ARTICLES",
+    confidence: 0.94,
+    entityType: "business",
+    formNumber: null,
+  },
+  // --- v1.3 additions: SBA misc forms ---
+  {
+    anchorId: "SBA_912_FORM_HEADER",
+    pattern: /SBA\s+Form\s+912\b/i,
+    docType: "SBA_FORM",
+    confidence: 0.95,
+    entityType: null,
+    formNumber: "SBA-912",
+  },
+  {
+    anchorId: "SBA_159_FORM_HEADER",
+    pattern: /SBA\s+Form\s+159\b/i,
+    docType: "SBA_FORM",
+    confidence: 0.95,
+    entityType: null,
+    formNumber: "SBA-159",
+  },
+  {
+    anchorId: "SBA_2483_FORM_HEADER",
+    pattern: /SBA\s+Form\s+2483\b/i,
+    docType: "SBA_FORM",
+    confidence: 0.95,
+    entityType: null,
+    formNumber: "SBA-2483",
+  },
+  {
+    anchorId: "SBA_2484_FORM_HEADER",
+    pattern: /SBA\s+Form\s+2484\b/i,
+    docType: "SBA_FORM",
+    confidence: 0.95,
+    entityType: null,
+    formNumber: "SBA-2484",
+  },
+  {
+    anchorId: "SBA_3506_FORM_HEADER",
+    pattern: /SBA\s+Form\s+3506\b/i,
+    docType: "SBA_FORM",
+    confidence: 0.95,
+    entityType: null,
+    formNumber: "SBA-3506",
+  },
 ];
 
 /** Structural anchors — require multiple signals */
@@ -163,7 +221,7 @@ const STRUCTURAL_ANCHORS: AnchorRule[] = [
   },
   {
     anchorId: "INCOME_STMT_STRUCTURAL",
-    pattern: /income\s+statement|profit\s+and\s+loss|profit\s*&\s*loss|statement\s+of\s+operations/i,
+    pattern: /income\s+statement|profit\s+and\s+loss|profit\s*&\s*loss|statement\s+of\s+operations|operating\s+results|income\s+summary/i,
     docType: "INCOME_STATEMENT",
     confidence: 0.92,
     entityType: null,

@@ -1,0 +1,20 @@
+FIRST NATIONAL BANK
+Business Checking Account Statement
+
+Account Number: XXXX-XXXX-4321
+Statement Period: January 1, 2023 through December 31, 2024
+
+Account Holder: ACME OPERATIONS LLC
+
+Beginning Balance (01/01/2023): $145,230.45
+Ending Balance (12/31/2024): $198,450.12
+
+Monthly Summary:
+Jan 2023: Deposits $42,500 | Withdrawals $38,200 | Balance $149,530
+Feb 2023: Deposits $45,100 | Withdrawals $41,300 | Balance $153,330
+...
+Nov 2024: Deposits $52,100 | Withdrawals $48,900 | Balance $195,250
+Dec 2024: Deposits $55,200 | Withdrawals $52,000 | Balance $198,450
+
+Total Deposits (24 months): $1,156,800
+Total Withdrawals (24 months): $1,103,580

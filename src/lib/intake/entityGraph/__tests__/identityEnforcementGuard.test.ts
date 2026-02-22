@@ -164,7 +164,7 @@ const ENFORCEMENT_CORPUS: EnforcementEntry[] = [
       rawDocType: "IRS_BUSINESS",
       taxYear: 2024,
       entityType: "business",
-      entity: null, // ENABLE_ENTITY_GRAPH=false or resolution returned null
+      entity: null, // resolution returned null
     }),
     slots: [
       makeSlot({

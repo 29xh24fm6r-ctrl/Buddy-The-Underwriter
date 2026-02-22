@@ -101,17 +101,18 @@ describe("effectiveClassificationGuard", () => {
     assert.equal(result.isConfirmed, true);
   });
 
-  // Guard 6: COALESCE order — document_type wins over gatekeeper_doc_type
-  it("guard-6: document_type wins over gatekeeper_doc_type when canonical_type absent", () => {
+  // Guard 6: gatekeeper_doc_type alone → UNKNOWN (v1.3: removed from type COALESCE)
+  it("guard-6: gatekeeper_doc_type alone → UNKNOWN (gatekeeper not a type authority)", () => {
     const input: ClassificationInput = {
       canonical_type: null,
-      document_type: "RENT_ROLL",
+      document_type: null,
       gatekeeper_doc_type: "FINANCIAL_STATEMENT",
+      ai_doc_type: null,
     };
     const result = resolveEffectiveClassification(input);
 
-    assert.equal(result.effectiveDocType, "RENT_ROLL");
-    assert.equal(result.source, "CANONICAL");
+    assert.equal(result.effectiveDocType, "UNKNOWN");
+    assert.equal(result.source, "UNKNOWN");
   });
 
   // Guard 7: Year COALESCE — doc_year wins over gatekeeper_tax_year wins over ai_tax_year
@@ -141,17 +142,33 @@ describe("effectiveClassificationGuard", () => {
     assert.equal(r3.effectiveTaxYear, 2024);
   });
 
-  // Guard 8: ai_doc_type is the fallback when no canonical/document/gatekeeper type
-  it("guard-8: ai_doc_type used as fallback when higher sources absent", () => {
+  // Guard 8: ai_doc_type wins over gatekeeper_doc_type (v1.3: spine > gatekeeper)
+  it("guard-8: ai_doc_type wins over gatekeeper_doc_type (spine authority)", () => {
     const input: ClassificationInput = {
       canonical_type: null,
       document_type: null,
-      gatekeeper_doc_type: null,
+      gatekeeper_doc_type: "FINANCIAL_STATEMENT",
       ai_doc_type: "LEASE_AGREEMENT",
     };
     const result = resolveEffectiveClassification(input);
 
     assert.equal(result.effectiveDocType, "LEASE_AGREEMENT");
     assert.equal(result.source, "AI");
+  });
+
+  // Guard 9: gatekeeper_tax_year still contributes to year COALESCE (preserved)
+  it("guard-9: gatekeeper_tax_year still resolves year (year authority preserved)", () => {
+    const input: ClassificationInput = {
+      canonical_type: null,
+      document_type: null,
+      gatekeeper_doc_type: null,
+      ai_doc_type: null,
+      doc_year: null,
+      gatekeeper_tax_year: 2023,
+      ai_tax_year: null,
+    };
+    const result = resolveEffectiveClassification(input);
+
+    assert.equal(result.effectiveTaxYear, 2023);
   });
 });

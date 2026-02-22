@@ -15,7 +15,7 @@
  *
  * Intelligence failures are non-fatal (console.warn + continue).
  *
- * ENABLE_ENTITY_GRAPH=false → immediate no-op (zero behavior change).
+ * v1.3: Entity resolution always-on — no feature flag guard.
  * ENABLE_IDENTITY_INTELLIGENCE=false → intelligence block skipped.
  */
 import "server-only";
@@ -46,15 +46,6 @@ export type EntityBindingRepairResult = {
 export async function ensureEntityBindings(
   dealId: string,
 ): Promise<EntityBindingRepairResult> {
-  if (process.env.ENABLE_ENTITY_GRAPH !== "true") {
-    return {
-      bound: 0,
-      syntheticCreated: 0,
-      reviewRequired: 0,
-      skippedAlreadyBound: 0,
-    };
-  }
-
   const sb = supabaseAdmin();
   let bound = 0;
   let syntheticCreated = 0;

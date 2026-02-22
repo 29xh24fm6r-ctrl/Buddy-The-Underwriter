@@ -185,15 +185,15 @@ function readIdentity(file: string): string {
   return fs.readFileSync(path.join(IDENTITY, file), "utf8");
 }
 
-// ─── 13. MATCHING_ENGINE_VERSION starts with "v1.2" ─────────────────────
+// ─── 13. MATCHING_ENGINE_VERSION starts with "v1.3" ─────────────────────
 
-test("Tripwire v1.2: MATCHING_ENGINE_VERSION starts with 'v1.2'", () => {
+test("Tripwire v1.3: MATCHING_ENGINE_VERSION starts with 'v1.3'", () => {
   const src = readMatch("types.ts");
   const match = src.match(/MATCHING_ENGINE_VERSION\s*=\s*"([^"]+)"/);
   assert.ok(match, "MATCHING_ENGINE_VERSION must be defined");
   assert.ok(
-    match![1].startsWith("v1.2"),
-    `MATCHING_ENGINE_VERSION must start with 'v1.2', got: ${match![1]}`,
+    match![1].startsWith("v1.3"),
+    `MATCHING_ENGINE_VERSION must start with 'v1.3', got: ${match![1]}`,
   );
 });
 

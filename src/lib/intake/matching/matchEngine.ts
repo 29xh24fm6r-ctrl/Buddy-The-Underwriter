@@ -119,16 +119,11 @@ export function matchDocumentToSlot(
     candidates.push({ slot, constraints, negativeRules });
   }
 
-  // ── Step 2.5: Entity-assisted precision ranking (Layer 2.2) ─────────────
-  // Feature-flagged off by default (ENABLE_ENTITY_PRECISION=false).
-  // When enabled with high-confidence entity resolution:
-  //   Promotes entity-matched candidates to front of the list.
-  //   Does not alter constraint evaluation.
-  //   Does not allow mismatched entity slots to pass.
-  //   Constraints remain authoritative — sort only reorders valid candidates.
+  // ── Step 2.5: Entity-assisted precision ranking (Layer 2.2 — v1.3 always-on)
+  // Promotes entity-matched candidates to front of the list when entity
+  // resolution has high confidence. Does not alter constraint evaluation.
+  // Constraints remain authoritative — sort only reorders valid candidates.
   if (
-    process.env.ENABLE_ENTITY_GRAPH === "true" &&
-    process.env.ENABLE_ENTITY_PRECISION === "true" &&
     identity.entity?.entityId &&
     identity.entity.confidence >= ENTITY_PRECISION_THRESHOLD
   ) {

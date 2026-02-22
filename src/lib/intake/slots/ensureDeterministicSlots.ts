@@ -114,12 +114,12 @@ export async function ensureDeterministicSlotsForScenario(params: {
     return { ok: false, slotsUpserted: 0, error: error.message };
   }
 
-  // ── Layer 2.3: Slot entity structural integrity ────────────────────────────
+  // ── Layer 2.3: Slot entity structural integrity (v1.3 — always-on) ──────────
   // Emits slot.entity_binding_missing as a first-class structural finding
   // for each entity-scoped slot definition lacking required_entity_id
   // on a multi-entity deal. This is a finding, not a blocker.
-  // Fail-open: flag off | single entity | count query error → no events.
-  if (process.env.ENABLE_ENTITY_GRAPH === "true" && (entityCount ?? 0) > 1) {
+  // Fail-open: single entity | count query error → no events.
+  if ((entityCount ?? 0) > 1) {
     for (const def of definitions) {
       if (ENTITY_SCOPED_DOC_TYPES.has(def.required_doc_type) && !def.required_entity_id) {
         writeEvent({
@@ -137,12 +137,9 @@ export async function ensureDeterministicSlotsForScenario(params: {
     }
   }
 
-  // ── Layer 2.4: Identity graph structural closure ────────────────────────────
+  // ── Layer 2.4: Identity graph structural closure (v1.3 — always-on) ─────────
   // Synchronous. Throws on structural invariant violation.
-  // ENABLE_ENTITY_GRAPH=false → no-op (flag guard inside ensureEntityBindings).
-  if (process.env.ENABLE_ENTITY_GRAPH === "true") {
-    await ensureEntityBindings(dealId);
-  }
+  await ensureEntityBindings(dealId);
 
   // Prune stale empty slots (key not in new policy + status === "empty")
   const activeKeys = new Set(definitions.map((d) => d.slot_key));

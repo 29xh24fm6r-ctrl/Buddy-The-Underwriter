@@ -1,0 +1,36 @@
+OMB APPROVAL NO. 3245-0348
+
+SBA Form 1919 (05-22)
+
+U.S. SMALL BUSINESS ADMINISTRATION
+BORROWER INFORMATION FORM
+
+Loan Application Number: ______________
+
+Section I — Business Information
+
+Legal Name of Business: ACME OPERATIONS LLC
+Trade Name / DBA: Acme Ops
+Business Phone: (555) 123-4567
+Business Address: 100 Main Street, Suite 200, Anytown, ST 12345
+
+Type of Business:
+[X] Limited Liability Company (LLC)
+[ ] Corporation
+[ ] Partnership
+[ ] Sole Proprietorship
+
+Date Business Established: 03/15/2019
+NAICS Code: 722511
+Number of Employees: 15
+
+Section II — Loan Request
+
+Loan Amount Requested: $750,000
+Use of Proceeds:
+[X] Working Capital
+[ ] Equipment Purchase
+[ ] Real Estate Purchase
+[X] Debt Refinancing
+
+SBA Loan Program: 7(a) Standard

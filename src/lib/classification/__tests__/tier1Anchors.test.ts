@@ -320,3 +320,102 @@ test("Tier 1: 'Statement of Operations' + revenue + expenses → INCOME_STATEMEN
   assert.equal(result.docType, "INCOME_STATEMENT");
   assert.equal(result.anchorId, "INCOME_STMT_STRUCTURAL");
 });
+
+// ─── v1.3 additions: Articles of Incorporation/Formation ─────────────────────
+
+test("Tier 1: Articles of Incorporation → ARTICLES", () => {
+  const result = runTier1Anchors(makeDoc("Articles of Incorporation\nState of Delaware\nCorporation Name: ABC Holdings Inc."));
+  assert.equal(result.matched, true);
+  assert.equal(result.docType, "ARTICLES");
+  assert.equal(result.anchorId, "ARTICLES_OF_INCORPORATION");
+  assert.equal(result.entityType, "business");
+  assert.ok(result.confidence >= 0.90);
+});
+
+test("Tier 1: Articles of Organization → ARTICLES", () => {
+  const result = runTier1Anchors(makeDoc("Articles of Organization\nLimited Liability Company\nState of California"));
+  assert.equal(result.matched, true);
+  assert.equal(result.docType, "ARTICLES");
+  assert.equal(result.anchorId, "ARTICLES_OF_INCORPORATION");
+});
+
+test("Tier 1: Certificate of Formation → ARTICLES", () => {
+  const result = runTier1Anchors(makeDoc("Certificate of Formation\nTexas Secretary of State\nFiled: 01/15/2020"));
+  assert.equal(result.matched, true);
+  assert.equal(result.docType, "ARTICLES");
+  assert.equal(result.anchorId, "CERTIFICATE_OF_FORMATION");
+  assert.equal(result.entityType, "business");
+});
+
+test("Tier 1: Certificate of Good Standing → ARTICLES", () => {
+  const result = runTier1Anchors(makeDoc("Certificate of Good Standing\nState of New York\nDepartment of State"));
+  assert.equal(result.matched, true);
+  assert.equal(result.docType, "ARTICLES");
+  assert.equal(result.anchorId, "CERTIFICATE_OF_FORMATION");
+});
+
+test("Tier 1: 'articles' alone does NOT match (false positive guard)", () => {
+  const result = runTier1Anchors(makeDoc("The articles referenced in the lease agreement require tenant approval."));
+  assert.equal(result.matched, false);
+});
+
+// ─── v1.3 additions: SBA misc forms ──────────────────────────────────────────
+
+test("Tier 1: SBA Form 912 → SBA_FORM", () => {
+  const result = runTier1Anchors(makeDoc("SBA Form 912\nStatement of Personal History\nU.S. Small Business Administration"));
+  assert.equal(result.matched, true);
+  assert.equal(result.docType, "SBA_FORM");
+  assert.equal(result.anchorId, "SBA_912_FORM_HEADER");
+  assert.ok(result.confidence >= 0.90);
+});
+
+test("Tier 1: SBA Form 159 → SBA_FORM", () => {
+  const result = runTier1Anchors(makeDoc("SBA Form 159\nFee Disclosure Form and Compensation Agreement"));
+  assert.equal(result.matched, true);
+  assert.equal(result.docType, "SBA_FORM");
+  assert.equal(result.anchorId, "SBA_159_FORM_HEADER");
+});
+
+test("Tier 1: SBA Form 2483 → SBA_FORM", () => {
+  const result = runTier1Anchors(makeDoc("SBA Form 2483\nPaycheck Protection Program Borrower Application"));
+  assert.equal(result.matched, true);
+  assert.equal(result.docType, "SBA_FORM");
+  assert.equal(result.anchorId, "SBA_2483_FORM_HEADER");
+});
+
+test("Tier 1: SBA Form 2484 → SBA_FORM", () => {
+  const result = runTier1Anchors(makeDoc("SBA Form 2484\nPaycheck Protection Program Second Draw Application"));
+  assert.equal(result.matched, true);
+  assert.equal(result.docType, "SBA_FORM");
+  assert.equal(result.anchorId, "SBA_2484_FORM_HEADER");
+});
+
+test("Tier 1: SBA Form 3506 → SBA_FORM", () => {
+  const result = runTier1Anchors(makeDoc("SBA Form 3506\nProgram-Specific Questionnaire"));
+  assert.equal(result.matched, true);
+  assert.equal(result.docType, "SBA_FORM");
+  assert.equal(result.anchorId, "SBA_3506_FORM_HEADER");
+});
+
+test("Tier 1: 'form 912' without SBA prefix does NOT match (false positive guard)", () => {
+  const result = runTier1Anchors(makeDoc("Please complete form 912 for the county records office."));
+  assert.equal(result.matched, false);
+});
+
+// ─── v1.3 additions: IS variants ─────────────────────────────────────────────
+
+test("Tier 1: 'Operating Results' + revenue + expenses → INCOME_STATEMENT", () => {
+  const text = "Operating Results\nFor the Year Ended 2024\n\nTotal Revenue: $800,000\nExpenses: $500,000\nNet Income: $300,000";
+  const result = runTier1Anchors(makeDoc(text));
+  assert.equal(result.matched, true);
+  assert.equal(result.docType, "INCOME_STATEMENT");
+  assert.equal(result.anchorId, "INCOME_STMT_STRUCTURAL");
+});
+
+test("Tier 1: 'Income Summary' + revenue + expenses → INCOME_STATEMENT", () => {
+  const text = "Income Summary\nFY 2024\n\nSales: $600,000\nOperating Expenses: $400,000\nNet Profit: $200,000";
+  const result = runTier1Anchors(makeDoc(text));
+  assert.equal(result.matched, true);
+  assert.equal(result.docType, "INCOME_STATEMENT");
+  assert.equal(result.anchorId, "INCOME_STMT_STRUCTURAL");
+});

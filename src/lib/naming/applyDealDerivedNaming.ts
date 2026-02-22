@@ -184,17 +184,37 @@ export async function applyDealDerivedNaming(opts: {
   const result = deriveDealName(candidates);
 
   if (!result.dealName) {
+    // v1.3: Deterministic fallback — never leave display_name null or blank
+    const fallbackName = `Deal-${dealId.substring(0, 8)}`;
+    const nowIso = new Date().toISOString();
+    const { error: fbUpdateErr } = await sb
+      .from("deals")
+      .update({
+        display_name: fallbackName,
+        naming_method: "fallback",
+        naming_fallback_reason: result.fallbackReason ?? "no_anchor_docs",
+        named_at: nowIso,
+      } as any)
+      .eq("id", dealId);
+
+    if (fbUpdateErr) {
+      console.warn("[applyDealDerivedNaming] fallback update failed", {
+        dealId,
+        error: fbUpdateErr.message,
+      });
+    }
+
     await emitDealNameDerived(dealId, {
       previous_name: currentName,
-      derived_name: null,
-      changed: false,
+      derived_name: fallbackName,
+      changed: true,
       source: "fallback",
       confidence: null,
       inputs_present: { classification: hasClassification, extraction: false, ocr: false },
-      fallback_reason: result.fallbackReason ?? "missing_extraction",
+      fallback_reason: result.fallbackReason ?? "no_anchor_docs",
       locked: false,
     });
-    return { ok: true, dealName: currentName, method: "provisional", changed: false };
+    return { ok: true, dealName: fallbackName, method: "provisional", changed: true };
   }
 
   // 4. Check if name changed (idempotency)
