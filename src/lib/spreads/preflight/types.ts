@@ -55,7 +55,7 @@ export type PreflightSnapshot = {
 };
 
 export type PreflightResult =
-  | { ok: true; snapshot: PreflightSnapshot }
+  | { ok: true; snapshot: PreflightSnapshot; warnings?: PreflightBlocker[] }
   | { ok: false; error: "PREFLIGHT_BLOCKED"; blockers: PreflightBlocker[] };
 
 // ── Orchestration ─────────────────────────────────────────────────────

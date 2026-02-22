@@ -20,6 +20,16 @@ export async function enqueueSpreadRecompute(args: {
   ownerType?: string;
   ownerEntityId?: string | null;
   meta?: Record<string, any>;
+  /**
+   * When true, skip per-template prerequisite evaluation and enqueue
+   * all valid types regardless of current fact availability.
+   *
+   * Used by orchestrateSpreads — the spread processor handles fact
+   * extraction + prereq evaluation + bounded retry internally.
+   * This does NOT weaken prerequisite enforcement; it moves enforcement
+   * to the execution layer where it belongs.
+   */
+  skipPrereqCheck?: boolean;
 }) {
   const sb = supabaseAdmin();
 
@@ -60,53 +70,62 @@ export async function enqueueSpreadRecompute(args: {
   }
 
   // ── Readiness gate: per-spread prerequisite check ───────────────────────
-  // Only create placeholders + enqueue types whose prereqs are currently met.
-  // Types whose prereqs aren't met get SPREAD_WAITING_ON_FACTS events.
-  const [factsVis, rentRollRes] = await Promise.all([
-    getVisibleFacts(args.dealId, args.bankId),
-    (sb as any)
-      .from("deal_rent_roll_rows")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", args.dealId)
-      .eq("bank_id", args.bankId),
-  ]);
-  const rentRollRowCount = rentRollRes.count ?? 0;
+  // When skipPrereqCheck is true (orchestrator path), all valid types are
+  // treated as ready — the spread processor handles extraction + prereqs
+  // internally. This is the structural vs execution gate separation.
+  let readyTypes: string[];
 
-  const readyTypes: string[] = [];
-  const notReadyTypes: Array<{ type: string; missing: string[]; note?: string }> = [];
+  if (args.skipPrereqCheck) {
+    // Orchestrator path: spread processor handles fact extraction + prereqs
+    readyTypes = [...validTypes];
+  } else {
+    // Default path: only enqueue types whose prereqs are currently met.
+    const [factsVis, rentRollRes] = await Promise.all([
+      getVisibleFacts(args.dealId, args.bankId),
+      (sb as any)
+        .from("deal_rent_roll_rows")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", args.dealId)
+        .eq("bank_id", args.bankId),
+    ]);
+    const rentRollRowCount = rentRollRes.count ?? 0;
 
-  for (const t of validTypes) {
-    const tpl = getSpreadTemplate(t as SpreadType)!;
-    const prereq = tpl.prerequisites();
-    const { ready, missing } = evaluatePrereq(prereq, factsVis, rentRollRowCount);
+    readyTypes = [];
+    const notReadyTypes: Array<{ type: string; missing: string[]; note?: string }> = [];
 
-    if (ready) {
-      readyTypes.push(t);
-    } else {
-      notReadyTypes.push({ type: t, missing, note: prereq.note });
-    }
-  }
+    for (const t of validTypes) {
+      const tpl = getSpreadTemplate(t as SpreadType)!;
+      const prereq = tpl.prerequisites();
+      const { ready, missing } = evaluatePrereq(prereq, factsVis, rentRollRowCount);
 
-  // Emit events for not-ready types — no placeholders, no job enqueue
-  if (notReadyTypes.length > 0) {
-    import("@/lib/aegis").then(({ writeSystemEvent }) => {
-      for (const nr of notReadyTypes) {
-        writeSystemEvent({
-          event_type: "info",
-          severity: "info",
-          source_system: "enqueue_spread_recompute",
-          deal_id: args.dealId,
-          bank_id: args.bankId,
-          error_code: "SPREAD_WAITING_ON_FACTS",
-          error_message: `${nr.type} prerequisites not met at enqueue: ${nr.missing.join(", ")}`,
-          payload: { spreadType: nr.type, missing: nr.missing, note: nr.note },
-        }).catch(() => {});
+      if (ready) {
+        readyTypes.push(t);
+      } else {
+        notReadyTypes.push({ type: t, missing, note: prereq.note });
       }
-    }).catch(() => {});
-  }
+    }
 
-  if (readyTypes.length === 0) {
-    return { ok: true as const, enqueued: false as const, waitingOnFacts: true as const };
+    // Emit events for not-ready types — no placeholders, no job enqueue
+    if (notReadyTypes.length > 0) {
+      import("@/lib/aegis").then(({ writeSystemEvent }) => {
+        for (const nr of notReadyTypes) {
+          writeSystemEvent({
+            event_type: "info",
+            severity: "info",
+            source_system: "enqueue_spread_recompute",
+            deal_id: args.dealId,
+            bank_id: args.bankId,
+            error_code: "SPREAD_WAITING_ON_FACTS",
+            error_message: `${nr.type} prerequisites not met at enqueue: ${nr.missing.join(", ")}`,
+            payload: { spreadType: nr.type, missing: nr.missing, note: nr.note },
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+
+    if (readyTypes.length === 0) {
+      return { ok: true as const, enqueued: false as const, waitingOnFacts: true as const };
+    }
   }
 
   // Best-effort: create placeholder spreads so UI can show "queued" immediately.

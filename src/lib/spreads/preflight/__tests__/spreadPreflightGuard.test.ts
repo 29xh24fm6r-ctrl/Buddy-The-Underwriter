@@ -15,6 +15,7 @@ import {
   computePreflightBlockers,
   EXTRACT_ELIGIBLE_TYPES,
   CONFIRMED_PHASES,
+  HARD_BLOCKER_CODES,
 } from "../computePreflightBlockers";
 import {
   validateBalanceSheet,
@@ -25,6 +26,7 @@ import {
 } from "../validateExtractedFinancials";
 import type { PreflightInput, PreflightBlocker } from "../types";
 import type { FactForValidation } from "../validateExtractedFinancials";
+import { computeIntakeSnapshotHash } from "@/lib/intake/confirmation/types";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -423,4 +425,79 @@ test("Guard T: multiple blockers co-exist on single input", () => {
   assert.ok(findBlocker(blockers, "EXTRACTION_SUSPECT"));
   assert.ok(findBlocker(blockers, "SPREADS_DISABLED_BY_FLAG"));
   assert.ok(blockers.length >= 5, `Expected >= 5 blockers, got ${blockers.length}`);
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// E2-C — Structural vs Execution Gate Separation Guards
+// These guards enforce the permanent architectural contract:
+//   Preflight = structural gate (hard blockers only)
+//   Processor = execution gate (extraction, prereqs, retry)
+// ══════════════════════════════════════════════════════════════════════
+
+// ── Guard U: Extraction-only blockers → NOT hard blockers ─────────────
+
+test("Guard U: EXTRACTION_NOT_READY is NOT in HARD_BLOCKER_CODES", () => {
+  assert.ok(
+    !HARD_BLOCKER_CODES.has("EXTRACTION_NOT_READY"),
+    "EXTRACTION_NOT_READY is an execution-layer condition — must NOT be a hard blocker",
+  );
+});
+
+test("Guard U.1: EXTRACTION_SUSPECT is NOT in HARD_BLOCKER_CODES", () => {
+  assert.ok(
+    !HARD_BLOCKER_CODES.has("EXTRACTION_SUSPECT"),
+    "EXTRACTION_SUSPECT is an execution-layer condition — must NOT be a hard blocker",
+  );
+});
+
+// ── Guard V: Structural blockers → ARE hard blockers ──────────────────
+
+test("Guard V: all structural integrity codes are hard blockers", () => {
+  assert.ok(HARD_BLOCKER_CODES.has("INTAKE_NOT_CONFIRMED"));
+  assert.ok(HARD_BLOCKER_CODES.has("INTAKE_SNAPSHOT_HASH_MISMATCH"));
+  assert.ok(HARD_BLOCKER_CODES.has("SPREADS_DISABLED_BY_FLAG"));
+  assert.ok(HARD_BLOCKER_CODES.has("UNKNOWN_FAILSAFE"));
+});
+
+// ── Guard W: HARD_BLOCKER_CODES size is CI-locked ─────────────────────
+
+test("Guard W: HARD_BLOCKER_CODES contains exactly 4 entries", () => {
+  assert.equal(
+    HARD_BLOCKER_CODES.size,
+    4,
+    `HARD_BLOCKER_CODES must have exactly 4 entries (structural integrity only), got ${HARD_BLOCKER_CODES.size}`,
+  );
+});
+
+// ── Guard X: Execution-only blockers produce warnings, not failures ───
+
+test("Guard X: input with only extraction blockers still computes them (observability)", () => {
+  const doc = makeDoc({
+    id: "extraction-only-doc",
+    canonical_type: "BALANCE_SHEET",
+    logical_key: null, // not sealable → excluded from hash computation
+  });
+  // Compute the correct hash for an empty sealable set (doc has no logical_key)
+  const correctHash = computeIntakeSnapshotHash([]);
+  const blockers = computePreflightBlockers(
+    makeInput({
+      intakePhase: "CONFIRMED_READY_FOR_PROCESSING",
+      storedSnapshotHash: correctHash,
+      activeDocs: [doc],
+      extractionHeartbeatDocIds: new Set(), // no heartbeat → EXTRACTION_NOT_READY
+      spreadsEnabled: true,
+    }),
+  );
+  // The pure computation still returns blockers (for observability)
+  assert.ok(
+    findBlocker(blockers, "EXTRACTION_NOT_READY"),
+    "EXTRACTION_NOT_READY must still be computed for observability",
+  );
+  // But none of them are hard blockers
+  const hardBlockers = blockers.filter((b) => HARD_BLOCKER_CODES.has(b.code));
+  assert.equal(
+    hardBlockers.length,
+    0,
+    "Extraction-only input must produce zero hard blockers",
+  );
 });

@@ -27,6 +27,26 @@ import type {
   PreflightBlockerCode,
 } from "./types";
 
+// ── Structural vs Execution Gate Contract (CI-locked) ─────────────────
+
+/**
+ * Hard blockers prevent spread orchestration.
+ * These represent structural integrity violations — the deal state is
+ * fundamentally wrong and no amount of waiting will fix it.
+ *
+ * Soft blockers (everything NOT in this set) are warnings.
+ * They represent execution-layer conditions that the spread processor
+ * handles internally (extraction, prereqs, retry).
+ *
+ * This constant is CI-locked. Do not add execution-layer conditions.
+ */
+export const HARD_BLOCKER_CODES = new Set<PreflightBlockerCode>([
+  "INTAKE_NOT_CONFIRMED",
+  "INTAKE_SNAPSHOT_HASH_MISMATCH",
+  "SPREADS_DISABLED_BY_FLAG",
+  "UNKNOWN_FAILSAFE",
+]);
+
 // ── Exported Constants (CI-locked) ────────────────────────────────────
 
 /**

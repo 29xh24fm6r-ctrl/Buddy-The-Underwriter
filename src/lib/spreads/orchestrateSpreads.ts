@@ -135,6 +135,7 @@ export async function orchestrateSpreads(
 
   // ── 4. Preflight passed — enqueue spreads ──────────────────────────
   const snapshot = preflightResult.snapshot;
+  const warnings = preflightResult.warnings;
 
   const { data: runRow } = await (sb as any)
     .from("deal_spread_runs")
@@ -162,6 +163,7 @@ export async function orchestrateSpreads(
       spread_types: snapshot.spreadTypes,
       computed_hash: snapshot.computedHash,
       trigger,
+      warnings: warnings?.map((w) => w.code),
     },
   }).catch(() => {});
 
@@ -185,6 +187,7 @@ export async function orchestrateSpreads(
         bankId,
         sourceDocumentId: doc.id,
         spreadTypes,
+        skipPrereqCheck: true,
         meta: {
           source: "orchestrator",
           run_id: runId,

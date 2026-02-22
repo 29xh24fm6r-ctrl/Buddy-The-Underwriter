@@ -14,6 +14,7 @@ import { spreadsForDocType } from "@/lib/financialSpreads/docTypeToSpreadTypes";
 import {
   computePreflightBlockers,
   EXTRACT_ELIGIBLE_TYPES,
+  HARD_BLOCKER_CODES,
 } from "./computePreflightBlockers";
 import type {
   PreflightInput,
@@ -99,14 +100,23 @@ export async function runSpreadPreflight(
     spreadsEnabled: isSpreadsEnabled(),
   };
 
-  // ── Compute blockers ────────────────────────────────────────────────
-  const blockers = computePreflightBlockers(input);
+  // ── Compute blockers (structural vs execution separation) ──────────
+  //
+  // Hard blockers = structural integrity violations → block orchestration.
+  // Soft blockers = execution-layer conditions (extraction readiness,
+  //   quality status) → warnings only. The spread processor handles these
+  //   internally via extractFactsFromDocument + evaluatePrereq + bounded retry.
+  //
+  const allBlockers = computePreflightBlockers(input);
+  const hardBlockers = allBlockers.filter((b) => HARD_BLOCKER_CODES.has(b.code));
+  const warnings = allBlockers.filter((b) => !HARD_BLOCKER_CODES.has(b.code));
 
-  if (blockers.length > 0) {
+  if (hardBlockers.length > 0) {
+    // Include all blockers (hard + soft) for full observability
     return {
       ok: false,
       error: "PREFLIGHT_BLOCKED",
-      blockers,
+      blockers: allBlockers,
     };
   }
 
@@ -145,5 +155,9 @@ export async function runSpreadPreflight(
     timestamp: new Date().toISOString(),
   };
 
-  return { ok: true, snapshot };
+  return {
+    ok: true,
+    snapshot,
+    warnings: warnings.length > 0 ? warnings : undefined,
+  };
 }
