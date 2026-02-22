@@ -1309,8 +1309,16 @@ export async function processArtifact(
             .eq("id", dealId);
         }
 
-        // Gate: if not confirmed, stop here
-        if (phase !== "CONFIRMED_READY_FOR_PROCESSING") {
+        // Gate: if pre-confirmation, stop here. Post-confirmation phases
+        // (CONFIRMED_READY_FOR_PROCESSING, PROCESSING_COMPLETE,
+        // PROCESSING_COMPLETE_WITH_ERRORS) all fall through to downstream
+        // processing — this allows incremental processing of docs uploaded
+        // after the initial confirmation batch completes.
+        const { isPreConfirmationPhase } = await import(
+          "@/lib/intake/confirmation/isPreConfirmationPhase"
+        );
+
+        if (isPreConfirmationPhase(phase)) {
           // Mark artifact as classified (deferred, not matched)
           await (sb as any)
             .from("document_artifacts")
@@ -1351,7 +1359,25 @@ export async function processArtifact(
             skipReason: `intake_gate_held:${intakeStatus}`,
           };
         }
-        // If CONFIRMED_READY_FOR_PROCESSING, fall through to downstream steps
+
+        // Post-confirmation: log incremental processing for observability
+        const isIncremental = phase !== "CONFIRMED_READY_FOR_PROCESSING";
+        if (isIncremental) {
+          void writeEvent({
+            dealId,
+            kind: "intake.incremental_processing",
+            scope: "intake",
+            confidence: classification.confidence,
+            meta: {
+              document_id: source_id,
+              intake_status: intakeStatus,
+              intake_phase: phase,
+              doc_type: typingResult.effective_doc_type,
+              note: "Post-confirmation upload — processing incrementally",
+            },
+          });
+        }
+        // Fall through to downstream steps (matching, extraction, spreads)
       } catch (gateErr: any) {
         // FAIL-CLOSED: gate error blocks downstream processing
         // Processing NEVER runs if intake state is ambiguous
