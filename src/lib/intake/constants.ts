@@ -27,3 +27,21 @@ export const PROCESSING_VERSION = "processing_v2";
 export const POLL_INITIAL_MS = 3_000;
 export const POLL_BACKOFF_MS = 5_000;
 export const POLL_MAX_MS = 10_000;
+
+/**
+ * Maximum time (ms) a deal may remain queued (queued_at set, started_at null)
+ * before the server treats it as stuck. 2 minutes — generous for Vercel cold starts.
+ */
+export const MAX_QUEUE_TO_START_MS = 2 * 60 * 1000;
+
+/**
+ * Maximum time (ms) since the last heartbeat stamp before the server treats
+ * processing as stalled. 3 minutes — shorter than the overall 5min window.
+ */
+export const MAX_HEARTBEAT_STALE_MS = 3 * 60 * 1000;
+
+/**
+ * Processing observability schema version. Emitted in all observability-related
+ * events for forward-compat and debugging.
+ */
+export const PROCESSING_OBSERVABILITY_VERSION = "observability_v1";

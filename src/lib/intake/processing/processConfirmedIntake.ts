@@ -19,7 +19,8 @@ import {
   computeIntakeSnapshotHash,
 } from "@/lib/intake/confirmation/types";
 import { QUALITY_VERSION } from "@/lib/intake/quality/evaluateDocumentQuality";
-import { PROCESSING_VERSION } from "@/lib/intake/constants";
+import { PROCESSING_VERSION, PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
+import { stampProcessingHeartbeat } from "./processingHeartbeat";
 
 // ── Extract-eligible canonical types (mirrors processArtifact routing) ──
 
@@ -66,12 +67,29 @@ type ConfirmedDoc = {
 export async function processConfirmedIntake(
   dealId: string,
   bankId: string,
+  runId?: string,
 ): Promise<ProcessConfirmedResult> {
   const sb = supabaseAdmin();
   const errors: string[] = [];
   const matchResults: Array<{ documentId: string; decision: string }> = [];
   const extractResults: Array<{ documentId: string; ok: boolean }> = [];
   const startMs = Date.now();
+
+  // ── Stamp started_at + initial heartbeat ───────────────────────────
+  if (runId) {
+    try {
+      await (sb as any)
+        .from("deals")
+        .update({
+          intake_processing_started_at: new Date().toISOString(),
+          intake_processing_last_heartbeat_at: new Date().toISOString(),
+        })
+        .eq("id", dealId)
+        .eq("intake_processing_run_id", runId);
+    } catch {
+      // Non-fatal — observability failure must not block processing
+    }
+  }
 
   // ── OUTER TRY/CATCH — GUARANTEES PHASE TRANSITION ─────────────────
   // Part 5: processConfirmedIntake MUST transition intake_phase even if
@@ -158,6 +176,7 @@ export async function processConfirmedIntake(
   }
 
   // ── END SNAPSHOT VERIFICATION ───────────────────────────────────────
+  if (runId) void stampProcessingHeartbeat(dealId, runId, "snapshot_verified");
 
   // ── QUALITY VERIFICATION (defense-in-depth) ──────────────────────
   const { data: failedQualityDocs, error: qualityCheckErr } = await (sb as any)
@@ -189,6 +208,7 @@ export async function processConfirmedIntake(
     );
   }
   // ── END QUALITY VERIFICATION ─────────────────────────────────────
+  if (runId) void stampProcessingHeartbeat(dealId, runId, "quality_verified");
 
   // ── E3: SUPERSESSION DEFENSE-IN-DEPTH ──────────────────────────────
 
@@ -255,6 +275,7 @@ export async function processConfirmedIntake(
   }
 
   // ── END SUPERSESSION DEFENSE-IN-DEPTH ──────────────────────────────
+  if (runId) void stampProcessingHeartbeat(dealId, runId, "supersession_checked");
 
   // 1. Load all active confirmed docs
   const { data: docs, error: loadErr } = await (sb as any)
@@ -377,6 +398,7 @@ export async function processConfirmedIntake(
       }
     }
 
+    if (runId) void stampProcessingHeartbeat(dealId, runId, "doc_processed");
   }
 
   // ── E2: Proof-driven spread orchestration ─────────────────────────
@@ -399,6 +421,7 @@ export async function processConfirmedIntake(
   } catch (err: any) {
     errors.push(`orchestrate:${err?.message}`);
   }
+  if (runId) void stampProcessingHeartbeat(dealId, runId, "spreads_orchestrated");
 
   // 3. Deal-level operations
 
@@ -411,6 +434,7 @@ export async function processConfirmedIntake(
   } catch (err: any) {
     errors.push(`materialize:${err?.message}`);
   }
+  if (runId) void stampProcessingHeartbeat(dealId, runId, "facts_materialized");
 
   // 3b. Reconcile checklist
   try {
@@ -457,6 +481,8 @@ export async function processConfirmedIntake(
   }
 
   // 4. Transition to PROCESSING_COMPLETE (or PROCESSING_FAILED)
+  if (runId) void stampProcessingHeartbeat(dealId, runId, "completing");
+
   const finalPhase =
     errors.length === 0 ? "PROCESSING_COMPLETE" : "PROCESSING_COMPLETE_WITH_ERRORS";
 
@@ -466,6 +492,8 @@ export async function processConfirmedIntake(
     matchCount: matchResults.length,
     extractCount: extractResults.length,
     errorCount: errors.length,
+    runId,
+    errors: errors.length > 0 ? errors : undefined,
   });
 
   return {
@@ -495,6 +523,8 @@ export async function processConfirmedIntake(
       extractCount: extractResults.length,
       errorCount: errors.length,
       fatal: true,
+      runId,
+      errors,
     });
 
     return {
@@ -520,14 +550,28 @@ async function transitionPhaseAndEmit(
     extractCount: number;
     errorCount: number;
     fatal?: boolean;
+    runId?: string;
+    errors?: string[];
   },
 ): Promise<void> {
   const durationMs = Date.now() - opts.startMs;
 
+  // Build error summary for the observability column (max 500 chars)
+  const errorSummary =
+    opts.errors && opts.errors.length > 0
+      ? opts.errors.slice(0, 5).join("; ").slice(0, 500)
+      : null;
+
   try {
+    const updatePayload: Record<string, unknown> = {
+      intake_phase: finalPhase,
+    };
+    if (errorSummary) {
+      updatePayload.intake_processing_error = errorSummary;
+    }
     await (sb as any)
       .from("deals")
-      .update({ intake_phase: finalPhase })
+      .update(updatePayload)
       .eq("id", dealId);
   } catch (phaseErr: any) {
     console.error("[processConfirmedIntake] failed to update intake_phase", {
@@ -550,6 +594,8 @@ async function transitionPhaseAndEmit(
       duration_ms: durationMs,
       processing_version: PROCESSING_VERSION,
       confirmation_version: INTAKE_CONFIRMATION_VERSION,
+      observability_version: PROCESSING_OBSERVABILITY_VERSION,
+      run_id: opts.runId ?? null,
       fatal: opts.fatal ?? false,
     },
   });

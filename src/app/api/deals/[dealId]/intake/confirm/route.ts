@@ -13,8 +13,9 @@ import {
 import { computeAllBlockers } from "@/lib/intake/confirmation/computeDocBlockers";
 import type { ActiveDoc } from "@/lib/intake/confirmation/computeDocBlockers";
 import { enqueueDealProcessing } from "@/lib/intake/processing/enqueueDealProcessing";
+import { detectStuckProcessing } from "@/lib/intake/processing/detectStuckProcessing";
+import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import { MAX_PROCESSING_WINDOW_MS } from "@/lib/intake/constants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,7 +59,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // ── Deal phase check ───────────────────────────────────────────────
     const { data: deal, error: dealErr } = await sb
       .from("deals")
-      .select("intake_phase")
+      .select(
+        "intake_phase, intake_processing_queued_at, intake_processing_started_at, " +
+        "intake_processing_last_heartbeat_at, intake_processing_run_id",
+      )
       .eq("id", dealId)
       .maybeSingle();
 
@@ -70,40 +74,38 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     if ((deal as any).intake_phase === "CONFIRMED_READY_FOR_PROCESSING") {
-      // Lock TTL guard — if processing has been stuck longer than
-      // MAX_PROCESSING_WINDOW_MS, auto-recover by transitioning to error
-      // state so the banker can retry.
-      const { data: lockCheck } = await (sb as any)
-        .from("deal_documents")
-        .select("intake_locked_at")
-        .eq("deal_id", dealId)
-        .eq("is_active", true)
-        .eq("intake_status", "LOCKED_FOR_PROCESSING")
-        .order("intake_locked_at", { ascending: true })
-        .limit(1);
+      // Stuck detection — replaces coarse lock TTL guard with run-marker awareness
+      const verdict = detectStuckProcessing(
+        {
+          intake_phase: (deal as any).intake_phase,
+          intake_processing_queued_at: (deal as any).intake_processing_queued_at ?? null,
+          intake_processing_started_at: (deal as any).intake_processing_started_at ?? null,
+          intake_processing_last_heartbeat_at: (deal as any).intake_processing_last_heartbeat_at ?? null,
+          intake_processing_run_id: (deal as any).intake_processing_run_id ?? null,
+        },
+        Date.now(),
+      );
 
-      const oldestLock = lockCheck?.[0]?.intake_locked_at;
-      const lockAge = oldestLock
-        ? Date.now() - new Date(oldestLock).getTime()
-        : Infinity;
-
-      if (lockAge > MAX_PROCESSING_WINDOW_MS) {
-        // Stale lock detected — transition to error state for recovery
+      if (verdict.stuck) {
         void writeEvent({
           dealId,
-          kind: "intake.processing_timeout_recovery",
+          kind: "intake.processing_stuck_recovery",
           actorUserId: access.userId,
           scope: "intake",
           meta: {
-            lock_age_ms: lockAge,
-            max_processing_window_ms: MAX_PROCESSING_WINDOW_MS,
-            oldest_lock_at: oldestLock,
+            reason: verdict.reason,
+            age_ms: verdict.age_ms,
+            previous_run_id: (deal as any).intake_processing_run_id ?? null,
+            observability_version: PROCESSING_OBSERVABILITY_VERSION,
           },
         });
 
         await (sb as any)
           .from("deals")
-          .update({ intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS" })
+          .update({
+            intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
+            intake_processing_error: `stuck_recovery: ${verdict.reason}`,
+          })
           .eq("id", dealId);
 
         // Fall through to allow re-confirmation below
@@ -192,6 +194,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     // ── All gates passed — lock, seal, process ────────────────────────
     const now = new Date().toISOString();
+    const runId = crypto.randomUUID();
 
     // Lock all active docs
     const { error: lockErr } = await (sb as any)
@@ -220,13 +223,18 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       })),
     );
 
-    // Transition deal to CONFIRMED_READY_FOR_PROCESSING
+    // Transition deal to CONFIRMED_READY_FOR_PROCESSING + stamp run markers
     const { error: phaseErr } = await (sb as any)
       .from("deals")
       .update({
         intake_phase: "CONFIRMED_READY_FOR_PROCESSING",
         intake_snapshot_hash: snapshotHash,
         intake_snapshot_version: INTAKE_SNAPSHOT_VERSION,
+        intake_processing_queued_at: now,
+        intake_processing_started_at: null,
+        intake_processing_run_id: runId,
+        intake_processing_last_heartbeat_at: null,
+        intake_processing_error: null,
       })
       .eq("id", dealId);
 
@@ -249,16 +257,40 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         snapshot_version: INTAKE_SNAPSHOT_VERSION,
         confirmed_by: access.userId,
         intake_confirmation_version: INTAKE_CONFIRMATION_VERSION,
+        run_id: runId,
+        observability_version: PROCESSING_OBSERVABILITY_VERSION,
       },
     });
 
     // Trigger downstream processing (fire-and-forget — do NOT await)
     // Processing runs in the background; UI polls for PROCESSING_COMPLETE.
     // This prevents Vercel 504 timeouts on large document sets.
-    void enqueueDealProcessing(dealId, access.bankId).catch((err) => {
-      console.error("[intake/confirm] background processing failed", {
+    void enqueueDealProcessing(dealId, access.bankId, runId).catch((err) => {
+      console.error("[intake/confirm] enqueue failed", {
         dealId,
+        runId,
         error: err?.message,
+      });
+
+      // Immediate error transition so the UI doesn't spin forever
+      void (sb as any)
+        .from("deals")
+        .update({
+          intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
+          intake_processing_error: `enqueue_failed: ${err?.message?.slice(0, 200)}`,
+        })
+        .eq("id", dealId)
+        .eq("intake_processing_run_id", runId);
+
+      void writeEvent({
+        dealId,
+        kind: "intake.processing_enqueue_failed",
+        scope: "intake",
+        meta: {
+          run_id: runId,
+          error: err?.message?.slice(0, 200),
+          observability_version: PROCESSING_OBSERVABILITY_VERSION,
+        },
       });
     });
 
@@ -269,6 +301,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       snapshot_hash: snapshotHash,
       docs_locked: activeDocs.length,
       processing_queued: true,
+      run_id: runId,
     });
   } catch (e: any) {
     rethrowNextErrors(e);

@@ -34,11 +34,21 @@ type IntakeDoc = {
   created_at: string | null;
 };
 
+type ProcessingMarkers = {
+  run_id: string | null;
+  queued_at: string | null;
+  started_at: string | null;
+  last_heartbeat_at: string | null;
+  error: string | null;
+  auto_recovered: boolean;
+};
+
 type ReviewData = {
   ok: boolean;
   intake_phase: string;
   feature_enabled: boolean;
   documents: IntakeDoc[];
+  processing?: ProcessingMarkers;
 };
 
 type ConfBand = "LOW" | "MEDIUM" | "HIGH";
@@ -70,6 +80,11 @@ const BLOCKER_LABELS: Record<string, string> = {
   unclassified: "Unclassified",
   missing_required_year: "Missing Year",
 };
+
+/** Classify HTTP status as transport (server/network) vs business error. */
+function isTransportError(status: number): boolean {
+  return status >= 500 || status === 0;
+}
 
 const DOC_TYPE_OPTIONS = [
   "BUSINESS_TAX_RETURN",
@@ -121,10 +136,29 @@ export function IntakeReviewTable({
   const [blockedDocs, setBlockedDocs] = useState<Map<string, string[]>>(new Map());
   const [blockerSummary, setBlockerSummary] = useState<Record<string, number> | null>(null);
 
-  const refresh = useCallback(async () => {
+  // Safety: attempt scoping (Step A) — monotonic counter to invalidate stale async paths
+  const attemptRef = useRef(0);
+  const confirmedAttemptRef = useRef(0);
+  // Safety: abort controller (Step B) — cancels in-flight fetches on retry/unmount
+  const abortRef = useRef<AbortController | null>(null);
+  // Safety: phase invalidation (Step D) — detects regression during processing
+  const [invalidated, setInvalidated] = useState(false);
+  // Safety: polling stop (Step E) — halts polling when stuck timeout fires
+  const pollStoppedRef = useRef(false);
+
+  /** Lightweight console instrumentation (Step G). */
+  const logIntake = useCallback(
+    (event: string, extra?: Record<string, unknown>) => {
+      console.log(`[ui.intake] ${event}`, { dealId, attempt: attemptRef.current, ...extra });
+    },
+    [dealId],
+  );
+
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch(`/api/deals/${dealId}/intake/review`, {
         cache: "no-store",
+        signal,
       });
       const json = await res.json();
       if (!res.ok || !json?.ok) {
@@ -142,6 +176,7 @@ export function IntakeReviewTable({
         onNeedsReview?.();
       }
     } catch (err: any) {
+      if (err?.name === "AbortError") return;
       setError(err?.message ?? "Network error");
     } finally {
       setLoading(false);
@@ -153,7 +188,8 @@ export function IntakeReviewTable({
   const pollTickRef = useRef(0);
 
   useEffect(() => {
-    void refresh();
+    const controller = new AbortController();
+    void refresh(controller.signal);
 
     function getPollInterval(): number {
       if (data?.intake_phase !== "CONFIRMED_READY_FOR_PROCESSING") {
@@ -169,11 +205,18 @@ export function IntakeReviewTable({
 
     const interval = setInterval(() => {
       pollTickRef.current += 1;
-      void refresh();
+      if (pollStoppedRef.current) return; // Step E: stop polling when stuck
+      void refresh(controller.signal);
     }, getPollInterval());
 
-    return () => clearInterval(interval);
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+    };
   }, [refresh, data?.intake_phase]);
+
+  // Step B: Abort in-flight submit fetches on unmount
+  useEffect(() => () => { abortRef.current?.abort(); }, []);
 
   const filteredDocs = useMemo(() => {
     if (!data?.documents) return [];
@@ -246,18 +289,49 @@ export function IntakeReviewTable({
     return () => clearInterval(timer);
   }, [isProcessing, processingStartedAt]);
 
+  // Step E: Stop polling when stuck timeout fires
+  useEffect(() => {
+    if (isStuck) {
+      pollStoppedRef.current = true;
+      logIntake("poll.timeout");
+    }
+  }, [isStuck, logIntake]);
+
   // Auto-navigate on successful processing completion.
   // Errors stay on page for retry.
   const completionFired = useRef(false);
   useEffect(() => {
     if (
       data?.intake_phase === "PROCESSING_COMPLETE" &&
-      !completionFired.current
+      !completionFired.current &&
+      confirmedAttemptRef.current === attemptRef.current
     ) {
       completionFired.current = true;
+      logIntake("poll.terminal", { phase: data.intake_phase });
       onSubmitted?.();
     }
-  }, [data?.intake_phase, onSubmitted]);
+  }, [data?.intake_phase, onSubmitted, logIntake]);
+
+  // Step D: Detect phase regression during processing
+  useEffect(() => {
+    if (processingStartedAt !== null && data?.intake_phase != null) {
+      const phase = data.intake_phase;
+      if (phase === "BULK_UPLOADED" || phase === "CLASSIFIED_PENDING_CONFIRMATION") {
+        setInvalidated(true);
+        setProcessingStartedAt(null);
+        logIntake("poll.invalidated", { phase });
+      }
+    }
+  }, [data?.intake_phase, processingStartedAt, logIntake]);
+
+  // Server-side recovery detection — stops client timer when server auto-recovers
+  useEffect(() => {
+    if (data?.processing?.auto_recovered) {
+      setProcessingStartedAt(null);
+      pollStoppedRef.current = false;
+      logIntake("poll.server_recovery", { reason: data.processing.error });
+    }
+  }, [data?.processing?.auto_recovered, logIntake]);
 
   // ── Actions ────────────────────────────────────────────────────────
 
@@ -317,11 +391,33 @@ export function IntakeReviewTable({
   /**
    * Bulletproof submit: dry-run → confirm → stay on page for processing.
    *
-   * Step 1: Dry-run — proactively detect blockers before mutating.
-   * Step 2: Confirm — lock docs, seal snapshot, enqueue processing.
-   * Step 3: Stay — polling handles PROCESSING_COMPLETE detection.
+   * Safety layers:
+   * - Step A: Attempt scoping — stale async paths ignored on retry
+   * - Step B: AbortController — cancels fetches on retry/unmount
+   * - Step C: Transport vs business error separation
+   * - Step F: Double-submit guard
+   * - Step G: Console instrumentation
    */
   async function submitToProcessing() {
+    // Step F: Double-submit guard (covers rapid clicks before React re-render)
+    if (submitting) return;
+
+    // Step A: Attempt scoping — monotonic counter invalidates stale paths
+    attemptRef.current += 1;
+    const localAttempt = attemptRef.current;
+
+    // Step B: Cancel any prior in-flight fetches
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
+
+    // Step E: Clear poll stop on retry
+    pollStoppedRef.current = false;
+    // Step D: Clear invalidation on retry
+    setInvalidated(false);
+    // Reset completion guard for new attempt
+    completionFired.current = false;
+
     setSubmitting(true);
     setError(null);
     setBlockedDocs(new Map());
@@ -329,26 +425,38 @@ export function IntakeReviewTable({
 
     try {
       // ── Step 1: Dry-run — proactive blocker check ──────────────────
+      if (attemptRef.current !== localAttempt) return;
       setSubmitPhase("checking");
+      logIntake("dry_run.start");
+
       const dryRes = await fetch(
         `/api/deals/${dealId}/intake/confirm?dry_run=true`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({}),
+          signal,
         },
       );
       const dryJson = await dryRes.json();
 
       if (!dryRes.ok || !dryJson?.ok) {
+        if (attemptRef.current !== localAttempt) return;
+
         if (dryJson?.error === "confirmation_blocked" && dryJson?.blocked_documents) {
           applyBlockerResponse(dryJson);
+          logIntake("dry_run.blocked", { count: dryJson.blocked_documents.length });
         } else if (dryJson?.error === "intake_already_confirmed") {
           // Already confirmed — skip to polling; processing is in progress
+          logIntake("confirm.already_confirmed_409");
           setProcessingStartedAt(Date.now());
           setElapsed(0);
-          await refresh();
+          confirmedAttemptRef.current = localAttempt;
+          await refresh(signal);
           return;
+        } else if (isTransportError(dryRes.status)) {
+          logIntake("dry_run.transport_error", { status: dryRes.status });
+          setError("Couldn\u2019t reach server. Please retry.");
         } else {
           setError(dryJson?.error ?? "Pre-check failed");
         }
@@ -356,24 +464,34 @@ export function IntakeReviewTable({
       }
 
       // ── Step 2: Clean — proceed to confirm ─────────────────────────
+      if (attemptRef.current !== localAttempt) return;
       setSubmitPhase("confirming");
+      logIntake("confirm.start");
+
       const res = await fetch(`/api/deals/${dealId}/intake/confirm`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({}),
+        signal,
       });
       const json = await res.json();
 
       if (!res.ok || !json?.ok) {
+        if (attemptRef.current !== localAttempt) return;
+
         // Race condition defense: blockers appeared between dry-run and confirm
         if (json?.error === "confirmation_blocked" && json?.blocked_documents) {
           applyBlockerResponse(json);
         } else if (json?.error === "intake_already_confirmed") {
           // Another tab confirmed — skip to polling
+          logIntake("confirm.already_confirmed_409");
           setProcessingStartedAt(Date.now());
           setElapsed(0);
-          await refresh();
+          confirmedAttemptRef.current = localAttempt;
+          await refresh(signal);
           return;
+        } else if (isTransportError(res.status)) {
+          setError("Couldn\u2019t reach server. Please retry.");
         } else {
           const errMsg =
             json?.error === "quality_gate_failed"
@@ -388,17 +506,27 @@ export function IntakeReviewTable({
 
       // ── Step 3: Success — enter processing state ───────────────────
       // Do NOT call onSubmitted() — stay on page; polling detects completion.
+      if (attemptRef.current !== localAttempt) return;
+      logIntake("confirm.success");
       setBlockedDocs(new Map());
       setBlockerSummary(null);
       setProcessingStartedAt(Date.now());
       setElapsed(0);
-      await refresh();
+      confirmedAttemptRef.current = localAttempt;
+      await refresh(signal);
     } catch (err: any) {
-      setError(err?.message ?? "Submit failed");
+      // Step B: AbortError = silent return (retry or unmount cancelled this)
+      if (err?.name === "AbortError") return;
+      if (attemptRef.current !== localAttempt) return;
+      // Step C: Network error — distinct from business errors
+      setError("Network error \u2014 please check your connection and retry.");
       setProcessingStartedAt(null);
     } finally {
-      setSubmitPhase("idle");
-      setSubmitting(false);
+      // Only cleanup if this is still the active attempt
+      if (attemptRef.current === localAttempt) {
+        setSubmitPhase("idle");
+        setSubmitting(false);
+      }
     }
   }
 
@@ -414,6 +542,36 @@ export function IntakeReviewTable({
 
   if (!data?.feature_enabled) {
     return null;
+  }
+
+  // Step D: Phase regression — intake snapshot invalidated during processing
+  if (invalidated) {
+    return (
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="material-symbols-outlined text-amber-400 text-[20px]">
+              sync_problem
+            </span>
+            <div>
+              <div className="text-amber-400 text-sm font-medium">
+                Intake snapshot invalidated
+              </div>
+              <div className="text-white/40 text-xs mt-0.5">
+                New documents were uploaded or classifications changed. Please re-confirm to process.
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => { setInvalidated(false); void submitToProcessing(); }}
+            disabled={submitting}
+            className="ml-4 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+          >
+            Re-run check
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (isProcessing) {
@@ -439,19 +597,41 @@ export function IntakeReviewTable({
                 </div>
               </div>
             </div>
-            <button
-              onClick={() => void submitToProcessing()}
-              disabled={submitting}
-              className="ml-4 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
-            >
-              {submitting ? "Retrying..." : "Retry"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { pollStoppedRef.current = false; void refresh(); }}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/5 text-white/50 hover:bg-white/10 transition-colors"
+              >
+                Continue polling
+              </button>
+              <button
+                onClick={() => void submitToProcessing()}
+                disabled={submitting}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+              >
+                {submitting ? "Retrying..." : "Retry"}
+              </button>
+            </div>
           </div>
         </div>
       );
     }
 
-    // Part 9: UX copy — institutional framing
+    // Part 9: UX copy — institutional framing with run-marker awareness
+    const processingLabel = (() => {
+      const m = data?.processing;
+      if (!m?.queued_at) return "Buddy is processing your documents securely";
+      if (!m.started_at) return "Queued for processing...";
+      if (m.last_heartbeat_at) return "Buddy is processing your documents securely";
+      return "Processing started...";
+    })();
+    const processingDetail = (() => {
+      const m = data?.processing;
+      if (!m?.queued_at) return `Matching, extracting, and computing spreads — ${timeStr} elapsed`;
+      if (!m.started_at) return `Waiting for processing to begin — ${timeStr} elapsed`;
+      return `Matching, extracting, and computing spreads — ${timeStr} elapsed`;
+    })();
+
     return (
       <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-5">
         <div className="flex items-center gap-3">
@@ -461,10 +641,10 @@ export function IntakeReviewTable({
           </div>
           <div>
             <div className="text-blue-400 text-sm font-medium">
-              Buddy is processing your documents securely
+              {processingLabel}
             </div>
             <div className="text-white/40 text-xs mt-0.5">
-              Matching, extracting, and computing spreads — {timeStr} elapsed
+              {processingDetail}
             </div>
           </div>
         </div>
@@ -477,6 +657,8 @@ export function IntakeReviewTable({
 
   if (isComplete) {
     const hasErrors = data?.intake_phase === "PROCESSING_COMPLETE_WITH_ERRORS";
+    const processingError = data?.processing?.error ?? null;
+    const wasAutoRecovered = data?.processing?.auto_recovered ?? false;
     return (
       <div className={cn(
         "rounded-xl border p-4",
@@ -493,15 +675,14 @@ export function IntakeReviewTable({
               {hasErrors ? "warning" : "check_circle"}
             </span>
             {hasErrors
-              ? "Processing complete — some documents had issues"
+              ? wasAutoRecovered
+                ? "Processing stalled and was auto-recovered"
+                : "Processing complete — some documents had issues"
               : "Intake confirmed and processing complete"}
           </div>
           {hasErrors && (
             <button
-              onClick={() => {
-                completionFired.current = false;
-                void submitToProcessing();
-              }}
+              onClick={() => void submitToProcessing()}
               disabled={submitting}
               className="ml-4 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
             >
@@ -509,6 +690,11 @@ export function IntakeReviewTable({
             </button>
           )}
         </div>
+        {hasErrors && processingError && (
+          <div className="mt-2 text-xs text-white/40 font-mono truncate">
+            {processingError}
+          </div>
+        )}
       </div>
     );
   }

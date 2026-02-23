@@ -884,7 +884,7 @@ test("[guard-52] confirm route snapshot query filters by logical_key", () => {
 
 // E1.2: Single-pass refactor reduced query count. Still need is_active on:
 // 1. lock TTL check, 2. single docs load, 3. lock update = 3 references
-test("[guard-53] confirm route filters is_active on ≥ 3 queries", () => {
+test("[guard-53] confirm route filters is_active on ≥ 2 queries", () => {
   const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
   let count = 0;
   let idx = 0;
@@ -892,9 +892,11 @@ test("[guard-53] confirm route filters is_active on ≥ 3 queries", () => {
     count++;
     idx += 9;
   }
+  // Was ≥ 3 before observability refactor; stale-lock recovery query replaced
+  // by detectStuckProcessing (reads deals table, not deal_documents).
   assert.ok(
-    count >= 3,
-    `Confirm route must reference is_active ≥ 3 times (got ${count})`,
+    count >= 2,
+    `Confirm route must reference is_active ≥ 2 times (got ${count})`,
   );
 });
 
@@ -1408,5 +1410,45 @@ test("[guard-86] Shared extractFilenamePattern imported in both override surface
   assert.ok(
     !intakeConfirm.includes("function extractFilenamePattern"),
     "per-doc confirm route must NOT define extractFilenamePattern locally (use shared module)",
+  );
+});
+
+// ── Processing Observability Structural Guards ──────────────────────
+
+test("[guard-87] Confirm route stamps run markers (run_id, queued_at, randomUUID)", () => {
+  const src = readSource(
+    "src/app/api/deals/[dealId]/intake/confirm/route.ts",
+  );
+  assert.ok(
+    src.includes("crypto.randomUUID()"),
+    "confirm route must generate runId via crypto.randomUUID()",
+  );
+  assert.ok(
+    src.includes("intake_processing_run_id: runId"),
+    "confirm route must stamp intake_processing_run_id on deals update",
+  );
+  assert.ok(
+    src.includes("intake_processing_queued_at: now"),
+    "confirm route must stamp intake_processing_queued_at on deals update",
+  );
+});
+
+test("[guard-88] processConfirmedIntake stamps started_at and calls stampProcessingHeartbeat", () => {
+  const src = readSource(
+    "src/lib/intake/processing/processConfirmedIntake.ts",
+  );
+  assert.ok(
+    src.includes("intake_processing_started_at"),
+    "processConfirmedIntake must stamp intake_processing_started_at",
+  );
+  assert.ok(
+    src.includes("stampProcessingHeartbeat"),
+    "processConfirmedIntake must call stampProcessingHeartbeat",
+  );
+  // At least 6 references: 1 import + 7 heartbeat calls (some may inline)
+  const heartbeatCount = (src.match(/stampProcessingHeartbeat/g) || []).length;
+  assert.ok(
+    heartbeatCount >= 6,
+    `processConfirmedIntake must have >= 6 stampProcessingHeartbeat references (found ${heartbeatCount})`,
   );
 });
