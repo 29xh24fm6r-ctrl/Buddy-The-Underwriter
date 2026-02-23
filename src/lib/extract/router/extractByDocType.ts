@@ -310,6 +310,18 @@ export function isDocAiUnavailableError(err: unknown): boolean {
   return false;
 }
 
+/**
+ * Detect DocAI "limits exceeded" errors — page count or byte size over hard limits.
+ *
+ * These are expected constraints (not outages). The router falls back to Gemini OCR
+ * with fallback_reason: "LIMITS" — distinct from "UNAVAILABLE" and "PAGE_LIMIT".
+ * Do NOT mark DocAI availability cache as down for limits errors.
+ */
+export function isDocAiLimitsError(err: unknown): boolean {
+  const msg = String((err as any)?.message || err || "").toLowerCase();
+  return msg.includes("docai_limits_exceeded");
+}
+
 // ─── DocAI Availability Cache ───────────────────────────────────────────────
 
 /**
@@ -543,7 +555,73 @@ export async function extractByDocType(docId: string): Promise<ExtractByDocTypeR
 
     return { doc, result, provider_metrics };
   } catch (error: any) {
-    // ── DocAI page-limit fallback → Gemini OCR ──────────────────────────
+    // ── DocAI limits fallback → Gemini OCR (expected constraint, not outage) ──
+    // Byte limit exceeded or chunk too large — fall back explicitly.
+    // Do NOT mark availability cache — this is a document property, not an outage.
+    if (useDocAi && isDocAiLimitsError(error)) {
+      console.log("[SmartRouter] DocAI limits exceeded — falling back to Gemini OCR", {
+        docId,
+        routingClass,
+        error: error?.message,
+      });
+
+      await logLedgerEvent({
+        dealId: doc.deal_id,
+        bankId: doc.bank_id,
+        eventKey: "extract.docai_skipped_limits",
+        uiState: "working",
+        uiMessage: "Document exceeds DocAI size limits — using Gemini OCR",
+        meta: {
+          docId,
+          docType: doc.type,
+          routingClass,
+          originalError: error?.message,
+        },
+      });
+
+      try {
+        const fallbackResult = await extractWithGeminiOcr(doc);
+
+        const elapsedMs = Date.now() - started;
+        console.log("[SmartRouter] Gemini OCR fallback succeeded (DocAI limits)", {
+          docId,
+          elapsed_ms: elapsedMs,
+        });
+
+        return {
+          doc,
+          result: fallbackResult.result,
+          provider_metrics: {
+            ...fallbackResult.provider_metrics,
+            fallback_from: "DOC_AI",
+            fallback_reason: "LIMITS",
+          },
+        };
+      } catch (fallbackError: any) {
+        await logLedgerEvent({
+          dealId: doc.deal_id,
+          bankId: doc.bank_id,
+          eventKey: "extract.failed",
+          uiState: "error",
+          uiMessage: `Extraction failed (DocAI limits + Gemini OCR fallback): ${fallbackError?.message}`,
+          meta: {
+            docId,
+            docType: doc.type,
+            routingClass,
+            route: "gemini_ocr_fallback",
+            docai_error: error?.message,
+            gemini_error: fallbackError?.message,
+            elapsed_ms: Date.now() - started,
+          },
+        });
+
+        throw fallbackError;
+      }
+    }
+
+    // ── DocAI page-limit fallback → Gemini OCR (safety net) ─────────────
+    // With preflight gate, most page-limit errors are prevented. This catches
+    // edge cases where pdf-lib page count was wrong or GCP has different limits.
     if (useDocAi && isDocAiPageLimitError(error)) {
       console.log("[SmartRouter] DocAI page limit — falling back to Gemini OCR", {
         docId,
