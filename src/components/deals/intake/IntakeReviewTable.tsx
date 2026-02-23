@@ -108,6 +108,8 @@ export function IntakeReviewTable({
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [submitting, setSubmitting] = useState(false);
+  type SubmitPhase = "idle" | "checking" | "confirming";
+  const [submitPhase, setSubmitPhase] = useState<SubmitPhase>("idle");
   const [processingStartedAt, setProcessingStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [editingDoc, setEditingDoc] = useState<string | null>(null);
@@ -244,6 +246,19 @@ export function IntakeReviewTable({
     return () => clearInterval(timer);
   }, [isProcessing, processingStartedAt]);
 
+  // Auto-navigate on successful processing completion.
+  // Errors stay on page for retry.
+  const completionFired = useRef(false);
+  useEffect(() => {
+    if (
+      data?.intake_phase === "PROCESSING_COMPLETE" &&
+      !completionFired.current
+    ) {
+      completionFired.current = true;
+      onSubmitted?.();
+    }
+  }, [data?.intake_phase, onSubmitted]);
+
   // ── Actions ────────────────────────────────────────────────────────
 
   async function confirmDoc(docId: string, patch?: { canonical_type?: string; tax_year?: number }) {
@@ -279,61 +294,110 @@ export function IntakeReviewTable({
     }
   }
 
+  /** Parse confirmation_blocked response into per-doc blocker state + error message. */
+  function applyBlockerResponse(json: any) {
+    const docMap = new Map<string, string[]>();
+    for (const bd of json.blocked_documents as Array<{ document_id: string; blockers: string[] }>) {
+      docMap.set(bd.document_id, bd.blockers);
+    }
+    setBlockedDocs(docMap);
+    setBlockerSummary(json.summary ?? null);
+
+    const parts: string[] = [];
+    const s = json.summary as Record<string, number> | undefined;
+    if (s?.needs_confirmation) parts.push(`${s.needs_confirmation} need confirmation`);
+    if (s?.quality_not_passed) parts.push(`${s.quality_not_passed} quality failed`);
+    if (s?.segmented_parent) parts.push(`${s.segmented_parent} segmentation incomplete`);
+    if (s?.entity_ambiguous) parts.push(`${s.entity_ambiguous} entity ambiguous`);
+    if (s?.unclassified) parts.push(`${s.unclassified} unclassified`);
+    if (s?.missing_required_year) parts.push(`${s.missing_required_year} missing year`);
+    setError(parts.length > 0 ? parts.join(" \u2022 ") : "Some documents have issues preventing confirmation.");
+  }
+
+  /**
+   * Bulletproof submit: dry-run → confirm → stay on page for processing.
+   *
+   * Step 1: Dry-run — proactively detect blockers before mutating.
+   * Step 2: Confirm — lock docs, seal snapshot, enqueue processing.
+   * Step 3: Stay — polling handles PROCESSING_COMPLETE detection.
+   */
   async function submitToProcessing() {
     setSubmitting(true);
     setError(null);
+    setBlockedDocs(new Map());
+    setBlockerSummary(null);
+
     try {
+      // ── Step 1: Dry-run — proactive blocker check ──────────────────
+      setSubmitPhase("checking");
+      const dryRes = await fetch(
+        `/api/deals/${dealId}/intake/confirm?dry_run=true`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      const dryJson = await dryRes.json();
+
+      if (!dryRes.ok || !dryJson?.ok) {
+        if (dryJson?.error === "confirmation_blocked" && dryJson?.blocked_documents) {
+          applyBlockerResponse(dryJson);
+        } else if (dryJson?.error === "intake_already_confirmed") {
+          // Already confirmed — skip to polling; processing is in progress
+          setProcessingStartedAt(Date.now());
+          setElapsed(0);
+          await refresh();
+          return;
+        } else {
+          setError(dryJson?.error ?? "Pre-check failed");
+        }
+        return;
+      }
+
+      // ── Step 2: Clean — proceed to confirm ─────────────────────────
+      setSubmitPhase("confirming");
       const res = await fetch(`/api/deals/${dealId}/intake/confirm`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({}),
       });
       const json = await res.json();
-      if (!res.ok || !json?.ok) {
-        // E1.2: Parse structured per-doc blocker response
-        if (json?.error === "confirmation_blocked" && json?.blocked_documents) {
-          const docMap = new Map<string, string[]>();
-          for (const bd of json.blocked_documents as Array<{ document_id: string; blockers: string[] }>) {
-            docMap.set(bd.document_id, bd.blockers);
-          }
-          setBlockedDocs(docMap);
-          setBlockerSummary(json.summary ?? null);
 
-          // Build user-friendly summary
-          const parts: string[] = [];
-          const s = json.summary as Record<string, number> | undefined;
-          if (s?.needs_confirmation) parts.push(`${s.needs_confirmation} need confirmation`);
-          if (s?.quality_not_passed) parts.push(`${s.quality_not_passed} quality failed`);
-          if (s?.segmented_parent) parts.push(`${s.segmented_parent} segmentation incomplete`);
-          if (s?.entity_ambiguous) parts.push(`${s.entity_ambiguous} entity ambiguous`);
-          if (s?.unclassified) parts.push(`${s.unclassified} unclassified`);
-          if (s?.missing_required_year) parts.push(`${s.missing_required_year} missing year`);
-          setError(parts.length > 0 ? parts.join(" \u2022 ") : "Some documents have issues preventing confirmation.");
+      if (!res.ok || !json?.ok) {
+        // Race condition defense: blockers appeared between dry-run and confirm
+        if (json?.error === "confirmation_blocked" && json?.blocked_documents) {
+          applyBlockerResponse(json);
+        } else if (json?.error === "intake_already_confirmed") {
+          // Another tab confirmed — skip to polling
+          setProcessingStartedAt(Date.now());
+          setElapsed(0);
+          await refresh();
+          return;
         } else {
-          // Legacy fallback for older error shapes
           const errMsg =
             json?.error === "quality_gate_failed"
-              ? "Some document(s) failed automated quality checks (e.g., unreadable scan or insufficient OCR text). Please re-upload a clearer copy."
+              ? "Some document(s) failed automated quality checks. Please re-upload a clearer copy."
               : json?.error === "pending_documents_exist"
               ? `${json.pending_count ?? "Some"} document(s) still need confirmation before processing.`
-              : json?.error ?? "Failed to submit";
+              : json?.error ?? "Confirmation failed";
           setError(errMsg);
         }
         return;
       }
-      // Clear blockers on success
+
+      // ── Step 3: Success — enter processing state ───────────────────
+      // Do NOT call onSubmitted() — stay on page; polling detects completion.
       setBlockedDocs(new Map());
       setBlockerSummary(null);
-      // Start the processing timer immediately for instant feedback
       setProcessingStartedAt(Date.now());
       setElapsed(0);
       await refresh();
-      // After successful submit, notify parent that processing is enqueued
-      onSubmitted?.();
     } catch (err: any) {
       setError(err?.message ?? "Submit failed");
       setProcessingStartedAt(null);
     } finally {
+      setSubmitPhase("idle");
       setSubmitting(false);
     }
   }
@@ -361,19 +425,27 @@ export function IntakeReviewTable({
     if (isStuck) {
       return (
         <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5">
-          <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-amber-400 text-[20px]">
-              schedule
-            </span>
-            <div>
-              <div className="text-amber-400 text-sm font-medium">
-                Processing is taking longer than expected
-              </div>
-              <div className="text-white/40 text-xs mt-0.5">
-                {timeStr} elapsed — Buddy is still working. If this persists, you may
-                re-submit or contact support.
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-amber-400 text-[20px]">
+                schedule
+              </span>
+              <div>
+                <div className="text-amber-400 text-sm font-medium">
+                  Processing is taking longer than expected
+                </div>
+                <div className="text-white/40 text-xs mt-0.5">
+                  {timeStr} elapsed — Buddy is still working. If this persists, retry below.
+                </div>
               </div>
             </div>
+            <button
+              onClick={() => void submitToProcessing()}
+              disabled={submitting}
+              className="ml-4 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+            >
+              {submitting ? "Retrying..." : "Retry"}
+            </button>
           </div>
         </div>
       );
@@ -412,16 +484,30 @@ export function IntakeReviewTable({
           ? "border-amber-500/20 bg-amber-500/5"
           : "border-emerald-500/20 bg-emerald-500/5",
       )}>
-        <div className={cn(
-          "flex items-center gap-2 text-sm font-medium",
-          hasErrors ? "text-amber-400" : "text-emerald-400",
-        )}>
-          <span className="material-symbols-outlined text-[16px]">
-            {hasErrors ? "warning" : "check_circle"}
-          </span>
-          {hasErrors
-            ? "Processing complete — some documents had issues"
-            : "Intake confirmed and processing complete"}
+        <div className="flex items-center justify-between">
+          <div className={cn(
+            "flex items-center gap-2 text-sm font-medium",
+            hasErrors ? "text-amber-400" : "text-emerald-400",
+          )}>
+            <span className="material-symbols-outlined text-[16px]">
+              {hasErrors ? "warning" : "check_circle"}
+            </span>
+            {hasErrors
+              ? "Processing complete — some documents had issues"
+              : "Intake confirmed and processing complete"}
+          </div>
+          {hasErrors && (
+            <button
+              onClick={() => {
+                completionFired.current = false;
+                void submitToProcessing();
+              }}
+              disabled={submitting}
+              className="ml-4 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+            >
+              {submitting ? "Retrying..." : "Retry"}
+            </button>
+          )}
         </div>
       </div>
     );
@@ -648,13 +734,24 @@ export function IntakeReviewTable({
           onClick={() => void submitToProcessing()}
           disabled={!canSubmit || submitting}
           className={cn(
-            "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+            "px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2",
             canSubmit && !submitting
               ? "bg-blue-600 text-white hover:bg-blue-500"
               : "bg-white/5 text-white/20 cursor-not-allowed",
           )}
         >
-          {submitting ? "Processing..." : "Submit to Processing"}
+          {submitting && (
+            <span className="animate-spin material-symbols-outlined text-[16px]">
+              progress_activity
+            </span>
+          )}
+          {submitPhase === "checking"
+            ? "Checking documents\u2026"
+            : submitPhase === "confirming"
+            ? "Confirming & starting\u2026"
+            : submitting
+            ? "Processing\u2026"
+            : "Submit to Processing"}
         </button>
       </div>
     </div>
