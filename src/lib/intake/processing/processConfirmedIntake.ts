@@ -21,6 +21,8 @@ import {
 import { QUALITY_VERSION } from "@/lib/intake/quality/evaluateDocumentQuality";
 import { PROCESSING_VERSION, PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
 import { stampProcessingHeartbeat } from "./processingHeartbeat";
+import { updateDealIfRunOwner } from "./updateDealIfRunOwner";
+import { summarizeProcessingErrors } from "./summarizeProcessingError";
 
 // ── Extract-eligible canonical types (mirrors processArtifact routing) ──
 
@@ -556,10 +558,10 @@ async function transitionPhaseAndEmit(
 ): Promise<void> {
   const durationMs = Date.now() - opts.startMs;
 
-  // Build error summary for the observability column (max 500 chars)
+  // Build PII-safe error summary for the observability column
   const errorSummary =
     opts.errors && opts.errors.length > 0
-      ? opts.errors.slice(0, 5).join("; ").slice(0, 500)
+      ? summarizeProcessingErrors(opts.errors)
       : null;
 
   try {
@@ -569,10 +571,14 @@ async function transitionPhaseAndEmit(
     if (errorSummary) {
       updatePayload.intake_processing_error = errorSummary;
     }
-    await (sb as any)
-      .from("deals")
-      .update(updatePayload)
-      .eq("id", dealId);
+    const updated = await updateDealIfRunOwner(dealId, opts.runId, updatePayload);
+    if (!updated) {
+      console.warn("[transitionPhaseAndEmit] CAS failed — run superseded", {
+        dealId,
+        runId: opts.runId,
+        targetPhase: finalPhase,
+      });
+    }
   } catch (phaseErr: any) {
     console.error("[processConfirmedIntake] failed to update intake_phase", {
       dealId,

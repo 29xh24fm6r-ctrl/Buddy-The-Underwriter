@@ -41,12 +41,17 @@ export const STUCK_DETECTION_VERSION = "stuck_v1";
  * Only applies when intake_phase === "CONFIRMED_READY_FOR_PROCESSING".
  * Check order: legacy_no_markers → queued_never_started → heartbeat_stale → overall_timeout.
  *
- * @param markers - The run marker columns from the deals row
- * @param nowMs   - Current time in milliseconds (injected for determinism)
+ * @param markers         - The run marker columns from the deals row
+ * @param nowMs           - Current time in milliseconds (injected for determinism)
+ * @param confirmedSinceMs - Optional epoch ms when deal entered CONFIRMED phase.
+ *                           When provided, legacy_no_markers only fires if confirmed
+ *                           for longer than MAX_QUEUE_TO_START_MS (prevents false
+ *                           positives on freshly-confirmed pre-observability deals).
  */
 export function detectStuckProcessing(
   markers: ProcessingRunMarkers,
   nowMs: number,
+  confirmedSinceMs?: number,
 ): StuckVerdict {
   // Only applies to CONFIRMED phase
   if (markers.intake_phase !== "CONFIRMED_READY_FOR_PROCESSING") {
@@ -58,8 +63,17 @@ export function detectStuckProcessing(
   const lastHeartbeat = markers.intake_processing_last_heartbeat_at;
 
   // 1. Legacy run — CONFIRMED but no queued_at means pre-observability.
-  //    Fall back to overall timeout from the absence of any marker.
+  //    Time-guarded when confirmedSinceMs is provided to prevent false positives
+  //    on deals that were just confirmed before observability columns were populated.
   if (!queuedAt) {
+    if (confirmedSinceMs != null) {
+      const confirmedAge = nowMs - confirmedSinceMs;
+      if (confirmedAge > MAX_QUEUE_TO_START_MS) {
+        return { stuck: true, reason: "legacy_no_markers", age_ms: confirmedAge };
+      }
+      return { stuck: false };
+    }
+    // No confirmedSinceMs → immediate detection (backward compat)
     return { stuck: true, reason: "legacy_no_markers", age_ms: 0 };
   }
 

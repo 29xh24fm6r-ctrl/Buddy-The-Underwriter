@@ -3,10 +3,9 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { writeEvent } from "@/lib/ledger/writeEvent";
-import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import { detectStuckProcessing } from "@/lib/intake/processing/detectStuckProcessing";
 import { updateDealIfRunOwner } from "@/lib/intake/processing/updateDealIfRunOwner";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
@@ -16,13 +15,13 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ dealId: string }> };
 
 /**
- * GET /api/deals/[dealId]/intake/review
+ * GET /api/deals/[dealId]/intake/processing-status
  *
- * Returns documents sorted by classification confidence ASC (worst first).
- * Used by the IntakeReviewTable UI component.
+ * Lightweight endpoint — returns only processing run markers (no document list).
+ * Performs auto-recovery if stuck (same logic as review route).
  *
- * Also returns processing run markers and performs auto-recovery
- * if the processing run is detected as stuck.
+ * Intended for fast polling during processing without the overhead of loading
+ * all documents from the review endpoint.
  */
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
@@ -38,7 +37,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
     const sb = supabaseAdmin();
 
-    // Load deal phase + processing run markers
     const { data: deal, error: dealErr } = await sb
       .from("deals")
       .select(
@@ -55,21 +53,18 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       );
     }
 
-    // ── Auto-recovery on poll ──────────────────────────────────────────
-    // If the deal is stuck in CONFIRMED_READY_FOR_PROCESSING, transition
-    // to error state deterministically. Fires at most once per stuck run
-    // (phase changes → detection stops on subsequent polls).
     let autoRecovered = false;
-    let dealPhase = (deal as any).intake_phase as string | null;
+    let phase = (deal as any).intake_phase as string | null;
     let dealError: string | null = (deal as any).intake_processing_error ?? null;
 
-    if (dealPhase === "CONFIRMED_READY_FOR_PROCESSING") {
+    // ── Auto-recovery (mirrors review route logic) ───────────────────────
+    if (phase === "CONFIRMED_READY_FOR_PROCESSING") {
       const queuedAt = (deal as any).intake_processing_queued_at ?? null;
       const confirmedSinceMs = queuedAt ? new Date(queuedAt as string).getTime() : undefined;
 
       const verdict = detectStuckProcessing(
         {
-          intake_phase: dealPhase,
+          intake_phase: phase,
           intake_processing_queued_at: queuedAt,
           intake_processing_started_at: (deal as any).intake_processing_started_at ?? null,
           intake_processing_last_heartbeat_at: (deal as any).intake_processing_last_heartbeat_at ?? null,
@@ -100,42 +95,15 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
           intake_processing_error: errorMsg,
         });
 
-        // Update local copies for response
-        dealPhase = "PROCESSING_COMPLETE_WITH_ERRORS";
+        phase = "PROCESSING_COMPLETE_WITH_ERRORS";
         dealError = errorMsg;
         autoRecovered = true;
       }
     }
 
-    // Load active documents sorted by confidence ASC (nulls first = worst first)
-    const { data: docs, error: docsErr } = await (sb as any)
-      .from("deal_documents")
-      .select(
-        `id, original_filename, canonical_type, document_type,
-         checklist_key, doc_year, match_source,
-         ai_doc_type, ai_confidence, ai_tax_year,
-         classification_tier,
-         gatekeeper_doc_type, gatekeeper_confidence,
-         gatekeeper_needs_review, gatekeeper_route,
-         intake_status, intake_confirmed_at, intake_confirmed_by,
-         intake_locked_at, created_at`,
-      )
-      .eq("deal_id", dealId)
-      .eq("is_active", true)
-      .order("ai_confidence", { ascending: true, nullsFirst: true });
-
-    if (docsErr) {
-      return NextResponse.json(
-        { ok: false, error: "query_failed", detail: docsErr.message },
-        { status: 500 },
-      );
-    }
-
     return NextResponse.json({
       ok: true,
-      intake_phase: dealPhase,
-      feature_enabled: isIntakeConfirmationGateEnabled(),
-      documents: docs ?? [],
+      intake_phase: phase,
       processing: {
         run_id: (deal as any).intake_processing_run_id ?? null,
         queued_at: (deal as any).intake_processing_queued_at ?? null,
@@ -147,7 +115,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     });
   } catch (e: any) {
     rethrowNextErrors(e);
-    console.error("[intake/review]", e);
+    console.error("[intake/processing-status]", e);
     return NextResponse.json(
       { ok: false, error: "unexpected_error" },
       { status: 500 },

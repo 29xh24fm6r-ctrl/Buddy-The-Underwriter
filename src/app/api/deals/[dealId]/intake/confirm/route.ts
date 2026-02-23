@@ -14,6 +14,7 @@ import { computeAllBlockers } from "@/lib/intake/confirmation/computeDocBlockers
 import type { ActiveDoc } from "@/lib/intake/confirmation/computeDocBlockers";
 import { enqueueDealProcessing } from "@/lib/intake/processing/enqueueDealProcessing";
 import { detectStuckProcessing } from "@/lib/intake/processing/detectStuckProcessing";
+import { updateDealIfRunOwner } from "@/lib/intake/processing/updateDealIfRunOwner";
 import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
@@ -75,18 +76,24 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     if ((deal as any).intake_phase === "CONFIRMED_READY_FOR_PROCESSING") {
       // Stuck detection — replaces coarse lock TTL guard with run-marker awareness
+      const queuedAt = (deal as any).intake_processing_queued_at ?? null;
+      const confirmedSinceMs = queuedAt ? new Date(queuedAt as string).getTime() : undefined;
+
       const verdict = detectStuckProcessing(
         {
           intake_phase: (deal as any).intake_phase,
-          intake_processing_queued_at: (deal as any).intake_processing_queued_at ?? null,
+          intake_processing_queued_at: queuedAt,
           intake_processing_started_at: (deal as any).intake_processing_started_at ?? null,
           intake_processing_last_heartbeat_at: (deal as any).intake_processing_last_heartbeat_at ?? null,
           intake_processing_run_id: (deal as any).intake_processing_run_id ?? null,
         },
         Date.now(),
+        confirmedSinceMs,
       );
 
       if (verdict.stuck) {
+        const staleRunId: string | undefined = (deal as any).intake_processing_run_id ?? undefined;
+
         void writeEvent({
           dealId,
           kind: "intake.processing_stuck_recovery",
@@ -95,18 +102,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           meta: {
             reason: verdict.reason,
             age_ms: verdict.age_ms,
-            previous_run_id: (deal as any).intake_processing_run_id ?? null,
+            previous_run_id: staleRunId ?? null,
             observability_version: PROCESSING_OBSERVABILITY_VERSION,
           },
         });
 
-        await (sb as any)
-          .from("deals")
-          .update({
-            intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
-            intake_processing_error: `stuck_recovery: ${verdict.reason}`,
-          })
-          .eq("id", dealId);
+        await updateDealIfRunOwner(dealId, staleRunId, {
+          intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
+          intake_processing_error: `stuck_recovery: ${verdict.reason}`,
+        });
 
         // Fall through to allow re-confirmation below
       } else {

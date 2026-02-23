@@ -138,4 +138,25 @@ describe("Processing Observability CI Guards", () => {
     const verdict = detectStuckProcessing(markers, now);
     assert.equal(verdict.stuck, false);
   });
+
+  // ── Guard 9: Legacy time guard — confirmedSinceMs prevents false positives ──
+  test("[guard-9] detectStuckProcessing with confirmedSinceMs returns stuck:false when recently confirmed (legacy)", () => {
+    const now = Date.now();
+    // Legacy deal: no queued_at, but just confirmed 30s ago
+    const markers: ProcessingRunMarkers = {
+      intake_phase: "CONFIRMED_READY_FOR_PROCESSING",
+      intake_processing_queued_at: null,
+      intake_processing_started_at: null,
+      intake_processing_last_heartbeat_at: null,
+      intake_processing_run_id: null,
+    };
+    // Recently confirmed — should NOT trigger legacy detection
+    const verdict = detectStuckProcessing(markers, now, now - 30_000);
+    assert.equal(verdict.stuck, false, "Recently confirmed legacy deal must not be stuck");
+
+    // Same deal, but confirmed > MAX_QUEUE_TO_START_MS ago — should trigger
+    const oldVerdict = detectStuckProcessing(markers, now, now - MAX_QUEUE_TO_START_MS - 1000);
+    assert.equal(oldVerdict.stuck, true, "Old legacy deal must be stuck");
+    assert.equal((oldVerdict as any).reason, "legacy_no_markers");
+  });
 });

@@ -10,6 +10,9 @@ import {
   POLL_BACKOFF_MS,
   POLL_MAX_MS,
 } from "@/lib/intake/constants";
+import { getStuckReasonUx } from "@/lib/intake/processing/stuckReasonUx";
+import { scrubPii } from "@/lib/intake/processing/summarizeProcessingError";
+import type { StuckReason } from "@/lib/intake/processing/detectStuckProcessing";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -105,6 +108,19 @@ const DOC_TYPE_OPTIONS = [
   "1099",
   "OTHER",
 ];
+
+/** Extract StuckReason from auto-recovery/stuck-recovery error strings. */
+const VALID_STUCK_REASONS: StuckReason[] = [
+  "queued_never_started", "heartbeat_stale", "overall_timeout", "legacy_no_markers",
+];
+function extractStuckReason(error: string | null): StuckReason | null {
+  if (!error) return null;
+  const match = error.match(/(?:auto_recovery|stuck_recovery):\s*(\w+)/);
+  if (!match) return null;
+  return VALID_STUCK_REASONS.includes(match[1] as StuckReason)
+    ? (match[1] as StuckReason)
+    : null;
+}
 
 // ── Component ──────────────────────────────────────────────────────────
 
@@ -676,7 +692,12 @@ export function IntakeReviewTable({
             </span>
             {hasErrors
               ? wasAutoRecovered
-                ? "Processing stalled and was auto-recovered"
+                ? (() => {
+                    const reason = extractStuckReason(processingError);
+                    return reason
+                      ? getStuckReasonUx(reason).headline
+                      : "Processing stalled and was auto-recovered";
+                  })()
                 : "Processing complete — some documents had issues"
               : "Intake confirmed and processing complete"}
           </div>
@@ -686,13 +707,20 @@ export function IntakeReviewTable({
               disabled={submitting}
               className="ml-4 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
             >
-              {submitting ? "Retrying..." : "Retry"}
+              {submitting
+                ? "Retrying..."
+                : wasAutoRecovered
+                  ? (() => {
+                      const reason = extractStuckReason(processingError);
+                      return reason ? getStuckReasonUx(reason).cta : "Retry";
+                    })()
+                  : "Retry"}
             </button>
           )}
         </div>
         {hasErrors && processingError && (
           <div className="mt-2 text-xs text-white/40 font-mono truncate">
-            {processingError}
+            {scrubPii(processingError)}
           </div>
         )}
       </div>
