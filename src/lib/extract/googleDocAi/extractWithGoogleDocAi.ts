@@ -137,13 +137,15 @@ async function buildDocAiClient(): Promise<DocumentProcessorServiceClient> {
 function getProcessorId(processorType: DocAiProcessorType): string {
   // These should be configured per environment with actual processor IDs
   if (processorType === "TAX_PROCESSOR") {
-    const id = process.env.GOOGLE_DOCAI_TAX_PROCESSOR_ID;
-    if (!id) throw new Error("GOOGLE_DOCAI_TAX_PROCESSOR_ID not configured");
+    const envKey = "GOOGLE_DOCAI_TAX_PROCESSOR_ID";
+    const id = process.env[envKey];
+    if (!id) throw new Error(`missing_processor_id:${processorType}:env=${envKey}`);
     return id;
   }
 
-  const id = process.env.GOOGLE_DOCAI_FINANCIAL_PROCESSOR_ID;
-  if (!id) throw new Error("GOOGLE_DOCAI_FINANCIAL_PROCESSOR_ID not configured");
+  const envKey = "GOOGLE_DOCAI_FINANCIAL_PROCESSOR_ID";
+  const id = process.env[envKey];
+  if (!id) throw new Error(`missing_processor_id:${processorType}:env=${envKey}`);
   return id;
 }
 
@@ -281,13 +283,19 @@ export async function extractWithGoogleDocAi(
   }
   const processorName = `projects/${projectId}/locations/${location}/processors/${processorId}`;
 
-  const [result] = await client.processDocument({
-    name: processorName,
-    rawDocument: {
-      content: bytes.toString("base64"),
-      mimeType,
-    },
-  });
+  let result: any;
+  try {
+    [result] = await client.processDocument({
+      name: processorName,
+      rawDocument: {
+        content: bytes.toString("base64"),
+        mimeType,
+      },
+    });
+  } catch (processErr: any) {
+    processErr.message = `docai_process_failed:${processorType}:${location}:${processorId}:${processErr.message}`;
+    throw processErr;
+  }
 
   const elapsedMs = Date.now() - started;
   const doc = result.document;
