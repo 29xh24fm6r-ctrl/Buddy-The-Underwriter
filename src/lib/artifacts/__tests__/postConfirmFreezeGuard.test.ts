@@ -143,6 +143,37 @@ describe("Post-Confirm Freeze CI Guards", () => {
     );
   });
 
+  // ── Guard 7: Supersession re-checks phase before invalidation (TOCTOU defense)
+  test("[guard-7] processArtifact.ts re-reads intake_phase before supersession invalidation", () => {
+    const src = readSrc("src/lib/artifacts/processArtifact.ts");
+
+    // The supersession block must re-read intake_phase (TOCTOU defense)
+    const supersessionIdx = src.indexOf('ssResult.outcome === "superseded"');
+    assert.ok(supersessionIdx > -1, "Supersession check must exist");
+
+    const supersessionBlock = src.slice(supersessionIdx, supersessionIdx + 1500);
+
+    assert.ok(
+      supersessionBlock.includes("phaseAtSupersession"),
+      "Supersession block must re-read phase as phaseAtSupersession (TOCTOU defense)",
+    );
+
+    assert.ok(
+      supersessionBlock.includes("POST_CONFIRM_FROZEN_PHASES.includes(phaseAtSupersession"),
+      "Supersession block must check phaseAtSupersession against POST_CONFIRM_FROZEN_PHASES",
+    );
+  });
+
+  // ── Guard 8: Supersession emits skipped event when frozen ─────────────
+  test("[guard-8] processArtifact.ts emits intake.supersession_skipped_frozen when frozen", () => {
+    const src = readSrc("src/lib/artifacts/processArtifact.ts");
+
+    assert.ok(
+      src.includes('"intake.supersession_skipped_frozen"'),
+      "Must emit intake.supersession_skipped_frozen event when supersession is skipped due to frozen phase",
+    );
+  });
+
   // ── Guard 6: invalidateIntakeSnapshot is NOT modified ────────────────
   test("[guard-6] invalidateIntakeSnapshot.ts is unmodified — mutation prevented at source, not suppressed", () => {
     const src = readSrc("src/lib/intake/confirmation/invalidateIntakeSnapshot.ts");

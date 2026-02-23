@@ -1301,10 +1301,42 @@ export async function processArtifact(
 
             // If supersession and deal is confirmed → invalidate snapshot
             if (ssResult.outcome === "superseded") {
-              const { invalidateIntakeSnapshot } = await import(
-                "@/lib/intake/confirmation/invalidateIntakeSnapshot"
-              );
-              void invalidateIntakeSnapshot(dealId, "supersession");
+              // ── Phase re-check (TOCTOU defense) ──────────────────────────
+              // The freeze gate at function entry checked intake_phase before
+              // classification. But if the deal was confirmed DURING classification,
+              // supersession would invalidate the sealed snapshot — breaking the
+              // post-confirm invariant. Re-read phase here; if frozen, skip
+              // invalidation and emit a skipped event instead.
+              const { data: phaseNow } = await sb
+                .from("deals")
+                .select("intake_phase")
+                .eq("id", dealId)
+                .maybeSingle();
+
+              const phaseAtSupersession = (phaseNow as any)?.intake_phase as string | null;
+
+              if (
+                phaseAtSupersession &&
+                POST_CONFIRM_FROZEN_PHASES.includes(phaseAtSupersession as any)
+              ) {
+                // Skip invalidation — snapshot is sealed
+                void writeEvent({
+                  dealId,
+                  kind: "intake.supersession_skipped_frozen",
+                  scope: "intake",
+                  meta: {
+                    artifact_id: artifactId,
+                    source_id,
+                    frozen_phase: phaseAtSupersession,
+                    supersession_outcome: ssResult.outcome,
+                  },
+                });
+              } else {
+                const { invalidateIntakeSnapshot } = await import(
+                  "@/lib/intake/confirmation/invalidateIntakeSnapshot"
+                );
+                void invalidateIntakeSnapshot(dealId, "supersession");
+              }
             }
 
             // If duplicate → early return (doc is deactivated)
