@@ -393,7 +393,44 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         // non-fatal
       }
 
-      await renderSpread({ dealId, bankId, spreadType, ownerType: effectiveOwnerType, ownerEntityId });
+      // Wrap renderSpread in a 90s timeout — runaway renders must not block the worker.
+      const RENDER_TIMEOUT_MS = 90_000;
+      try {
+        const renderPromise = renderSpread({ dealId, bankId, spreadType, ownerType: effectiveOwnerType, ownerEntityId });
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("SPREAD_RENDER_TIMEOUT")), RENDER_TIMEOUT_MS),
+        );
+        await Promise.race([renderPromise, timeoutPromise]);
+      } catch (renderErr: any) {
+        if (renderErr?.message === "SPREAD_RENDER_TIMEOUT") {
+          // Timeout — mark spread as error and continue to next type
+          await (sb as any)
+            .from("deal_spreads")
+            .update({
+              status: "error",
+              finished_at: new Date().toISOString(),
+              error: `Spread render timed out after ${RENDER_TIMEOUT_MS / 1000}s`,
+              error_code: "TIMEOUT",
+              error_details_json: { spreadType, jobId, timeoutMs: RENDER_TIMEOUT_MS },
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", claimed.id);
+
+          void logLedgerEvent({
+            dealId, bankId,
+            eventKey: "spread.render_timeout",
+            uiState: "error",
+            uiMessage: `${spreadType} spread render timed out after ${RENDER_TIMEOUT_MS / 1000}s`,
+            meta: { jobId, spreadType, timeoutMs: RENDER_TIMEOUT_MS },
+          });
+
+          reconcileAegisFindingsForSpread({ dealId, bankId, spreadType, newStatus: "error" }).catch(() => {});
+          continue;
+        }
+        // Non-timeout render errors — rethrow for existing error handling
+        throw renderErr;
+      }
+
       completedTypes.add(spreadType);
 
       // Fire-and-forget: reconcile findings

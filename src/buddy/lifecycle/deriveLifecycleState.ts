@@ -491,6 +491,39 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     ...runtimeBlockers,
   ];
 
+  // Stalled artifacts blocker — queued >5min or processing >10min = pipeline stuck.
+  // Active when AI pipeline is incomplete. Never throws.
+  if (!aiPipelineComplete) {
+    try {
+      const QUEUED_STALE_MS = 5 * 60 * 1000;     // 5 min
+      const PROCESSING_STALE_MS = 10 * 60 * 1000; // 10 min
+      const { data: pendingArts } = await sb
+        .from("document_artifacts")
+        .select("id, status, created_at, updated_at")
+        .eq("deal_id", dealId)
+        .in("status", ["queued", "processing"]);
+
+      const now = Date.now();
+      const stalledIds: string[] = [];
+      for (const art of pendingArts ?? []) {
+        const ts = art.status === "queued" ? art.created_at : art.updated_at;
+        const age = now - new Date(ts).getTime();
+        const threshold = art.status === "queued" ? QUEUED_STALE_MS : PROCESSING_STALE_MS;
+        if (age > threshold) stalledIds.push(art.id);
+      }
+
+      if (stalledIds.length > 0) {
+        blockers.push({
+          code: "artifacts_processing_stalled",
+          message: `${stalledIds.length} document(s) stuck in processing pipeline`,
+          evidence: { stalledArtifactIds: stalledIds, stalledCount: stalledIds.length },
+        });
+      }
+    } catch {
+      // Non-fatal — stalled detection failure must never block lifecycle derivation
+    }
+  }
+
   // Intake health gate — only active in docs_requested / docs_in_progress stages
   // when ENABLE_INTAKE_SLO_ENFORCEMENT=true. Never throws.
   if (

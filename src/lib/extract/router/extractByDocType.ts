@@ -389,6 +389,23 @@ export async function extractByDocType(docId: string): Promise<ExtractByDocTypeR
   const route = useDocAi ? "docai" : "gemini_ocr";
   const fallbackReason = wouldUseDocAi && !docAiEnabled ? "docai_disabled" : undefined;
 
+  // Emit explicit event when a DOC_AI_ATOMIC route falls back to Gemini
+  if (wouldUseDocAi && !docAiEnabled) {
+    void logLedgerEvent({
+      dealId: doc.deal_id,
+      bankId: doc.bank_id,
+      eventKey: "extract.docai_unavailable",
+      uiState: "error",
+      uiMessage: `Document AI unavailable for ${routingClass} — falling back to Gemini OCR`,
+      meta: {
+        docId,
+        routingClass,
+        canonicalType,
+        fallbackReason: "docai_disabled",
+      },
+    });
+  }
+
   // Log routing decision
   await logLedgerEvent({
     dealId: doc.deal_id,
@@ -507,6 +524,24 @@ export async function extractByDocType(docId: string): Promise<ExtractByDocTypeR
     }
 
     // ── Non-page-limit error: original behavior ─────────────────────────
+    // Emit specific DocAI failure event if the error came from DocAI route
+    if (useDocAi) {
+      void logLedgerEvent({
+        dealId: doc.deal_id,
+        bankId: doc.bank_id,
+        eventKey: "extract.docai_failed",
+        uiState: "error",
+        uiMessage: `Document AI extraction failed: ${error?.message || "Unknown error"}`,
+        meta: {
+          docId,
+          routingClass,
+          canonicalType,
+          error: error?.message || String(error),
+          elapsed_ms: Date.now() - started,
+        },
+      });
+    }
+
     await logLedgerEvent({
       dealId: doc.deal_id,
       bankId: doc.bank_id,

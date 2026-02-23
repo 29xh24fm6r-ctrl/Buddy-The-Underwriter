@@ -77,6 +77,8 @@ export type LifecycleBlockerCode =
   | "intake_health_below_threshold"
   // Intake confirmation gate — emitted when ENABLE_INTAKE_CONFIRMATION_GATE=true
   | "intake_confirmation_required"
+  // Pipeline stall blocker — emitted when artifacts stuck queued/processing
+  | "artifacts_processing_stalled"
   // Generic fallbacks (use specific codes above when possible)
   | "data_fetch_failed"
   | "internal_error";

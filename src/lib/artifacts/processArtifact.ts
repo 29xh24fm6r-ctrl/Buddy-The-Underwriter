@@ -580,6 +580,13 @@ export async function processArtifact(
       },
     });
 
+    // Refresh updated_at on pickup — stalled artifact detection uses this timestamp.
+    // A processing artifact whose updated_at is >10min old is considered stalled.
+    await sb
+      .from("document_artifacts")
+      .update({ updated_at: new Date().toISOString() } as any)
+      .eq("id", artifactId);
+
     // STEP 0: Check for manual override — banker's word is final
     const manualCheck = await checkManualOverride(sb, source_table, source_id);
 
@@ -589,6 +596,36 @@ export async function processArtifact(
         sourceId: source_id,
         checklistKey: manualCheck.checklistKey,
       });
+
+      // Stamp routing fields even for manual overrides — canonical_type,
+      // routing_class, and checklist_key must always be present on deal_documents.
+      // Without this, downstream extraction routing and spread triggers break.
+      if (source_table === "deal_documents" && manualCheck.documentType) {
+        const manualTyping = resolveDocTyping({
+          aiDocType: manualCheck.documentType,
+          aiFormNumbers: null,
+          aiConfidence: 1.0,
+          aiTaxYear: null,
+          aiEntityType: null,
+        });
+
+        await sb
+          .from("deal_documents")
+          .update({
+            canonical_type: manualTyping.canonical_type,
+            routing_class: manualTyping.routing_class,
+            checklist_key: manualTyping.checklist_key ?? manualCheck.checklistKey,
+            document_type: manualTyping.document_type,
+          } as any)
+          .eq("id", source_id);
+
+        console.log("[processArtifact] Manual override stamped routing fields", {
+          source_id,
+          canonical_type: manualTyping.canonical_type,
+          routing_class: manualTyping.routing_class,
+          checklist_key: manualTyping.checklist_key ?? manualCheck.checklistKey,
+        });
+      }
 
       // Update artifact status to reflect it's been handled
       await sb

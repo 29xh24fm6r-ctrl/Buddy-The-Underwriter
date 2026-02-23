@@ -191,6 +191,7 @@ export async function applyDealDerivedNaming(opts: {
       .from("deals")
       .update({
         display_name: fallbackName,
+        name: fallbackName, // Sync name column — prevents "NEEDS NAME" in UI
         naming_method: "fallback",
         naming_fallback_reason: result.fallbackReason ?? "no_anchor_docs",
         named_at: nowIso,
@@ -237,6 +238,7 @@ export async function applyDealDerivedNaming(opts: {
     .from("deals")
     .update({
       display_name: result.dealName,
+      name: result.dealName, // Sync name column — prevents "NEEDS NAME" in UI
       naming_method: "derived",
       naming_source: result.source,
       naming_fallback_reason: null,

@@ -261,6 +261,12 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/cockpit?focus=documents`,
       };
 
+    case "artifacts_processing_stalled":
+      return {
+        label: "View Stuck Documents",
+        href: `/deals/${dealId}/documents`,
+      };
+
     // Infrastructure/fetch errors - no direct fix
     case "checklist_fetch_failed":
     case "snapshot_fetch_failed":

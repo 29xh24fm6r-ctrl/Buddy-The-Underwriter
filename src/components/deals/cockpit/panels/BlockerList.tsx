@@ -22,6 +22,7 @@ const BLOCKER_ICONS: Record<string, string> = {
   risk_pricing_not_finalized: "price_check",
   gatekeeper_docs_need_review: "rate_review",
   gatekeeper_docs_incomplete: "docs_add_on",
+  artifacts_processing_stalled: "hourglass_top",
   deal_not_found: "error",
   internal_error: "warning",
 };
