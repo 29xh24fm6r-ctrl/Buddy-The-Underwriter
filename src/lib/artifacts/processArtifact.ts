@@ -30,6 +30,16 @@ import type { EntityResolution } from "@/lib/intake/identity/entityResolver";
 import { evaluateDocumentQuality, QUALITY_VERSION } from "@/lib/intake/quality/evaluateDocumentQuality";
 import { computeLogicalKey, SUPERSESSION_VERSION } from "@/lib/intake/supersession/computeLogicalKey";
 
+// ── Post-Confirm Freeze ──────────────────────────────────────────────
+// Once a deal enters any of these phases, the document set is sealed.
+// No classification, supersession, stamping, or routing writes allowed.
+export const POST_CONFIRM_FROZEN_PHASES = [
+  "CONFIRMED_READY_FOR_PROCESSING",
+  "PROCESSING",
+  "PROCESSING_COMPLETE",
+  "PROCESSING_COMPLETE_WITH_ERRORS",
+] as const;
+
 export type ProcessArtifactResult = {
   ok: boolean;
   artifactId: string;
@@ -586,6 +596,46 @@ export async function processArtifact(
       .from("document_artifacts")
       .update({ updated_at: new Date().toISOString() } as any)
       .eq("id", artifactId);
+
+    // ── Post-Confirm Freeze Gate ─────────────────────────────────────
+    // Once a deal is sealed (CONFIRMED_READY_FOR_PROCESSING or beyond),
+    // no artifact mutation is allowed. Late artifacts are truthfully
+    // deferred — not classified, not failed, not silently skipped.
+    const { data: freezeDeal } = await sb
+      .from("deals")
+      .select("intake_phase")
+      .eq("id", dealId)
+      .maybeSingle();
+
+    const currentPhase = (freezeDeal as any)?.intake_phase as string | null;
+
+    if (currentPhase && POST_CONFIRM_FROZEN_PHASES.includes(currentPhase as any)) {
+      await sb
+        .from("document_artifacts")
+        .update({
+          status: "deferred_post_confirm",
+          doc_type_reason: `Deferred due to intake freeze (${currentPhase})`,
+        } as any)
+        .eq("id", artifactId);
+
+      void writeEvent({
+        dealId,
+        kind: "intake.artifact_deferred_post_confirm",
+        scope: "intake",
+        meta: {
+          artifact_id: artifactId,
+          source_id,
+          frozen_phase: currentPhase,
+        },
+      });
+
+      return {
+        ok: true,
+        artifactId,
+        skipped: true,
+        skipReason: "post_confirm_freeze",
+      };
+    }
 
     // STEP 0: Check for manual override — banker's word is final
     const manualCheck = await checkManualOverride(sb, source_table, source_id);

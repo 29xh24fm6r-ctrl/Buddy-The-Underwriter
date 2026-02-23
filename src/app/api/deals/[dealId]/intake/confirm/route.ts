@@ -145,6 +145,35 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       );
     }
 
+    // ── In-flight artifact guard — fail closed ──────────────────────
+    // Buddy does not allow sealing while work is in-flight.
+    // No best guesses. No partial states.
+    const { count: inFlightCount } = await (sb as any)
+      .from("document_artifacts")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .in("status", ["queued", "processing"]);
+
+    if ((inFlightCount ?? 0) > 0) {
+      void writeEvent({
+        dealId,
+        kind: "intake.confirmation_blocked_inflight",
+        actorUserId: access.userId,
+        scope: "intake",
+        meta: { in_flight_count: inFlightCount },
+      });
+
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "artifacts_in_flight",
+          in_flight_count: inFlightCount,
+          message: "Documents are still being classified. Please wait a moment and try again.",
+        },
+        { status: 409 },
+      );
+    }
+
     // Cast to ActiveDoc shape for pure blocker computation
     const activeDocs: ActiveDoc[] = (rawDocs as any[]).map((d) => ({
       id: d.id,
