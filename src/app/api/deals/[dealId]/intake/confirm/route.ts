@@ -295,20 +295,48 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       },
     });
 
+    // ── Misconfig fail-closed: no silent handoff with empty secret ─────
+    const workerSecret = process.env.WORKER_SECRET ?? "";
+    const base = getBaseUrl();
+    if (base && !workerSecret) {
+      console.error("[intake/confirm] WORKER_SECRET missing — cannot hand off to process route", { dealId, runId });
+
+      void writeEvent({
+        dealId,
+        kind: "intake.processing_handoff_misconfigured",
+        actorUserId: access.userId,
+        scope: "intake",
+        meta: {
+          run_id: runId,
+          reason: "WORKER_SECRET env var is empty",
+          observability_version: PROCESSING_OBSERVABILITY_VERSION,
+        },
+      });
+
+      await updateDealIfRunOwner(dealId, runId, {
+        intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
+        intake_processing_error: "handoff_misconfigured: WORKER_SECRET missing",
+      });
+
+      return NextResponse.json(
+        { ok: false, error: "handoff_misconfigured", detail: "WORKER_SECRET env var is empty" },
+        { status: 500 },
+      );
+    }
+
     // Trigger downstream processing via dedicated durable route.
     // Processing runs in its OWN Lambda with maxDuration=300 (5 min),
     // completely decoupled from this confirm response. The dedicated route
     // implements a soft-deadline guard to guarantee terminal phase transition.
     //
     // No background work inside this lambda beyond the single handoff call.
-    const base = getBaseUrl();
     if (base) {
       void fetch(`${base}/api/deals/${dealId}/intake/process`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "x-buddy-internal": "1",
-          "x-worker-secret": process.env.WORKER_SECRET ?? "",
+          "x-worker-secret": workerSecret,
         },
         body: JSON.stringify({ dealId, bankId: access.bankId, runId }),
       }).then(async (res) => {

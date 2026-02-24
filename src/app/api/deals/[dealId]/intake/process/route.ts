@@ -65,6 +65,18 @@ export async function POST(req: NextRequest) {
 
   const startMs = Date.now();
 
+  // Emit route_received — proves the route was actually invoked
+  await writeEvent({
+    dealId,
+    kind: "intake.processing_route_received",
+    scope: "intake",
+    meta: {
+      run_id: runId,
+      bank_id: bankId,
+      observability_version: PROCESSING_OBSERVABILITY_VERSION,
+    },
+  });
+
   // Emit start event — no silent paths
   await writeEvent({
     dealId,
