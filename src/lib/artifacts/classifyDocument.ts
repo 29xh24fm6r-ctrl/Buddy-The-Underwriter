@@ -1,15 +1,16 @@
 /**
- * 3-Tier Document Classification for Magic Intake.
+ * 2-Tier Document Classification for Magic Intake.
  *
  * Decision order:
- *  A. DocAI — if Document AI has already processed this document and
- *     produced a type label with confidence ≥ 0.75, trust it.
- *  B. Rules — deterministic text/filename anchors (IRS forms, keywords).
- *     No API call. Returns result with confidence ≥ 0.60.
- *  C. Gemini — LLM fallback via Google Vertex AI. Only called when
- *     DocAI and rules cannot classify.
- *  D. Fallback — if Gemini also fails, use best-effort rules result
+ *  A. Rules — deterministic text/filename anchors (IRS forms, keywords).
+ *     No API call. Returns result with confidence ≥ 0.65.
+ *  B. Gemini — LLM fallback via Google Vertex AI. Only called when
+ *     rules cannot classify.
+ *  C. Fallback — if Gemini also fails, use best-effort rules result
  *     (even if low-confidence) or return OTHER. Never throws.
+ *
+ * Spine v2 (classifyDocumentSpine.ts) is the authoritative classifier.
+ * This module is retained for backwards compatibility.
  */
 
 import "server-only";
@@ -51,7 +52,7 @@ export type DocumentType = (typeof DOC_TYPES)[number];
 // Classification types
 // ---------------------------------------------------------------------------
 
-export type ClassificationTier = "docai" | "rules" | "gemini" | "fallback";
+export type ClassificationTier = "docai" | "rules" | "gemini" | "fallback"; // docai kept for DB compat
 
 export type DocAiSignals = {
   processorType?: string;
@@ -85,39 +86,9 @@ export type ClassificationResult = {
 };
 
 // ---------------------------------------------------------------------------
-// DocAI label → DocumentType mapping
+// DocAiSignals type — kept for backwards compatibility with consumers
+// that still pass this parameter. The signals are ignored.
 // ---------------------------------------------------------------------------
-
-const DOCAI_LABEL_MAP: Record<string, DocumentType> = {
-  // Google DocAI processor labels (case-insensitive matching done below)
-  "tax_return_1040": "IRS_PERSONAL",
-  "tax_return_1120": "IRS_BUSINESS",
-  "tax_return_1120s": "IRS_BUSINESS",
-  "tax_return_1065": "IRS_BUSINESS",
-  "1040": "IRS_PERSONAL",
-  "1120": "IRS_BUSINESS",
-  "1120s": "IRS_BUSINESS",
-  "1065": "IRS_BUSINESS",
-  "personal_financial_statement": "PFS",
-  "rent_roll": "RENT_ROLL",
-  "operating_statement": "T12",
-  "income_statement": "T12",
-  "financial_statement": "T12",
-  "balance_sheet": "BALANCE_SHEET",
-  "bank_statement": "BANK_STATEMENT",
-  "insurance_certificate": "INSURANCE",
-  "appraisal": "APPRAISAL",
-  "lease": "LEASE",
-  "k1": "K1",
-  "schedule_k1": "K1",
-  "w2": "W2",
-  "1099": "1099",
-};
-
-function mapDocAiLabelToDocType(label: string): DocumentType | null {
-  const normalized = label.toLowerCase().replace(/[\s-]+/g, "_");
-  return DOCAI_LABEL_MAP[normalized] ?? null;
-}
 
 // ---------------------------------------------------------------------------
 // Gemini prompt
@@ -237,12 +208,14 @@ function rulesResultToClassification(
 // ---------------------------------------------------------------------------
 
 /**
- * Classify a document using the 3-tier system:
- * A. DocAI signals (if available and high confidence)
- * B. Rules-based (text/filename anchors)
- * C. Gemini LLM fallback
+ * Classify a document using the 2-tier system:
+ * A. Rules-based (text/filename anchors)
+ * B. Gemini LLM fallback
  *
  * Never throws — returns best-effort result on any failure.
+ *
+ * @param docAi — Ignored. Kept for backwards compatibility with callers
+ *   that still pass DocAI signals. DocAI signals are no longer used.
  */
 export async function classifyDocument(
   documentText: string,
@@ -251,56 +224,13 @@ export async function classifyDocument(
   docAi?: DocAiSignals,
 ): Promise<ClassificationResult> {
 
-  // ── Tier A: DocAI ──────────────────────────────────────────────────────
-  // Always run rules first — form anchors in text ("Form 1040") are the
-  // most reliable signal we have and should override DocAI when they disagree.
-  const rulesResultEarly = classifyByRules(documentText, filename);
-
-  if (docAi?.docTypeLabel && (docAi.docTypeConfidence ?? 0) >= 0.75) {
-    const mappedType = mapDocAiLabelToDocType(docAi.docTypeLabel);
-    if (mappedType) {
-      // Cross-validation: if rules found a definitive form anchor (≥ 0.90)
-      // that contradicts DocAI, trust the text-level evidence over DocAI.
-      if (
-        rulesResultEarly &&
-        rulesResultEarly.confidence >= 0.90 &&
-        rulesResultEarly.docType !== mappedType
-      ) {
-        return rulesResultToClassification(rulesResultEarly);
-      }
-
-      return {
-        docType: mappedType,
-        confidence: docAi.docTypeConfidence ?? 0.80,
-        reason: `DocAI processor classified as "${docAi.docTypeLabel}" (confidence ${docAi.docTypeConfidence})`,
-        taxYear: rulesResultEarly?.taxYear ?? null,
-        entityName: null,
-        entityType: rulesResultEarly?.entityType ?? null,
-        proposedDealName: null,
-        proposedDealNameSource: null,
-        rawExtraction: {
-          docai_label: docAi.docTypeLabel,
-          docai_confidence: docAi.docTypeConfidence,
-          docai_processor: docAi.processorType,
-        },
-        formNumbers: rulesResultEarly?.formNumbers ?? null,
-        issuer: null,
-        periodStart: null,
-        periodEnd: null,
-        tier: "docai",
-        model: `docai:${docAi.processorType ?? "unknown"}`,
-      };
-    }
-  }
-
-  // ── Tier B: Rules-based ────────────────────────────────────────────────
-  // Reuse early result (already computed above for cross-validation)
-  const rulesResult = rulesResultEarly;
+  // ── Tier A: Rules-based ────────────────────────────────────────────────
+  const rulesResult = classifyByRules(documentText, filename);
   if (rulesResult && rulesResult.confidence >= 0.65) {
     return rulesResultToClassification(rulesResult);
   }
 
-  // ── Tier C: Gemini LLM ────────────────────────────────────────────────
+  // ── Tier B: Gemini LLM ────────────────────────────────────────────────
   const maxChars = 15000;
   const truncatedText =
     documentText.length > maxChars
@@ -392,7 +322,7 @@ Classify this document and extract key information. Respond with JSON only.`;
       error: error?.message,
     });
 
-    // ── Tier D: Fallback — prefer rules result (even low-confidence) over bare OTHER
+    // ── Tier C: Fallback — prefer rules result (even low-confidence) over bare OTHER
     if (rulesResult) {
       console.log("[classifyDocument] Falling back to rules result after Gemini failure", {
         filename,

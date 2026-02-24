@@ -12,7 +12,7 @@ import {
   extractEntitiesFlat,
   entityToMoney,
   type DocAiTable,
-} from "./docAiParser";
+} from "./structuredJsonParser";
 
 // ---------------------------------------------------------------------------
 // Header detection patterns for rent roll tables
@@ -71,23 +71,23 @@ const HEADER_MAP: Record<string, keyof ExtractedRentRollRow> = {
 export async function extractRentRollDeterministic(
   args: DeterministicExtractorArgs,
 ): Promise<ExtractionResult & { extractionPath: string }> {
-  if (!args.ocrText.trim() && !args.docAiJson) {
+  if (!args.ocrText.trim() && !args.structuredJson) {
     return { ok: true, factsWritten: 0, extractionPath: "ocr_regex" };
   }
 
-  // Try DocAI structured tables first
-  if (args.docAiJson) {
-    const docAiResult = tryDocAiTables(args);
-    if (docAiResult && docAiResult.rows.length > 0) {
+  // Try structured tables first
+  if (args.structuredJson) {
+    const structuredResult = tryStructuredTables(args);
+    if (structuredResult && structuredResult.rows.length > 0) {
       const asOfDate = resolveDocDate(args.ocrText, args.docYear) ?? new Date().toISOString().slice(0, 10);
       const result = await writeRentRollRows({
         dealId: args.dealId,
         bankId: args.bankId,
         sourceDocumentId: args.documentId,
         asOfDate,
-        rows: docAiResult.rows,
+        rows: structuredResult.rows,
       });
-      return { ...result, extractionPath: "docai_table" };
+      return { ...result, extractionPath: "gemini_table" };
     }
   }
 
@@ -109,13 +109,13 @@ export async function extractRentRollDeterministic(
 }
 
 // ---------------------------------------------------------------------------
-// DocAI path: parse structured tables
+// Structured assist path: parse structured tables
 // ---------------------------------------------------------------------------
 
-function tryDocAiTables(
+function tryStructuredTables(
   args: DeterministicExtractorArgs,
 ): { rows: ExtractedRentRollRow[] } | null {
-  const tables = extractTables(args.docAiJson);
+  const tables = extractTables(args.structuredJson);
   if (tables.length === 0) return null;
 
   // Find the best rent roll table (largest table with unit-like headers)

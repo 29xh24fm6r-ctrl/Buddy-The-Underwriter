@@ -1,14 +1,15 @@
 /**
- * Deterministic parser for Google Document AI processDocument() response JSON.
+ * Deterministic parser for structured extraction JSON.
  *
- * Walks the structured JSON (entities, tables, form fields) returned by Document AI.
+ * Walks structured JSON (entities, tables, form fields) from the extraction
+ * assist layer (Gemini Flash structured assist or legacy providers).
  * Pure functions — no LLM reasoning, just field lookup and type coercion.
  *
- * The DocAI response structure (from @google-cloud/documentai):
- *   result.document.pages[].formFields[]  → {fieldName, fieldValue}
- *   result.document.entities[]            → {type, mentionText, normalizedValue}
- *   result.document.pages[].tables[]      → {headerRows, bodyRows}
- *   result.document.text                  → full extracted text
+ * Expected JSON shape:
+ *   .entities[]            → {type, mentionText, normalizedValue, confidence}
+ *   .formFields[]          → {name, value, confidence}
+ *   .pages[].tables[]      → {headerRows, bodyRows}
+ *   .text                  → full extracted text
  */
 
 import { parseMoney } from "./parseUtils";

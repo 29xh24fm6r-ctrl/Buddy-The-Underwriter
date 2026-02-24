@@ -5,9 +5,9 @@ import assert from "node:assert/strict";
  * Smart Router + Canonical Doc-Type Routing Tests
  *
  * Tests the routing_class system:
- *   DOC_AI_ATOMIC    → Google Document AI (tax returns, income stmt, balance sheet, PFS)
- *   GEMINI_PACKET    → Gemini OCR with multi-page awareness (T12, rent rolls)
- *   GEMINI_STANDARD  → Standard Gemini OCR (everything else)
+ *   GEMINI_STRUCTURED → Gemini OCR + advisory structured assist (tax returns, IS, BS, PFS)
+ *   GEMINI_PACKET     → Gemini OCR with multi-page awareness (generic financials)
+ *   GEMINI_STANDARD   → Standard Gemini OCR (everything else)
  *
  * Also tests:
  * - Raw type → canonical_type normalization
@@ -20,124 +20,123 @@ import assert from "node:assert/strict";
 import {
   resolveDocTypeRouting,
   routingClassFor,
-  isDocAiRoute,
+  isStructuredExtractionRoute,
 } from "@/lib/documents/docTypeRouting";
-import { isGoogleDocAiEnabled } from "@/lib/flags/googleDocAi";
 
-// ─── DOC_AI_ATOMIC: Tax Returns ──────────────────────────────────────────────
+// ─── GEMINI_STRUCTURED: Tax Returns ─────────────────────────────────────────
 
-test("BUSINESS_TAX_RETURN → DOC_AI_ATOMIC", () => {
+test("BUSINESS_TAX_RETURN → GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("BUSINESS_TAX_RETURN");
   assert.equal(r.canonical_type, "BUSINESS_TAX_RETURN");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("IRS_BUSINESS → BUSINESS_TAX_RETURN / DOC_AI_ATOMIC", () => {
+test("IRS_BUSINESS → BUSINESS_TAX_RETURN / GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("IRS_BUSINESS");
   assert.equal(r.canonical_type, "BUSINESS_TAX_RETURN");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("IRS_1120 → BUSINESS_TAX_RETURN / DOC_AI_ATOMIC", () => {
+test("IRS_1120 → BUSINESS_TAX_RETURN / GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("IRS_1120");
   assert.equal(r.canonical_type, "BUSINESS_TAX_RETURN");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("IRS_1120S → BUSINESS_TAX_RETURN / DOC_AI_ATOMIC", () => {
+test("IRS_1120S → BUSINESS_TAX_RETURN / GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("IRS_1120S");
   assert.equal(r.canonical_type, "BUSINESS_TAX_RETURN");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("IRS_1065 → BUSINESS_TAX_RETURN / DOC_AI_ATOMIC", () => {
+test("IRS_1065 → BUSINESS_TAX_RETURN / GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("IRS_1065");
   assert.equal(r.canonical_type, "BUSINESS_TAX_RETURN");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("PERSONAL_TAX_RETURN → DOC_AI_ATOMIC", () => {
+test("PERSONAL_TAX_RETURN → GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("PERSONAL_TAX_RETURN");
   assert.equal(r.canonical_type, "PERSONAL_TAX_RETURN");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("IRS_PERSONAL → PERSONAL_TAX_RETURN / DOC_AI_ATOMIC", () => {
+test("IRS_PERSONAL → PERSONAL_TAX_RETURN / GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("IRS_PERSONAL");
   assert.equal(r.canonical_type, "PERSONAL_TAX_RETURN");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("IRS_1040 → PERSONAL_TAX_RETURN / DOC_AI_ATOMIC", () => {
+test("IRS_1040 → PERSONAL_TAX_RETURN / GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("IRS_1040");
   assert.equal(r.canonical_type, "PERSONAL_TAX_RETURN");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("K1 → PERSONAL_TAX_RETURN / DOC_AI_ATOMIC", () => {
+test("K1 → PERSONAL_TAX_RETURN / GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("K1");
   assert.equal(r.canonical_type, "PERSONAL_TAX_RETURN");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-// ─── DOC_AI_ATOMIC: Income Statement ─────────────────────────────────────────
+// ─── GEMINI_STRUCTURED: Income Statement ────────────────────────────────────
 
-test("INCOME_STATEMENT → DOC_AI_ATOMIC", () => {
+test("INCOME_STATEMENT → GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("INCOME_STATEMENT");
   assert.equal(r.canonical_type, "INCOME_STATEMENT");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("PROFIT_AND_LOSS → INCOME_STATEMENT / DOC_AI_ATOMIC", () => {
+test("PROFIT_AND_LOSS → INCOME_STATEMENT / GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("PROFIT_AND_LOSS");
   assert.equal(r.canonical_type, "INCOME_STATEMENT");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("P&L → INCOME_STATEMENT / DOC_AI_ATOMIC", () => {
+test("P&L → INCOME_STATEMENT / GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("P&L");
   assert.equal(r.canonical_type, "INCOME_STATEMENT");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-// ─── DOC_AI_ATOMIC: Balance Sheet ────────────────────────────────────────────
+test("T12 → INCOME_STATEMENT / GEMINI_STRUCTURED", () => {
+  const r = resolveDocTypeRouting("T12");
+  assert.equal(r.canonical_type, "INCOME_STATEMENT");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
+});
 
-test("BALANCE_SHEET → DOC_AI_ATOMIC", () => {
+// ─── GEMINI_STRUCTURED: Balance Sheet ───────────────────────────────────────
+
+test("BALANCE_SHEET → GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("BALANCE_SHEET");
   assert.equal(r.canonical_type, "BALANCE_SHEET");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-// ─── DOC_AI_ATOMIC: PFS ──────────────────────────────────────────────────────
+// ─── GEMINI_STRUCTURED: PFS ─────────────────────────────────────────────────
 
-test("PFS → DOC_AI_ATOMIC", () => {
+test("PFS → GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("PFS");
   assert.equal(r.canonical_type, "PFS");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("PERSONAL_FINANCIAL_STATEMENT → PFS / DOC_AI_ATOMIC", () => {
+test("PERSONAL_FINANCIAL_STATEMENT → PFS / GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("PERSONAL_FINANCIAL_STATEMENT");
   assert.equal(r.canonical_type, "PFS");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("SBA_413 → PFS / DOC_AI_ATOMIC", () => {
+test("SBA_413 → PFS / GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("SBA_413");
   assert.equal(r.canonical_type, "PFS");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-// ─── GEMINI_PACKET: Generic Financial Statement (T12) ────────────────────────
+// ─── GEMINI_PACKET: Generic Financial Statement ─────────────────────────────
 
 test("FINANCIAL_STATEMENT → GEMINI_PACKET", () => {
   const r = resolveDocTypeRouting("FINANCIAL_STATEMENT");
-  assert.equal(r.canonical_type, "FINANCIAL_STATEMENT");
-  assert.equal(r.routing_class, "GEMINI_PACKET");
-});
-
-test("T12 → FINANCIAL_STATEMENT / GEMINI_PACKET", () => {
-  const r = resolveDocTypeRouting("T12");
   assert.equal(r.canonical_type, "FINANCIAL_STATEMENT");
   assert.equal(r.routing_class, "GEMINI_PACKET");
 });
@@ -148,7 +147,7 @@ test("INTERIM_FINANCIALS → FINANCIAL_STATEMENT / GEMINI_PACKET", () => {
   assert.equal(r.routing_class, "GEMINI_PACKET");
 });
 
-// ─── GEMINI_STANDARD: Rent Roll ──────────────────────────────────────────────
+// ─── GEMINI_STANDARD: Rent Roll ─────────────────────────────────────────────
 
 test("RENT_ROLL → GEMINI_STANDARD", () => {
   const r = resolveDocTypeRouting("RENT_ROLL");
@@ -156,7 +155,7 @@ test("RENT_ROLL → GEMINI_STANDARD", () => {
   assert.equal(r.routing_class, "GEMINI_STANDARD");
 });
 
-// ─── GEMINI_STANDARD: Other Standard Types ───────────────────────────────────
+// ─── GEMINI_STANDARD: Other Standard Types ──────────────────────────────────
 
 test("BANK_STATEMENT → GEMINI_STANDARD", () => {
   const r = resolveDocTypeRouting("BANK_STATEMENT");
@@ -194,7 +193,7 @@ test("OTHER → GEMINI_STANDARD", () => {
   assert.equal(r.routing_class, "GEMINI_STANDARD");
 });
 
-// ─── GEMINI_STANDARD: Entity doc sub-types ───────────────────────────────────
+// ─── GEMINI_STANDARD: Entity doc sub-types ──────────────────────────────────
 
 test("ARTICLES → ENTITY_DOCS / GEMINI_STANDARD", () => {
   const r = resolveDocTypeRouting("ARTICLES");
@@ -208,24 +207,24 @@ test("OPERATING_AGREEMENT → ENTITY_DOCS / GEMINI_STANDARD", () => {
   assert.equal(r.routing_class, "GEMINI_STANDARD");
 });
 
-// ─── isDocAiRoute helper ─────────────────────────────────────────────────────
+// ─── isStructuredExtractionRoute helper ─────────────────────────────────────
 
-test("isDocAiRoute returns true for DOC_AI_ATOMIC", () => {
-  assert.equal(isDocAiRoute("DOC_AI_ATOMIC"), true);
+test("isStructuredExtractionRoute returns true for GEMINI_STRUCTURED", () => {
+  assert.equal(isStructuredExtractionRoute("GEMINI_STRUCTURED"), true);
 });
 
-test("isDocAiRoute returns false for GEMINI_PACKET", () => {
-  assert.equal(isDocAiRoute("GEMINI_PACKET"), false);
+test("isStructuredExtractionRoute returns false for GEMINI_PACKET", () => {
+  assert.equal(isStructuredExtractionRoute("GEMINI_PACKET"), false);
 });
 
-test("isDocAiRoute returns false for GEMINI_STANDARD", () => {
-  assert.equal(isDocAiRoute("GEMINI_STANDARD"), false);
+test("isStructuredExtractionRoute returns false for GEMINI_STANDARD", () => {
+  assert.equal(isStructuredExtractionRoute("GEMINI_STANDARD"), false);
 });
 
-// ─── routingClassFor helper ──────────────────────────────────────────────────
+// ─── routingClassFor helper ─────────────────────────────────────────────────
 
-test("routingClassFor returns DOC_AI_ATOMIC for BUSINESS_TAX_RETURN", () => {
-  assert.equal(routingClassFor("BUSINESS_TAX_RETURN"), "DOC_AI_ATOMIC");
+test("routingClassFor returns GEMINI_STRUCTURED for BUSINESS_TAX_RETURN", () => {
+  assert.equal(routingClassFor("BUSINESS_TAX_RETURN"), "GEMINI_STRUCTURED");
 });
 
 test("routingClassFor returns GEMINI_PACKET for FINANCIAL_STATEMENT", () => {
@@ -236,33 +235,33 @@ test("routingClassFor returns GEMINI_STANDARD for unknown type", () => {
   assert.equal(routingClassFor("NEVER_SEEN_BEFORE"), "GEMINI_STANDARD");
 });
 
-// ─── Case Normalization ──────────────────────────────────────────────────────
+// ─── Case Normalization ─────────────────────────────────────────────────────
 
 test("normalizes lowercase to canonical type", () => {
   const r = resolveDocTypeRouting("business_tax_return");
   assert.equal(r.canonical_type, "BUSINESS_TAX_RETURN");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
 test("normalizes mixed case to canonical type", () => {
   const r = resolveDocTypeRouting("Income_Statement");
   assert.equal(r.canonical_type, "INCOME_STATEMENT");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
 test("normalizes with leading/trailing whitespace", () => {
   const r = resolveDocTypeRouting("  PFS  ");
   assert.equal(r.canonical_type, "PFS");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
 test("handles hyphenated types", () => {
   const r = resolveDocTypeRouting("balance-sheet");
   assert.equal(r.canonical_type, "BALANCE_SHEET");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-// ─── Null/Undefined Safety ───────────────────────────────────────────────────
+// ─── Null/Undefined Safety ──────────────────────────────────────────────────
 
 test("handles null gracefully", () => {
   const r = resolveDocTypeRouting(null as any);
@@ -282,32 +281,27 @@ test("handles empty string gracefully", () => {
   assert.equal(r.routing_class, "GEMINI_STANDARD");
 });
 
-// ─── Cost Leak Prevention ────────────────────────────────────────────────────
+// ─── Cost Leak Prevention ───────────────────────────────────────────────────
 
-test("T12 does NOT route to DOC_AI_ATOMIC", () => {
-  const r = resolveDocTypeRouting("T12");
-  assert.notEqual(r.routing_class, "DOC_AI_ATOMIC");
-});
-
-test("RENT_ROLL does NOT route to DOC_AI_ATOMIC", () => {
+test("RENT_ROLL does NOT route to GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("RENT_ROLL");
-  assert.notEqual(r.routing_class, "DOC_AI_ATOMIC");
+  assert.notEqual(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("BANK_STATEMENT does NOT route to DOC_AI_ATOMIC", () => {
+test("BANK_STATEMENT does NOT route to GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("BANK_STATEMENT");
-  assert.notEqual(r.routing_class, "DOC_AI_ATOMIC");
+  assert.notEqual(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("FINANCIAL_STATEMENT (generic) does NOT route to DOC_AI_ATOMIC", () => {
+test("FINANCIAL_STATEMENT (generic) does NOT route to GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("FINANCIAL_STATEMENT");
-  assert.notEqual(r.routing_class, "DOC_AI_ATOMIC");
+  assert.notEqual(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-// ─── Scope Guardrails ────────────────────────────────────────────────────────
+// ─── Scope Guardrails ───────────────────────────────────────────────────────
 
-test("exactly 5 canonical types route to DOC_AI_ATOMIC", () => {
-  const docAiTypes = [
+test("exactly 5 canonical types route to GEMINI_STRUCTURED", () => {
+  const structuredTypes = [
     "BUSINESS_TAX_RETURN",
     "PERSONAL_TAX_RETURN",
     "INCOME_STATEMENT",
@@ -315,11 +309,11 @@ test("exactly 5 canonical types route to DOC_AI_ATOMIC", () => {
     "PFS",
   ];
 
-  for (const t of docAiTypes) {
+  for (const t of structuredTypes) {
     assert.equal(
       routingClassFor(t),
-      "DOC_AI_ATOMIC",
-      `Expected ${t} to be DOC_AI_ATOMIC`,
+      "GEMINI_STRUCTURED",
+      `Expected ${t} to be GEMINI_STRUCTURED`,
     );
   }
 });
@@ -356,98 +350,20 @@ test("remaining canonical types route to GEMINI_STANDARD", () => {
   }
 });
 
-// ─── Feature Flag: GOOGLE_DOCAI_ENABLED ─────────────────────────────────────
+// ─── Structured Extraction Route ────────────────────────────────────────────
 
-test("isGoogleDocAiEnabled returns false when env var is unset", () => {
-  const prev = process.env.GOOGLE_DOCAI_ENABLED;
-  delete process.env.GOOGLE_DOCAI_ENABLED;
-  assert.equal(isGoogleDocAiEnabled(), false);
-  if (prev !== undefined) process.env.GOOGLE_DOCAI_ENABLED = prev;
-});
-
-test("isGoogleDocAiEnabled returns false when env var is 'false'", () => {
-  const prev = process.env.GOOGLE_DOCAI_ENABLED;
-  process.env.GOOGLE_DOCAI_ENABLED = "false";
-  assert.equal(isGoogleDocAiEnabled(), false);
-  if (prev !== undefined) process.env.GOOGLE_DOCAI_ENABLED = prev;
-  else delete process.env.GOOGLE_DOCAI_ENABLED;
-});
-
-test("isGoogleDocAiEnabled returns false when env var is empty", () => {
-  const prev = process.env.GOOGLE_DOCAI_ENABLED;
-  process.env.GOOGLE_DOCAI_ENABLED = "";
-  assert.equal(isGoogleDocAiEnabled(), false);
-  if (prev !== undefined) process.env.GOOGLE_DOCAI_ENABLED = prev;
-  else delete process.env.GOOGLE_DOCAI_ENABLED;
-});
-
-test("isGoogleDocAiEnabled returns true only when env var is 'true'", () => {
-  const prev = process.env.GOOGLE_DOCAI_ENABLED;
-  process.env.GOOGLE_DOCAI_ENABLED = "true";
-  assert.equal(isGoogleDocAiEnabled(), true);
-  if (prev !== undefined) process.env.GOOGLE_DOCAI_ENABLED = prev;
-  else delete process.env.GOOGLE_DOCAI_ENABLED;
-});
-
-test("isGoogleDocAiEnabled returns true for 'TRUE' (case-insensitive)", () => {
-  const prev = process.env.GOOGLE_DOCAI_ENABLED;
-  process.env.GOOGLE_DOCAI_ENABLED = "TRUE";
-  assert.equal(isGoogleDocAiEnabled(), true);
-  if (prev !== undefined) process.env.GOOGLE_DOCAI_ENABLED = prev;
-  else delete process.env.GOOGLE_DOCAI_ENABLED;
-});
-
-test("isGoogleDocAiEnabled returns false for non-'true' values like '1' or 'yes'", () => {
-  const prev = process.env.GOOGLE_DOCAI_ENABLED;
-  for (const val of ["1", "yes", "on", "enabled"]) {
-    process.env.GOOGLE_DOCAI_ENABLED = val;
-    assert.equal(isGoogleDocAiEnabled(), false, `Expected false for '${val}'`);
-  }
-  if (prev !== undefined) process.env.GOOGLE_DOCAI_ENABLED = prev;
-  else delete process.env.GOOGLE_DOCAI_ENABLED;
-});
-
-// ─── Flag + Routing Integration ─────────────────────────────────────────────
-
-test("DOC_AI_ATOMIC routing class falls back to Gemini when flag is OFF", () => {
-  const prev = process.env.GOOGLE_DOCAI_ENABLED;
-  process.env.GOOGLE_DOCAI_ENABLED = "false";
-
+test("GEMINI_STRUCTURED types get structured assist", () => {
   const r = resolveDocTypeRouting("BUSINESS_TAX_RETURN");
-  assert.equal(r.routing_class, "DOC_AI_ATOMIC");
-  // Router would check: isDocAiRoute(r.routing_class) && isGoogleDocAiEnabled()
-  const wouldUseDocAi = isDocAiRoute(r.routing_class);
-  const actuallyUseDocAi = wouldUseDocAi && isGoogleDocAiEnabled();
-  assert.equal(wouldUseDocAi, true, "Routing class should be DOC_AI_ATOMIC");
-  assert.equal(actuallyUseDocAi, false, "Should NOT execute DocAI when flag is OFF");
-
-  if (prev !== undefined) process.env.GOOGLE_DOCAI_ENABLED = prev;
-  else delete process.env.GOOGLE_DOCAI_ENABLED;
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
+  assert.equal(isStructuredExtractionRoute(r.routing_class), true);
 });
 
-test("DOC_AI_ATOMIC routing class uses DocAI when flag is ON", () => {
-  const prev = process.env.GOOGLE_DOCAI_ENABLED;
-  process.env.GOOGLE_DOCAI_ENABLED = "true";
-
-  const r = resolveDocTypeRouting("BUSINESS_TAX_RETURN");
-  const wouldUseDocAi = isDocAiRoute(r.routing_class);
-  const actuallyUseDocAi = wouldUseDocAi && isGoogleDocAiEnabled();
-  assert.equal(actuallyUseDocAi, true, "Should execute DocAI when flag is ON");
-
-  if (prev !== undefined) process.env.GOOGLE_DOCAI_ENABLED = prev;
-  else delete process.env.GOOGLE_DOCAI_ENABLED;
+test("GEMINI_STANDARD types do not get structured assist", () => {
+  const r = resolveDocTypeRouting("BANK_STATEMENT");
+  assert.equal(isStructuredExtractionRoute(r.routing_class), false);
 });
 
-test("GEMINI_STANDARD routing is unaffected by flag state", () => {
-  const prev = process.env.GOOGLE_DOCAI_ENABLED;
-
-  for (const flagVal of ["true", "false"]) {
-    process.env.GOOGLE_DOCAI_ENABLED = flagVal;
-    const r = resolveDocTypeRouting("BANK_STATEMENT");
-    const wouldUseDocAi = isDocAiRoute(r.routing_class);
-    assert.equal(wouldUseDocAi, false, `BANK_STATEMENT should never route to DocAI (flag=${flagVal})`);
-  }
-
-  if (prev !== undefined) process.env.GOOGLE_DOCAI_ENABLED = prev;
-  else delete process.env.GOOGLE_DOCAI_ENABLED;
+test("GEMINI_PACKET types do not get structured assist", () => {
+  const r = resolveDocTypeRouting("FINANCIAL_STATEMENT");
+  assert.equal(isStructuredExtractionRoute(r.routing_class), false);
 });

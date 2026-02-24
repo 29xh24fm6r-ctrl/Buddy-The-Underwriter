@@ -7,13 +7,13 @@ import type { GatekeeperDocType, GatekeeperRoute } from "./types";
 
 // ─── Engine Mapping ─────────────────────────────────────────────────────────
 
-type ExtractionEngine = "DocAI" | "Gemini" | "none";
+type ExtractionEngine = "GeminiStructured" | "Gemini" | "none";
 
 /** Derive extraction engine from effective doc type (what slot routing does today). */
 function slotDerivedEngine(effectiveDocType: string): ExtractionEngine {
   const upper = effectiveDocType.toUpperCase().trim();
-  // These types get DOC_AI_ATOMIC routing per docTypeRouting.ts ROUTING_CLASS_MAP
-  const DOC_AI_TYPES = new Set([
+  // These types get GEMINI_STRUCTURED routing per docTypeRouting.ts ROUTING_CLASS_MAP
+  const STRUCTURED_TYPES = new Set([
     "BUSINESS_TAX_RETURN", "PERSONAL_TAX_RETURN",
     "INCOME_STATEMENT", "BALANCE_SHEET", "PFS",
     // Slot doc type names that map to tax returns
@@ -21,13 +21,13 @@ function slotDerivedEngine(effectiveDocType: string): ExtractionEngine {
     "IRS_PERSONAL", "IRS_1040", "K1", "SCHEDULE_K1", "W2", "1099",
     "PERSONAL_FINANCIAL_STATEMENT", "SBA_413",
   ]);
-  if (DOC_AI_TYPES.has(upper)) return "DocAI";
+  if (STRUCTURED_TYPES.has(upper)) return "GeminiStructured";
   return "Gemini";
 }
 
 /** Derive extraction engine from gatekeeper route. */
 function gatekeeperDerivedEngine(route: GatekeeperRoute | null): ExtractionEngine {
-  if (route === "GOOGLE_DOC_AI_CORE") return "DocAI";
+  if (route === "GOOGLE_DOC_AI_CORE") return "GeminiStructured";
   if (route === "STANDARD") return "Gemini";
   return "none"; // NEEDS_REVIEW or null
 }

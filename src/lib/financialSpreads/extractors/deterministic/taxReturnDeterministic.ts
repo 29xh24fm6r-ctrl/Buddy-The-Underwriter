@@ -19,7 +19,7 @@ import {
   extractEntitiesFlat,
   extractFormFields,
   entityToMoney,
-} from "./docAiParser";
+} from "./structuredJsonParser";
 
 // ---------------------------------------------------------------------------
 // Canonical line item keys (same as original extractor)
@@ -109,10 +109,10 @@ const GENERIC_TAX_PATTERNS: LinePattern[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// DocAI entity type → canonical key mapping
+// Structured entity type → canonical key mapping
 // ---------------------------------------------------------------------------
 
-const DOCAI_ENTITY_MAP: Record<string, string> = {
+const ENTITY_MAP: Record<string, string> = {
   gross_receipts: "GROSS_RECEIPTS",
   cost_of_goods_sold: "COST_OF_GOODS_SOLD",
   gross_profit: "GROSS_PROFIT",
@@ -143,19 +143,19 @@ const DOCAI_ENTITY_MAP: Record<string, string> = {
 export async function extractTaxReturnDeterministic(
   args: DeterministicExtractorArgs,
 ): Promise<ExtractionResult & { extractionPath: ExtractionPath }> {
-  if (!args.ocrText.trim() && !args.docAiJson) {
+  if (!args.ocrText.trim() && !args.structuredJson) {
     return { ok: true, factsWritten: 0, extractionPath: "ocr_regex" };
   }
 
   let items: ExtractedLineItem[] = [];
   let path: ExtractionPath = "ocr_regex";
 
-  // DocAI structured path (primary for tax returns)
-  if (args.docAiJson) {
-    const docAiItems = tryDocAiEntities(args);
-    if (docAiItems.length > 0) {
-      items = docAiItems;
-      path = "docai_structured";
+  // Structured assist path (primary for tax returns)
+  if (args.structuredJson) {
+    const structuredItems = tryStructuredEntities(args);
+    if (structuredItems.length > 0) {
+      items = structuredItems;
+      path = "gemini_structured";
     }
   }
 
@@ -181,11 +181,11 @@ export async function extractTaxReturnDeterministic(
 }
 
 // ---------------------------------------------------------------------------
-// DocAI path
+// Structured assist path
 // ---------------------------------------------------------------------------
 
-function tryDocAiEntities(args: DeterministicExtractorArgs): ExtractedLineItem[] {
-  const entities = extractEntitiesFlat(args.docAiJson);
+function tryStructuredEntities(args: DeterministicExtractorArgs): ExtractedLineItem[] {
+  const entities = extractEntitiesFlat(args.structuredJson);
   if (entities.length === 0) return [];
 
   const items: ExtractedLineItem[] = [];
@@ -195,7 +195,7 @@ function tryDocAiEntities(args: DeterministicExtractorArgs): ExtractedLineItem[]
 
   for (const entity of entities) {
     const entityType = entity.type.toLowerCase().replace(/[\s-]+/g, "_");
-    const canonicalKey = DOCAI_ENTITY_MAP[entityType];
+    const canonicalKey = ENTITY_MAP[entityType];
     if (!canonicalKey || !VALID_LINE_KEYS.has(canonicalKey)) continue;
 
     const value = entityToMoney(entity);
@@ -209,15 +209,15 @@ function tryDocAiEntities(args: DeterministicExtractorArgs): ExtractedLineItem[]
       confidence,
       periodStart,
       periodEnd,
-      provenance: makeProvenance(args.documentId, periodEnd, confidence, entity.mentionText, "docai_structured"),
+      provenance: makeProvenance(args.documentId, periodEnd, confidence, entity.mentionText, "gemini_structured"),
     });
   }
 
   // Also try form fields (IRS forms have labeled fields)
-  const formFields = extractFormFields(args.docAiJson);
+  const formFields = extractFormFields(args.structuredJson);
   for (const field of formFields) {
     const normalized = field.name.toLowerCase().replace(/[\s-]+/g, "_").replace(/[^a-z0-9_]/g, "");
-    const canonicalKey = DOCAI_ENTITY_MAP[normalized];
+    const canonicalKey = ENTITY_MAP[normalized];
     if (!canonicalKey || !VALID_LINE_KEYS.has(canonicalKey)) continue;
 
     // Don't duplicate if already found in entities
@@ -232,7 +232,7 @@ function tryDocAiEntities(args: DeterministicExtractorArgs): ExtractedLineItem[]
       confidence: Math.min(1, Math.max(0, field.confidence || 0.65)),
       periodStart,
       periodEnd,
-      provenance: makeProvenance(args.documentId, periodEnd, field.confidence, `${field.name}: ${field.value}`, "docai_structured"),
+      provenance: makeProvenance(args.documentId, periodEnd, field.confidence, `${field.name}: ${field.value}`, "gemini_structured"),
     });
   }
 

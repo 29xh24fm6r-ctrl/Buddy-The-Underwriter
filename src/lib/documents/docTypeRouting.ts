@@ -3,13 +3,14 @@
  *
  * Single source of truth for:
  *  1. Normalizing raw classifier / inferred doc types → canonical_type
- *  2. Mapping canonical_type → routing_class (DOC_AI_ATOMIC | GEMINI_PACKET | GEMINI_STANDARD)
+ *  2. Mapping canonical_type → routing_class (GEMINI_STRUCTURED | GEMINI_PACKET | GEMINI_STANDARD)
  *
  * The Smart Router reads routing_class from deal_documents to decide the
  * extraction engine. The classify processor stamps both columns after
  * classification completes.
  *
- * LOCKED — do not expand DOC_AI_ATOMIC without explicit approval.
+ * All documents use Gemini OCR. GEMINI_STRUCTURED types also get an advisory
+ * structured assist pass via Gemini Flash (never canonical truth).
  */
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -17,14 +18,14 @@
 /**
  * Routing classes determine which extraction engine processes a document.
  *
- * DOC_AI_ATOMIC:    Google Document AI — underwriting-critical structured docs
- *                   (tax returns, income statements, balance sheets, PFS)
- * GEMINI_PACKET:    Gemini OCR with multi-page/tabular awareness
- *                   (T12/generic financials)
- * GEMINI_STANDARD:  Standard Gemini OCR — single-pass text extraction
- *                   (bank statements, leases, insurance, appraisals, etc.)
+ * GEMINI_STRUCTURED: Gemini OCR + advisory Gemini Flash structured assist
+ *                    (tax returns, income statements, balance sheets, PFS)
+ * GEMINI_PACKET:     Gemini OCR with multi-page/tabular awareness
+ *                    (generic financials)
+ * GEMINI_STANDARD:   Standard Gemini OCR — single-pass text extraction
+ *                    (bank statements, leases, insurance, appraisals, etc.)
  */
-export type RoutingClass = "DOC_AI_ATOMIC" | "GEMINI_PACKET" | "GEMINI_STANDARD";
+export type RoutingClass = "GEMINI_STRUCTURED" | "GEMINI_PACKET" | "GEMINI_STANDARD";
 
 /**
  * Extended canonical types — more granular than CanonicalDocumentType.
@@ -56,11 +57,13 @@ export type DocTypeRoutingResult = {
  * Normalize any raw document type string to an ExtendedCanonicalType.
  *
  * Handles:
- * - AI classifier output (IRS_BUSINESS, T12, K1, etc.)
+ * - AI classifier output (IRS_BUSINESS, K1, etc.)
  * - Form numbers (1120, 1040, etc.)
  * - Inferred types (income_statement, balance_sheet)
  * - Alternate names (P&L, PROFIT_AND_LOSS, SBA_413)
  * - Legacy aliases (IRS_PERSONAL, INTERIM_FINANCIALS)
+ *
+ * T12 as a raw input maps to INCOME_STATEMENT (T12 as a spread type is separate).
  */
 function normalizeToExtendedCanonical(raw: string): ExtendedCanonicalType {
   const upper = String(raw ?? "")
@@ -96,7 +99,8 @@ function normalizeToExtendedCanonical(raw: string): ExtendedCanonicalType {
     return "PERSONAL_TAX_RETURN";
 
   // ─── Specific Financial Sub-Types ─────────────────────────
-  if (["INCOME_STATEMENT", "PROFIT_AND_LOSS", "P&L"].includes(upper))
+  // T12 as a doc type maps to INCOME_STATEMENT
+  if (["INCOME_STATEMENT", "PROFIT_AND_LOSS", "P&L", "T12"].includes(upper))
     return "INCOME_STATEMENT";
 
   if (upper === "BALANCE_SHEET") return "BALANCE_SHEET";
@@ -105,11 +109,10 @@ function normalizeToExtendedCanonical(raw: string): ExtendedCanonicalType {
   if (["PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413"].includes(upper))
     return "PFS";
 
-  // ─── Generic Financial Statement (includes T12) ───────────
+  // ─── Generic Financial Statement ──────────────────────────
   if (
     [
       "FINANCIAL_STATEMENT",
-      "T12",
       "INTERIM_FINANCIALS",
     ].includes(upper)
   )
@@ -141,18 +144,18 @@ function normalizeToExtendedCanonical(raw: string): ExtendedCanonicalType {
 // ─── Canonical Type → Routing Class ──────────────────────────────────────────
 
 /**
- * LOCKED mapping from canonical_type to routing_class.
- * DO NOT expand DOC_AI_ATOMIC without explicit approval.
+ * Mapping from canonical_type to routing_class.
+ * GEMINI_STRUCTURED types get advisory structured assist in addition to Gemini OCR.
  */
 const ROUTING_CLASS_MAP: Record<ExtendedCanonicalType, RoutingClass> = {
-  // DOC_AI_ATOMIC: Underwriting-critical, multi-table semantic integrity
-  BUSINESS_TAX_RETURN: "DOC_AI_ATOMIC",
-  PERSONAL_TAX_RETURN: "DOC_AI_ATOMIC",
-  INCOME_STATEMENT: "DOC_AI_ATOMIC",
-  BALANCE_SHEET: "DOC_AI_ATOMIC",
-  PFS: "DOC_AI_ATOMIC",
+  // GEMINI_STRUCTURED: Gemini OCR + advisory Gemini Flash structured assist
+  BUSINESS_TAX_RETURN: "GEMINI_STRUCTURED",
+  PERSONAL_TAX_RETURN: "GEMINI_STRUCTURED",
+  INCOME_STATEMENT: "GEMINI_STRUCTURED",
+  BALANCE_SHEET: "GEMINI_STRUCTURED",
+  PFS: "GEMINI_STRUCTURED",
 
-  // GEMINI_PACKET: Tabular/multi-page docs well-handled by Gemini
+  // GEMINI_PACKET: Tabular/multi-page docs
   FINANCIAL_STATEMENT: "GEMINI_PACKET",
 
   // GEMINI_STANDARD: Standard single-pass OCR
@@ -176,10 +179,10 @@ const ROUTING_CLASS_MAP: Record<ExtendedCanonicalType, RoutingClass> = {
  * @example
  * ```ts
  * const { canonical_type, routing_class } = resolveDocTypeRouting("IRS_BUSINESS");
- * // → { canonical_type: "BUSINESS_TAX_RETURN", routing_class: "DOC_AI_ATOMIC" }
+ * // → { canonical_type: "BUSINESS_TAX_RETURN", routing_class: "GEMINI_STRUCTURED" }
  *
  * const result = resolveDocTypeRouting("T12");
- * // → { canonical_type: "FINANCIAL_STATEMENT", routing_class: "GEMINI_PACKET" }
+ * // → { canonical_type: "INCOME_STATEMENT", routing_class: "GEMINI_STRUCTURED" }
  * ```
  */
 export function resolveDocTypeRouting(rawDocType: string): DocTypeRoutingResult {
@@ -199,8 +202,9 @@ export function routingClassFor(canonicalType: string): RoutingClass {
 }
 
 /**
- * Check if a routing class routes to Document AI.
+ * Check if a routing class uses structured extraction assist.
+ * Structured types get Gemini OCR + advisory Gemini Flash structured assist.
  */
-export function isDocAiRoute(routingClass: RoutingClass): boolean {
-  return routingClass === "DOC_AI_ATOMIC";
+export function isStructuredExtractionRoute(routingClass: RoutingClass): boolean {
+  return routingClass === "GEMINI_STRUCTURED";
 }
