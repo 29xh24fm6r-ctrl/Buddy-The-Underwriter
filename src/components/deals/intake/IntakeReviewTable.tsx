@@ -161,6 +161,8 @@ export function IntakeReviewTable({
   const [invalidated, setInvalidated] = useState(false);
   // Safety: polling stop (Step E) — halts polling when stuck timeout fires
   const pollStoppedRef = useRef(false);
+  // Safety: submit-in-flight guard — prevents stale poll merges during submit flow
+  const submitInFlightRef = useRef(false);
 
   /** Lightweight console instrumentation (Step G). */
   const logIntake = useCallback(
@@ -199,9 +201,39 @@ export function IntakeReviewTable({
     }
   }, [dealId, onNeedsReview]);
 
+  /** Lightweight status poll — only phase + processing markers, no document list.
+   *  Used during CONFIRMED_READY_FOR_PROCESSING to avoid hammering the heavy /review endpoint. */
+  const refreshStatus = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch(`/api/deals/${dealId}/intake/processing-status`, {
+        cache: "no-store",
+        signal,
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) return; // Don't overwrite data on error
+
+      // Merge phase + processing markers into existing data (preserve document list).
+      // Skip merge if submit is in-flight — prevents stale poll from overwriting
+      // the optimistic CONFIRMED_READY_FOR_PROCESSING phase with stale data.
+      if (submitInFlightRef.current) return;
+      setData((prev) => prev ? {
+        ...prev,
+        intake_phase: json.intake_phase,
+        processing: json.processing,
+      } : prev);
+      setError(null);
+    } catch (err: any) {
+      if (err?.name === "AbortError") return;
+      // Don't set error on lightweight status poll failure — non-critical
+    }
+  }, [dealId]);
+
   // Part 6: Exponential backoff polling — starts fast during processing,
   // backs off to reduce server load, stops after completion.
+  // During CONFIRMED_READY_FOR_PROCESSING, polls lightweight /processing-status
+  // instead of heavy /review to prevent 500s and reduce server load.
   const pollTickRef = useRef(0);
+  const prevPhaseRef = useRef<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -212,7 +244,7 @@ export function IntakeReviewTable({
         pollTickRef.current = 0;
         return 8000; // normal idle polling
       }
-      // Backoff: 3s → 5s → 10s (capped)
+      // Backoff: 3s → 5s → 15s (capped)
       const tick = pollTickRef.current;
       if (tick < 3) return POLL_INITIAL_MS;
       if (tick < 8) return POLL_BACKOFF_MS;
@@ -222,14 +254,36 @@ export function IntakeReviewTable({
     const interval = setInterval(() => {
       pollTickRef.current += 1;
       if (pollStoppedRef.current) return; // Step E: stop polling when stuck
-      void refresh(controller.signal);
+      if (submitInFlightRef.current) return; // Suppress stale merges during submit
+
+      if (data?.intake_phase === "CONFIRMED_READY_FOR_PROCESSING") {
+        // Use lightweight status endpoint during processing
+        void refreshStatus(controller.signal);
+      } else {
+        void refresh(controller.signal);
+      }
     }, getPollInterval());
 
     return () => {
       controller.abort();
       clearInterval(interval);
     };
-  }, [refresh, data?.intake_phase]);
+  }, [refresh, refreshStatus, data?.intake_phase]);
+
+  // Full refresh when processing completes — load the updated document list
+  useEffect(() => {
+    const phase = data?.intake_phase ?? null;
+    const prev = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+
+    if (
+      prev === "CONFIRMED_READY_FOR_PROCESSING" &&
+      phase != null &&
+      phase !== "CONFIRMED_READY_FOR_PROCESSING"
+    ) {
+      void refresh();
+    }
+  }, [data?.intake_phase, refresh]);
 
   // Step B: Abort in-flight submit fetches on unmount
   useEffect(() => () => { abortRef.current?.abort(); }, []);
@@ -435,6 +489,7 @@ export function IntakeReviewTable({
     completionFired.current = false;
 
     setSubmitting(true);
+    submitInFlightRef.current = true;
     setError(null);
     setBlockedDocs(new Map());
     setBlockerSummary(null);
@@ -526,6 +581,16 @@ export function IntakeReviewTable({
       logIntake("confirm.success");
       setBlockedDocs(new Map());
       setBlockerSummary(null);
+      // Optimistically reflect server-committed phase before setting processingStartedAt.
+      // The confirm route already persisted CONFIRMED_READY_FOR_PROCESSING in the DB.
+      // Without this, React flushes at the await boundary with processingStartedAt !== null
+      // but intake_phase still "CLASSIFIED_PENDING_CONFIRMATION" (stale), which deterministically
+      // triggers the invalidation effect (Step D). This mirrors committed DB state — no lying.
+      setData((prev) =>
+        prev
+          ? { ...prev, intake_phase: "CONFIRMED_READY_FOR_PROCESSING" }
+          : prev,
+      );
       setProcessingStartedAt(Date.now());
       setElapsed(0);
       confirmedAttemptRef.current = localAttempt;
@@ -537,11 +602,13 @@ export function IntakeReviewTable({
       // Step C: Network error — distinct from business errors
       setError("Network error \u2014 please check your connection and retry.");
       setProcessingStartedAt(null);
+      submitInFlightRef.current = false;
     } finally {
       // Only cleanup if this is still the active attempt
       if (attemptRef.current === localAttempt) {
         setSubmitPhase("idle");
         setSubmitting(false);
+        submitInFlightRef.current = false;
       }
     }
   }

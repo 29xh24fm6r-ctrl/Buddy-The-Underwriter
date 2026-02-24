@@ -36,15 +36,37 @@ export async function invalidateIntakeSnapshot(
     if (dealErr || !deal) return;
     if ((deal as any).intake_phase !== "CONFIRMED_READY_FOR_PROCESSING") return;
 
-    // Reset deal phase + clear snapshot
-    await (sb as any)
+    // Reset deal phase + clear snapshot.
+    // CAS guard: only succeeds if intake_phase is STILL CONFIRMED_READY_FOR_PROCESSING
+    // AND no processing run is active (intake_processing_run_id IS NULL).
+    // This prevents late fire-and-forget invalidations from regressing a phase
+    // after processing has been stamped with a run_id.
+    const { data: updated } = await (sb as any)
       .from("deals")
       .update({
         intake_phase: "CLASSIFIED_PENDING_CONFIRMATION",
         intake_snapshot_hash: null,
         intake_snapshot_version: null,
       })
-      .eq("id", dealId);
+      .eq("id", dealId)
+      .eq("intake_phase", "CONFIRMED_READY_FOR_PROCESSING")
+      .is("intake_processing_run_id", null)
+      .select("id");
+
+    if (!updated || (updated as any[]).length === 0) {
+      // CAS blocked: either phase changed or processing run is active
+      void writeEvent({
+        dealId,
+        kind: "intake.snapshot_invalidation_blocked",
+        scope: "intake",
+        meta: {
+          source,
+          reason: "cas_guard_prevented",
+          snapshot_version: INTAKE_SNAPSHOT_VERSION,
+        },
+      });
+      return;
+    }
 
     // Unlock all active LOCKED_FOR_PROCESSING docs → AUTO_CONFIRMED
     await (sb as any)

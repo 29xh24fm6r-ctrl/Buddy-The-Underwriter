@@ -174,11 +174,11 @@ describe("Post-Confirm Freeze CI Guards", () => {
     );
   });
 
-  // ── Guard 6: invalidateIntakeSnapshot is NOT modified ────────────────
-  test("[guard-6] invalidateIntakeSnapshot.ts is unmodified — mutation prevented at source, not suppressed", () => {
+  // ── Guard 6: invalidateIntakeSnapshot has CAS guard — atomic, run-aware ──────
+  test("[guard-6] invalidateIntakeSnapshot uses CAS guard — no regression when run is active", () => {
     const src = readSrc("src/lib/intake/confirmation/invalidateIntakeSnapshot.ts");
 
-    // Must NOT contain any freeze-related logic
+    // Must NOT contain freeze-related logic (that belongs in upload routes / processArtifact)
     assert.ok(
       !src.includes("POST_CONFIRM_FROZEN_PHASES"),
       "invalidateIntakeSnapshot must NOT reference POST_CONFIRM_FROZEN_PHASES",
@@ -189,15 +189,28 @@ describe("Post-Confirm Freeze CI Guards", () => {
       "invalidateIntakeSnapshot must NOT reference deferred_post_confirm",
     );
 
+    // CAS: update must include .eq("intake_phase") re-check
     assert.ok(
-      !src.includes("intake_processing_run_id"),
-      "invalidateIntakeSnapshot must NOT check intake_processing_run_id",
+      src.includes('.eq("intake_phase", "CONFIRMED_READY_FOR_PROCESSING")'),
+      "invalidateIntakeSnapshot update must CAS-check intake_phase in WHERE clause",
     );
 
-    // Must still only check CONFIRMED_READY_FOR_PROCESSING
+    // CAS: update must guard against active processing run
+    assert.ok(
+      src.includes('.is("intake_processing_run_id", null)'),
+      "invalidateIntakeSnapshot update must guard .is(intake_processing_run_id, null)",
+    );
+
+    // Must emit blocked event when CAS prevents invalidation
+    assert.ok(
+      src.includes('"intake.snapshot_invalidation_blocked"'),
+      "invalidateIntakeSnapshot must emit intake.snapshot_invalidation_blocked when CAS blocks",
+    );
+
+    // Must still read initial phase for early return
     assert.ok(
       src.includes('intake_phase !== "CONFIRMED_READY_FOR_PROCESSING"'),
-      "invalidateIntakeSnapshot must still check only CONFIRMED_READY_FOR_PROCESSING",
+      "invalidateIntakeSnapshot must still early-return on non-confirmed phase",
     );
   });
 });
