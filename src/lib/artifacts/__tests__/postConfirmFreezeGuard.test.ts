@@ -201,3 +201,74 @@ describe("Post-Confirm Freeze CI Guards", () => {
     );
   });
 });
+
+// ── Upload Route Freeze Guards ──────────────────────────────────────────
+
+const UPLOAD_ROUTES = [
+  "src/app/api/deals/[dealId]/files/record/route.ts",
+  "src/app/api/portal/upload/commit/route.ts",
+  "src/app/api/portal/[token]/files/record/route.ts",
+  "src/app/api/public/upload/route.ts",
+] as const;
+
+describe("Upload Route Freeze CI Guards", () => {
+  // ── Guard 9: Banker upload does NOT call invalidateIntakeSnapshot unconditionally
+  test("[guard-9] files/record/route.ts has phase check before invalidateIntakeSnapshot", () => {
+    const src = readSrc("src/app/api/deals/[dealId]/files/record/route.ts");
+
+    // Must read intake_phase before calling invalidateIntakeSnapshot
+    const phaseCheckIdx = src.indexOf("intake.upload_received_while_frozen");
+    const invalidateIdx = src.indexOf("invalidateIntakeSnapshot(dealId");
+    assert.ok(
+      phaseCheckIdx > 0 && invalidateIdx > phaseCheckIdx,
+      "files/record must check phase and emit frozen event BEFORE invalidation call",
+    );
+  });
+
+  // ── Guard 10: Banker upload checks frozen phases before invalidation
+  test("[guard-10] files/record/route.ts checks CONFIRMED_READY_FOR_PROCESSING before invalidation", () => {
+    const src = readSrc("src/app/api/deals/[dealId]/files/record/route.ts");
+
+    // Must contain all 4 frozen phase strings in the check
+    assert.ok(
+      src.includes('"CONFIRMED_READY_FOR_PROCESSING"') &&
+      src.includes('"PROCESSING"') &&
+      src.includes('"PROCESSING_COMPLETE"') &&
+      src.includes('"PROCESSING_COMPLETE_WITH_ERRORS"'),
+      "files/record must check all 4 frozen phases before invalidation",
+    );
+
+    // Must read intake_phase from DB
+    assert.ok(
+      src.includes('.select("intake_phase")'),
+      "files/record must query intake_phase from deals table",
+    );
+  });
+
+  // ── Guard 11: Banker upload emits truthful event when frozen
+  test("[guard-11] files/record/route.ts emits intake.upload_received_while_frozen", () => {
+    const src = readSrc("src/app/api/deals/[dealId]/files/record/route.ts");
+
+    assert.ok(
+      src.includes('"intake.upload_received_while_frozen"'),
+      "files/record must emit intake.upload_received_while_frozen event when upload occurs during frozen phase",
+    );
+  });
+
+  // ── Guard 12: ALL 4 upload routes have phase-safe gate before invalidation
+  test("[guard-12] All upload routes check frozen phase before invalidateIntakeSnapshot", () => {
+    for (const routePath of UPLOAD_ROUTES) {
+      const src = readSrc(routePath);
+
+      assert.ok(
+        src.includes('"intake.upload_received_while_frozen"'),
+        `${routePath} must emit intake.upload_received_while_frozen event`,
+      );
+
+      assert.ok(
+        src.includes('"CONFIRMED_READY_FOR_PROCESSING"'),
+        `${routePath} must check CONFIRMED_READY_FOR_PROCESSING before invalidation`,
+      );
+    }
+  });
+});

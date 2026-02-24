@@ -7,6 +7,7 @@ import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrower
 import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
 import { findExistingDocBySha } from "@/lib/storage/dedupe";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 import crypto from "node:crypto";
 
 export const runtime = "nodejs";
@@ -257,10 +258,35 @@ export async function POST(req: Request) {
       },
     });
 
-    // Phase E1: Invalidate snapshot if deal was already confirmed
-    void import("@/lib/intake/confirmation/invalidateIntakeSnapshot")
-      .then((m) => m.invalidateIntakeSnapshot(dealId, "public_link"))
-      .catch(() => {});
+    // Phase E1: Invalidate snapshot if deal was already confirmed — but NEVER unseal a frozen deal.
+    {
+      const { data: phaseCheck } = await supabaseAdmin()
+        .from("deals")
+        .select("intake_phase")
+        .eq("id", dealId)
+        .maybeSingle();
+
+      const uploadPhase = (phaseCheck as any)?.intake_phase as string | null;
+
+      if (
+        uploadPhase &&
+        ["CONFIRMED_READY_FOR_PROCESSING", "PROCESSING", "PROCESSING_COMPLETE", "PROCESSING_COMPLETE_WITH_ERRORS"].includes(uploadPhase)
+      ) {
+        void writeEvent({
+          dealId,
+          kind: "intake.upload_received_while_frozen",
+          scope: "intake",
+          meta: {
+            source: "public_link",
+            frozen_phase: uploadPhase,
+          },
+        });
+      } else {
+        void import("@/lib/intake/confirmation/invalidateIntakeSnapshot")
+          .then((m) => m.invalidateIntakeSnapshot(dealId, "public_link"))
+          .catch(() => {});
+      }
+    }
 
     // ✅ Audit trail: record borrower_uploads row for this upload (idempotent)
     // Note: borrower_uploads.request_id is a FK to borrower_document_requests, so we do NOT store link.id there.

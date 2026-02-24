@@ -739,10 +739,37 @@ export async function POST(req: NextRequest, ctx: Context) {
       }
     }
 
-    // Phase E1: Invalidate snapshot if deal was already confirmed
-    void import("@/lib/intake/confirmation/invalidateIntakeSnapshot")
-      .then((m) => m.invalidateIntakeSnapshot(dealId, "banker_upload"))
-      .catch(() => {});
+    // Phase E1: Invalidate snapshot if deal was already confirmed — but NEVER unseal a frozen deal.
+    // Read phase synchronously; if frozen, skip invalidation and emit truthful event.
+    {
+      const { data: phaseCheck } = await sb
+        .from("deals")
+        .select("intake_phase")
+        .eq("id", dealId)
+        .maybeSingle();
+
+      const uploadPhase = (phaseCheck as any)?.intake_phase as string | null;
+
+      if (
+        uploadPhase &&
+        ["CONFIRMED_READY_FOR_PROCESSING", "PROCESSING", "PROCESSING_COMPLETE", "PROCESSING_COMPLETE_WITH_ERRORS"].includes(uploadPhase)
+      ) {
+        void writeEvent({
+          dealId,
+          kind: "intake.upload_received_while_frozen",
+          scope: "intake",
+          meta: {
+            source: "banker_upload",
+            frozen_phase: uploadPhase,
+            document_id: documentId,
+          },
+        });
+      } else {
+        void import("@/lib/intake/confirmation/invalidateIntakeSnapshot")
+          .then((m) => m.invalidateIntakeSnapshot(dealId, "banker_upload"))
+          .catch(() => {});
+      }
+    }
 
     // ❌ NO reconcile here — classification must happen FIRST.
     // The artifact processor (processArtifact.ts) handles:

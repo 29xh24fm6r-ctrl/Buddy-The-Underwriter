@@ -308,10 +308,36 @@ export async function POST(req: Request) {
       },
     });
 
-    // Phase E1: Invalidate snapshot if deal was already confirmed
-    void import("@/lib/intake/confirmation/invalidateIntakeSnapshot")
-      .then((m) => m.invalidateIntakeSnapshot(invite.deal_id, "portal_commit"))
-      .catch(() => {});
+    // Phase E1: Invalidate snapshot if deal was already confirmed — but NEVER unseal a frozen deal.
+    {
+      const { data: phaseCheck } = await sb
+        .from("deals")
+        .select("intake_phase")
+        .eq("id", invite.deal_id)
+        .maybeSingle();
+
+      const uploadPhase = (phaseCheck as any)?.intake_phase as string | null;
+
+      if (
+        uploadPhase &&
+        ["CONFIRMED_READY_FOR_PROCESSING", "PROCESSING", "PROCESSING_COMPLETE", "PROCESSING_COMPLETE_WITH_ERRORS"].includes(uploadPhase)
+      ) {
+        void writeEvent({
+          dealId: invite.deal_id,
+          kind: "intake.upload_received_while_frozen",
+          scope: "intake",
+          meta: {
+            source: "portal_commit",
+            frozen_phase: uploadPhase,
+            document_id: ingest.documentId,
+          },
+        });
+      } else {
+        void import("@/lib/intake/confirmation/invalidateIntakeSnapshot")
+          .then((m) => m.invalidateIntakeSnapshot(invite.deal_id, "portal_commit"))
+          .catch(() => {});
+      }
+    }
 
     await writeEvent({
       dealId: invite.deal_id,
