@@ -12,7 +12,7 @@ import { findLabeledAmount, resolveDocDate } from "./parseUtils";
 import {
   extractEntitiesFlat,
   entityToMoney,
-} from "./docAiParser";
+} from "./structuredJsonParser";
 
 // ---------------------------------------------------------------------------
 // Canonical line item keys (same as original extractor)
@@ -79,10 +79,10 @@ const LABEL_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
 ];
 
 // ---------------------------------------------------------------------------
-// DocAI entity type → canonical key mapping
+// Structured entity type → canonical key mapping
 // ---------------------------------------------------------------------------
 
-const DOCAI_ENTITY_MAP: Record<string, string> = {
+const ENTITY_MAP: Record<string, string> = {
   cash: "CASH_AND_EQUIVALENTS",
   cash_equivalents: "CASH_AND_EQUIVALENTS",
   accounts_receivable: "ACCOUNTS_RECEIVABLE",
@@ -107,18 +107,18 @@ const DOCAI_ENTITY_MAP: Record<string, string> = {
 export async function extractBalanceSheetDeterministic(
   args: DeterministicExtractorArgs,
 ): Promise<ExtractionResult & { extractionPath: ExtractionPath }> {
-  if (!args.ocrText.trim() && !args.docAiJson) {
+  if (!args.ocrText.trim() && !args.structuredJson) {
     return { ok: true, factsWritten: 0, extractionPath: "ocr_regex" };
   }
 
   let items: ExtractedLineItem[] = [];
   let path: ExtractionPath = "ocr_regex";
 
-  if (args.docAiJson) {
-    const docAiItems = tryDocAiEntities(args);
-    if (docAiItems.length > 0) {
-      items = docAiItems;
-      path = "docai_structured";
+  if (args.structuredJson) {
+    const structuredItems = tryStructuredEntities(args);
+    if (structuredItems.length > 0) {
+      items = structuredItems;
+      path = "gemini_structured";
     }
   }
 
@@ -143,11 +143,11 @@ export async function extractBalanceSheetDeterministic(
 }
 
 // ---------------------------------------------------------------------------
-// DocAI path
+// Structured assist path
 // ---------------------------------------------------------------------------
 
-function tryDocAiEntities(args: DeterministicExtractorArgs): ExtractedLineItem[] {
-  const entities = extractEntitiesFlat(args.docAiJson);
+function tryStructuredEntities(args: DeterministicExtractorArgs): ExtractedLineItem[] {
+  const entities = extractEntitiesFlat(args.structuredJson);
   if (entities.length === 0) return [];
 
   const items: ExtractedLineItem[] = [];
@@ -156,7 +156,7 @@ function tryDocAiEntities(args: DeterministicExtractorArgs): ExtractedLineItem[]
 
   for (const entity of entities) {
     const entityType = entity.type.toLowerCase().replace(/[\s-]+/g, "_");
-    const canonicalKey = DOCAI_ENTITY_MAP[entityType];
+    const canonicalKey = ENTITY_MAP[entityType];
     if (!canonicalKey || !VALID_LINE_KEYS.has(canonicalKey)) continue;
 
     const value = entityToMoney(entity);
@@ -170,7 +170,7 @@ function tryDocAiEntities(args: DeterministicExtractorArgs): ExtractedLineItem[]
       confidence,
       periodStart,
       periodEnd,
-      provenance: makeProvenance(args.documentId, periodEnd, confidence, entity.mentionText, "docai_structured"),
+      provenance: makeProvenance(args.documentId, periodEnd, confidence, entity.mentionText, "gemini_structured"),
     });
   }
 

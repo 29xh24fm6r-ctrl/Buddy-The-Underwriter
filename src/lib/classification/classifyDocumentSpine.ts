@@ -4,7 +4,7 @@
  * Deterministic-first, LLM-escalated, audit-safe, versioned, T12-free.
  *
  * Pipeline:
- *   Normalize → DocAI cross-validation → Tier 1 → Tier 2 → Gate → Tier 3 → Finalize
+ *   Normalize → Tier 1 → Tier 2 → Gate → Tier 3 → Finalize
  *
  * Drop-in replacement for classifyDocument() in processArtifact.ts.
  * SpineClassificationResult is a superset of ClassificationResult.
@@ -352,9 +352,12 @@ function finalizeFromDocAi(
 /**
  * Classify a document using the Buddy Institutional Classification Spine v2.
  *
- * Pipeline: Normalize → DocAI check → Tier 1 → Tier 2 → Gate → Tier 3 → Finalize
+ * Pipeline: Normalize → Tier 1 → Tier 2 → Gate → Tier 3 → Finalize
  *
  * Drop-in replacement for classifyDocument(). Never throws.
+ *
+ * @param docAi — Ignored. Kept for backwards compatibility with callers
+ *   that still pass DocAI signals. DocAI signals are no longer used.
  */
 export async function classifyDocumentSpine(
   documentText: string,
@@ -370,54 +373,27 @@ export async function classifyDocumentSpine(
     // ── Step 2: Tier 1 — Deterministic Anchors ────────────────────────
     const tier1 = runTier1Anchors(doc);
 
-    // ── Step 3: DocAI cross-validation ────────────────────────────────
-    // If DocAI signals are available and high confidence, use them —
-    // but Tier 1 text evidence (≥0.90) always overrides DocAI if they disagree.
-    if (docAi?.docTypeLabel && (docAi.docTypeConfidence ?? 0) >= 0.75) {
-      const mappedDocAiType = mapDocAiLabel(docAi.docTypeLabel);
-
-      if (mappedDocAiType) {
-        // Cross-validation: Tier 1 anchor (≥0.90) beats DocAI
-        if (tier1.matched && tier1.docType !== mappedDocAiType) {
-          return finalizeFromTier1(tier1, documentText, doc);
-        }
-
-        // Tier 1 agrees with DocAI, or Tier 1 didn't match — use DocAI
-        if (!tier1.matched || tier1.docType === mappedDocAiType) {
-          return finalizeFromDocAi(
-            mappedDocAiType,
-            docAi,
-            documentText,
-            tier1.formNumbers,
-            tier1.entityType,
-            tier1.taxYear,
-            doc,
-          );
-        }
-      }
-    }
-
-    // ── Step 4: Tier 1 matched (no DocAI or DocAI unmapped) → accept ──
+    // ── Step 3: Tier 1 matched → accept ──────────────────────────────
     if (tier1.matched) {
       return finalizeFromTier1(tier1, documentText, doc);
     }
 
-    // ── Step 5: Tier 2 — Structural Patterns ──────────────────────────
+    // ── Step 4: Tier 2 — Structural Patterns ──────────────────────────
     const tier2 = runTier2Structural(doc);
 
-    // ── Step 6: Confidence Gate ───────────────────────────────────────
+    // ── Step 5: Confidence Gate ───────────────────────────────────────
     const gate = applyConfidenceGate(tier1, tier2);
     if (gate.accepted) {
       return finalizeFromGate(gate, documentText, doc);
     }
 
-    // ── Step 7: Tier 3 — Domain LLM Escalation ───────────────────────
+    // ── Step 6: Tier 3 — Domain LLM Escalation ───────────────────────
     const tier3 = await runTier3LLM(doc);
     if (tier3.matched) {
       return finalizeFromTier3(tier3, doc);
     }
 
-    // ── Step 8: Fallback ──────────────────────────────────────────────
+    // ── Step 7: Fallback ──────────────────────────────────────────────
     return finalizeFallback(documentText, doc!);
   } catch (error: any) {
     console.error("[classifyDocumentSpine] Unexpected error — fallback", {

@@ -46,10 +46,10 @@ async function resolveOwnerForDocument(sb: any, documentId: string): Promise<str
 }
 
 /**
- * Load Document AI structured JSON from document_extracts.
- * Returns the structuredJson blob or null if not available.
+ * Load structured JSON from extraction assist from document_extracts.
+ * Returns the structured JSON blob or null if not available.
  */
-async function loadDocAiJson(sb: any, documentId: string): Promise<unknown | null> {
+async function loadStructuredJson(sb: any, documentId: string): Promise<unknown | null> {
   try {
     const { data } = await (sb as any)
       .from("document_extracts")
@@ -99,7 +99,7 @@ export async function extractFactsFromDocument(args: {
   }
 
   // Fetch OCR + classification context + DocAI JSON (best-effort, parallel)
-  const [ocrRes, classRes, docAiJson] = await Promise.all([
+  const [ocrRes, classRes, structuredJson] = await Promise.all([
     (sb as any)
       .from("document_ocr_results")
       .select("extracted_text")
@@ -110,7 +110,7 @@ export async function extractFactsFromDocument(args: {
       .select("doc_type, confidence")
       .eq("attachment_id", args.documentId)
       .maybeSingle(),
-    useDeterministic ? loadDocAiJson(sb, args.documentId) : Promise.resolve(null),
+    useDeterministic ? loadStructuredJson(sb, args.documentId) : Promise.resolve(null),
   ]);
 
   const extractedText = String(ocrRes.data?.extracted_text ?? "");
@@ -159,7 +159,7 @@ export async function extractFactsFromDocument(args: {
 
   const deterministicArgs = {
     ...baseArgs,
-    docAiJson: docAiJson ?? undefined,
+    structuredJson: structuredJson ?? undefined,
     docYear,
   };
 
@@ -353,7 +353,7 @@ export async function extractFactsFromDocument(args: {
         doc_type: normDocType,
         document_id: args.documentId,
         ocr_length: extractedText.length,
-        had_docai_json: !!docAiJson,
+        had_structured_json: !!structuredJson,
         deterministic: useDeterministic,
         extraction_path: extractionPath,
       },

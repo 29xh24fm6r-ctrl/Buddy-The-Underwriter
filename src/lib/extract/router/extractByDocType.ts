@@ -3,10 +3,9 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import {
   resolveDocTypeRouting,
-  isDocAiRoute,
+  isStructuredExtractionRoute,
   type RoutingClass,
 } from "@/lib/documents/docTypeRouting";
-import { isGoogleDocAiEnabled } from "@/lib/flags/googleDocAi";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,8 +23,7 @@ export type ProviderMetrics = {
   pages?: number;
   unit_count?: number;
   estimated_cost_usd?: number;
-  fallback_from?: string;
-  fallback_reason?: string;
+  structured_assist?: boolean;
 };
 
 export type ExtractByDocTypeResult = {
@@ -45,22 +43,6 @@ export type ExtractByDocTypeResult = {
   result: ExtractResult;
   provider_metrics?: ProviderMetrics;
 };
-
-// ─── Processor Type ──────────────────────────────────────────────────────────
-
-/**
- * Map canonical type to Document AI processor type.
- * TAX_PROCESSOR for tax returns, FINANCIAL_PROCESSOR for everything else.
- */
-function getProcessorType(
-  canonicalType: string,
-): "TAX_PROCESSOR" | "FINANCIAL_PROCESSOR" {
-  const upper = String(canonicalType ?? "").toUpperCase().trim();
-  if (upper === "BUSINESS_TAX_RETURN" || upper === "PERSONAL_TAX_RETURN") {
-    return "TAX_PROCESSOR";
-  }
-  return "FINANCIAL_PROCESSOR";
-}
 
 // ─── Cost Estimation ─────────────────────────────────────────────────────────
 
@@ -221,143 +203,118 @@ async function extractWithGeminiOcr(doc: ExtractByDocTypeResult["doc"]): Promise
   };
 }
 
-// ─── Document AI Path ────────────────────────────────────────────────────────
+// ─── Structured Assist (Advisory Only) ──────────────────────────────────────
 
-async function extractWithDocumentAi(
-  doc: ExtractByDocTypeResult["doc"],
+/**
+ * Call Gemini Flash structured assist for V1-eligible doc types.
+ *
+ * ADVISORY ONLY — this function:
+ * - Does NOT write to DB
+ * - Does NOT emit facts
+ * - Does NOT change classification
+ * - Does NOT bind slots
+ *
+ * Returns null on any failure. Never throws.
+ * Deterministic extractors fall back to OCR regex when structured assist is unavailable.
+ */
+async function tryStructuredAssist(
+  ocrText: string,
   canonicalType: string,
-): Promise<{
-  result: ExtractResult;
-  provider_metrics: ProviderMetrics;
-}> {
-  const { extractWithGoogleDocAi } = await import("@/lib/extract/googleDocAi");
-
-  const processorType = getProcessorType(canonicalType);
-
-  const docAiResult = await extractWithGoogleDocAi({
-    docId: doc.id,
+  documentId: string,
+  doc: ExtractByDocTypeResult["doc"],
+): Promise<Record<string, any> | null> {
+  void logLedgerEvent({
     dealId: doc.deal_id,
     bankId: doc.bank_id,
-    processorType,
-    storageBucket: doc.storage_bucket,
-    storagePath: doc.storage_path,
+    eventKey: "extract.structured.attempted",
+    uiState: "working",
+    uiMessage: `Structured assist extraction starting`,
+    meta: {
+      docId: documentId,
+      canonicalType,
+    },
   });
 
-  return {
-    result: {
-      fields: {
-        extractedText: docAiResult.text,
-        structuredJson: docAiResult.json,
-        docType: doc.type,
-        processorType,
+  try {
+    const { extractStructuredAssist } = await import("@/lib/extraction");
+
+    const structured = await extractStructuredAssist({
+      ocrText,
+      canonicalType,
+      documentId,
+    });
+
+    if (structured) {
+      void logLedgerEvent({
+        dealId: doc.deal_id,
+        bankId: doc.bank_id,
+        eventKey: "extract.structured.completed",
+        uiState: "done",
+        uiMessage: `Structured assist extraction completed`,
+        meta: {
+          docId: documentId,
+          canonicalType,
+          entityCount: structured.entities?.length ?? 0,
+          formFieldCount: structured.formFields?.length ?? 0,
+          model: structured._meta?.model,
+          latencyMs: structured._meta?.latencyMs,
+        },
+      });
+
+      return structured;
+    }
+
+    // Structured assist returned null — unsupported type or empty response
+    void logLedgerEvent({
+      dealId: doc.deal_id,
+      bankId: doc.bank_id,
+      eventKey: "extract.structured.failed",
+      uiState: "working",
+      uiMessage: `Structured assist unavailable — deterministic extractors will use OCR regex`,
+      meta: {
+        docId: documentId,
+        canonicalType,
+        reason: "null_response",
       },
-      tables: [],
-      evidence: [],
-    },
-    provider_metrics: docAiResult.provider_metrics,
-  };
-}
+    });
 
-// ─── DocAI Error Detection ──────────────────────────────────────────────────
+    return null;
+  } catch (err: any) {
+    // Never throw — return null so deterministic extractors fall back to OCR regex
+    void logLedgerEvent({
+      dealId: doc.deal_id,
+      bankId: doc.bank_id,
+      eventKey: "extract.structured.failed",
+      uiState: "working",
+      uiMessage: `Structured assist failed — deterministic extractors will use OCR regex`,
+      meta: {
+        docId: documentId,
+        canonicalType,
+        error: err?.message || String(err),
+      },
+    });
 
-/**
- * Detect DocAI page-limit gRPC errors.
- * These are permanent for DocAI but recoverable via Gemini OCR fallback.
- */
-export function isDocAiPageLimitError(err: unknown): boolean {
-  const msg = String(
-    (err as any)?.message || (err as any)?.details || err || "",
-  ).toLowerCase();
-  return (
-    msg.includes("document pages") &&
-    (msg.includes("exceed the limit") || msg.includes("exceed"))
-  );
-}
-
-/**
- * Detect DocAI "unavailable" errors — permission, auth, config, processor not found.
- *
- * These are recoverable via Gemini OCR fallback. DocAI is first choice,
- * but when it's misconfigured or inaccessible, we fall back explicitly
- * and never pretend DocAI succeeded.
- */
-export function isDocAiUnavailableError(err: unknown): boolean {
-  const e: any = err;
-  const msg = String(e?.message || e?.details || e || "").toLowerCase();
-  const code = String(e?.code ?? "").toLowerCase();
-
-  // Buddy-thrown config errors
-  if (msg.includes("missing_processor_id")) return true;
-  if (msg.includes("processor_not_found")) return true;
-
-  // Common availability / permission / auth / routing failures
-  if (msg.includes("permission_denied") || msg.includes("permission denied")) return true;
-  if (msg.includes("unauthenticated")) return true;
-  if (msg.includes("not_found") || msg.includes("not found")) return true;
-
-  // Numeric / HTTP signals sometimes embedded
-  if (msg.includes("403") || msg.includes("401") || msg.includes("404")) return true;
-
-  // gRPC status codes (string or numeric)
-  if (code === "7" || code.includes("permission_denied")) return true;
-  if (code === "16" || code.includes("unauthenticated")) return true;
-  if (code === "5" || code.includes("not_found")) return true;
-
-  // Auth failures from buildDocAiClient
-  if (msg.includes("wif auth failed")) return true;
-  if (msg.includes("docai_process_failed")) return true;
-
-  return false;
-}
-
-/**
- * Detect DocAI "limits exceeded" errors — page count or byte size over hard limits.
- *
- * These are expected constraints (not outages). The router falls back to Gemini OCR
- * with fallback_reason: "LIMITS" — distinct from "UNAVAILABLE" and "PAGE_LIMIT".
- * Do NOT mark DocAI availability cache as down for limits errors.
- */
-export function isDocAiLimitsError(err: unknown): boolean {
-  const msg = String((err as any)?.message || err || "").toLowerCase();
-  return msg.includes("docai_limits_exceeded");
-}
-
-// ─── DocAI Availability Cache ───────────────────────────────────────────────
-
-/**
- * In-memory circuit breaker for DocAI availability.
- * When DocAI returns unavailable errors repeatedly, skip it for TTL_MS
- * and go directly to Gemini — with an explicit ledger event.
- */
-const DOCAI_UNAVAILABLE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-let docAiDownUntil = 0;
-
-export function markDocAiUnavailable(): void {
-  docAiDownUntil = Date.now() + DOCAI_UNAVAILABLE_TTL_MS;
-}
-
-export function isDocAiCachedUnavailable(): boolean {
-  return Date.now() < docAiDownUntil;
-}
-
-/** Reset for testing only */
-export function resetDocAiAvailabilityCache(): void {
-  docAiDownUntil = 0;
+    return null;
+  }
 }
 
 // ─── Main Router ─────────────────────────────────────────────────────────────
 
 /**
- * Smart Router: Extract document content using the appropriate engine.
+ * Extract document content using the appropriate engine.
+ *
+ * All documents use Gemini OCR for text extraction. Documents with
+ * GEMINI_STRUCTURED routing class also get an advisory structured assist
+ * pass via Gemini Flash — this is advisory only and never persists facts
+ * directly.
  *
  * Routing is driven by the `routing_class` column on deal_documents:
- *   DOC_AI_ATOMIC    → Google Document AI (tax returns, income stmt, balance sheet, PFS)
- *   GEMINI_PACKET    → Gemini OCR (T12/generic financials)
- *   GEMINI_STANDARD  → Gemini OCR (rent rolls, bank statements, leases, insurance, etc.)
+ *   GEMINI_STRUCTURED → Gemini OCR + advisory structured assist
+ *                       (tax returns, income statements, balance sheets, PFS)
+ *   GEMINI_PACKET     → Gemini OCR (T12/generic financials)
+ *   GEMINI_STANDARD   → Gemini OCR (rent rolls, bank statements, leases, etc.)
  *
  * Falls back to resolveDocTypeRouting() for rows not yet stamped by classifier.
- *
- * LOCKED — do not expand DOC_AI_ATOMIC without explicit approval.
  */
 export async function extractByDocType(docId: string): Promise<ExtractByDocTypeResult> {
   const started = Date.now();
@@ -454,52 +411,7 @@ export async function extractByDocType(docId: string): Promise<ExtractByDocTypeR
   // ── End extraction dedup ────────────────────────────────────────────────────
 
   const { routingClass, canonicalType, source } = resolveRoutingClass(doc);
-  const docAiEnabled = isGoogleDocAiEnabled();
-  const wouldUseDocAi = isDocAiRoute(routingClass);
-
-  // ── DocAI availability cache — skip DocAI if recently unavailable ────
-  const docAiCachedDown = wouldUseDocAi && docAiEnabled && isDocAiCachedUnavailable();
-  const useDocAi = wouldUseDocAi && docAiEnabled && !docAiCachedDown;
-  const route = useDocAi ? "docai" : "gemini_ocr";
-  const fallbackReason = wouldUseDocAi && !docAiEnabled
-    ? "docai_disabled"
-    : docAiCachedDown
-      ? "docai_cached_unavailable"
-      : undefined;
-
-  // Emit explicit event when DocAI is skipped due to availability cache
-  if (docAiCachedDown) {
-    void logLedgerEvent({
-      dealId: doc.deal_id,
-      bankId: doc.bank_id,
-      eventKey: "extract.docai_skipped_unavailable_cached",
-      uiState: "working",
-      uiMessage: `Document AI recently unavailable — using Gemini OCR directly`,
-      meta: {
-        docId,
-        routingClass,
-        canonicalType,
-        fallbackReason: "docai_cached_unavailable",
-      },
-    });
-  }
-
-  // Emit explicit event when a DOC_AI_ATOMIC route falls back to Gemini
-  if (wouldUseDocAi && !docAiEnabled) {
-    void logLedgerEvent({
-      dealId: doc.deal_id,
-      bankId: doc.bank_id,
-      eventKey: "extract.docai_unavailable",
-      uiState: "error",
-      uiMessage: `Document AI unavailable for ${routingClass} — falling back to Gemini OCR`,
-      meta: {
-        docId,
-        routingClass,
-        canonicalType,
-        fallbackReason: "docai_disabled",
-      },
-    });
-  }
+  const useStructuredAssist = isStructuredExtractionRoute(routingClass);
 
   // Log routing decision
   await logLedgerEvent({
@@ -507,21 +419,18 @@ export async function extractByDocType(docId: string): Promise<ExtractByDocTypeR
     bankId: doc.bank_id,
     eventKey: "extract.routed",
     uiState: "working",
-    uiMessage: `Routing document to ${useDocAi ? "Document AI" : "Gemini OCR"}`,
+    uiMessage: `Routing document to Gemini OCR${useStructuredAssist ? " + structured assist" : ""}`,
     meta: {
       docId,
       docType: doc.type,
       canonicalType,
       routingClass,
       routingSource: source,
-      docaiEnabled: docAiEnabled,
-      fallbackReason,
-      route,
+      structuredAssist: useStructuredAssist,
+      route: "gemini_ocr",
       provider_metrics: {
         provider: "router",
-        intended_route: wouldUseDocAi ? "docai" : "gemini_ocr",
-        actual_route: route,
-        docai_enabled: docAiEnabled,
+        route: useStructuredAssist ? "gemini_ocr+structured_assist" : "gemini_ocr",
       },
     },
   });
@@ -532,15 +441,28 @@ export async function extractByDocType(docId: string): Promise<ExtractByDocTypeR
     canonicalType,
     routingClass,
     routingSource: source,
-    docaiEnabled: docAiEnabled,
-    fallbackReason,
-    route,
+    structuredAssist: useStructuredAssist,
+    route: "gemini_ocr",
   });
 
   try {
-    const { result, provider_metrics } = useDocAi
-      ? await extractWithDocumentAi(doc, canonicalType)
-      : await extractWithGeminiOcr(doc);
+    // Step 1: Always extract with Gemini OCR
+    const { result, provider_metrics } = await extractWithGeminiOcr(doc);
+
+    // Step 2: For structured-eligible types, run advisory structured assist
+    if (useStructuredAssist && result.fields.extractedText) {
+      const structuredJson = await tryStructuredAssist(
+        result.fields.extractedText,
+        canonicalType,
+        docId,
+        doc,
+      );
+
+      if (structuredJson) {
+        result.fields.structuredJson = structuredJson;
+        provider_metrics.structured_assist = true;
+      }
+    }
 
     const elapsedMs = Date.now() - started;
 
@@ -548,235 +470,14 @@ export async function extractByDocType(docId: string): Promise<ExtractByDocTypeR
       docId,
       docType: doc.type,
       routingClass,
-      route,
+      route: "gemini_ocr",
+      structuredAssist: !!result.fields.structuredJson,
       elapsed_ms: elapsedMs,
       provider: provider_metrics.provider,
     });
 
     return { doc, result, provider_metrics };
   } catch (error: any) {
-    // ── DocAI limits fallback → Gemini OCR (expected constraint, not outage) ──
-    // Byte limit exceeded or chunk too large — fall back explicitly.
-    // Do NOT mark availability cache — this is a document property, not an outage.
-    if (useDocAi && isDocAiLimitsError(error)) {
-      console.log("[SmartRouter] DocAI limits exceeded — falling back to Gemini OCR", {
-        docId,
-        routingClass,
-        error: error?.message,
-      });
-
-      await logLedgerEvent({
-        dealId: doc.deal_id,
-        bankId: doc.bank_id,
-        eventKey: "extract.docai_skipped_limits",
-        uiState: "working",
-        uiMessage: "Document exceeds DocAI size limits — using Gemini OCR",
-        meta: {
-          docId,
-          docType: doc.type,
-          routingClass,
-          originalError: error?.message,
-        },
-      });
-
-      try {
-        const fallbackResult = await extractWithGeminiOcr(doc);
-
-        const elapsedMs = Date.now() - started;
-        console.log("[SmartRouter] Gemini OCR fallback succeeded (DocAI limits)", {
-          docId,
-          elapsed_ms: elapsedMs,
-        });
-
-        return {
-          doc,
-          result: fallbackResult.result,
-          provider_metrics: {
-            ...fallbackResult.provider_metrics,
-            fallback_from: "DOC_AI",
-            fallback_reason: "LIMITS",
-          },
-        };
-      } catch (fallbackError: any) {
-        await logLedgerEvent({
-          dealId: doc.deal_id,
-          bankId: doc.bank_id,
-          eventKey: "extract.failed",
-          uiState: "error",
-          uiMessage: `Extraction failed (DocAI limits + Gemini OCR fallback): ${fallbackError?.message}`,
-          meta: {
-            docId,
-            docType: doc.type,
-            routingClass,
-            route: "gemini_ocr_fallback",
-            docai_error: error?.message,
-            gemini_error: fallbackError?.message,
-            elapsed_ms: Date.now() - started,
-          },
-        });
-
-        throw fallbackError;
-      }
-    }
-
-    // ── DocAI page-limit fallback → Gemini OCR (safety net) ─────────────
-    // With preflight gate, most page-limit errors are prevented. This catches
-    // edge cases where pdf-lib page count was wrong or GCP has different limits.
-    if (useDocAi && isDocAiPageLimitError(error)) {
-      console.log("[SmartRouter] DocAI page limit — falling back to Gemini OCR", {
-        docId,
-        routingClass,
-        error: error?.message,
-      });
-
-      await logLedgerEvent({
-        dealId: doc.deal_id,
-        bankId: doc.bank_id,
-        eventKey: "extract.docai.page_limit_fallback",
-        uiState: "working",
-        uiMessage: "Document too large for Document AI — using Gemini OCR",
-        meta: {
-          docId,
-          docType: doc.type,
-          routingClass,
-          originalError: error?.message,
-        },
-      });
-
-      try {
-        const fallbackResult = await extractWithGeminiOcr(doc);
-
-        const elapsedMs = Date.now() - started;
-        console.log("[SmartRouter] Gemini OCR fallback succeeded", {
-          docId,
-          elapsed_ms: elapsedMs,
-        });
-
-        return {
-          doc,
-          result: fallbackResult.result,
-          provider_metrics: {
-            ...fallbackResult.provider_metrics,
-            fallback_from: "DOC_AI",
-            fallback_reason: "PAGE_LIMIT",
-          },
-        };
-      } catch (fallbackError: any) {
-        // Both engines failed — log combined error, throw the fallback error
-        await logLedgerEvent({
-          dealId: doc.deal_id,
-          bankId: doc.bank_id,
-          eventKey: "extract.failed",
-          uiState: "error",
-          uiMessage: `Extraction failed (DocAI page limit + Gemini OCR fallback): ${fallbackError?.message}`,
-          meta: {
-            docId,
-            docType: doc.type,
-            routingClass,
-            route: "gemini_ocr_fallback",
-            docai_error: error?.message,
-            gemini_error: fallbackError?.message,
-            elapsed_ms: Date.now() - started,
-          },
-        });
-
-        throw fallbackError;
-      }
-    }
-
-    // ── DocAI unavailable fallback → Gemini OCR ────────────────────────
-    // Permission denied, auth failure, processor not found, etc.
-    // These are availability-class errors — DocAI is misconfigured or down.
-    // Fall back to Gemini explicitly, mark DocAI as cached-unavailable.
-    if (useDocAi && isDocAiUnavailableError(error)) {
-      console.log("[SmartRouter] DocAI unavailable — falling back to Gemini OCR", {
-        docId,
-        routingClass,
-        error: error?.message,
-        code: (error as any)?.code,
-      });
-
-      // Mark DocAI as down for TTL to avoid hammering
-      markDocAiUnavailable();
-
-      await logLedgerEvent({
-        dealId: doc.deal_id,
-        bankId: doc.bank_id,
-        eventKey: "extract.docai_unavailable_fallback",
-        uiState: "working",
-        uiMessage: "Document AI unavailable — using Gemini OCR fallback",
-        meta: {
-          docId,
-          dealId: doc.deal_id,
-          canonicalType,
-          routingClass,
-          docai_location: process.env.GOOGLE_DOCAI_LOCATION ?? "us",
-          tax_processor_id: process.env.GOOGLE_DOCAI_TAX_PROCESSOR_ID ? "[set]" : "[missing]",
-          financial_processor_id: process.env.GOOGLE_DOCAI_FINANCIAL_PROCESSOR_ID ? "[set]" : "[missing]",
-          error_message: error?.message || String(error),
-          error_code: (error as any)?.code ?? null,
-        },
-      });
-
-      try {
-        const fallbackResult = await extractWithGeminiOcr(doc);
-
-        const elapsedMs = Date.now() - started;
-        console.log("[SmartRouter] Gemini OCR fallback succeeded (DocAI unavailable)", {
-          docId,
-          elapsed_ms: elapsedMs,
-        });
-
-        return {
-          doc,
-          result: fallbackResult.result,
-          provider_metrics: {
-            ...fallbackResult.provider_metrics,
-            fallback_from: "DOC_AI",
-            fallback_reason: "UNAVAILABLE",
-          },
-        };
-      } catch (fallbackError: any) {
-        await logLedgerEvent({
-          dealId: doc.deal_id,
-          bankId: doc.bank_id,
-          eventKey: "extract.failed",
-          uiState: "error",
-          uiMessage: `Extraction failed (DocAI unavailable + Gemini OCR fallback): ${fallbackError?.message}`,
-          meta: {
-            docId,
-            docType: doc.type,
-            routingClass,
-            route: "gemini_ocr_fallback",
-            docai_error: error?.message,
-            gemini_error: fallbackError?.message,
-            elapsed_ms: Date.now() - started,
-          },
-        });
-
-        throw fallbackError;
-      }
-    }
-
-    // ── Non-recoverable DocAI error: original behavior ──────────────────
-    // Emit specific DocAI failure event if the error came from DocAI route
-    if (useDocAi) {
-      void logLedgerEvent({
-        dealId: doc.deal_id,
-        bankId: doc.bank_id,
-        eventKey: "extract.docai_failed",
-        uiState: "error",
-        uiMessage: `Document AI extraction failed: ${error?.message || "Unknown error"}`,
-        meta: {
-          docId,
-          routingClass,
-          canonicalType,
-          error: error?.message || String(error),
-          elapsed_ms: Date.now() - started,
-        },
-      });
-    }
-
     await logLedgerEvent({
       dealId: doc.deal_id,
       bankId: doc.bank_id,
@@ -787,7 +488,7 @@ export async function extractByDocType(docId: string): Promise<ExtractByDocTypeR
         docId,
         docType: doc.type,
         routingClass,
-        route,
+        route: "gemini_ocr",
         error: error?.message || String(error),
         elapsed_ms: Date.now() - started,
       },

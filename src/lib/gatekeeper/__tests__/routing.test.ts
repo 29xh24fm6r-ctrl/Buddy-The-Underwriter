@@ -173,34 +173,34 @@ describe("computeGatekeeperRoute", () => {
 // ---------------------------------------------------------------------------
 
 describe("mapGatekeeperToCanonicalHint", () => {
-  it("maps BUSINESS_TAX_RETURN to DOC_AI_ATOMIC", () => {
+  it("maps BUSINESS_TAX_RETURN to GEMINI_STRUCTURED", () => {
     const hint = mapGatekeeperToCanonicalHint("BUSINESS_TAX_RETURN");
     assert.equal(hint.canonical_type_hint, "BUSINESS_TAX_RETURN");
-    assert.equal(hint.routing_class_hint, "DOC_AI_ATOMIC");
+    assert.equal(hint.routing_class_hint, "GEMINI_STRUCTURED");
   });
 
-  it("maps PERSONAL_TAX_RETURN to DOC_AI_ATOMIC", () => {
+  it("maps PERSONAL_TAX_RETURN to GEMINI_STRUCTURED", () => {
     const hint = mapGatekeeperToCanonicalHint("PERSONAL_TAX_RETURN");
     assert.equal(hint.canonical_type_hint, "PERSONAL_TAX_RETURN");
-    assert.equal(hint.routing_class_hint, "DOC_AI_ATOMIC");
+    assert.equal(hint.routing_class_hint, "GEMINI_STRUCTURED");
   });
 
-  it("maps W2 to PERSONAL_TAX_RETURN + DOC_AI_ATOMIC", () => {
+  it("maps W2 to PERSONAL_TAX_RETURN + GEMINI_STRUCTURED", () => {
     const hint = mapGatekeeperToCanonicalHint("W2");
     assert.equal(hint.canonical_type_hint, "PERSONAL_TAX_RETURN");
-    assert.equal(hint.routing_class_hint, "DOC_AI_ATOMIC");
+    assert.equal(hint.routing_class_hint, "GEMINI_STRUCTURED");
   });
 
-  it("maps FORM_1099 to PERSONAL_TAX_RETURN + DOC_AI_ATOMIC", () => {
+  it("maps FORM_1099 to PERSONAL_TAX_RETURN + GEMINI_STRUCTURED", () => {
     const hint = mapGatekeeperToCanonicalHint("FORM_1099");
     assert.equal(hint.canonical_type_hint, "PERSONAL_TAX_RETURN");
-    assert.equal(hint.routing_class_hint, "DOC_AI_ATOMIC");
+    assert.equal(hint.routing_class_hint, "GEMINI_STRUCTURED");
   });
 
-  it("maps K1 to PERSONAL_TAX_RETURN + DOC_AI_ATOMIC", () => {
+  it("maps K1 to PERSONAL_TAX_RETURN + GEMINI_STRUCTURED", () => {
     const hint = mapGatekeeperToCanonicalHint("K1");
     assert.equal(hint.canonical_type_hint, "PERSONAL_TAX_RETURN");
-    assert.equal(hint.routing_class_hint, "DOC_AI_ATOMIC");
+    assert.equal(hint.routing_class_hint, "GEMINI_STRUCTURED");
   });
 
   it("maps BANK_STATEMENT to GEMINI_STANDARD", () => {
@@ -239,10 +239,10 @@ describe("mapGatekeeperToCanonicalHint", () => {
     assert.equal(hint.routing_class_hint, "GEMINI_STANDARD");
   });
 
-  it("maps PERSONAL_FINANCIAL_STATEMENT to PFS + DOC_AI_ATOMIC", () => {
+  it("maps PERSONAL_FINANCIAL_STATEMENT to PFS + GEMINI_STRUCTURED", () => {
     const hint = mapGatekeeperToCanonicalHint("PERSONAL_FINANCIAL_STATEMENT");
     assert.equal(hint.canonical_type_hint, "PFS");
-    assert.equal(hint.routing_class_hint, "DOC_AI_ATOMIC");
+    assert.equal(hint.routing_class_hint, "GEMINI_STRUCTURED");
   });
 
   // All 12 doc types should return valid hints

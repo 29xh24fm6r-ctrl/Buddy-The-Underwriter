@@ -20,18 +20,6 @@ test("extractByDocType.ts must not reference page_count", () => {
   );
 });
 
-test("extractWithGoogleDocAi.ts must not reference page_count", () => {
-  const p = path.join(
-    process.cwd(),
-    "src/lib/extract/googleDocAi/extractWithGoogleDocAi.ts",
-  );
-  const s = read(p);
-  assert.ok(
-    !/\bpage_count\b/.test(s),
-    "extractWithGoogleDocAi.ts still references page_count — deal_documents does not have this column",
-  );
-});
-
 // ─── Extended: no .page_count property access in extract layer ───────────────
 // Catches doc.page_count / doc.pageCount property reads that would smuggle the
 // column back in via a different spelling. Scoped to src/lib/extract/ only.

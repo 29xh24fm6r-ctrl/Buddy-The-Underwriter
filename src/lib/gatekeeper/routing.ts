@@ -16,7 +16,7 @@ import type { GatekeeperClassification, GatekeeperDocType, GatekeeperRoute, Gate
 
 const CONFIDENCE_THRESHOLD = 0.80;
 
-/** Core doc types that route to Google Document AI. */
+/** Core doc types that route to structured extraction (Gemini Flash assist). */
 const CORE_TYPES: ReadonlySet<GatekeeperDocType> = new Set([
   "BUSINESS_TAX_RETURN",
   "PERSONAL_TAX_RETURN",
@@ -135,18 +135,18 @@ export function mapGatekeeperToCanonicalHint(docType: GatekeeperDocType): {
 } {
   switch (docType) {
     case "BUSINESS_TAX_RETURN":
-      return { canonical_type_hint: "BUSINESS_TAX_RETURN", routing_class_hint: "DOC_AI_ATOMIC" };
+      return { canonical_type_hint: "BUSINESS_TAX_RETURN", routing_class_hint: "GEMINI_STRUCTURED" };
     case "PERSONAL_TAX_RETURN":
     case "W2":
     case "FORM_1099":
     case "K1":
-      return { canonical_type_hint: "PERSONAL_TAX_RETURN", routing_class_hint: "DOC_AI_ATOMIC" };
+      return { canonical_type_hint: "PERSONAL_TAX_RETURN", routing_class_hint: "GEMINI_STRUCTURED" };
     case "BANK_STATEMENT":
       return { canonical_type_hint: "BANK_STATEMENT", routing_class_hint: "GEMINI_STANDARD" };
     case "FINANCIAL_STATEMENT":
       return { canonical_type_hint: "FINANCIAL_STATEMENT", routing_class_hint: "GEMINI_PACKET" };
     case "PERSONAL_FINANCIAL_STATEMENT":
-      return { canonical_type_hint: "PFS", routing_class_hint: "DOC_AI_ATOMIC" };
+      return { canonical_type_hint: "PFS", routing_class_hint: "GEMINI_STRUCTURED" };
     case "DRIVERS_LICENSE":
       return { canonical_type_hint: "ENTITY_DOCS", routing_class_hint: "GEMINI_STANDARD" };
     case "VOIDED_CHECK":

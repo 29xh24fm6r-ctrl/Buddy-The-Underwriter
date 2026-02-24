@@ -3,19 +3,22 @@ import type { ExtractionResult } from "../shared";
 /**
  * Extraction path taken by the deterministic extractor.
  *
- *  docai_structured — Parsed from Document AI's structured JSON entities
- *  docai_table      — Parsed from Document AI's table extraction
- *  ocr_regex        — Parsed from OCR text using regex patterns
+ * OBSERVATIONAL ONLY — must not change downstream spread logic,
+ * validator thresholds, or slot binding rules.
+ *
+ *  gemini_structured — Parsed from Gemini Flash structured assist JSON entities
+ *  gemini_table      — Parsed from Gemini Flash structured assist table extraction
+ *  ocr_regex         — Parsed from OCR text using regex patterns
  */
-export type ExtractionPath = "docai_structured" | "ocr_regex" | "docai_table" | "ocr_generic_scan";
+export type ExtractionPath = "gemini_structured" | "ocr_regex" | "gemini_table" | "ocr_generic_scan";
 
 export type DeterministicExtractorArgs = {
   dealId: string;
   bankId: string;
   documentId: string;
   ocrText: string;
-  /** Document AI structured JSON from document_extracts.fields_json.structuredJson */
-  docAiJson?: unknown;
+  /** Advisory structured JSON from Gemini Flash assist (never canonical truth) */
+  structuredJson?: unknown;
   /** Owner entity ID for personal docs (PFS, personal income) */
   ownerEntityId?: string | null;
   /** Document year from deal_documents.doc_year — fallback when OCR date extraction fails */
