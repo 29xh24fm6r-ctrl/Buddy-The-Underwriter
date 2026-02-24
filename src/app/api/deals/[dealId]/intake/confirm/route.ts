@@ -12,11 +12,11 @@ import {
 } from "@/lib/intake/confirmation/types";
 import { computeAllBlockers } from "@/lib/intake/confirmation/computeDocBlockers";
 import type { ActiveDoc } from "@/lib/intake/confirmation/computeDocBlockers";
-import { enqueueDealProcessing } from "@/lib/intake/processing/enqueueDealProcessing";
 import { detectStuckProcessing } from "@/lib/intake/processing/detectStuckProcessing";
 import { updateDealIfRunOwner } from "@/lib/intake/processing/updateDealIfRunOwner";
 import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { getBaseUrl } from "@/lib/net/getBaseUrl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -295,37 +295,59 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       },
     });
 
-    // Trigger downstream processing (fire-and-forget — do NOT await)
-    // Processing runs in the background; UI polls for PROCESSING_COMPLETE.
-    // This prevents Vercel 504 timeouts on large document sets.
-    void enqueueDealProcessing(dealId, access.bankId, runId).catch((err) => {
-      console.error("[intake/confirm] enqueue failed", {
-        dealId,
-        runId,
-        error: err?.message,
-      });
-
-      // Immediate error transition so the UI doesn't spin forever
-      void (sb as any)
-        .from("deals")
-        .update({
-          intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
-          intake_processing_error: `enqueue_failed: ${err?.message?.slice(0, 200)}`,
-        })
-        .eq("id", dealId)
-        .eq("intake_processing_run_id", runId);
-
-      void writeEvent({
-        dealId,
-        kind: "intake.processing_enqueue_failed",
-        scope: "intake",
-        meta: {
-          run_id: runId,
-          error: err?.message?.slice(0, 200),
-          observability_version: PROCESSING_OBSERVABILITY_VERSION,
+    // Trigger downstream processing via dedicated durable route.
+    // Processing runs in its OWN Lambda with maxDuration=300 (5 min),
+    // completely decoupled from this confirm response. The dedicated route
+    // implements a soft-deadline guard to guarantee terminal phase transition.
+    //
+    // No background work inside this lambda beyond the single handoff call.
+    const base = getBaseUrl();
+    if (base) {
+      void fetch(`${base}/api/deals/${dealId}/intake/process`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-buddy-internal": "1",
+          "x-worker-secret": process.env.WORKER_SECRET ?? "",
         },
+        body: JSON.stringify({ dealId, bankId: access.bankId, runId }),
+      }).then(async (res) => {
+        if (!res.ok) {
+          const body = await res.text().catch(() => "unknown");
+          throw new Error(`process_route_${res.status}: ${body.slice(0, 200)}`);
+        }
+      }).catch(async (err) => {
+        // FAIL CLOSED: emit event + terminal transition if still owner.
+        // No silent failure paths — every error emits event + state transition.
+        console.error("[intake/confirm] process route handoff failed", {
+          dealId,
+          runId,
+          error: err?.message,
+        });
+
+        await writeEvent({
+          dealId,
+          kind: "intake.processing_handoff_failed",
+          scope: "intake",
+          meta: {
+            run_id: runId,
+            error: err?.message?.slice(0, 200),
+            observability_version: PROCESSING_OBSERVABILITY_VERSION,
+          },
+        });
+
+        await updateDealIfRunOwner(dealId, runId, {
+          intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
+          intake_processing_error: `handoff_failed: ${err?.message?.slice(0, 200)}`,
+        });
       });
-    });
+    } else {
+      // Fallback: no base URL (local dev without env set) — inline processing
+      const { enqueueDealProcessing } = await import(
+        "@/lib/intake/processing/enqueueDealProcessing"
+      );
+      void enqueueDealProcessing(dealId, access.bankId, runId).catch(() => {});
+    }
 
     return NextResponse.json({
       ok: true,

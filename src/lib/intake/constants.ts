@@ -10,9 +10,9 @@
  * before the UI treats it as stuck. Also used as the backend lock TTL
  * for stale-lock recovery.
  *
- * 5 minutes — generous for large doc sets (9+ docs with extraction + spreads).
+ * 15 minutes — generous for large doc sets (9–20+ docs with DocAI + extraction + spreads).
  */
-export const MAX_PROCESSING_WINDOW_MS = 5 * 60 * 1000;
+export const MAX_PROCESSING_WINDOW_MS = 15 * 60 * 1000;
 
 /**
  * Processing lifecycle version. Emitted in completion ledger events
@@ -26,19 +26,26 @@ export const PROCESSING_VERSION = "processing_v2";
  */
 export const POLL_INITIAL_MS = 3_000;
 export const POLL_BACKOFF_MS = 5_000;
-export const POLL_MAX_MS = 10_000;
+export const POLL_MAX_MS = 15_000;
 
 /**
  * Maximum time (ms) a deal may remain queued (queued_at set, started_at null)
- * before the server treats it as stuck. 2 minutes — generous for Vercel cold starts.
+ * before the server treats it as stuck. 3 minutes — generous for Vercel cold starts.
  */
-export const MAX_QUEUE_TO_START_MS = 2 * 60 * 1000;
+export const MAX_QUEUE_TO_START_MS = 3 * 60 * 1000;
 
 /**
  * Maximum time (ms) since the last heartbeat stamp before the server treats
- * processing as stalled. 3 minutes — shorter than the overall 5min window.
+ * processing as stalled. 5 minutes — shorter than the overall 15min window.
  */
-export const MAX_HEARTBEAT_STALE_MS = 3 * 60 * 1000;
+export const MAX_HEARTBEAT_STALE_MS = 5 * 60 * 1000;
+
+/**
+ * Soft deadline (ms) for the dedicated /intake/process route.
+ * Must be less than maxDuration (300s = 5min) to leave time for cleanup
+ * and guaranteed phase transition before Vercel kills the Lambda.
+ */
+export const SOFT_DEADLINE_MS = 4 * 60 * 1000;
 
 /**
  * Processing observability schema version. Emitted in all observability-related

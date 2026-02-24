@@ -431,13 +431,13 @@ test("[guard-25] confirm route contains quality_gate_failed + quality_status", (
   );
 });
 
-// ── Guard 26: processConfirmedIntake contains quality violation guard ─
+// ── Guard 26: processConfirmedIntake contains quality warning (non-aborting) ─
 
-test("[guard-26] processConfirmedIntake contains processing_blocked_quality_violation", () => {
+test("[guard-26] processConfirmedIntake contains processing_quality_warning", () => {
   const src = readSource("src/lib/intake/processing/processConfirmedIntake.ts");
   assert.ok(
-    src.includes("intake.processing_blocked_quality_violation"),
-    "processConfirmedIntake must emit intake.processing_blocked_quality_violation",
+    src.includes("intake.processing_quality_warning"),
+    "processConfirmedIntake must emit intake.processing_quality_warning (non-aborting quality gate)",
   );
 });
 

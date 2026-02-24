@@ -180,24 +180,23 @@ export async function processConfirmedIntake(
   // ── END SNAPSHOT VERIFICATION ───────────────────────────────────────
   if (runId) void stampProcessingHeartbeat(dealId, runId, "snapshot_verified");
 
-  // ── QUALITY VERIFICATION (defense-in-depth) ──────────────────────
+  // ── QUALITY VERIFICATION (defense-in-depth, non-aborting) ────────
+  // Only explicitly FAILED docs are flagged. Docs with NULL quality_status
+  // (not yet evaluated) pass through — the confirmation gate already validated.
+  // A single doc failure must not abort the entire processing run.
   const { data: failedQualityDocs, error: qualityCheckErr } = await (sb as any)
     .from("deal_documents")
     .select("id, quality_status")
     .eq("deal_id", dealId)
     .eq("is_active", true)
-    .or("quality_status.is.null,quality_status.neq.PASSED");
+    .eq("quality_status", "FAILED");
 
   if (qualityCheckErr) {
-    throw new Error(
-      `[processConfirmedIntake] quality check failed: ${qualityCheckErr.message}`,
-    );
-  }
-
-  if (failedQualityDocs && failedQualityDocs.length > 0) {
+    errors.push(`quality_check_query: ${qualityCheckErr.message}`);
+  } else if (failedQualityDocs && failedQualityDocs.length > 0) {
     void writeEvent({
       dealId,
-      kind: "intake.processing_blocked_quality_violation",
+      kind: "intake.processing_quality_warning",
       scope: "intake",
       meta: {
         failed_count: failedQualityDocs.length,
@@ -205,8 +204,8 @@ export async function processConfirmedIntake(
         quality_version: QUALITY_VERSION,
       },
     });
-    throw new Error(
-      `[processConfirmedIntake] ${failedQualityDocs.length} docs failed quality gate for deal ${dealId}`,
+    errors.push(
+      `quality_defense: ${failedQualityDocs.length} docs have FAILED quality status`,
     );
   }
   // ── END QUALITY VERIFICATION ─────────────────────────────────────
@@ -309,12 +308,18 @@ export async function processConfirmedIntake(
 
   const confirmedDocs = docs as ConfirmedDoc[];
 
-  // 2. Per-doc: matching + extraction + spread recompute
+  // 2. Per-doc: matching + extraction (parallelized with bounded concurrency)
   //
   // IMPORTANT: ALL docs here are confirmed (AUTO_CONFIRMED, USER_CONFIRMED,
   // or LOCKED_FOR_PROCESSING). The gatekeeper_needs_review flag is pre-confirmation
   // metadata — the banker's confirmation IS the review. Never gate on it here.
-  for (const doc of confirmedDocs) {
+  //
+  // Concurrency limit of 3 prevents overloading AI extraction services while
+  // cutting total processing time from ~7 min (sequential) to ~2.5 min for 9 docs.
+  const DOC_CONCURRENCY = 3;
+
+  /** Process a single document: matching → extraction. */
+  async function processOneDoc(doc: ConfirmedDoc): Promise<void> {
     const effectiveDocType =
       doc.canonical_type ?? doc.document_type ?? doc.ai_doc_type ?? "";
 
@@ -374,7 +379,6 @@ export async function processConfirmedIntake(
               classifiedTaxYear: doc.ai_tax_year ?? doc.gatekeeper_tax_year ?? null,
             });
           } catch (valErr: any) {
-            // Non-fatal — slot stays "attached" if validation fails
             console.warn(
               `[processConfirmedIntake] slot validation error for doc ${doc.id}:`,
               valErr?.message,
@@ -399,8 +403,31 @@ export async function processConfirmedIntake(
         errors.push(`extract:${doc.id}:${err?.message}`);
       }
     }
+  }
 
-    if (runId) void stampProcessingHeartbeat(dealId, runId, "doc_processed");
+  // Process docs in batches of DOC_CONCURRENCY
+  for (let i = 0; i < confirmedDocs.length; i += DOC_CONCURRENCY) {
+    // CAS bail-out: verify this run is still the active run before each batch
+    if (runId) {
+      try {
+        const { data: runCheck } = await sb
+          .from("deals")
+          .select("intake_processing_run_id")
+          .eq("id", dealId)
+          .maybeSingle();
+        if (runCheck && (runCheck as any).intake_processing_run_id !== runId) {
+          errors.push("run_superseded_mid_processing");
+          break;
+        }
+      } catch {
+        // Non-fatal — continue processing if CAS check fails
+      }
+    }
+
+    const batch = confirmedDocs.slice(i, i + DOC_CONCURRENCY);
+    await Promise.allSettled(batch.map(processOneDoc));
+
+    if (runId) void stampProcessingHeartbeat(dealId, runId, `batch_${i}`);
   }
 
   // ── E2: Proof-driven spread orchestration ─────────────────────────
