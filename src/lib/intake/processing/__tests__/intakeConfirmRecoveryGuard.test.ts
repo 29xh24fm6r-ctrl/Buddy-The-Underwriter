@@ -187,87 +187,120 @@ describe("FIX 2A: Actionable auto-recovery", () => {
 // INVARIANT Guards — Bulk confirm stamps ALL docs + outbox event
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("INVARIANT: Confirm route atomic guarantees", () => {
+describe("INVARIANT: Confirm route atomic guarantees via RPC", () => {
   const confirmSrc = readSource(
     "src/app/api/deals/[dealId]/intake/confirm/route.ts",
   );
+  const rpcSrc = readSource(
+    "supabase/migrations/20260225_finalize_intake_and_enqueue_rpc.sql",
+  );
 
-  test("[inv-a] confirm route stamps quality_status=PASSED on all docs (idempotent)", () => {
+  test("[inv-1] confirm route calls finalize_intake_and_enqueue_processing RPC", () => {
     assert.ok(
-      confirmSrc.includes('quality_status: "PASSED"'),
-      "Confirm route must set quality_status to PASSED on all docs",
+      confirmSrc.includes("finalize_intake_and_enqueue_processing"),
+      "Confirm route must call finalize_intake_and_enqueue_processing RPC",
     );
     assert.ok(
-      confirmSrc.includes('.is("finalized_at", null)'),
-      "Confirm route must use .is(finalized_at, null) for idempotent stamp",
-    );
-  });
-
-  test("[inv-a2] confirm route stamps finalized_at on all docs", () => {
-    assert.ok(
-      confirmSrc.includes("finalized_at: now"),
-      "Confirm route must set finalized_at=now on all docs",
+      confirmSrc.includes(".rpc("),
+      "Confirm route must use .rpc() for atomic finalization",
     );
   });
 
-  test("[inv-a3] finalize stamp happens AFTER lock and BEFORE phase transition", () => {
+  test("[inv-2] confirm route does NOT inline document quality stamp", () => {
+    // The quality stamp is inside the RPC — the route must not duplicate it
+    assert.ok(
+      !confirmSrc.includes('.is("finalized_at", null)'),
+      "Confirm route must NOT have inline finalized_at idempotency check — delegated to RPC",
+    );
+  });
+
+  test("[inv-3] confirm route does NOT inline outbox insert", () => {
+    assert.ok(
+      !confirmSrc.includes("await insertOutboxEvent("),
+      "Confirm route must NOT have inline outbox insert — delegated to RPC",
+    );
+    assert.ok(
+      !confirmSrc.includes("insertOutboxEvent"),
+      "Confirm route must NOT import insertOutboxEvent — outbox is inside the RPC",
+    );
+  });
+
+  test("[inv-4] confirm route does NOT inline deal phase mutation", () => {
+    // Run markers (intake_processing_queued_at: now) are set inside the RPC,
+    // not inline in the route. The route only reads from deals via .select().
+    // (updateDealIfRunOwner is used for stuck recovery — separate concern.)
+    assert.ok(
+      !confirmSrc.includes("intake_processing_queued_at: now"),
+      "Confirm route must NOT have inline run marker stamps — delegated to RPC",
+    );
+  });
+
+  test("[inv-5] RPC stamps quality_status=PASSED on all active docs (idempotent)", () => {
+    assert.ok(
+      rpcSrc.includes("quality_status = 'PASSED'"),
+      "RPC must stamp quality_status to PASSED",
+    );
+    assert.ok(
+      rpcSrc.includes("finalized_at IS NULL"),
+      "RPC must use idempotent finalized_at IS NULL guard",
+    );
+  });
+
+  test("[inv-6] RPC emits intake.documents_finalized event", () => {
+    assert.ok(
+      rpcSrc.includes("intake.documents_finalized"),
+      "RPC must emit intake.documents_finalized event",
+    );
+  });
+
+  test("[inv-7] RPC inserts outbox event with intake.process kind", () => {
+    assert.ok(
+      rpcSrc.includes("buddy_outbox_events"),
+      "RPC must insert into buddy_outbox_events",
+    );
+    assert.ok(
+      rpcSrc.includes("intake.process"),
+      "RPC outbox event kind must be intake.process",
+    );
+  });
+
+  test("[inv-8] RPC transitions deal to CONFIRMED_READY_FOR_PROCESSING", () => {
+    assert.ok(
+      rpcSrc.includes("CONFIRMED_READY_FOR_PROCESSING"),
+      "RPC must transition deal to CONFIRMED_READY_FOR_PROCESSING",
+    );
+  });
+
+  test("[inv-9] RPC is SECURITY DEFINER with plpgsql (single transaction)", () => {
+    assert.ok(
+      rpcSrc.includes("SECURITY DEFINER"),
+      "RPC must be SECURITY DEFINER for atomic transaction",
+    );
+    assert.ok(
+      rpcSrc.includes("LANGUAGE plpgsql"),
+      "RPC must be plpgsql for transactional guarantees",
+    );
+  });
+
+  test("[inv-10] RPC returns ok + stamped doc count", () => {
+    assert.ok(
+      rpcSrc.includes("'ok', true"),
+      "RPC must return ok=true on success",
+    );
+    assert.ok(
+      rpcSrc.includes("stamped_doc_count"),
+      "RPC must return stamped_doc_count",
+    );
+  });
+
+  test("[inv-11] lock step happens BEFORE RPC call", () => {
     const lockIdx = confirmSrc.indexOf("LOCKED_FOR_PROCESSING");
-    const stampIdx = confirmSrc.indexOf("INVARIANT (a)");
-    const phaseIdx = confirmSrc.indexOf('intake_phase: "CONFIRMED_READY_FOR_PROCESSING"');
+    const rpcIdx = confirmSrc.indexOf("finalize_intake_and_enqueue_processing");
     assert.ok(lockIdx > 0, "Lock step must exist");
-    assert.ok(stampIdx > 0, "INVARIANT (a) stamp must exist");
-    assert.ok(phaseIdx > 0, "Phase transition must exist");
-    assert.ok(lockIdx < stampIdx, "Lock must happen BEFORE finalize stamp");
-    assert.ok(stampIdx < phaseIdx, "Finalize stamp must happen BEFORE phase transition");
-  });
-
-  test("[inv-b] confirm route emits intake.documents_finalized aggregate event", () => {
+    assert.ok(rpcIdx > 0, "RPC call must exist");
     assert.ok(
-      confirmSrc.includes('"intake.documents_finalized"'),
-      "Confirm route must emit intake.documents_finalized aggregate event",
-    );
-    assert.ok(
-      confirmSrc.includes("doc_ids: stampedDocIds"),
-      "Aggregate event must include doc_ids array",
-    );
-  });
-
-  test("[inv-c] confirm route inserts outbox event with deal_id + run_id", () => {
-    assert.ok(
-      confirmSrc.includes("insertOutboxEvent"),
-      "Confirm route must call insertOutboxEvent",
-    );
-    assert.ok(
-      confirmSrc.includes('"intake.process"'),
-      "Outbox event kind must be intake.process",
-    );
-    // Verify deal_id is ALWAYS in the outbox payload
-    assert.ok(
-      confirmSrc.includes("deal_id: dealId"),
-      "Outbox payload must include deal_id",
-    );
-    assert.ok(
-      confirmSrc.includes("run_id: runId") || confirmSrc.includes("run_id,"),
-      "Outbox payload must include run_id",
-    );
-  });
-
-  test("[inv-c2] outbox event is inserted AFTER phase transition", () => {
-    const phaseIdx = confirmSrc.indexOf('intake_phase: "CONFIRMED_READY_FOR_PROCESSING"');
-    // Search for the actual outbox call (await insertOutboxEvent), not the import
-    const outboxIdx = confirmSrc.indexOf("await insertOutboxEvent(");
-    assert.ok(phaseIdx > 0, "Phase transition must exist");
-    assert.ok(outboxIdx > 0, "Awaited insertOutboxEvent call must exist");
-    assert.ok(
-      phaseIdx < outboxIdx,
-      "Phase transition must happen BEFORE outbox insert (outbox confirms phase is set)",
-    );
-  });
-
-  test("[inv-c3] outbox import is from @/lib/outbox/insertOutboxEvent", () => {
-    assert.ok(
-      confirmSrc.includes('@/lib/outbox/insertOutboxEvent'),
-      "Must import from canonical outbox module",
+      lockIdx < rpcIdx,
+      "Lock must happen BEFORE the atomic finalization RPC",
     );
   });
 });
@@ -340,25 +373,25 @@ describe("FIX 2B: Confirm step enqueue integrity", () => {
     "src/app/api/deals/[dealId]/intake/confirm/route.ts",
   );
 
-  test("[fix2b-1] confirm route stamps run_id + queued_at atomically", () => {
+  test("[fix2b-1] confirm route passes run_id + docs_locked to RPC", () => {
     assert.ok(
-      confirmSrc.includes("intake_processing_queued_at:"),
-      "Confirm route must stamp intake_processing_queued_at",
+      confirmSrc.includes("p_run_id: runId"),
+      "Confirm route must pass p_run_id to RPC",
     );
     assert.ok(
-      confirmSrc.includes("intake_processing_run_id:"),
-      "Confirm route must stamp intake_processing_run_id",
+      confirmSrc.includes("p_docs_locked: activeDocs.length"),
+      "Confirm route must pass p_docs_locked to RPC",
     );
   });
 
-  test("[fix2b-2] confirm route generates run_id before phase transition", () => {
+  test("[fix2b-2] confirm route generates run_id before RPC call", () => {
     const runIdIdx = confirmSrc.indexOf("const runId = crypto.randomUUID()");
-    const phaseUpdateIdx = confirmSrc.indexOf('intake_phase: "CONFIRMED_READY_FOR_PROCESSING"');
+    const rpcIdx = confirmSrc.indexOf("finalize_intake_and_enqueue_processing");
     assert.ok(runIdIdx > 0, "confirm route must generate runId");
-    assert.ok(phaseUpdateIdx > 0, "confirm route must transition phase");
+    assert.ok(rpcIdx > 0, "confirm route must call RPC");
     assert.ok(
-      runIdIdx < phaseUpdateIdx,
-      "runId must be generated BEFORE phase transition",
+      runIdIdx < rpcIdx,
+      "runId must be generated BEFORE RPC call",
     );
   });
 

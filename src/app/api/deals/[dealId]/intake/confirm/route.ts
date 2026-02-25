@@ -17,7 +17,6 @@ import { updateDealIfRunOwner } from "@/lib/intake/processing/updateDealIfRunOwn
 import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { getBaseUrl } from "@/lib/net/getBaseUrl";
-import { insertOutboxEvent } from "@/lib/outbox/insertOutboxEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -247,47 +246,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       );
     }
 
-    // ── INVARIANT (a): Stamp quality_status + finalized_at on ALL docs ──
-    // Idempotent: only touches docs where finalized_at IS NULL.
-    // Any transition into CONFIRMED_READY_FOR_PROCESSING must guarantee
-    // every document has quality_status='PASSED' and finalized_at set.
-    const { data: stampedRows, error: finalizeErr } = await (sb as any)
-      .from("deal_documents")
-      .update({
-        quality_status: "PASSED",
-        finalized_at: now,
-      })
-      .eq("deal_id", dealId)
-      .eq("is_active", true)
-      .is("finalized_at", null)
-      .select("id");
-
-    if (finalizeErr) {
-      return NextResponse.json(
-        { ok: false, error: "finalize_stamp_failed", detail: finalizeErr.message },
-        { status: 500 },
-      );
-    }
-
-    const stampedDocIds: string[] = (stampedRows ?? []).map((r: any) => r.id);
-
-    // ── INVARIANT (b): Emit aggregate finalization event ────────────────
-    if (stampedDocIds.length > 0) {
-      void writeEvent({
-        dealId,
-        kind: "intake.documents_finalized",
-        actorUserId: access.userId,
-        scope: "intake",
-        meta: {
-          doc_ids: stampedDocIds,
-          count: stampedDocIds.length,
-          finalized_at: now,
-          quality_status: "PASSED",
-          intake_confirmation_version: INTAKE_CONFIRMATION_VERSION,
-        },
-      });
-    }
-
     // Compute snapshot hash — only identity-resolved docs (logical_key IS NOT NULL)
     const sealableDocs = activeDocs.filter((d) => d.logical_key != null);
     const snapshotHash = computeIntakeSnapshotHash(
@@ -298,43 +256,34 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       })),
     );
 
-    // Transition deal to CONFIRMED_READY_FOR_PROCESSING + stamp run markers
-    const { error: phaseErr } = await (sb as any)
-      .from("deals")
-      .update({
-        intake_phase: "CONFIRMED_READY_FOR_PROCESSING",
-        intake_snapshot_hash: snapshotHash,
-        intake_snapshot_version: INTAKE_SNAPSHOT_VERSION,
-        intake_processing_queued_at: now,
-        intake_processing_started_at: null,
-        intake_processing_run_id: runId,
-        intake_processing_last_heartbeat_at: null,
-        intake_processing_error: null,
-      })
-      .eq("id", dealId);
+    // ── ATOMIC INVARIANT: finalize_intake_and_enqueue_processing RPC ──
+    // Single Postgres transaction guarantees ALL-or-NOTHING:
+    //   (a) Stamp quality_status='PASSED' + finalized_at on ALL active docs (idempotent)
+    //   (b) Emit intake.documents_finalized event into deal_events
+    //   (c) Insert intake.process outbox row into buddy_outbox_events
+    //   (d) Transition deal to CONFIRMED_READY_FOR_PROCESSING + stamp run markers
+    // Fail closed: any step failure rolls back the entire transaction.
+    const { data: rpcResult, error: rpcErr } = await (sb as any).rpc(
+      "finalize_intake_and_enqueue_processing",
+      {
+        p_deal_id: dealId,
+        p_run_id: runId,
+        p_bank_id: access.bankId ?? null,
+        p_snapshot_hash: snapshotHash,
+        p_snapshot_version: INTAKE_SNAPSHOT_VERSION,
+        p_confirmed_by: access.userId,
+        p_docs_locked: activeDocs.length,
+      },
+    );
 
-    if (phaseErr) {
+    if (rpcErr) {
       return NextResponse.json(
-        { ok: false, error: "phase_update_failed", detail: phaseErr.message },
+        { ok: false, error: "finalize_rpc_failed", detail: rpcErr.message },
         { status: 500 },
       );
     }
 
-    // ── INVARIANT (c): Enqueue processing outbox event ────────────────
-    // The outbox is the system of record for durable delivery.
-    // deal_id is ALWAYS set — no null deal_id in outbox.
-    await insertOutboxEvent({
-      kind: "intake.process",
-      dealId,
-      bankId: access.bankId,
-      payload: {
-        deal_id: dealId,
-        run_id: runId,
-        reason: "confirm_all",
-        snapshot_hash: snapshotHash,
-        docs_locked: activeDocs.length,
-      },
-    });
+    const stampedDocIds: string[] = (rpcResult as any)?.stamped_doc_ids ?? [];
 
     // Emit confirmation event
     void writeEvent({
