@@ -141,11 +141,17 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       (body.tax_year !== undefined && body.tax_year !== beforeState.doc_year);
 
     // Build patch
+    const now = new Date().toISOString();
     const patch: Record<string, unknown> = {
       intake_status: "USER_CONFIRMED",
-      intake_confirmed_at: new Date().toISOString(),
+      intake_confirmed_at: now,
       intake_confirmed_by: access.userId,
       match_source: willCorrect ? "manual" : "manual_confirmed",
+      // FIX 1A: Human confirmation = quality gate passed.
+      // Without this, quality_status stays NULL and the confirmation gate
+      // blocks with quality_not_passed on every doc the user confirmed.
+      quality_status: "PASSED",
+      finalized_at: now,
     };
 
     if (body.canonical_type !== undefined) patch.canonical_type = body.canonical_type;
@@ -170,6 +176,20 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         { status: 500 },
       );
     }
+
+    // Emit finalization event (FIX 1A)
+    void writeEvent({
+      dealId,
+      kind: "intake.document_finalized",
+      actorUserId: access.userId,
+      scope: "intake",
+      meta: {
+        document_id: documentId,
+        finalized_at: now,
+        quality_status: "PASSED",
+        intake_confirmation_version: INTAKE_CONFIRMATION_VERSION,
+      },
+    });
 
     // Determine if anything was corrected
     const afterState = {
