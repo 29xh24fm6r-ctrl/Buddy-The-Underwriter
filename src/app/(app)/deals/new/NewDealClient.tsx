@@ -629,6 +629,25 @@ export default function NewDealClient({
 
       console.log(`Uploaded ${successCount}/${entries.length} files to deal ${dealId}`);
 
+      // Fail-closed: verify all uploads were recorded in deal_documents
+      try {
+        const healthRes = await fetch(`/api/deals/${dealId}/files/upload-health`);
+        const health = await healthRes.json().catch(() => ({}));
+        if (health.gap_detected) {
+          throw new Error(
+            `${health.gap_count} of ${health.session_files_count} documents failed to record. ` +
+            `Expected: ${health.session_files_count}, Actual: ${health.deal_documents_count}. ` +
+            `(Deal: ${dealId}, Session: ${sessionId})`,
+          );
+        }
+      } catch (healthErr) {
+        if (healthErr instanceof Error && healthErr.message.includes("failed to record")) {
+          throw healthErr;
+        }
+        // Health check endpoint failure is non-fatal — log and continue
+        console.warn("upload-health check failed (non-fatal):", healthErr);
+      }
+
       // Mark upload batch as complete
       if (successCount > 0) {
         try {

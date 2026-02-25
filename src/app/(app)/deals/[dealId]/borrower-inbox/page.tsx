@@ -48,7 +48,7 @@ export default async function Page({
     // Note: uploads can come from borrower portal (borrower_uploads) OR banker uploads (deal_documents)
     const [dealRes, borrowerUploadsRes, dealDocumentsRes, checklistRes] = await Promise.all([
         sb.from("deals")
-            .select("lifecycle_stage")
+            .select("stage")
             .eq("id", dealId)
             .eq("bank_id", access.bankId)
             .maybeSingle(),
@@ -72,7 +72,7 @@ export default async function Page({
     // 2. Files have been uploaded, OR
     // 3. Checklist has been seeded/materialized
     const shouldShowDocuments =
-        (deal?.lifecycle_stage && deal.lifecycle_stage !== "created") ||
+        (deal?.stage && deal.stage !== "created") ||
         hasUploads ||
         hasChecklist;
 

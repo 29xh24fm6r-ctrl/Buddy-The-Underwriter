@@ -117,11 +117,11 @@ export async function POST(req: Request) {
 
     const { data: deal } = await sb
       .from("deals")
-      .select("lifecycle_stage")
+      .select("stage")
       .eq("id", invite.deal_id)
       .maybeSingle();
 
-    if (!isBorrowerUploadAllowed(deal?.lifecycle_stage ?? null)) {
+    if (!isBorrowerUploadAllowed(deal?.stage ?? null)) {
       return NextResponse.json(
         { error: "Deal intake not started" },
         { status: 403 },

@@ -106,7 +106,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     // Fetch deal to get bank_id (required for insert)
     const { data: deal, error: dealErr } = await sb
       .from("deals")
-      .select("bank_id, lifecycle_stage")
+      .select("bank_id, stage")
       .eq("id", dealId)
       .maybeSingle();
 
@@ -279,11 +279,11 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     const { data: refreshed } = await sb
       .from("deals")
-      .select("lifecycle_stage")
+      .select("stage")
       .eq("id", dealId)
       .maybeSingle();
 
-    const stage = (refreshed as any)?.lifecycle_stage ?? deal.lifecycle_stage;
+    const stage = (refreshed as any)?.stage ?? deal.stage;
     if (!isBorrowerUploadAllowed(stage)) {
       return NextResponse.json(
         { ok: false, error: "Deal intake not started" },
