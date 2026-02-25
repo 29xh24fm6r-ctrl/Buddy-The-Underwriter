@@ -184,6 +184,95 @@ describe("FIX 2A: Actionable auto-recovery", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// INVARIANT Guards — Bulk confirm stamps ALL docs + outbox event
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("INVARIANT: Confirm route atomic guarantees", () => {
+  const confirmSrc = readSource(
+    "src/app/api/deals/[dealId]/intake/confirm/route.ts",
+  );
+
+  test("[inv-a] confirm route stamps quality_status=PASSED on all docs (idempotent)", () => {
+    assert.ok(
+      confirmSrc.includes('quality_status: "PASSED"'),
+      "Confirm route must set quality_status to PASSED on all docs",
+    );
+    assert.ok(
+      confirmSrc.includes('.is("finalized_at", null)'),
+      "Confirm route must use .is(finalized_at, null) for idempotent stamp",
+    );
+  });
+
+  test("[inv-a2] confirm route stamps finalized_at on all docs", () => {
+    assert.ok(
+      confirmSrc.includes("finalized_at: now"),
+      "Confirm route must set finalized_at=now on all docs",
+    );
+  });
+
+  test("[inv-a3] finalize stamp happens AFTER lock and BEFORE phase transition", () => {
+    const lockIdx = confirmSrc.indexOf("LOCKED_FOR_PROCESSING");
+    const stampIdx = confirmSrc.indexOf("INVARIANT (a)");
+    const phaseIdx = confirmSrc.indexOf('intake_phase: "CONFIRMED_READY_FOR_PROCESSING"');
+    assert.ok(lockIdx > 0, "Lock step must exist");
+    assert.ok(stampIdx > 0, "INVARIANT (a) stamp must exist");
+    assert.ok(phaseIdx > 0, "Phase transition must exist");
+    assert.ok(lockIdx < stampIdx, "Lock must happen BEFORE finalize stamp");
+    assert.ok(stampIdx < phaseIdx, "Finalize stamp must happen BEFORE phase transition");
+  });
+
+  test("[inv-b] confirm route emits intake.documents_finalized aggregate event", () => {
+    assert.ok(
+      confirmSrc.includes('"intake.documents_finalized"'),
+      "Confirm route must emit intake.documents_finalized aggregate event",
+    );
+    assert.ok(
+      confirmSrc.includes("doc_ids: stampedDocIds"),
+      "Aggregate event must include doc_ids array",
+    );
+  });
+
+  test("[inv-c] confirm route inserts outbox event with deal_id + run_id", () => {
+    assert.ok(
+      confirmSrc.includes("insertOutboxEvent"),
+      "Confirm route must call insertOutboxEvent",
+    );
+    assert.ok(
+      confirmSrc.includes('"intake.process"'),
+      "Outbox event kind must be intake.process",
+    );
+    // Verify deal_id is ALWAYS in the outbox payload
+    assert.ok(
+      confirmSrc.includes("deal_id: dealId"),
+      "Outbox payload must include deal_id",
+    );
+    assert.ok(
+      confirmSrc.includes("run_id: runId") || confirmSrc.includes("run_id,"),
+      "Outbox payload must include run_id",
+    );
+  });
+
+  test("[inv-c2] outbox event is inserted AFTER phase transition", () => {
+    const phaseIdx = confirmSrc.indexOf('intake_phase: "CONFIRMED_READY_FOR_PROCESSING"');
+    // Search for the actual outbox call (await insertOutboxEvent), not the import
+    const outboxIdx = confirmSrc.indexOf("await insertOutboxEvent(");
+    assert.ok(phaseIdx > 0, "Phase transition must exist");
+    assert.ok(outboxIdx > 0, "Awaited insertOutboxEvent call must exist");
+    assert.ok(
+      phaseIdx < outboxIdx,
+      "Phase transition must happen BEFORE outbox insert (outbox confirms phase is set)",
+    );
+  });
+
+  test("[inv-c3] outbox import is from @/lib/outbox/insertOutboxEvent", () => {
+    assert.ok(
+      confirmSrc.includes('@/lib/outbox/insertOutboxEvent'),
+      "Must import from canonical outbox module",
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Behavioral Guards — detectStuckProcessing for queued_never_started
 // ═══════════════════════════════════════════════════════════════════════════
 

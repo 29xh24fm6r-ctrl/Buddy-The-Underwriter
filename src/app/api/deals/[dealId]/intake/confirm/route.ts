@@ -17,6 +17,7 @@ import { updateDealIfRunOwner } from "@/lib/intake/processing/updateDealIfRunOwn
 import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { getBaseUrl } from "@/lib/net/getBaseUrl";
+import { insertOutboxEvent } from "@/lib/outbox/insertOutboxEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -246,6 +247,47 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       );
     }
 
+    // ── INVARIANT (a): Stamp quality_status + finalized_at on ALL docs ──
+    // Idempotent: only touches docs where finalized_at IS NULL.
+    // Any transition into CONFIRMED_READY_FOR_PROCESSING must guarantee
+    // every document has quality_status='PASSED' and finalized_at set.
+    const { data: stampedRows, error: finalizeErr } = await (sb as any)
+      .from("deal_documents")
+      .update({
+        quality_status: "PASSED",
+        finalized_at: now,
+      })
+      .eq("deal_id", dealId)
+      .eq("is_active", true)
+      .is("finalized_at", null)
+      .select("id");
+
+    if (finalizeErr) {
+      return NextResponse.json(
+        { ok: false, error: "finalize_stamp_failed", detail: finalizeErr.message },
+        { status: 500 },
+      );
+    }
+
+    const stampedDocIds: string[] = (stampedRows ?? []).map((r: any) => r.id);
+
+    // ── INVARIANT (b): Emit aggregate finalization event ────────────────
+    if (stampedDocIds.length > 0) {
+      void writeEvent({
+        dealId,
+        kind: "intake.documents_finalized",
+        actorUserId: access.userId,
+        scope: "intake",
+        meta: {
+          doc_ids: stampedDocIds,
+          count: stampedDocIds.length,
+          finalized_at: now,
+          quality_status: "PASSED",
+          intake_confirmation_version: INTAKE_CONFIRMATION_VERSION,
+        },
+      });
+    }
+
     // Compute snapshot hash — only identity-resolved docs (logical_key IS NOT NULL)
     const sealableDocs = activeDocs.filter((d) => d.logical_key != null);
     const snapshotHash = computeIntakeSnapshotHash(
@@ -277,6 +319,22 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         { status: 500 },
       );
     }
+
+    // ── INVARIANT (c): Enqueue processing outbox event ────────────────
+    // The outbox is the system of record for durable delivery.
+    // deal_id is ALWAYS set — no null deal_id in outbox.
+    await insertOutboxEvent({
+      kind: "intake.process",
+      dealId,
+      bankId: access.bankId,
+      payload: {
+        deal_id: dealId,
+        run_id: runId,
+        reason: "confirm_all",
+        snapshot_hash: snapshotHash,
+        docs_locked: activeDocs.length,
+      },
+    });
 
     // Emit confirmation event
     void writeEvent({
