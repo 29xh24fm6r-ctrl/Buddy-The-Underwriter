@@ -3,11 +3,9 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { writeEvent } from "@/lib/ledger/writeEvent";
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import { detectStuckProcessing } from "@/lib/intake/processing/detectStuckProcessing";
-import { updateDealIfRunOwner } from "@/lib/intake/processing/updateDealIfRunOwner";
-import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
+import { handleStuckRecovery } from "@/lib/intake/processing/handleStuckRecovery";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -55,11 +53,12 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       );
     }
 
-    // ── Auto-recovery on poll ──────────────────────────────────────────
-    // If the deal is stuck in CONFIRMED_READY_FOR_PROCESSING, transition
-    // to error state deterministically. Fires at most once per stuck run
-    // (phase changes → detection stops on subsequent polls).
+    // ── Auto-recovery on poll (FIX 2A: actionable for queued_never_started) ──
+    // If stuck in CONFIRMED_READY_FOR_PROCESSING:
+    // - queued_never_started → re-enqueue processing with fresh run_id
+    // - other reasons → transition to PROCESSING_COMPLETE_WITH_ERRORS
     let autoRecovered = false;
+    let reenqueued = false;
     let dealPhase = (deal as any).intake_phase as string | null;
     let dealError: string | null = (deal as any).intake_processing_error ?? null;
 
@@ -80,30 +79,18 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       );
 
       if (verdict.stuck) {
-        const errorMsg = `auto_recovery: ${verdict.reason}`;
-        const runId: string | undefined = (deal as any).intake_processing_run_id ?? undefined;
-
-        void writeEvent({
+        const staleRunId: string | undefined = (deal as any).intake_processing_run_id ?? undefined;
+        const outcome = await handleStuckRecovery(
           dealId,
-          kind: "intake.processing_auto_recovery",
-          scope: "intake",
-          meta: {
-            reason: verdict.reason,
-            age_ms: verdict.age_ms,
-            run_id: runId ?? null,
-            observability_version: PROCESSING_OBSERVABILITY_VERSION,
-          },
-        });
+          access.bankId,
+          verdict,
+          staleRunId,
+        );
 
-        await updateDealIfRunOwner(dealId, runId, {
-          intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
-          intake_processing_error: errorMsg,
-        });
-
-        // Update local copies for response
-        dealPhase = "PROCESSING_COMPLETE_WITH_ERRORS";
-        dealError = errorMsg;
-        autoRecovered = true;
+        dealPhase = outcome.phase;
+        dealError = outcome.error;
+        autoRecovered = outcome.recovered;
+        reenqueued = outcome.reenqueued;
       }
     }
 
@@ -143,6 +130,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         last_heartbeat_at: (deal as any).intake_processing_last_heartbeat_at ?? null,
         error: dealError,
         auto_recovered: autoRecovered,
+        reenqueued,
       },
     });
   } catch (e: any) {
