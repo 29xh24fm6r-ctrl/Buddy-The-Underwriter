@@ -1,0 +1,19 @@
+{
+  "_description": "Golden corpus: Income Statement / T12 structured assist output",
+  "_doc_type": "INCOME_STATEMENT",
+  "_expected_validator": "PASSED",
+  "entities": [
+    { "type": "total_revenue", "mentionText": "1,800,000", "confidence": 0.94, "normalizedValue": { "moneyValue": { "units": 1800000, "nanos": 0 } } },
+    { "type": "cost_of_goods_sold", "mentionText": "720,000", "confidence": 0.91, "normalizedValue": { "moneyValue": { "units": 720000, "nanos": 0 } } },
+    { "type": "gross_profit", "mentionText": "1,080,000", "confidence": 0.90, "normalizedValue": { "moneyValue": { "units": 1080000, "nanos": 0 } } },
+    { "type": "operating_income", "mentionText": "450,000", "confidence": 0.88, "normalizedValue": { "moneyValue": { "units": 450000, "nanos": 0 } } },
+    { "type": "depreciation", "mentionText": "65,000", "confidence": 0.92, "normalizedValue": { "moneyValue": { "units": 65000, "nanos": 0 } } },
+    { "type": "net_operating_income", "mentionText": "385,000", "confidence": 0.87, "normalizedValue": { "moneyValue": { "units": 385000, "nanos": 0 } } },
+    { "type": "net_income", "mentionText": "320,000", "confidence": 0.89, "normalizedValue": { "moneyValue": { "units": 320000, "nanos": 0 } } }
+  ],
+  "formFields": [
+    { "name": "entity_name", "value": "Sunrise Plaza LLC", "confidence": 0.91 },
+    { "name": "period_start", "value": "01/01/2023", "confidence": 0.93 },
+    { "name": "period_end", "value": "12/31/2023", "confidence": 0.95 }
+  ]
+}

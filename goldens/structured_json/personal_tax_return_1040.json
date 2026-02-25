@@ -1,0 +1,19 @@
+{
+  "_description": "Golden corpus: Personal Tax Return (Form 1040) structured assist output",
+  "_doc_type": "PERSONAL_TAX_RETURN",
+  "_expected_validator": "PASSED",
+  "entities": [
+    { "type": "wages_w2", "mentionText": "185,000", "confidence": 0.96, "normalizedValue": { "moneyValue": { "units": 185000, "nanos": 0 } } },
+    { "type": "interest_income", "mentionText": "3,200", "confidence": 0.88, "normalizedValue": { "moneyValue": { "units": 3200, "nanos": 0 } } },
+    { "type": "rental_income", "mentionText": "48,000", "confidence": 0.87, "normalizedValue": { "moneyValue": { "units": 48000, "nanos": 0 } } },
+    { "type": "total_income", "mentionText": "245,000", "confidence": 0.93, "normalizedValue": { "moneyValue": { "units": 245000, "nanos": 0 } } },
+    { "type": "adjusted_gross_income", "mentionText": "228,000", "confidence": 0.94, "normalizedValue": { "moneyValue": { "units": 228000, "nanos": 0 } } },
+    { "type": "taxable_income", "mentionText": "195,000", "confidence": 0.91, "normalizedValue": { "moneyValue": { "units": 195000, "nanos": 0 } } }
+  ],
+  "formFields": [
+    { "name": "ssn", "value": "***-**-6789", "confidence": 0.70 },
+    { "name": "taxpayer_name", "value": "John A. Smith", "confidence": 0.95 },
+    { "name": "tax_year", "value": "2023", "confidence": 0.98 },
+    { "name": "filing_status", "value": "Married Filing Jointly", "confidence": 0.93 }
+  ]
+}

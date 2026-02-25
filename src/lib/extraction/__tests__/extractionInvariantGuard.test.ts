@@ -111,20 +111,20 @@ describe("Extraction Invariant Guards", () => {
 
     // The extraction pipeline must call the validation layer after extraction.
     // We check for the import or dynamic import of validateExtractedFinancials
-    // and the actual invocation of validateExtractionQuality.
+    // and the actual invocation of runValidationGate (D1: gating validation).
     const hasValidationImport =
       source.includes("validateExtractedFinancials") ||
-      source.includes("validateExtractionQuality");
+      source.includes("runValidationGate");
 
     assert.ok(
       hasValidationImport,
-      "extractFactsFromDocument must reference validation functions (validateExtractedFinancials or validateExtractionQuality) — LLM output cannot bypass deterministic validators",
+      "extractFactsFromDocument must reference validation functions (validateExtractedFinancials or runValidationGate) — LLM output cannot bypass deterministic validators",
     );
 
     // Verify that validation is actually called (not just imported)
     assert.ok(
-      source.includes("validateExtractionQuality("),
-      "extractFactsFromDocument must CALL validateExtractionQuality() — import alone is insufficient",
+      source.includes("runValidationGate(") || source.includes("validateExtractionQuality("),
+      "extractFactsFromDocument must CALL runValidationGate() or validateExtractionQuality() — import alone is insufficient",
     );
 
     console.log(
