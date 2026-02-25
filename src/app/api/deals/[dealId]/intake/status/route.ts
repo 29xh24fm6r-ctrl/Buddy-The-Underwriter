@@ -96,7 +96,7 @@ export async function GET(_req: Request, ctx: Ctx): Promise<NextResponse<IntakeS
 
   const { data: deal } = await sb
     .from("deals")
-    .select("id, bank_id, stage, lifecycle_stage, borrower_id")
+    .select("id, bank_id, stage, borrower_id")
     .eq("id", dealId)
     .maybeSingle();
 
@@ -233,7 +233,7 @@ export async function GET(_req: Request, ctx: Ctx): Promise<NextResponse<IntakeS
     borrower: { attached: borrowerAttached },
     principals: { detected: principalsDetected, count: principalCount ?? 0 },
     financialSnapshot: { exists: financialSnapshotExists },
-    stage: (deal.stage as string) ?? deal.lifecycle_stage ?? null,
+    stage: (deal.stage as string) ?? null,
     recommendedNextAction,
     lastError,
     deps: {

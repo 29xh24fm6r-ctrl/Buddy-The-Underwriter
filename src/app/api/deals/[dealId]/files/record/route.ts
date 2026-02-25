@@ -252,7 +252,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     // If session is verified, the deal EXISTS (created atomically on primary).
     // DO NOT read the `deals` table - skip replica dependencies entirely.
     // ======================================================================
-    let deal: { id: string; bank_id: string | null; lifecycle_stage: string | null; intake_state?: string } | null = null;
+    let deal: { id: string; bank_id: string | null; stage: string | null; intake_state?: string } | null = null;
 
     if (sessionVerified && sessionData) {
       // Session was created atomically with deal via deal_bootstrap_create.
@@ -277,7 +277,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       deal = {
         id: dealId,
         bank_id: sessionBankId,
-        lifecycle_stage: null, // Will be handled by igniteDeal if needed
+        stage: null, // Will be handled by igniteDeal if needed
         intake_state: undefined,
       };
     } else {
@@ -289,7 +289,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         const result = await sb
           .from("deals")
-          .select("id, bank_id, lifecycle_stage, intake_state")
+          .select("id, bank_id, stage, intake_state")
           .eq("id", dealId)
           .maybeSingle();
 
@@ -320,8 +320,8 @@ export async function POST(req: NextRequest, ctx: Context) {
         }
       }
 
-      if (dealErr || !deal) {
-        console.error("[files/record] deal not found in DB after retries", {
+      if (dealErr) {
+        console.error("[files/record] deal lookup failed (PostgREST error)", {
           dealId,
           dealErr: dealErr?.message,
           maxAttempts,
@@ -331,8 +331,25 @@ export async function POST(req: NextRequest, ctx: Context) {
         return NextResponse.json(
           {
             ok: false,
-            error: "deal_not_found_db",
+            error: "deal_lookup_failed",
             details: dealErr?.message,
+            request_id: requestId
+          },
+          { status: 500 },
+        );
+      }
+
+      if (!deal) {
+        console.error("[files/record] deal not found in DB after retries", {
+          dealId,
+          maxAttempts,
+          requestId
+        });
+
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "deal_not_found_db",
             request_id: requestId
           },
           { status: 404 },
@@ -365,7 +382,7 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     await initializeIntake(dealId, bankId, { reason: "banker_upload" });
 
-    if (!deal.lifecycle_stage || deal.lifecycle_stage === "created") {
+    if (!deal.stage || deal.stage === "created") {
       await igniteDeal({
         dealId,
         bankId,

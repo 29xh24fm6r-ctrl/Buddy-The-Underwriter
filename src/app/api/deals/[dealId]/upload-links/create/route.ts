@@ -42,12 +42,12 @@ export async function POST(
 
   const { data: deal } = await supabaseAdmin()
     .from("deals")
-    .select("lifecycle_stage")
+    .select("stage")
     .eq("id", dealId)
     .eq("bank_id", access.bankId)
     .maybeSingle();
 
-  if (!isBorrowerUploadAllowed(deal?.lifecycle_stage ?? null)) {
+  if (!isBorrowerUploadAllowed(deal?.stage ?? null)) {
     return NextResponse.json(
       { ok: false, error: "Deal intake not started" },
       { status: 403 },

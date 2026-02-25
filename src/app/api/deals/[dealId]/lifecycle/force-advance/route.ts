@@ -29,7 +29,7 @@ const VALID_STAGES: LifecycleStage[] = [
   "workout",
 ];
 
-// Map unified stages to underlying deals.lifecycle_stage values
+// Map unified stages to underlying deals.stage values
 const UNIFIED_TO_UNDERLYING: Record<string, string> = {
   intake_created: "created",
   docs_requested: "intake",
@@ -105,7 +105,7 @@ export async function POST(
     const currentState = await deriveLifecycleState(dealId);
     const currentStage = currentState?.stage || "unknown";
 
-    // Determine underlying lifecycle_stage value
+    // Determine underlying stage value
     const underlyingStage = UNIFIED_TO_UNDERLYING[targetStage] || "collecting";
 
     const sb = supabaseAdmin();
@@ -129,11 +129,11 @@ export async function POST(
       requiresHumanReview: false,
     });
 
-    // Update the underlying deals.lifecycle_stage
+    // Update the underlying deals.stage
     const { error: updateError } = await sb
       .from("deals")
       .update({
-        lifecycle_stage: underlyingStage,
+        stage: underlyingStage,
         updated_at: new Date().toISOString(),
       })
       .eq("id", dealId)

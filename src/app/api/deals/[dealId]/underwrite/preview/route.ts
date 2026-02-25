@@ -104,7 +104,7 @@ export async function POST(
     const sb = supabaseAdmin();
     const { data: deal } = await sb
       .from("deals")
-      .select("id, bank_id, lifecycle_stage")
+      .select("id, bank_id, stage")
       .eq("id", dealId)
       .maybeSingle();
 
@@ -125,7 +125,7 @@ export async function POST(
       kind: LedgerEventType.underwrite_preview_requested,
       actorUserId: userId,
       input: {
-        lifecycle_stage: deal.lifecycle_stage,
+        stage: deal.stage,
         correlation_id: correlationId,
       },
     }).catch(() => {});
@@ -160,7 +160,7 @@ export async function POST(
           complianceScore: policyResult.complianceScore,
           suggestedMitigants: policyResult.suggestedMitigants,
         },
-        lifecycle_stage: deal.lifecycle_stage,
+        stage: deal.stage,
         meta: { dealId, correlationId, ts },
       },
       headers

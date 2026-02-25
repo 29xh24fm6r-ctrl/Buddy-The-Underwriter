@@ -165,7 +165,7 @@ async function buildPayload(
     const dealResult = await safeWithTimeout(
       sb
         .from("deals")
-        .select("id, name, borrower_name, bank_id, lifecycle_stage")
+        .select("id, name, borrower_name, bank_id, stage")
         .eq("id", dealId)
         .single(),
       10_000,
@@ -278,7 +278,7 @@ async function buildPayload(
     }
 
     const gate = buildUnderwriteStartGate({
-      lifecycleStage: deal.lifecycle_stage,
+      lifecycleStage: deal.stage,
       verifyOk: verify.ok && !testMode,
       authOk: true,
       testMode,
@@ -294,7 +294,7 @@ async function buildPayload(
       };
     }
 
-    if (deal.lifecycle_stage !== "collecting" && deal.lifecycle_stage !== "ready") {
+    if (deal.stage !== "collecting" && deal.stage !== "ready") {
       return {
         ok: false,
         error: { code: "deal_not_ready", message: "Deal not ready for underwriting" },
