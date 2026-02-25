@@ -36,6 +36,9 @@ export type FactForValidation = {
 /** Tolerance for balance sheet equation: |assets - (liabilities + equity)| / assets */
 export const BS_BALANCE_TOLERANCE = 0.05;
 
+/** Tolerance for IS gross profit consistency: |GP - (Revenue - COGS)| / Revenue */
+export const IS_GP_TOLERANCE = 0.05;
+
 // ── Validators ────────────────────────────────────────────────────────
 
 /**
@@ -87,11 +90,14 @@ export function validateBalanceSheet(
 }
 
 /**
- * Income Statement: detect revenue/expense presence.
+ * Income Statement: detect revenue/expense presence + gross profit consistency.
  *
  * Must detect at least one revenue signal (REVENUE, GROSS_RECEIPTS, TOTAL_INCOME_TTM, NET_INCOME)
  * OR at least one expense signal (COGS, OPEX_TTM, EBITDA).
  * If missing ALL signals → SUSPECT.
+ *
+ * D3 consistency check: if revenue, COGS, and gross_profit all present,
+ * verify gross_profit ≈ revenue - COGS (within 5% tolerance).
  */
 export function validateIncomeStatement(
   facts: FactForValidation[],
@@ -115,6 +121,23 @@ export function validateIncomeStatement(
       message:
         "No revenue or expense signals found in extracted income statement",
     };
+  }
+
+  // D3: gross_profit = revenue - COGS consistency check
+  const revenue = findNumericFact(facts, "REVENUE") ?? findNumericFact(facts, "GROSS_RECEIPTS");
+  const cogs = findNumericFact(facts, "COGS");
+  const grossProfit = findNumericFact(facts, "GROSS_PROFIT");
+
+  if (revenue != null && cogs != null && grossProfit != null && revenue > 0) {
+    const expected = revenue - cogs;
+    const tolerance = Math.abs(revenue) * IS_GP_TOLERANCE;
+    if (Math.abs(grossProfit - expected) > tolerance) {
+      return {
+        status: "SUSPECT",
+        reason_code: "IS_GP_INCONSISTENCY",
+        message: `Gross profit inconsistency: revenue=${fmt(revenue)}, COGS=${fmt(cogs)}, gross_profit=${fmt(grossProfit)} (expected ${fmt(expected)})`,
+      };
+    }
   }
 
   return { status: "PASSED", reason_code: null, message: null };
@@ -230,6 +253,88 @@ export function validateExtractionQuality(
 
   // Unknown doc type → PASSED
   return { status: "PASSED", reason_code: null, message: null };
+}
+
+// ── D3: Year Mismatch Detection ─────────────────────────────────────
+
+/**
+ * Detect year mismatch between extracted year and expected slot year.
+ *
+ * If slot expects a specific year and extracted year differs → SUSPECT.
+ * No auto-adjustment in v1 — route to review.
+ */
+export function validateYearConsistency(
+  facts: FactForValidation[],
+  expectedYear: number | null,
+): ExtractionQualityResult {
+  if (expectedYear == null) {
+    return { status: "PASSED", reason_code: null, message: null };
+  }
+
+  const extractedYear =
+    findNumericFact(facts, "TAX_YEAR") ??
+    findNumericFact(facts, "FISCAL_YEAR") ??
+    findNumericFact(facts, "YEAR");
+
+  if (extractedYear == null) {
+    // No year extracted → can't check, pass (don't block on missing data)
+    return { status: "PASSED", reason_code: null, message: null };
+  }
+
+  if (extractedYear !== expectedYear) {
+    return {
+      status: "SUSPECT",
+      reason_code: "YEAR_MISMATCH",
+      message: `Year mismatch: extracted=${extractedYear}, expected=${expectedYear}`,
+    };
+  }
+
+  return { status: "PASSED", reason_code: null, message: null };
+}
+
+// ── D1: Validation Gate (ALL checks) ────────────────────────────────
+
+/**
+ * Run ALL validation checks and return a composite result.
+ *
+ * Returns SUSPECT if ANY individual check returns SUSPECT.
+ * Includes all individual check results as evidence.
+ */
+export function runValidationGate(args: {
+  docType: string | null;
+  facts: FactForValidation[];
+  expectedYear?: number | null;
+}): {
+  result: ExtractionQualityResult;
+  checks: Array<{ check: string; result: ExtractionQualityResult }>;
+} {
+  const checks: Array<{ check: string; result: ExtractionQualityResult }> = [];
+
+  // Run type-specific validation
+  const typeResult = validateExtractionQuality(args.docType, args.facts);
+  checks.push({ check: "type_validation", result: typeResult });
+
+  // Run year consistency check
+  if (args.expectedYear != null) {
+    const yearResult = validateYearConsistency(args.facts, args.expectedYear);
+    checks.push({ check: "year_consistency", result: yearResult });
+  }
+
+  // Composite: any SUSPECT → SUSPECT
+  const hasSuspect = checks.some((c) => c.result.status === "SUSPECT");
+
+  if (hasSuspect) {
+    const suspectCheck = checks.find((c) => c.result.status === "SUSPECT")!;
+    return {
+      result: suspectCheck.result,
+      checks,
+    };
+  }
+
+  return {
+    result: { status: "PASSED", reason_code: null, message: null },
+    checks,
+  };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────

@@ -7,7 +7,22 @@
  *
  * Output shape matches the entity/formField structure consumed by
  * structuredJsonParser.ts (formerly docAiParser.ts).
+ *
+ * VERSIONING (B3):
+ * - All prompts are versioned via PROMPT_VERSION.
+ * - Any prompt text change MUST increment the version.
+ * - prompt_version is recorded in deal_extraction_runs.
  */
+
+// ---------------------------------------------------------------------------
+// Version
+// ---------------------------------------------------------------------------
+
+/**
+ * Current prompt version. Increment on ANY prompt text change.
+ * Recorded in deal_extraction_runs.prompt_version.
+ */
+export const PROMPT_VERSION = "flash_prompts_v1";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -16,6 +31,7 @@
 export type StructuredAssistPrompt = {
   systemInstruction: string;
   userPrompt: string;
+  promptVersion: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -54,6 +70,7 @@ const ENTITY_FORMAT_INSTRUCTION =
 
 function buildBusinessTaxReturnPrompt(ocrText: string): StructuredAssistPrompt {
   return {
+    promptVersion: PROMPT_VERSION,
     systemInstruction: SYSTEM_PREFIX,
     userPrompt:
       "Extract the following fields from this business tax return document.\n\n" +
@@ -91,6 +108,7 @@ function buildBusinessTaxReturnPrompt(ocrText: string): StructuredAssistPrompt {
 
 function buildPersonalTaxReturnPrompt(ocrText: string): StructuredAssistPrompt {
   return {
+    promptVersion: PROMPT_VERSION,
     systemInstruction: SYSTEM_PREFIX,
     userPrompt:
       "Extract the following fields from this personal tax return (Form 1040) document.\n\n" +
@@ -125,6 +143,7 @@ function buildPersonalTaxReturnPrompt(ocrText: string): StructuredAssistPrompt {
 
 function buildBalanceSheetPrompt(ocrText: string): StructuredAssistPrompt {
   return {
+    promptVersion: PROMPT_VERSION,
     systemInstruction: SYSTEM_PREFIX,
     userPrompt:
       "Extract the following fields from this balance sheet document.\n\n" +
@@ -170,6 +189,7 @@ function buildBalanceSheetPrompt(ocrText: string): StructuredAssistPrompt {
 
 function buildIncomeStatementPrompt(ocrText: string): StructuredAssistPrompt {
   return {
+    promptVersion: PROMPT_VERSION,
     systemInstruction: SYSTEM_PREFIX,
     userPrompt:
       "Extract the following fields from this income statement / P&L document.\n\n" +

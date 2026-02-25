@@ -2,7 +2,9 @@ import "server-only";
 
 import { VertexAI } from "@google-cloud/vertexai";
 import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
-import { buildStructuredAssistPrompt } from "./geminiFlashPrompts";
+import { buildStructuredAssistPrompt, PROMPT_VERSION } from "./geminiFlashPrompts";
+import { validateStructuredOutput } from "./schemas/structuredOutput";
+import { computeStructuredOutputHash } from "./outputCanonicalization";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,6 +38,9 @@ export type StructuredAssistResult = {
     model: string;
     latencyMs: number;
     source: "gemini_flash_structured_assist";
+    promptVersion: string;
+    schemaVersion: string;
+    outputHash: string | null;
   };
 };
 
@@ -43,10 +48,14 @@ export type StructuredAssistResult = {
 // Constants
 // ---------------------------------------------------------------------------
 
-const STRUCTURED_ASSIST_TIMEOUT_MS = 30_000; // 30s hard timeout
+// ─── Hard Limits (C1) ────────────────────────────────────────────────────────
+
+const STRUCTURED_ASSIST_TIMEOUT_MS = 15_000; // 15s hard timeout (institutional)
 const GEMINI_MODEL = "gemini-2.0-flash";
 const GEMINI_TEMPERATURE = 0.1;
-const MAX_OCR_TEXT_LENGTH = 50_000; // Truncate to avoid token limits
+const MAX_OCR_TEXT_LENGTH = 50_000;  // Truncate to avoid token limits
+const MAX_RETRIES = 1;              // At most 1 retry (C2)
+const MAX_INPUT_PAGES = 50;         // Skip structured assist for very long docs
 
 // ---------------------------------------------------------------------------
 // GCP helpers (reuse from Gemini OCR patterns)
@@ -89,15 +98,29 @@ function getGoogleLocation(): string {
  *
  * Returns null on any failure (timeout, invalid JSON, unsupported type).
  * Never throws — fail-fast, fail-closed, no pipeline block.
+ *
+ * Retry policy (C2): at most 1 retry, only on invalid JSON or schema
+ * mismatch. Retry uses stricter system instruction.
  */
 export async function extractStructuredAssist(args: {
   ocrText: string;
   canonicalType: string;
   documentId: string;
+  pageCount?: number;
 }): Promise<StructuredAssistResult | null> {
   const started = Date.now();
 
   try {
+    // Page-count guard (C1): skip structured assist for very long docs
+    if (args.pageCount && args.pageCount > MAX_INPUT_PAGES) {
+      console.log("[StructuredAssist] Skipping — too many pages", {
+        documentId: args.documentId,
+        pageCount: args.pageCount,
+        maxPages: MAX_INPUT_PAGES,
+      });
+      return null;
+    }
+
     // Build type-specific prompt
     const truncatedText = args.ocrText.slice(0, MAX_OCR_TEXT_LENGTH);
     const prompt = buildStructuredAssistPrompt(args.canonicalType, truncatedText);
@@ -114,90 +137,128 @@ export async function extractStructuredAssist(args: {
       ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
     });
 
-    const model = vertexAI.getGenerativeModel({
-      model: GEMINI_MODEL,
-      generationConfig: {
-        temperature: GEMINI_TEMPERATURE,
-        responseMimeType: "application/json",
-      },
-    });
+    // Attempt extraction with retry (C2)
+    let lastFailureReason: string | null = null;
 
-    const generatePromise = model.generateContent({
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: prompt.userPrompt }],
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const isRetry = attempt > 0;
+      const systemInstruction = isRetry
+        ? STRICT_RETRY_SYSTEM_INSTRUCTION
+        : prompt.systemInstruction;
+
+      const model = vertexAI.getGenerativeModel({
+        model: GEMINI_MODEL,
+        generationConfig: {
+          temperature: isRetry ? 0.0 : GEMINI_TEMPERATURE,
+          responseMimeType: "application/json",
         },
-      ],
-      systemInstruction: {
-        role: "system",
-        parts: [{ text: prompt.systemInstruction }],
-      },
-    });
+      });
 
-    // Enforce hard timeout
-    const resp = await Promise.race([
-      generatePromise,
-      new Promise<never>((_resolve, reject) =>
-        setTimeout(
-          () => reject(new Error(`structured_assist_timeout_${STRUCTURED_ASSIST_TIMEOUT_MS}ms`)),
-          STRUCTURED_ASSIST_TIMEOUT_MS,
+      const generatePromise = model.generateContent({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt.userPrompt }],
+          },
+        ],
+        systemInstruction: {
+          role: "system",
+          parts: [{ text: systemInstruction }],
+        },
+      });
+
+      // Enforce hard timeout
+      const resp = await Promise.race([
+        generatePromise,
+        new Promise<never>((_resolve, reject) =>
+          setTimeout(
+            () => reject(new Error(`structured_assist_timeout_${STRUCTURED_ASSIST_TIMEOUT_MS}ms`)),
+            STRUCTURED_ASSIST_TIMEOUT_MS,
+          ),
         ),
-      ),
-    ]);
+      ]);
 
-    // Extract response text
-    const parts = (resp as any)?.response?.candidates?.[0]?.content?.parts ?? [];
-    const rawText = parts
-      .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-      .join("")
-      .trim();
+      // Extract response text
+      const parts = (resp as any)?.response?.candidates?.[0]?.content?.parts ?? [];
+      const rawText = parts
+        .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
+        .join("")
+        .trim();
 
-    if (!rawText) {
-      console.warn("[StructuredAssist] Empty response from Gemini Flash", {
+      if (!rawText) {
+        console.warn("[StructuredAssist] Empty response from Gemini Flash", {
+          documentId: args.documentId,
+          canonicalType: args.canonicalType,
+          attempt,
+        });
+        lastFailureReason = "empty_response";
+        continue; // Retry
+      }
+
+      // Parse JSON — reject if not valid
+      const parsed = parseJsonSafe(rawText);
+      if (!parsed) {
+        console.warn("[StructuredAssist] Invalid JSON from Gemini Flash", {
+          documentId: args.documentId,
+          canonicalType: args.canonicalType,
+          rawLength: rawText.length,
+          attempt,
+        });
+        lastFailureReason = "invalid_json";
+        continue; // Retry (C2: retry on invalid JSON)
+      }
+
+      // Validate against versioned schema (B1)
+      const schemaResult = validateStructuredOutput(parsed);
+      if (!schemaResult.valid || !schemaResult.data) {
+        console.warn("[StructuredAssist] Schema validation failed", {
+          documentId: args.documentId,
+          canonicalType: args.canonicalType,
+          errors: schemaResult.errors,
+          attempt,
+        });
+        lastFailureReason = "schema_mismatch";
+        continue; // Retry (C2: retry on schema mismatch)
+      }
+
+      // Success — build result
+      const { entities, formFields } = schemaResult.data;
+      const latencyMs = Date.now() - started;
+      const outputHash = computeStructuredOutputHash(schemaResult.data);
+
+      console.log("[StructuredAssist] Extraction completed", {
         documentId: args.documentId,
         canonicalType: args.canonicalType,
+        entityCount: entities.length,
+        formFieldCount: formFields.length,
+        latencyMs,
+        outputHash,
+        attempt,
       });
-      return null;
+
+      return {
+        entities: entities.filter(isValidEntity),
+        formFields: formFields.filter(isValidFormField),
+        text: truncatedText,
+        _meta: {
+          model: GEMINI_MODEL,
+          latencyMs,
+          source: "gemini_flash_structured_assist",
+          promptVersion: prompt.promptVersion,
+          schemaVersion: "structured_v1",
+          outputHash,
+        },
+      };
     }
 
-    // Parse JSON — reject if not valid
-    const parsed = parseJsonSafe(rawText);
-    if (!parsed) {
-      console.warn("[StructuredAssist] Invalid JSON from Gemini Flash", {
-        documentId: args.documentId,
-        canonicalType: args.canonicalType,
-        rawLength: rawText.length,
-      });
-      return null;
-    }
-
-    // Validate expected shape
-    const entities = Array.isArray(parsed.entities) ? parsed.entities : [];
-    const formFields = Array.isArray(parsed.formFields) ? parsed.formFields : [];
-
-    const latencyMs = Date.now() - started;
-
-    console.log("[StructuredAssist] Extraction completed", {
+    // All attempts exhausted
+    console.warn("[StructuredAssist] All attempts failed", {
       documentId: args.documentId,
       canonicalType: args.canonicalType,
-      entityCount: entities.length,
-      formFieldCount: formFields.length,
-      latencyMs,
+      lastFailureReason,
+      attempts: MAX_RETRIES + 1,
     });
-
-    return {
-      // Wrap in a structure that mirrors the DocAI response shape
-      // so structuredJsonParser.ts can consume it unchanged
-      entities: entities.filter(isValidEntity),
-      formFields: formFields.filter(isValidFormField),
-      text: truncatedText,
-      _meta: {
-        model: GEMINI_MODEL,
-        latencyMs,
-        source: "gemini_flash_structured_assist",
-      },
-    };
+    return null;
   } catch (err: any) {
     const latencyMs = Date.now() - started;
     console.warn("[StructuredAssist] Failed — deterministic extractors will use OCR regex", {
@@ -210,6 +271,17 @@ export async function extractStructuredAssist(args: {
     return null;
   }
 }
+
+// ── Strict retry system instruction (C2) ────────────────────────────
+
+const STRICT_RETRY_SYSTEM_INSTRUCTION =
+  "You are a financial document extraction engine. " +
+  "Return ONLY valid JSON. No commentary. No markdown. No explanation. " +
+  "Extract ONLY the requested fields. " +
+  "For monetary values use plain numbers. " +
+  "Use null for any field you cannot extract with certainty. " +
+  "Do NOT infer, interpolate, or fill in missing values. " +
+  "If a value is not explicitly stated in the document, use null.";
 
 // ---------------------------------------------------------------------------
 // Helpers

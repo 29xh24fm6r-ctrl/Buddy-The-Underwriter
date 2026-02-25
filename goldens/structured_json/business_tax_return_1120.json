@@ -1,0 +1,22 @@
+{
+  "_description": "Golden corpus: Business Tax Return (Form 1120) structured assist output",
+  "_doc_type": "BUSINESS_TAX_RETURN",
+  "_expected_validator": "PASSED",
+  "entities": [
+    { "type": "gross_receipts", "mentionText": "2,500,000", "confidence": 0.95, "normalizedValue": { "moneyValue": { "units": 2500000, "nanos": 0 } } },
+    { "type": "total_income", "mentionText": "2,650,000", "confidence": 0.92, "normalizedValue": { "moneyValue": { "units": 2650000, "nanos": 0 } } },
+    { "type": "net_income", "mentionText": "350,000", "confidence": 0.90, "normalizedValue": { "moneyValue": { "units": 350000, "nanos": 0 } } },
+    { "type": "officer_compensation", "mentionText": "180,000", "confidence": 0.88, "normalizedValue": { "moneyValue": { "units": 180000, "nanos": 0 } } },
+    { "type": "depreciation", "mentionText": "95,000", "confidence": 0.91, "normalizedValue": { "moneyValue": { "units": 95000, "nanos": 0 } } },
+    { "type": "interest_expense", "mentionText": "45,000", "confidence": 0.89, "normalizedValue": { "moneyValue": { "units": 45000, "nanos": 0 } } },
+    { "type": "total_assets", "mentionText": "3,200,000", "confidence": 0.93, "normalizedValue": { "moneyValue": { "units": 3200000, "nanos": 0 } } },
+    { "type": "total_liabilities", "mentionText": "1,800,000", "confidence": 0.91, "normalizedValue": { "moneyValue": { "units": 1800000, "nanos": 0 } } },
+    { "type": "total_equity", "mentionText": "1,400,000", "confidence": 0.90, "normalizedValue": { "moneyValue": { "units": 1400000, "nanos": 0 } } }
+  ],
+  "formFields": [
+    { "name": "ein", "value": "12-3456789", "confidence": 0.95 },
+    { "name": "business_name", "value": "ACME Holdings LLC", "confidence": 0.93 },
+    { "name": "tax_year", "value": "2023", "confidence": 0.97 },
+    { "name": "form_type", "value": "1120", "confidence": 0.98 }
+  ]
+}

@@ -450,7 +450,12 @@ export async function extractByDocType(docId: string): Promise<ExtractByDocTypeR
     const { result, provider_metrics } = await extractWithGeminiOcr(doc);
 
     // Step 2: For structured-eligible types, run advisory structured assist
+    // Respects shadow/canary/active mode (H1-H2)
     if (useStructuredAssist && result.fields.extractedText) {
+      const { shouldUseStructuredAssistResults, getStructuredAssistMode } = await import(
+        "@/lib/extraction/shadowMode"
+      );
+
       const structuredJson = await tryStructuredAssist(
         result.fields.extractedText,
         canonicalType,
@@ -458,9 +463,35 @@ export async function extractByDocType(docId: string): Promise<ExtractByDocTypeR
         doc,
       );
 
-      if (structuredJson) {
+      const assistMode = getStructuredAssistMode();
+      const useResults = shouldUseStructuredAssistResults({
+        dealId: doc.deal_id,
+        bankId: doc.bank_id,
+      });
+
+      if (structuredJson && useResults) {
+        // Active/canary: use structured assist results
         result.fields.structuredJson = structuredJson;
         provider_metrics.structured_assist = true;
+      } else if (structuredJson && !useResults) {
+        // Shadow mode: structured assist ran but results are NOT used
+        // Emit shadow comparison event for monitoring
+        void logLedgerEvent({
+          dealId: doc.deal_id,
+          bankId: doc.bank_id,
+          eventKey: "extract.structured.shadow_result",
+          uiState: "done",
+          uiMessage: "Structured assist completed (shadow mode — results not used)",
+          meta: {
+            docId,
+            canonicalType,
+            mode: assistMode,
+            entityCount: structuredJson.entities?.length ?? 0,
+            formFieldCount: structuredJson.formFields?.length ?? 0,
+            outputHash: structuredJson._meta?.outputHash ?? null,
+          },
+        });
+        provider_metrics.structured_assist = false;
       }
     }
 

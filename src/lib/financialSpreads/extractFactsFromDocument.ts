@@ -385,12 +385,13 @@ export async function extractFactsFromDocument(args: {
     throw new Error(`deal_financial_facts_upsert_failed:${hbResult.error}`);
   }
 
-  // ── E2: Extraction quality stamp ──────────────────────────────────
-  // Structural plausibility check — PASSED or SUSPECT. Fire-and-forget.
+  // ── D1: Validation Gate — GATING (institutional) ─────────────────
+  // Run structural validation. If SUSPECT → delete extracted facts, route to review.
   try {
-    const { validateExtractionQuality } = await import(
+    const { runValidationGate } = await import(
       "@/lib/spreads/preflight/validateExtractedFinancials"
     );
+
     // Read back the facts we just wrote for this document
     const { data: docFacts } = await (sb as any)
       .from("deal_financial_facts")
@@ -400,15 +401,79 @@ export async function extractFactsFromDocument(args: {
       .neq("fact_type", "EXTRACTION_HEARTBEAT");
 
     if (docFacts && docFacts.length > 0) {
-      const quality = validateExtractionQuality(normDocType, docFacts);
+      const gate = runValidationGate({
+        docType: normDocType,
+        facts: docFacts,
+        expectedYear: docYear,
+      });
+
+      // Stamp quality status
       await (sb as any)
         .from("deal_documents")
-        .update({ extraction_quality_status: quality.status })
+        .update({ extraction_quality_status: gate.result.status })
         .eq("id", args.documentId);
+
+      // D1: If SUSPECT → delete extracted facts (except heartbeat) + emit event
+      if (gate.result.status === "SUSPECT") {
+        console.warn("[extractFactsFromDocument] Validation gate SUSPECT — deleting extracted facts", {
+          documentId: args.documentId,
+          dealId: args.dealId,
+          reasonCode: gate.result.reason_code,
+          message: gate.result.message,
+          checks: gate.checks.map((c) => ({
+            check: c.check,
+            status: c.result.status,
+            reason: c.result.reason_code,
+          })),
+        });
+
+        // Delete non-heartbeat facts for this document
+        await (sb as any)
+          .from("deal_financial_facts")
+          .delete()
+          .eq("deal_id", args.dealId)
+          .eq("source_document_id", args.documentId)
+          .neq("fact_type", "EXTRACTION_HEARTBEAT");
+
+        factsWritten = 0;
+
+        // Emit canonical ledger event for traceability
+        const { writeEvent } = await import("@/lib/ledger/writeEvent");
+        void writeEvent({
+          dealId: args.dealId,
+          kind: "extraction.validation.failed",
+          scope: "extraction",
+          action: "validation_gated",
+          requiresHumanReview: true,
+          meta: {
+            document_id: args.documentId,
+            doc_type: normDocType,
+            reason_code: gate.result.reason_code,
+            message: gate.result.message,
+            checks: gate.checks,
+            facts_deleted: docFacts.length,
+          },
+        }).catch(() => {});
+      } else {
+        // Emit validation passed event
+        const { writeEvent } = await import("@/lib/ledger/writeEvent");
+        void writeEvent({
+          dealId: args.dealId,
+          kind: "extraction.validation.passed",
+          scope: "extraction",
+          action: "validation_passed",
+          meta: {
+            document_id: args.documentId,
+            doc_type: normDocType,
+            checks: gate.checks,
+            facts_count: docFacts.length,
+          },
+        }).catch(() => {});
+      }
     }
   } catch (err) {
-    // Quality stamp is defense-in-depth, not blocking
-    console.warn("[extractFactsFromDocument] quality stamp failed:", err);
+    // Validation gate failure → conservative: keep facts, log warning
+    console.warn("[extractFactsFromDocument] validation gate failed:", err);
   }
 
   return { ok: true as const, factsWritten: factsWritten + 1 };

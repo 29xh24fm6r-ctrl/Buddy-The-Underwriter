@@ -27,6 +27,7 @@ const BAND_STYLES: Record<ConfidenceBand, string> = {
 };
 
 const CONFIRMED_STYLE = "bg-blue-500/20 text-blue-400 border-blue-500/30";
+const UNREVIEWED_STYLE = "bg-zinc-500/20 text-zinc-400 border-zinc-500/30";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -39,6 +40,8 @@ type ConfidenceBadgeProps = {
   band?: ConfidenceBand;
   /** When true, shows "CONFIRMED" badge (human-verified classification). */
   confirmed?: boolean;
+  /** When true, shows "UNREVIEWED" badge (F1 — never default to HIGH). */
+  unreviewed?: boolean;
 };
 
 /**
@@ -53,7 +56,19 @@ type ConfidenceBadgeProps = {
  *   2. Explicit band prop (from rawExtraction when available)
  *   3. Derived from confidence using shared CONFIDENCE_THRESHOLDS
  */
-export function ConfidenceBadge({ confidence, band, confirmed }: ConfidenceBadgeProps) {
+export function ConfidenceBadge({ confidence, band, confirmed, unreviewed }: ConfidenceBadgeProps) {
+  // F1: Unreviewed state — never default to HIGH for unreviewed docs
+  if (unreviewed) {
+    return (
+      <span
+        className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-medium border ${UNREVIEWED_STYLE}`}
+        title="Not yet reviewed — confidence not yet determined"
+      >
+        UNREVIEWED
+      </span>
+    );
+  }
+
   if (confirmed) {
     return (
       <span

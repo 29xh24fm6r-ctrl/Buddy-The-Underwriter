@@ -1,0 +1,22 @@
+{
+  "_description": "Golden corpus: Balance Sheet structured assist output",
+  "_doc_type": "BALANCE_SHEET",
+  "_expected_validator": "PASSED",
+  "entities": [
+    { "type": "cash_and_equivalents", "mentionText": "250,000", "confidence": 0.94, "normalizedValue": { "moneyValue": { "units": 250000, "nanos": 0 } } },
+    { "type": "accounts_receivable", "mentionText": "180,000", "confidence": 0.91, "normalizedValue": { "moneyValue": { "units": 180000, "nanos": 0 } } },
+    { "type": "total_current_assets", "mentionText": "530,000", "confidence": 0.92, "normalizedValue": { "moneyValue": { "units": 530000, "nanos": 0 } } },
+    { "type": "property_plant_equipment", "mentionText": "1,200,000", "confidence": 0.90, "normalizedValue": { "moneyValue": { "units": 1200000, "nanos": 0 } } },
+    { "type": "total_assets", "mentionText": "2,000,000", "confidence": 0.95, "normalizedValue": { "moneyValue": { "units": 2000000, "nanos": 0 } } },
+    { "type": "accounts_payable", "mentionText": "120,000", "confidence": 0.89, "normalizedValue": { "moneyValue": { "units": 120000, "nanos": 0 } } },
+    { "type": "total_current_liabilities", "mentionText": "350,000", "confidence": 0.91, "normalizedValue": { "moneyValue": { "units": 350000, "nanos": 0 } } },
+    { "type": "long_term_debt", "mentionText": "800,000", "confidence": 0.93, "normalizedValue": { "moneyValue": { "units": 800000, "nanos": 0 } } },
+    { "type": "total_liabilities", "mentionText": "1,150,000", "confidence": 0.94, "normalizedValue": { "moneyValue": { "units": 1150000, "nanos": 0 } } },
+    { "type": "retained_earnings", "mentionText": "750,000", "confidence": 0.88, "normalizedValue": { "moneyValue": { "units": 750000, "nanos": 0 } } },
+    { "type": "total_equity", "mentionText": "850,000", "confidence": 0.92, "normalizedValue": { "moneyValue": { "units": 850000, "nanos": 0 } } }
+  ],
+  "formFields": [
+    { "name": "entity_name", "value": "ACME Holdings LLC", "confidence": 0.93 },
+    { "name": "as_of_date", "value": "12/31/2023", "confidence": 0.96 }
+  ]
+}
