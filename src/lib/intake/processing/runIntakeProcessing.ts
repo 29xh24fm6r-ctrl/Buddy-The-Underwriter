@@ -108,6 +108,11 @@ export async function runIntakeProcessing(
       })(),
     ]);
 
+    // ── Gate check: enqueueDealProcessing may return {ok: false} ────────
+    if (!result.ok) {
+      throw new Error(`processing_gated: ${result.reason}`);
+    }
+
     // ── Emit completion event ───────────────────────────────────────────
     await writeEvent({
       dealId,
@@ -116,7 +121,7 @@ export async function runIntakeProcessing(
       meta: {
         run_id: runId,
         elapsed_ms: Date.now() - startMs,
-        ok: result.ok,
+        ok: true,
         triggered_by: "outbox_consumer",
         observability_version: PROCESSING_OBSERVABILITY_VERSION,
       },

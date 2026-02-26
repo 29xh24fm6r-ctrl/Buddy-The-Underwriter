@@ -16,6 +16,9 @@
  *  8. Process route does NOT directly call enqueueDealProcessing
  *  9. Process route uses runIntakeProcessing
  * 10. Claim RPC uses FOR UPDATE SKIP LOCKED
+ * 11. runIntakeProcessing throws on gate failure (processing_gated)
+ * 12. Consumer verifies terminal phase (phase_not_terminal)
+ * 13. Consumer pre-flight skips superseded run_id (skipped_superseded)
  */
 
 import { describe, test } from "node:test";
@@ -59,6 +62,10 @@ const runProcessingSrc = readSource(
 
 const processRouteSrc = readSource(
   "src/app/api/deals/[dealId]/intake/process/route.ts",
+);
+
+const outboxConsumerSrc = readSource(
+  "src/lib/workers/processIntakeOutbox.ts",
 );
 
 const claimRpcSrc = readSource(
@@ -143,6 +150,27 @@ describe("Phase E3 — Durable Outbox Enforcement Guards", () => {
     assert.ok(
       /FOR UPDATE SKIP LOCKED/.test(claimRpcSrc),
       "Claim RPC must use FOR UPDATE SKIP LOCKED for concurrent-safe batch claiming",
+    );
+  });
+
+  test("[guard-11] runIntakeProcessing must throw on gate failure", () => {
+    assert.ok(
+      /processing_gated/.test(runProcessingSrc),
+      "runIntakeProcessing must throw processing_gated when enqueueDealProcessing returns {ok: false}",
+    );
+  });
+
+  test("[guard-12] consumer must verify terminal phase after processing", () => {
+    assert.ok(
+      /phase_not_terminal/.test(outboxConsumerSrc),
+      "Consumer must throw phase_not_terminal if deal still in CONFIRMED_READY_FOR_PROCESSING after processing",
+    );
+  });
+
+  test("[guard-13] consumer must pre-flight skip superseded run_id", () => {
+    assert.ok(
+      /skipped_superseded/.test(outboxConsumerSrc),
+      "Consumer must skip outbox rows with superseded run_id (pre-flight stale check)",
     );
   });
 });

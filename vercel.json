@@ -21,7 +21,7 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/workers/intake-outbox?max=5",
+      "path": "/api/workers/intake-outbox?max=1",
       "schedule": "*/1 * * * *"
     }
   ]
