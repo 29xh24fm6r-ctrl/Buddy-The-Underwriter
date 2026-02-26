@@ -16,7 +16,6 @@ import { detectStuckProcessing } from "@/lib/intake/processing/detectStuckProces
 import { updateDealIfRunOwner } from "@/lib/intake/processing/updateDealIfRunOwner";
 import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import { getBaseUrl } from "@/lib/net/getBaseUrl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -302,87 +301,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       },
     });
 
-    // ── Misconfig fail-closed: no silent handoff with empty secret ─────
-    const workerSecret = process.env.WORKER_SECRET ?? "";
-    const base = getBaseUrl();
-    if (base && !workerSecret) {
-      console.error("[intake/confirm] WORKER_SECRET missing — cannot hand off to process route", { dealId, runId });
-
-      void writeEvent({
-        dealId,
-        kind: "intake.processing_handoff_misconfigured",
-        actorUserId: access.userId,
-        scope: "intake",
-        meta: {
-          run_id: runId,
-          reason: "WORKER_SECRET env var is empty",
-          observability_version: PROCESSING_OBSERVABILITY_VERSION,
-        },
-      });
-
-      await updateDealIfRunOwner(dealId, runId, {
-        intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
-        intake_processing_error: "handoff_misconfigured: WORKER_SECRET missing",
-      });
-
-      return NextResponse.json(
-        { ok: false, error: "handoff_misconfigured", detail: "WORKER_SECRET env var is empty" },
-        { status: 500 },
-      );
-    }
-
-    // Trigger downstream processing via dedicated durable route.
-    // Processing runs in its OWN Lambda with maxDuration=300 (5 min),
-    // completely decoupled from this confirm response. The dedicated route
-    // implements a soft-deadline guard to guarantee terminal phase transition.
-    //
-    // No background work inside this lambda beyond the single handoff call.
-    if (base) {
-      void fetch(`${base}/api/deals/${dealId}/intake/process`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-buddy-internal": "1",
-          "x-worker-secret": workerSecret,
-        },
-        body: JSON.stringify({ dealId, bankId: access.bankId, runId }),
-      }).then(async (res) => {
-        if (!res.ok) {
-          const body = await res.text().catch(() => "unknown");
-          throw new Error(`process_route_${res.status}: ${body.slice(0, 200)}`);
-        }
-      }).catch(async (err) => {
-        // FAIL CLOSED: emit event + terminal transition if still owner.
-        // No silent failure paths — every error emits event + state transition.
-        console.error("[intake/confirm] process route handoff failed", {
-          dealId,
-          runId,
-          error: err?.message,
-        });
-
-        await writeEvent({
-          dealId,
-          kind: "intake.processing_handoff_failed",
-          scope: "intake",
-          meta: {
-            run_id: runId,
-            error: err?.message?.slice(0, 200),
-            observability_version: PROCESSING_OBSERVABILITY_VERSION,
-          },
-        });
-
-        await updateDealIfRunOwner(dealId, runId, {
-          intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
-          intake_processing_error: `handoff_failed: ${err?.message?.slice(0, 200)}`,
-        });
-      });
-    } else {
-      // Fallback: no base URL (local dev without env set) — inline processing
-      const { enqueueDealProcessing } = await import(
-        "@/lib/intake/processing/enqueueDealProcessing"
-      );
-      void enqueueDealProcessing(dealId, access.bankId, runId).catch(() => {});
-    }
+    // Processing is triggered exclusively via the durable outbox consumer.
+    // The finalize RPC (above) atomically inserted an intake.process outbox row.
+    // The /api/workers/intake-outbox cron picks it up within 60s.
+    // No HTTP handoff. No void fetch(). No background promises.
 
     return NextResponse.json({
       ok: true,
