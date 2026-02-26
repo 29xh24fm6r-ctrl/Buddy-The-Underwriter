@@ -248,7 +248,7 @@ export async function runMatchForDocument(
     // ── Step 3: Run pure engine ─────────────────────────────────────────
     const result = matchDocumentToSlot(identity, slots, SLOT_POLICY_VERSION, matchConfig);
 
-    // ── Step 3b: Stamp adaptive threshold on evidence ───────────────────
+    // ── Step 3b: Stamp adaptive threshold on evidence ─────────────────
     if (resolvedThreshold && result.evidence) {
       result.evidence.adaptiveThreshold = {
         version: ADAPTIVE_THRESHOLD_VERSION,

@@ -5,6 +5,8 @@
 import type { IntakeScenario, SlotDefinition, SlotPolicy } from "../types";
 import { CONVENTIONAL_POLICY } from "./conventional";
 import { SBA_7A_POLICY } from "./sba7a";
+import type { DealEntityGraph } from "@/lib/entity/buildDealEntityGraph";
+import { applyEntityBindingsFromGraph } from "@/lib/entity/applyEntityBindingsFromGraph";
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -41,11 +43,23 @@ export function resolveSlotPolicy(productType: string): SlotPolicy {
 /**
  * Generate the deterministic slot list for a given intake scenario.
  * Pure function — no DB, no side effects.
+ *
+ * When a DealEntityGraph is provided (v1.4.0+):
+ *   - Single entity: all entity-scoped slots get required_entity_id = primaryBorrowerId
+ *   - Multi entity: entity-scoped slots expanded per matching entity
+ *   - Global docs: required_entity_id remains null
+ *
+ * Backward compatible: omit graph parameter for legacy behavior.
  */
 export function generateSlotsForScenario(
   scenario: IntakeScenario,
   now?: Date,
+  graph?: DealEntityGraph,
 ): SlotDefinition[] {
   const policy = resolveSlotPolicy(scenario.product_type);
-  return policy.generateSlots(scenario, now);
+  const slots = policy.generateSlots(scenario, now);
+
+  if (!graph) return slots;
+
+  return applyEntityBindingsFromGraph(slots, graph);
 }

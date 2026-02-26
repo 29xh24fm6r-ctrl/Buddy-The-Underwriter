@@ -23,6 +23,7 @@
  * 15. Consumer failure path never sets delivered_at
  * 16. processing-status returns latest_outbox
  * 17. CHECK constraint migration includes all 5 phases
+ * 18. Entity constraints hard-fail when entity is null (v1.4.0)
  */
 
 import { describe, test } from "node:test";
@@ -86,6 +87,10 @@ const phasePatchSrc = readSource(
 
 const claimRpcSrc = readSource(
   "supabase/migrations/20260226_claim_intake_outbox_rpc.sql",
+);
+
+const constraintsSrc = readSource(
+  "src/lib/intake/matching/constraints.ts",
 );
 
 describe("Phase E3 — Durable Outbox Enforcement Guards", () => {
@@ -227,6 +232,32 @@ describe("Phase E3 — Durable Outbox Enforcement Guards", () => {
     assert.ok(
       /buddy_outbox_events/.test(processingStatusSrc),
       "processing-status must query buddy_outbox_events for outbox data",
+    );
+  });
+
+  test("[guard-18] entity constraints must hard-fail when entity is null (v1.4.0)", () => {
+    // v1.4.0: No soft-skip — entity=null + entity-required slot → satisfied=false
+    assert.ok(
+      /No entity resolved/.test(constraintsSrc),
+      "checkEntityIdMatch must contain 'No entity resolved' for null-entity hard fail",
+    );
+    assert.ok(
+      /No entity role resolved/.test(constraintsSrc),
+      "checkEntityRoleMatch must contain 'No entity role resolved' for null-entity hard fail",
+    );
+    // Must NOT contain soft-skip artifacts
+    assert.ok(
+      !/skipped:\s*true/.test(constraintsSrc),
+      "constraints.ts must NOT contain 'skipped: true' — soft-skip removed in v1.4.0",
+    );
+    assert.ok(
+      !/reason:\s*["']entity_null["']/.test(constraintsSrc),
+      "constraints.ts must NOT contain reason: 'entity_null' — soft-skip removed in v1.4.0",
+    );
+    // Must contain identity_not_ambiguous constraint
+    assert.ok(
+      /identity_not_ambiguous/.test(constraintsSrc),
+      "constraints.ts must contain identity_not_ambiguous constraint (v1.4.0)",
     );
   });
 
