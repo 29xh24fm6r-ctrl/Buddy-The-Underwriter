@@ -94,8 +94,60 @@ export async function processIntakeOutbox(
       continue;
     }
 
+    // ── Pre-flight: skip stale outbox rows (superseded run_id) ───────
+    const { data: preflight } = await sb
+      .from("deals")
+      .select("intake_processing_run_id, intake_phase")
+      .eq("id", dealId)
+      .maybeSingle();
+
+    const currentRunId = (preflight as any)?.intake_processing_run_id;
+    const currentPhase = (preflight as any)?.intake_phase;
+
+    // Skip if run_id superseded (another recovery already took over)
+    if (currentRunId && currentRunId !== runId) {
+      await sb
+        .from("buddy_outbox_events")
+        .update({
+          delivered_at: new Date().toISOString(),
+          delivered_to: "skipped_superseded",
+          last_error: `run_id_mismatch: current=${currentRunId} outbox=${runId}`,
+        })
+        .eq("id", row.id);
+      processed += 1;
+      continue;
+    }
+
+    // Skip if deal already in terminal phase
+    if (currentPhase && currentPhase !== "CONFIRMED_READY_FOR_PROCESSING") {
+      await sb
+        .from("buddy_outbox_events")
+        .update({
+          delivered_at: new Date().toISOString(),
+          delivered_to: "skipped_already_terminal",
+          last_error: `phase_already_terminal: ${currentPhase}`,
+        })
+        .eq("id", row.id);
+      processed += 1;
+      continue;
+    }
+
     try {
       await runIntakeProcessing(dealId, bankId, runId);
+
+      // ── Post-flight: verify terminal phase before marking delivered ──
+      const { data: postCheck } = await sb
+        .from("deals")
+        .select("intake_phase")
+        .eq("id", dealId)
+        .maybeSingle();
+
+      const finalPhase = (postCheck as any)?.intake_phase;
+      if (finalPhase === "CONFIRMED_READY_FOR_PROCESSING") {
+        throw new Error(
+          `phase_not_terminal: deal ${dealId} still in CONFIRMED_READY_FOR_PROCESSING after processing`,
+        );
+      }
 
       // ── Success: mark delivered ────────────────────────────────────
       await sb

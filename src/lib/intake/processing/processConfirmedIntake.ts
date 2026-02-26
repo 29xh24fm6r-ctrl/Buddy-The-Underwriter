@@ -612,6 +612,9 @@ async function transitionPhaseAndEmit(
       phase: finalPhase,
       error: phaseErr?.message,
     });
+    // Re-throw DB errors so callers can react (retry or escalate).
+    // Without this, the deal silently stays in CONFIRMED_READY_FOR_PROCESSING.
+    throw phaseErr;
   }
 
   void writeEvent({
