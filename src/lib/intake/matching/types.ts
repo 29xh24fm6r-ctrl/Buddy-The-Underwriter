@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 /** Bump on any constraint/rule/threshold change. */
-export const MATCHING_ENGINE_VERSION = "v1.3";
+export const MATCHING_ENGINE_VERSION = "v1.4.0";
 
 // ---------------------------------------------------------------------------
 // Classification Authority

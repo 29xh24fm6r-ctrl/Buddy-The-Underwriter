@@ -1,8 +1,9 @@
 /**
- * Golden Corpus — Multi-Entity Match Invariants (v1.3)
+ * Golden Corpus — Multi-Entity Match Invariants (v1.4)
  *
  * Validates entity-aware routing: every document must land on
  * the correct entity's slot. Cross-entity attachment = wrong attach.
+ * Entity-null documents cannot match entity-required slots (v1.4.0).
  *
  * Pure function tests — no DB, no IO, no side effects.
  */
@@ -216,8 +217,11 @@ const ENTITY_GOLDEN_CORPUS: GoldenEntry[] = [
   },
 
   // ── E7: Missing entity on doc + entity-required slots → no_match ──────
+  // v1.4.0: entity constraint hard-fails when entity is null.
+  // Entity-required slots cannot be matched without resolved entity.
+  // This replaced v1.3.1 soft-skip behavior.
   {
-    label: "#E7: No entity resolved + entity-required slots → no_match",
+    label: "#E7: No entity resolved + entity-required slots → no_match (v1.4.0 hard enforcement)",
     identity: makeIdentity({
       effectiveDocType: "PERSONAL_TAX_RETURN",
       rawDocType: "IRS_PERSONAL",

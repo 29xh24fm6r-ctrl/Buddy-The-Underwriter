@@ -78,32 +78,25 @@ export function shouldAutoAttach(
 }
 
 // ---------------------------------------------------------------------------
-// v1.1: Entity ambiguity gate
+// v1.4: Entity ambiguity gate (unconditional)
 // ---------------------------------------------------------------------------
 
 /**
- * If the document has ambiguous entity resolution AND entity-aware slots exist,
- * route to review. Never guess between entities.
+ * If the document has ambiguous entity resolution, ALWAYS route to review.
+ * Never guess between entities. No slot check needed — ambiguity is
+ * authoritative regardless of slot configuration.
  *
- * Only triggers when at least one slot has requiredEntityId set.
+ * v1.4.0: Removed conditional slot check. Ambiguous = review, always.
  * Returns null when no entity ambiguity issue (caller proceeds normally).
  */
 export function checkEntityAmbiguity(
   identity: DocumentIdentity,
-  slots: SlotSnapshot[],
+  _slots: SlotSnapshot[],
 ): ConfidenceGateResult | null {
-  // No entity info = v1.0 compat, skip gate
-  if (!identity.entity) return null;
-
-  // Not ambiguous = no problem
-  if (!identity.entity.ambiguous) return null;
-
-  // Only gate if at least one slot is entity-aware
-  const hasEntitySlots = slots.some((s) => !!s.requiredEntityId);
-  if (!hasEntitySlots) return null;
+  if (!identity.entity?.ambiguous) return null;
 
   return {
     decision: "route_to_review",
-    reason: "Entity resolution is ambiguous — cannot auto-match to entity-aware slots",
+    reason: "Identity ambiguous — always routes to review",
   };
 }

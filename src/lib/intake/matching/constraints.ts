@@ -335,12 +335,39 @@ function checkYearConflict(
 }
 
 // ---------------------------------------------------------------------------
-// v1.1 Constraints: Entity routing
+// v1.4 Constraints: Entity identity enforcement (no skip, no bypass)
 // ---------------------------------------------------------------------------
 
 /**
+ * Identity ambiguity check: if entity resolution is ambiguous,
+ * fail the constraint. No auto-attach allowed for ambiguous identity.
+ *
+ * v1.4.0: Replaces soft-skip. No null bypass. No conditional relaxation.
+ */
+function checkIdentityAmbiguity(
+  identity: DocumentIdentity,
+  _slot: SlotSnapshot,
+): ConstraintResult {
+  if (!identity.entity?.ambiguous) {
+    return {
+      satisfied: true,
+      constraint: "identity_not_ambiguous",
+      detail: "Identity is not ambiguous",
+    };
+  }
+
+  return {
+    satisfied: false,
+    constraint: "identity_not_ambiguous",
+    detail: "Identity is ambiguous — cannot auto-match",
+  };
+}
+
+/**
  * Entity ID match: if slot has a required_entity_id, the document's resolved
- * entity must match. Skips when slot has no entity requirement.
+ * entity must match exactly. No skip logic. No null bypass.
+ *
+ * v1.4.0: entity=null + entity-required slot → satisfied=false.
  */
 function checkEntityIdMatch(
   identity: DocumentIdentity,
@@ -354,11 +381,11 @@ function checkEntityIdMatch(
     };
   }
 
-  if (!identity.entity) {
+  if (!identity.entity?.entityId) {
     return {
       satisfied: false,
       constraint: "entity_id_match",
-      detail: "Slot requires entity ID but no entity was resolved",
+      detail: `No entity resolved — cannot match entity-required slot "${slot.requiredEntityId}"`,
     };
   }
 
@@ -368,13 +395,15 @@ function checkEntityIdMatch(
     constraint: "entity_id_match",
     detail: satisfied
       ? `Entity ${identity.entity.entityId} matches slot requirement`
-      : `Entity ${identity.entity.entityId ?? "null"} does not match slot entity ${slot.requiredEntityId}`,
+      : `Entity ${identity.entity.entityId} does not match slot entity ${slot.requiredEntityId}`,
   };
 }
 
 /**
- * Entity role match: if slot has a required_entity_role, the document's resolved
- * entity role must match. Skips when slot has no role requirement.
+ * Entity role match: if slot has a required_entity_role, the document's
+ * resolved entity role must match. No skip logic. No null bypass.
+ *
+ * v1.4.0: entity=null + role-required slot → satisfied=false.
  */
 function checkEntityRoleMatch(
   identity: DocumentIdentity,
@@ -388,11 +417,11 @@ function checkEntityRoleMatch(
     };
   }
 
-  if (!identity.entity) {
+  if (!identity.entity?.entityRole) {
     return {
       satisfied: false,
       constraint: "entity_role_match",
-      detail: "Slot requires entity role but no entity was resolved",
+      detail: `No entity role resolved — cannot match role-required slot "${slot.requiredEntityRole}"`,
     };
   }
 
@@ -402,7 +431,7 @@ function checkEntityRoleMatch(
     constraint: "entity_role_match",
     detail: satisfied
       ? `Entity role "${identity.entity.entityRole}" matches slot requirement`
-      : `Entity role "${identity.entity.entityRole ?? "null"}" does not match slot role "${slot.requiredEntityRole}"`,
+      : `Entity role "${identity.entity.entityRole}" does not match slot role "${slot.requiredEntityRole}"`,
   };
 }
 
@@ -421,6 +450,8 @@ export function evaluateConstraints(
   return [
     checkSlotEmpty(slot),
     checkDocTypeMatch(identity, slot),
+    // v1.4: identity ambiguity gate (before entity checks)
+    checkIdentityAmbiguity(identity, slot),
     checkTaxYearMatch(identity, slot),
     checkYearRequired(identity, slot),
     // v1.1: period gating
@@ -428,7 +459,7 @@ export function evaluateConstraints(
     checkNotMultiYear(identity, slot),
     // v1.3: year conflict detection
     checkYearConflict(identity, slot),
-    // v1.1: entity routing
+    // v1.4: entity enforcement (no skip, no bypass)
     checkEntityIdMatch(identity, slot),
     checkEntityRoleMatch(identity, slot),
   ];

@@ -662,19 +662,9 @@ export default function NewDealClient({
         }
       }
 
-      // 3. Trigger intake orchestration
-      setProcessing(true);
-      setDebugInfo({ requestId: null, stage: "intake_run" });
-      const runRes = await fetch(`/api/deals/${dealId}/intake/run`, { method: "POST" });
-      const runJson = await runRes.json().catch(() => ({}));
-      if (!runRes.ok || runJson?.ok === false) {
-        throw new Error(`Intake run failed (${runRes.status}): ${runJson?.error || "unknown"}`);
-      }
-
-      // 4. Check if confirmation gate is active
-      // If gate is OFF, redirect straight to cockpit (no inline review).
-      // If gate is ON, transition to classifying mode — IntakeReviewTable
-      // polls and calls onNeedsReview/onSubmitted as phase progresses.
+      // 3. Check if confirmation gate is active
+      // Processing is triggered post-confirmation via /intake/process, not here.
+      // No optimistic processing state — backend confirms when processing starts.
       setDebugInfo({ requestId: null, stage: "checking_gate" });
       let gateActive = true;
       try {
@@ -686,7 +676,10 @@ export default function NewDealClient({
       }
 
       if (!gateActive) {
-        // Gate OFF — poll for readiness and redirect
+        // Gate OFF — run pre-confirmation scaffolding, then redirect to cockpit.
+        // Lifecycle engine handles the rest (no confirmation step).
+        setDebugInfo({ requestId: null, stage: "intake_scaffolding" });
+        await fetch(`/api/deals/${dealId}/intake/run`, { method: "POST" }).catch(() => {});
         setDebugInfo({ requestId: null, stage: "intake_poll" });
         const pollResult = await pollIntakeStatus(dealId);
         if (!pollResult.ok) {
