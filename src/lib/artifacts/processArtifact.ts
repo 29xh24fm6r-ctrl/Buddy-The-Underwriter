@@ -18,7 +18,7 @@ import { CLASSIFICATION_SCHEMA_VERSION } from "@/lib/classification/types";
 import {
   mapDocTypeToChecklistKeys,
 } from "./classifyDocument";
-import { resolveDocTyping } from "@/lib/docs/typing/resolveDocTyping";
+import { resolveDocTyping, type ResolveDocTypingResult } from "@/lib/docs/typing/resolveDocTyping";
 import { isExtractionErrorPayload, extractErrorMessage } from "./extractionError";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
@@ -84,6 +84,73 @@ const EXTRACT_ELIGIBLE_DOC_TYPES = new Set([
 
 function isExtractEligibleDocType(docType: string): boolean {
   return EXTRACT_ELIGIBLE_DOC_TYPES.has(docType);
+}
+
+// ---------------------------------------------------------------------------
+// Unified stamp payload — EVERY classification path (segmentation + main) MUST
+// use this helper. No partial stamps, no field drift.
+// ---------------------------------------------------------------------------
+
+type CanonicalStampAiFields = {
+  docType: string | null;
+  confidence: number;
+  model: string | null;
+  reason: string | null;
+  formNumbers: string[] | null;
+  issuer: string | null;
+  taxYear: number | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  extractedJson: any;
+  borrowerName: string | null;
+  businessName: string | null;
+  version: string | null;
+  tier: string | null;
+};
+
+function buildCanonicalStampPayload(args: {
+  typingResult: ResolveDocTypingResult;
+  confidence: number;
+  reason: string;
+  matchSource: string;
+  matchConfidence: number;
+  matchReason: string;
+  aiFields: CanonicalStampAiFields;
+  qualityStatus: string;
+  ocrTextLength: number | null;
+  entityPatch: Record<string, any>;
+}) {
+  return {
+    canonical_type: args.typingResult.canonical_type,
+    routing_class: args.typingResult.routing_class,
+    document_type: args.typingResult.document_type,
+    checklist_key: args.typingResult.checklist_key,
+    classification_confidence: args.confidence,
+    classification_reason: args.reason,
+    match_source: args.matchSource,
+    match_confidence: args.matchConfidence,
+    match_reason: args.matchReason,
+    ai_doc_type: args.aiFields.docType,
+    ai_confidence: args.aiFields.confidence,
+    ai_model: args.aiFields.model,
+    ai_reason: args.aiFields.reason,
+    ai_form_numbers: args.aiFields.formNumbers,
+    ai_issuer: args.aiFields.issuer,
+    ai_tax_year: args.aiFields.taxYear,
+    ai_period_start: args.aiFields.periodStart,
+    ai_period_end: args.aiFields.periodEnd,
+    ai_extracted_json: args.aiFields.extractedJson,
+    ai_borrower_name: args.aiFields.borrowerName,
+    ai_business_name: args.aiFields.businessName,
+    classification_version: args.aiFields.version,
+    classification_tier: args.aiFields.tier,
+    doc_year: args.aiFields.taxYear,
+    doc_years: args.aiFields.taxYear ? [args.aiFields.taxYear] : null,
+    quality_status: args.qualityStatus,
+    ocr_text_length: args.ocrTextLength,
+    finalized_at: new Date().toISOString(),
+    ...args.entityPatch,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -878,7 +945,6 @@ export async function processArtifact(
                 segResult.segmentClassifications[0],
               );
               const preliminaryConfidence = bestSeg?.confidence ?? null;
-              const preliminaryYear = bestSeg?.taxYear ?? null;
 
               // Resolve canonical typing with form-number guardrails (SAME as normal path)
               const segTypingResult = bestSeg?.docType
@@ -891,11 +957,6 @@ export async function processArtifact(
                   })
                 : null;
 
-              const canonicalType = segTypingResult?.canonical_type ?? bestSeg?.docType ?? null;
-              const routingClass = segTypingResult?.routing_class ?? null;
-              const documentType = segTypingResult?.document_type ?? bestSeg?.docType ?? null;
-              const checklistKey = segTypingResult?.checklist_key ?? null;
-
               // Evaluate quality using the SAME evaluator as the normal classification path
               const segQualityResult = evaluateDocumentQuality({
                 ocrTextLength: text?.length ?? null,
@@ -903,24 +964,56 @@ export async function processArtifact(
                 classificationConfidence: preliminaryConfidence,
               });
 
-              // Stamp document with resolved canonical type + CLASSIFIED_PENDING_REVIEW
-              await (sb as any)
-                .from("deal_documents")
-                .update({
-                  intake_status: "CLASSIFIED_PENDING_REVIEW",
-                  canonical_type: canonicalType,
-                  routing_class: routingClass,
-                  document_type: documentType,
-                  checklist_key: checklistKey,
-                  ai_doc_type: bestSeg?.docType ?? null,
-                  ai_confidence: preliminaryConfidence,
-                  ai_tax_year: preliminaryYear,
-                  doc_year: preliminaryYear,
-                  classification_tier: bestSeg?.spineTier ?? null,
-                  quality_status: segQualityResult.status,
-                  ocr_text_length: text?.length ?? null,
-                } as any)
-                .eq("id", source_id);
+              // ── Unified stamp: identical field set as main classification path ──
+              if (segTypingResult && preliminaryConfidence != null) {
+                const segStampPayload = buildCanonicalStampPayload({
+                  typingResult: segTypingResult,
+                  confidence: preliminaryConfidence,
+                  reason: `segmentation:${bestSeg?.docType ?? "unknown"}`,
+                  matchSource: "ai_classification",
+                  matchConfidence: preliminaryConfidence,
+                  matchReason: `multi_form_segmented:${segResult.reason}`,
+                  aiFields: {
+                    docType: bestSeg?.docType ?? null,
+                    confidence: preliminaryConfidence,
+                    model: null,
+                    reason: `multi_form_segmented:${segResult.reason}`,
+                    formNumbers: bestSeg?.formNumbers ?? null,
+                    issuer: null,
+                    taxYear: bestSeg?.taxYear ?? null,
+                    periodStart: null,
+                    periodEnd: null,
+                    extractedJson: null,
+                    borrowerName: null,
+                    businessName: null,
+                    version: null,
+                    tier: bestSeg?.spineTier ?? null,
+                  },
+                  qualityStatus: segQualityResult.status,
+                  ocrTextLength: text?.length ?? null,
+                  entityPatch: {},
+                });
+
+                await (sb as any)
+                  .from("deal_documents")
+                  .update({
+                    intake_status: "CLASSIFIED_PENDING_REVIEW",
+                    ...segStampPayload,
+                  } as any)
+                  .eq("id", source_id);
+              } else {
+                // Cannot resolve typing — stamp minimal fields, route to review
+                await (sb as any)
+                  .from("deal_documents")
+                  .update({
+                    intake_status: "CLASSIFIED_PENDING_REVIEW",
+                    ai_doc_type: bestSeg?.docType ?? null,
+                    ai_confidence: preliminaryConfidence,
+                    quality_status: segQualityResult.status,
+                    ocr_text_length: text?.length ?? null,
+                  } as any)
+                  .eq("id", source_id);
+              }
 
               // Transition deal phase BULK_UPLOADED → CLASSIFIED_PENDING_CONFIRMATION
               const { data: dealPhaseRow } = await sb
@@ -936,15 +1029,30 @@ export async function processArtifact(
                   .eq("id", dealId);
               }
 
-              // Mark artifact as classified (deferred)
-              await (sb as any)
-                .from("document_artifacts")
-                .update({
-                  status: "classified",
-                  doc_type_confidence: preliminaryConfidence,
-                  doc_type_reason: `multi_form_segmented:${segResult.reason} (canonical: ${canonicalType})`,
-                } as any)
-                .eq("id", artifactId);
+              // ── Artifact integrity: never mark classified with NULL doc_type ──
+              const effectiveDocType = bestSeg?.docType ?? null;
+              if (effectiveDocType != null && preliminaryConfidence != null) {
+                await (sb as any)
+                  .from("document_artifacts")
+                  .update({
+                    status: "classified",
+                    doc_type: effectiveDocType,
+                    doc_type_confidence: preliminaryConfidence,
+                    match_confidence: preliminaryConfidence,
+                    doc_type_reason: `multi_form_segmented:${segResult.reason} (canonical: ${segTypingResult?.canonical_type ?? effectiveDocType})`,
+                  } as any)
+                  .eq("id", artifactId);
+              } else {
+                // Cannot determine doc_type → route to review, never mark classified
+                await (sb as any)
+                  .from("document_artifacts")
+                  .update({
+                    status: "routed_to_review",
+                    doc_type_confidence: preliminaryConfidence,
+                    doc_type_reason: `multi_form_segmented:${segResult.reason} (unresolved type)`,
+                  } as any)
+                  .eq("id", artifactId);
+              }
 
               void writeEvent({
                 dealId,
@@ -957,7 +1065,7 @@ export async function processArtifact(
                   intake_phase: phase,
                   multi_form: true,
                   segment_count: segResult.segmentCount,
-                  canonical_type: canonicalType,
+                  canonical_type: segTypingResult?.canonical_type ?? bestSeg?.docType ?? null,
                   ai_doc_type: bestSeg?.docType ?? null,
                   segmentation_reason: segResult.reason,
                 },
@@ -1116,8 +1224,6 @@ export async function processArtifact(
           source_id,
         });
       } else {
-        const docYears = classification.taxYear ? [classification.taxYear] : null;
-
         // Route entity name to schema-real columns based on canonical type.
         const entityName = classification.entityName ?? null;
         const entityPatch: Record<string, any> = {};
@@ -1133,51 +1239,46 @@ export async function processArtifact(
           classificationConfidence: classification.confidence,
         });
 
-        const stampResult = await sb
-          .from("deal_documents")
-          .update({
-            // Existing fields
-            document_type: typingResult.document_type,
-            doc_year: classification.taxYear ?? null,
-            doc_years: docYears,
-            checklist_key: typingResult.checklist_key,
-            match_source: "ai_classification",
-            match_confidence: classification.confidence,
-            match_reason: classification.reason,
-            finalized_at: new Date().toISOString(),
-            // Raw AI classification fields
-            ai_doc_type: classification.docType,
-            ai_confidence: classification.confidence,
-            ai_model: classification.model ?? "gemini-2.0-flash",
-            ai_reason: classification.reason,
-            ai_form_numbers: classification.formNumbers,
-            ai_issuer: classification.issuer,
-            ai_tax_year: classification.taxYear,
-            ai_period_start: classification.periodStart,
-            ai_period_end: classification.periodEnd,
-            ai_extracted_json: isExtractionErrorPayload(classification.rawExtraction)
+        // ── Unified stamp: buildCanonicalStampPayload guarantees identical fields ──
+        const mainStampPayload = buildCanonicalStampPayload({
+          typingResult,
+          confidence: classification.confidence,
+          reason: typingResult.guardrail_applied
+            ? `${classification.reason} [guardrail: ${typingResult.guardrail_reason}]`
+            : classification.reason,
+          matchSource: "ai_classification",
+          matchConfidence: classification.confidence,
+          matchReason: classification.reason,
+          aiFields: {
+            docType: classification.docType,
+            confidence: classification.confidence,
+            model: classification.model ?? "gemini-2.0-flash",
+            reason: classification.reason,
+            formNumbers: classification.formNumbers,
+            issuer: classification.issuer,
+            taxYear: classification.taxYear,
+            periodStart: classification.periodStart,
+            periodEnd: classification.periodEnd,
+            extractedJson: isExtractionErrorPayload(classification.rawExtraction)
               ? null
               : {
                   ...classification.rawExtraction,
                   spine_evidence: (classification as SpineClassificationResult).evidence,
                   spine_confusion_candidates: (classification as SpineClassificationResult).confusionCandidates,
                 },
-            // Spine v2 traceability
-            classification_version: (classification as SpineClassificationResult).spineVersion ?? null,
-            classification_tier: (classification as SpineClassificationResult).spineTier ?? null,
-            // Resolved typing fields
-            canonical_type: typingResult.canonical_type,
-            routing_class: typingResult.routing_class,
-            classification_confidence: classification.confidence,
-            classification_reason: typingResult.guardrail_applied
-              ? `${classification.reason} [guardrail: ${typingResult.guardrail_reason}]`
-              : classification.reason,
-            // Phase E2: Quality gate fields
-            ocr_text_length: text?.length ?? null,
-            quality_status: qualityResult.status,
-            // Entity routing
-            ...entityPatch,
-          } as any)
+            borrowerName: entityPatch.ai_borrower_name ?? null,
+            businessName: entityPatch.ai_business_name ?? null,
+            version: (classification as SpineClassificationResult).spineVersion ?? null,
+            tier: (classification as SpineClassificationResult).spineTier ?? null,
+          },
+          qualityStatus: qualityResult.status,
+          ocrTextLength: text?.length ?? null,
+          entityPatch,
+        });
+
+        const stampResult = await sb
+          .from("deal_documents")
+          .update(mainStampPayload as any)
           .eq("id", source_id)
           .select("id, checklist_key, match_source, document_type, doc_year, ai_business_name, ai_borrower_name, canonical_type, routing_class")
           .maybeSingle();
