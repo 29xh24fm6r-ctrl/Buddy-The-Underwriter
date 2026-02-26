@@ -19,6 +19,10 @@
     {
       "path": "/api/ops/observer/tick",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/workers/intake-outbox?max=5",
+      "schedule": "*/1 * * * *"
     }
   ]
 }

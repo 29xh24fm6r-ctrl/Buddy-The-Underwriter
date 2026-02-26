@@ -174,6 +174,7 @@ async function claimBatch(): Promise<OutboxRow[]> {
        FROM buddy_outbox_events
        WHERE delivered_at IS NULL
          AND dead_lettered_at IS NULL
+         AND kind != 'intake.process'
          AND (claimed_at IS NULL OR claimed_at < now() - interval '1 second' * $1)
          AND (next_attempt_at IS NULL OR next_attempt_at <= now())
        ORDER BY created_at ASC

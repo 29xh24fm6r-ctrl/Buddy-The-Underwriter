@@ -16,11 +16,10 @@
 
 import "server-only";
 
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { updateDealIfRunOwner } from "./updateDealIfRunOwner";
 import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
-import { getBaseUrl } from "@/lib/net/getBaseUrl";
+import { insertOutboxEvent } from "@/lib/outbox/insertOutboxEvent";
 import type { StuckVerdict } from "./detectStuckProcessing";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -71,7 +70,6 @@ async function reenqueueProcessing(
 ): Promise<RecoveryOutcome> {
   const newRunId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const sb = supabaseAdmin();
 
   try {
     // Reset run markers with new run_id. CAS on the stale run_id ensures
@@ -110,91 +108,14 @@ async function reenqueueProcessing(
       },
     });
 
-    // Fire off the process route (same mechanism as confirm route)
-    const workerSecret = process.env.WORKER_SECRET ?? "";
-    const base = getBaseUrl();
-
-    if (base && workerSecret) {
-      void fetch(`${base}/api/deals/${dealId}/intake/process`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-buddy-internal": "1",
-          "x-worker-secret": workerSecret,
-        },
-        body: JSON.stringify({ dealId, bankId, runId: newRunId }),
-      }).then(async (res) => {
-        if (!res.ok) {
-          const text = await res.text().catch(() => "unknown");
-          throw new Error(`process_route_${res.status}: ${text.slice(0, 200)}`);
-        }
-      }).catch(async (err) => {
-        console.error("[handleStuckRecovery] re-enqueue handoff failed", {
-          dealId,
-          newRunId,
-          error: err?.message,
-        });
-
-        await writeEvent({
-          dealId,
-          kind: "intake.processing_reenqueue_handoff_failed",
-          scope: "intake",
-          meta: {
-            run_id: newRunId,
-            error: err?.message?.slice(0, 200),
-            observability_version: PROCESSING_OBSERVABILITY_VERSION,
-          },
-        });
-
-        // Fail-closed: if handoff fails, transition to error
-        await updateDealIfRunOwner(dealId, newRunId, {
-          intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
-          intake_processing_error: `reenqueue_handoff_failed: ${err?.message?.slice(0, 200)}`,
-        });
-      });
-    } else if (!base) {
-      // Local dev fallback — inline processing
-      const { enqueueDealProcessing } = await import(
-        "@/lib/intake/processing/enqueueDealProcessing"
-      );
-      void enqueueDealProcessing(dealId, bankId, newRunId).catch(async (err: any) => {
-        console.error("[handleStuckRecovery] inline re-enqueue failed", {
-          dealId,
-          newRunId,
-          error: err?.message,
-        });
-        await updateDealIfRunOwner(dealId, newRunId, {
-          intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
-          intake_processing_error: `reenqueue_inline_failed: ${err?.message?.slice(0, 200)}`,
-        });
-      });
-    } else {
-      // base URL exists but no WORKER_SECRET — fail closed
-      console.error("[handleStuckRecovery] WORKER_SECRET missing — cannot re-enqueue", { dealId });
-
-      await writeEvent({
-        dealId,
-        kind: "intake.processing_reenqueue_misconfigured",
-        scope: "intake",
-        meta: {
-          run_id: newRunId,
-          reason: "WORKER_SECRET env var is empty",
-          observability_version: PROCESSING_OBSERVABILITY_VERSION,
-        },
-      });
-
-      await updateDealIfRunOwner(dealId, newRunId, {
-        intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
-        intake_processing_error: "reenqueue_misconfigured: WORKER_SECRET missing",
-      });
-
-      return {
-        phase: "PROCESSING_COMPLETE_WITH_ERRORS",
-        error: "reenqueue_misconfigured: WORKER_SECRET missing",
-        recovered: true,
-        reenqueued: false,
-      };
-    }
+    // Insert outbox row — the durable consumer picks it up on next cron tick.
+    // No HTTP. No void fetch(). No Lambda lifecycle dependency.
+    await insertOutboxEvent({
+      kind: "intake.process",
+      dealId,
+      bankId,
+      payload: { deal_id: dealId, run_id: newRunId, reason: "stuck_recovery" },
+    });
 
     return {
       phase: "CONFIRMED_READY_FOR_PROCESSING",
