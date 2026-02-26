@@ -19,6 +19,10 @@
  * 11. runIntakeProcessing throws on gate failure (processing_gated)
  * 12. Consumer verifies terminal phase (phase_not_terminal)
  * 13. Consumer pre-flight skips superseded run_id (skipped_superseded)
+ * 14. All terminal transitions use computeDealPhasePatch
+ * 15. Consumer failure path never sets delivered_at
+ * 16. processing-status returns latest_outbox
+ * 17. CHECK constraint migration includes all 5 phases
  */
 
 import { describe, test } from "node:test";
@@ -66,6 +70,18 @@ const processRouteSrc = readSource(
 
 const outboxConsumerSrc = readSource(
   "src/lib/workers/processIntakeOutbox.ts",
+);
+
+const processingStatusSrc = readSource(
+  "src/app/api/deals/[dealId]/intake/processing-status/route.ts",
+);
+
+const constraintMigrationSrc = readSource(
+  "supabase/migrations/20260427_fix_intake_phase_constraint.sql",
+);
+
+const phasePatchSrc = readSource(
+  "src/lib/intake/processing/computeDealPhasePatch.ts",
 );
 
 const claimRpcSrc = readSource(
@@ -171,6 +187,69 @@ describe("Phase E3 — Durable Outbox Enforcement Guards", () => {
     assert.ok(
       /skipped_superseded/.test(outboxConsumerSrc),
       "Consumer must skip outbox rows with superseded run_id (pre-flight stale check)",
+    );
+  });
+
+  test("[guard-14] all terminal transitions must use computeDealPhasePatch", () => {
+    // Every file that transitions to a terminal phase must import computeDealPhasePatch
+    assert.ok(
+      /computeDealPhasePatch/.test(runProcessingSrc),
+      "runIntakeProcessing must use computeDealPhasePatch for terminal transitions",
+    );
+    assert.ok(
+      /computeDealPhasePatch/.test(recoverySrc),
+      "handleStuckRecovery must use computeDealPhasePatch for terminal transitions",
+    );
+    assert.ok(
+      /computeDealPhasePatch/.test(phasePatchSrc),
+      "computeDealPhasePatch module must exist and export the function",
+    );
+  });
+
+  test("[guard-15] consumer failure path must NOT set delivered_at", () => {
+    // Extract the catch block of the consumer processing loop.
+    // The markFailed function must NOT set delivered_at.
+    const markFailedMatch = outboxConsumerSrc.match(
+      /async function markFailed[\s\S]*?^}/m,
+    );
+    assert.ok(markFailedMatch, "markFailed function must exist in consumer");
+    assert.ok(
+      !/delivered_at/.test(markFailedMatch![0]),
+      "markFailed must NOT set delivered_at — only success/skip paths set it",
+    );
+  });
+
+  test("[guard-16] processing-status must return latest_outbox", () => {
+    assert.ok(
+      /latest_outbox/.test(processingStatusSrc),
+      "processing-status must return latest_outbox object in response",
+    );
+    assert.ok(
+      /buddy_outbox_events/.test(processingStatusSrc),
+      "processing-status must query buddy_outbox_events for outbox data",
+    );
+  });
+
+  test("[guard-17] CHECK constraint migration must include all 5 phases", () => {
+    assert.ok(
+      /PROCESSING_COMPLETE/.test(constraintMigrationSrc),
+      "Migration must include PROCESSING_COMPLETE in constraint",
+    );
+    assert.ok(
+      /PROCESSING_COMPLETE_WITH_ERRORS/.test(constraintMigrationSrc),
+      "Migration must include PROCESSING_COMPLETE_WITH_ERRORS in constraint",
+    );
+    assert.ok(
+      /CONFIRMED_READY_FOR_PROCESSING/.test(constraintMigrationSrc),
+      "Migration must include CONFIRMED_READY_FOR_PROCESSING in constraint",
+    );
+    assert.ok(
+      /BULK_UPLOADED/.test(constraintMigrationSrc),
+      "Migration must include BULK_UPLOADED in constraint",
+    );
+    assert.ok(
+      /CLASSIFIED_PENDING_CONFIRMATION/.test(constraintMigrationSrc),
+      "Migration must include CLASSIFIED_PENDING_CONFIRMATION in constraint",
     );
   });
 });

@@ -14,6 +14,7 @@ import { computeAllBlockers } from "@/lib/intake/confirmation/computeDocBlockers
 import type { ActiveDoc } from "@/lib/intake/confirmation/computeDocBlockers";
 import { detectStuckProcessing } from "@/lib/intake/processing/detectStuckProcessing";
 import { updateDealIfRunOwner } from "@/lib/intake/processing/updateDealIfRunOwner";
+import { computeDealPhasePatch } from "@/lib/intake/processing/computeDealPhasePatch";
 import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
@@ -106,10 +107,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           },
         });
 
-        await updateDealIfRunOwner(dealId, staleRunId, {
-          intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
-          intake_processing_error: `stuck_recovery: ${verdict.reason}`,
-        });
+        await updateDealIfRunOwner(dealId, staleRunId, computeDealPhasePatch(
+          "PROCESSING_COMPLETE_WITH_ERRORS",
+          { errorSummary: `stuck_recovery: ${verdict.reason}` },
+        ));
 
         // Fall through to allow re-confirmation below
       } else {

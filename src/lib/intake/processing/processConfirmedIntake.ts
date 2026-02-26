@@ -23,6 +23,8 @@ import { PROCESSING_VERSION, PROCESSING_OBSERVABILITY_VERSION } from "@/lib/inta
 import { stampProcessingHeartbeat } from "./processingHeartbeat";
 import { updateDealIfRunOwner } from "./updateDealIfRunOwner";
 import { summarizeProcessingErrors } from "./summarizeProcessingError";
+import { computeDealPhasePatch } from "./computeDealPhasePatch";
+import type { TerminalPhase } from "./computeDealPhasePatch";
 
 // ── Extract-eligible canonical types (mirrors processArtifact routing) ──
 
@@ -592,12 +594,9 @@ async function transitionPhaseAndEmit(
       : null;
 
   try {
-    const updatePayload: Record<string, unknown> = {
-      intake_phase: finalPhase,
-    };
-    if (errorSummary) {
-      updatePayload.intake_processing_error = errorSummary;
-    }
+    const updatePayload = computeDealPhasePatch(finalPhase as TerminalPhase, {
+      errorSummary,
+    });
     const updated = await updateDealIfRunOwner(dealId, opts.runId, updatePayload);
     if (!updated) {
       console.warn("[transitionPhaseAndEmit] CAS failed — run superseded", {

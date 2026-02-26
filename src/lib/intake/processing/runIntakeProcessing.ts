@@ -23,6 +23,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { enqueueDealProcessing } from "@/lib/intake/processing/enqueueDealProcessing";
 import { updateDealIfRunOwner } from "@/lib/intake/processing/updateDealIfRunOwner";
+import { computeDealPhasePatch } from "@/lib/intake/processing/computeDealPhasePatch";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { backfillDealArtifacts } from "@/lib/artifacts/queueArtifact";
 import {
@@ -99,10 +100,10 @@ export async function runIntakeProcessing(
           },
         });
 
-        await updateDealIfRunOwner(dealId, runId, {
-          intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
-          intake_processing_error: `soft_deadline: processing exceeded ${SOFT_DEADLINE_MS}ms`,
-        });
+        await updateDealIfRunOwner(dealId, runId, computeDealPhasePatch(
+          "PROCESSING_COMPLETE_WITH_ERRORS",
+          { errorSummary: `soft_deadline: processing exceeded ${SOFT_DEADLINE_MS}ms` },
+        ));
 
         throw new Error("SOFT_DEADLINE_EXCEEDED");
       })(),
@@ -141,10 +142,10 @@ export async function runIntakeProcessing(
     // Guarantee terminal phase transition (soft deadline already transitioned above)
     if (!isSoftDeadline) {
       try {
-        await updateDealIfRunOwner(dealId, runId, {
-          intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
-          intake_processing_error: `process_failed: ${err?.message?.slice(0, 200)}`,
-        });
+        await updateDealIfRunOwner(dealId, runId, computeDealPhasePatch(
+          "PROCESSING_COMPLETE_WITH_ERRORS",
+          { errorSummary: `process_failed: ${err?.message?.slice(0, 200)}` },
+        ));
       } catch (transitionErr: any) {
         console.error("[runIntakeProcessing] failed to transition phase", {
           dealId,

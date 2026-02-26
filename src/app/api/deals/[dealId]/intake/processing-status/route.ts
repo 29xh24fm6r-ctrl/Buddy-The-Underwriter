@@ -89,6 +89,29 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       }
     }
 
+    // ── Load latest outbox row for this deal ────────────────────────────
+    const { data: outboxRow } = await sb
+      .from("buddy_outbox_events")
+      .select(
+        "id, attempts, delivered_at, delivered_to, last_error, dead_lettered_at",
+      )
+      .eq("deal_id", dealId)
+      .eq("kind", "intake.process")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const latestOutbox = outboxRow
+      ? {
+          outbox_id: (outboxRow as any).id,
+          attempts: (outboxRow as any).attempts,
+          delivered_at: (outboxRow as any).delivered_at,
+          delivered_to: (outboxRow as any).delivered_to,
+          last_error: (outboxRow as any).last_error,
+          dead_lettered_at: (outboxRow as any).dead_lettered_at,
+        }
+      : null;
+
     return NextResponse.json({
       ok: true,
       intake_phase: phase,
@@ -101,12 +124,18 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         auto_recovered: autoRecovered,
         reenqueued,
       },
+      latest_outbox: latestOutbox,
     });
   } catch (e: any) {
     rethrowNextErrors(e);
-    console.error("[intake/processing-status]", e);
+    const correlationId = crypto.randomUUID();
+    console.error("[intake/processing-status]", { correlationId, error: e?.message });
     return NextResponse.json(
-      { ok: false, error: "unexpected_error" },
+      {
+        ok: false,
+        error: e?.message?.slice(0, 300) ?? "unexpected_error",
+        correlation_id: correlationId,
+      },
       { status: 500 },
     );
   }
