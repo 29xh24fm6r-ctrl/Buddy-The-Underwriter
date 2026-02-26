@@ -18,6 +18,7 @@ import "server-only";
 
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { updateDealIfRunOwner } from "./updateDealIfRunOwner";
+import { computeDealPhasePatch } from "./computeDealPhasePatch";
 import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
 import { insertOutboxEvent } from "@/lib/outbox/insertOutboxEvent";
 import type { StuckVerdict } from "./detectStuckProcessing";
@@ -156,10 +157,10 @@ async function transitionToError(
     },
   });
 
-  await updateDealIfRunOwner(dealId, staleRunId, {
-    intake_phase: "PROCESSING_COMPLETE_WITH_ERRORS",
-    intake_processing_error: errorMsg,
-  });
+  await updateDealIfRunOwner(dealId, staleRunId, computeDealPhasePatch(
+    "PROCESSING_COMPLETE_WITH_ERRORS",
+    { errorSummary: errorMsg },
+  ));
 
   return {
     phase: "PROCESSING_COMPLETE_WITH_ERRORS",
