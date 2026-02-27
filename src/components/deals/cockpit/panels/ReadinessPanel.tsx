@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useCockpitDataContext } from "@/buddy/cockpit/useCockpitData";
@@ -40,6 +40,105 @@ function DerivedFactDot({ label, ok }: { label: string; ok: boolean }) {
     </div>
   );
 }
+
+// ── Intake Processing Kick (self-contained) ────────────────────────────────
+
+const STALL_THRESHOLD_MS = 30_000; // 30 seconds before showing the button
+
+function IntakeProcessingKick({ dealId }: { dealId: string }) {
+  const [status, setStatus] = useState<{
+    intake_phase: string | null;
+    outbox_attempts: number | null;
+    outbox_created_at: string | null;
+  } | null>(null);
+  const [kicking, setKicking] = useState(false);
+  const [kickResult, setKickResult] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function poll() {
+      try {
+        const res = await fetch(`/api/deals/${dealId}/intake/processing-status`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled) return;
+
+        setStatus({
+          intake_phase: data.intake_phase ?? null,
+          outbox_attempts: data.latest_outbox?.attempts ?? null,
+          outbox_created_at: data.latest_outbox
+            // processing-status doesn't return created_at, use queued_at as proxy
+            ? (data.processing?.queued_at ?? null)
+            : null,
+        });
+      } catch {
+        // Ignore — this is best-effort
+      }
+    }
+
+    poll();
+    const interval = setInterval(poll, 10_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [dealId]);
+
+  // Only show when processing is stuck
+  if (!status) return null;
+  if (status.intake_phase !== "CONFIRMED_READY_FOR_PROCESSING") return null;
+  if (status.outbox_attempts !== 0) return null;
+
+  const age = status.outbox_created_at
+    ? Date.now() - new Date(status.outbox_created_at).getTime()
+    : 0;
+  if (age < STALL_THRESHOLD_MS) return null;
+
+  async function handleKick() {
+    setKicking(true);
+    setKickResult(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/intake/processing/kick`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setKickResult("Processing re-enqueued. It will start shortly.");
+      } else {
+        setKickResult(data.error ?? "Kick failed");
+      }
+    } catch {
+      setKickResult("Network error");
+    } finally {
+      setKicking(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-amber-300/80">
+          Processing stalled ({Math.round(age / 1000)}s)
+        </span>
+        <button
+          onClick={handleKick}
+          disabled={kicking}
+          className={cn(
+            "px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
+            kicking
+              ? "bg-amber-500/10 text-amber-300/40 cursor-wait"
+              : "bg-amber-500/20 text-amber-200 hover:bg-amber-500/30",
+          )}
+        >
+          {kicking ? "Kicking..." : "Run Processing Now"}
+        </button>
+      </div>
+      {kickResult && (
+        <p className="text-[10px] text-amber-300/60">{kickResult}</p>
+      )}
+    </div>
+  );
+}
+
+// ── Main ReadinessPanel ─────────────────────────────────────────────────────
 
 type Props = {
   dealId: string;
@@ -350,6 +449,9 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
             {actionError}
           </div>
         )}
+
+        {/* Intake processing kick — visible when processing is stalled */}
+        <IntakeProcessingKick dealId={dealId} />
 
         {/* Banker explainer */}
         {derived && (
