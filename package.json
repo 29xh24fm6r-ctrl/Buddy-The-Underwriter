@@ -36,7 +36,8 @@
     "e2e:smoke:public": "playwright test --project=smoke-public",
     "e2e:smoke:authed": "playwright test --project=smoke-authed",
     "omega:validate": "node scripts/omega/validate-mapping.mjs",
-    "gate:schema-select": "node scripts/schema/gate-select-columns.mjs"
+    "gate:schema-select": "node scripts/schema/gate-select-columns.mjs",
+    "worker:intake": "node --conditions react-server --import tsx --env-file=.env.local scripts/intake-worker.ts"
   },
   "dependencies": {
 "@clerk/nextjs": "^6.36.3",

@@ -1,3 +1,4 @@
+import "dotenv/config";
 /**
  * buddy-core-worker — Always-on Cloud Run service.
  *
