@@ -5,6 +5,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { detectStuckProcessing } from "@/lib/intake/processing/detectStuckProcessing";
 import { handleStuckRecovery } from "@/lib/intake/processing/handleStuckRecovery";
+import { isOutboxStalled } from "@/lib/intake/processing/detectOutboxStall";
+import { emitOutboxStalledEventIfNeeded } from "@/lib/intake/processing/emitOutboxStalledEvent";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -93,7 +95,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     const { data: outboxRow } = await sb
       .from("buddy_outbox_events")
       .select(
-        "id, attempts, delivered_at, delivered_to, last_error, dead_lettered_at",
+        "id, attempts, delivered_at, delivered_to, last_error, dead_lettered_at, created_at, claim_owner",
       )
       .eq("deal_id", dealId)
       .eq("kind", "intake.process")
@@ -109,8 +111,40 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
           delivered_to: (outboxRow as any).delivered_to,
           last_error: (outboxRow as any).last_error,
           dead_lettered_at: (outboxRow as any).dead_lettered_at,
+          created_at: (outboxRow as any).created_at,
         }
       : null;
+
+    // ── Outbox stall detection (idempotent per outbox_id) ────────────
+    let outboxStalled = false;
+    if (
+      phase === "CONFIRMED_READY_FOR_PROCESSING" &&
+      latestOutbox
+    ) {
+      const stallVerdict = isOutboxStalled(
+        {
+          id: latestOutbox.outbox_id,
+          attempts: latestOutbox.attempts,
+          delivered_at: latestOutbox.delivered_at,
+          dead_lettered_at: latestOutbox.dead_lettered_at,
+          created_at: latestOutbox.created_at,
+        },
+        Date.now(),
+      );
+
+      if (stallVerdict.stalled) {
+        outboxStalled = true;
+
+        // Fire-and-forget: emit stall event (idempotent per outbox_id)
+        void emitOutboxStalledEventIfNeeded({
+          dealId,
+          outboxId: stallVerdict.outbox_id,
+          ageSeconds: stallVerdict.age_seconds,
+          runId: (deal as any).intake_processing_run_id ?? null,
+          claimOwner: (outboxRow as any).claim_owner ?? null,
+        });
+      }
+    }
 
     return NextResponse.json({
       ok: true,
@@ -125,6 +159,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         reenqueued,
       },
       latest_outbox: latestOutbox,
+      outbox_stalled: outboxStalled,
     });
   } catch (e: any) {
     rethrowNextErrors(e);
