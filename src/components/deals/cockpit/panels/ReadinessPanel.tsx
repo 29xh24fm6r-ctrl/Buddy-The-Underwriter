@@ -43,12 +43,10 @@ function DerivedFactDot({ label, ok }: { label: string; ok: boolean }) {
 
 // ── Intake Processing Kick (self-contained) ────────────────────────────────
 
-const STALL_THRESHOLD_MS = 30_000; // 30 seconds before showing the button
-
 function IntakeProcessingKick({ dealId }: { dealId: string }) {
   const [status, setStatus] = useState<{
     intake_phase: string | null;
-    outbox_attempts: number | null;
+    outbox_stalled: boolean;
     outbox_created_at: string | null;
   } | null>(null);
   const [kicking, setKicking] = useState(false);
@@ -66,11 +64,8 @@ function IntakeProcessingKick({ dealId }: { dealId: string }) {
 
         setStatus({
           intake_phase: data.intake_phase ?? null,
-          outbox_attempts: data.latest_outbox?.attempts ?? null,
-          outbox_created_at: data.latest_outbox
-            // processing-status doesn't return created_at, use queued_at as proxy
-            ? (data.processing?.queued_at ?? null)
-            : null,
+          outbox_stalled: data.outbox_stalled ?? false,
+          outbox_created_at: data.latest_outbox?.created_at ?? null,
         });
       } catch {
         // Ignore — this is best-effort
@@ -82,15 +77,14 @@ function IntakeProcessingKick({ dealId }: { dealId: string }) {
     return () => { cancelled = true; clearInterval(interval); };
   }, [dealId]);
 
-  // Only show when processing is stuck
+  // Only show when processing outbox is stalled (server-authoritative)
   if (!status) return null;
   if (status.intake_phase !== "CONFIRMED_READY_FOR_PROCESSING") return null;
-  if (status.outbox_attempts !== 0) return null;
+  if (!status.outbox_stalled) return null;
 
   const age = status.outbox_created_at
     ? Date.now() - new Date(status.outbox_created_at).getTime()
     : 0;
-  if (age < STALL_THRESHOLD_MS) return null;
 
   async function handleKick() {
     setKicking(true);

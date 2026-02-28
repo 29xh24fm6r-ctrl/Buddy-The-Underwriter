@@ -132,7 +132,10 @@ export default clerkMiddleware(async (auth, req) => {
 
 export const config = {
   matcher: [
-    // Run on everything except static assets
-    "/((?!_next|.*\\..*).*)",
+    // Run on everything except static assets and worker endpoints.
+    // /api/workers/* are cron/worker endpoints authenticated via CRON_SECRET,
+    // not Clerk sessions. Excluding them prevents Clerk from rejecting
+    // unauthenticated cron requests before the route handler runs.
+    "/((?!_next|api/workers/|.*\\..*).*)",
   ],
 };

@@ -125,15 +125,16 @@ describe("FIX 2A: Actionable auto-recovery", () => {
     );
   });
 
-  test("[fix2a-6] handleStuckRecovery fail-closed on handoff failure", () => {
+  test("[fix2a-6] handleStuckRecovery fail-closed on re-enqueue failure", () => {
     const src = readSource("src/lib/intake/processing/handleStuckRecovery.ts");
+    // On re-enqueue failure, must fall back to error transition (outbox architecture)
     assert.ok(
-      src.includes('"intake.processing_reenqueue_handoff_failed"'),
-      "Re-enqueue path must emit failure event if handoff fails",
+      src.includes("transitionToError"),
+      "Re-enqueue path must fall back to transitionToError on failure",
     );
     assert.ok(
       src.includes("PROCESSING_COMPLETE_WITH_ERRORS"),
-      "Re-enqueue path must transition to error if handoff fails",
+      "Re-enqueue fallback must transition to PROCESSING_COMPLETE_WITH_ERRORS",
     );
   });
 
@@ -395,25 +396,29 @@ describe("FIX 2B: Confirm step enqueue integrity", () => {
     );
   });
 
-  test("[fix2b-3] confirm route fail-closed on WORKER_SECRET missing", () => {
+  test("[fix2b-3] confirm route fail-closed on RPC failure", () => {
+    // In the outbox architecture, the finalize RPC atomically creates the
+    // outbox row — no WORKER_SECRET needed. Fail-close = RPC error → 500.
     assert.ok(
-      confirmSrc.includes("WORKER_SECRET"),
-      "Confirm route must check WORKER_SECRET",
+      confirmSrc.includes("finalize_rpc_failed"),
+      "Confirm route must return finalize_rpc_failed error on RPC failure",
     );
     assert.ok(
-      confirmSrc.includes("handoff_misconfigured"),
-      "Confirm route must fail-close if WORKER_SECRET missing",
+      confirmSrc.includes("status: 500"),
+      "Confirm route must return 500 on RPC failure",
     );
   });
 
-  test("[fix2b-4] confirm route fail-closed on handoff failure", () => {
+  test("[fix2b-4] confirm route processing is decoupled via outbox", () => {
+    // In the outbox architecture, the confirm route does NOT invoke processing
+    // directly — processing enters through the outbox consumer only.
     assert.ok(
-      confirmSrc.includes("processing_handoff_failed"),
-      "Confirm route must emit handoff_failed event if process route invocation fails",
+      confirmSrc.includes("processing_queued: true"),
+      "Confirm route must indicate processing is queued (not executed inline)",
     );
     assert.ok(
-      confirmSrc.includes("PROCESSING_COMPLETE_WITH_ERRORS"),
-      "Confirm route must transition to error on handoff failure",
+      !confirmSrc.includes("runIntakeProcessing"),
+      "Confirm route must NOT call runIntakeProcessing — decoupled via outbox",
     );
   });
 });

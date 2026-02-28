@@ -52,18 +52,20 @@ describe("Process Route Durability CI Guards", () => {
     );
   });
 
-  // ── Guard 3: Confirm route self-invokes /intake/process ────────────
-  test("[guard-3] confirm route invokes /intake/process via fetch", () => {
+  // ── Guard 3: Confirm route uses durable outbox (not HTTP self-invocation) ──
+  test("[guard-3] confirm route enqueues via finalize RPC (no HTTP self-invocation)", () => {
     const src = readSource(
       "src/app/api/deals/[dealId]/intake/confirm/route.ts",
     );
     assert.ok(
-      src.includes("/intake/process"),
-      "confirm route must invoke the dedicated /intake/process route",
+      src.includes("finalize_intake_and_enqueue_processing"),
+      "confirm route must use the atomic finalize RPC to enqueue processing",
     );
+    // Confirm route must NOT import runIntakeProcessing or processConfirmedIntake
+    const hasStaticRunImport = /^import\s+.*runIntakeProcessing.*from/m.test(src);
     assert.ok(
-      src.includes("x-buddy-internal"),
-      "confirm route must pass x-buddy-internal header to process route",
+      !hasStaticRunImport,
+      "confirm route must NOT import runIntakeProcessing — processing is decoupled via outbox",
     );
   });
 
@@ -95,22 +97,22 @@ describe("Process Route Durability CI Guards", () => {
     );
   });
 
-  // ── Guard 6: Soft deadline guard in process route ──────────────────
-  test("[guard-6] process route implements soft deadline guard", () => {
+  // ── Guard 6: Soft deadline guard in runIntakeProcessing ──────────────
+  test("[guard-6] runIntakeProcessing implements soft deadline guard", () => {
     const src = readSource(
-      "src/app/api/deals/[dealId]/intake/process/route.ts",
+      "src/lib/intake/processing/runIntakeProcessing.ts",
     );
     assert.ok(
       src.includes("SOFT_DEADLINE"),
-      "process route must implement a soft deadline guard",
+      "runIntakeProcessing must implement a soft deadline guard",
     );
     assert.ok(
       src.includes("Promise.race"),
-      "process route must use Promise.race for deadline enforcement",
+      "runIntakeProcessing must use Promise.race for deadline enforcement",
     );
     assert.ok(
       src.includes("updateDealIfRunOwner"),
-      "process route must guarantee phase transition via updateDealIfRunOwner",
+      "runIntakeProcessing must guarantee phase transition via updateDealIfRunOwner",
     );
   });
 
@@ -145,21 +147,17 @@ describe("Process Route Durability CI Guards", () => {
   });
 
   // ── Guard 8: Process route has proper auth ─────────────────────────
-  test("[guard-8] process route checks authorization", () => {
+  test("[guard-8] process route checks authorization via requireRoleApi", () => {
     const src = readSource(
       "src/app/api/deals/[dealId]/intake/process/route.ts",
     );
     assert.ok(
-      src.includes("isAuthorized"),
-      "process route must check authorization",
+      src.includes("requireRoleApi"),
+      "process route must check authorization via requireRoleApi",
     );
     assert.ok(
-      src.includes("x-buddy-internal"),
-      "process route must accept x-buddy-internal header",
-    );
-    assert.ok(
-      src.includes("hasValidWorkerSecret"),
-      "process route must accept worker/cron secret",
+      src.includes("ensureDealBankAccess"),
+      "process route must enforce tenant access via ensureDealBankAccess",
     );
   });
 });
