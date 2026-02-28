@@ -239,4 +239,57 @@ describe("Intake Outbox Durability CI Guards", () => {
       `proxy matcher pattern must exclude api/workers/ (got: ${pattern})`,
     );
   });
+
+  // ── Guard 13: Recovery route exists and uses correct imports ──────
+  test("[guard-13] intake-recovery route uses insertOutboxEvent and hasValidWorkerSecret", () => {
+    const src = readSource("src/app/api/workers/intake-recovery/route.ts");
+    assert.ok(
+      src.includes("hasValidWorkerSecret"),
+      "recovery route must authenticate via hasValidWorkerSecret",
+    );
+    assert.ok(
+      src.includes("recoverStuckIntakeDeals"),
+      "recovery route must import recoverStuckIntakeDeals domain function",
+    );
+  });
+
+  // ── Guard 14: Recovery route NEVER imports processing functions ────
+  test("[guard-14] intake-recovery NEVER imports runIntakeProcessing or processConfirmedIntake", () => {
+    const routeSrc = readSource("src/app/api/workers/intake-recovery/route.ts");
+    const domainSrc = readSource("src/lib/workers/recoverStuckIntakeDeals.ts");
+
+    for (const [label, src] of [["route", routeSrc], ["domain", domainSrc]] as const) {
+      const hasRunImport = /^import\s+.*runIntakeProcessing.*from/m.test(src);
+      assert.ok(
+        !hasRunImport,
+        `recovery ${label} must NOT import runIntakeProcessing — recovery is outbox-only`,
+      );
+      const hasProcessImport = /^import\s+.*processConfirmedIntake.*from/m.test(src);
+      assert.ok(
+        !hasProcessImport,
+        `recovery ${label} must NOT import processConfirmedIntake — recovery is outbox-only`,
+      );
+    }
+
+    // Domain must use insertOutboxEvent
+    assert.ok(
+      domainSrc.includes("insertOutboxEvent"),
+      "recovery domain must enqueue via insertOutboxEvent",
+    );
+  });
+
+  // ── Guard 15: vercel.json includes intake-recovery cron entry ──────
+  test("[guard-15] vercel.json has intake-recovery cron entry", () => {
+    const pkg = JSON.parse(readFileSync(join(ROOT, "vercel.json"), "utf-8"));
+    assert.ok(Array.isArray(pkg.crons), "vercel.json must have a crons array");
+
+    const entry = pkg.crons.find(
+      (c: any) => typeof c.path === "string" && c.path.includes("/api/workers/intake-recovery"),
+    );
+    assert.ok(entry, "vercel.json must have a cron entry for /api/workers/intake-recovery");
+    assert.ok(
+      entry.schedule.includes("*/3"),
+      `recovery cron should run every 3 minutes (got: ${entry.schedule})`,
+    );
+  });
 });

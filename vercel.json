@@ -21,8 +21,12 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/workers/intake-outbox?max=1",
+      "path": "/api/workers/intake-outbox?max=10",
       "schedule": "*/1 * * * *"
+    },
+    {
+      "path": "/api/workers/intake-recovery",
+      "schedule": "*/3 * * * *"
     }
   ]
 }
