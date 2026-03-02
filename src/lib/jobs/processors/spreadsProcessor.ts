@@ -21,6 +21,47 @@ function uniq<T>(arr: T[]) {
   return Array.from(new Set(arr));
 }
 
+/**
+ * Close out a deal_spread_runs record when all sibling jobs are terminal.
+ *
+ * Called fire-and-forget after each job reaches SUCCEEDED/FAILED so the run
+ * ledger accurately reflects completion instead of staying at "running" forever.
+ *
+ * Uses meta->>'run_id' (set by orchestrateSpreads) to identify siblings.
+ * No-ops if runId is null, sibling jobs are still in-flight, or the run row
+ * is already in a terminal state (idempotent).
+ */
+async function tryFinalizeSpreadRun(
+  sb: any,
+  runId: string | null,
+): Promise<void> {
+  if (!runId) return;
+
+  // Count jobs for this orchestration run that are still in-flight
+  const { count: pendingCount } = await sb
+    .from("deal_spread_jobs")
+    .select("id", { count: "exact", head: true })
+    .filter("meta->>run_id", "eq", runId)
+    .in("status", ["QUEUED", "RUNNING"]);
+
+  if ((pendingCount ?? 1) > 0) return; // siblings still running — not done yet
+
+  // All siblings terminal — determine outcome
+  const { count: failedCount } = await sb
+    .from("deal_spread_jobs")
+    .select("id", { count: "exact", head: true })
+    .filter("meta->>run_id", "eq", runId)
+    .eq("status", "FAILED");
+
+  const finalStatus = (failedCount ?? 0) > 0 ? "failed" : "succeeded";
+
+  await sb
+    .from("deal_spread_runs")
+    .update({ status: finalStatus, finished_at: new Date().toISOString() })
+    .eq("id", runId)
+    .in("status", ["queued", "running"]);
+}
+
 const SPREAD_EVENT_KEY: Record<string, string> = {
   T12: "spread.business.completed",
   BALANCE_SHEET: "spread.business.completed",
@@ -551,6 +592,8 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     const renderedCount = completedTypes.size;
     const attemptedCount = readyTypes.length;
 
+    const orchestratorRunId = typeof jobMeta.run_id === "string" ? jobMeta.run_id : null;
+
     if (renderedCount === 0) {
       const { data: failData, count: failCount } = await (sb as any)
         .from("deal_spread_jobs")
@@ -651,6 +694,9 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         }).catch(() => {});
       }
     }
+
+    // Close out the orchestrator run ledger entry (fire-and-forget — observability only)
+    tryFinalizeSpreadRun(sb as any, orchestratorRunId).catch(() => {});
 
     // Best-effort invariant check — log violations but never fail the job
     try {
@@ -768,6 +814,10 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       uiMessage: `Spread generation failed: ${errMsg.slice(0, 200)}`,
       meta: { jobId, error: errMsg, attempt },
     });
+
+    // Close out the orchestrator run ledger entry (fire-and-forget — observability only)
+    const catchOrchRunId = typeof jobMeta.run_id === "string" ? jobMeta.run_id : null;
+    tryFinalizeSpreadRun(sb as any, catchOrchRunId).catch(() => {});
 
     return { ok: false as const, error: errMsg };
   }

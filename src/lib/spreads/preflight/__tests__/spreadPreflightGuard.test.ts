@@ -469,6 +469,56 @@ test("Guard W: HARD_BLOCKER_CODES contains exactly 4 entries", () => {
   );
 });
 
+// ══════════════════════════════════════════════════════════════════════
+// E2-D — Spread Run Lifecycle Guards
+// Enforce: deal_spread_runs.status must transition from running → succeeded/failed.
+// Bug class: run stuck at "running" forever when all spread jobs fail
+// (orchestrateSpreads sets "running"; no code updated it until this fix).
+// ══════════════════════════════════════════════════════════════════════
+
+// ── Guard Y: spreadsProcessor.ts finalizes deal_spread_runs ────────────
+
+test("[guard-Y] spreadsProcessor finalizes deal_spread_runs on job completion", () => {
+  const src = readFileSync(
+    resolve(
+      __dirname,
+      "../../../../lib/jobs/processors/spreadsProcessor.ts",
+    ),
+    "utf-8",
+  );
+  assert.ok(
+    src.includes("tryFinalizeSpreadRun"),
+    "Guard Y: spreadsProcessor.ts must call tryFinalizeSpreadRun to close out stale deal_spread_runs records",
+  );
+  assert.ok(
+    src.includes("deal_spread_runs"),
+    "Guard Y: spreadsProcessor.ts must reference deal_spread_runs table",
+  );
+});
+
+// ── Guard Z: tryFinalizeSpreadRun is fire-and-forget (non-blocking) ────
+
+test("[guard-Z] tryFinalizeSpreadRun is invoked fire-and-forget", () => {
+  const src = readFileSync(
+    resolve(
+      __dirname,
+      "../../../../lib/jobs/processors/spreadsProcessor.ts",
+    ),
+    "utf-8",
+  );
+  // Must be called with .catch(() => {}) — never allowed to throw into the job path
+  const occurrences = [...src.matchAll(/tryFinalizeSpreadRun\b/g)].length;
+  assert.ok(
+    occurrences >= 2,
+    `Guard Z: tryFinalizeSpreadRun must be called in both SUCCEEDED and FAILED paths (found ${occurrences} occurrence(s))`,
+  );
+  // Both calls must be swallowed (fire-and-forget pattern)
+  assert.ok(
+    src.includes("tryFinalizeSpreadRun(sb as any, orchestratorRunId).catch(() => {})"),
+    "Guard Z: orchestratorRunId call must be fire-and-forget (.catch(() => {}))",
+  );
+});
+
 // ── Guard X: Execution-only blockers produce warnings, not failures ───
 
 test("Guard X: input with only extraction blockers still computes them (observability)", () => {
