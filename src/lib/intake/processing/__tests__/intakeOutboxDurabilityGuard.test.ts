@@ -445,4 +445,78 @@ describe("Intake Outbox Durability CI Guards", () => {
       "Guard 25b: intake-outbox route must emit a 'cron_invocation_seen' startup log token for cron audit trail",
     );
   });
+
+  // ── Guard 26: manual correction route must not accept checklist_key ──
+  test("[guard-26] checklist-key route BodySchema must not accept checklist_key from client", () => {
+    const src = readSource(
+      "src/app/api/deals/[dealId]/documents/[attachmentId]/checklist-key/route.ts",
+    );
+    // BodySchema must NOT have a checklist_key field — it is derived internally
+    assert.ok(
+      !src.includes("checklist_key: z."),
+      "Guard 26a: BodySchema must NOT accept checklist_key from client input — " +
+      "checklist_key is derived from canonical_type + tax_year via resolveChecklistKey()",
+    );
+    // BodySchema MUST accept canonical_type and derive checklist_key internally
+    assert.ok(
+      src.includes("canonical_type"),
+      "Guard 26b: BodySchema must accept canonical_type as the client-supplied input",
+    );
+    assert.ok(
+      src.includes("resolveChecklistKey"),
+      "Guard 26c: route must derive checklist_key via resolveChecklistKey() — never from client input",
+    );
+  });
+
+  // ── Guard 28: tryFinalizeSpreadRun drives deal_spread_runs to terminal state ──
+  test("[guard-28] tryFinalizeSpreadRun correctly transitions deal_spread_runs to failed/succeeded", () => {
+    const src = readSource("src/lib/jobs/processors/spreadsProcessor.ts");
+    // Function must exist
+    assert.ok(
+      src.includes("tryFinalizeSpreadRun"),
+      "Guard 28a: spreadsProcessor must define tryFinalizeSpreadRun",
+    );
+    // Must count failed jobs to determine final status
+    assert.ok(
+      src.includes("failedCount"),
+      "Guard 28b: tryFinalizeSpreadRun must count failed sibling jobs to determine outcome",
+    );
+    // Must use both terminal statuses
+    assert.ok(
+      src.includes('"failed"') && src.includes('"succeeded"'),
+      "Guard 28c: tryFinalizeSpreadRun must produce both 'failed' and 'succeeded' terminal statuses",
+    );
+    // Must only update rows currently in non-terminal states (safe CAS)
+    assert.ok(
+      src.includes('"queued", "running"') || src.includes('"queued","running"') ||
+      src.includes(".in(\"status\", [\"queued\", \"running\"])"),
+      "Guard 28d: tryFinalizeSpreadRun must only overwrite queued/running rows (idempotent CAS)",
+    );
+    // Must wait for all siblings to be terminal before finalizing
+    assert.ok(
+      src.includes("pendingCount") && src.includes("QUEUED") && src.includes("RUNNING"),
+      "Guard 28e: tryFinalizeSpreadRun must gate on pending siblings still in QUEUED/RUNNING state",
+    );
+  });
+
+  // ── Guard 29: intake-outbox cron schedule is at most every 1 minute ──
+  test("[guard-29] vercel.json intake-outbox cron schedule fires every 1 minute", () => {
+    const pkg = JSON.parse(readFileSync(join(ROOT, "vercel.json"), "utf-8"));
+    assert.ok(Array.isArray(pkg.crons), "vercel.json must have a crons array");
+
+    const entry = pkg.crons.find(
+      (c: any) => typeof c.path === "string" && c.path.includes("/api/workers/intake-outbox"),
+    );
+    assert.ok(entry, "Guard 29: vercel.json must have a cron entry for /api/workers/intake-outbox");
+
+    const schedule: string = entry.schedule ?? "";
+    // Accepts */1 * * * * (every 1 min) or * * * * * (every minute, same thing)
+    const isOncePerMinute =
+      schedule === "*/1 * * * *" || schedule === "* * * * *";
+    assert.ok(
+      isOncePerMinute,
+      `Guard 29: intake-outbox cron must fire every 1 minute (got: "${schedule}") — ` +
+      "a longer interval means unclaimed outbox rows can sit for >1 minute before pickup",
+    );
+  });
 });

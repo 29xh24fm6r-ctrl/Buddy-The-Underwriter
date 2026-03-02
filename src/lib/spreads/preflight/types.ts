@@ -14,8 +14,9 @@
 export type PreflightBlockerCode =
   | "INTAKE_NOT_CONFIRMED"
   | "INTAKE_SNAPSHOT_HASH_MISMATCH"
-  | "EXTRACTION_NOT_READY" // transient — extraction job not complete
-  | "EXTRACTION_SUSPECT" // data integrity — sanity check failed
+  | "EXTRACTION_NOT_READY"     // transient — extraction job not complete
+  | "EXTRACTION_SUSPECT"       // data integrity — sanity check failed
+  | "NO_EXTRACTED_FACTS"       // hard — extraction ran but produced zero financial facts
   | "SPREADS_DISABLED_BY_FLAG"
   | "UNKNOWN_FAILSAFE";
 
@@ -42,6 +43,8 @@ export type PreflightInput = {
   activeDocs: PreflightActiveDoc[];
   extractionHeartbeatDocIds: Set<string>;
   spreadsEnabled: boolean;
+  /** Count of visible (non-heartbeat) financial facts for this deal. */
+  visibleFactCount: number;
 };
 
 // ── Preflight Output ──────────────────────────────────────────────────

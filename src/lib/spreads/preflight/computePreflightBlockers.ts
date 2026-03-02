@@ -43,6 +43,7 @@ import type {
 export const HARD_BLOCKER_CODES = new Set<PreflightBlockerCode>([
   "INTAKE_NOT_CONFIRMED",
   "INTAKE_SNAPSHOT_HASH_MISMATCH",
+  "NO_EXTRACTED_FACTS",
   "SPREADS_DISABLED_BY_FLAG",
   "UNKNOWN_FAILSAFE",
 ]);
@@ -162,7 +163,21 @@ export function computePreflightBlockers(
     });
   }
 
-  // ── 5. Feature flag ─────────────────────────────────────────────
+  // ── 5. Extraction produced zero financial facts ──────────────────
+  // Hard blocker: extraction ran (heartbeats present) but produced zero
+  // usable financial facts. Spread jobs would immediately fail with
+  // MISSING_UPSTREAM_FACTS. Block before wasting compute.
+  // Only fires when ALL heartbeat docs have been processed (size > 0).
+  if (input.extractionHeartbeatDocIds.size > 0 && input.visibleFactCount === 0) {
+    blockers.push({
+      code: "NO_EXTRACTED_FACTS",
+      message:
+        "Extraction completed but produced zero financial facts — cannot generate spreads. " +
+        "Verify document content is machine-readable.",
+    });
+  }
+
+  // ── 6. Feature flag ─────────────────────────────────────────────
   if (!input.spreadsEnabled) {
     blockers.push({
       code: "SPREADS_DISABLED_BY_FLAG",

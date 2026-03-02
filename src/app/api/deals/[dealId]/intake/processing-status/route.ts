@@ -153,6 +153,42 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       stallReasonValue = stallVerdict.stalled ? stallVerdict.reason : null;
     }
 
+    // ── Spread-run SLA watchdog ─────────────────────────────────────
+    // Detect a deal_spread_runs row stuck in "queued" or "running" beyond 5 minutes.
+    // Fires once per poll; event is idempotent (fire-and-forget).
+    const SPREAD_RUN_SLA_MS = 5 * 60 * 1000; // 5 minutes
+    let spreadRunStalled = false;
+    let stalledSpreadRunId: string | null = null;
+
+    const { data: spreadRunRow } = await (sb as any)
+      .from("deal_spread_runs")
+      .select("id, status, created_at")
+      .eq("deal_id", dealId)
+      .in("status", ["queued", "running"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (spreadRunRow) {
+      const runAgeMs = Date.now() - new Date((spreadRunRow as any).created_at).getTime();
+      if (runAgeMs > SPREAD_RUN_SLA_MS) {
+        spreadRunStalled = true;
+        stalledSpreadRunId = (spreadRunRow as any).id;
+        // Fire-and-forget stall event (no dedup needed — polling will see it each cycle)
+        void import("@/lib/ledger/writeEvent").then(({ writeEvent }) =>
+          writeEvent({
+            dealId,
+            kind: "spread_run_stalled",
+            meta: {
+              run_id: stalledSpreadRunId,
+              status: (spreadRunRow as any).status,
+              age_seconds: Math.round(runAgeMs / 1000),
+            },
+          }).catch(() => {}),
+        );
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       intake_phase: phase,
@@ -168,6 +204,8 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       latest_outbox: latestOutbox,
       outbox_stalled: outboxStalled,
       stall_reason: stallReasonValue,
+      spread_run_stalled: spreadRunStalled,
+      stalled_spread_run_id: stalledSpreadRunId,
     });
   } catch (e: any) {
     rethrowNextErrors(e);

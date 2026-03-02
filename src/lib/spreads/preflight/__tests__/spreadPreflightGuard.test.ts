@@ -39,6 +39,7 @@ function makeInput(overrides: Partial<PreflightInput> = {}): PreflightInput {
     activeDocs: [],
     extractionHeartbeatDocIds: new Set<string>(),
     spreadsEnabled: true,
+    visibleFactCount: 0,
     ...overrides,
   };
 }
@@ -461,11 +462,64 @@ test("Guard V: all structural integrity codes are hard blockers", () => {
 
 // ── Guard W: HARD_BLOCKER_CODES size is CI-locked ─────────────────────
 
-test("Guard W: HARD_BLOCKER_CODES contains exactly 4 entries", () => {
+test("Guard W: HARD_BLOCKER_CODES contains exactly 5 entries", () => {
   assert.equal(
     HARD_BLOCKER_CODES.size,
-    4,
-    `HARD_BLOCKER_CODES must have exactly 4 entries (structural integrity only), got ${HARD_BLOCKER_CODES.size}`,
+    5,
+    `HARD_BLOCKER_CODES must have exactly 5 entries (structural integrity only), got ${HARD_BLOCKER_CODES.size}`,
+  );
+});
+
+// ── Guard V.1: NO_EXTRACTED_FACTS is a hard blocker ──────────────────
+
+test("Guard V.1: NO_EXTRACTED_FACTS is in HARD_BLOCKER_CODES", () => {
+  assert.ok(HARD_BLOCKER_CODES.has("NO_EXTRACTED_FACTS"));
+});
+
+// ── Guard 27: NO_EXTRACTED_FACTS blocks when heartbeat exists + zero facts ──
+
+test("[guard-27] NO_EXTRACTED_FACTS blocker fires when heartbeat exists but zero facts", () => {
+  const blockers = computePreflightBlockers(
+    makeInput({
+      extractionHeartbeatDocIds: new Set(["doc-with-heartbeat"]),
+      visibleFactCount: 0,
+    }),
+  );
+  assert.ok(
+    findBlocker(blockers, "NO_EXTRACTED_FACTS"),
+    `[guard-27a] Expected NO_EXTRACTED_FACTS blocker when heartbeat exists but 0 facts`,
+  );
+  const blocker = findBlocker(blockers, "NO_EXTRACTED_FACTS")!;
+  assert.ok(
+    HARD_BLOCKER_CODES.has(blocker.code),
+    "[guard-27b] NO_EXTRACTED_FACTS must be a hard blocker",
+  );
+});
+
+test("[guard-27c] NO_EXTRACTED_FACTS does NOT fire when no heartbeats exist (timing race)", () => {
+  // No heartbeats = extraction hasn't run yet = not the zero-facts scenario
+  const blockers = computePreflightBlockers(
+    makeInput({
+      extractionHeartbeatDocIds: new Set<string>(), // empty
+      visibleFactCount: 0,
+    }),
+  );
+  assert.ok(
+    !findBlocker(blockers, "NO_EXTRACTED_FACTS"),
+    "[guard-27c] Must NOT emit NO_EXTRACTED_FACTS when no heartbeats (too early)",
+  );
+});
+
+test("[guard-27d] NO_EXTRACTED_FACTS does NOT fire when facts exist", () => {
+  const blockers = computePreflightBlockers(
+    makeInput({
+      extractionHeartbeatDocIds: new Set(["doc-1"]),
+      visibleFactCount: 5,
+    }),
+  );
+  assert.ok(
+    !findBlocker(blockers, "NO_EXTRACTED_FACTS"),
+    "[guard-27d] Must NOT emit NO_EXTRACTED_FACTS when facts > 0",
   );
 });
 

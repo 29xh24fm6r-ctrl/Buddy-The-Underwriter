@@ -255,7 +255,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     }
 
     if (factsVis.total === 0 && heartbeatExists) {
-      // Extraction ran but produced 0 visible facts — emit diagnostic event
+      // Extraction ran but produced 0 visible facts — emit diagnostic events
       writeSystemEvent({
         event_type: "warning",
         severity: "warning",
@@ -268,6 +268,18 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         error_message: "Extraction completed (heartbeat present) but produced 0 visible facts",
         payload: { dealId, bankId, jobId },
       }).catch(() => {});
+
+      // Timeline-visible ledger event so operators can see extraction gaps in deal timeline
+      void logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "extraction.zero_facts",
+        uiState: "error",
+        uiMessage:
+          "Extraction completed but produced zero financial facts — spreads cannot render. " +
+          "Verify document content is machine-readable.",
+        meta: { jobId },
+      });
     }
 
     // ── Per-spread prerequisite evaluation ──

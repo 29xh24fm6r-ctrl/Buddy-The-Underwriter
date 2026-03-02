@@ -10,39 +10,16 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { SEGMENTATION_VERSION } from "@/lib/intake/segmentation/types";
 import { extractFilenamePattern } from "@/lib/intake/overrideIntelligence/extractFilenamePattern";
+import { resolveChecklistKey } from "@/lib/docTyping/resolveChecklistKey";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Map checklist_key to canonical document_type
-const CHECKLIST_KEY_TO_DOC_TYPE: Record<string, string> = {
-  IRS_PERSONAL_3Y: "PERSONAL_TAX_RETURN",
-  IRS_PERSONAL_2Y: "PERSONAL_TAX_RETURN",
-  PTR: "PERSONAL_TAX_RETURN",
-  IRS_BUSINESS_3Y: "BUSINESS_TAX_RETURN",
-  IRS_BUSINESS_2Y: "BUSINESS_TAX_RETURN",
-  BTR: "BUSINESS_TAX_RETURN",
-  PFS_CURRENT: "PFS",
-  SBA_413: "PFS",
-  FIN_STMT_PL_YTD: "INCOME_STATEMENT",
-  FIN_STMT_BS_YTD: "BALANCE_SHEET",
-  PROPERTY_T12: "T12",
-  BANK_STMT_3M: "BANK_STATEMENT",
-  RENT_ROLL: "RENT_ROLL",
-  LEASES_TOP: "LEASE",
-  PROPERTY_INSURANCE: "INSURANCE",
-  APPRAISAL_IF_AVAILABLE: "APPRAISAL",
-  OPERATING_AGREEMENT: "OPERATING_AGREEMENT",
-  ARTICLES: "ARTICLES",
-  K1: "K1",
-  W2: "W2",
-  "1099": "1099",
-};
-
+// Body only accepts canonical_type + tax_year.
+// checklist_key is DERIVED internally — never accepted from the client.
 const BodySchema = z.object({
-  checklist_key: z.union([z.string().trim().min(1), z.null()]).optional(),
-  document_type: z.string().trim().min(1).optional(),
-  tax_year: z.number().int().min(1990).max(2100).optional(),
+  canonical_type: z.string().trim().min(1).optional().nullable(),
+  tax_year: z.number().int().min(1990).max(2100).optional().nullable(),
 });
 
 /**
@@ -90,11 +67,13 @@ export async function PATCH(
     );
   }
 
-  const checklistKey = body.checklist_key ?? null;
-  const documentType =
-    body.document_type || CHECKLIST_KEY_TO_DOC_TYPE[checklistKey || ""] || null;
+  const canonicalType = body.canonical_type ?? null;
   const taxYear = body.tax_year ?? null;
-  const isClearing = !checklistKey;
+  const isClearing = !canonicalType;
+
+  // checklist_key is derived deterministically — never from client input
+  const checklistKey = canonicalType ? resolveChecklistKey(canonicalType, taxYear) : null;
+  const documentType = canonicalType; // canonical_type IS the document type
 
   const sb = supabaseAdmin();
 
@@ -123,6 +102,7 @@ export async function PATCH(
   };
 
   // 1. Update deal_documents (canonical source)
+  // canonical_type, document_type, and checklist_key are always in sync — derived atomically.
   const docUpdate: Record<string, unknown> = {
     checklist_key: checklistKey,
     match_source: isClearing ? null : "manual",
@@ -131,7 +111,10 @@ export async function PATCH(
     // Manual classification = banker has reviewed → finalize the document
     finalized_at: isClearing ? null : new Date().toISOString(),
   };
-  if (documentType) docUpdate.document_type = documentType;
+  if (canonicalType) {
+    docUpdate.canonical_type = canonicalType;
+    docUpdate.document_type = canonicalType; // always in sync with canonical_type
+  }
   if (taxYear !== null) {
     docUpdate.doc_year = taxYear;
     docUpdate.doc_years = [taxYear];
@@ -251,6 +234,7 @@ export async function PATCH(
         filename: currentDoc.data.original_filename,
         previous: previousState,
         new: {
+          canonical_type: canonicalType,
           checklist_key: checklistKey,
           document_type: documentType,
           doc_year: taxYear,

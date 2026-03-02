@@ -49,7 +49,7 @@ export async function runSpreadPreflight(
   const sb = supabaseAdmin();
 
   // ── Parallel DB loads ───────────────────────────────────────────────
-  const [dealRes, docsRes, heartbeatRes] = await Promise.all([
+  const [dealRes, docsRes, heartbeatRes, factCountRes] = await Promise.all([
     // 1. Deal state: intake phase + snapshot hash
     (sb as any)
       .from("deals")
@@ -72,6 +72,13 @@ export async function runSpreadPreflight(
       .select("source_document_id")
       .eq("deal_id", dealId)
       .eq("fact_type", "EXTRACTION_HEARTBEAT"),
+
+    // 4. Visible financial fact count (non-heartbeat, non-source-document)
+    (sb as any)
+      .from("deal_financial_facts")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .not("fact_type", "in", "(EXTRACTION_HEARTBEAT,SOURCE_DOCUMENT)"),
   ]);
 
   // ── Build PreflightInput ────────────────────────────────────────────
@@ -92,12 +99,15 @@ export async function runSpreadPreflight(
       .filter(Boolean),
   );
 
+  const visibleFactCount: number = factCountRes.count ?? 0;
+
   const input: PreflightInput = {
     intakePhase: dealRow?.intake_phase ?? null,
     storedSnapshotHash: dealRow?.intake_snapshot_hash ?? null,
     activeDocs,
     extractionHeartbeatDocIds: heartbeatDocIds,
     spreadsEnabled: isSpreadsEnabled(),
+    visibleFactCount,
   };
 
   // ── Compute blockers (structural vs execution separation) ──────────

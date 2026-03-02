@@ -366,6 +366,48 @@ export async function runMatchForDocument(
     }
 
     // ── Step 6: Emit ledger event ───────────────────────────────────────
+
+    // Slot audit trail — fired for every match attempt regardless of outcome.
+    // Never blocks. Never throws. Always recorded.
+    writeEvent({
+      dealId,
+      kind: "slot.auto_match_attempted",
+      scope: "matching",
+      meta: {
+        document_id: documentId,
+        effective_doc_type: identity.effectiveDocType,
+        engine_version: MATCHING_ENGINE_VERSION,
+        match_source: matchSource ?? null,
+      },
+    }).catch(() => {});
+
+    if (result.decision === "auto_attached") {
+      writeEvent({
+        dealId,
+        kind: "slot.auto_match_success",
+        scope: "matching",
+        meta: {
+          document_id: documentId,
+          slot_id: result.slotId,
+          slot_key: result.slotKey,
+          confidence: result.confidence,
+          engine_version: MATCHING_ENGINE_VERSION,
+        },
+      }).catch(() => {});
+    } else if (result.decision === "no_match") {
+      writeEvent({
+        dealId,
+        kind: "slot.auto_match_no_slot_found",
+        scope: "matching",
+        meta: {
+          document_id: documentId,
+          effective_doc_type: identity.effectiveDocType,
+          reason: result.reason,
+          engine_version: MATCHING_ENGINE_VERSION,
+        },
+      }).catch(() => {});
+    }
+
     const ledgerKind =
       result.decision === "auto_attached"
         ? "match.auto_attached"
