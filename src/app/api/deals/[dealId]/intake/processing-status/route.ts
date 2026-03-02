@@ -119,6 +119,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
     // ── Outbox stall detection (idempotent per outbox_id) ────────────
     let outboxStalled = false;
+    let stallReasonValue: string | null = null;
     if (
       phase === "CONFIRMED_READY_FOR_PROCESSING" &&
       latestOutbox
@@ -128,6 +129,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
           id: latestOutbox.outbox_id,
           attempts: latestOutbox.attempts,
           claimed_at: latestOutbox.claimed_at,
+          claim_owner: latestOutbox.claim_owner ?? null,
           delivered_at: latestOutbox.delivered_at,
           dead_lettered_at: latestOutbox.dead_lettered_at,
           created_at: latestOutbox.created_at,
@@ -147,6 +149,8 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
           claimOwner: (outboxRow as any).claim_owner ?? null,
         });
       }
+
+      stallReasonValue = stallVerdict.stalled ? stallVerdict.reason : null;
     }
 
     return NextResponse.json({
@@ -163,6 +167,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       },
       latest_outbox: latestOutbox,
       outbox_stalled: outboxStalled,
+      stall_reason: stallReasonValue,
     });
   } catch (e: any) {
     rethrowNextErrors(e);

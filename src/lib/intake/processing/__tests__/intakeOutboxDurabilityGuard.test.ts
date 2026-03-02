@@ -155,34 +155,53 @@ describe("Intake Outbox Durability CI Guards", () => {
 
     // Not stalled: delivered
     const delivered = isOutboxStalled(
-      { id: "a", attempts: 0, claimed_at: null, delivered_at: now.toString(), dead_lettered_at: null, created_at: new Date(now - 200_000).toISOString() },
+      { id: "a", attempts: 0, claim_owner: null, claimed_at: null, delivered_at: now.toString(), dead_lettered_at: null, created_at: new Date(now - 200_000).toISOString() },
       now,
     );
     assert.equal(delivered.stalled, false, "delivered row should not be stalled");
 
     // Not stalled: has attempts (consumer is working on it)
     const attempted = isOutboxStalled(
-      { id: "b", attempts: 1, claimed_at: null, delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 200_000).toISOString() },
+      { id: "b", attempts: 1, claim_owner: null, claimed_at: null, delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 200_000).toISOString() },
       now,
     );
     assert.equal(attempted.stalled, false, "row with attempts > 0 should not be stalled");
 
     // Not stalled: too young
     const young = isOutboxStalled(
-      { id: "c", attempts: 0, claimed_at: null, delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 30_000).toISOString() },
+      { id: "c", attempts: 0, claim_owner: null, claimed_at: null, delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 30_000).toISOString() },
       now,
     );
     assert.equal(young.stalled, false, "young row should not be stalled");
 
-    // STALLED: old, no attempts, not delivered, not claimed
+    // Not stalled: claimed within TTL (4 min old claim, TTL=5 min)
+    const inFlight = isOutboxStalled(
+      { id: "e", attempts: 0, claim_owner: "vercel-intake-123", claimed_at: new Date(now - 240_000).toISOString(), delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 250_000).toISOString() },
+      now,
+    );
+    assert.equal(inFlight.stalled, false, "recently claimed row within TTL must not be stalled");
+
+    // STALLED: old, no attempts, not delivered, never claimed
     const stalled = isOutboxStalled(
-      { id: "d", attempts: 0, claimed_at: null, delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 200_000).toISOString() },
+      { id: "d", attempts: 0, claim_owner: null, claimed_at: null, delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 200_000).toISOString() },
       now,
     );
     assert.equal(stalled.stalled, true, "old undelivered row with 0 attempts must be stalled");
     if (stalled.stalled) {
       assert.equal(stalled.outbox_id, "d");
+      assert.equal(stalled.reason, "never_claimed_timeout", "never-claimed row must use never_claimed_timeout reason");
       assert.ok(stalled.age_seconds >= 199, `age should be ~200s, got ${stalled.age_seconds}`);
+    }
+
+    // STALLED: stale claim — claimed but TTL expired (6 min old claim)
+    const staleClaim = isOutboxStalled(
+      { id: "f", attempts: 0, claim_owner: "vercel-intake-999", claimed_at: new Date(now - 360_000).toISOString(), delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 370_000).toISOString() },
+      now,
+    );
+    assert.equal(staleClaim.stalled, true, "expired-claim row with 0 attempts must be stalled");
+    if (staleClaim.stalled) {
+      assert.equal(staleClaim.reason, "stale_claim_expired", "expired-claim row must use stale_claim_expired reason");
+      assert.equal(staleClaim.claim_owner, "vercel-intake-999");
     }
   });
 
@@ -377,22 +396,53 @@ describe("Intake Outbox Durability CI Guards", () => {
     );
   });
 
-  // ── Guard 16: claimed (in-flight) rows must never be reported as stalled ──
-  test("[guard-16] isOutboxStalled returns false for a claimed in-flight row", () => {
+  // ── Guard 16: claimed (in-flight) rows within TTL must never be reported as stalled ──
+  test("[guard-16] isOutboxStalled returns false for a claimed in-flight row within TTL", () => {
     const now = Date.now();
     const row = {
       id: "test-in-flight",
       attempts: 0,
-      claimed_at: new Date(now - 300_000).toISOString(), // claimed 5 min ago
+      claim_owner: "vercel-intake-test",
+      claimed_at: new Date(now - 60_000).toISOString(), // claimed 1 min ago — well within 5 min TTL
       delivered_at: null,
       dead_lettered_at: null,
-      created_at: new Date(now - 310_000).toISOString(),
+      created_at: new Date(now - 70_000).toISOString(),
     };
     const verdict = isOutboxStalled(row, now);
     assert.strictEqual(
       verdict.stalled,
       false,
-      "Guard 16: a claimed (in-flight) row must never be reported as stalled",
+      "Guard 16: a claimed row within claim TTL must never be reported as stalled",
+    );
+  });
+
+  // ── Guard 24: vercel.json must have intake-outbox cron entry ──────────
+  test("[guard-24] vercel.json has intake-outbox cron entry", () => {
+    const pkg = JSON.parse(readFileSync(join(ROOT, "vercel.json"), "utf-8"));
+    assert.ok(Array.isArray(pkg.crons), "vercel.json must have a crons array");
+    const entry = pkg.crons.find(
+      (c: any) => typeof c.path === "string" && c.path.includes("/api/workers/intake-outbox"),
+    );
+    assert.ok(
+      entry,
+      "Guard 24: vercel.json must have a cron entry for /api/workers/intake-outbox — deleting it silently kills intake processing",
+    );
+    assert.ok(
+      typeof entry.schedule === "string" && entry.schedule.length > 0,
+      "Guard 24: intake-outbox cron entry must have a non-empty schedule",
+    );
+  });
+
+  // ── Guard 25: intake-outbox route must authenticate + log startup ──────
+  test("[guard-25] intake-outbox route uses hasValidWorkerSecret and emits startup log", () => {
+    const src = readSource("src/app/api/workers/intake-outbox/route.ts");
+    assert.ok(
+      src.includes("hasValidWorkerSecret"),
+      "Guard 25a: intake-outbox route must authenticate via hasValidWorkerSecret",
+    );
+    assert.ok(
+      src.includes("cron_invocation_seen"),
+      "Guard 25b: intake-outbox route must emit a 'cron_invocation_seen' startup log token for cron audit trail",
     );
   });
 });
