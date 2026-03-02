@@ -155,28 +155,28 @@ describe("Intake Outbox Durability CI Guards", () => {
 
     // Not stalled: delivered
     const delivered = isOutboxStalled(
-      { id: "a", attempts: 0, delivered_at: now.toString(), dead_lettered_at: null, created_at: new Date(now - 200_000).toISOString() },
+      { id: "a", attempts: 0, claimed_at: null, delivered_at: now.toString(), dead_lettered_at: null, created_at: new Date(now - 200_000).toISOString() },
       now,
     );
     assert.equal(delivered.stalled, false, "delivered row should not be stalled");
 
     // Not stalled: has attempts (consumer is working on it)
     const attempted = isOutboxStalled(
-      { id: "b", attempts: 1, delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 200_000).toISOString() },
+      { id: "b", attempts: 1, claimed_at: null, delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 200_000).toISOString() },
       now,
     );
     assert.equal(attempted.stalled, false, "row with attempts > 0 should not be stalled");
 
     // Not stalled: too young
     const young = isOutboxStalled(
-      { id: "c", attempts: 0, delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 30_000).toISOString() },
+      { id: "c", attempts: 0, claimed_at: null, delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 30_000).toISOString() },
       now,
     );
     assert.equal(young.stalled, false, "young row should not be stalled");
 
-    // STALLED: old, no attempts, not delivered
+    // STALLED: old, no attempts, not delivered, not claimed
     const stalled = isOutboxStalled(
-      { id: "d", attempts: 0, delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 200_000).toISOString() },
+      { id: "d", attempts: 0, claimed_at: null, delivered_at: null, dead_lettered_at: null, created_at: new Date(now - 200_000).toISOString() },
       now,
     );
     assert.equal(stalled.stalled, true, "old undelivered row with 0 attempts must be stalled");
@@ -290,6 +290,25 @@ describe("Intake Outbox Durability CI Guards", () => {
     assert.ok(
       entry.schedule.includes("*/3"),
       `recovery cron should run every 3 minutes (got: ${entry.schedule})`,
+    );
+  });
+
+  // ── Guard 16: claimed (in-flight) rows must never be reported as stalled ──
+  test("[guard-16] isOutboxStalled returns false for a claimed in-flight row", () => {
+    const now = Date.now();
+    const row = {
+      id: "test-in-flight",
+      attempts: 0,
+      claimed_at: new Date(now - 300_000).toISOString(), // claimed 5 min ago
+      delivered_at: null,
+      dead_lettered_at: null,
+      created_at: new Date(now - 310_000).toISOString(),
+    };
+    const verdict = isOutboxStalled(row, now);
+    assert.strictEqual(
+      verdict.stalled,
+      false,
+      "Guard 16: a claimed (in-flight) row must never be reported as stalled",
     );
   });
 });

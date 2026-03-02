@@ -95,7 +95,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     const { data: outboxRow } = await sb
       .from("buddy_outbox_events")
       .select(
-        "id, attempts, delivered_at, delivered_to, last_error, dead_lettered_at, created_at, claim_owner",
+        "id, attempts, delivered_at, delivered_to, last_error, dead_lettered_at, created_at, claim_owner, claimed_at",
       )
       .eq("deal_id", dealId)
       .eq("kind", "intake.process")
@@ -107,6 +107,8 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       ? {
           outbox_id: (outboxRow as any).id,
           attempts: (outboxRow as any).attempts,
+          claimed_at: (outboxRow as any).claimed_at,
+          claim_owner: (outboxRow as any).claim_owner,
           delivered_at: (outboxRow as any).delivered_at,
           delivered_to: (outboxRow as any).delivered_to,
           last_error: (outboxRow as any).last_error,
@@ -125,6 +127,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         {
           id: latestOutbox.outbox_id,
           attempts: latestOutbox.attempts,
+          claimed_at: latestOutbox.claimed_at,
           delivered_at: latestOutbox.delivered_at,
           dead_lettered_at: latestOutbox.dead_lettered_at,
           created_at: latestOutbox.created_at,

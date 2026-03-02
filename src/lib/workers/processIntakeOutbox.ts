@@ -58,7 +58,7 @@ export async function processIntakeOutbox(
     "claim_intake_outbox_batch",
     {
       p_claim_owner: claimOwner,
-      p_claim_ttl_seconds: 120,
+      p_claim_ttl_seconds: 300,
       p_limit: maxRows ?? 5,
     },
   );

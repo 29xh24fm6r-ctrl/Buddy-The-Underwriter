@@ -20,6 +20,7 @@ export const OUTBOX_STALL_VERSION = "outbox_stall_v1";
 export type OutboxRowState = {
   id: string;
   attempts: number;
+  claimed_at: string | null;
   delivered_at: string | null;
   dead_lettered_at: string | null;
   created_at: string;
@@ -42,6 +43,7 @@ export function isOutboxStalled(
   if (row.delivered_at) return { stalled: false };
   if (row.dead_lettered_at) return { stalled: false };
   if (row.attempts > 0) return { stalled: false };
+  if (row.claimed_at) return { stalled: false }; // in-flight — consumer has it
 
   const ageMs = nowMs - new Date(row.created_at).getTime();
   if (ageMs < thresholdMs) return { stalled: false };
