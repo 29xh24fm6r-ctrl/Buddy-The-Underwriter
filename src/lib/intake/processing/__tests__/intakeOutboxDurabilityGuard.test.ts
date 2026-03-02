@@ -293,6 +293,26 @@ describe("Intake Outbox Durability CI Guards", () => {
     );
   });
 
+  // ── Guard 17: per-doc confirm route must call reconcileChecklistForDeal ──
+  test("[guard-17] per-doc confirm route calls reconcileChecklistForDeal", () => {
+    const src = readSource(
+      "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts",
+    );
+    assert.ok(
+      src.includes("reconcileChecklistForDeal"),
+      "Guard 17: per-doc confirm route must call reconcileChecklistForDeal so manual corrections immediately update deal_checklist_items",
+    );
+  });
+
+  // ── Guard 18: intake confirm route must call reconcileChecklistForDeal ──
+  test("[guard-18] intake confirm route calls reconcileChecklistForDeal", () => {
+    const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+    assert.ok(
+      src.includes("reconcileChecklistForDeal"),
+      "Guard 18: intake confirm route must call reconcileChecklistForDeal so deal_checklist_items is accurate before deal enters cockpit",
+    );
+  });
+
   // ── Guard 16: claimed (in-flight) rows must never be reported as stalled ──
   test("[guard-16] isOutboxStalled returns false for a claimed in-flight row", () => {
     const now = Date.now();

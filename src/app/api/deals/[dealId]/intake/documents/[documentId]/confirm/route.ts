@@ -177,6 +177,18 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       );
     }
 
+    // ── Checklist truth: materialize corrected classification immediately ──
+    // Manual corrections update deal_documents but don't automatically propagate
+    // to deal_checklist_items. Reconcile now so the intake review UI and cockpit
+    // readiness panel reflect the corrected doc type without waiting for async processing.
+    try {
+      const { reconcileChecklistForDeal } = await import("@/lib/checklist/engine");
+      await reconcileChecklistForDeal({ sb, dealId });
+    } catch (reconcileErr: any) {
+      // Non-blocking — reconciliation failure must not block document confirmation
+      console.error("[intake/doc/confirm] checklist reconcile failed:", (reconcileErr as any)?.message);
+    }
+
     // Emit finalization event (FIX 1A)
     void writeEvent({
       dealId,

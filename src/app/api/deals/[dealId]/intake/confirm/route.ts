@@ -246,6 +246,18 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       );
     }
 
+    // ── Checklist truth: safety net before deal enters cockpit ────────────
+    // Belt-and-suspenders alongside the per-doc reconcile. Ensures deal_checklist_items
+    // reflects all manual corrections before the deal is visible in the cockpit as
+    // CONFIRMED_READY_FOR_PROCESSING — no false "missing documents" blockers.
+    try {
+      const { reconcileChecklistForDeal } = await import("@/lib/checklist/engine");
+      await reconcileChecklistForDeal({ sb, dealId });
+    } catch (reconcileErr: any) {
+      // Non-blocking — reconciliation failure must not block intake confirmation
+      console.error("[intake/confirm] checklist reconcile failed:", (reconcileErr as any)?.message);
+    }
+
     // Compute snapshot hash — only identity-resolved docs (logical_key IS NOT NULL)
     const sealableDocs = activeDocs.filter((d) => d.logical_key != null);
     const snapshotHash = computeIntakeSnapshotHash(
