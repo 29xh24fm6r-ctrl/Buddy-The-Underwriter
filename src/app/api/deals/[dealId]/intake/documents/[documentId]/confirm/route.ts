@@ -11,6 +11,8 @@ import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { SEGMENTATION_VERSION } from "@/lib/intake/segmentation/types";
 import { extractFilenamePattern } from "@/lib/intake/overrideIntelligence/extractFilenamePattern";
 import { deriveBand } from "@/lib/classification/calibrateConfidence";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -181,9 +183,42 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // Manual corrections update deal_documents but don't automatically propagate
     // to deal_checklist_items. Reconcile now so the intake review UI and cockpit
     // readiness panel reflect the corrected doc type without waiting for async processing.
+    const reconcileStartMs = Date.now();
     try {
       const { reconcileChecklistForDeal } = await import("@/lib/checklist/engine");
-      await reconcileChecklistForDeal({ sb, dealId });
+      const r = await reconcileChecklistForDeal({ sb, dealId });
+      const durationMs = Date.now() - reconcileStartMs;
+
+      void writeEvent({
+        dealId,
+        kind: "checklist.reconciled",
+        scope: "checklist",
+        actorUserId: access.userId,
+        meta: {
+          trigger: "intake_doc_confirm",
+          route: "/api/deals/[dealId]/intake/documents/[documentId]/confirm",
+          document_id: documentId,
+          duration_ms: durationMs,
+          updated: (r as any)?.updated ?? null,
+          note: "non_blocking",
+        },
+      });
+
+      void logLedgerEvent({
+        dealId,
+        bankId: access.bankId ?? "",
+        eventKey: "deal.checklist.reconciled",
+        uiState: "done",
+        uiMessage: "Checklist reconciled (intake doc confirm)",
+        meta: { trigger: "intake_doc_confirm", document_id: documentId, duration_ms: durationMs, updated: (r as any)?.updated ?? null },
+      });
+
+      void emitPipelineEvent({
+        kind: "checklist_reconciled",
+        deal_id: dealId,
+        bank_id: access.bankId,
+        payload: { trigger: "intake_doc_confirm", document_id: documentId, duration_ms: durationMs, updated: (r as any)?.updated ?? null },
+      });
     } catch (reconcileErr: any) {
       // Non-blocking — reconciliation failure must not block document confirmation
       console.error("[intake/doc/confirm] checklist reconcile failed:", (reconcileErr as any)?.message);

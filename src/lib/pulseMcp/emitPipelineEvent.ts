@@ -36,6 +36,8 @@ const ALLOWED_PAYLOAD_KEYS = new Set([
   "duration_ms",
   "updated",
   "count",
+  "trigger",
+  "document_id",
   // Two-phase naming (no PII — entity names excluded)
   "naming_method",
   "naming_source",

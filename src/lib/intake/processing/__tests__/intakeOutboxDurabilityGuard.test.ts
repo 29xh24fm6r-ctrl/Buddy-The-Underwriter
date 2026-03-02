@@ -293,6 +293,50 @@ describe("Intake Outbox Durability CI Guards", () => {
     );
   });
 
+  // ── Guard 19: per-doc confirm route emits checklist.reconciled telemetry ──
+  test("[guard-19] per-doc confirm route emits checklist.reconciled (writeEvent or logLedgerEvent)", () => {
+    const src = readSource(
+      "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts",
+    );
+    const hasWriteEvent = src.includes('"checklist.reconciled"');
+    const hasLedger = src.includes('"deal.checklist.reconciled"');
+    assert.ok(
+      hasWriteEvent || hasLedger,
+      "Guard 19: per-doc confirm route must emit checklist.reconciled telemetry so reconciliation is observable in prod",
+    );
+  });
+
+  // ── Guard 20: per-doc confirm route emits Pulse checklist_reconciled event ──
+  test("[guard-20] per-doc confirm route emits Pulse checklist_reconciled event", () => {
+    const src = readSource(
+      "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts",
+    );
+    assert.ok(
+      src.includes("checklist_reconciled"),
+      "Guard 20: per-doc confirm route must void emitPipelineEvent with kind checklist_reconciled",
+    );
+  });
+
+  // ── Guard 21: intake confirm route emits checklist.reconciled telemetry ──
+  test("[guard-21] intake confirm route emits checklist.reconciled (writeEvent or logLedgerEvent)", () => {
+    const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+    const hasWriteEvent = src.includes('"checklist.reconciled"');
+    const hasLedger = src.includes('"deal.checklist.reconciled"');
+    assert.ok(
+      hasWriteEvent || hasLedger,
+      "Guard 21: intake confirm route must emit checklist.reconciled telemetry so reconciliation is observable in prod",
+    );
+  });
+
+  // ── Guard 22: intake confirm route emits Pulse checklist_reconciled event ──
+  test("[guard-22] intake confirm route emits Pulse checklist_reconciled event", () => {
+    const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+    assert.ok(
+      src.includes("checklist_reconciled"),
+      "Guard 22: intake confirm route must void emitPipelineEvent with kind checklist_reconciled",
+    );
+  });
+
   // ── Guard 17: per-doc confirm route must call reconcileChecklistForDeal ──
   test("[guard-17] per-doc confirm route calls reconcileChecklistForDeal", () => {
     const src = readSource(

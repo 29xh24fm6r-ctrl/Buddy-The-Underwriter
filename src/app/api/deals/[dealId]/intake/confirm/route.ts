@@ -17,6 +17,8 @@ import { updateDealIfRunOwner } from "@/lib/intake/processing/updateDealIfRunOwn
 import { computeDealPhasePatch } from "@/lib/intake/processing/computeDealPhasePatch";
 import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -250,9 +252,41 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // Belt-and-suspenders alongside the per-doc reconcile. Ensures deal_checklist_items
     // reflects all manual corrections before the deal is visible in the cockpit as
     // CONFIRMED_READY_FOR_PROCESSING — no false "missing documents" blockers.
+    const reconcileStartMs = Date.now();
     try {
       const { reconcileChecklistForDeal } = await import("@/lib/checklist/engine");
-      await reconcileChecklistForDeal({ sb, dealId });
+      const r = await reconcileChecklistForDeal({ sb, dealId });
+      const durationMs = Date.now() - reconcileStartMs;
+
+      void writeEvent({
+        dealId,
+        kind: "checklist.reconciled",
+        scope: "checklist",
+        actorUserId: access.userId,
+        meta: {
+          trigger: "intake_confirm",
+          route: "/api/deals/[dealId]/intake/confirm",
+          duration_ms: durationMs,
+          updated: (r as any)?.updated ?? null,
+          note: "non_blocking",
+        },
+      });
+
+      void logLedgerEvent({
+        dealId,
+        bankId: access.bankId ?? "",
+        eventKey: "deal.checklist.reconciled",
+        uiState: "done",
+        uiMessage: "Checklist reconciled (intake confirm)",
+        meta: { trigger: "intake_confirm", duration_ms: durationMs, updated: (r as any)?.updated ?? null },
+      });
+
+      void emitPipelineEvent({
+        kind: "checklist_reconciled",
+        deal_id: dealId,
+        bank_id: access.bankId,
+        payload: { trigger: "intake_confirm", duration_ms: durationMs, updated: (r as any)?.updated ?? null },
+      });
     } catch (reconcileErr: any) {
       // Non-blocking — reconciliation failure must not block intake confirmation
       console.error("[intake/confirm] checklist reconcile failed:", (reconcileErr as any)?.message);
