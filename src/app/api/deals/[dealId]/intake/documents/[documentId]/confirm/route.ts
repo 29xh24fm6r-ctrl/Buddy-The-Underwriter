@@ -156,7 +156,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       finalized_at: now,
     };
 
-    if (body.canonical_type !== undefined) patch.canonical_type = body.canonical_type;
+    if (body.canonical_type !== undefined) {
+      patch.canonical_type = body.canonical_type;
+      // Auto-sync document_type unless caller explicitly overrides it.
+      // reconcileChecklistForDeal() groups docs by document_type (not canonical_type),
+      // so a stale document_type makes banker corrections invisible to the checklist engine.
+      if (body.document_type === undefined) {
+        patch.document_type = body.canonical_type;
+      }
+    }
     if (body.document_type !== undefined) patch.document_type = body.document_type;
     if (body.checklist_key !== undefined) patch.checklist_key = body.checklist_key;
     if (body.tax_year !== undefined) {

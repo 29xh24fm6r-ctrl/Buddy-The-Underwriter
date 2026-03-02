@@ -293,6 +293,26 @@ describe("Intake Outbox Durability CI Guards", () => {
     );
   });
 
+  // ── Guard 23: per-doc confirm route syncs document_type when canonical_type corrected ──
+  test("[guard-23] per-doc confirm route auto-syncs document_type when canonical_type is corrected", () => {
+    const src = readSource(
+      "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts",
+    );
+    assert.ok(
+      src.includes("body.canonical_type"),
+      "Guard 23a: route must reference body.canonical_type",
+    );
+    assert.ok(
+      src.includes("patch.document_type"),
+      "Guard 23b: route must set patch.document_type to sync with canonical_type",
+    );
+    assert.ok(
+      src.includes("body.document_type === undefined"),
+      "Guard 23c: route must only auto-sync when document_type is not explicitly provided — " +
+      "regression guard: intake doc confirm must sync document_type when canonical_type is corrected",
+    );
+  });
+
   // ── Guard 19: per-doc confirm route emits checklist.reconciled telemetry ──
   test("[guard-19] per-doc confirm route emits checklist.reconciled (writeEvent or logLedgerEvent)", () => {
     const src = readSource(
