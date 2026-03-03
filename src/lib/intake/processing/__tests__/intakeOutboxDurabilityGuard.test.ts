@@ -499,6 +499,45 @@ describe("Intake Outbox Durability CI Guards", () => {
     );
   });
 
+  // ── Guard 30: no duplicate checklist mapping tables outside docTyping/ ──
+  test("[guard-30] no file outside resolveChecklistKey.ts defines canonical_type→checklist_key mapping", () => {
+    // The canonical_type → checklist_key mapping MUST live exclusively in
+    // src/lib/docTyping/resolveChecklistKey.ts. Any other file that redefines
+    // the mapping (even partially) introduces drift risk.
+    //
+    // Detection: `return "PFS_CURRENT"` is the sentinel — it only makes sense
+    // as a mapped return value in resolveChecklistKey. Any other occurrence
+    // indicates a duplicate mapping table has been introduced.
+    const ALLOWED = ["src/lib/docTyping/resolveChecklistKey.ts"];
+
+    const { execSync } = require("child_process");
+    let hits: string[] = [];
+    try {
+      // rg returns lines like "path:lineNo:content" — we only need paths
+      const raw = execSync(
+        'rg -l --glob "!*.test.*" --glob "!*.spec.*" "return .PFS_CURRENT." src/',
+        { cwd: ROOT, encoding: "utf-8" },
+      ).trim();
+      hits = raw ? raw.split("\n").map((l: string) => l.trim()).filter(Boolean) : [];
+    } catch {
+      hits = [];
+    }
+
+    // Normalize paths to be relative to ROOT for comparison
+    const violations = hits.filter((hit: string) => {
+      const rel = hit.replace(ROOT + "/", "").replace(/\\/g, "/");
+      return !ALLOWED.some((allowed) => rel.endsWith(allowed) || rel === allowed);
+    });
+
+    assert.equal(
+      violations.length,
+      0,
+      `Guard 30: Found ${violations.length} file(s) outside the allowlist containing 'return "PFS_CURRENT"' — ` +
+      "all canonical_type→checklist_key mappings must live in resolveChecklistKey.ts.\n" +
+      `Violations:\n${violations.join("\n")}`,
+    );
+  });
+
   // ── Guard 29: intake-outbox cron schedule is at most every 1 minute ──
   test("[guard-29] vercel.json intake-outbox cron schedule fires every 1 minute", () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, "vercel.json"), "utf-8"));

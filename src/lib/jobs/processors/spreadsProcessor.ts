@@ -14,6 +14,7 @@ import { writeSystemEvent } from "@/lib/aegis";
 import { getVisibleFacts } from "@/lib/financialFacts/getVisibleFacts";
 import { evaluatePrereq } from "@/lib/financialSpreads/evaluatePrereq";
 import { resolveOwnerType } from "@/lib/financialSpreads/resolveOwnerType";
+import { detectMachineReadabilitySignals } from "@/lib/extraction/detectMachineReadabilitySignals";
 
 const LEASE_MS = 3 * 60 * 1000;
 
@@ -255,7 +256,73 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     }
 
     if (factsVis.total === 0 && heartbeatExists) {
-      // Extraction ran but produced 0 visible facts — emit diagnostic events
+      // Extraction ran but produced 0 visible facts — gather diagnostics before emitting
+
+      // Load doc metadata for all docs that have a heartbeat record
+      let zeroFactsDiagnostics: Record<string, unknown> = { jobId };
+      try {
+        const { data: heartbeatFacts } = await (sb as any)
+          .from("deal_financial_facts")
+          .select("source_document_id, fact_value_text")
+          .eq("deal_id", dealId)
+          .eq("bank_id", bankId)
+          .eq("fact_type", "EXTRACTION_HEARTBEAT");
+
+        const heartbeatDocIds = (heartbeatFacts ?? [])
+          .map((h: any) => String(h.source_document_id))
+          .filter(Boolean);
+
+        if (heartbeatDocIds.length > 0) {
+          const { data: docMeta } = await (sb as any)
+            .from("deal_documents")
+            .select("id, mime_type, file_size_bytes, original_filename")
+            .in("id", heartbeatDocIds);
+
+          const { data: ocrRows } = await (sb as any)
+            .from("document_ocr_results")
+            .select("attachment_id, extracted_text")
+            .in("attachment_id", heartbeatDocIds);
+
+          const ocrByDocId = new Map<string, string>();
+          for (const row of (ocrRows ?? []) as Array<{ attachment_id: string; extracted_text: string | null }>) {
+            if (row.extracted_text) ocrByDocId.set(row.attachment_id, row.extracted_text);
+          }
+
+          const docDiagnostics = (docMeta ?? []).map((doc: any) => {
+            const ocrText = ocrByDocId.get(String(doc.id));
+            const signal = detectMachineReadabilitySignals({
+              mimeType: doc.mime_type ?? null,
+              fileSizeBytes: doc.file_size_bytes ?? null,
+              hasOcrText: ocrText != null,
+              ocrTextLength: ocrText?.length ?? null,
+              hasStructuredExtract: false,
+            });
+            return {
+              doc_id: doc.id,
+              filename: doc.original_filename,
+              mime_type: doc.mime_type,
+              file_size_bytes: doc.file_size_bytes,
+              has_ocr_text: ocrText != null,
+              ocr_text_length: ocrText?.length ?? null,
+              likely_scanned: signal.likelyScanned,
+              readability_confidence: signal.confidence,
+              readability_reasons: signal.reasons,
+            };
+          });
+
+          const likelyScannedCount = docDiagnostics.filter((d: any) => d.likely_scanned).length;
+
+          zeroFactsDiagnostics = {
+            jobId,
+            heartbeat_doc_count: heartbeatDocIds.length,
+            likely_scanned_count: likelyScannedCount,
+            docs: docDiagnostics,
+          };
+        }
+      } catch {
+        // Diagnostic collection is non-fatal
+      }
+
       writeSystemEvent({
         event_type: "warning",
         severity: "warning",
@@ -266,7 +333,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         bank_id: bankId,
         error_code: "EXTRACTION_ZERO_FACTS",
         error_message: "Extraction completed (heartbeat present) but produced 0 visible facts",
-        payload: { dealId, bankId, jobId },
+        payload: { dealId, bankId, ...zeroFactsDiagnostics },
       }).catch(() => {});
 
       // Timeline-visible ledger event so operators can see extraction gaps in deal timeline
@@ -278,7 +345,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         uiMessage:
           "Extraction completed but produced zero financial facts — spreads cannot render. " +
           "Verify document content is machine-readable.",
-        meta: { jobId },
+        meta: zeroFactsDiagnostics,
       });
     }
 

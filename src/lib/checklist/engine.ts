@@ -863,6 +863,75 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
   const { dealId, sb: sbOverride } = opts;
   const result = await reconcileDealChecklist(dealId);
 
+  // ── Phase 8: Deterministic conflict resolution ──────────────────────
+  // When multiple finalized docs share the same checklist_key (e.g., two PTRs
+  // with the same year uploaded and confirmed), this step picks a winner
+  // (newest finalized_at, falling back to newest created_at) and atomically
+  // updates deal_checklist_items.received_document_id.
+  // Emits "checklist.reconciled" for any pointer change, enabling audit trail.
+  try {
+    const sbForReconcile = sbOverride ?? supabaseAdmin();
+
+    // Fetch all finalized docs with a resolved checklist_key
+    const { data: docsWithKey } = await (sbForReconcile as any)
+      .from("deal_documents")
+      .select("id, checklist_key, finalized_at, created_at")
+      .eq("deal_id", dealId)
+      .not("checklist_key", "is", null)
+      .not("finalized_at", "is", null)
+      .order("finalized_at", { ascending: false });
+
+    if (docsWithKey && docsWithKey.length > 0) {
+      // Group by checklist_key, picking the winner (newest finalized_at)
+      const winnerByKey = new Map<string, { id: string; finalized_at: string }>();
+      for (const doc of docsWithKey as Array<{ id: string; checklist_key: string; finalized_at: string; created_at: string }>) {
+        const key = doc.checklist_key;
+        if (!winnerByKey.has(key)) {
+          winnerByKey.set(key, { id: doc.id, finalized_at: doc.finalized_at });
+        }
+        // Ordering is finalized_at DESC so first occurrence per key is already the winner
+      }
+
+      // Load current pointers to detect actual changes
+      const { data: checklistItems } = await (sbForReconcile as any)
+        .from("deal_checklist_items")
+        .select("checklist_key, received_document_id")
+        .eq("deal_id", dealId);
+
+      const currentPointer = new Map<string, string | null>();
+      for (const item of (checklistItems ?? []) as Array<{ checklist_key: string; received_document_id: string | null }>) {
+        currentPointer.set(item.checklist_key, item.received_document_id);
+      }
+
+      for (const [key, winner] of winnerByKey.entries()) {
+        const oldDocId = currentPointer.get(key) ?? null;
+        if (oldDocId === winner.id) continue; // no change
+
+        // Atomically update the pointer
+        await (sbForReconcile as any)
+          .from("deal_checklist_items")
+          .update({ received_document_id: winner.id, updated_at: new Date().toISOString() })
+          .eq("deal_id", dealId)
+          .eq("checklist_key", key);
+
+        // Emit reconciliation event for audit trail
+        await writeEvent({
+          dealId,
+          kind: "checklist.reconciled",
+          actorUserId: null,
+          input: {
+            key,
+            old_doc_id: oldDocId,
+            new_doc_id: winner.id,
+            reason: oldDocId == null ? "pointer_initialized" : "conflict_resolved_newest_finalized",
+          },
+        });
+      }
+    }
+  } catch {
+    // Conflict resolution is non-fatal — ignore failures to preserve core reconcile outcome
+  }
+
   try {
     const sb = sbOverride ?? supabaseAdmin();
     const { data: rows } = await sb

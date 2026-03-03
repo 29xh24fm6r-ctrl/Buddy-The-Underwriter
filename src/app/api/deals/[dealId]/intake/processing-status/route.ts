@@ -57,6 +57,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     let reenqueued = false;
     let phase = (deal as any).intake_phase as string | null;
     let dealError: string | null = (deal as any).intake_processing_error ?? null;
+    let intakeProcessingStalled = false;
+    let intakeStalledSinceSeconds: number | null = null;
+    let intakeStallReason: string | null = null;
 
     // ── Auto-recovery (FIX 2A: actionable for queued_never_started) ─────
     if (phase === "CONFIRMED_READY_FOR_PROCESSING") {
@@ -76,6 +79,24 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       );
 
       if (verdict.stuck) {
+        // Surface stall state before recovery mutates phase
+        intakeProcessingStalled = true;
+        intakeStalledSinceSeconds = Math.round(verdict.age_ms / 1000);
+        intakeStallReason = verdict.reason;
+
+        // Fire-and-forget: emit processing stall ledger event (distinct from outbox stall)
+        void import("@/lib/ledger/writeEvent").then(({ writeEvent }) =>
+          writeEvent({
+            dealId,
+            kind: "intake.processing_stalled",
+            meta: {
+              reason: verdict.reason,
+              age_seconds: intakeStalledSinceSeconds,
+              run_id: (deal as any).intake_processing_run_id ?? null,
+            },
+          }).catch(() => {}),
+        );
+
         const staleRunId: string | undefined = (deal as any).intake_processing_run_id ?? undefined;
         const outcome = await handleStuckRecovery(
           dealId,
@@ -206,6 +227,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       stall_reason: stallReasonValue,
       spread_run_stalled: spreadRunStalled,
       stalled_spread_run_id: stalledSpreadRunId,
+      intake_processing_stalled: intakeProcessingStalled,
+      intake_stall_reason: intakeStallReason,
+      stalled_since_seconds: intakeStalledSinceSeconds,
     });
   } catch (e: any) {
     rethrowNextErrors(e);

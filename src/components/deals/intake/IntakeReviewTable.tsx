@@ -926,6 +926,16 @@ export function IntakeReviewTable({
                     <ConfidenceBadge
                       confidence={doc.ai_confidence}
                       confirmed={doc.match_source === "manual" || doc.match_source === "manual_confirmed"}
+                      unreviewed={
+                        doc.match_source !== "manual" &&
+                        doc.match_source !== "manual_confirmed" &&
+                        (
+                          doc.intake_status === "UPLOADED" ||
+                          doc.intake_status === "CLASSIFIED_PENDING_REVIEW" ||
+                          doc.ai_confidence == null ||
+                          doc.gatekeeper_needs_review === true
+                        )
+                      }
                     />
                   </td>
                   <td className="py-2 px-2 text-center">
