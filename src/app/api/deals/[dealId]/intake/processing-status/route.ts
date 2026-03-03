@@ -109,6 +109,22 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         dealError = outcome.error;
         autoRecovered = outcome.recovered;
         reenqueued = outcome.reenqueued;
+
+        // Fire-and-forget: emit recovery event when a stall is actually recovered (forward progress)
+        if (outcome.recovered) {
+          void import("@/lib/ledger/writeEvent").then(({ writeEvent }) =>
+            writeEvent({
+              dealId,
+              kind: "intake.processing_recovered",
+              meta: {
+                recovered_from_reason: verdict.reason,
+                stalled_seconds: Math.round(verdict.age_ms / 1000),
+                run_id: (deal as any).intake_processing_run_id ?? null,
+                reenqueued: outcome.reenqueued,
+              },
+            }).catch(() => {}),
+          );
+        }
       }
     }
 

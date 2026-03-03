@@ -30,6 +30,7 @@ type IntakeDoc = {
   gatekeeper_doc_type: string | null;
   gatekeeper_confidence: number | null;
   gatekeeper_needs_review: boolean | null;
+  gatekeeper_route: string | null;
   intake_status: string | null;
   intake_confirmed_at: string | null;
   intake_confirmed_by: string | null;
@@ -933,7 +934,8 @@ export function IntakeReviewTable({
                           doc.intake_status === "UPLOADED" ||
                           doc.intake_status === "CLASSIFIED_PENDING_REVIEW" ||
                           doc.ai_confidence == null ||
-                          doc.gatekeeper_needs_review === true
+                          doc.gatekeeper_needs_review === true ||
+                          doc.gatekeeper_route === "NEEDS_REVIEW"
                         )
                       }
                     />
