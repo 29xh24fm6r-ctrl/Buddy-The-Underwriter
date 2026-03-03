@@ -8,6 +8,7 @@ import { handleStuckRecovery } from "@/lib/intake/processing/handleStuckRecovery
 import { isOutboxStalled } from "@/lib/intake/processing/detectOutboxStall";
 import { emitOutboxStalledEventIfNeeded } from "@/lib/intake/processing/emitOutboxStalledEvent";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { ENTITY_SCOPED_DOC_TYPES } from "@/lib/intake/identity/entityScopedDocTypes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -226,6 +227,40 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       }
     }
 
+    // ── Entity-binding readiness check ──────────────────────────────
+    // For multi-entity deals, detect unbound entity-scoped slots.
+    // Operators must bind these before auto-match can safely proceed.
+    let entityBindingRequired = false;
+    let unboundEntityScopedSlotCount = 0;
+    const entityBindingRequiredReasons: string[] = [];
+
+    {
+      const entityScopedTypes = [...ENTITY_SCOPED_DOC_TYPES];
+
+      // Count deal entities
+      const { count: entityCount } = await (sb as any)
+        .from("deal_entities")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId);
+
+      if ((entityCount ?? 0) > 1) {
+        // Count unbound entity-scoped slots
+        const { data: unboundSlots } = await (sb as any)
+          .from("deal_document_slots")
+          .select("id")
+          .eq("deal_id", dealId)
+          .in("required_doc_type", entityScopedTypes)
+          .is("required_entity_id", null);
+
+        unboundEntityScopedSlotCount = unboundSlots?.length ?? 0;
+
+        if (unboundEntityScopedSlotCount > 0) {
+          entityBindingRequired = true;
+          entityBindingRequiredReasons.push("unbound_entity_scoped_slots");
+        }
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       intake_phase: phase,
@@ -246,6 +281,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       intake_processing_stalled: intakeProcessingStalled,
       intake_stall_reason: intakeStallReason,
       stalled_since_seconds: intakeStalledSinceSeconds,
+      entity_binding_required: entityBindingRequired,
+      entity_binding_required_reasons: entityBindingRequiredReasons,
+      unbound_entity_scoped_slot_count: unboundEntityScopedSlotCount,
     });
   } catch (e: any) {
     rethrowNextErrors(e);
