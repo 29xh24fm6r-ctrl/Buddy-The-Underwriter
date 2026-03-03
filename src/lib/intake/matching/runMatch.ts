@@ -27,6 +27,7 @@ import {
 import { ENTITY_GRAPH_VERSION, ENTITY_PROTECTION_THRESHOLD } from "../identity/version";
 import { evaluateConstraints } from "./constraints";
 import { isAdaptiveAutoAttachEnabled } from "@/lib/flags/adaptiveAutoAttach";
+import { ENTITY_SCOPED_DOC_TYPES } from "../identity/entityScopedDocTypes";
 import { deriveBand } from "@/lib/classification/calibrateConfidence";
 import { fetchCalibrationCurve } from "@/lib/classification/thresholds/fetchCalibrationCurve";
 import { resolveAutoAttachThreshold } from "@/lib/classification/thresholds/resolveAutoAttachThreshold";
@@ -173,6 +174,9 @@ export async function runMatchForDocument(
       const hasSsn = false; // Will be enriched from gatekeeper detected_signals when available
       const entityType = spine?.entityType ?? null;
 
+      // Derive canonical type from spine/gatekeeper for v2 pre-binding
+      const canonicalType = gatekeeper?.effectiveDocType ?? spine?.docType ?? null;
+
       const er = await resolveDocumentEntityForDeal({
         dealId,
         text: ocrText ?? "",
@@ -180,6 +184,7 @@ export async function runMatchForDocument(
         hasEin,
         hasSsn,
         entityType,
+        canonicalType,
       });
 
       if (er) {
@@ -244,6 +249,46 @@ export async function runMatchForDocument(
       requiredEntityId: s.required_entity_id ?? null,
       requiredEntityRole: s.required_entity_role ?? null,
     }));
+
+    // ── Step 2b: Entity-binding hard-stop (multi-entity deals) ──────────
+    // In multi-entity deals, unbound entity-scoped slots are ineligible for
+    // auto-attach. Filter them out so the pure engine cannot select them.
+    // Single-entity deals: no behavior change.
+    let filteredSlotCount = 0;
+    let hasMultiEntity = false;
+    {
+      const sbEntityCount = supabaseAdmin();
+      const { count: entityCount } = await (sbEntityCount as any)
+        .from("deal_entities")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId);
+
+      hasMultiEntity = (entityCount ?? 0) > 1;
+
+      if (hasMultiEntity) {
+        const before = slots.length;
+        const eligibleSlots: SlotSnapshot[] = [];
+        for (const s of slots) {
+          if (
+            ENTITY_SCOPED_DOC_TYPES.has(s.requiredDocType) &&
+            s.requiredEntityId == null
+          ) {
+            filteredSlotCount++;
+          } else {
+            eligibleSlots.push(s);
+          }
+        }
+        // Replace slots array with filtered set
+        slots.length = 0;
+        slots.push(...eligibleSlots);
+
+        if (filteredSlotCount > 0) {
+          console.log("[runMatchForDocument] entity-binding hard-stop: filtered unbound entity-scoped slots", {
+            dealId, documentId, filteredSlotCount, before, after: slots.length,
+          });
+        }
+      }
+    }
 
     // ── Step 3: Run pure engine ─────────────────────────────────────────
     const result = matchDocumentToSlot(identity, slots, SLOT_POLICY_VERSION, matchConfig);
@@ -327,6 +372,40 @@ export async function runMatchForDocument(
           },
         }).catch(() => {});
       }
+    }
+
+    // ── Layer 2.3: Entity-binding-required upgrade (multi-entity) ────────
+    // If the document is entity-scoped AND we filtered unbound slots AND the
+    // engine returned no_match: upgrade to routed_to_review so operators see
+    // "entity_binding_required" instead of a silent no_match.
+    // Defense-in-depth: if auto_attached somehow leaked through (shouldn't happen
+    // since we filtered), force routed_to_review as a safety net.
+    if (hasMultiEntity && filteredSlotCount > 0 && ENTITY_SCOPED_DOC_TYPES.has(identity.effectiveDocType)) {
+      if (result.decision === "auto_attached") {
+        // Should be impossible — filtered slots shouldn't be candidates.
+        // But if it happens, fail-closed.
+        result.decision = "routed_to_review";
+        result.reason = "entity_binding_required_safety";
+      } else if (result.decision === "no_match") {
+        result.decision = "routed_to_review";
+        result.reason = "entity_binding_required";
+      }
+
+      writeEvent({
+        dealId,
+        kind: "match.entity_binding_required",
+        scope: "matching",
+        requiresHumanReview: true,
+        meta: {
+          document_id: documentId,
+          effective_doc_type: identity.effectiveDocType,
+          entity_graph_version: ENTITY_GRAPH_VERSION,
+          engine_version: MATCHING_ENGINE_VERSION,
+          entity_count: hasMultiEntity ? "multi" : "single",
+          filtered_slots_count: filteredSlotCount,
+          reason: "unbound_entity_scoped_slots_filtered",
+        },
+      }).catch(() => {});
     }
 
     // ── Step 4: Attach if auto_attached ─────────────────────────────────

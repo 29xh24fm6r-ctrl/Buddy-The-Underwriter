@@ -538,6 +538,84 @@ describe("Intake Outbox Durability CI Guards", () => {
     );
   });
 
+  // ── Guard 31: no duplicate FIN_STMT_BS_YTD mapping outside resolveChecklistKey ──
+  test("[guard-31] no file outside resolveChecklistKey.ts returns FIN_STMT_BS_YTD as a mapping", () => {
+    // The canonical_type → checklist_key mapping for BALANCE_SHEET → FIN_STMT_BS_YTD
+    // must live exclusively in resolveChecklistKey.ts. Legacy filename-matching and
+    // classification files may reference the constant but MUST NOT define a new
+    // canonical_type → key mapping. Detection sentinel: `return "FIN_STMT_BS_YTD"` or
+    // `return ["FIN_STMT_BS_YTD"]` as a mapped return value.
+    const ALLOWED = [
+      "src/lib/docTyping/resolveChecklistKey.ts",
+      // Legacy filename matcher returns array of candidate keys — not a canonical mapping
+      "src/lib/deals/autoMatchChecklistFromFilename.ts",
+      // Legacy classifier returns candidate arrays — predates resolveChecklistKey
+      "src/lib/documents/classify.ts",
+    ];
+
+    const { execSync } = require("child_process");
+    let hits: string[] = [];
+    try {
+      const raw = execSync(
+        'rg -l --glob "!*.test.*" --glob "!*.spec.*" "return.*FIN_STMT_BS_YTD" src/',
+        { cwd: ROOT, encoding: "utf-8" },
+      ).trim();
+      hits = raw ? raw.split("\n").map((l: string) => l.trim()).filter(Boolean) : [];
+    } catch {
+      hits = [];
+    }
+
+    const violations = hits.filter((hit: string) => {
+      const rel = hit.replace(ROOT + "/", "").replace(/\\/g, "/");
+      return !ALLOWED.some((allowed) => rel.endsWith(allowed) || rel === allowed);
+    });
+
+    assert.equal(
+      violations.length,
+      0,
+      `Guard 31: Found ${violations.length} file(s) outside the allowlist containing 'return...FIN_STMT_BS_YTD' — ` +
+      "all canonical_type→checklist_key mappings must live in resolveChecklistKey.ts.\n" +
+      `Violations:\n${violations.join("\n")}`,
+    );
+  });
+
+  // ── Guard 32: no duplicate dynamic IRS_PERSONAL_/IRS_BUSINESS_ key generation ──
+  test("[guard-32] no file outside the allowlist produces dynamic IRS_PERSONAL_/IRS_BUSINESS_ checklist keys", () => {
+    // Dynamic year-based checklist key generation (e.g. `IRS_BUSINESS_${taxYear}`)
+    // must be tightly controlled. Only resolveChecklistKey.ts (authoritative) and
+    // classifyDocument.ts (classification pipeline) may produce these.
+    const ALLOWED = [
+      "src/lib/docTyping/resolveChecklistKey.ts",
+      // Classification pipeline produces candidate key arrays — legitimate use
+      "src/lib/artifacts/classifyDocument.ts",
+    ];
+
+    const { execSync } = require("child_process");
+    let hits: string[] = [];
+    try {
+      const raw = execSync(
+        'rg -l --glob "!*.test.*" --glob "!*.spec.*" "IRS_(PERSONAL|BUSINESS)_\\$\\{" src/',
+        { cwd: ROOT, encoding: "utf-8" },
+      ).trim();
+      hits = raw ? raw.split("\n").map((l: string) => l.trim()).filter(Boolean) : [];
+    } catch {
+      hits = [];
+    }
+
+    const violations = hits.filter((hit: string) => {
+      const rel = hit.replace(ROOT + "/", "").replace(/\\/g, "/");
+      return !ALLOWED.some((allowed) => rel.endsWith(allowed) || rel === allowed);
+    });
+
+    assert.equal(
+      violations.length,
+      0,
+      `Guard 32: Found ${violations.length} file(s) outside the allowlist producing dynamic IRS_PERSONAL_/IRS_BUSINESS_ keys — ` +
+      "dynamic checklist key generation must be limited to resolveChecklistKey.ts and classifyDocument.ts.\n" +
+      `Violations:\n${violations.join("\n")}`,
+    );
+  });
+
   // ── Guard 29: intake-outbox cron schedule is at most every 1 minute ──
   test("[guard-29] vercel.json intake-outbox cron schedule fires every 1 minute", () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, "vercel.json"), "utf-8"));

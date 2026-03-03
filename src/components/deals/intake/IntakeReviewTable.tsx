@@ -30,6 +30,7 @@ type IntakeDoc = {
   gatekeeper_doc_type: string | null;
   gatekeeper_confidence: number | null;
   gatekeeper_needs_review: boolean | null;
+  gatekeeper_route: string | null;
   intake_status: string | null;
   intake_confirmed_at: string | null;
   intake_confirmed_by: string | null;
@@ -152,6 +153,10 @@ export function IntakeReviewTable({
   const [blockedDocs, setBlockedDocs] = useState<Map<string, string[]>>(new Map());
   const [blockerSummary, setBlockerSummary] = useState<Record<string, number> | null>(null);
 
+  // Phase C: Entity-binding readiness — surfaced from processing-status
+  const [entityBindingRequired, setEntityBindingRequired] = useState(false);
+  const [unboundEntityScopedSlotCount, setUnboundEntityScopedSlotCount] = useState(0);
+
   // Safety: attempt scoping (Step A) — monotonic counter to invalidate stale async paths
   const attemptRef = useRef(0);
   const confirmedAttemptRef = useRef(0);
@@ -221,6 +226,11 @@ export function IntakeReviewTable({
         intake_phase: json.intake_phase,
         processing: json.processing,
       } : prev);
+      // Phase C: Capture entity-binding readiness from processing-status
+      if (json.entity_binding_required != null) {
+        setEntityBindingRequired(json.entity_binding_required);
+        setUnboundEntityScopedSlotCount(json.unbound_entity_scoped_slot_count ?? 0);
+      }
       setError(null);
     } catch (err: any) {
       if (err?.name === "AbortError") return;
@@ -826,6 +836,32 @@ export function IntakeReviewTable({
         </div>
       )}
 
+      {/* Phase C: Entity-binding required callout */}
+      {entityBindingRequired && (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+          <div className="flex items-center gap-3">
+            <span className="material-symbols-outlined text-amber-400 text-[20px]">
+              link_off
+            </span>
+            <div className="flex-1">
+              <div className="text-amber-400 text-sm font-medium">
+                Entity-scoped slots need binding
+              </div>
+              <div className="text-white/40 text-xs mt-0.5">
+                {unboundEntityScopedSlotCount} unbound entity-scoped slot{unboundEntityScopedSlotCount !== 1 ? "s" : ""} detected on this multi-entity deal.
+                Bind slots to entities before auto-match can safely proceed.
+              </div>
+            </div>
+            <a
+              href={`/deals/${dealId}/intake/slots`}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors whitespace-nowrap"
+            >
+              Bind Slots
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* Filter bar */}
       <div className="flex items-center gap-1">
         {(["all", "LOW", "MEDIUM", "pending"] as Filter[]).map((f) => (
@@ -933,7 +969,8 @@ export function IntakeReviewTable({
                           doc.intake_status === "UPLOADED" ||
                           doc.intake_status === "CLASSIFIED_PENDING_REVIEW" ||
                           doc.ai_confidence == null ||
-                          doc.gatekeeper_needs_review === true
+                          doc.gatekeeper_needs_review === true ||
+                          doc.gatekeeper_route === "NEEDS_REVIEW"
                         )
                       }
                     />
