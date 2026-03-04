@@ -59,6 +59,7 @@ type ConfirmedDoc = {
   ai_tax_year: number | null;
   ai_form_numbers: string[] | null;
   classification_tier: string | null;
+  match_source: string | null;
   gatekeeper_doc_type: string | null;
   gatekeeper_route: string | null;
   gatekeeper_confidence: number | null;
@@ -286,7 +287,7 @@ export async function processConfirmedIntake(
     .select(
       `id, canonical_type, document_type, original_filename,
        ai_doc_type, ai_confidence, ai_tax_year, ai_form_numbers,
-       classification_tier,
+       classification_tier, match_source,
        gatekeeper_doc_type, gatekeeper_route, gatekeeper_confidence,
        gatekeeper_needs_review, gatekeeper_tax_year`,
     )
@@ -362,6 +363,8 @@ export async function processConfirmedIntake(
           gatekeeper: gkSignals,
           ocrText: null,
           filename: doc.original_filename ?? null,
+          // Preserve human authority: manual corrections bypass confidence gating
+          matchSource: doc.match_source === "manual" ? "manual" : undefined,
         });
 
         matchResults.push({
