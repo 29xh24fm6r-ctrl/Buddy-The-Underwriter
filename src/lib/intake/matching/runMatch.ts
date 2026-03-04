@@ -47,7 +47,7 @@ export type RunMatchParams = {
   documentId: string;
   spine: SpineSignals | null;
   gatekeeper: GatekeeperSignals | null;
-  matchSource?: "manual" | null;
+  matchSource?: "manual" | "manual_confirmed" | null;
   /** v1.1: Raw text for period/entity extraction. */
   ocrText?: string | null;
   /** v1.1: Original filename for period/entity extraction. */

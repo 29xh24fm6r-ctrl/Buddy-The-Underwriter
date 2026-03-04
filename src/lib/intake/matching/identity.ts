@@ -46,7 +46,7 @@ export type BuildIdentityParams = {
   documentId: string;
   spine: SpineSignals | null;
   gatekeeper: GatekeeperSignals | null;
-  matchSource?: "manual" | null;
+  matchSource?: "manual" | "manual_confirmed" | null;
   /** v1.1: Period extraction result — null = not extracted. */
   period?: PeriodInfo | null;
   /** v1.1: Entity resolution result — null = not resolved. */
@@ -59,9 +59,9 @@ export type BuildIdentityParams = {
 
 function resolveAuthority(
   spine: SpineSignals | null,
-  matchSource?: "manual" | null,
+  matchSource?: "manual" | "manual_confirmed" | null,
 ): ClassificationAuthority {
-  if (matchSource === "manual") return "manual";
+  if (matchSource === "manual" || matchSource === "manual_confirmed") return "manual";
 
   if (!spine) return "probabilistic"; // gatekeeper-only = probabilistic
 
