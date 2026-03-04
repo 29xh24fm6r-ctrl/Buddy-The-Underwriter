@@ -406,6 +406,66 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       }
     }
 
+    // ── Slot matching: attach confirmed doc to its slot ────────────────
+    // Non-fatal: matching must not block confirmation.
+    // Mirrors checklist-key route behavior (single source of truth for slot routing).
+    if (effectiveCanonicalType) {
+      try {
+        const { runMatchForDocument } = await import(
+          "@/lib/intake/matching/runMatch"
+        );
+
+        await runMatchForDocument({
+          dealId,
+          bankId: access.bankId ?? "",
+          documentId,
+          spine: null, // no spine classification here; human-confirmed
+          gatekeeper: {
+            docType: effectiveCanonicalType,
+            effectiveDocType: effectiveCanonicalType,
+            confidence: 1.0,
+            taxYear: effectiveTaxYear ?? null,
+            formNumbers: [],
+          },
+          matchSource: "manual",
+        });
+
+        void writeEvent({
+          dealId,
+          kind: "intake.document_matched_after_confirm",
+          actorUserId: access.userId,
+          scope: "intake",
+          meta: {
+            document_id: documentId,
+            canonical_type: effectiveCanonicalType,
+            doc_year: effectiveTaxYear ?? null,
+            statement_period: effectiveStatementPeriod ?? null,
+            match_source: willCorrect ? "manual" : "manual_confirmed",
+          },
+        });
+      } catch (e: any) {
+        console.warn("[intake/doc/confirm] runMatchForDocument failed (non-fatal)", {
+          dealId,
+          documentId,
+          error: e?.message ?? String(e),
+        });
+
+        void writeEvent({
+          dealId,
+          kind: "intake.document_match_after_confirm_failed",
+          actorUserId: access.userId,
+          scope: "intake",
+          meta: {
+            document_id: documentId,
+            canonical_type: effectiveCanonicalType,
+            doc_year: effectiveTaxYear ?? null,
+            statement_period: effectiveStatementPeriod ?? null,
+            error: e?.message ?? String(e),
+          },
+        });
+      }
+    }
+
     // Emit finalization event — AFTER finalized_at is successfully persisted
     void writeEvent({
       dealId,
