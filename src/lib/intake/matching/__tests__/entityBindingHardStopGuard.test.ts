@@ -95,9 +95,9 @@ test("GUARD-35: processing-status surfaces entity_binding_required fields", () =
     "processing-status route must include entity_binding_required_reasons field",
   );
 
-  // Must import ENTITY_SCOPED_DOC_TYPES for consistent type checking
+  // Must use canonical entity binding check (via helper or direct import)
   assert.ok(
-    src.includes("ENTITY_SCOPED_DOC_TYPES"),
-    "processing-status route must import ENTITY_SCOPED_DOC_TYPES",
+    src.includes("ENTITY_SCOPED_DOC_TYPES") || src.includes("getEntityBindingStatus"),
+    "processing-status route must use ENTITY_SCOPED_DOC_TYPES or canonical getEntityBindingStatus helper",
   );
 });

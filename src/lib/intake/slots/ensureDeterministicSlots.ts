@@ -5,6 +5,10 @@ import { generateSlotsForScenario } from "./policies";
 import { ENTITY_SCOPED_DOC_TYPES } from "../identity/entityScopedDocTypes";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { ensureEntityBindings } from "./repair/ensureEntityBindings";
+import {
+  buildDealEntityGraph,
+  type DealEntityGraph,
+} from "@/lib/entity/buildDealEntityGraph";
 
 // ---------------------------------------------------------------------------
 // Phase 15B — Deterministic Slot Orchestrator
@@ -65,13 +69,92 @@ export async function ensureDeterministicSlotsForScenario(params: {
   const scenario = await loadIntakeScenario(dealId);
   const effectiveScenario = scenario ?? CONVENTIONAL_FALLBACK;
 
-  // Load entity count for structural integrity check (Layer 2.3)
-  const { count: entityCount } = await (sb as any)
-    .from("deal_entities")
-    .select("*", { count: "exact", head: true })
-    .eq("deal_id", dealId);
+  // ── Phase T: Load entity graph for auto-scoped slot generation ──────────
+  // Load entities + existing slot bindings in parallel for graph construction.
+  // Single query also gives us entity count for Layer 2.3 structural check.
+  const [entitiesResult, slotBindingsResult] = await Promise.all([
+    (sb as any)
+      .from("deal_entities")
+      .select("id, entity_kind, name, legal_name, ein, meta, synthetic")
+      .eq("deal_id", dealId)
+      .neq("entity_kind", "GROUP"),
+    (sb as any)
+      .from("deal_document_slots")
+      .select("required_doc_type, required_entity_id, required_entity_role")
+      .eq("deal_id", dealId),
+  ]);
 
-  const definitions = generateSlotsForScenario(effectiveScenario);
+  const rawEntities = entitiesResult.data ?? [];
+  const entityCount = rawEntities.length;
+
+  // Build entity graph for auto-scoped generation
+  let graph: DealEntityGraph | undefined;
+  if (rawEntities.length > 0) {
+    try {
+      const entities = rawEntities.map((e: any) => ({
+        id: e.id,
+        entityKind: e.entity_kind,
+        name: e.name,
+        legalName: e.legal_name ?? null,
+        ein: e.ein ?? null,
+        ssnLast4: (e.meta as any)?.ssn_last4 ?? null,
+        synthetic: e.synthetic ?? false,
+      }));
+
+      const slotBindings = (slotBindingsResult.data ?? []).map((s: any) => ({
+        requiredDocType: s.required_doc_type,
+        requiredEntityId: s.required_entity_id,
+        requiredEntityRole: s.required_entity_role,
+      }));
+
+      graph = buildDealEntityGraph({ entities, slotBindings });
+
+      writeEvent({
+        dealId,
+        kind: "slots.entity_scoped_generated",
+        scope: "slots",
+        meta: {
+          entity_count: graph.entities.length,
+          primary_borrower_id: graph.primaryBorrowerId,
+          graph_version: graph.version,
+          product_type: effectiveScenario.product_type,
+          version: "phase_t_v1",
+        },
+      }).catch(() => {});
+    } catch (graphErr: any) {
+      // Fail-closed for multi-entity: graphless generation would create dead-end unbound slots
+      if (entityCount > 1) {
+        console.error("[ensureDeterministicSlots] graph build failed for multi-entity deal", {
+          dealId,
+          entityCount,
+          error: graphErr?.message,
+        });
+
+        writeEvent({
+          dealId,
+          kind: "slots.entity_scope_generation_failed",
+          scope: "slots",
+          requiresHumanReview: true,
+          meta: {
+            error: graphErr?.message?.slice(0, 200),
+            entity_count: entityCount,
+            product_type: effectiveScenario.product_type,
+            version: "phase_t_v1",
+          },
+        }).catch(() => {});
+
+        return { ok: false, slotsUpserted: 0, error: "entity_graph_build_failed" };
+      }
+
+      // Single-entity: safe to fall back to graphless generation
+      console.warn("[ensureDeterministicSlots] graph build failed for single-entity deal (continuing without graph)", {
+        dealId,
+        error: graphErr?.message,
+      });
+    }
+  }
+
+  const definitions = generateSlotsForScenario(effectiveScenario, undefined, graph);
 
   if (definitions.length === 0) {
     console.error("[ensureDeterministicSlots] policy returned 0 slots", {
@@ -99,6 +182,9 @@ export async function ensureDeterministicSlotsForScenario(params: {
     help_reason: def.help_reason ?? null,
     help_examples: def.help_examples ?? null,
     help_alternatives: def.help_alternatives ?? null,
+    // Phase T: persist entity bindings from graph-based generation
+    required_entity_id: def.required_entity_id ?? null,
+    required_entity_role: def.required_entity_role ?? null,
   }));
 
   const { data, error } = await (sb as any)

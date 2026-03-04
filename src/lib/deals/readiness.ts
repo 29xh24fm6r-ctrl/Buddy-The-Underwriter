@@ -26,6 +26,10 @@ export type DealReadinessResult = {
     uploads_pending?: number;
     ai_pipeline_incomplete?: number;
     spread_violations?: number;
+    // Phase T: entity binding readiness
+    entity_count?: number;
+    unbound_entity_scoped_slots?: number;
+    // Checklist
     required_items_missing?: number;
     checklist_total?: number;
     checklist_satisfied?: number;
@@ -90,6 +94,30 @@ export async function computeDealReadiness(
     }
   } catch {
     // assert_spread_invariant may not exist in all environments — non-fatal
+  }
+
+  // 2c. Entity binding — multi-entity deals must have all entity-scoped slots bound
+  try {
+    const { getEntityBindingStatus } = await import(
+      "@/lib/intake/slots/getEntityBindingStatus"
+    );
+    const bindingStatus = await getEntityBindingStatus(dealId);
+    if (bindingStatus.entityBindingRequired) {
+      return {
+        ready: false,
+        reason: `Entity binding incomplete (${bindingStatus.unboundEntityScopedSlotCount} unbound entity-scoped slot(s) on multi-entity deal)`,
+        details: {
+          entity_count: bindingStatus.entityCount,
+          unbound_entity_scoped_slots: bindingStatus.unboundEntityScopedSlotCount,
+        },
+      };
+    }
+  } catch {
+    // Fail-closed: if entity binding status unavailable, block readiness
+    return {
+      ready: false,
+      reason: "Entity binding status unavailable",
+    };
   }
 
   // 3. Check checklist satisfaction

@@ -8,7 +8,7 @@ import { handleStuckRecovery } from "@/lib/intake/processing/handleStuckRecovery
 import { isOutboxStalled } from "@/lib/intake/processing/detectOutboxStall";
 import { emitOutboxStalledEventIfNeeded } from "@/lib/intake/processing/emitOutboxStalledEvent";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import { ENTITY_SCOPED_DOC_TYPES } from "@/lib/intake/identity/entityScopedDocTypes";
+import { getEntityBindingStatus } from "@/lib/intake/slots/getEntityBindingStatus";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -227,38 +227,20 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       }
     }
 
-    // ── Entity-binding readiness check ──────────────────────────────
-    // For multi-entity deals, detect unbound entity-scoped slots.
-    // Operators must bind these before auto-match can safely proceed.
+    // ── Entity-binding readiness check (Phase T: canonical helper) ──
     let entityBindingRequired = false;
     let unboundEntityScopedSlotCount = 0;
     const entityBindingRequiredReasons: string[] = [];
 
-    {
-      const entityScopedTypes = [...ENTITY_SCOPED_DOC_TYPES];
-
-      // Count deal entities
-      const { count: entityCount } = await (sb as any)
-        .from("deal_entities")
-        .select("id", { count: "exact", head: true })
-        .eq("deal_id", dealId);
-
-      if ((entityCount ?? 0) > 1) {
-        // Count unbound entity-scoped slots
-        const { data: unboundSlots } = await (sb as any)
-          .from("deal_document_slots")
-          .select("id")
-          .eq("deal_id", dealId)
-          .in("required_doc_type", entityScopedTypes)
-          .is("required_entity_id", null);
-
-        unboundEntityScopedSlotCount = unboundSlots?.length ?? 0;
-
-        if (unboundEntityScopedSlotCount > 0) {
-          entityBindingRequired = true;
-          entityBindingRequiredReasons.push("unbound_entity_scoped_slots");
-        }
+    try {
+      const bindingStatus = await getEntityBindingStatus(dealId);
+      entityBindingRequired = bindingStatus.entityBindingRequired;
+      unboundEntityScopedSlotCount = bindingStatus.unboundEntityScopedSlotCount;
+      if (bindingStatus.reasons.length > 0) {
+        entityBindingRequiredReasons.push(...bindingStatus.reasons);
       }
+    } catch {
+      // Non-fatal for polling endpoint — entity binding status unavailable
     }
 
     return NextResponse.json({
