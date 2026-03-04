@@ -444,3 +444,79 @@ describe("Cross-Phase — SQL ↔ TS Consistency", () => {
     }
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase M: Per-Doc Confirm Must Derive checklist_key (No Client Input)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("Phase M — Per-Doc Confirm Derives checklist_key", () => {
+  const CONFIRM_ROUTE = "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts";
+
+  test("Guard M-37: Per-doc confirm route must NOT accept checklist_key from client", () => {
+    const src = readSource(CONFIRM_ROUTE);
+
+    // BodySchema must not contain checklist_key
+    // Extract just the BodySchema definition to avoid false positives from comments/afterState
+    const schemaMatch = src.match(/const BodySchema\s*=\s*z\.object\(\{[\s\S]*?\}\)/);
+    assert.ok(schemaMatch, "BodySchema must exist");
+    const schemaBody = schemaMatch![0];
+    assert.ok(
+      !schemaBody.includes("checklist_key"),
+      "Guard M-37: BodySchema must NOT contain checklist_key — it is a DERIVED field",
+    );
+
+    // No body.checklist_key assignment
+    assert.ok(
+      !src.includes("body.checklist_key"),
+      "Guard M-37: Route must NOT reference body.checklist_key",
+    );
+
+    // No patch.checklist_key = body.checklist_key
+    assert.ok(
+      !src.includes("patch.checklist_key = body.checklist_key"),
+      "Guard M-37: Route must NOT set patch.checklist_key from body",
+    );
+  });
+
+  test("Guard M-38: Per-doc confirm must derive checklist_key via resolveChecklistKey", () => {
+    const src = readSource(CONFIRM_ROUTE);
+
+    assert.ok(
+      src.includes("resolveChecklistKey"),
+      "Guard M-38: Route must import and call resolveChecklistKey",
+    );
+
+    assert.ok(
+      src.includes("derivedChecklistKey"),
+      "Guard M-38: Route must use derivedChecklistKey variable",
+    );
+
+    assert.ok(
+      src.includes("patch.checklist_key = derivedChecklistKey"),
+      "Guard M-38: Route must stamp patch.checklist_key from derivation",
+    );
+  });
+
+  test("Guard M-39: Per-doc confirm must fail with 400 when derivation fails for required types", () => {
+    const src = readSource(CONFIRM_ROUTE);
+
+    assert.ok(
+      src.includes("invalid_checklist_derivation"),
+      "Guard M-39: Route must return invalid_checklist_derivation error",
+    );
+
+    assert.ok(
+      src.includes("status: 400"),
+      "Guard M-39: Derivation failure must be a 400 (actionable), not 500",
+    );
+  });
+
+  test("Guard M-40: Per-doc confirm uses atomic_retype_document for type changes", () => {
+    const src = readSource(CONFIRM_ROUTE);
+
+    assert.ok(
+      src.includes("atomic_retype_document"),
+      "Guard M-40: Route must call atomic_retype_document RPC for canonical_type changes",
+    );
+  });
+});
