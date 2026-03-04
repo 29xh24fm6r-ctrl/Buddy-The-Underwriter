@@ -67,7 +67,7 @@ export async function POST(
     const slotIds = bindings.map((b) => b.slotId!);
     const { data: slots, error: slotsErr } = await (sb as any)
       .from("deal_document_slots")
-      .select("id, required_doc_type, required_entity_id")
+      .select("id, required_doc_type, required_entity_id, status")
       .eq("deal_id", dealId)
       .in("id", slotIds);
 
@@ -95,6 +95,22 @@ export async function POST(
         return NextResponse.json(
           { ok: false, error: `slot ${slot.id} is not entity-scoped (type: ${slot.required_doc_type})` },
           { status: 400 },
+        );
+      }
+    }
+
+    // Phase U: Block rebinding on non-empty slots (must detach first)
+    for (const slot of slots ?? []) {
+      if (slot.status !== "empty") {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "slot_not_rebindable_attached",
+            detail: `Slot ${slot.id} has status '${slot.status}' — detach first to rebind`,
+            slot_id: slot.id,
+            status: slot.status,
+          },
+          { status: 409 },
         );
       }
     }
@@ -168,6 +184,12 @@ export async function POST(
       .is("required_entity_id", null);
 
     const unboundCount = (remainingSlots ?? []).length;
+
+    // Phase U: propagate — entity binding change may affect readiness
+    try {
+      const { recomputeDealReady } = await import("@/lib/deals/readiness");
+      await recomputeDealReady(dealId);
+    } catch {}
 
     return NextResponse.json({
       ok: true,

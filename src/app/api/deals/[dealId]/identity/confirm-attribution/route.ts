@@ -51,6 +51,32 @@ export async function POST(
   try {
     const sb = supabaseAdmin();
 
+    // Phase U: Load slot and check status before allowing entity binding
+    const { data: slot } = await (sb as any)
+      .from("deal_document_slots")
+      .select("id, status")
+      .eq("id", slotId)
+      .eq("deal_id", dealId)
+      .maybeSingle();
+
+    if (!slot) {
+      return NextResponse.json(
+        { ok: false, error: "slot_not_found" },
+        { status: 404 },
+      );
+    }
+
+    if (slot.status !== "empty") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "slot_not_rebindable_attached",
+          detail: `Slot has status '${slot.status}' — detach first to rebind`,
+        },
+        { status: 409 },
+      );
+    }
+
     const { error: updateErr } = await (sb as any)
       .from("deal_document_slots")
       .update({ required_entity_id: entityId })
@@ -74,6 +100,12 @@ export async function POST(
         confirmed_by_user_id: userId,
       },
     }).catch(() => {});
+
+    // Phase U: propagate — entity binding change may affect readiness
+    try {
+      const { recomputeDealReady } = await import("@/lib/deals/readiness");
+      await recomputeDealReady(dealId);
+    } catch {}
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
