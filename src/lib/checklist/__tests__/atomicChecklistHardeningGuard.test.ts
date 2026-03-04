@@ -865,3 +865,63 @@ describe("Phase S — Entity Slot Binding Infrastructure", () => {
     );
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase S (cont.) — Entity Slot Binding Page & Endpoints
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("Phase S (cont.) — Entity Slot Binding Page", () => {
+  test("Guard S-70: intake/slots page.tsx exists and renders EntitySlotBindingPage", () => {
+    const src = readSource(
+      "src/app/(app)/deals/[dealId]/intake/slots/page.tsx",
+    );
+    assert.ok(
+      src.includes("EntitySlotBindingPage") &&
+      src.includes("ensureDealBankAccess"),
+      "Guard S-70: page.tsx must render EntitySlotBindingPage with auth guard",
+    );
+  });
+
+  test("Guard S-71: IntakeReviewTable CTA links to /intake/slots", () => {
+    const src = readSource("src/components/deals/intake/IntakeReviewTable.tsx");
+    assert.ok(
+      src.includes("/intake/slots") &&
+      src.includes("Bind Slots"),
+      "Guard S-71: CTA must link to /intake/slots and say 'Bind Slots'",
+    );
+  });
+
+  test("Guard S-72: bind-slots endpoint enforces entity-scoped validation", () => {
+    const src = readSource(
+      "src/app/api/deals/[dealId]/intake/bind-slots/route.ts",
+    );
+    assert.ok(
+      src.includes("ENTITY_SCOPED_DOC_TYPES") &&
+      src.includes("not entity-scoped"),
+      "Guard S-72: bind-slots must validate slots are entity-scoped using ENTITY_SCOPED_DOC_TYPES",
+    );
+  });
+
+  test("Guard S-73: bind-slots endpoint emits slot.entity_bound events", () => {
+    const src = readSource(
+      "src/app/api/deals/[dealId]/intake/bind-slots/route.ts",
+    );
+    assert.ok(
+      src.includes("slot.entity_bound") &&
+      src.includes("writeEvent"),
+      "Guard S-73: bind-slots must emit slot.entity_bound ledger events",
+    );
+  });
+
+  test("Guard S-74: entity-slot-bindings endpoint returns unbound_count", () => {
+    const src = readSource(
+      "src/app/api/deals/[dealId]/intake/entity-slot-bindings/route.ts",
+    );
+    assert.ok(
+      src.includes("unbound_count") &&
+      src.includes("entity_binding_required") &&
+      src.includes("ENTITY_SCOPED_DOC_TYPES"),
+      "Guard S-74: entity-slot-bindings must return unbound_count and entity_binding_required",
+    );
+  });
+});
