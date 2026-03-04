@@ -351,26 +351,34 @@ export async function runMatchForDocument(
       }
 
       if (enforcementSlot) {
-        result.decision = "routed_to_review";
-        result.reason = "identity_enforcement";
+        // Manual authority override: banker-confirmed docs bypass identity inference.
+        // Confidence gating already respects manual authority (matchSource === "manual").
+        // Identity enforcement must do the same — the banker is the identity authority.
+        const isManualAuthority =
+          matchSource === "manual" || matchSource === "manual_confirmed";
 
-        writeEvent({
-          dealId,
-          kind: "match.identity_mismatch",
-          scope: "matching",
-          requiresHumanReview: true,
-          meta: {
-            document_id: documentId,
-            slot_id: enforcementSlot.slotId,
-            slot_key: enforcementSlot.slotKey,
-            effective_doc_type: identity.effectiveDocType,
-            engine_version: MATCHING_ENGINE_VERSION,
-            entity_graph_version: ENTITY_GRAPH_VERSION,
-            resolved_entity_id: identity.entity!.entityId,
-            slot_entity_id: enforcementSlot.requiredEntityId,
-            entity_confidence: identity.entity!.confidence,
-          },
-        }).catch(() => {});
+        if (!isManualAuthority) {
+          result.decision = "routed_to_review";
+          result.reason = "identity_enforcement";
+
+          writeEvent({
+            dealId,
+            kind: "match.identity_mismatch",
+            scope: "matching",
+            requiresHumanReview: true,
+            meta: {
+              document_id: documentId,
+              slot_id: enforcementSlot.slotId,
+              slot_key: enforcementSlot.slotKey,
+              effective_doc_type: identity.effectiveDocType,
+              engine_version: MATCHING_ENGINE_VERSION,
+              entity_graph_version: ENTITY_GRAPH_VERSION,
+              resolved_entity_id: identity.entity!.entityId,
+              slot_entity_id: enforcementSlot.requiredEntityId,
+              entity_confidence: identity.entity!.confidence,
+            },
+          }).catch(() => {});
+        }
       }
     }
 
