@@ -13,6 +13,7 @@ import { extractFilenamePattern } from "@/lib/intake/overrideIntelligence/extrac
 import { deriveBand } from "@/lib/classification/calibrateConfidence";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
+import { resolveChecklistKey } from "@/lib/docTyping/resolveChecklistKey";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,10 +22,11 @@ type Ctx = {
   params: Promise<{ dealId: string; documentId: string }>;
 };
 
+// checklist_key is DERIVED internally — never accepted from client input.
+// Same invariant as checklist-key route (Phase F hardening).
 const BodySchema = z.object({
   canonical_type: z.string().trim().min(1).optional(),
   document_type: z.string().trim().min(1).optional(),
-  checklist_key: z.string().trim().min(1).optional(),
   tax_year: z.number().int().min(1990).max(2100).optional(),
   period_end: z.string().trim().min(1).optional(),
 });
@@ -139,52 +141,134 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const willCorrect =
       (body.canonical_type !== undefined && body.canonical_type !== beforeState.canonical_type) ||
       (body.document_type !== undefined && body.document_type !== beforeState.document_type) ||
-      (body.checklist_key !== undefined && body.checklist_key !== beforeState.checklist_key) ||
       (body.tax_year !== undefined && body.tax_year !== beforeState.doc_year);
 
-    // Build patch
+    // ── Phase M: Derive checklist_key server-side ────────────────────
+    // checklist_key is NEVER accepted from client input.
+    // Derive deterministically from canonical_type + tax_year.
+    const effectiveCanonicalType = body.canonical_type ?? beforeState.canonical_type;
+    const effectiveTaxYear = body.tax_year ?? beforeState.doc_year;
+    let derivedChecklistKey: string | null = null;
+
+    if (effectiveCanonicalType) {
+      derivedChecklistKey = resolveChecklistKey(effectiveCanonicalType, effectiveTaxYear);
+
+      // Fail closed: if canonical_type requires a key but derivation fails
+      // (e.g., tax return without year), return actionable 400 instead of 500
+      const REQUIRES_KEY = new Set([
+        "PERSONAL_FINANCIAL_STATEMENT",
+        "BUSINESS_TAX_RETURN",
+        "PERSONAL_TAX_RETURN",
+        "BALANCE_SHEET",
+        "INCOME_STATEMENT",
+      ]);
+      if (REQUIRES_KEY.has(effectiveCanonicalType) && !derivedChecklistKey) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "invalid_checklist_derivation",
+            detail: `${effectiveCanonicalType} requires a tax_year to derive checklist_key`,
+          },
+          { status: 400 },
+        );
+      }
+    }
+
+    // Build patch — order matters: derivation BEFORE finalize stamps
     const now = new Date().toISOString();
     const patch: Record<string, unknown> = {
       intake_status: "USER_CONFIRMED",
       intake_confirmed_at: now,
       intake_confirmed_by: access.userId,
       match_source: willCorrect ? "manual" : "manual_confirmed",
-      // FIX 1A: Human confirmation = quality gate passed.
-      // Without this, quality_status stays NULL and the confirmation gate
-      // blocks with quality_not_passed on every doc the user confirmed.
-      quality_status: "PASSED",
-      finalized_at: now,
     };
 
     if (body.canonical_type !== undefined) {
       patch.canonical_type = body.canonical_type;
       // Auto-sync document_type unless caller explicitly overrides it.
-      // reconcileChecklistForDeal() groups docs by document_type (not canonical_type),
-      // so a stale document_type makes banker corrections invisible to the checklist engine.
       if (body.document_type === undefined) {
         patch.document_type = body.canonical_type;
       }
     }
     if (body.document_type !== undefined) patch.document_type = body.document_type;
-    if (body.checklist_key !== undefined) patch.checklist_key = body.checklist_key;
     if (body.tax_year !== undefined) {
       patch.doc_year = body.tax_year;
       patch.doc_years = [body.tax_year];
     }
     if (body.period_end !== undefined) patch.period_end = body.period_end;
 
-    // Apply patch
-    const { error: updErr } = await (sb as any)
-      .from("deal_documents")
-      .update(patch)
-      .eq("id", documentId)
-      .eq("deal_id", dealId);
+    // Phase M: Stamp derived checklist_key (always — even if canonical_type unchanged,
+    // the existing key may be stale from a pre-hardening write)
+    patch.checklist_key = derivedChecklistKey;
 
-    if (updErr) {
-      return NextResponse.json(
-        { ok: false, error: "update_failed", detail: updErr.message },
-        { status: 500 },
-      );
+    // FIX 1A: Human confirmation = quality gate passed.
+    // Finalize stamps AFTER checklist_key derivation is set.
+    patch.quality_status = "PASSED";
+    patch.finalized_at = now;
+
+    // ── Phase M-D: Use atomic RPC when canonical_type changes ────────
+    // Same pattern as checklist-key route: single transaction for
+    // canonical_type → checklist_key → reconcile.
+    if (body.canonical_type !== undefined && body.canonical_type !== beforeState.canonical_type) {
+      // Set doc_year + metadata first (RPC only handles type + key + reconcile)
+      if (body.tax_year !== undefined) {
+        await (sb as any)
+          .from("deal_documents")
+          .update({
+            doc_year: body.tax_year,
+            doc_years: [body.tax_year],
+          } as any)
+          .eq("id", documentId)
+          .eq("deal_id", dealId);
+      }
+
+      const rpcRes = await sb.rpc("atomic_retype_document", {
+        p_document_id: documentId,
+        p_new_canonical_type: body.canonical_type,
+      });
+
+      if (rpcRes.error) {
+        return NextResponse.json(
+          { ok: false, error: "update_failed", detail: rpcRes.error.message },
+          { status: 500 },
+        );
+      }
+
+      // Stamp remaining metadata that the RPC doesn't handle
+      const { error: metaErr } = await (sb as any)
+        .from("deal_documents")
+        .update({
+          intake_status: "USER_CONFIRMED",
+          intake_confirmed_at: now,
+          intake_confirmed_by: access.userId,
+          match_source: willCorrect ? "manual" : "manual_confirmed",
+          quality_status: "PASSED",
+          finalized_at: now,
+          ...(body.period_end !== undefined ? { period_end: body.period_end } : {}),
+        } as any)
+        .eq("id", documentId)
+        .eq("deal_id", dealId);
+
+      if (metaErr) {
+        return NextResponse.json(
+          { ok: false, error: "update_failed", detail: metaErr.message },
+          { status: 500 },
+        );
+      }
+    } else {
+      // No canonical_type change — safe to do a single UPDATE with full patch
+      const { error: updErr } = await (sb as any)
+        .from("deal_documents")
+        .update(patch)
+        .eq("id", documentId)
+        .eq("deal_id", dealId);
+
+      if (updErr) {
+        return NextResponse.json(
+          { ok: false, error: "update_failed", detail: updErr.message },
+          { status: 500 },
+        );
+      }
     }
 
     // ── Checklist truth: materialize corrected classification immediately ──
@@ -249,8 +333,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // Determine if anything was corrected
     const afterState = {
       canonical_type: body.canonical_type ?? beforeState.canonical_type,
-      document_type: body.document_type ?? beforeState.document_type,
-      checklist_key: body.checklist_key ?? beforeState.checklist_key,
+      document_type: body.document_type ?? body.canonical_type ?? beforeState.document_type,
+      checklist_key: derivedChecklistKey ?? beforeState.checklist_key,
       doc_year: body.tax_year ?? beforeState.doc_year,
     };
 
