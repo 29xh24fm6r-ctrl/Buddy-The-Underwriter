@@ -57,7 +57,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
   try {
     const { data: docs } = await (sb as any)
       .from("deal_documents")
-      .select("id, canonical_type, doc_year, checklist_key, finalized_at")
+      .select("id, canonical_type, doc_year, checklist_key, finalized_at, statement_period")
       .eq("deal_id", dealId)
       .not("finalized_at", "is", null);
 
@@ -67,8 +67,9 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       doc_year: number | null;
       checklist_key: string | null;
       finalized_at: string | null;
+      statement_period: string | null;
     }>) {
-      const derivedKey = resolveChecklistKey(doc.canonical_type ?? "", doc.doc_year);
+      const derivedKey = resolveChecklistKey(doc.canonical_type ?? "", doc.doc_year, doc.statement_period);
       checklistKeysRecomputed++;
 
       if (derivedKey !== doc.checklist_key) {

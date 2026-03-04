@@ -871,7 +871,7 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
     const sbCheck = sbOverride ?? supabaseAdmin();
     const { data: finalizedDocs } = await sbCheck
       .from("deal_documents")
-      .select("id, canonical_type, doc_year, checklist_key, finalized_at")
+      .select("id, canonical_type, doc_year, checklist_key, finalized_at, statement_period")
       .eq("deal_id", dealId)
       .not("finalized_at", "is", null)
       .not("canonical_type", "is", null);
@@ -880,6 +880,7 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
       const derivedKey = resolveChecklistKey(
         (doc as any).canonical_type,
         (doc as any).doc_year ?? null,
+        (doc as any).statement_period ?? null,
       );
       if (derivedKey && !(doc as any).checklist_key) {
         throw new Error(

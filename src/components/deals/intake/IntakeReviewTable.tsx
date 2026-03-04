@@ -36,6 +36,7 @@ type IntakeDoc = {
   intake_confirmed_by: string | null;
   intake_locked_at: string | null;
   created_at: string | null;
+  statement_period: string | null;
 };
 
 type ProcessingMarkers = {
@@ -96,6 +97,12 @@ const YEAR_REQUIRED_TYPES = new Set([
   "BUSINESS_TAX_RETURN",
 ]);
 
+/** Phase P: Types that require statement_period discriminator for checklist slot. */
+const PERIOD_REQUIRED_TYPES = new Set([
+  "INCOME_STATEMENT",
+  "BALANCE_SHEET",
+]);
+
 const DOC_TYPE_OPTIONS = [
   "BUSINESS_TAX_RETURN",
   "PERSONAL_TAX_RETURN",
@@ -154,6 +161,7 @@ export function IntakeReviewTable({
   const [editValues, setEditValues] = useState<{
     canonical_type?: string;
     tax_year?: number;
+    statement_period?: string;
   }>({});
   // E1.2: Per-doc blocker state — populated on confirmation_blocked response
   const [blockedDocs, setBlockedDocs] = useState<Map<string, string[]>>(new Map());
@@ -421,11 +429,12 @@ export function IntakeReviewTable({
 
   // ── Actions ────────────────────────────────────────────────────────
 
-  async function confirmDoc(docId: string, patch?: { canonical_type?: string; tax_year?: number }) {
+  async function confirmDoc(docId: string, patch?: { canonical_type?: string; tax_year?: number; statement_period?: string }) {
     try {
       const body: Record<string, unknown> = {};
       if (patch?.canonical_type) body.canonical_type = patch.canonical_type;
       if (patch?.tax_year) body.tax_year = patch.tax_year;
+      if (patch?.statement_period) body.statement_period = patch.statement_period;
 
       const res = await fetch(
         `/api/deals/${dealId}/intake/documents/${docId}/confirm`,
@@ -943,24 +952,51 @@ export function IntakeReviewTable({
                   </td>
                   <td className="py-2 px-2">
                     {isEditing ? (
-                      <input
-                        type="number"
-                        min={1990}
-                        max={2100}
-                        value={editValues.tax_year ?? doc.doc_year ?? ""}
-                        onChange={(e) =>
-                          setEditValues((prev) => ({
-                            ...prev,
-                            tax_year: e.target.value
-                              ? parseInt(e.target.value, 10)
-                              : undefined,
-                          }))
-                        }
-                        className="bg-gray-900 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white w-16"
-                      />
+                      <div className="flex flex-col gap-1">
+                        <input
+                          type="number"
+                          min={1990}
+                          max={2100}
+                          value={editValues.tax_year ?? doc.doc_year ?? ""}
+                          onChange={(e) =>
+                            setEditValues((prev) => ({
+                              ...prev,
+                              tax_year: e.target.value
+                                ? parseInt(e.target.value, 10)
+                                : undefined,
+                            }))
+                          }
+                          className="bg-gray-900 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white w-16"
+                        />
+                        {PERIOD_REQUIRED_TYPES.has(editValues.canonical_type ?? "") && (
+                          <select
+                            value={editValues.statement_period ?? ""}
+                            onChange={(e) =>
+                              setEditValues((prev) => ({
+                                ...prev,
+                                statement_period: e.target.value || undefined,
+                              }))
+                            }
+                            className="bg-gray-900 border border-white/10 rounded px-1 py-0.5 text-[10px] text-white w-20"
+                          >
+                            <option value="">Period…</option>
+                            {(editValues.canonical_type === "INCOME_STATEMENT"
+                              ? [["YTD", "YTD"], ["ANNUAL", "Annual"]]
+                              : [["CURRENT", "Current"], ["HISTORICAL", "Historical"]]
+                            ).map(([val, label]) => (
+                              <option key={val} value={val}>{label}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
                     ) : (
                       <span className="text-white/60">
                         {doc.doc_year ?? "—"}
+                        {doc.statement_period && (
+                          <span className="text-white/30 text-[9px] ml-1">
+                            {doc.statement_period}
+                          </span>
+                        )}
                       </span>
                     )}
                   </td>
@@ -1016,18 +1052,22 @@ export function IntakeReviewTable({
                           Cancel
                         </button>
                         {(() => {
-                          const needsYear = YEAR_REQUIRED_TYPES.has(editValues.canonical_type ?? "") && !editValues.tax_year;
+                          const editType = editValues.canonical_type ?? "";
+                          const needsYear = YEAR_REQUIRED_TYPES.has(editType) && !editValues.tax_year;
+                          const needsPeriod = PERIOD_REQUIRED_TYPES.has(editType) && !editValues.statement_period;
+                          const blocked = needsYear || needsPeriod;
+                          const hint = needsYear ? "Year required" : needsPeriod ? "Period required" : null;
                           return (
                             <>
-                              {needsYear && (
-                                <span className="text-amber-400 text-[9px] whitespace-nowrap">Year required</span>
+                              {hint && (
+                                <span className="text-amber-400 text-[9px] whitespace-nowrap">{hint}</span>
                               )}
                               <button
                                 onClick={() => void confirmDoc(doc.id, editValues)}
-                                disabled={needsYear}
+                                disabled={blocked}
                                 className={cn(
                                   "px-2 py-0.5 rounded text-[10px] font-medium",
-                                  needsYear
+                                  blocked
                                     ? "bg-white/5 text-white/20 cursor-not-allowed"
                                     : "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30",
                                 )}
@@ -1046,6 +1086,7 @@ export function IntakeReviewTable({
                             setEditValues({
                               canonical_type: doc.canonical_type ?? undefined,
                               tax_year: doc.doc_year ?? undefined,
+                              statement_period: doc.statement_period ?? undefined,
                             });
                           }}
                           className="text-white/40 hover:text-white/60 px-1.5 py-0.5 rounded text-[10px]"
@@ -1054,18 +1095,22 @@ export function IntakeReviewTable({
                         </button>
                         {(doc.intake_status === "CLASSIFIED_PENDING_REVIEW" ||
                           doc.intake_status === "UPLOADED") && (() => {
-                          const needsYear = YEAR_REQUIRED_TYPES.has(doc.canonical_type ?? "") && !doc.doc_year;
+                          const docType = doc.canonical_type ?? "";
+                          const needsYear = YEAR_REQUIRED_TYPES.has(docType) && !doc.doc_year;
+                          const needsPeriod = PERIOD_REQUIRED_TYPES.has(docType) && !doc.statement_period;
+                          const blocked = needsYear || needsPeriod;
+                          const hint = needsYear ? "Year required" : needsPeriod ? "Period required" : null;
                           return (
                             <>
-                              {needsYear && (
-                                <span className="text-amber-400 text-[9px] whitespace-nowrap">Year required</span>
+                              {hint && (
+                                <span className="text-amber-400 text-[9px] whitespace-nowrap">{hint}</span>
                               )}
                               <button
                                 onClick={() => void confirmDoc(doc.id)}
-                                disabled={needsYear}
+                                disabled={blocked}
                                 className={cn(
                                   "px-2 py-0.5 rounded text-[10px] font-medium",
-                                  needsYear
+                                  blocked
                                     ? "bg-white/5 text-white/20 cursor-not-allowed"
                                     : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30",
                                 )}

@@ -1,0 +1,91 @@
+-- Phase P: Extend resolve_checklist_key_sql to accept statement_period discriminator
+-- Mirrors TS resolveChecklistKey() — must stay in sync
+
+CREATE OR REPLACE FUNCTION public.resolve_checklist_key_sql(
+  p_canonical_type TEXT,
+  p_tax_year INT DEFAULT NULL,
+  p_statement_period TEXT DEFAULT NULL
+)
+RETURNS TEXT
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+BEGIN
+  CASE p_canonical_type
+    WHEN 'PERSONAL_FINANCIAL_STATEMENT' THEN RETURN 'PFS_CURRENT';
+    WHEN 'PERSONAL_TAX_RETURN' THEN
+      IF p_tax_year IS NOT NULL THEN RETURN 'IRS_PERSONAL_' || p_tax_year; END IF;
+      RETURN NULL;
+    WHEN 'BUSINESS_TAX_RETURN' THEN
+      IF p_tax_year IS NOT NULL THEN RETURN 'IRS_BUSINESS_' || p_tax_year; END IF;
+      RETURN NULL;
+    WHEN 'BALANCE_SHEET' THEN
+      IF p_statement_period = 'CURRENT' THEN RETURN 'FIN_STMT_BS_CURRENT'; END IF;
+      IF p_statement_period = 'HISTORICAL' THEN RETURN 'FIN_STMT_BS_HISTORICAL'; END IF;
+      RETURN NULL;
+    WHEN 'INCOME_STATEMENT' THEN
+      IF p_statement_period = 'YTD' THEN RETURN 'FIN_STMT_PL_YTD'; END IF;
+      IF p_statement_period = 'ANNUAL' THEN RETURN 'FIN_STMT_PL_ANNUAL'; END IF;
+      RETURN NULL;
+    WHEN 'RENT_ROLL' THEN RETURN 'RENT_ROLL';
+    WHEN 'BANK_STATEMENT' THEN RETURN 'BANK_STMT_3M';
+    ELSE RETURN NULL;
+  END CASE;
+END;
+$$;
+
+-- Update reconcile function to pass statement_period
+CREATE OR REPLACE FUNCTION public.reconcile_checklist_for_deal_sql(p_deal_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE deal_documents dd
+  SET checklist_key = resolve_checklist_key_sql(dd.canonical_type, dd.doc_year, dd.statement_period)
+  WHERE dd.deal_id = p_deal_id
+    AND dd.canonical_type IS NOT NULL
+    AND dd.checklist_key IS DISTINCT FROM resolve_checklist_key_sql(dd.canonical_type, dd.doc_year, dd.statement_period);
+END;
+$$;
+
+-- Update atomic_retype_document to pass statement_period
+CREATE OR REPLACE FUNCTION public.atomic_retype_document(
+  p_document_id UUID,
+  p_new_canonical_type TEXT
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_deal_id UUID;
+  v_tax_year INT;
+  v_statement_period TEXT;
+  v_new_key TEXT;
+BEGIN
+  -- Lock the row
+  SELECT deal_id, doc_year, statement_period INTO v_deal_id, v_tax_year, v_statement_period
+  FROM deal_documents
+  WHERE id = p_document_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Document % not found', p_document_id;
+  END IF;
+
+  -- Derive new key
+  v_new_key := resolve_checklist_key_sql(p_new_canonical_type, v_tax_year, v_statement_period);
+
+  -- Update type + key atomically
+  UPDATE deal_documents
+  SET canonical_type = p_new_canonical_type,
+      checklist_key = v_new_key
+  WHERE id = p_document_id;
+
+  -- Reconcile entire deal
+  PERFORM reconcile_checklist_for_deal_sql(v_deal_id);
+END;
+$$;

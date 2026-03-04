@@ -20,6 +20,7 @@ export const dynamic = "force-dynamic";
 const BodySchema = z.object({
   canonical_type: z.string().trim().min(1).optional().nullable(),
   tax_year: z.number().int().min(1990).max(2100).optional().nullable(),
+  statement_period: z.enum(["YTD", "ANNUAL", "CURRENT", "HISTORICAL"]).optional().nullable(),
 });
 
 /**
@@ -69,10 +70,11 @@ export async function PATCH(
 
   const canonicalType = body.canonical_type ?? null;
   const taxYear = body.tax_year ?? null;
+  const statementPeriod = body.statement_period ?? null;
   const isClearing = !canonicalType;
 
   // checklist_key is derived deterministically — never from client input
-  const checklistKey = canonicalType ? resolveChecklistKey(canonicalType, taxYear) : null;
+  const checklistKey = canonicalType ? resolveChecklistKey(canonicalType, taxYear, statementPeriod) : null;
   const documentType = canonicalType; // canonical_type IS the document type
 
   const sb = supabaseAdmin();
@@ -112,6 +114,7 @@ export async function PATCH(
         .update({
           doc_year: taxYear,
           doc_years: [taxYear],
+          statement_period: statementPeriod,
           match_source: "manual",
           match_reason: "Manual classification by banker",
           match_confidence: 1.0,
@@ -136,6 +139,7 @@ export async function PATCH(
     await sb
       .from("deal_documents")
       .update({
+        statement_period: statementPeriod,
         match_source: "manual",
         match_reason: "Manual classification by banker",
         match_confidence: 1.0,

@@ -105,7 +105,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
          gatekeeper_doc_type, gatekeeper_confidence,
          gatekeeper_needs_review, gatekeeper_route,
          intake_status, intake_confirmed_at, intake_confirmed_by,
-         intake_locked_at, created_at`,
+         intake_locked_at, created_at, statement_period`,
       )
       .eq("deal_id", dealId)
       .eq("is_active", true)
