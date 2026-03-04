@@ -50,6 +50,15 @@ export async function attachDocumentToSlot(
     };
   }
 
+  // Phase U: Reject attachment on validated/completed slots (immutable)
+  const slotStatus = (slot as any).status;
+  if (slotStatus === "validated" || slotStatus === "completed") {
+    return {
+      ok: false,
+      error: `slot_immutable_${slotStatus}`,
+    };
+  }
+
   // 2. Deactivate prior active attachments for this slot
   await sb
     .from("deal_document_slot_attachments")
