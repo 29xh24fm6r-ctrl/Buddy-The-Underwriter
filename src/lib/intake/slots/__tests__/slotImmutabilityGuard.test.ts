@@ -1,10 +1,12 @@
 /**
- * Phase U — Slot Entity Binding Immutability CI Guards
+ * Phase U — Slot Entity Binding Immutability + Propagation CI Guards
  *
  * Structural invariants ensuring:
  * - bind-slots route checks slot status before allowing entity binding changes
  * - confirm-attribution route checks slot status before allowing entity binding changes
  * - Both routes trigger readiness recompute after successful binding
+ * - attachDocumentToSlot rejects mutation on validated/completed slots
+ * - detach-and-rebind endpoint calls RPC + readiness recompute
  *
  * DB-level immutability (trigger) is enforced in Supabase migration.
  * These guards enforce the application-layer defense-in-depth.
@@ -89,6 +91,48 @@ describe("Phase U — Slot Entity Binding Immutability Guards", () => {
     assert.ok(
       src.includes("recomputeDealReady"),
       "U-G4: confirm-attribution must call recomputeDealReady after entity binding",
+    );
+  });
+
+  // ─── U-G5: attachDocumentToSlot rejects validated/completed slots ─────────
+  test("U-G5: attachDocumentToSlot rejects mutation on validated/completed slots", () => {
+    const src = readSource(
+      "src/lib/intake/slots/attachDocumentToSlot.ts",
+    );
+
+    assert.ok(
+      src.includes("slot_immutable_validated") || src.includes("slot_immutable_"),
+      "U-G5: attachDocumentToSlot must reject attachment on validated/completed slots",
+    );
+
+    // Must check status before deactivating prior attachments (skip JSDoc)
+    const statusCheck = src.indexOf("slot_immutable_");
+    const deactivate = src.indexOf("update({ is_active: false }");
+    assert.ok(
+      statusCheck > -1 && deactivate > -1 && statusCheck < deactivate,
+      "U-G5: status check must come BEFORE deactivating prior attachments",
+    );
+  });
+
+  // ─── U-G6: detach-and-rebind endpoint calls RPC + readiness ───────────────
+  test("U-G6: detach-and-rebind endpoint calls RPC and triggers readiness recompute", () => {
+    const src = readSource(
+      "src/app/api/deals/[dealId]/intake/slots/[slotId]/detach-and-rebind/route.ts",
+    );
+
+    assert.ok(
+      src.includes("intake_detach_and_rebind_slot"),
+      "U-G6: detach-and-rebind must call the atomic RPC",
+    );
+
+    assert.ok(
+      src.includes("recomputeDealReady"),
+      "U-G6: detach-and-rebind must trigger readiness recompute",
+    );
+
+    assert.ok(
+      src.includes("slot.entity_rebound"),
+      "U-G6: detach-and-rebind must emit slot.entity_rebound ledger event",
     );
   });
 });
