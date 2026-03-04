@@ -101,43 +101,74 @@ export async function PATCH(
     doc_year: currentDoc.data.doc_year,
   };
 
-  // 1. Update deal_documents (canonical source)
-  // canonical_type, document_type, and checklist_key are always in sync — derived atomically.
-  const docUpdate: Record<string, unknown> = {
-    checklist_key: checklistKey,
-    match_source: isClearing ? null : "manual",
-    match_reason: isClearing ? null : "Manual classification by banker",
-    match_confidence: isClearing ? null : 1.0,
-    // Manual classification = banker has reviewed → finalize the document
-    finalized_at: isClearing ? null : new Date().toISOString(),
-  };
-  if (canonicalType) {
-    docUpdate.canonical_type = canonicalType;
-    docUpdate.document_type = canonicalType; // always in sync with canonical_type
-  }
-  if (taxYear !== null) {
-    docUpdate.doc_year = taxYear;
-    docUpdate.doc_years = [taxYear];
+  // ── Phase F: Atomic retype via single-transaction RPC ────────────────
+  // canonical_type → checklist_key → reconcile all happen inside one DB tx.
+  // No partial updates. No UI-supplied checklist_key accepted.
+  if (!isClearing && canonicalType) {
+    // Set doc_year + match metadata first (RPC only handles type + key + reconcile)
+    if (taxYear !== null) {
+      await sb
+        .from("deal_documents")
+        .update({
+          doc_year: taxYear,
+          doc_years: [taxYear],
+          match_source: "manual",
+          match_reason: "Manual classification by banker",
+          match_confidence: 1.0,
+          finalized_at: new Date().toISOString(),
+        } as any)
+        .eq("id", attachmentId);
+    }
+
+    const rpcRes = await sb.rpc("atomic_retype_document", {
+      p_document_id: attachmentId,
+      p_new_canonical_type: canonicalType,
+    });
+
+    if (rpcRes.error) {
+      return NextResponse.json(
+        { ok: false, error: "Atomic retype failed", details: rpcRes.error },
+        { status: 500, headers: { "cache-control": "no-store" } },
+      );
+    }
+
+    // Stamp remaining metadata that the RPC doesn't handle
+    await sb
+      .from("deal_documents")
+      .update({
+        match_source: "manual",
+        match_reason: "Manual classification by banker",
+        match_confidence: 1.0,
+        finalized_at: new Date().toISOString(),
+      } as any)
+      .eq("id", attachmentId);
+  } else if (isClearing) {
+    // Clearing: reset all classification fields
+    await sb
+      .from("deal_documents")
+      .update({
+        checklist_key: null,
+        canonical_type: null,
+        document_type: null,
+        match_source: null,
+        match_reason: null,
+        match_confidence: null,
+        finalized_at: null,
+      } as any)
+      .eq("id", attachmentId);
   }
 
+  // Re-read document state after atomic update
   const upd = await sb
     .from("deal_documents")
-    .update(docUpdate as any)
+    .select("id, checklist_key, document_type, doc_year")
     .eq("deal_id", dealId)
     .eq("id", attachmentId)
-    .select("id, checklist_key, document_type, doc_year")
     .maybeSingle();
 
-  if (upd.error) {
+  if (upd.error || !upd.data?.id) {
     return NextResponse.json(
-      { ok: false, error: "Failed to update document", details: upd.error },
-      { status: 500, headers: { "cache-control": "no-store" } },
-    );
-  }
-
-  if (!upd.data?.id) {
-    return NextResponse.json(
-      { ok: false, error: "Document not found" },
+      { ok: false, error: "Document not found after update" },
       { status: 404, headers: { "cache-control": "no-store" } },
     );
   }
