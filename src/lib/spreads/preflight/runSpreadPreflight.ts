@@ -49,7 +49,7 @@ export async function runSpreadPreflight(
   const sb = supabaseAdmin();
 
   // ── Parallel DB loads ───────────────────────────────────────────────
-  const [dealRes, docsRes, heartbeatRes, factCountRes] = await Promise.all([
+  const [dealRes, docsRes, heartbeatRes, factCountRes, lineageRes] = await Promise.all([
     // 1. Deal state: intake phase + snapshot hash
     (sb as any)
       .from("deals")
@@ -79,6 +79,14 @@ export async function runSpreadPreflight(
       .select("id", { count: "exact", head: true })
       .eq("deal_id", dealId)
       .not("fact_type", "in", "(EXTRACTION_HEARTBEAT,SOURCE_DOCUMENT)"),
+
+    // 5. Phase 2A: Fact lineage integrity — check for superseded or orphan facts
+    (sb as any)
+      .from("deal_financial_facts")
+      .select("id, source_document_id, owner_entity_id, owner_type, is_superseded", { count: "exact" })
+      .eq("deal_id", dealId)
+      .not("fact_type", "in", "(EXTRACTION_HEARTBEAT,SOURCE_DOCUMENT)")
+      .eq("is_superseded", true),
   ]);
 
   // ── Build PreflightInput ────────────────────────────────────────────
@@ -101,6 +109,23 @@ export async function runSpreadPreflight(
 
   const visibleFactCount: number = factCountRes.count ?? 0;
 
+  // Phase 2A: Fact lineage integrity check
+  // If there are visible facts AND some are superseded with no current replacements,
+  // spreads would consume stale data. Block until re-extraction produces current facts.
+  const supersededCount: number = lineageRes.count ?? 0;
+  let factLineageComplete: boolean | undefined;
+  let factLineageDetail: string | undefined;
+
+  if (visibleFactCount > 0) {
+    // If ALL visible facts are superseded, lineage is broken
+    if (supersededCount > 0 && supersededCount >= visibleFactCount) {
+      factLineageComplete = false;
+      factLineageDetail = `All ${visibleFactCount} financial facts are superseded — re-extraction needed`;
+    } else {
+      factLineageComplete = true;
+    }
+  }
+
   const input: PreflightInput = {
     intakePhase: dealRow?.intake_phase ?? null,
     storedSnapshotHash: dealRow?.intake_snapshot_hash ?? null,
@@ -108,6 +133,8 @@ export async function runSpreadPreflight(
     extractionHeartbeatDocIds: heartbeatDocIds,
     spreadsEnabled: isSpreadsEnabled(),
     visibleFactCount,
+    factLineageComplete,
+    factLineageDetail,
   };
 
   // ── Compute blockers (structural vs execution separation) ──────────

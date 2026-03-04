@@ -455,6 +455,22 @@ export async function extractFactsFromDocument(args: {
           },
         }).catch(() => {});
       } else {
+        // Phase 5: Stamp reconciliation_status on balance sheet facts
+        const bsCheck = gate.checks.find((c) => c.check === "type_validation");
+        const dtUpper = normDocType?.toUpperCase() ?? "";
+        if (
+          (dtUpper === "BALANCE_SHEET" || dtUpper === "PERSONAL_FINANCIAL_STATEMENT" || dtUpper === "PFS" || dtUpper === "SBA_413") &&
+          bsCheck
+        ) {
+          const reconStatus = bsCheck.result.status === "PASSED" ? "BALANCED" : "IMBALANCED";
+          await (sb as any)
+            .from("deal_financial_facts")
+            .update({ reconciliation_status: reconStatus })
+            .eq("deal_id", args.dealId)
+            .eq("source_document_id", args.documentId)
+            .neq("fact_type", "EXTRACTION_HEARTBEAT");
+        }
+
         // Emit validation passed event
         const { writeEvent } = await import("@/lib/ledger/writeEvent");
         void writeEvent({
