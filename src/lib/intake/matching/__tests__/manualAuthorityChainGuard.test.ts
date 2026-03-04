@@ -176,8 +176,15 @@ test("TEST-AUTH-4: processingPreservesManualAuthority — rematch threads matchS
   );
 
   // Must check exact "manual" string (authority contract)
+  // isManualCorrection is derived from doc.match_source === "manual" and drives matchSource
   assert.ok(
-    matchCallBlock.includes('doc.match_source === "manual"'),
-    'matchSource must be conditionally set based on doc.match_source === "manual"',
+    matchCallBlock.includes("isManualCorrection"),
+    'matchSource must be conditionally set based on isManualCorrection (derived from doc.match_source === "manual")',
+  );
+
+  // Verify isManualCorrection is derived from the exact authority contract
+  assert.ok(
+    src.includes('doc.match_source === "manual"'),
+    'processConfirmedIntake must check doc.match_source === "manual" for authority bypass',
   );
 });

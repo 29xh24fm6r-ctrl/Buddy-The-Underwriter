@@ -333,27 +333,41 @@ export async function processConfirmedIntake(
           "@/lib/intake/matching/runMatch"
         );
 
-        const spineSignals = doc.ai_doc_type
-          ? {
-              docType: doc.ai_doc_type,
-              confidence: doc.ai_confidence ?? 0,
-              spineTier: doc.classification_tier ?? "fallback",
-              taxYear: doc.ai_tax_year,
-              entityType: null,
-              formNumbers: doc.ai_form_numbers ?? [],
-              evidence: [],
-            }
-          : null;
+        const isManualCorrection = doc.match_source === "manual";
 
-        const gkSignals = doc.gatekeeper_doc_type
+        // For manual corrections, discard stale AI signals — rebuild from
+        // the banker-corrected canonical_type with full confidence.
+        const spineSignals = isManualCorrection
+          ? null
+          : doc.ai_doc_type
+            ? {
+                docType: doc.ai_doc_type,
+                confidence: doc.ai_confidence ?? 0,
+                spineTier: doc.classification_tier ?? "fallback",
+                taxYear: doc.ai_tax_year,
+                entityType: null,
+                formNumbers: doc.ai_form_numbers ?? [],
+                evidence: [],
+              }
+            : null;
+
+        const gkSignals = isManualCorrection
           ? {
-              docType: doc.gatekeeper_doc_type,
-              confidence: doc.gatekeeper_confidence ?? 0,
-              taxYear: doc.gatekeeper_tax_year ?? null,
+              docType: effectiveDocType,
+              confidence: 1.0,
+              taxYear: doc.gatekeeper_tax_year ?? doc.ai_tax_year ?? null,
               formNumbers: [] as string[],
               effectiveDocType,
             }
-          : null;
+          : doc.gatekeeper_doc_type
+            ? {
+                docType: doc.gatekeeper_doc_type,
+                confidence: doc.gatekeeper_confidence ?? 0,
+                taxYear: doc.gatekeeper_tax_year ?? null,
+                formNumbers: [] as string[],
+                effectiveDocType,
+              }
+            : null;
 
         const matchResult = await runMatchForDocument({
           dealId,
@@ -363,8 +377,7 @@ export async function processConfirmedIntake(
           gatekeeper: gkSignals,
           ocrText: null,
           filename: doc.original_filename ?? null,
-          // Preserve human authority: manual corrections bypass confidence gating
-          matchSource: doc.match_source === "manual" ? "manual" : undefined,
+          matchSource: isManualCorrection ? "manual" : undefined,
         });
 
         matchResults.push({
