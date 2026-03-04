@@ -48,20 +48,27 @@ describe("Phase F — Atomic Canonical-Type Update", () => {
       );
     }
 
-    // Verify the checklist_key outputs match
+    // Verify the checklist_key outputs match (Phase P: FS types now have multiple keys)
     const keyMappings: Record<string, string> = {
       PFS_CURRENT: "PERSONAL_FINANCIAL_STATEMENT",
       IRS_PERSONAL_: "PERSONAL_TAX_RETURN",
       IRS_BUSINESS_: "BUSINESS_TAX_RETURN",
-      FIN_STMT_BS_YTD: "BALANCE_SHEET",
+      FIN_STMT_BS_CURRENT: "BALANCE_SHEET",
+      FIN_STMT_BS_HISTORICAL: "BALANCE_SHEET",
       FIN_STMT_PL_YTD: "INCOME_STATEMENT",
+      FIN_STMT_PL_ANNUAL: "INCOME_STATEMENT",
       RENT_ROLL: "RENT_ROLL",
       BANK_STMT_3M: "BANK_STATEMENT",
     };
 
     for (const [key, type] of Object.entries(keyMappings)) {
+      // SQL check: look in both the original and v2 migration files
+      const sqlV2Src = readSource(
+        "supabase/migrations/20260304_update_resolve_checklist_key_sql_v2.sql",
+      );
+      const inSql = sql.includes(key) || sqlV2Src.includes(key);
       assert.ok(
-        sql.includes(key),
+        inSql,
         `SQL must produce checklist_key '${key}' for ${type}`,
       );
       assert.ok(
@@ -135,12 +142,20 @@ describe("Phase F — Atomic Canonical-Type Update", () => {
       "../../docTyping/resolveChecklistKey.js"
     );
 
-    // Non-year-dependent types
+    // Non-year/period-dependent types
     assert.equal(resolveChecklistKey("PERSONAL_FINANCIAL_STATEMENT", null), "PFS_CURRENT");
-    assert.equal(resolveChecklistKey("BALANCE_SHEET", null), "FIN_STMT_BS_YTD");
-    assert.equal(resolveChecklistKey("INCOME_STATEMENT", null), "FIN_STMT_PL_YTD");
     assert.equal(resolveChecklistKey("RENT_ROLL", null), "RENT_ROLL");
     assert.equal(resolveChecklistKey("BANK_STATEMENT", null), "BANK_STMT_3M");
+
+    // Period-dependent types (Phase P)
+    assert.equal(resolveChecklistKey("BALANCE_SHEET", null, "CURRENT"), "FIN_STMT_BS_CURRENT");
+    assert.equal(resolveChecklistKey("BALANCE_SHEET", null, "HISTORICAL"), "FIN_STMT_BS_HISTORICAL");
+    assert.equal(resolveChecklistKey("INCOME_STATEMENT", null, "YTD"), "FIN_STMT_PL_YTD");
+    assert.equal(resolveChecklistKey("INCOME_STATEMENT", null, "ANNUAL"), "FIN_STMT_PL_ANNUAL");
+
+    // Period-dependent types WITHOUT period → null (Phase P)
+    assert.equal(resolveChecklistKey("BALANCE_SHEET", null), null);
+    assert.equal(resolveChecklistKey("INCOME_STATEMENT", null), null);
 
     // Year-dependent types
     assert.equal(resolveChecklistKey("PERSONAL_TAX_RETURN", 2024), "IRS_PERSONAL_2024");
@@ -420,26 +435,31 @@ describe("Cross-Phase — SQL ↔ TS Consistency", () => {
     );
 
     // These are the SQL function's expected outputs — verify TS matches
-    const cases: Array<{ type: string; year: number | null; expected: string | null }> = [
+    // Phase P: now includes statement_period discriminator for FS types
+    const cases: Array<{ type: string; year: number | null; period?: string | null; expected: string | null }> = [
       { type: "PERSONAL_FINANCIAL_STATEMENT", year: null, expected: "PFS_CURRENT" },
       { type: "PERSONAL_TAX_RETURN", year: 2024, expected: "IRS_PERSONAL_2024" },
       { type: "PERSONAL_TAX_RETURN", year: null, expected: null },
       { type: "BUSINESS_TAX_RETURN", year: 2023, expected: "IRS_BUSINESS_2023" },
       { type: "BUSINESS_TAX_RETURN", year: null, expected: null },
-      { type: "BALANCE_SHEET", year: null, expected: "FIN_STMT_BS_YTD" },
-      { type: "INCOME_STATEMENT", year: null, expected: "FIN_STMT_PL_YTD" },
+      { type: "BALANCE_SHEET", year: null, period: "CURRENT", expected: "FIN_STMT_BS_CURRENT" },
+      { type: "BALANCE_SHEET", year: null, period: "HISTORICAL", expected: "FIN_STMT_BS_HISTORICAL" },
+      { type: "BALANCE_SHEET", year: null, expected: null },
+      { type: "INCOME_STATEMENT", year: null, period: "YTD", expected: "FIN_STMT_PL_YTD" },
+      { type: "INCOME_STATEMENT", year: null, period: "ANNUAL", expected: "FIN_STMT_PL_ANNUAL" },
+      { type: "INCOME_STATEMENT", year: null, expected: null },
       { type: "RENT_ROLL", year: null, expected: "RENT_ROLL" },
       { type: "BANK_STATEMENT", year: null, expected: "BANK_STMT_3M" },
       { type: "DRIVERS_LICENSE", year: null, expected: null },
       { type: "W2", year: 2024, expected: null },
     ];
 
-    for (const { type, year, expected } of cases) {
-      const result = resolveChecklistKey(type, year);
+    for (const { type, year, period, expected } of cases) {
+      const result = resolveChecklistKey(type, year, period);
       assert.equal(
         result,
         expected,
-        `resolveChecklistKey("${type}", ${year}) should be ${expected}, got ${result}`,
+        `resolveChecklistKey("${type}", ${year}, ${period ?? "null"}) should be ${expected}, got ${result}`,
       );
     }
   });
@@ -584,37 +604,264 @@ describe("Phase O — Year-Required UI Gate", () => {
     );
   });
 
-  test("Guard O-46: Save button must be disabled when year-required type has no year", () => {
+  test("Guard O-46: Save button must be disabled when year/period-required type has missing field", () => {
     const src = readSource(REVIEW_TABLE);
 
-    // The Save button section must reference YEAR_REQUIRED_TYPES and disable
-    const saveSection = src.slice(src.indexOf("Save"), src.indexOf("Save") + 500);
     assert.ok(
-      src.includes("YEAR_REQUIRED_TYPES.has(editValues.canonical_type") &&
-      src.includes("disabled={needsYear}"),
-      "Guard O-46: Save button must check YEAR_REQUIRED_TYPES and disable when year is missing",
+      src.includes("YEAR_REQUIRED_TYPES.has(") &&
+      src.includes("PERIOD_REQUIRED_TYPES.has(") &&
+      src.includes("disabled={blocked}"),
+      "Guard O-46: Save button must check both YEAR_REQUIRED_TYPES and PERIOD_REQUIRED_TYPES and disable when missing",
     );
   });
 
-  test("Guard O-47: Confirm button must be disabled when year-required type has no year", () => {
+  test("Guard O-47: Confirm button must be disabled when year/period-required type has missing field", () => {
     const src = readSource(REVIEW_TABLE);
 
     assert.ok(
-      src.includes("YEAR_REQUIRED_TYPES.has(doc.canonical_type") &&
+      src.includes("YEAR_REQUIRED_TYPES.has(docType)") &&
+      src.includes("PERIOD_REQUIRED_TYPES.has(docType)") &&
       src.includes("cursor-not-allowed"),
-      "Guard O-47: Confirm button must check YEAR_REQUIRED_TYPES against doc and show disabled state",
+      "Guard O-47: Confirm button must check both YEAR_REQUIRED_TYPES and PERIOD_REQUIRED_TYPES against doc",
     );
   });
 
-  test("Guard O-48: Server-side confirm route must reject year-required types without year", () => {
+  test("Guard O-48: Server-side confirm route must reject types missing required discriminators", () => {
     const confirmSrc = readSource(
       "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts",
     );
 
     assert.ok(
       confirmSrc.includes("invalid_checklist_derivation") &&
-      confirmSrc.includes("requires a tax_year"),
-      "Guard O-48: Server confirm route must return 400 invalid_checklist_derivation for missing year",
+      confirmSrc.includes("PERIOD_REQUIRED_TYPES") &&
+      confirmSrc.includes("statement_period"),
+      "Guard O-48: Server confirm route must return 400 for missing year OR missing statement_period",
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase P: Deterministic Financial Statement Keys
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("Phase P — Deterministic Financial Statement Keys", () => {
+  const CONFIRM_ROUTE = "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts";
+  const REVIEW_TABLE = "src/components/deals/intake/IntakeReviewTable.tsx";
+
+  test("Guard P-49: resolveChecklistKey returns null for IS without statement_period", async () => {
+    const { resolveChecklistKey } = await import(
+      "../../docTyping/resolveChecklistKey.js"
+    );
+    assert.equal(resolveChecklistKey("INCOME_STATEMENT", null), null);
+    assert.equal(resolveChecklistKey("INCOME_STATEMENT", null, null), null);
+  });
+
+  test("Guard P-50: resolveChecklistKey returns null for BS without statement_period", async () => {
+    const { resolveChecklistKey } = await import(
+      "../../docTyping/resolveChecklistKey.js"
+    );
+    assert.equal(resolveChecklistKey("BALANCE_SHEET", null), null);
+    assert.equal(resolveChecklistKey("BALANCE_SHEET", null, null), null);
+  });
+
+  test("Guard P-51: resolveChecklistKey returns distinct keys for IS YTD vs ANNUAL", async () => {
+    const { resolveChecklistKey } = await import(
+      "../../docTyping/resolveChecklistKey.js"
+    );
+    const ytd = resolveChecklistKey("INCOME_STATEMENT", null, "YTD");
+    const annual = resolveChecklistKey("INCOME_STATEMENT", null, "ANNUAL");
+    assert.ok(ytd && annual && ytd !== annual,
+      "Guard P-51: IS YTD and ANNUAL must resolve to different keys",
+    );
+  });
+
+  test("Guard P-52: resolveChecklistKey returns distinct keys for BS CURRENT vs HISTORICAL", async () => {
+    const { resolveChecklistKey } = await import(
+      "../../docTyping/resolveChecklistKey.js"
+    );
+    const current = resolveChecklistKey("BALANCE_SHEET", null, "CURRENT");
+    const historical = resolveChecklistKey("BALANCE_SHEET", null, "HISTORICAL");
+    assert.ok(current && historical && current !== historical,
+      "Guard P-52: BS CURRENT and HISTORICAL must resolve to different keys",
+    );
+  });
+
+  test("Guard P-53: Confirm route accepts statement_period in body schema", () => {
+    const src = readSource(CONFIRM_ROUTE);
+    assert.ok(
+      src.includes('statement_period: z.enum('),
+      "Guard P-53: BodySchema must accept statement_period with z.enum validation",
+    );
+  });
+
+  test("Guard P-54: Confirm route passes statement_period to resolveChecklistKey", () => {
+    const src = readSource(CONFIRM_ROUTE);
+    assert.ok(
+      src.includes("effectiveStatementPeriod") &&
+      src.includes("resolveChecklistKey(effectiveCanonicalType, effectiveTaxYear, effectiveStatementPeriod)"),
+      "Guard P-54: Route must derive effectiveStatementPeriod and pass to resolveChecklistKey",
+    );
+  });
+
+  test("Guard P-55: UI defines PERIOD_REQUIRED_TYPES for IS and BS", () => {
+    const src = readSource(REVIEW_TABLE);
+    assert.ok(
+      src.includes("PERIOD_REQUIRED_TYPES") &&
+      src.includes('"INCOME_STATEMENT"') &&
+      src.includes('"BALANCE_SHEET"'),
+      "Guard P-55: UI must define PERIOD_REQUIRED_TYPES with IS and BS",
+    );
+  });
+
+  test("Guard P-56: UI shows period dropdown for IS/BS in edit mode", () => {
+    const src = readSource(REVIEW_TABLE);
+    assert.ok(
+      src.includes("PERIOD_REQUIRED_TYPES.has(editValues.canonical_type") &&
+      src.includes('statement_period') &&
+      src.includes('"YTD"') && src.includes('"ANNUAL"') &&
+      src.includes('"Current"') && src.includes('"Historical"'),
+      "Guard P-56: UI must show period dropdown with correct options for IS and BS",
+    );
+  });
+
+  test("Guard P-57: PERIOD_REQUIRED_TYPES exported from resolveChecklistKey module", () => {
+    const src = readSource("src/lib/docTyping/resolveChecklistKey.ts");
+    assert.ok(
+      src.includes("export const PERIOD_REQUIRED_TYPES"),
+      "Guard P-57: PERIOD_REQUIRED_TYPES must be exported for reuse",
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase Q: Canonical Doc Retyped Ledger Event With Full Diff
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("Phase Q — Canonical Diff Event", () => {
+  const CONFIRM_ROUTE = "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts";
+
+  test("Guard Q-58: Corrected event includes before + after objects", () => {
+    const src = readSource(CONFIRM_ROUTE);
+    assert.ok(
+      src.includes("before: beforeState") && src.includes("after: afterState"),
+      "Guard Q-58: intake.document_corrected event must include before and after state",
+    );
+  });
+
+  test("Guard Q-59: Event payload includes derived_checklist_key", () => {
+    const src = readSource(CONFIRM_ROUTE);
+    assert.ok(
+      src.includes("derived_checklist_key: derivedChecklistKey"),
+      "Guard Q-59: Event payload must include derived_checklist_key",
+    );
+  });
+
+  test("Guard Q-60: Event payload includes source field", () => {
+    const src = readSource(CONFIRM_ROUTE);
+    assert.ok(
+      src.includes('source: "intake_review_confirm"'),
+      "Guard Q-60: Event payload must include source: intake_review_confirm",
+    );
+  });
+
+  test("Guard Q-61: beforeState and afterState include statement_period", () => {
+    const src = readSource(CONFIRM_ROUTE);
+
+    const beforeBlock = src.slice(src.indexOf("const beforeState"), src.indexOf("const beforeState") + 500);
+    const afterBlock = src.slice(src.indexOf("const afterState"), src.indexOf("const afterState") + 500);
+
+    assert.ok(
+      beforeBlock.includes("statement_period") && afterBlock.includes("statement_period"),
+      "Guard Q-61: Both beforeState and afterState must include statement_period for full diff",
+    );
+  });
+
+  test("Guard Q-62: No event emitted on noop (Phase N idempotency)", () => {
+    const src = readSource(CONFIRM_ROUTE);
+
+    const noopIdx = src.indexOf("noop: true");
+    const firstEventIdx = src.indexOf("intake.document_finalized");
+    assert.ok(
+      noopIdx > 0 && firstEventIdx > 0 && noopIdx < firstEventIdx,
+      "Guard Q-62: Noop return must precede all event emissions — no events on idempotent re-confirm",
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase R: Post-Confirm Self-Heal Reconcile
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("Phase R — Post-Confirm Reconcile", () => {
+  const CONFIRM_ROUTE = "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts";
+
+  test("Guard R-63: Confirm path calls reconcileChecklistForDeal after update", () => {
+    const src = readSource(CONFIRM_ROUTE);
+    assert.ok(
+      src.includes("reconcileChecklistForDeal"),
+      "Guard R-63: Confirm route must call reconcileChecklistForDeal after document update",
+    );
+  });
+
+  test("Guard R-64: Reconcile emits checklist.reconciled event", () => {
+    const src = readSource(CONFIRM_ROUTE);
+    assert.ok(
+      src.includes('"checklist.reconciled"'),
+      "Guard R-64: Post-confirm reconcile must emit checklist.reconciled event",
+    );
+  });
+
+  test("Guard R-65: Reconcile is non-blocking (reconcile failure does not block confirmation)", () => {
+    const src = readSource(CONFIRM_ROUTE);
+
+    // The reconcile block must contain "Non-blocking" or similar comment + catch block
+    assert.ok(
+      src.includes("reconcileChecklistForDeal") &&
+      src.includes("reconcile failed") &&
+      src.includes("} catch (reconcileErr"),
+      "Guard R-65: Reconcile must be wrapped in try-catch — failure must not block confirmation",
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase S: Multi-Entity Bind Slots (Infrastructure Verification)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("Phase S — Entity Slot Binding Infrastructure", () => {
+  test("Guard S-66: IntakeReviewTable surfaces entity_binding_required state", () => {
+    const src = readSource("src/components/deals/intake/IntakeReviewTable.tsx");
+    assert.ok(
+      src.includes("entityBindingRequired") && src.includes("setEntityBindingRequired"),
+      "Guard S-66: UI must track entityBindingRequired state from processing-status",
+    );
+  });
+
+  test("Guard S-67: IntakeReviewTable shows Bind Slots CTA when entity binding required", () => {
+    const src = readSource("src/components/deals/intake/IntakeReviewTable.tsx");
+    assert.ok(
+      src.includes("Bind Slots") && src.includes("entityBindingRequired"),
+      "Guard S-67: UI must show 'Bind Slots' CTA when entityBindingRequired is true",
+    );
+  });
+
+  test("Guard S-68: confirm-attribution endpoint exists for entity slot binding", () => {
+    const src = readSource(
+      "src/app/api/deals/[dealId]/identity/confirm-attribution/route.ts",
+    );
+    assert.ok(
+      src.includes("slot.entity_manual_confirm") &&
+      src.includes("required_entity_id"),
+      "Guard S-68: confirm-attribution endpoint must set required_entity_id and emit slot.entity_manual_confirm",
+    );
+  });
+
+  test("Guard S-69: runMatch hard-stops auto-attach into unbound entity-scoped slots", () => {
+    const src = readSource("src/lib/intake/matching/runMatch.ts");
+    assert.ok(
+      src.includes("entity_binding_required") &&
+      src.includes("ENTITY_SCOPED_DOC_TYPES"),
+      "Guard S-69: runMatch must filter unbound entity-scoped slots and route to review",
     );
   });
 });

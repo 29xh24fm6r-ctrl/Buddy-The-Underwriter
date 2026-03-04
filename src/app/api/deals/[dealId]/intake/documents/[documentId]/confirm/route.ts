@@ -13,7 +13,7 @@ import { extractFilenamePattern } from "@/lib/intake/overrideIntelligence/extrac
 import { deriveBand } from "@/lib/classification/calibrateConfidence";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
-import { resolveChecklistKey } from "@/lib/docTyping/resolveChecklistKey";
+import { resolveChecklistKey, PERIOD_REQUIRED_TYPES } from "@/lib/docTyping/resolveChecklistKey";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +29,7 @@ const BodySchema = z.object({
   document_type: z.string().trim().min(1).optional(),
   tax_year: z.number().int().min(1990).max(2100).optional(),
   period_end: z.string().trim().min(1).optional(),
+  statement_period: z.enum(["YTD", "ANNUAL", "CURRENT", "HISTORICAL"]).optional(),
 });
 
 /**
@@ -96,7 +97,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       .select(
         `id, canonical_type, document_type, checklist_key, doc_year,
          ai_confidence, classification_tier, intake_status,
-         original_filename, match_source, classification_version, gatekeeper_route`,
+         original_filename, match_source, classification_version, gatekeeper_route,
+         statement_period`,
       )
       .eq("id", documentId)
       .eq("deal_id", dealId)
@@ -133,6 +135,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       document_type: (doc as any).document_type,
       checklist_key: (doc as any).checklist_key,
       doc_year: (doc as any).doc_year,
+      statement_period: (doc as any).statement_period ?? null,
     };
 
     // ── Phase N: Idempotency guard ───────────────────────────────────
@@ -142,7 +145,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const requestMatchesCurrent =
       (body.canonical_type === undefined || body.canonical_type === beforeState.canonical_type) &&
       (body.document_type === undefined || body.document_type === beforeState.document_type) &&
-      (body.tax_year === undefined || body.tax_year === beforeState.doc_year);
+      (body.tax_year === undefined || body.tax_year === beforeState.doc_year) &&
+      (body.statement_period === undefined || body.statement_period === beforeState.statement_period);
 
     if (alreadyConfirmed && requestMatchesCurrent) {
       return NextResponse.json({
@@ -155,25 +159,28 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     // Phase E1.1: Pre-compute whether this is a correction or confirmation-only
-    // "manual" = banker changed type/year (correction)
+    // "manual" = banker changed type/year/period (correction)
     // "manual_confirmed" = banker accepted AI classification as-is (confirmation)
     const willCorrect =
       (body.canonical_type !== undefined && body.canonical_type !== beforeState.canonical_type) ||
       (body.document_type !== undefined && body.document_type !== beforeState.document_type) ||
-      (body.tax_year !== undefined && body.tax_year !== beforeState.doc_year);
+      (body.tax_year !== undefined && body.tax_year !== beforeState.doc_year) ||
+      (body.statement_period !== undefined && body.statement_period !== beforeState.statement_period);
 
-    // ── Phase M: Derive checklist_key server-side ────────────────────
+    // ── Phase M+P: Derive checklist_key server-side ──────────────────
     // checklist_key is NEVER accepted from client input.
-    // Derive deterministically from canonical_type + tax_year.
+    // Derive deterministically from canonical_type + tax_year + statement_period.
     const effectiveCanonicalType = body.canonical_type ?? beforeState.canonical_type;
     const effectiveTaxYear = body.tax_year ?? beforeState.doc_year;
+    const effectiveStatementPeriod = body.statement_period ?? beforeState.statement_period;
     let derivedChecklistKey: string | null = null;
 
     if (effectiveCanonicalType) {
-      derivedChecklistKey = resolveChecklistKey(effectiveCanonicalType, effectiveTaxYear);
+      derivedChecklistKey = resolveChecklistKey(effectiveCanonicalType, effectiveTaxYear, effectiveStatementPeriod);
 
       // Fail closed: if canonical_type requires a key but derivation fails
-      // (e.g., tax return without year), return actionable 400 instead of 500
+      // (e.g., tax return without year, financial statement without period),
+      // return actionable 400 instead of 500
       const REQUIRES_KEY = new Set([
         "PERSONAL_FINANCIAL_STATEMENT",
         "BUSINESS_TAX_RETURN",
@@ -182,11 +189,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         "INCOME_STATEMENT",
       ]);
       if (REQUIRES_KEY.has(effectiveCanonicalType) && !derivedChecklistKey) {
+        const missingField = PERIOD_REQUIRED_TYPES.has(effectiveCanonicalType)
+          ? "statement_period"
+          : "tax_year";
         return NextResponse.json(
           {
             ok: false,
             error: "invalid_checklist_derivation",
-            detail: `${effectiveCanonicalType} requires a tax_year to derive checklist_key`,
+            detail: `${effectiveCanonicalType} requires ${missingField} to derive checklist_key`,
           },
           { status: 400 },
         );
@@ -215,6 +225,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       patch.doc_years = [body.tax_year];
     }
     if (body.period_end !== undefined) patch.period_end = body.period_end;
+    if (body.statement_period !== undefined) patch.statement_period = body.statement_period;
 
     // Phase M: Stamp derived checklist_key (always — even if canonical_type unchanged,
     // the existing key may be stale from a pre-hardening write)
@@ -229,14 +240,19 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // Same pattern as checklist-key route: single transaction for
     // canonical_type → checklist_key → reconcile.
     if (body.canonical_type !== undefined && body.canonical_type !== beforeState.canonical_type) {
-      // Set doc_year + metadata first (RPC only handles type + key + reconcile)
+      // Set doc_year + statement_period + metadata first (RPC only handles type + key + reconcile)
+      const preRpcPatch: Record<string, unknown> = {};
       if (body.tax_year !== undefined) {
+        preRpcPatch.doc_year = body.tax_year;
+        preRpcPatch.doc_years = [body.tax_year];
+      }
+      if (body.statement_period !== undefined) {
+        preRpcPatch.statement_period = body.statement_period;
+      }
+      if (Object.keys(preRpcPatch).length > 0) {
         await (sb as any)
           .from("deal_documents")
-          .update({
-            doc_year: body.tax_year,
-            doc_years: [body.tax_year],
-          } as any)
+          .update(preRpcPatch as any)
           .eq("id", documentId)
           .eq("deal_id", dealId);
       }
@@ -264,6 +280,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           quality_status: "PASSED",
           finalized_at: now,
           ...(body.period_end !== undefined ? { period_end: body.period_end } : {}),
+          ...(body.statement_period !== undefined ? { statement_period: body.statement_period } : {}),
         } as any)
         .eq("id", documentId)
         .eq("deal_id", dealId);
@@ -355,15 +372,17 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       document_type: body.document_type ?? body.canonical_type ?? beforeState.document_type,
       checklist_key: derivedChecklistKey ?? beforeState.checklist_key,
       doc_year: body.tax_year ?? beforeState.doc_year,
+      statement_period: body.statement_period ?? beforeState.statement_period,
     };
 
     const hasDelta =
       afterState.canonical_type !== beforeState.canonical_type ||
       afterState.document_type !== beforeState.document_type ||
       afterState.checklist_key !== beforeState.checklist_key ||
-      afterState.doc_year !== beforeState.doc_year;
+      afterState.doc_year !== beforeState.doc_year ||
+      afterState.statement_period !== beforeState.statement_period;
 
-    // Emit intake event
+    // Phase Q: Emit canonical intake event with full diff
     void writeEvent({
       dealId,
       kind: hasDelta
@@ -375,6 +394,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         document_id: documentId,
         before: beforeState,
         after: afterState,
+        derived_checklist_key: derivedChecklistKey,
+        source: "intake_review_confirm",
         confidence_at_time: (doc as any).ai_confidence ?? null,
         classification_tier: (doc as any).classification_tier ?? null,
         corrected_by: access.userId,
