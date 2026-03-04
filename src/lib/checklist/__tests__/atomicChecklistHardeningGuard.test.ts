@@ -520,3 +520,101 @@ describe("Phase M — Per-Doc Confirm Derives checklist_key", () => {
     );
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase N: Confirm Endpoint Idempotency
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("Phase N — Confirm Endpoint Idempotency", () => {
+  const CONFIRM_ROUTE = "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts";
+
+  test("Guard N-41: Confirm route must have idempotency guard for already-confirmed docs", () => {
+    const src = readSource(CONFIRM_ROUTE);
+
+    assert.ok(
+      src.includes("alreadyConfirmed") && src.includes("requestMatchesCurrent"),
+      "Guard N-41: Route must check if doc is already USER_CONFIRMED with matching fields",
+    );
+  });
+
+  test("Guard N-42: Idempotent re-confirm returns noop: true", () => {
+    const src = readSource(CONFIRM_ROUTE);
+
+    assert.ok(
+      src.includes("noop: true"),
+      "Guard N-42: Idempotent re-confirm must return noop: true in response",
+    );
+  });
+
+  test("Guard N-43: Idempotent re-confirm must NOT re-stamp intake_confirmed_at", () => {
+    const src = readSource(CONFIRM_ROUTE);
+
+    // The noop return must come BEFORE the patch construction
+    const noopIdx = src.indexOf("noop: true");
+    const patchIdx = src.indexOf("intake_confirmed_at: now");
+    assert.ok(
+      noopIdx > 0 && patchIdx > 0 && noopIdx < patchIdx,
+      "Guard N-43: Idempotent noop return must precede patch construction to avoid re-stamping",
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase O: Year-Required UI Gate for Tax Returns
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("Phase O — Year-Required UI Gate", () => {
+  const REVIEW_TABLE = "src/components/deals/intake/IntakeReviewTable.tsx";
+
+  test("Guard O-44: IntakeReviewTable must define YEAR_REQUIRED_TYPES", () => {
+    const src = readSource(REVIEW_TABLE);
+
+    assert.ok(
+      src.includes("YEAR_REQUIRED_TYPES"),
+      "Guard O-44: IntakeReviewTable must define YEAR_REQUIRED_TYPES constant",
+    );
+  });
+
+  test("Guard O-45: YEAR_REQUIRED_TYPES must include PTR and BTR", () => {
+    const src = readSource(REVIEW_TABLE);
+
+    assert.ok(
+      src.includes('"PERSONAL_TAX_RETURN"') && src.includes('"BUSINESS_TAX_RETURN"'),
+      "Guard O-45: YEAR_REQUIRED_TYPES must include both PERSONAL_TAX_RETURN and BUSINESS_TAX_RETURN",
+    );
+  });
+
+  test("Guard O-46: Save button must be disabled when year-required type has no year", () => {
+    const src = readSource(REVIEW_TABLE);
+
+    // The Save button section must reference YEAR_REQUIRED_TYPES and disable
+    const saveSection = src.slice(src.indexOf("Save"), src.indexOf("Save") + 500);
+    assert.ok(
+      src.includes("YEAR_REQUIRED_TYPES.has(editValues.canonical_type") &&
+      src.includes("disabled={needsYear}"),
+      "Guard O-46: Save button must check YEAR_REQUIRED_TYPES and disable when year is missing",
+    );
+  });
+
+  test("Guard O-47: Confirm button must be disabled when year-required type has no year", () => {
+    const src = readSource(REVIEW_TABLE);
+
+    assert.ok(
+      src.includes("YEAR_REQUIRED_TYPES.has(doc.canonical_type") &&
+      src.includes("cursor-not-allowed"),
+      "Guard O-47: Confirm button must check YEAR_REQUIRED_TYPES against doc and show disabled state",
+    );
+  });
+
+  test("Guard O-48: Server-side confirm route must reject year-required types without year", () => {
+    const confirmSrc = readSource(
+      "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts",
+    );
+
+    assert.ok(
+      confirmSrc.includes("invalid_checklist_derivation") &&
+      confirmSrc.includes("requires a tax_year"),
+      "Guard O-48: Server confirm route must return 400 invalid_checklist_derivation for missing year",
+    );
+  });
+});

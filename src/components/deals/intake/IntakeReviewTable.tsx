@@ -90,6 +90,12 @@ function isTransportError(status: number): boolean {
   return status >= 500 || status === 0;
 }
 
+/** Phase O: Types that require tax_year to produce a valid checklist_key. */
+const YEAR_REQUIRED_TYPES = new Set([
+  "PERSONAL_TAX_RETURN",
+  "BUSINESS_TAX_RETURN",
+]);
+
 const DOC_TYPE_OPTIONS = [
   "BUSINESS_TAX_RETURN",
   "PERSONAL_TAX_RETURN",
@@ -1009,12 +1015,28 @@ export function IntakeReviewTable({
                         >
                           Cancel
                         </button>
-                        <button
-                          onClick={() => void confirmDoc(doc.id, editValues)}
-                          className="bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 px-2 py-0.5 rounded text-[10px] font-medium"
-                        >
-                          Save
-                        </button>
+                        {(() => {
+                          const needsYear = YEAR_REQUIRED_TYPES.has(editValues.canonical_type ?? "") && !editValues.tax_year;
+                          return (
+                            <>
+                              {needsYear && (
+                                <span className="text-amber-400 text-[9px] whitespace-nowrap">Year required</span>
+                              )}
+                              <button
+                                onClick={() => void confirmDoc(doc.id, editValues)}
+                                disabled={needsYear}
+                                className={cn(
+                                  "px-2 py-0.5 rounded text-[10px] font-medium",
+                                  needsYear
+                                    ? "bg-white/5 text-white/20 cursor-not-allowed"
+                                    : "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30",
+                                )}
+                              >
+                                Save
+                              </button>
+                            </>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <div className="flex items-center gap-1 justify-end">
@@ -1031,14 +1053,28 @@ export function IntakeReviewTable({
                           Edit
                         </button>
                         {(doc.intake_status === "CLASSIFIED_PENDING_REVIEW" ||
-                          doc.intake_status === "UPLOADED") && (
-                          <button
-                            onClick={() => void confirmDoc(doc.id)}
-                            className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-medium"
-                          >
-                            Confirm
-                          </button>
-                        )}
+                          doc.intake_status === "UPLOADED") && (() => {
+                          const needsYear = YEAR_REQUIRED_TYPES.has(doc.canonical_type ?? "") && !doc.doc_year;
+                          return (
+                            <>
+                              {needsYear && (
+                                <span className="text-amber-400 text-[9px] whitespace-nowrap">Year required</span>
+                              )}
+                              <button
+                                onClick={() => void confirmDoc(doc.id)}
+                                disabled={needsYear}
+                                className={cn(
+                                  "px-2 py-0.5 rounded text-[10px] font-medium",
+                                  needsYear
+                                    ? "bg-white/5 text-white/20 cursor-not-allowed"
+                                    : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30",
+                                )}
+                              >
+                                Confirm
+                              </button>
+                            </>
+                          );
+                        })()}
                       </div>
                     )}
                   </td>
