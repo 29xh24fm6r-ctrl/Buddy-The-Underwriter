@@ -135,6 +135,25 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       doc_year: (doc as any).doc_year,
     };
 
+    // ── Phase N: Idempotency guard ───────────────────────────────────
+    // If doc is already USER_CONFIRMED and the requested fields match
+    // current state, return noop — no duplicate events, no re-stamping.
+    const alreadyConfirmed = (doc as any).intake_status === "USER_CONFIRMED";
+    const requestMatchesCurrent =
+      (body.canonical_type === undefined || body.canonical_type === beforeState.canonical_type) &&
+      (body.document_type === undefined || body.document_type === beforeState.document_type) &&
+      (body.tax_year === undefined || body.tax_year === beforeState.doc_year);
+
+    if (alreadyConfirmed && requestMatchesCurrent) {
+      return NextResponse.json({
+        ok: true,
+        documentId,
+        corrected: false,
+        intake_status: "USER_CONFIRMED",
+        noop: true,
+      });
+    }
+
     // Phase E1.1: Pre-compute whether this is a correction or confirmation-only
     // "manual" = banker changed type/year (correction)
     // "manual_confirmed" = banker accepted AI classification as-is (confirmation)
