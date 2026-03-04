@@ -44,6 +44,7 @@ export const HARD_BLOCKER_CODES = new Set<PreflightBlockerCode>([
   "INTAKE_NOT_CONFIRMED",
   "INTAKE_SNAPSHOT_HASH_MISMATCH",
   "NO_EXTRACTED_FACTS",
+  "FACT_LINEAGE_INCOMPLETE",
   "SPREADS_DISABLED_BY_FLAG",
   "UNKNOWN_FAILSAFE",
 ]);
@@ -174,6 +175,19 @@ export function computePreflightBlockers(
       message:
         "Extraction completed but produced zero financial facts — cannot generate spreads. " +
         "Verify document content is machine-readable.",
+    });
+  }
+
+  // ── 5b. Fact lineage integrity (Phase 2A) ──────────────────────
+  // Hard blocker: required facts are missing, belong to wrong entity,
+  // are superseded, or have period mismatches.
+  // Only fires when explicitly checked (factLineageComplete !== undefined).
+  if (input.factLineageComplete === false) {
+    blockers.push({
+      code: "FACT_LINEAGE_INCOMPLETE",
+      message:
+        input.factLineageDetail ??
+        "Required financial facts are missing or have integrity issues (wrong entity, superseded, or period mismatch)",
     });
   }
 

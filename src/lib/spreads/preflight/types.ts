@@ -17,6 +17,7 @@ export type PreflightBlockerCode =
   | "EXTRACTION_NOT_READY"     // transient — extraction job not complete
   | "EXTRACTION_SUSPECT"       // data integrity — sanity check failed
   | "NO_EXTRACTED_FACTS"       // hard — extraction ran but produced zero financial facts
+  | "FACT_LINEAGE_INCOMPLETE"  // hard — required facts missing, wrong entity, superseded, or period mismatch
   | "SPREADS_DISABLED_BY_FLAG"
   | "UNKNOWN_FAILSAFE";
 
@@ -45,6 +46,15 @@ export type PreflightInput = {
   spreadsEnabled: boolean;
   /** Count of visible (non-heartbeat) financial facts for this deal. */
   visibleFactCount: number;
+  /**
+   * Phase 2A: Fact lineage validation result.
+   * true = all required facts present with correct entity/period/version.
+   * false = at least one required fact is missing, superseded, or mismatched.
+   * undefined = not checked (backward compat — skips FACT_LINEAGE_INCOMPLETE check).
+   */
+  factLineageComplete?: boolean;
+  /** Human-readable detail when factLineageComplete is false. */
+  factLineageDetail?: string;
 };
 
 // ── Preflight Output ──────────────────────────────────────────────────

@@ -462,11 +462,11 @@ test("Guard V: all structural integrity codes are hard blockers", () => {
 
 // ── Guard W: HARD_BLOCKER_CODES size is CI-locked ─────────────────────
 
-test("Guard W: HARD_BLOCKER_CODES contains exactly 5 entries", () => {
+test("Guard W: HARD_BLOCKER_CODES contains exactly 6 entries", () => {
   assert.equal(
     HARD_BLOCKER_CODES.size,
-    5,
-    `HARD_BLOCKER_CODES must have exactly 5 entries (structural integrity only), got ${HARD_BLOCKER_CODES.size}`,
+    6,
+    `HARD_BLOCKER_CODES must have exactly 6 entries (structural integrity only), got ${HARD_BLOCKER_CODES.size}`,
   );
 });
 
