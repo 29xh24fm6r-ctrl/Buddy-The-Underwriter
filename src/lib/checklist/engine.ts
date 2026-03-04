@@ -7,6 +7,7 @@ import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 import { sendSmsWithConsent } from "@/lib/sms/send";
 import { evaluateConsecutiveYears } from "@/lib/readiness/consecutiveYears";
+import { resolveChecklistKey } from "@/lib/docTyping/resolveChecklistKey";
 
 /** @deprecated Filename matching fallback — disable with FILENAME_MATCH_ENABLED=false */
 const FILENAME_MATCH_ENABLED = process.env.FILENAME_MATCH_ENABLED !== "false";
@@ -862,6 +863,37 @@ export async function matchAndStampDealDocument(opts: {
 export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string }) {
   const { dealId, sb: sbOverride } = opts;
   const result = await reconcileDealChecklist(dealId);
+
+  // ── Phase I: Runtime invariant check ────────────────────────────────
+  // Fail closed: a finalized doc with a resolvable canonical_type MUST have
+  // checklist_key set. If it doesn't, something upstream broke the contract.
+  try {
+    const sbCheck = sbOverride ?? supabaseAdmin();
+    const { data: finalizedDocs } = await sbCheck
+      .from("deal_documents")
+      .select("id, canonical_type, doc_year, checklist_key, finalized_at")
+      .eq("deal_id", dealId)
+      .not("finalized_at", "is", null)
+      .not("canonical_type", "is", null);
+
+    for (const doc of finalizedDocs ?? []) {
+      const derivedKey = resolveChecklistKey(
+        (doc as any).canonical_type,
+        (doc as any).doc_year ?? null,
+      );
+      if (derivedKey && !(doc as any).checklist_key) {
+        throw new Error(
+          `Invariant violation: finalized doc ${(doc as any).id} has canonical_type=${(doc as any).canonical_type} which resolves to checklist_key=${derivedKey}, but checklist_key is null`,
+        );
+      }
+    }
+  } catch (e: any) {
+    if (e?.message?.startsWith("Invariant violation:")) {
+      throw e; // Re-throw invariant violations — fail closed
+    }
+    // Swallow other errors (query failures, schema drift) — non-fatal
+    console.warn("[reconcile] Phase I invariant check query failed (non-fatal)", e);
+  }
 
   // ── Phase 8: Deterministic conflict resolution ──────────────────────
   // When multiple finalized docs share the same checklist_key (e.g., two PTRs
