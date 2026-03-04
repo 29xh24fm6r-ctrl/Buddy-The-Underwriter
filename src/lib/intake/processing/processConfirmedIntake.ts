@@ -377,7 +377,7 @@ export async function processConfirmedIntake(
           gatekeeper: gkSignals,
           ocrText: null,
           filename: doc.original_filename ?? null,
-          matchSource: isManualCorrection ? "manual" : undefined,
+          matchSource: isManualCorrection ? "manual" : "manual_confirmed",
         });
 
         matchResults.push({

@@ -254,6 +254,11 @@ export async function runMatchForDocument(
     // In multi-entity deals, unbound entity-scoped slots are ineligible for
     // auto-attach. Filter them out so the pure engine cannot select them.
     // Single-entity deals: no behavior change.
+    //
+    // Exception: banker-confirmed documents (manual / manual_confirmed authority)
+    // bypass this filter. The banker is the identity authority — confirmed docs
+    // do not need entity-binding protection. Type constraints (doc_type_match)
+    // still prevent cross-type mismatches (BTR cannot land in PTR slot).
     let filteredSlotCount = 0;
     let hasMultiEntity = false;
     {
@@ -265,7 +270,10 @@ export async function runMatchForDocument(
 
       hasMultiEntity = (entityCount ?? 0) > 1;
 
-      if (hasMultiEntity) {
+      const isManualAuthority =
+        matchSource === "manual" || matchSource === "manual_confirmed";
+
+      if (hasMultiEntity && !isManualAuthority) {
         const before = slots.length;
         const eligibleSlots: SlotSnapshot[] = [];
         for (const s of slots) {
