@@ -231,10 +231,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // the existing key may be stale from a pre-hardening write)
     patch.checklist_key = derivedChecklistKey;
 
-    // FIX 1A: Human confirmation = quality gate passed.
-    // Finalize stamps AFTER checklist_key derivation is set.
-    patch.quality_status = "PASSED";
-    patch.finalized_at = now;
+    // NOTE: finalized_at + quality_status are NOT stamped here.
+    // They are written in a SEPARATE update AFTER reconcile, so the DB
+    // constraint finalized_doc_must_have_checklist_key is never violated.
 
     // ── Phase M-D: Use atomic RPC when canonical_type changes ────────
     // Same pattern as checklist-key route: single transaction for
@@ -277,8 +276,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           intake_confirmed_at: now,
           intake_confirmed_by: access.userId,
           match_source: willCorrect ? "manual" : "manual_confirmed",
-          quality_status: "PASSED",
-          finalized_at: now,
           ...(body.period_end !== undefined ? { period_end: body.period_end } : {}),
           ...(body.statement_period !== undefined ? { statement_period: body.statement_period } : {}),
         } as any)
@@ -352,7 +349,64 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       console.error("[intake/doc/confirm] checklist reconcile failed:", (reconcileErr as any)?.message);
     }
 
-    // Emit finalization event (FIX 1A)
+    // ── Finalization: separate write AFTER checklist_key persisted ─────────
+    // The DB constraint finalized_doc_must_have_checklist_key requires
+    // checklist_key IS NOT NULL when finalized_at IS NOT NULL.
+    // Writing finalized_at as a separate step AFTER checklist_key is persisted
+    // (via main patch or RPC) and reconcile has run satisfies this invariant.
+    {
+      // Re-read to confirm checklist_key was persisted
+      const { data: freshDoc } = await (sb as any)
+        .from("deal_documents")
+        .select("checklist_key")
+        .eq("id", documentId)
+        .eq("deal_id", dealId)
+        .maybeSingle();
+
+      if (!freshDoc?.checklist_key) {
+        // Fail closed — do NOT set finalized_at without checklist_key
+        void writeEvent({
+          dealId,
+          kind: "intake.finalization_blocked_missing_key",
+          actorUserId: access.userId,
+          scope: "intake",
+          meta: {
+            document_id: documentId,
+            canonical_type: effectiveCanonicalType,
+            derived_checklist_key: derivedChecklistKey,
+            reason: "checklist_key_null_after_persist",
+            intake_confirmation_version: INTAKE_CONFIRMATION_VERSION,
+          },
+        });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "finalization_blocked",
+            detail:
+              "checklist_key is null after persist — cannot finalize (constraint: finalized_doc_must_have_checklist_key)",
+          },
+          { status: 500 },
+        );
+      }
+
+      const { error: finalizeErr } = await (sb as any)
+        .from("deal_documents")
+        .update({
+          quality_status: "PASSED",
+          finalized_at: now,
+        } as any)
+        .eq("id", documentId)
+        .eq("deal_id", dealId);
+
+      if (finalizeErr) {
+        return NextResponse.json(
+          { ok: false, error: "finalization_failed", detail: finalizeErr.message },
+          { status: 500 },
+        );
+      }
+    }
+
+    // Emit finalization event — AFTER finalized_at is successfully persisted
     void writeEvent({
       dealId,
       kind: "intake.document_finalized",
