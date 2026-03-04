@@ -136,6 +136,20 @@ export function matchDocumentToSlot(
     });
   }
 
+  // ── Step 2.6: Year-specificity tiebreaker ───────────────────────────
+  // When a doc has a known year and both year-specific (BTR_2022) and
+  // year-agnostic (BTR_MOST_RECENT) slots pass constraints, prefer the
+  // year-specific slot. This prevents false ties that route to review.
+  if (identity.taxYear != null && candidates.length > 1) {
+    const yearSpecific = candidates.filter(
+      (c) => c.slot.requiredTaxYear != null,
+    );
+    if (yearSpecific.length > 0) {
+      candidates.length = 0;
+      candidates.push(...yearSpecific);
+    }
+  }
+
   // ── Step 3: Disambiguation ──────────────────────────────────────────
 
   // 0 candidates → no_match
