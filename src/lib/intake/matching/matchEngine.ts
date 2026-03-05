@@ -82,16 +82,22 @@ export function matchDocumentToSlot(
   }
 
   // ── Step 1b: Entity ambiguity gate (v1.1) ──────────────────────────
-  const entityGate = checkEntityAmbiguity(identity, slots);
-  if (entityGate?.decision === "route_to_review") {
-    return {
-      decision: "routed_to_review",
-      slotId: null,
-      slotKey: null,
-      confidence: identity.confidence,
-      evidence: buildEvidence(identity, [], [], slotPolicyVersion),
-      reason: entityGate.reason,
-    };
+  // Manual authority bypass: banker-confirmed docs skip entity ambiguity gate.
+  // The banker is the identity authority — entity resolution from empty OCR
+  // text cannot and should not override a confirmed banker classification.
+  // Type constraints in Step 2 still prevent cross-type mismatches.
+  if (identity.authority !== "manual") {
+    const entityGate = checkEntityAmbiguity(identity, slots);
+    if (entityGate?.decision === "route_to_review") {
+      return {
+        decision: "routed_to_review",
+        slotId: null,
+        slotKey: null,
+        confidence: identity.confidence,
+        evidence: buildEvidence(identity, [], [], slotPolicyVersion),
+        reason: entityGate.reason,
+      };
+    }
   }
 
   // ── Step 2: Evaluate each slot ──────────────────────────────────────

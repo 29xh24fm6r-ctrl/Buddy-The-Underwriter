@@ -356,6 +356,17 @@ function checkIdentityAmbiguity(
     };
   }
 
+  // Manual authority bypass: banker-confirmed docs bypass ambiguity gate.
+  // Entity resolution from empty OCR cannot override banker confirmation.
+  // Same rationale as matchEngine.ts Step 1b bypass.
+  if (identity.authority === "manual") {
+    return {
+      satisfied: true,
+      constraint: "identity_not_ambiguous",
+      detail: "Identity ambiguous but manual authority — banker confirmation overrides",
+    };
+  }
+
   return {
     satisfied: false,
     constraint: "identity_not_ambiguous",

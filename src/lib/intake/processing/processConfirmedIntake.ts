@@ -60,6 +60,7 @@ type ConfirmedDoc = {
   ai_form_numbers: string[] | null;
   classification_tier: string | null;
   match_source: string | null;
+  doc_year: number | null;
   gatekeeper_doc_type: string | null;
   gatekeeper_route: string | null;
   gatekeeper_confidence: number | null;
@@ -287,7 +288,7 @@ export async function processConfirmedIntake(
     .select(
       `id, canonical_type, document_type, original_filename,
        ai_doc_type, ai_confidence, ai_tax_year, ai_form_numbers,
-       classification_tier, match_source,
+       classification_tier, match_source, doc_year,
        gatekeeper_doc_type, gatekeeper_route, gatekeeper_confidence,
        gatekeeper_needs_review, gatekeeper_tax_year`,
     )
@@ -335,6 +336,11 @@ export async function processConfirmedIntake(
 
         const isManualCorrection = doc.match_source === "manual";
 
+        // doc_year is the banker-visible year (shown in intake review UI).
+        // Use it as fallback when ai_tax_year / gatekeeper_tax_year are null.
+        const resolvedTaxYear =
+          doc.gatekeeper_tax_year ?? doc.ai_tax_year ?? doc.doc_year ?? null;
+
         // For manual corrections, discard stale AI signals — rebuild from
         // the banker-corrected canonical_type with full confidence.
         const spineSignals = isManualCorrection
@@ -344,7 +350,7 @@ export async function processConfirmedIntake(
                 docType: doc.ai_doc_type,
                 confidence: doc.ai_confidence ?? 0,
                 spineTier: doc.classification_tier ?? "fallback",
-                taxYear: doc.ai_tax_year,
+                taxYear: doc.ai_tax_year ?? doc.doc_year ?? null,
                 entityType: null,
                 formNumbers: doc.ai_form_numbers ?? [],
                 evidence: [],
@@ -355,7 +361,7 @@ export async function processConfirmedIntake(
           ? {
               docType: effectiveDocType,
               confidence: 1.0,
-              taxYear: doc.gatekeeper_tax_year ?? doc.ai_tax_year ?? null,
+              taxYear: resolvedTaxYear,
               formNumbers: [] as string[],
               effectiveDocType,
             }
@@ -363,7 +369,7 @@ export async function processConfirmedIntake(
             ? {
                 docType: doc.gatekeeper_doc_type,
                 confidence: doc.gatekeeper_confidence ?? 0,
-                taxYear: doc.gatekeeper_tax_year ?? null,
+                taxYear: resolvedTaxYear,
                 formNumbers: [] as string[],
                 effectiveDocType,
               }
