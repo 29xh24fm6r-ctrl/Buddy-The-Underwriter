@@ -10,7 +10,7 @@
  */
 
 import { STANDARD_ROWS, type StandardRow, type StandardStatement } from "@/lib/financialSpreads/standard/mapping";
-import { classifyRowKind } from "@/components/deals/spreads/SpreadTable";
+import { classifyRowKind } from "@/lib/financialSpreads/standard/classifyRowKind";
 import type { FinancialModel, FinancialPeriod } from "../types";
 import type { SpreadViewColumn, SpreadViewRow, SpreadViewSection, SpreadViewModel } from "./types";
 import { evaluateStandardFormula, formatStandardValue } from "./formulaEval";
