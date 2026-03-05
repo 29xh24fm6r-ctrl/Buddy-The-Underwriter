@@ -42,7 +42,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     // processArtifact stamps document_type here; manual classification sets it too.
     const { data: docs } = await sb
       .from("deal_documents" as any)
-      .select("id, document_type, ai_doc_type, original_filename")
+      .select("id, document_type, ai_doc_type, canonical_type, original_filename")
       .eq("deal_id", dealId)
       .not("document_type", "is", null);
 
@@ -62,7 +62,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
 
     for (const doc of docs as any[]) {
       try {
-        const docType = doc.ai_doc_type ?? doc.document_type;
+        const docType = doc.canonical_type ?? doc.ai_doc_type ?? doc.document_type;
         const result = await extractFactsFromDocument({
           dealId,
           bankId: access.bankId,

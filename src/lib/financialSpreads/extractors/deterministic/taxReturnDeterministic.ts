@@ -51,44 +51,49 @@ const VALID_LINE_KEYS = new Set([
 type LinePattern = { key: string; pattern: RegExp };
 
 const FORM_1040_PATTERNS: LinePattern[] = [
-  { key: "WAGES_W2", pattern: /(?:line\s+1\b|wages,?\s+salaries).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "INTEREST_INCOME", pattern: /(?:line\s+2b|taxable\s+interest).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "CAPITAL_GAINS", pattern: /(?:line\s+7|capital\s+gain).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "BUSINESS_INCOME_SCHEDULE_C", pattern: /(?:line\s+(?:8|12)|business\s+income|schedule\s+C\s+(?:net|income)).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "RENTAL_INCOME", pattern: /(?:line\s+(?:5|17)|rental.*?income|schedule\s+E).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "SOCIAL_SECURITY", pattern: /(?:line\s+6[ab]|social\s+security).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "IRA_DISTRIBUTIONS", pattern: /(?:line\s+4[ab]|IRA\s+distributions?|pension).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "TOTAL_INCOME", pattern: /(?:line\s+9|total\s+income).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "ADJUSTED_GROSS_INCOME", pattern: /(?:line\s+11|adjusted\s+gross\s+income|AGI).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "STANDARD_DEDUCTION", pattern: /(?:line\s+12|standard\s+deduction).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "TAXABLE_INCOME", pattern: /(?:line\s+15|taxable\s+income).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "TAX_LIABILITY", pattern: /(?:line\s+(?:16|24)|total\s+tax|tax\s+(?:liability|owed)).*?(\$?[\d,]+(?:\.\d{2})?)/i },
+  { key: "WAGES_W2", pattern: /(?:line\s+1\b|wages,?\s+salaries).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "INTEREST_INCOME", pattern: /(?:line\s+2b|taxable\s+interest).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "CAPITAL_GAINS", pattern: /(?:line\s+7|capital\s+gain).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "BUSINESS_INCOME_SCHEDULE_C", pattern: /(?:line\s+(?:8|12)|business\s+income|schedule\s+C\s+(?:net|income)).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "RENTAL_INCOME", pattern: /(?:line\s+(?:5|17)|rental.*?income|schedule\s+E).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "SOCIAL_SECURITY", pattern: /(?:line\s+6[ab]|social\s+security).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "IRA_DISTRIBUTIONS", pattern: /(?:line\s+4[ab]|IRA\s+distributions?|pension).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "TOTAL_INCOME", pattern: /(?:line\s+9|total\s+income).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "ADJUSTED_GROSS_INCOME", pattern: /(?:line\s+11|adjusted\s+gross\s+income|AGI).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "STANDARD_DEDUCTION", pattern: /(?:line\s+12|standard\s+deduction).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "TAXABLE_INCOME", pattern: /(?:line\s+15|taxable\s+income).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "TAX_LIABILITY", pattern: /(?:line\s+(?:16|24)|total\s+tax|tax\s+(?:liability|owed)).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
 ];
 
 const FORM_1120_PATTERNS: LinePattern[] = [
-  { key: "GROSS_RECEIPTS", pattern: /(?:line\s+1[abc]?|gross\s+receipts).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "COST_OF_GOODS_SOLD", pattern: /(?:line\s+2|cost\s+of\s+goods\s+sold|COGS).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "GROSS_PROFIT", pattern: /(?:line\s+3|gross\s+profit).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "OFFICER_COMPENSATION", pattern: /(?:line\s+12|officer\s+compensation|compensation\s+of\s+officer).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "SALARIES_WAGES", pattern: /(?:line\s+13|salaries\s+(?:and\s+)?wages).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "DEPRECIATION", pattern: /(?:line\s+(?:14|20)|depreciation).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "AMORTIZATION", pattern: /(?:amortization).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "INTEREST_EXPENSE", pattern: /(?:line\s+18|interest\s+(?:expense|paid|deduction)).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "RENT_EXPENSE", pattern: /(?:line\s+(?:16|17)|rents?\s+(?:expense|paid)).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "TAXES_LICENSES", pattern: /(?:line\s+17|taxes\s+(?:and\s+)?licenses).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "TOTAL_DEDUCTIONS", pattern: /(?:line\s+27|total\s+deductions).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "TAXABLE_INCOME", pattern: /(?:line\s+(?:28|30)|taxable\s+income).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "NET_INCOME", pattern: /(?:net\s+income|net\s+profit).*?(\$?[\d,]+(?:\.\d{2})?)/i },
+  { key: "GROSS_RECEIPTS", pattern: /(?:line\s+1[abc]?|gross\s+receipts).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "COST_OF_GOODS_SOLD", pattern: /(?:line\s+2|cost\s+of\s+goods\s+sold|COGS).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "GROSS_PROFIT", pattern: /(?:line\s+3|gross\s+profit).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "OFFICER_COMPENSATION", pattern: /(?:line\s+12|officer\s+compensation|compensation\s+of\s+officer).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "SALARIES_WAGES", pattern: /(?:line\s+13|salaries\s+(?:and\s+)?wages).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "DEPRECIATION", pattern: /(?:line\s+(?:14|20)|depreciation).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "AMORTIZATION", pattern: /(?:amortization).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "INTEREST_EXPENSE", pattern: /(?:line\s+18|interest\s+(?:expense|paid|deduction)).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "RENT_EXPENSE", pattern: /(?:line\s+(?:16|17)|rents?\s+(?:expense|paid)).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "TAXES_LICENSES", pattern: /(?:line\s+17|taxes\s+(?:and\s+)?licenses).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "TOTAL_DEDUCTIONS", pattern: /(?:line\s+27|total\s+deductions).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "TAXABLE_INCOME", pattern: /(?:line\s+(?:28|30)|taxable\s+income).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "NET_INCOME", pattern: /(?:net\s+income|net\s+profit).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
 ];
 
 const FORM_1065_PATTERNS: LinePattern[] = [
-  { key: "GROSS_RECEIPTS", pattern: /(?:line\s+1[abc]?|gross\s+receipts).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "ORDINARY_BUSINESS_INCOME", pattern: /(?:line\s+22|ordinary\s+(?:business\s+)?income).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "NET_RENTAL_REAL_ESTATE_INCOME", pattern: /(?:net\s+rental\s+real\s+estate|rental\s+real\s+estate\s+income).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "GUARANTEED_PAYMENTS", pattern: /(?:guaranteed\s+payments?).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "DEPRECIATION", pattern: /(?:depreciation).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "INTEREST_EXPENSE", pattern: /(?:interest\s+(?:expense|paid|deduction)).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "DISTRIBUTIONS", pattern: /(?:distributions?\s+(?:to|paid)).*?(\$?[\d,]+(?:\.\d{2})?)/i },
+  { key: "GROSS_RECEIPTS", pattern: /(?:line\s+1[abc]?|gross\s+receipts).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "GROSS_PROFIT", pattern: /(?:line\s+3\b|gross\s+profit).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "TOTAL_INCOME", pattern: /(?:line\s+8\b|total\s+income).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "TOTAL_DEDUCTIONS", pattern: /(?:line\s+22\b|total\s+deductions).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "ORDINARY_BUSINESS_INCOME", pattern: /(?:line\s+23\b|ordinary\s+(?:business\s+)?income).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "NET_RENTAL_REAL_ESTATE_INCOME", pattern: /(?:net\s+rental\s+real\s+estate|rental\s+real\s+estate\s+income).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "GUARANTEED_PAYMENTS", pattern: /(?:guaranteed\s+payments?).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "DEPRECIATION", pattern: /(?:depreciation).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "INTEREST_EXPENSE", pattern: /(?:interest\s+(?:expense|paid|deduction)).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "SALARIES_WAGES", pattern: /(?:salaries\s+(?:and\s+)?wages).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "RENT_EXPENSE", pattern: /(?:rents?\s+(?:expense|paid)).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "DISTRIBUTIONS", pattern: /(?:distributions?\s+(?:to|paid)).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
 ];
 
 /** Generic fallback patterns when form type is unknown */
@@ -160,17 +165,24 @@ export async function extractTaxReturnDeterministic(
     }
   }
 
-  // Fallback 1: OCR regex (same-line label+value)
+  // Fallback 1: IRS line-number parsing (cross-line label/value separation)
+  // IRS form OCR commonly renders values in a separate column, producing:
+  //   "Gross receipts (Form 1065, line 1c)\n...\n1c\n1,227,085.\n"
+  // Prefer this over label-based regex for known IRS forms since the label
+  // descriptions contain line number references (e.g., "lines 9 through 21")
+  // that produce false positives with same-line matching.
   if (items.length === 0 && args.ocrText.trim()) {
-    items = tryOcrRegex(args);
-    path = "ocr_regex";
+    const irsFormType = detectIrsFormType(args.ocrText);
+    if (irsFormType !== "UNKNOWN") {
+      items = tryIrsLineNumberParsing(args);
+      path = "ocr_regex";
+    }
   }
 
-  // Fallback 2: IRS line-number parsing (cross-line label/value separation)
-  // IRS form OCR commonly renders values in a separate column, producing:
-  //   "Gross receipts (Form 1065, line 1c)\n...\n1\n797,989.\n2\n..."
+  // Fallback 2: OCR regex (same-line label+value) — for non-IRS forms or
+  // when IRS line-number parsing fails to extract anything
   if (items.length === 0 && args.ocrText.trim()) {
-    items = tryIrsLineNumberParsing(args);
+    items = tryOcrRegex(args);
     path = "ocr_regex";
   }
 
@@ -292,25 +304,34 @@ function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
  */
 const IRS_LINE_MAP_1065: Record<string, string> = {
   "1": "GROSS_RECEIPTS", "1a": "GROSS_RECEIPTS", "1c": "GROSS_RECEIPTS",
+  "2": "COST_OF_GOODS_SOLD",
   "3": "GROSS_PROFIT",
-  "12": "OFFICER_COMPENSATION",
-  "13": "SALARIES_WAGES",
-  "15": "DEPRECIATION",
-  "18": "INTEREST_EXPENSE",
-  "16": "RENT_EXPENSE",
-  "21": "TOTAL_DEDUCTIONS",
-  "22": "ORDINARY_BUSINESS_INCOME",
+  "8": "TOTAL_INCOME",
+  "9": "SALARIES_WAGES",
+  "10": "GUARANTEED_PAYMENTS",
+  "13": "RENT_EXPENSE",
+  "14": "TAXES_LICENSES",
+  "15": "INTEREST_EXPENSE",
+  "16": "DEPRECIATION", "16a": "DEPRECIATION", "16c": "DEPRECIATION",
+  "21": "OTHER_DEDUCTIONS",
+  "22": "TOTAL_DEDUCTIONS",
+  "23": "ORDINARY_BUSINESS_INCOME",
 };
 
 const IRS_LINE_MAP_1120: Record<string, string> = {
   "1": "GROSS_RECEIPTS", "1a": "GROSS_RECEIPTS", "1c": "GROSS_RECEIPTS",
   "2": "COST_OF_GOODS_SOLD",
   "3": "GROSS_PROFIT",
+  "11": "TOTAL_INCOME",
   "12": "OFFICER_COMPENSATION",
   "13": "SALARIES_WAGES",
-  "14": "DEPRECIATION", "20": "DEPRECIATION",
+  "14": "REPAIRS_MAINTENANCE",
+  "16": "RENT_EXPENSE",
+  "17": "TAXES_LICENSES",
   "18": "INTEREST_EXPENSE",
-  "16": "RENT_EXPENSE", "17": "RENT_EXPENSE",
+  "20": "DEPRECIATION",
+  "21": "DEPLETION",
+  "26": "OTHER_DEDUCTIONS",
   "27": "TOTAL_DEDUCTIONS",
   "28": "TAXABLE_INCOME", "30": "TAXABLE_INCOME",
 };
@@ -335,11 +356,11 @@ const IRS_LINE_MAP_8879: Record<string, string> = {
   "4": "NET_RENTAL_REAL_ESTATE_INCOME",
 };
 
-function getLineMap(formType: IrsFormType, text: string): Record<string, string> {
-  // Check for 8879 summary form first (e-file authorization)
-  if (/form\s+8879/i.test(text.slice(0, 1000))) {
-    return IRS_LINE_MAP_8879;
-  }
+function getLineMap(formType: IrsFormType, _text: string): Record<string, string> {
+  // Use the main form type detection — NOT 8879 summary.
+  // 8879-PE is an e-file authorization cover page whose line numbers have different
+  // meanings than the actual 1065/1120 form. The main form always follows the 8879
+  // and its line numbers are the ones we need to map.
   switch (formType) {
     case "1065": return IRS_LINE_MAP_1065;
     case "1120": case "1120S": return IRS_LINE_MAP_1120;
@@ -367,8 +388,9 @@ function tryIrsLineNumberParsing(args: DeterministicExtractorArgs): ExtractedLin
   const seen = new Set<string>();
 
   // Pattern: line number on its own line, value on the next line
-  // Matches: "1\n797,989." or "1\n$797,989.00" or "22\n(325,912)"
-  const lineValueRe = /(?:^|\n)\s*(\d{1,2}[a-c]?)\s*\n\s*(\$?\(?-?[\d,]+(?:\.\d{1,2})?\)?)\s*(?:\n|$)/g;
+  // Matches: "1\n797,989." or "1\n$797,989.00" or "22\n(325,912)" or "3\n1,227,085."
+  // Note: \.\d{0,2} allows trailing period with 0 decimal digits (IRS whole-dollar format)
+  const lineValueRe = /(?:^|\n)\s*(\d{1,2}[a-c]?)\s*\n\s*(\$?\(?-?[\d,]+(?:\.\d{0,2})?\)?)\s*(?:\n|$)/g;
   let m: RegExpExecArray | null;
   while ((m = lineValueRe.exec(text)) !== null) {
     const lineNum = m[1].toLowerCase();
@@ -381,6 +403,10 @@ function tryIrsLineNumberParsing(args: DeterministicExtractorArgs): ExtractedLin
 
     // Guard: reject IRS reference numbers (1040, 1065, etc.)
     if (isLikelyReferenceNumber(value, m[0])) continue;
+
+    // Guard: reject bare small numbers — likely label-number sequences (e.g., "1\n2\n3\n4\n5")
+    // not real dollar amounts. IRS line items in business/personal returns are always > $100.
+    if (Math.abs(value) < 100) continue;
 
     seen.add(canonicalKey);
     items.push({
@@ -397,7 +423,7 @@ function tryIrsLineNumberParsing(args: DeterministicExtractorArgs): ExtractedLin
   }
 
   // Also try inline: "line_num  value" on the same line with 2+ spaces or tab
-  const inlineRe = /(?:^|\n)\s*(\d{1,2}[a-c]?)\s{2,}(\$?\(?-?[\d,]+(?:\.\d{1,2})?\)?)\s*(?:\n|$)/g;
+  const inlineRe = /(?:^|\n)\s*(\d{1,2}[a-c]?)\s{2,}(\$?\(?-?[\d,]+(?:\.\d{0,2})?\)?)\s*(?:\n|$)/g;
   while ((m = inlineRe.exec(text)) !== null) {
     const lineNum = m[1].toLowerCase();
     const canonicalKey = lineMap[lineNum];
@@ -407,6 +433,7 @@ function tryIrsLineNumberParsing(args: DeterministicExtractorArgs): ExtractedLin
     const value = parseMoney(m[2]);
     if (value === null || value === 0) continue;
     if (isLikelyReferenceNumber(value, m[0])) continue;
+    if (Math.abs(value) < 100) continue;
 
     seen.add(canonicalKey);
     items.push({

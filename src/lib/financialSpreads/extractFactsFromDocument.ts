@@ -142,17 +142,24 @@ export async function extractFactsFromDocument(args: {
   // Always fetch deal_documents for doc_year (period resolution) + doc_type fallback
   const { data: dealDoc } = await sb
     .from("deal_documents")
-    .select("document_type, ai_doc_type, doc_year")
+    .select("document_type, ai_doc_type, canonical_type, doc_year")
     .eq("id", args.documentId)
     .maybeSingle();
 
   // Priority chain for doc type resolution:
-  // 1. document_classifications (written by classifyProcessor job pipeline)
-  // 2. deal_documents.ai_doc_type / document_type (processArtifact or manual UI)
-  // 3. args.docTypeHint (caller-supplied fallback, e.g. from document_artifacts.doc_type)
-  let docType = classRes.data?.doc_type
-    ? String(classRes.data.doc_type)
+  // 1. deal_documents.canonical_type (banker-corrected — highest authority)
+  // 2. document_classifications (written by classifyProcessor job pipeline)
+  // 3. deal_documents.ai_doc_type / document_type (processArtifact or manual UI)
+  // 4. args.docTypeHint (caller-supplied fallback, e.g. from document_artifacts.doc_type)
+  let docType = dealDoc?.canonical_type
+    ? String(dealDoc.canonical_type)
     : null;
+
+  if (!docType) {
+    docType = classRes.data?.doc_type
+      ? String(classRes.data.doc_type)
+      : null;
+  }
 
   if (!docType) {
     docType = dealDoc?.ai_doc_type
