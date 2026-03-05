@@ -160,6 +160,34 @@ export function matchDocumentToSlot(
 
   // 0 candidates → no_match
   if (candidates.length === 0) {
+    // Diagnostic: log why each slot failed
+    const slotDiagnostics = slots.slice(0, 5).map((slot) => {
+      const neg = evaluateNegativeRules(identity, slot);
+      const con = evaluateConstraints(identity, slot);
+      return {
+        slotKey: slot.slotKey,
+        requiredDocType: slot.requiredDocType,
+        requiredTaxYear: slot.requiredTaxYear,
+        requiredEntityId: slot.requiredEntityId,
+        slotStatus: slot.status,
+        blockedBy: [
+          ...neg.filter((r) => r.blocked).map((r) => `NEG:${r.ruleId}`),
+          ...con
+            .filter((r) => !r.satisfied)
+            .map((r) => `CON:${r.constraint}:${r.detail}`),
+        ],
+      };
+    });
+    console.log("[matchEngine] no_match diagnostics", {
+      effectiveDocType: identity.effectiveDocType,
+      taxYear: identity.taxYear,
+      authority: identity.authority,
+      entityId: identity.entity?.entityId ?? null,
+      entityAmbiguous: identity.entity?.ambiguous ?? null,
+      totalSlots: slots.length,
+      slotDiagnostics,
+    });
+
     return {
       decision: "no_match",
       slotId: null,
