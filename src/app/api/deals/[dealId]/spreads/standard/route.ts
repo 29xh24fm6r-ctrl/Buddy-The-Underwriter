@@ -59,6 +59,11 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       payload: { surface: "standard", error: e?.message ?? "unknown" },
     });
 
-    return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
+    return NextResponse.json({
+      ok: false,
+      error: "unexpected_error",
+      detail: e?.message ?? String(e),
+      stack: process.env.NODE_ENV !== "production" ? e?.stack : undefined,
+    }, { status: 500 });
   }
 }
