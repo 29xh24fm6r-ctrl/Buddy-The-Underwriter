@@ -9,6 +9,7 @@ import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadReco
 import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import { ALL_SPREAD_TYPES, type SpreadType } from "@/lib/financialSpreads/types";
+import { resolveOwnerType } from "@/lib/financialSpreads/resolveOwnerType";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
                 bank_id: access.bankId,
                 spread_type: t,
                 spread_version: getSpreadTemplate(t)?.version ?? 1,
-                owner_type: ownerType,
+                owner_type: resolveOwnerType(t, ownerType),
                 owner_entity_id: ownerEntityId,
                 status: "generating",
                 inputs_hash: null,
