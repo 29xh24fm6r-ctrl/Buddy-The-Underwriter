@@ -20,6 +20,16 @@ export function evaluatePrereq(
     }
   }
 
+  // OR semantics: at least one of fact_types_any must be present
+  if (prereq.facts?.fact_types_any) {
+    const anyPresent = prereq.facts.fact_types_any.some(
+      (ft) => (factsVis.byFactType[ft] ?? 0) > 0,
+    );
+    if (!anyPresent) {
+      missing.push(`any_fact_type:${prereq.facts.fact_types_any.join("|")}`);
+    }
+  }
+
   if (prereq.facts?.fact_keys) {
     // Future: check individual key presence against facts query
     if (prereq.facts.min_count && factsVis.total < prereq.facts.min_count) {

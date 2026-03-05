@@ -69,8 +69,11 @@ function standardTemplate(): SpreadTemplate {
     version: 1,
     priority: 10,
     prerequisites: () => ({
-      facts: { fact_types: ["INCOME_STATEMENT", "BALANCE_SHEET"], min_count: 1 },
-      note: "Requires at least one income statement or balance sheet fact",
+      facts: {
+        fact_types_any: ["INCOME_STATEMENT", "BALANCE_SHEET", "TAX_RETURN", "PERSONAL_INCOME"],
+        min_count: 1,
+      },
+      note: "Requires at least one financial fact from any source (IS, BS, tax return, or personal income)",
     }),
     columns: ["Line Item", "Value"],
     render: (args) => renderStandardSpread({

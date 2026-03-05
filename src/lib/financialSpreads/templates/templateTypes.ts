@@ -7,7 +7,10 @@ import type { FinancialFact, RenderedSpread, RentRollRow, SpreadType } from "@/l
 export type SpreadPrereq = {
   facts?: {
     fact_keys?: string[];
+    /** AND semantics: ALL listed fact_types must be present. */
     fact_types?: string[];
+    /** OR semantics: at least ONE of these fact_types must be present. */
+    fact_types_any?: string[];
     min_count?: number;
   };
   tables?: {

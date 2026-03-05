@@ -11,6 +11,25 @@ export type StandardRenderInput = {
   facts: FinancialFact[];
 };
 
+// ---------------------------------------------------------------------------
+// Fact key aliases — bridge mapping.ts row keys → extractor-written fact keys.
+// When buildFactsMap finds no fact for a mapping row key, it tries these
+// sources in priority order (first found wins).
+// ---------------------------------------------------------------------------
+
+const FACT_KEY_ALIASES: Record<string, string[]> = {
+  // Revenue line — IS extractors write TOTAL_REVENUE; tax extractors write GROSS_RECEIPTS
+  GROSS_RENTAL_INCOME: ["GROSS_RECEIPTS", "TOTAL_REVENUE"],
+  // COGS — extractors write COST_OF_GOODS_SOLD
+  COGS: ["COST_OF_GOODS_SOLD"],
+  // Depreciation — extractors write DEPRECIATION (no "& Amortization" suffix)
+  DEPRECIATION_AMORTIZATION: ["DEPRECIATION"],
+  // Total opex — extractors write aggregate keys, not individual line items
+  TOTAL_OPEX: ["TOTAL_OPERATING_EXPENSES", "TOTAL_DEDUCTIONS"],
+  // REVENUE — referenced by GROSS_PROFIT and margin formulas in metric registry
+  REVENUE: ["TOTAL_REVENUE", "GROSS_RECEIPTS"],
+};
+
 type PeriodBucket = {
   key: string;
   label: string;
@@ -30,7 +49,9 @@ function buildFactsMap(
 ): Record<string, number | null> {
   const map: Record<string, number | null> = {};
 
-  // Group by fact_key, pick latest period_end (or match specific period)
+  // Group by fact_key, pick latest period_end (or match specific period).
+  // When duplicates exist for the same key+period (different source docs),
+  // prefer highest confidence.
   const byKey = new Map<string, FinancialFact[]>();
   for (const f of facts) {
     if (f.fact_value_num === null && f.fact_value_text === null) continue;
@@ -43,12 +64,33 @@ function buildFactsMap(
     let best: FinancialFact | null = null;
     for (const f of group) {
       if (periodEnd && f.fact_period_end !== periodEnd) continue;
-      if (!best || (f.fact_period_end ?? "") > (best.fact_period_end ?? "")) {
+      if (!best) {
+        best = f;
+      } else if ((f.fact_period_end ?? "") > (best.fact_period_end ?? "")) {
+        // Later period wins
+        best = f;
+      } else if (
+        f.fact_period_end === best.fact_period_end &&
+        (f.confidence ?? 0) > (best.confidence ?? 0)
+      ) {
+        // Same period — higher confidence wins
         best = f;
       }
     }
     if (best) {
       map[key] = best.fact_value_num;
+    }
+  }
+
+  // Apply aliases: inject mapping-row keys from extractor-written fact keys.
+  // Only fills if the mapping key is not already present (direct fact wins).
+  for (const [alias, sources] of Object.entries(FACT_KEY_ALIASES)) {
+    if (map[alias] !== undefined) continue;
+    for (const src of sources) {
+      if (map[src] !== undefined) {
+        map[alias] = map[src];
+        break;
+      }
     }
   }
 
@@ -279,7 +321,12 @@ export function renderStandardSpread(input: StandardRenderInput): RenderedSpread
 
       if (row.formulaId) {
         value = evaluateFormula(row.formulaId, enrichedFacts);
-      } else {
+      }
+      // Fallback: if formula returned null (missing inputs) or no formula,
+      // try direct fact/alias lookup. This lets aggregate facts like
+      // TOTAL_OPERATING_EXPENSES populate TOTAL_OPEX when individual
+      // line items are absent.
+      if (value === null) {
         value = enrichedFacts[row.key] ?? null;
       }
 
