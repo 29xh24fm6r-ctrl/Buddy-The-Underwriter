@@ -81,6 +81,9 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       }
     }
 
+    // STANDARD (Financial Analysis) is always needed — it's an aggregate spread
+    if (processed > 0) spreadTypesNeeded.add("STANDARD");
+
     // E2: Trigger spread orchestration after re-extraction
     let orchestrateResult: any = null;
     try {

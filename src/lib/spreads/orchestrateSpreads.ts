@@ -199,6 +199,24 @@ export async function orchestrateSpreads(
     }
   }
 
+  // Always enqueue STANDARD (Financial Analysis) — it's an aggregate spread
+  // that renders from all facts, not tied to any single document.
+  try {
+    await enqueueSpreadRecompute({
+      dealId,
+      bankId,
+      spreadTypes: ["STANDARD"],
+      skipPrereqCheck: true,
+      meta: {
+        source: "orchestrator",
+        run_id: runId,
+        trigger,
+      },
+    });
+  } catch (err: any) {
+    enqueueErrors.push(`STANDARD:${err?.message}`);
+  }
+
   // Update run status to running
   await (sb as any)
     .from("deal_spread_runs")
