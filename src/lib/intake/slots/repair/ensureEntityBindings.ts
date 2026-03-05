@@ -41,6 +41,7 @@ export type EntityBindingRepairResult = {
   syntheticCreated: number;
   reviewRequired: number;
   skippedAlreadyBound: number;
+  staleSyntheticRebound: number;
 };
 
 export async function ensureEntityBindings(
@@ -76,6 +77,58 @@ export async function ensureEntityBindings(
     throw new Error(
       `[ensureEntityBindings] entities load failed: ${entErr.message}`,
     );
+  }
+
+  // ── Stale-synthetic re-bind pass ──────────────────────────────────────────
+  // Detects slots bound to synthetic entities where a real (non-synthetic)
+  // entity of the matching kind now exists. Replaces the stale synthetic ID
+  // with the real entity ID. This fixes previously broken bindings.
+  let staleSyntheticRebound = 0;
+  for (const slot of slots ?? []) {
+    if (slot.required_entity_id == null) continue;
+    const boundEntity = (entities ?? []).find(
+      (e: any) => e.id === slot.required_entity_id,
+    );
+    if (!boundEntity || !boundEntity.synthetic) continue;
+
+    // Slot is bound to a synthetic — check if a real entity of the same kind exists
+    const realEntity = (entities ?? []).find(
+      (e: any) =>
+        e.entity_kind === boundEntity.entity_kind &&
+        !e.synthetic,
+    );
+    if (!realEntity) continue;
+
+    const { error: rebindErr } = await (sb as any)
+      .from("deal_document_slots")
+      .update({ required_entity_id: realEntity.id })
+      .eq("id", slot.id);
+
+    if (rebindErr) {
+      console.warn("[ensureEntityBindings] stale synthetic re-bind failed", {
+        slotKey: slot.slot_key,
+        error: rebindErr.message,
+      });
+      continue;
+    }
+
+    // Update in-memory slot so subsequent logic sees the corrected binding
+    slot.required_entity_id = realEntity.id;
+    staleSyntheticRebound++;
+
+    writeEvent({
+      dealId,
+      kind: "slot.entity_rebound_from_synthetic",
+      scope: "slots",
+      meta: {
+        slot_id: slot.id,
+        slot_key: slot.slot_key,
+        old_entity_id: boundEntity.id,
+        new_entity_id: realEntity.id,
+        entity_kind: boundEntity.entity_kind,
+        reason: "real_entity_supersedes_synthetic",
+      },
+    }).catch(() => {});
   }
 
   // Track slots routed to review this run (for invariant check)
@@ -160,6 +213,15 @@ export async function ensureEntityBindings(
 
           entityId = created.id;
           syntheticCreated++;
+
+          // Push into in-memory array so subsequent slots reuse this synthetic
+          // instead of creating duplicates.
+          (entities ?? []).push({
+            id: entityId,
+            entity_kind: primaryKind,
+            name: syntheticName,
+            synthetic: true,
+          });
 
           writeEvent({
             dealId,
@@ -258,6 +320,7 @@ export async function ensureEntityBindings(
     syntheticCreated,
     reviewRequired,
     skippedAlreadyBound,
+    staleSyntheticRebound,
   });
 
   // ── Layer 2.5: Identity intelligence (fail-open) ───────────────────────────
@@ -281,5 +344,5 @@ export async function ensureEntityBindings(
     }
   }
 
-  return { bound, syntheticCreated, reviewRequired, skippedAlreadyBound };
+  return { bound, syntheticCreated, reviewRequired, skippedAlreadyBound, staleSyntheticRebound };
 }
