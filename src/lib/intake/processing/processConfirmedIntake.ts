@@ -324,8 +324,10 @@ export async function processConfirmedIntake(
 
   /** Process a single document: matching → extraction. */
   async function processOneDoc(doc: ConfirmedDoc): Promise<void> {
-    const effectiveDocType =
-      doc.gatekeeper_doc_type ?? doc.canonical_type ?? doc.document_type ?? doc.ai_doc_type ?? "";
+    const isManualCorrection = doc.match_source === "manual";
+    const effectiveDocType = isManualCorrection
+      ? (doc.gatekeeper_doc_type ?? doc.canonical_type ?? doc.document_type ?? doc.ai_doc_type ?? "")
+      : (doc.canonical_type ?? doc.document_type ?? doc.ai_doc_type ?? "");
 
     // 2a. Matching
     if (effectiveDocType) {
@@ -333,8 +335,6 @@ export async function processConfirmedIntake(
         const { runMatchForDocument } = await import(
           "@/lib/intake/matching/runMatch"
         );
-
-        const isManualCorrection = doc.match_source === "manual";
 
         // doc_year is the banker-visible year (shown in intake review UI).
         // Use it as fallback when ai_tax_year / gatekeeper_tax_year are null.
