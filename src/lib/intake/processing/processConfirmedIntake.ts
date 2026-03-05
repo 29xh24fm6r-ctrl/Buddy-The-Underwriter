@@ -375,6 +375,17 @@ export async function processConfirmedIntake(
               }
             : null;
 
+        console.log("[processConfirmedIntake] doc year signals", {
+          documentId: doc.id,
+          filename: doc.original_filename,
+          ai_tax_year: doc.ai_tax_year,
+          gatekeeper_tax_year: doc.gatekeeper_tax_year,
+          doc_year: doc.doc_year,
+          resolvedTaxYear,
+          isManualCorrection,
+          matchSource: isManualCorrection ? "manual" : "manual_confirmed",
+        });
+
         const matchResult = await runMatchForDocument({
           dealId,
           bankId,
