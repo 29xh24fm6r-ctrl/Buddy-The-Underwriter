@@ -276,6 +276,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           intake_confirmed_at: now,
           intake_confirmed_by: access.userId,
           match_source: willCorrect ? "manual" : "manual_confirmed",
+          document_type: body.canonical_type,
           ...(body.period_end !== undefined ? { period_end: body.period_end } : {}),
           ...(body.statement_period !== undefined ? { statement_period: body.statement_period } : {}),
         } as any)
