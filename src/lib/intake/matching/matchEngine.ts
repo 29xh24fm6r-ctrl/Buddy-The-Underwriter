@@ -178,7 +178,7 @@ export function matchDocumentToSlot(
         ],
       };
     });
-    console.log("[matchEngine] no_match diagnostics", {
+    console.log("[matchEngine] no_match diagnostics", JSON.stringify({
       effectiveDocType: identity.effectiveDocType,
       taxYear: identity.taxYear,
       authority: identity.authority,
@@ -186,7 +186,7 @@ export function matchDocumentToSlot(
       entityAmbiguous: identity.entity?.ambiguous ?? null,
       totalSlots: slots.length,
       slotDiagnostics,
-    });
+    }, null, 2));
 
     return {
       decision: "no_match",
