@@ -127,51 +127,60 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       meta: { jobId, spreadTypes: requested, sourceDocumentId },
     });
 
-    if (sourceDocumentId) {
-      await extractFactsFromDocument({ dealId, bankId, documentId: sourceDocumentId });
-      await logLedgerEvent({
-        dealId, bankId,
-        eventKey: "spread.inputs.collected",
-        uiState: "working",
-        uiMessage: "Financial facts extracted from source document",
-        meta: { jobId, sourceDocumentId },
-      });
-    } else {
-      // Job merge lost source_document_id — re-extract from ALL deal documents
-      // using EXTRACTION_HEARTBEAT facts as the document roster + doc type hints.
-      const { data: heartbeats } = await (sb as any)
-        .from("deal_financial_facts")
-        .select("source_document_id, fact_value_text")
+    // Always extract from ALL active financial documents.
+    // source_document_id is unreliable after job merging — enqueueSpreadRecompute
+    // merges subsequent jobs into the first job, keeping only the first doc's ID.
+    // Extracting from one doc while ignoring the other 8 is the root cause of
+    // MISSING fact_type across TAX_RETURN, BALANCE_SHEET, PERSONAL_INCOME, etc.
+    {
+      const { data: activeDocs } = await (sb as any)
+        .from("deal_documents")
+        .select("id, canonical_type, ai_doc_type, document_type")
         .eq("deal_id", dealId)
         .eq("bank_id", bankId)
-        .eq("fact_type", "EXTRACTION_HEARTBEAT");
+        .eq("is_active", true);
+
+      const EXTRACTABLE_DOC_TYPES = new Set([
+        "FINANCIAL_STATEMENT", "INCOME_STATEMENT", "OPERATING_STATEMENT",
+        "BALANCE_SHEET", "RENT_ROLL",
+        "IRS_1065", "IRS_1120", "IRS_1120S", "IRS_BUSINESS",
+        "IRS_1040", "IRS_PERSONAL", "K1",
+        "BUSINESS_TAX_RETURN", "TAX_RETURN", "PERSONAL_TAX_RETURN",
+        "PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413",
+        "TERM_SHEET", "LOI", "CLOSING_STATEMENT",
+        "APPRAISAL", "COLLATERAL_SCHEDULE",
+      ]);
 
       let docsExtracted = 0;
-      if (heartbeats?.length) {
-        for (const hb of heartbeats) {
-          try {
-            await extractFactsFromDocument({
-              dealId,
-              bankId,
-              documentId: String(hb.source_document_id),
-              docTypeHint: hb.fact_value_text ?? undefined,
-            });
-            docsExtracted++;
-          } catch (extractErr: any) {
-            console.warn(`[spreadsProcessor] re-extract failed for ${hb.source_document_id}:`, extractErr?.message);
-          }
+      for (const doc of activeDocs ?? []) {
+        const docType = (
+          doc.canonical_type ?? doc.ai_doc_type ?? doc.document_type ?? ""
+        ).toUpperCase();
+        if (!docType || !EXTRACTABLE_DOC_TYPES.has(docType)) continue;
+        try {
+          await extractFactsFromDocument({
+            dealId,
+            bankId,
+            documentId: String(doc.id),
+            docTypeHint: docType,
+          });
+          docsExtracted++;
+        } catch (extractErr: any) {
+          console.warn(
+            `[spreadsProcessor] extract failed for ${doc.id}:`,
+            extractErr?.message,
+          );
         }
       }
 
-      if (docsExtracted > 0) {
-        await logLedgerEvent({
-          dealId, bankId,
-          eventKey: "spread.inputs.collected",
-          uiState: "working",
-          uiMessage: `Financial facts re-extracted from ${docsExtracted} document(s)`,
-          meta: { jobId, docsExtracted, totalHeartbeats: heartbeats?.length ?? 0 },
-        });
-      }
+      await logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "spread.inputs.collected",
+        uiState: "working",
+        uiMessage: `Financial facts extracted from ${docsExtracted} of ${(activeDocs ?? []).length} active document(s)`,
+        meta: { jobId, docsExtracted, sourceDocumentId, totalActiveDocs: (activeDocs ?? []).length },
+      });
     }
 
     const runId = jobId; // canonical run identifier for CAS ownership

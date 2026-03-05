@@ -113,7 +113,31 @@ export async function extractFactsFromDocument(args: {
     useDeterministic ? loadStructuredJson(sb, args.documentId) : Promise.resolve(null),
   ]);
 
-  const extractedText = String(ocrRes.data?.extracted_text ?? "");
+  let extractedText = String(ocrRes.data?.extracted_text ?? "");
+
+  // Fallback: document_extracts.fields_json.extractedText written by processConfirmedIntake/extractByDocType.
+  // Bridges the two pipelines — OCR processor writes to document_ocr_results,
+  // but processConfirmedIntake (Gemini OCR job) writes to document_extracts.
+  if (!extractedText) {
+    try {
+      const { data: extractsRow } = await (sb as any)
+        .from("document_extracts")
+        .select("fields_json")
+        .eq("attachment_id", args.documentId)
+        .eq("status", "SUCCEEDED")
+        .maybeSingle();
+      const fallbackText = extractsRow?.fields_json?.extractedText;
+      if (typeof fallbackText === "string" && fallbackText.length > 0) {
+        extractedText = fallbackText;
+        console.log("[extractFactsFromDocument] OCR fallback: loaded text from document_extracts", {
+          documentId: args.documentId,
+          length: extractedText.length,
+        });
+      }
+    } catch {
+      // Non-fatal — proceed without fallback
+    }
+  }
 
   // Always fetch deal_documents for doc_year (period resolution) + doc_type fallback
   const { data: dealDoc } = await sb
@@ -166,7 +190,7 @@ export async function extractFactsFromDocument(args: {
   // ── Income Statement / T12 ─────────────────────────────────────────────
   if (
     extractedText &&
-    ["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT", "TRAILING_12", "OPERATING_STATEMENT"].includes(normDocType)
+    ["FINANCIAL_STATEMENT", "INCOME_STATEMENT", "OPERATING_STATEMENT"].includes(normDocType)
   ) {
     extractorRan = true;
     try {

@@ -8,7 +8,8 @@ export function spreadsForDocType(docTypeRaw: string): SpreadType[] {
   const dt = String(docTypeRaw || "").trim().toUpperCase();
   if (!dt) return [];
 
-  if (["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT", "TRAILING_12", "OPERATING_STATEMENT"].includes(dt)) return ["T12"];
+  // Bankers do not collect a T12/Trailing12 as a document — remove as input types
+  if (["FINANCIAL_STATEMENT", "INCOME_STATEMENT", "OPERATING_STATEMENT"].includes(dt)) return ["T12"];
   if (dt === "BALANCE_SHEET") return ["BALANCE_SHEET"];
   if (dt === "RENT_ROLL") return ["RENT_ROLL"];
   if (["IRS_1065", "IRS_1120", "IRS_1120S", "IRS_BUSINESS", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN"].includes(dt)) return ["T12", "GLOBAL_CASH_FLOW"];
