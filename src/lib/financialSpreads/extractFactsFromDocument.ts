@@ -227,7 +227,7 @@ export async function extractFactsFromDocument(args: {
   // ── Tax Return ─────────────────────────────────────────────────────────
   if (
     extractedText &&
-    ["IRS_1040", "IRS_1120", "IRS_1120S", "IRS_1065", "IRS_BUSINESS", "IRS_PERSONAL", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN"].includes(normDocType)
+    ["IRS_1040", "IRS_1120", "IRS_1120S", "IRS_1065", "IRS_BUSINESS", "IRS_PERSONAL", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN", "PERSONAL_TAX_RETURN"].includes(normDocType)
   ) {
     extractorRan = true;
     try {
