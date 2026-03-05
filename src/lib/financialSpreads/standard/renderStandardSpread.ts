@@ -18,16 +18,35 @@ export type StandardRenderInput = {
 // ---------------------------------------------------------------------------
 
 const FACT_KEY_ALIASES: Record<string, string[]> = {
-  // Revenue line — IS extractors write TOTAL_REVENUE; tax extractors write GROSS_RECEIPTS
-  GROSS_RENTAL_INCOME: ["GROSS_RECEIPTS", "TOTAL_REVENUE"],
-  // COGS — extractors write COST_OF_GOODS_SOLD
-  COGS: ["COST_OF_GOODS_SOLD"],
-  // Depreciation — extractors write DEPRECIATION (no "& Amortization" suffix)
-  DEPRECIATION_AMORTIZATION: ["DEPRECIATION"],
-  // Total opex — extractors write aggregate keys, not individual line items
-  TOTAL_OPEX: ["TOTAL_OPERATING_EXPENSES", "TOTAL_DEDUCTIONS"],
-  // REVENUE — referenced by GROSS_PROFIT and margin formulas in metric registry
-  REVENUE: ["TOTAL_REVENUE", "GROSS_RECEIPTS"],
+  // IS aliases per MMAS
+  TOTAL_REVENUE: ["GROSS_RECEIPTS", "TOTAL_INCOME", "REVENUE", "GROSS_RENTAL_INCOME"],
+  COST_OF_GOODS_SOLD: ["COGS"],
+  NET_PROFIT: ["NET_INCOME", "ORDINARY_BUSINESS_INCOME", "TAXABLE_INCOME", "ADJUSTED_GROSS_INCOME"],
+  OFFICER_COMPENSATION: ["OFFICERS_COMPENSATION", "SALARIES_WAGES"],
+  DEPRECIATION: ["AMORTIZATION", "DEPRECIATION_AMORTIZATION"],
+  TOTAL_OPERATING_EXPENSES: ["TOTAL_DEDUCTIONS", "TOTAL_OPEX"],
+  INTEREST_EXPENSE: ["DEBT_SERVICE"],
+  OTHER_DEDUCTIONS: ["OTHER_OPEX"],
+  OPERATING_EXPENSE: ["SELLING_GENERAL_ADMIN"],
+  // BS aliases
+  FIXED_ASSETS_NET: ["NET_FIXED_ASSETS", "PROPERTY_PLANT_EQUIPMENT"],
+  ST_LOANS_PAYABLE: ["SHORT_TERM_DEBT", "CURRENT_PORTION_LTD"],
+  ACCRUED_LIABILITIES: ["ACCRUED_EXPENSES"],
+  INTANGIBLES_NET: ["INTANGIBLE_ASSETS"],
+};
+
+/**
+ * Helper metrics that must be pre-computed before ratio formulas can evaluate.
+ * These intermediate values aren't visible rows but are needed as formula inputs.
+ */
+const HELPER_METRIC_IDS = ["QUICK_ASSETS", "FIXED_CHARGES", "EBIT"];
+
+/**
+ * When a row is computed, also store its value under these legacy keys
+ * so downstream metric formulas (which reference the old key) still resolve.
+ */
+const ROW_KEY_EMIT_ALIASES: Record<string, string[]> = {
+  NET_PROFIT: ["NET_INCOME"],
 };
 
 type PeriodBucket = {
@@ -283,6 +302,11 @@ export function renderStandardSpread(input: StandardRenderInput): RenderedSpread
     end_date: p.end_date,
   }));
 
+  // Global per-period accumulator — enables cross-statement cascading.
+  // Ratios can reference computed IS/BS values (GROSS_PROFIT, NET_OPERATING_PROFIT, etc.)
+  const globalComputed = new Map<string, Record<string, number | null>>();
+  for (const p of periods) globalComputed.set(p.key, {});
+
   // Build rows
   const rows: RenderedSpread["rows"] = [];
   let lastStatement: StandardStatement | null = null;
@@ -306,14 +330,14 @@ export function renderStandardSpread(input: StandardRenderInput): RenderedSpread
     for (const period of periods) {
       const factsMap = periodFactMaps.get(period.key) ?? latestFacts;
 
-      // Merge computed values back into factsMap for cascading formulas
-      // (e.g., TOTAL_CURRENT_ASSETS used by TOTAL_ASSETS)
-      const enrichedFacts = { ...factsMap };
-      // Pre-compute structural subtotals that other formulas depend on
-      for (const dep of sortedRows) {
-        if (dep.formulaId && dep.order < row.order && dep.statement === row.statement) {
-          const depVal = evaluateFormula(dep.formulaId, enrichedFacts);
-          if (depVal !== null) enrichedFacts[dep.key] = depVal;
+      // Merge raw facts + all previously computed values (cross-statement)
+      const enrichedFacts = { ...factsMap, ...globalComputed.get(period.key)! };
+
+      // Pre-compute helper metrics needed by ratio formulas (QUICK_ASSETS, FIXED_CHARGES, EBIT)
+      for (const hid of HELPER_METRIC_IDS) {
+        if (enrichedFacts[hid] === undefined) {
+          const hr = evaluateMetric(hid, enrichedFacts);
+          if (hr.value !== null) enrichedFacts[hid] = hr.value;
         }
       }
 
@@ -324,10 +348,20 @@ export function renderStandardSpread(input: StandardRenderInput): RenderedSpread
       }
       // Fallback: if formula returned null (missing inputs) or no formula,
       // try direct fact/alias lookup. This lets aggregate facts like
-      // TOTAL_OPERATING_EXPENSES populate TOTAL_OPEX when individual
-      // line items are absent.
+      // TOTAL_OPERATING_EXPENSES populate when individual line items are absent.
       if (value === null) {
         value = enrichedFacts[row.key] ?? null;
+      }
+
+      // Store computed value in global accumulator for downstream formulas
+      if (value !== null) {
+        globalComputed.get(period.key)![row.key] = value;
+        // Emit aliases so legacy metric references (e.g. NET_INCOME) still resolve
+        for (const alias of ROW_KEY_EMIT_ALIASES[row.key] ?? []) {
+          if (globalComputed.get(period.key)![alias] === undefined) {
+            globalComputed.get(period.key)![alias] = value;
+          }
+        }
       }
 
       valueByCol[period.key] = value;

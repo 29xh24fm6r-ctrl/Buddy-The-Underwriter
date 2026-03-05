@@ -109,22 +109,22 @@ const COGS: MetricDefinition = {
 const GROSS_PROFIT: MetricDefinition = {
   id: "GROSS_PROFIT",
   label: "Gross Profit",
-  expr: "REVENUE - COGS",
+  expr: "TOTAL_REVENUE - COST_OF_GOODS_SOLD",
   precision: 0,
-  requiredFacts: ["REVENUE", "COGS"],
-  applicableTo: OP,
-  version: 1,
+  requiredFacts: ["TOTAL_REVENUE", "COST_OF_GOODS_SOLD"],
+  applicableTo: ALL,
+  version: 2,
 };
 
 const GROSS_MARGIN: MetricDefinition = {
   id: "GROSS_MARGIN",
   label: "Gross Margin",
-  expr: "GROSS_PROFIT / REVENUE",
+  expr: "GROSS_PROFIT / TOTAL_REVENUE",
   precision: 4,
   isPercent: true,
-  requiredFacts: ["GROSS_PROFIT", "REVENUE"],
-  applicableTo: OP,
-  version: 1,
+  requiredFacts: ["GROSS_PROFIT", "TOTAL_REVENUE"],
+  applicableTo: ALL,
+  version: 2,
 };
 
 const EBITDA: MetricDefinition = {
@@ -140,12 +140,12 @@ const EBITDA: MetricDefinition = {
 const EBITDA_MARGIN: MetricDefinition = {
   id: "EBITDA_MARGIN",
   label: "EBITDA Margin",
-  expr: "EBITDA / REVENUE",
+  expr: "EBITDA / TOTAL_REVENUE",
   precision: 4,
   isPercent: true,
-  requiredFacts: ["EBITDA", "REVENUE"],
-  applicableTo: OP,
-  version: 1,
+  requiredFacts: ["EBITDA", "TOTAL_REVENUE"],
+  applicableTo: ALL,
+  version: 2,
 };
 
 const NET_INCOME: MetricDefinition = {
@@ -161,12 +161,12 @@ const NET_INCOME: MetricDefinition = {
 const NET_MARGIN: MetricDefinition = {
   id: "NET_MARGIN",
   label: "Net Margin",
-  expr: "NET_INCOME / REVENUE",
+  expr: "NET_INCOME / TOTAL_REVENUE",
   precision: 4,
   isPercent: true,
-  requiredFacts: ["NET_INCOME", "REVENUE"],
-  applicableTo: OP,
-  version: 1,
+  requiredFacts: ["NET_INCOME", "TOTAL_REVENUE"],
+  applicableTo: ALL,
+  version: 2,
 };
 
 // ── Balance Sheet ─────────────────────────────────────────────────────────────
@@ -372,6 +372,163 @@ const GCF_DSCR: MetricDefinition = {
   version: 1,
 };
 
+// ── MMAS Standard Metrics ────────────────────────────────────────────────────
+
+const NET_OPERATING_PROFIT: MetricDefinition = {
+  id: "NET_OPERATING_PROFIT",
+  label: "Net Operating Profit",
+  expr: "GROSS_PROFIT - TOTAL_OPERATING_EXPENSES",
+  precision: 0,
+  requiredFacts: ["GROSS_PROFIT", "TOTAL_OPERATING_EXPENSES"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const EBIT: MetricDefinition = {
+  id: "EBIT",
+  label: "EBIT",
+  expr: "EBITDA - DEPRECIATION",
+  precision: 0,
+  requiredFacts: ["EBITDA", "DEPRECIATION"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const QUICK_ASSETS: MetricDefinition = {
+  id: "QUICK_ASSETS",
+  label: "Quick Assets",
+  expr: "CASH_AND_EQUIVALENTS + ACCOUNTS_RECEIVABLE",
+  precision: 0,
+  requiredFacts: ["CASH_AND_EQUIVALENTS", "ACCOUNTS_RECEIVABLE"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const QUICK_RATIO: MetricDefinition = {
+  id: "QUICK_RATIO",
+  label: "Quick Ratio",
+  expr: "QUICK_ASSETS / TOTAL_CURRENT_LIABILITIES",
+  precision: 2,
+  requiredFacts: ["QUICK_ASSETS", "TOTAL_CURRENT_LIABILITIES"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const SALES_WORKING_CAPITAL: MetricDefinition = {
+  id: "SALES_WORKING_CAPITAL",
+  label: "Net Sales / Working Capital",
+  expr: "TOTAL_REVENUE / WORKING_CAPITAL",
+  precision: 2,
+  requiredFacts: ["TOTAL_REVENUE", "WORKING_CAPITAL"],
+  applicableTo: OP,
+  version: 1,
+};
+
+const LIABILITIES_ASSETS: MetricDefinition = {
+  id: "LIABILITIES_ASSETS",
+  label: "Total Liabilities / Total Assets",
+  expr: "TOTAL_LIABILITIES / TOTAL_ASSETS",
+  precision: 4,
+  isPercent: true,
+  requiredFacts: ["TOTAL_LIABILITIES", "TOTAL_ASSETS"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const INTEREST_COVERAGE: MetricDefinition = {
+  id: "INTEREST_COVERAGE",
+  label: "Interest Coverage",
+  expr: "EBIT / INTEREST_EXPENSE",
+  precision: 2,
+  requiredFacts: ["EBIT", "INTEREST_EXPENSE"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const OPERATING_PROFIT_MARGIN: MetricDefinition = {
+  id: "OPERATING_PROFIT_MARGIN",
+  label: "Operating Profit Margin",
+  expr: "NET_OPERATING_PROFIT / TOTAL_REVENUE",
+  precision: 4,
+  isPercent: true,
+  requiredFacts: ["NET_OPERATING_PROFIT", "TOTAL_REVENUE"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const ROA: MetricDefinition = {
+  id: "ROA",
+  label: "Return on Assets",
+  expr: "NET_INCOME / TOTAL_ASSETS",
+  precision: 4,
+  isPercent: true,
+  requiredFacts: ["NET_INCOME", "TOTAL_ASSETS"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const ROE: MetricDefinition = {
+  id: "ROE",
+  label: "Return on Equity",
+  expr: "NET_INCOME / NET_WORTH",
+  precision: 4,
+  isPercent: true,
+  requiredFacts: ["NET_INCOME", "NET_WORTH"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const AR_DAYS: MetricDefinition = {
+  id: "AR_DAYS",
+  label: "Net AR Days",
+  expr: "ACCOUNTS_RECEIVABLE / TOTAL_REVENUE * 365",
+  precision: 0,
+  requiredFacts: ["ACCOUNTS_RECEIVABLE", "TOTAL_REVENUE"],
+  applicableTo: OP,
+  version: 1,
+};
+
+const SALES_TOTAL_ASSETS: MetricDefinition = {
+  id: "SALES_TOTAL_ASSETS",
+  label: "Net Sales / Total Assets",
+  expr: "TOTAL_REVENUE / TOTAL_ASSETS",
+  precision: 2,
+  requiredFacts: ["TOTAL_REVENUE", "TOTAL_ASSETS"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const OPEX_PCT: MetricDefinition = {
+  id: "OPEX_PCT",
+  label: "Operating Expense %",
+  expr: "TOTAL_OPERATING_EXPENSES / TOTAL_REVENUE",
+  precision: 4,
+  isPercent: true,
+  requiredFacts: ["TOTAL_OPERATING_EXPENSES", "TOTAL_REVENUE"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const FIXED_CHARGES: MetricDefinition = {
+  id: "FIXED_CHARGES",
+  label: "Fixed Charges",
+  expr: "INTEREST_EXPENSE + RENT_EXPENSE",
+  precision: 0,
+  requiredFacts: ["INTEREST_EXPENSE"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const FIXED_CHARGE_COVERAGE: MetricDefinition = {
+  id: "FIXED_CHARGE_COVERAGE",
+  label: "Fixed Charge Coverage",
+  expr: "EBITDA / FIXED_CHARGES",
+  precision: 2,
+  requiredFacts: ["EBITDA", "FIXED_CHARGES"],
+  applicableTo: ALL,
+  version: 1,
+};
+
 // ── Registry ──────────────────────────────────────────────────────────────────
 
 export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
@@ -412,7 +569,23 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
   // Global Cash Flow
   GCF_GLOBAL_CASH_FLOW,
   GCF_DSCR,
+  // MMAS Standard Metrics
+  NET_OPERATING_PROFIT,
+  EBIT,
+  QUICK_ASSETS,
+  QUICK_RATIO,
+  SALES_WORKING_CAPITAL,
+  LIABILITIES_ASSETS,
+  INTEREST_COVERAGE,
+  OPERATING_PROFIT_MARGIN,
+  ROA,
+  ROE,
+  AR_DAYS,
+  SALES_TOTAL_ASSETS,
+  OPEX_PCT,
+  FIXED_CHARGES,
+  FIXED_CHARGE_COVERAGE,
 };
 
 /** Current version of the metric registry — bump on any formula change. */
-export const METRIC_REGISTRY_VERSION = 1;
+export const METRIC_REGISTRY_VERSION = 2;

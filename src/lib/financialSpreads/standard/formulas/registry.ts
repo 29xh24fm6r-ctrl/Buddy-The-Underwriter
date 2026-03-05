@@ -1,5 +1,5 @@
 /**
- * Financial Analysis (Standard Spread) — Formula Registry (Locked)
+ * Financial Analysis (Standard Spread) — Formula Registry (MMAS)
  *
  * IMPORTANT:
  * - All computed lines MUST use a formulaId from this registry.
@@ -24,15 +24,23 @@ export const STANDARD_FORMULAS: Record<string, StandardFormula> = {
 
   TOTAL_CURRENT_ASSETS: {
     id: "TOTAL_CURRENT_ASSETS",
-    expr: "CASH_AND_EQUIVALENTS + ACCOUNTS_RECEIVABLE + INVENTORY + PREPAID_EXPENSES + OTHER_CURRENT_ASSETS",
-    metricRegistryId: null, // structural sum — evaluated by renderer
+    expr: "CASH_AND_EQUIVALENTS + ACCOUNTS_RECEIVABLE + INVENTORY + OTHER_CURRENT_ASSETS",
+    metricRegistryId: null, // structural sum
+    precision: 0,
+    sourcePages: [1],
+  },
+
+  TOTAL_NONCURRENT_ASSETS: {
+    id: "TOTAL_NONCURRENT_ASSETS",
+    expr: "FIXED_ASSETS_NET + LT_RECEIVABLES + INTANGIBLES_NET",
+    metricRegistryId: null, // structural sum
     precision: 0,
     sourcePages: [1],
   },
 
   TOTAL_ASSETS: {
     id: "TOTAL_ASSETS",
-    expr: "TOTAL_CURRENT_ASSETS + FIXED_ASSETS_NET + REAL_ESTATE_HELD + INTANGIBLE_ASSETS + OTHER_NONCURRENT_ASSETS",
+    expr: "TOTAL_CURRENT_ASSETS + TOTAL_NONCURRENT_ASSETS",
     metricRegistryId: "TOTAL_ASSETS",
     precision: 0,
     sourcePages: [1],
@@ -40,15 +48,15 @@ export const STANDARD_FORMULAS: Record<string, StandardFormula> = {
 
   TOTAL_CURRENT_LIABILITIES: {
     id: "TOTAL_CURRENT_LIABILITIES",
-    expr: "ACCOUNTS_PAYABLE + ACCRUED_EXPENSES + CURRENT_MATURITIES_LTD + OTHER_CURRENT_LIABILITIES",
-    metricRegistryId: null, // structural sum — evaluated by renderer
+    expr: "ST_LOANS_PAYABLE + ACCOUNTS_PAYABLE + ACCRUED_LIABILITIES + OTHER_CURRENT_LIABILITIES",
+    metricRegistryId: null, // structural sum
     precision: 0,
     sourcePages: [1],
   },
 
   TOTAL_LIABILITIES: {
     id: "TOTAL_LIABILITIES",
-    expr: "TOTAL_CURRENT_LIABILITIES + LONG_TERM_DEBT + OTHER_LT_LIABILITIES",
+    expr: "TOTAL_CURRENT_LIABILITIES",
     metricRegistryId: "TOTAL_LIABILITIES",
     precision: 0,
     sourcePages: [1],
@@ -65,83 +73,51 @@ export const STANDARD_FORMULAS: Record<string, StandardFormula> = {
   TOTAL_LIABILITIES_AND_EQUITY: {
     id: "TOTAL_LIABILITIES_AND_EQUITY",
     expr: "TOTAL_LIABILITIES + NET_WORTH",
-    metricRegistryId: null, // balance check — evaluated by renderer
+    metricRegistryId: null, // balance check
     precision: 0,
     sourcePages: [1],
   },
 
   // ── Income Statement Computed Lines ─────────────────────────────────────────
 
-  TOTAL_INCOME: {
-    id: "TOTAL_INCOME",
-    expr: "GROSS_RENTAL_INCOME + OTHER_INCOME - VACANCY_CONCESSIONS",
-    metricRegistryId: "TOTAL_INCOME",
-    precision: 0,
-    sourcePages: [2],
-  },
-
   GROSS_PROFIT: {
     id: "GROSS_PROFIT",
-    expr: "REVENUE - COGS",
+    expr: "TOTAL_REVENUE - COST_OF_GOODS_SOLD",
     metricRegistryId: "GROSS_PROFIT",
     precision: 0,
     sourcePages: [2],
   },
 
-  TOTAL_OPEX: {
-    id: "TOTAL_OPEX",
-    expr: "REPAIRS_MAINTENANCE + UTILITIES + PROPERTY_MANAGEMENT + REAL_ESTATE_TAXES + INSURANCE + PAYROLL + MARKETING + PROFESSIONAL_FEES + OTHER_OPEX",
-    metricRegistryId: "TOTAL_OPEX",
+  TOTAL_OPERATING_EXPENSES: {
+    id: "TOTAL_OPERATING_EXPENSES",
+    expr: "OFFICER_COMPENSATION + PAYROLL + OPERATING_EXPENSE + REPAIRS_MAINTENANCE + RENT_EXPENSE + DEPRECIATION + INTEREST_EXPENSE + OTHER_DEDUCTIONS",
+    metricRegistryId: null, // structural sum — includes Interest per MMAS
     precision: 0,
     sourcePages: [2],
   },
 
-  NOI: {
-    id: "NOI",
-    expr: "TOTAL_INCOME - TOTAL_OPEX",
-    metricRegistryId: "NOI",
+  NET_OPERATING_PROFIT: {
+    id: "NET_OPERATING_PROFIT",
+    expr: "GROSS_PROFIT - TOTAL_OPERATING_EXPENSES",
+    metricRegistryId: "NET_OPERATING_PROFIT",
     precision: 0,
     sourcePages: [2],
   },
 
-  EBITDA_PROXY: {
-    id: "EBITDA_PROXY",
+  NET_PROFIT: {
+    id: "NET_PROFIT",
+    expr: "NET_OPERATING_PROFIT + OTHER_INCOME - OTHER_EXPENSE",
+    metricRegistryId: null, // structural
+    precision: 0,
+    sourcePages: [2],
+  },
+
+  EBITDA_CALC: {
+    id: "EBITDA_CALC",
     expr: "EBITDA",
     metricRegistryId: "EBITDA",
     precision: 0,
     sourcePages: [2],
-  },
-
-  PRE_TAX_INCOME: {
-    id: "PRE_TAX_INCOME",
-    expr: "NOI - DEPRECIATION_AMORTIZATION - INTEREST_EXPENSE + OTHER_NON_OPERATING",
-    metricRegistryId: null, // structural — evaluated by renderer
-    precision: 0,
-    sourcePages: [2],
-  },
-
-  NET_INCOME: {
-    id: "NET_INCOME",
-    expr: "PRE_TAX_INCOME - TAX_PROVISION",
-    metricRegistryId: "NET_INCOME",
-    precision: 0,
-    sourcePages: [2],
-  },
-
-  NET_CASH_FLOW_BEFORE_DEBT: {
-    id: "NET_CASH_FLOW_BEFORE_DEBT",
-    expr: "NOI - REPLACEMENT_RESERVES - CAPEX",
-    metricRegistryId: null, // structural — evaluated by renderer
-    precision: 0,
-    sourcePages: [2],
-  },
-
-  EXCESS_CASH_FLOW: {
-    id: "EXCESS_CASH_FLOW",
-    expr: "CASH_FLOW_AVAILABLE - ANNUAL_DEBT_SERVICE",
-    metricRegistryId: "EXCESS_CASH_FLOW",
-    precision: 0,
-    sourcePages: [2, 3],
   },
 
   // ── Cash Flow Computed Lines ────────────────────────────────────────────────
@@ -152,6 +128,24 @@ export const STANDARD_FORMULAS: Record<string, StandardFormula> = {
     metricRegistryId: "CASH_FLOW_AVAILABLE",
     precision: 0,
     sourcePages: [3],
+  },
+
+  EXCESS_CASH_FLOW: {
+    id: "EXCESS_CASH_FLOW",
+    expr: "CASH_FLOW_AVAILABLE - ANNUAL_DEBT_SERVICE",
+    metricRegistryId: "EXCESS_CASH_FLOW",
+    precision: 0,
+    sourcePages: [3],
+  },
+
+  // ── Exec Summary pass-through formulas ──────────────────────────────────────
+
+  TOTAL_REVENUE: {
+    id: "TOTAL_REVENUE",
+    expr: "TOTAL_REVENUE",
+    metricRegistryId: null, // direct fact
+    precision: 0,
+    sourcePages: [0],
   },
 
   // ── Ratios (all delegate to Metric Registry) ───────────────────────────────
@@ -172,6 +166,22 @@ export const STANDARD_FORMULAS: Record<string, StandardFormula> = {
     sourcePages: [4],
   },
 
+  QUICK_RATIO: {
+    id: "QUICK_RATIO",
+    expr: "QUICK_ASSETS / TOTAL_CURRENT_LIABILITIES",
+    metricRegistryId: "QUICK_RATIO",
+    precision: 2,
+    sourcePages: [4],
+  },
+
+  SALES_WORKING_CAPITAL: {
+    id: "SALES_WORKING_CAPITAL",
+    expr: "TOTAL_REVENUE / WORKING_CAPITAL",
+    metricRegistryId: "SALES_WORKING_CAPITAL",
+    precision: 2,
+    sourcePages: [4],
+  },
+
   DEBT_TO_EQUITY: {
     id: "DEBT_TO_EQUITY",
     expr: "TOTAL_LIABILITIES / NET_WORTH",
@@ -180,11 +190,27 @@ export const STANDARD_FORMULAS: Record<string, StandardFormula> = {
     sourcePages: [4],
   },
 
-  EQUITY_RATIO: {
-    id: "EQUITY_RATIO",
-    expr: "NET_WORTH / TOTAL_ASSETS",
-    metricRegistryId: "EQUITY_RATIO",
+  LIABILITIES_ASSETS: {
+    id: "LIABILITIES_ASSETS",
+    expr: "TOTAL_LIABILITIES / TOTAL_ASSETS",
+    metricRegistryId: "LIABILITIES_ASSETS",
     precision: 4,
+    sourcePages: [4],
+  },
+
+  INTEREST_COVERAGE: {
+    id: "INTEREST_COVERAGE",
+    expr: "EBIT / INTEREST_EXPENSE",
+    metricRegistryId: "INTEREST_COVERAGE",
+    precision: 2,
+    sourcePages: [4],
+  },
+
+  FIXED_CHARGE_COVERAGE: {
+    id: "FIXED_CHARGE_COVERAGE",
+    expr: "EBITDA / FIXED_CHARGES",
+    metricRegistryId: "FIXED_CHARGE_COVERAGE",
+    precision: 2,
     sourcePages: [4],
   },
 
@@ -204,25 +230,33 @@ export const STANDARD_FORMULAS: Record<string, StandardFormula> = {
     sourcePages: [4],
   },
 
-  DEBT_YIELD: {
-    id: "DEBT_YIELD",
-    expr: "NOI / BANK_LOAN_TOTAL",
-    metricRegistryId: "DEBT_YIELD",
+  GROSS_MARGIN: {
+    id: "GROSS_MARGIN",
+    expr: "GROSS_PROFIT / TOTAL_REVENUE",
+    metricRegistryId: "GROSS_MARGIN",
     precision: 4,
     sourcePages: [4],
   },
 
-  GROSS_MARGIN: {
-    id: "GROSS_MARGIN",
-    expr: "GROSS_PROFIT / REVENUE",
-    metricRegistryId: "GROSS_MARGIN",
+  OPEX_PCT: {
+    id: "OPEX_PCT",
+    expr: "TOTAL_OPERATING_EXPENSES / TOTAL_REVENUE",
+    metricRegistryId: "OPEX_PCT",
+    precision: 4,
+    sourcePages: [4],
+  },
+
+  OPERATING_PROFIT_MARGIN: {
+    id: "OPERATING_PROFIT_MARGIN",
+    expr: "NET_OPERATING_PROFIT / TOTAL_REVENUE",
+    metricRegistryId: "OPERATING_PROFIT_MARGIN",
     precision: 4,
     sourcePages: [4],
   },
 
   EBITDA_MARGIN: {
     id: "EBITDA_MARGIN",
-    expr: "EBITDA / REVENUE",
+    expr: "EBITDA / TOTAL_REVENUE",
     metricRegistryId: "EBITDA_MARGIN",
     precision: 4,
     sourcePages: [4],
@@ -230,58 +264,52 @@ export const STANDARD_FORMULAS: Record<string, StandardFormula> = {
 
   NET_MARGIN: {
     id: "NET_MARGIN",
-    expr: "NET_INCOME / REVENUE",
+    expr: "NET_INCOME / TOTAL_REVENUE",
     metricRegistryId: "NET_MARGIN",
     precision: 4,
     sourcePages: [4],
   },
 
-  NOI_MARGIN: {
-    id: "NOI_MARGIN",
-    expr: "NOI / TOTAL_INCOME",
-    metricRegistryId: "NOI_MARGIN",
+  ROA: {
+    id: "ROA",
+    expr: "NET_INCOME / TOTAL_ASSETS",
+    metricRegistryId: "ROA",
     precision: 4,
     sourcePages: [4],
   },
 
-  OPEX_RATIO: {
-    id: "OPEX_RATIO",
-    expr: "TOTAL_OPEX / TOTAL_INCOME",
-    metricRegistryId: "OPEX_RATIO",
+  ROE: {
+    id: "ROE",
+    expr: "NET_INCOME / NET_WORTH",
+    metricRegistryId: "ROE",
     precision: 4,
     sourcePages: [4],
   },
 
-  CAP_RATE: {
-    id: "CAP_RATE",
-    expr: "NOI / COLLATERAL_GROSS_VALUE",
-    metricRegistryId: "CAP_RATE",
-    precision: 4,
+  AR_DAYS: {
+    id: "AR_DAYS",
+    expr: "ACCOUNTS_RECEIVABLE / TOTAL_REVENUE * 365",
+    metricRegistryId: "AR_DAYS",
+    precision: 0,
     sourcePages: [4],
   },
 
-  LTV_GROSS: {
-    id: "LTV_GROSS",
-    expr: "BANK_LOAN_TOTAL / COLLATERAL_GROSS_VALUE",
-    metricRegistryId: "LTV_GROSS",
-    precision: 4,
-    sourcePages: [4],
-  },
-
-  LTV_NET: {
-    id: "LTV_NET",
-    expr: "BANK_LOAN_TOTAL / COLLATERAL_NET_VALUE",
-    metricRegistryId: "LTV_NET",
-    precision: 4,
-    sourcePages: [4],
-  },
-
-  COLLATERAL_COVERAGE: {
-    id: "COLLATERAL_COVERAGE",
-    expr: "COLLATERAL_DISCOUNTED_VALUE / BANK_LOAN_TOTAL",
-    metricRegistryId: "COLLATERAL_COVERAGE",
+  SALES_TOTAL_ASSETS: {
+    id: "SALES_TOTAL_ASSETS",
+    expr: "TOTAL_REVENUE / TOTAL_ASSETS",
+    metricRegistryId: "SALES_TOTAL_ASSETS",
     precision: 2,
     sourcePages: [4],
+  },
+
+  // ── CRE metrics (kept for T12/RentRoll/GCF templates) ──────────────────────
+
+  EBITDA: {
+    id: "EBITDA",
+    expr: "EBITDA",
+    metricRegistryId: "EBITDA",
+    precision: 0,
+    sourcePages: [2],
   },
 
   GCF_GLOBAL_CASH_FLOW: {
@@ -298,16 +326,5 @@ export const STANDARD_FORMULAS: Record<string, StandardFormula> = {
     metricRegistryId: "GCF_DSCR",
     precision: 2,
     sourcePages: [4],
-  },
-
-  // ── Exec Summary (reuse same registry IDs) ─────────────────────────────────
-  // No separate entries needed — EXEC_SUMMARY rows reference the same formulaIds above.
-
-  REVENUE: {
-    id: "REVENUE",
-    expr: "REVENUE",
-    metricRegistryId: "REVENUE",
-    precision: 0,
-    sourcePages: [0],
   },
 };
