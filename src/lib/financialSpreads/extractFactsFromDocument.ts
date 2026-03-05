@@ -416,6 +416,26 @@ export async function extractFactsFromDocument(args: {
     throw new Error(`deal_financial_facts_upsert_failed:${hbResult.error}`);
   }
 
+  // ── Period correction: backfill sentinel dates with docYear ────────
+  // Extractors resolve periods from OCR text with docYear as fallback.
+  // If any facts still landed on the sentinel date (1900-01-01), correct
+  // them now using docYear so multi-year columns render correctly.
+  if (docYear && factsWritten > 0) {
+    try {
+      const periodStart = `${docYear}-01-01`;
+      const periodEnd = `${docYear}-12-31`;
+      await (sb as any)
+        .from("deal_financial_facts")
+        .update({ fact_period_start: periodStart, fact_period_end: periodEnd })
+        .eq("deal_id", args.dealId)
+        .eq("source_document_id", args.documentId)
+        .neq("fact_type", "EXTRACTION_HEARTBEAT")
+        .eq("fact_period_end", "1900-01-01");
+    } catch {
+      // Non-fatal — period correction is best-effort
+    }
+  }
+
   // ── D1: Validation Gate — GATING (institutional) ─────────────────
   // Run structural validation. If SUSPECT → delete extracted facts, route to review.
   try {
