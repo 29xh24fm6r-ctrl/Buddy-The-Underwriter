@@ -54,15 +54,27 @@ function isSentinelDate(d: string | null | undefined): boolean {
 // Fact type → period slot mapping
 // ---------------------------------------------------------------------------
 
-/** Maps fact_key → FinancialPeriod property path */
+/** Maps fact_key → FinancialPeriod property path (primary: last-wins) */
 const INCOME_MAP: Record<string, keyof FinancialPeriod["income"]> = {
   TOTAL_REVENUE: "revenue",
-  GROSS_RECEIPTS: "revenue", // tax return top-line revenue
+  GROSS_RECEIPTS: "revenue",              // tax return top-line (1065 line 1c, 1120 line 1c)
   COST_OF_GOODS_SOLD: "cogs",
   TOTAL_OPERATING_EXPENSES: "operatingExpenses",
   DEPRECIATION: "depreciation",
   DEBT_SERVICE: "interest",
+  INTEREST_EXPENSE: "interest",           // tax return interest (1065 line 15, 1120 line 18)
+  ORDINARY_BUSINESS_INCOME: "netIncome",  // 1065/1120 bottom line (line 23 / line 28)
   NET_INCOME: "netIncome",
+};
+
+/**
+ * Fallback mappings — only fill the target field if not already set.
+ * Lower-priority tax return keys that serve as proxies when the
+ * preferred key is absent.
+ */
+const INCOME_FALLBACK_MAP: Record<string, keyof FinancialPeriod["income"]> = {
+  TOTAL_INCOME: "revenue",     // 1065 line 8 — only if GROSS_RECEIPTS absent
+  TAXABLE_INCOME: "netIncome", // 1040 line 15 — only if ORDINARY_BUSINESS_INCOME/NET_INCOME absent
 };
 
 const BALANCE_MAP: Record<string, keyof FinancialPeriod["balance"]> = {
@@ -177,6 +189,15 @@ export function buildFinancialModel(
       const incomeField = INCOME_MAP[f.fact_key];
       if (incomeField) {
         period.income[incomeField] = f.fact_value_num!;
+        continue;
+      }
+
+      // Fallback income keys — only fill if the target slot is still empty
+      const fallbackField = INCOME_FALLBACK_MAP[f.fact_key];
+      if (fallbackField) {
+        if (period.income[fallbackField] === undefined) {
+          period.income[fallbackField] = f.fact_value_num!;
+        }
         continue;
       }
 
