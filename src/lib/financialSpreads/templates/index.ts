@@ -8,6 +8,7 @@ import { personalFinancialStatementTemplate } from "@/lib/financialSpreads/templ
 import { personalIncomeTemplate } from "@/lib/financialSpreads/templates/personalIncome";
 import { rentRollTemplate } from "@/lib/financialSpreads/templates/rentRoll";
 import { t12Template } from "@/lib/financialSpreads/templates/t12";
+import { renderStandardSpread } from "@/lib/financialSpreads/standard/renderStandardSpread";
 
 function placeholderTemplate(type: SpreadType): SpreadTemplate {
   const title =
@@ -57,5 +58,25 @@ export function getSpreadTemplate(type: SpreadType): SpreadTemplate | null {
   if (type === "PERSONAL_FINANCIAL_STATEMENT") return personalFinancialStatementTemplate();
   if (type === "T12") return t12Template();
   if (type === "RENT_ROLL") return rentRollTemplate();
+  if (type === "STANDARD") return standardTemplate();
   return null;
+}
+
+function standardTemplate(): SpreadTemplate {
+  return {
+    spreadType: "STANDARD",
+    title: "Financial Analysis",
+    version: 1,
+    priority: 10,
+    prerequisites: () => ({
+      facts: { fact_types: ["INCOME_STATEMENT", "BALANCE_SHEET"], min_count: 1 },
+      note: "Requires at least one income statement or balance sheet fact",
+    }),
+    columns: ["Line Item", "Value"],
+    render: (args) => renderStandardSpread({
+      dealId: args.dealId,
+      bankId: args.bankId,
+      facts: args.facts,
+    }),
+  };
 }
