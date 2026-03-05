@@ -144,49 +144,42 @@ export function validateIncomeStatement(
 }
 
 /**
- * Tax Return: year and entity name required.
+ * Tax Return: check for the presence of financial signals.
  *
- * Does NOT try to balance tax math — only checks structural fields.
+ * Does NOT try to balance tax math — only checks structural plausibility.
+ * Year and entity metadata come from document-level fields (doc_year,
+ * entity binding), not from extracted facts, so we validate based on
+ * financial signal presence instead.
  */
 export function validateTaxReturn(
   facts: FactForValidation[],
 ): ExtractionQualityResult {
-  // Look for year in fact_value_num on a year-related fact
-  const yearFacts = facts.filter(
-    (f) =>
-      f.fact_key === "TAX_YEAR" ||
-      f.fact_key === "FISCAL_YEAR" ||
-      f.fact_key === "YEAR",
-  );
-  const hasYear =
-    yearFacts.length > 0 && yearFacts.some((f) => f.fact_value_num != null);
+  // Tax returns should have at least one income/financial signal.
+  // These are the canonical keys our tax return extractor produces.
+  const taxSignalKeys = [
+    "GROSS_RECEIPTS",
+    "GROSS_PROFIT",
+    "TOTAL_INCOME",
+    "TOTAL_DEDUCTIONS",
+    "TAXABLE_INCOME",
+    "NET_INCOME",
+    "ORDINARY_BUSINESS_INCOME",
+    "ADJUSTED_GROSS_INCOME",
+    "TAX_LIABILITY",
+    "WAGES_W2",
+    "BUSINESS_INCOME_SCHEDULE_C",
+  ];
 
-  // Look for entity/business name in fact_value_text
-  const entityFacts = facts.filter(
-    (f) =>
-      f.fact_key === "ENTITY_NAME" ||
-      f.fact_key === "BUSINESS_NAME" ||
-      f.fact_key === "TAXPAYER_NAME",
+  const hasSignal = taxSignalKeys.some(
+    (k) => findNumericFact(facts, k) != null,
   );
-  const hasEntity =
-    entityFacts.length > 0 &&
-    entityFacts.some(
-      (f) => f.fact_value_text != null && f.fact_value_text.trim().length > 0,
-    );
 
-  if (!hasYear) {
+  if (!hasSignal) {
     return {
       status: "SUSPECT",
-      reason_code: "TAX_MISSING_YEAR",
-      message: "Tax return extraction missing year field",
-    };
-  }
-
-  if (!hasEntity) {
-    return {
-      status: "SUSPECT",
-      reason_code: "TAX_MISSING_ENTITY",
-      message: "Tax return extraction missing entity/taxpayer name",
+      reason_code: "TAX_NO_FINANCIAL_SIGNALS",
+      message:
+        "No financial signals found in extracted tax return (no income, deductions, or tax liability)",
     };
   }
 

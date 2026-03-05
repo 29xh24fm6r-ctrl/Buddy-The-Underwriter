@@ -343,21 +343,21 @@ test("Guard O.1: income statement with revenue → PASSED", () => {
   assert.equal(result.status, "PASSED");
 });
 
-// ── Guard P: Tax return with no year → SUSPECT ──────────────────────
+// ── Guard P: Tax return with no financial signals → SUSPECT ─────────
 
-test("Guard P: tax return with no year → SUSPECT", () => {
+test("Guard P: tax return with no financial signals → SUSPECT", () => {
   const facts: FactForValidation[] = [
     { fact_key: "ENTITY_NAME", fact_value_num: null, fact_value_text: "Acme Corp", fact_type: "TAX_RETURN" },
   ];
   const result = validateTaxReturn(facts);
   assert.equal(result.status, "SUSPECT");
-  assert.equal(result.reason_code, "TAX_MISSING_YEAR");
+  assert.equal(result.reason_code, "TAX_NO_FINANCIAL_SIGNALS");
 });
 
-test("Guard P.1: tax return with year + entity → PASSED", () => {
+test("Guard P.1: tax return with financial signals → PASSED", () => {
   const facts: FactForValidation[] = [
-    { fact_key: "TAX_YEAR", fact_value_num: 2024, fact_value_text: null, fact_type: "TAX_RETURN" },
-    { fact_key: "ENTITY_NAME", fact_value_num: null, fact_value_text: "Acme Corp", fact_type: "TAX_RETURN" },
+    { fact_key: "GROSS_RECEIPTS", fact_value_num: 1_227_085, fact_value_text: null, fact_type: "TAX_RETURN" },
+    { fact_key: "ORDINARY_BUSINESS_INCOME", fact_value_num: 328_324, fact_value_text: null, fact_type: "TAX_RETURN" },
   ];
   const result = validateTaxReturn(facts);
   assert.equal(result.status, "PASSED");
