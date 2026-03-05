@@ -324,10 +324,9 @@ export async function processConfirmedIntake(
 
   /** Process a single document: matching → extraction. */
   async function processOneDoc(doc: ConfirmedDoc): Promise<void> {
+    const effectiveDocType =
+      doc.canonical_type ?? doc.document_type ?? doc.ai_doc_type ?? "";
     const isManualCorrection = doc.match_source === "manual";
-    const effectiveDocType = isManualCorrection
-      ? (doc.gatekeeper_doc_type ?? doc.canonical_type ?? doc.document_type ?? doc.ai_doc_type ?? "")
-      : (doc.canonical_type ?? doc.document_type ?? doc.ai_doc_type ?? "");
 
     // 2a. Matching
     if (effectiveDocType) {
