@@ -13,6 +13,7 @@ import {
   resolveDocTaxYear,
   detectIrsFormType,
   parseMoney,
+  isLikelyReferenceNumber,
   type IrsFormType,
 } from "./parseUtils";
 import {
@@ -159,9 +160,17 @@ export async function extractTaxReturnDeterministic(
     }
   }
 
-  // Fallback to OCR regex
+  // Fallback 1: OCR regex (same-line label+value)
   if (items.length === 0 && args.ocrText.trim()) {
     items = tryOcrRegex(args);
+    path = "ocr_regex";
+  }
+
+  // Fallback 2: IRS line-number parsing (cross-line label/value separation)
+  // IRS form OCR commonly renders values in a separate column, producing:
+  //   "Gross receipts (Form 1065, line 1c)\n...\n1\n797,989.\n2\n..."
+  if (items.length === 0 && args.ocrText.trim()) {
+    items = tryIrsLineNumberParsing(args);
     path = "ocr_regex";
   }
 
@@ -267,6 +276,149 @@ function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
       periodStart,
       periodEnd,
       provenance: makeProvenance(args.documentId, periodEnd, 0.55, result.snippet, "ocr_regex"),
+    });
+  }
+
+  return items;
+}
+
+// ---------------------------------------------------------------------------
+// IRS line-number parsing (handles cross-line OCR)
+// ---------------------------------------------------------------------------
+
+/**
+ * IRS form line number → canonical key mappings.
+ * These map the actual IRS form line numbers to our canonical keys.
+ */
+const IRS_LINE_MAP_1065: Record<string, string> = {
+  "1": "GROSS_RECEIPTS", "1a": "GROSS_RECEIPTS", "1c": "GROSS_RECEIPTS",
+  "3": "GROSS_PROFIT",
+  "12": "OFFICER_COMPENSATION",
+  "13": "SALARIES_WAGES",
+  "15": "DEPRECIATION",
+  "18": "INTEREST_EXPENSE",
+  "16": "RENT_EXPENSE",
+  "21": "TOTAL_DEDUCTIONS",
+  "22": "ORDINARY_BUSINESS_INCOME",
+};
+
+const IRS_LINE_MAP_1120: Record<string, string> = {
+  "1": "GROSS_RECEIPTS", "1a": "GROSS_RECEIPTS", "1c": "GROSS_RECEIPTS",
+  "2": "COST_OF_GOODS_SOLD",
+  "3": "GROSS_PROFIT",
+  "12": "OFFICER_COMPENSATION",
+  "13": "SALARIES_WAGES",
+  "14": "DEPRECIATION", "20": "DEPRECIATION",
+  "18": "INTEREST_EXPENSE",
+  "16": "RENT_EXPENSE", "17": "RENT_EXPENSE",
+  "27": "TOTAL_DEDUCTIONS",
+  "28": "TAXABLE_INCOME", "30": "TAXABLE_INCOME",
+};
+
+const IRS_LINE_MAP_1040: Record<string, string> = {
+  "1": "WAGES_W2",
+  "2b": "INTEREST_INCOME",
+  "7": "CAPITAL_GAINS",
+  "8": "BUSINESS_INCOME_SCHEDULE_C",
+  "9": "TOTAL_INCOME",
+  "11": "ADJUSTED_GROSS_INCOME",
+  "12": "STANDARD_DEDUCTION",
+  "15": "TAXABLE_INCOME",
+  "16": "TAX_LIABILITY", "24": "TAX_LIABILITY",
+};
+
+/** 8879-PE Part I items → 1065 canonical keys (summary form) */
+const IRS_LINE_MAP_8879: Record<string, string> = {
+  "1": "GROSS_RECEIPTS",
+  "2": "GROSS_PROFIT",
+  "3": "ORDINARY_BUSINESS_INCOME",
+  "4": "NET_RENTAL_REAL_ESTATE_INCOME",
+};
+
+function getLineMap(formType: IrsFormType, text: string): Record<string, string> {
+  // Check for 8879 summary form first (e-file authorization)
+  if (/form\s+8879/i.test(text.slice(0, 1000))) {
+    return IRS_LINE_MAP_8879;
+  }
+  switch (formType) {
+    case "1065": return IRS_LINE_MAP_1065;
+    case "1120": case "1120S": return IRS_LINE_MAP_1120;
+    case "1040": return IRS_LINE_MAP_1040;
+    default: return { ...IRS_LINE_MAP_1065, ...IRS_LINE_MAP_1120 };
+  }
+}
+
+/**
+ * Parse IRS form values from OCR text where line numbers and values
+ * appear on separate lines. Common OCR pattern:
+ *   "1\n797,989.\n2\n797,989.\n3\n325,912."
+ *
+ * Also handles inline: "1  797,989." and "1\t797,989."
+ */
+function tryIrsLineNumberParsing(args: DeterministicExtractorArgs): ExtractedLineItem[] {
+  const text = args.ocrText;
+  const formType = detectIrsFormType(text);
+  const lineMap = getLineMap(formType, text);
+  const taxYear = resolveDocTaxYear(text, args.docYear);
+  const period = taxYear ? `FY${taxYear}` : null;
+  const { start: periodStart, end: periodEnd } = normalizePeriod(period);
+
+  const items: ExtractedLineItem[] = [];
+  const seen = new Set<string>();
+
+  // Pattern: line number on its own line, value on the next line
+  // Matches: "1\n797,989." or "1\n$797,989.00" or "22\n(325,912)"
+  const lineValueRe = /(?:^|\n)\s*(\d{1,2}[a-c]?)\s*\n\s*(\$?\(?-?[\d,]+(?:\.\d{1,2})?\)?)\s*(?:\n|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = lineValueRe.exec(text)) !== null) {
+    const lineNum = m[1].toLowerCase();
+    const canonicalKey = lineMap[lineNum];
+    if (!canonicalKey || !VALID_LINE_KEYS.has(canonicalKey)) continue;
+    if (seen.has(canonicalKey)) continue;
+
+    const value = parseMoney(m[2]);
+    if (value === null || value === 0) continue;
+
+    // Guard: reject IRS reference numbers (1040, 1065, etc.)
+    if (isLikelyReferenceNumber(value, m[0])) continue;
+
+    seen.add(canonicalKey);
+    items.push({
+      factKey: canonicalKey,
+      value,
+      confidence: 0.50,
+      periodStart,
+      periodEnd,
+      provenance: makeProvenance(
+        args.documentId, periodEnd, 0.50,
+        `Line ${m[1]}: ${m[2]}`, "ocr_regex",
+      ),
+    });
+  }
+
+  // Also try inline: "line_num  value" on the same line with 2+ spaces or tab
+  const inlineRe = /(?:^|\n)\s*(\d{1,2}[a-c]?)\s{2,}(\$?\(?-?[\d,]+(?:\.\d{1,2})?\)?)\s*(?:\n|$)/g;
+  while ((m = inlineRe.exec(text)) !== null) {
+    const lineNum = m[1].toLowerCase();
+    const canonicalKey = lineMap[lineNum];
+    if (!canonicalKey || !VALID_LINE_KEYS.has(canonicalKey)) continue;
+    if (seen.has(canonicalKey)) continue;
+
+    const value = parseMoney(m[2]);
+    if (value === null || value === 0) continue;
+    if (isLikelyReferenceNumber(value, m[0])) continue;
+
+    seen.add(canonicalKey);
+    items.push({
+      factKey: canonicalKey,
+      value,
+      confidence: 0.50,
+      periodStart,
+      periodEnd,
+      provenance: makeProvenance(
+        args.documentId, periodEnd, 0.50,
+        `Line ${m[1]}: ${m[2]}`, "ocr_regex",
+      ),
     });
   }
 
