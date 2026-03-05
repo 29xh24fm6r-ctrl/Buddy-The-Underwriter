@@ -223,7 +223,7 @@ export async function reconcileDealChecklist(dealId: string) {
     const attempt = await sb
       .from("deal_documents")
       // doc_years/document_type may not exist yet in some environments.
-      .select("id, original_filename, checklist_key, doc_year, doc_years, document_type")
+      .select("id, original_filename, checklist_key, doc_year, doc_years, document_type, canonical_type")
       .eq("deal_id", dealId);
 
     if (attempt.error) {
@@ -411,7 +411,7 @@ export async function reconcileDealChecklist(dealId: string) {
   {
     const attempt = await sb
       .from("deal_documents")
-      .select("id, checklist_key, doc_year, doc_years, document_type")
+      .select("id, checklist_key, doc_year, doc_years, document_type, canonical_type")
       .eq("deal_id", dealId);
 
     if (attempt.error) {
@@ -470,7 +470,7 @@ export async function reconcileDealChecklist(dealId: string) {
       docsByKey.set(key, arr);
     }
 
-    const dt = String((d as any)?.document_type || "").trim().toLowerCase();
+    const dt = String((d as any)?.canonical_type || (d as any)?.document_type || "").trim().toLowerCase();
     if (dt) {
       const arr = docsByType.get(dt) ?? [];
       arr.push(d);
