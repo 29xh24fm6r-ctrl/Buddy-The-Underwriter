@@ -54,27 +54,37 @@ function isSentinelDate(d: string | null | undefined): boolean {
 // Fact type → period slot mapping
 // ---------------------------------------------------------------------------
 
-/** Maps fact_key → FinancialPeriod property path (primary: last-wins) */
-const INCOME_MAP: Record<string, keyof FinancialPeriod["income"]> = {
-  TOTAL_REVENUE: "revenue",
-  GROSS_RECEIPTS: "revenue",              // tax return top-line (1065 line 1c, 1120 line 1c)
-  COST_OF_GOODS_SOLD: "cogs",
-  TOTAL_OPERATING_EXPENSES: "operatingExpenses",
-  DEPRECIATION: "depreciation",
-  DEBT_SERVICE: "interest",
-  INTEREST_EXPENSE: "interest",           // tax return interest (1065 line 15, 1120 line 18)
-  ORDINARY_BUSINESS_INCOME: "netIncome",  // 1065/1120 bottom line (line 23 / line 28)
-  NET_INCOME: "netIncome",
-};
-
 /**
- * Fallback mappings — only fill the target field if not already set.
- * Lower-priority tax return keys that serve as proxies when the
- * preferred key is absent.
+ * Priority-based income slot mapping.
+ *
+ * Multiple fact keys can target the same income field (e.g. GROSS_RECEIPTS
+ * and TOTAL_INCOME both → "revenue"). When duplicates exist (same key from
+ * different source documents, or different keys targeting the same field),
+ * the HIGHEST PRIORITY wins regardless of array order.
+ *
+ * Within the same priority tier, the first fact encountered wins (stable).
  */
-const INCOME_FALLBACK_MAP: Record<string, keyof FinancialPeriod["income"]> = {
-  TOTAL_INCOME: "revenue",     // 1065 line 8 — only if GROSS_RECEIPTS absent
-  TAXABLE_INCOME: "netIncome", // 1040 line 15 — only if ORDINARY_BUSINESS_INCOME/NET_INCOME absent
+type IncomeSlot = { field: keyof FinancialPeriod["income"]; priority: number };
+const INCOME_PRIORITY: Record<string, IncomeSlot> = {
+  // ── revenue ───────────────────────────────────────────────────────────
+  TOTAL_REVENUE:             { field: "revenue", priority: 10 },
+  GROSS_RECEIPTS:            { field: "revenue", priority: 10 }, // 1065 line 1c / 1120 line 1c
+  TOTAL_INCOME:              { field: "revenue", priority: 5 },  // 1065 line 8 — fallback
+  // ── cogs ──────────────────────────────────────────────────────────────
+  COST_OF_GOODS_SOLD:        { field: "cogs", priority: 10 },
+  // ── operatingExpenses ─────────────────────────────────────────────────
+  TOTAL_OPERATING_EXPENSES:  { field: "operatingExpenses", priority: 10 },
+  TOTAL_DEDUCTIONS:          { field: "operatingExpenses", priority: 5 },  // 1065 line 22 / 1120 line 27
+  // ── depreciation ──────────────────────────────────────────────────────
+  DEPRECIATION:              { field: "depreciation", priority: 10 },
+  // ── interest ──────────────────────────────────────────────────────────
+  DEBT_SERVICE:              { field: "interest", priority: 10 },
+  INTEREST_EXPENSE:          { field: "interest", priority: 8 },  // 1065 line 15 / 1120 line 18
+  // ── netIncome ─────────────────────────────────────────────────────────
+  ORDINARY_BUSINESS_INCOME:  { field: "netIncome", priority: 10 }, // 1065 line 23 / 1120 line 28
+  NET_INCOME:                { field: "netIncome", priority: 8 },
+  TAXABLE_INCOME:            { field: "netIncome", priority: 5 },  // 1040 line 15
+  ADJUSTED_GROSS_INCOME:     { field: "netIncome", priority: 3 },  // 1040 line 11 — lowest
 };
 
 const BALANCE_MAP: Record<string, keyof FinancialPeriod["balance"]> = {
@@ -184,19 +194,22 @@ export function buildFinancialModel(
       qualityFlags: [],
     };
 
-    // Map facts to period slots
-    for (const f of periodFacts) {
-      const incomeField = INCOME_MAP[f.fact_key];
-      if (incomeField) {
-        period.income[incomeField] = f.fact_value_num!;
-        continue;
-      }
+    // Map facts to period slots (priority-based: highest priority wins per field)
+    const fieldPriority: Record<string, number> = {};
 
-      // Fallback income keys — only fill if the target slot is still empty
-      const fallbackField = INCOME_FALLBACK_MAP[f.fact_key];
-      if (fallbackField) {
-        if (period.income[fallbackField] === undefined) {
-          period.income[fallbackField] = f.fact_value_num!;
+    // Sort by confidence DESC so higher-confidence facts from different
+    // source documents win when two facts share the same key + priority.
+    const sorted = [...periodFacts].sort(
+      (a, b) => (b.confidence ?? 0) - (a.confidence ?? 0),
+    );
+
+    for (const f of sorted) {
+      const slot = INCOME_PRIORITY[f.fact_key];
+      if (slot) {
+        const cur = fieldPriority[slot.field] ?? -1;
+        if (slot.priority > cur) {
+          period.income[slot.field] = f.fact_value_num!;
+          fieldPriority[slot.field] = slot.priority;
         }
         continue;
       }
