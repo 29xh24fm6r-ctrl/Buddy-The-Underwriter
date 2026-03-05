@@ -58,9 +58,20 @@ function buildFactsMap(
 /** Sentinel dates used as placeholders when real period is unknown. */
 const SENTINEL_DATES = new Set(["1900-01-01", "0001-01-01"]);
 
+/** Fact types that confirm a full fiscal year period. */
+const FULL_YEAR_FACT_TYPES = new Set([
+  "TAX_RETURN",
+  "PERSONAL_INCOME",
+]);
+
 /**
  * Detect distinct periods from facts (for multi-period columns).
  * Filters out sentinel dates that represent "unknown period".
+ *
+ * Column labels reflect period certainty:
+ *   - Tax returns / personal income → "FY YYYY" (confirmed full fiscal year)
+ *   - IS/BS/PFS ending Dec 31 (docYear fallback) → "YTD YYYY" (period may be partial)
+ *   - Specific non-Dec-31 dates → "Mon YYYY" (clearly dated)
  */
 function detectPeriods(facts: FinancialFact[]): PeriodBucket[] {
   const periodEnds = new Set<string>();
@@ -82,23 +93,48 @@ function detectPeriods(facts: FinancialFact[]): PeriodBucket[] {
     }];
   }
 
+  // Build fact-type set per period for label classification
+  const factTypesByPeriod = new Map<string, Set<string>>();
+  for (const f of facts) {
+    if (f.fact_period_end && !SENTINEL_DATES.has(f.fact_period_end)) {
+      if (!factTypesByPeriod.has(f.fact_period_end)) {
+        factTypesByPeriod.set(f.fact_period_end, new Set());
+      }
+      factTypesByPeriod.get(f.fact_period_end)!.add(f.fact_type);
+    }
+  }
+
   // Multi-period: create a column per distinct period_end
   return sorted.map((pe) => ({
     key: pe,
-    label: formatPeriodLabel(pe),
+    label: formatPeriodLabel(pe, factTypesByPeriod.get(pe)),
     kind: "other" as const,
     start_date: null,
     end_date: pe,
   }));
 }
 
-function formatPeriodLabel(periodEnd: string): string {
-  // Try to parse YYYY-MM-DD → "Dec 2024"
-  const m = periodEnd.match(/^(\d{4})-(\d{2})/);
+function formatPeriodLabel(periodEnd: string, factTypes?: Set<string>): string {
+  const m = periodEnd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return periodEnd;
+
+  const year = m[1];
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+
+  // Check if any fact in this period confirms a full fiscal year
+  const hasFullYear = factTypes
+    ? [...factTypes].some((ft) => FULL_YEAR_FACT_TYPES.has(ft))
+    : false;
+
+  // Dec 31 ending → either "FY YYYY" or "YTD YYYY" depending on fact types
+  if (month === 12 && day === 31) {
+    return hasFullYear ? `FY ${year}` : `YTD ${year}`;
+  }
+
+  // Non-Dec-31 dates → "Mon YYYY" (clearly a specific statement date)
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const monthIdx = Number(m[2]) - 1;
-  return `${months[monthIdx] ?? m[2]} ${m[1]}`;
+  return `${months[month - 1] ?? m[2]} ${year}`;
 }
 
 /**
