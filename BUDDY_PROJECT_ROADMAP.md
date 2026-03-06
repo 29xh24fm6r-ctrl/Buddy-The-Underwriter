@@ -11,17 +11,47 @@
 Buddy is a commercial lending AI platform that processes financial documents,
 performs underwriting analysis, and generates risk assessments for banks.
 
-The north star is simple: **every number that reaches a credit committee must
-be correct, traceable, and defensible under audit.**
+The north star: **every number that reaches a credit committee must be
+correct, traceable, and defensible under audit — without requiring a human
+to manually verify the math.**
 
 Buddy is not a tool that assists humans in doing analysis.
-Buddy is a system that performs institutional-grade analysis autonomously,
-with humans providing governance, oversight, and final credit authority.
+Buddy is a system that performs institutional-grade analysis autonomously.
+Humans provide credit judgment and final authority. Not data verification.
 
-The difference between Buddy and a spreadsheet is that Buddy handles 90% of
-the work automatically and only surfaces the hard cases for human judgment.
-The difference between Buddy and legacy systems like Moody's MMAS is that
-Buddy learns, improves, and doesn't require 100% manual data entry.
+The difference between Buddy and a spreadsheet is that Buddy handles 100%
+of the data work automatically and delivers a verified, ready-to-review spread.
+The difference between Buddy and Moody's MMAS is that Buddy proves its own
+accuracy mathematically before the spread ever reaches a banker's desk.
+
+**The goal: a banker opens a spread and focuses entirely on credit judgment.
+They never wonder if the numbers are right. They already know they are.**
+
+---
+
+## The Accuracy Philosophy — Two Distinct Problems
+
+There is a critical distinction that defines Buddy's architecture:
+
+**Problem 1 — Data accuracy verification.**
+Are the extracted numbers correct? Did Buddy get Revenue right? Is COGS right?
+This is a TECHNICAL problem. It can be solved with sufficient rigor.
+When solved, NO human verification of data is needed.
+
+**Problem 2 — Credit decision authority.**
+Should this loan be approved? At what rate? With what structure?
+This is a JUDGMENT problem. It requires human authority by regulation.
+OCC Model Risk Management (SR 11-7) and FDIC guidance require human oversight
+of credit decisions. This is non-negotiable and should not be.
+
+**The target state:** Buddy solves Problem 1 completely and autonomously.
+Humans focus entirely on Problem 2. The banker reviews a spread they can
+trust completely — not because they checked the math, but because Buddy
+proved the math before delivery.
+
+This is better than any existing system. MMAS requires manual data entry
+and relies on the analyst to catch errors. Buddy catches errors itself,
+proves accuracy mathematically, and delivers a clean spread for credit judgment.
 
 ---
 
@@ -38,11 +68,13 @@ Structured Extraction Engine
         ↓
 IRS Knowledge Base + Identity Validation    ← Phase 1 & 2 COMPLETE
         ↓
-Financial Intelligence Layer               ← Phase 3
+Proof-of-Correctness Engine                ← Phase 4 (replaces human gate)
+        ↓
+Financial Intelligence Layer               ← Phase 5
         ↓
 Spread Generation (MMAS format)
         ↓
-Analyst Review Gate
+AUTO-VERIFIED → Banker reviews for credit judgment only
         ↓
 Credit Memo + Committee Package
 ```
@@ -53,11 +85,11 @@ Buddy operates on a dual-layer intelligence model:
 
 - **Buddy** — the domain-specific interface. Processes documents, extracts
   facts, generates spreads, communicates with bankers and borrowers.
-  Buddy emits facts. Buddy never forms final beliefs.
+  Buddy emits facts. Buddy never forms final credit beliefs.
 
 - **Pulse Omega Prime** — the centralized intelligence core. Receives facts
   from Buddy, applies reasoning and confidence scoring, returns beliefs with
-  explicit uncertainty. Omega forms beliefs. Humans make decisions.
+  explicit uncertainty. Omega forms beliefs. Humans make credit decisions.
 
 This separation is regulatory by design. AI explains. Rules decide.
 Humans retain final credit authority through credit committee governance.
@@ -85,26 +117,61 @@ audit failures. It destroys trust with the bankers who depend on the system.
 
 Therefore Buddy's accuracy architecture is non-negotiable:
 
-**No incorrect number can reach a spread without being detected.**
+**No incorrect number can reach a spread without being detected and corrected.**
 
-### Three-Tier Accuracy System
+### Four-Gate Proof-of-Correctness System
 
-**Tier 1 — AI Extraction**
-Probabilistic. Fast. Handles 80-90% of cases correctly automatically.
-Outputs confidence scores. Flags uncertainty explicitly.
+The system proves accuracy through four independent gates that must ALL pass
+before a spread is marked AUTO-VERIFIED. If any gate fails, the system
+re-extracts using a different method and tries again. Only after multiple
+extraction attempts fail does a document route to human review — and at that
+point it is genuinely ambiguous and deserves a human eye.
 
-**Tier 2 — IRS Identity Validation** ← BUILT
-Deterministic. After extraction, verify every number against the accounting
-identities built into the IRS form. These are mathematical facts that must hold.
-If extracted numbers don't satisfy them, extraction failed.
+**Gate 1 — IRS Identity Checks** ← BUILT (Phase 1)
+Every accounting identity on the IRS form must reconcile within $1.
+Line 1c - Line 2 = Line 3. Total Income - Total Deductions = OBI.
+These are mathematical facts. If they hold, the numbers are internally
+consistent with the source document. No way to get this wrong and pass.
 
-**Tier 3 — Analyst Review Gate** ← IN PROGRESS
-Any document that fails identity checks, or where confidence falls below
-threshold, goes into a human review queue. A human verifies and signs off
-before the spread is marked distribution-ready.
+**Gate 2 — Multi-Source Corroboration** ← Phase 4
+The same value must appear in at least two independent locations and agree.
+Revenue on Form 1065 page 1 matches Schedule K Total Income.
+Depreciation on page 1 matches Form 4562 total.
+OBI matches sum of K-1 partner allocations.
+When two independent sources agree on the same number, extraction error
+probability drops to near zero.
 
-Together these three tiers produce audit-grade output. No tier alone is
-sufficient. All three working together is the accuracy guarantee.
+**Gate 3 — Reasonableness Engine** ← Phase 4
+Numbers must pass financial sanity checks that catch errors identity checks
+cannot see:
+- COGS never exceeds revenue (impossible)
+- Gross margin within ±3 standard deviations of industry norm for NAICS code
+- Year-over-year revenue change within explainable bounds
+- Depreciation plausible relative to reported fixed assets
+- Interest expense plausible relative to reported debt obligations
+- Officer compensation within industry normal range for business size
+
+**Gate 4 — Extraction Confidence Threshold** ← Phase 4
+Every extracted value carries a confidence score.
+Deterministic line-number match: 0.99
+Structural table match: 0.92
+AI fallback extraction: 0.75-0.88
+All values on a document must exceed 0.90 for AUTO-VERIFIED status.
+Values below threshold trigger re-extraction with an alternative method.
+
+**When all four gates pass:**
+`spread_verification_status = AUTO-VERIFIED`
+No queue. No wait. No human data verification needed.
+Spread goes directly to the banker's desk, clean and proven.
+
+**When a gate fails:**
+System re-extracts using a different extraction strategy.
+Runs all four gates again.
+If second extraction also fails: routes to exception queue with full
+diagnostic detail — exactly which check failed, by how much, what was
+expected. The human reviewer sees a clear problem statement, not raw data.
+
+**Target: 95%+ of clean tax returns hit AUTO-VERIFIED with zero human touch.**
 
 ---
 
@@ -125,7 +192,8 @@ Buddy must be an institutional-grade expert in:
 
 This knowledge is not a prompt. It is a living, versioned, tested codebase
 that encodes the expertise of seasoned credit officers and CPAs.
-Every correction from an analyst makes it smarter.
+Every exception routed to human review makes it smarter — because the system
+logs what it got wrong and why, and every pattern informs future extractions.
 
 ---
 
@@ -151,12 +219,6 @@ Built the domain intelligence foundation that everything else runs on.
 - 5 tests, all passing. Test 3 catches the OBI-as-revenue extraction bug
   found in production on the Samaritus Management deal.
 
-**Key design decisions:**
-- COGS null-as-zero: service businesses have no COGS, null is valid
-- Graduated response: not binary block/allow but VERIFIED/FLAGGED/BLOCKED/PARTIAL
-- Versioned by tax year: line numbers change between years (this has already
-  caused production extraction errors)
-
 ---
 
 ### PHASE 2 — Wire Validator Into Extraction Pipeline 🔄 IN PROGRESS
@@ -165,75 +227,163 @@ Connect the Phase 1 knowledge base to the live extraction pipeline so that
 every document processed by Buddy is automatically validated.
 
 **To Build:**
-- `src/lib/extraction/postExtractionValidator.ts` — bridge between extraction
-  and IRS knowledge base. Fires after every successful extraction run.
-  Loads facts from DB, runs validation, persists results, writes Aegis findings.
-- Modify `src/lib/extraction/runRecord.ts` — fire postExtractionValidation
-  after finalizeExtractionRun with status=succeeded (dynamic import,
-  fire-and-forget, never blocks extraction)
-- Modify `src/app/api/deals/[dealId]/spreads/standard/route.ts` — add
-  validationGate object to every spread response
+- `src/lib/extraction/postExtractionValidator.ts`
+- Modify `src/lib/extraction/runRecord.ts`
+- Modify spread route to return `validationGate` object
 - Migration: `deal_document_validation_results` table
-
-**After Phase 2:**
-Every extraction automatically runs IRS checks. Blocked extractions surface
-in Aegis. Bankers see validation status on every spread.
 
 ---
 
 ### PHASE 3 — Formula Accuracy Fixes 📋 QUEUED
 
-Fix the three formula errors identified in the spread calculation audit.
-These are blocking correct spread rendering for real deals.
-
-**Bugs to fix:**
+Fix three formula errors identified in production on the Samaritus deal.
 
 **Bug 1 — GROSS_PROFIT fails when COGS = 0**
-Location: `src/lib/metrics/registry.ts`
-Problem: `GROSS_PROFIT.requiredFacts` includes `COST_OF_GOODS_SOLD`. When COGS
-is absent (service business), evaluateMetric returns null instead of Revenue.
-Fix: Remove COST_OF_GOODS_SOLD from requiredFacts. When COGS is null,
-treat as 0. Gross Profit = Revenue for service companies.
+`src/lib/metrics/registry.ts` — remove COST_OF_GOODS_SOLD from requiredFacts,
+treat null COGS as zero for service businesses.
 
 **Bug 2 — EBITDA is an identity lookup, not a computation**
-Location: `src/lib/metrics/registry.ts`
-Problem: EBITDA expr is `"EBITDA"` — just looks up a pre-computed fact.
-If the fact was computed from wrong inputs, the error propagates silently.
-Fix: Change expr to `"ORDINARY_BUSINESS_INCOME + INTEREST_EXPENSE + DEPRECIATION"`
-so EBITDA is always computed from components, never trusted as a stored value.
+`src/lib/metrics/registry.ts` — change EBITDA expr from `"EBITDA"` to
+`"ORDINARY_BUSINESS_INCOME + INTEREST_EXPENSE + DEPRECIATION"`
 
 **Bug 3 — OBI in TOTAL_REVENUE alias chain**
-Location: `src/lib/financialSpreads/standard/renderStandardSpread.ts`
-and `src/lib/financialSpreads/standard/v2Adapter.ts`
-Problem: TOTAL_REVENUE alias chain includes ORDINARY_BUSINESS_INCOME as a
-fallback. OBI is net income (after all deductions), never top-line revenue.
-When revenue is missing, OBI fills in — producing catastrophically wrong spreads.
-Fix: Remove ORDINARY_BUSINESS_INCOME from TOTAL_REVENUE alias chain entirely.
-OBI belongs only in NET_PROFIT aliases.
+`renderStandardSpread.ts` and `v2Adapter.ts` — remove ORDINARY_BUSINESS_INCOME
+from TOTAL_REVENUE alias chain. OBI is net income, never top-line revenue.
 
-**Golden fixture tests to add:**
-After fixes, add test assertions:
+**Golden fixture tests:**
 - Samaritus 2022: Revenue=797989, COGS=0, GP=797989, OBI=325912, EBITDA=526365
 - Samaritus 2024: Revenue=1502871, COGS=449671, GP=1053200, OBI=269816
 
 ---
 
-### PHASE 4 — Analyst Review Gate UI 📋 QUEUED
+### PHASE 4 — Proof-of-Correctness Engine 📋 QUEUED
 
-Surface validation status to bankers in the spread UI.
+**This phase replaces the human analyst review gate with autonomous
+mathematical proof of accuracy.**
 
-**To Build:**
-- Spread header banner: VERIFIED (green) / FLAGGED (yellow) / BLOCKED (red)
-- Per-column validation indicators on spread cells sourced from flagged documents
-- "Mark as Reviewed" button for analysts to sign off on flagged documents
-- Spread export (PDF) blocked until all documents are VERIFIED or ANALYST_VERIFIED
-- `analyst_verified_at`, `analyst_verified_by` columns on deal_document_validation_results
-- `is_distribution_ready` flag on deal_spreads — only true after analyst sign-off
+The goal: Buddy proves its own numbers are correct before delivery.
+A spread marked AUTO-VERIFIED needs no human data verification.
+The banker's job is credit judgment, not checking Buddy's math.
 
-**Design principle:**
-A spread with BLOCKED status still renders — but with a prominent red banner
-and no export capability. The banker can see the data and investigate.
-They cannot send it to a credit committee. This is the accuracy guarantee.
+**Component 1: Multi-Source Corroboration Engine**
+`src/lib/irsKnowledge/corroborationEngine.ts`
+
+For every key fact, identify secondary sources within the same document set
+and verify agreement:
+
+```
+Form 1065 corroboration checks:
+  GROSS_RECEIPTS: page1_line1c == scheduleK_grossReceipts
+  ORDINARY_BUSINESS_INCOME: page1_line22or23 == sum(k1_ordinary_income)
+  DEPRECIATION: page1_line16c == form4562_totalDepreciation
+  INTEREST: page1_line15 + form1125a_interest == total_interest_expense
+  TOTAL_ASSETS: scheduleL_endOfYear == balanceSheet_totalAssets
+
+Form 1120/1120S corroboration:
+  GROSS_RECEIPTS: page1 == scheduleM1_bookIncome_bridge
+  TOTAL_ASSETS: scheduleL_endOfYear == balanceSheet_totalAssets
+  OFFICER_COMP: page1_line12 == form1125e_totalOfficerComp
+```
+
+When two independent sources agree within $1: corroboration PASSED.
+When they disagree: flag the specific discrepancy with both values.
+
+**Component 2: Reasonableness Engine**
+`src/lib/irsKnowledge/reasonablenessEngine.ts`
+
+Financial sanity checks that catch impossible and anomalous values:
+
+```typescript
+// Impossible values — hard failures
+COGS_EXCEEDS_REVENUE: cogs > grossReceipts → IMPOSSIBLE
+NEGATIVE_TOTAL_ASSETS: totalAssets < 0 → IMPOSSIBLE
+GROSS_MARGIN_OVER_100: grossProfit > grossReceipts → IMPOSSIBLE
+POSITIVE_INCOME_WITH_REVENUE_ZERO: obi > 0 && grossReceipts === 0 → IMPOSSIBLE
+
+// Anomalous values — soft warnings, include in confidence scoring
+GROSS_MARGIN_OUTSIDE_INDUSTRY_NORM: |margin - industryNorm| > 2σ
+REVENUE_CHANGE_EXTREME: |yoyChange| > 50% without explanation
+DEPRECIATION_IMPLAUSIBLE: depreciation > fixedAssetsGross * 0.5
+OFFICER_COMP_EXTREME: officerComp > revenue * 0.5 or < revenue * 0.02
+INTEREST_IMPLAUSIBLE: interestExpense > totalDebt * 0.20
+```
+
+Industry norms sourced from Phase 6 NAICS industry profiles.
+For Phase 4, use broad defaults until industry profiles are built.
+
+**Component 3: Confidence Aggregator**
+`src/lib/irsKnowledge/confidenceAggregator.ts`
+
+Aggregate per-field confidence scores into a document-level score:
+
+```
+document_confidence =
+  weighted_average(field_confidence_scores)
+  × identity_check_multiplier    (1.0 if all pass, 0.7 if any fail)
+  × corroboration_multiplier     (1.0 if all pass, 0.8 if partial, 0.5 if fail)
+  × reasonableness_multiplier    (1.0 if all pass, 0.9 if soft warnings only)
+
+AUTO_VERIFIED threshold: document_confidence >= 0.92
+FLAGGED threshold:       document_confidence >= 0.75
+BLOCKED threshold:       document_confidence < 0.75
+```
+
+**Component 4: Intelligent Re-Extraction**
+`src/lib/extraction/reExtractionOrchestrator.ts`
+
+When any gate fails on first extraction, automatically re-extract using
+a different strategy before routing to human review:
+
+```
+Attempt 1: Deterministic line-number matching (fast, precise)
+  → If identity checks fail → Attempt 2
+
+Attempt 2: Structural table extraction (layout-aware)
+  → If identity checks fail → Attempt 3
+
+Attempt 3: AI-guided extraction with explicit form knowledge
+  (Prompt includes form spec, known line numbers, identity checks to satisfy)
+  → If identity checks still fail → Route to exception queue
+
+Exception queue entry includes:
+  - Which specific checks failed
+  - By exactly how much
+  - What values were found vs what was expected
+  - All three extraction attempts side by side
+```
+
+**Component 5: AUTO-VERIFIED Status + Audit Certificate**
+
+When all four gates pass after any extraction attempt:
+- Set `verification_status = AUTO_VERIFIED`
+- Set `verification_method = "proof_of_correctness"`
+- Generate verification certificate stored in ledger:
+
+```json
+{
+  "document_id": "...",
+  "verification_status": "AUTO_VERIFIED",
+  "gates_passed": {
+    "irs_identity_checks": { "passed": 3, "failed": 0 },
+    "multi_source_corroboration": { "passed": 4, "failed": 0 },
+    "reasonableness_checks": { "passed": 8, "failed": 0 },
+    "confidence_threshold": { "score": 0.97, "threshold": 0.92 }
+  },
+  "verified_at": "2026-03-06T...",
+  "extraction_attempt": 1,
+  "auditable": true
+}
+```
+
+This certificate is the audit trail. It proves, deterministically, that
+Buddy verified its own output before delivery. An OCC examiner can look
+at this certificate and see exactly what was checked and how.
+
+**Human review queue — for genuine exceptions only:**
+Documents that fail all three extraction attempts route to a queue.
+These will be rare. When they occur, the banker sees exactly what failed
+and why — not a generic "please review" message.
+After review, the correction feeds back into the extraction improvement loop.
 
 ---
 
@@ -242,147 +392,106 @@ They cannot send it to a credit committee. This is the accuracy guarantee.
 Build the credit intelligence that transforms raw extracted numbers into
 analyst-quality adjusted financials.
 
-**Components:**
-
 **EBITDA Add-Back Engine**
 - Standard add-backs: D&A, interest, Section 179, bonus depreciation
 - Industry add-backs: guaranteed payments (partnerships), officer comp
-  normalization (closely-held corps), non-recurring items
-- Interest-in-COGS detection: for maritime, construction, and other industries
-  where interest is classified as a direct cost, identify and pull it out
-  for the EBITDA add-back regardless of where it appears on the return
+  normalization, non-recurring items
+- Interest-in-COGS detection: maritime, construction, and other industries
+  where interest is classified as a direct cost
 
 **Officer Compensation Normalization**
-- Closely-held businesses often pay officers above or below market rate
-- Above market: excess compensation is an effective add-back (real EBITDA higher)
-- Below market: owner taking distributions instead — personal cash flow higher
-  than the return shows, but entity cash flow may be overstated
-- System flags when officer comp is >40% or <10% of revenue for analyst review
+- Flag when officer comp is >40% or <10% of revenue
+- Compute adjusted EBITDA with market-rate officer comp assumption
+- Document the adjustment with source and methodology
 
 **Global Cash Flow Builder**
-- Assembles the complete borrower picture across:
-  - Entity tax returns (operating income)
-  - Personal tax returns (W-2, other Schedule C, K-1 income)
-  - Guarantor returns (for personal guarantee analysis)
-- Maps K-1 income to the correct personal return
-- Applies ownership percentage to entity income for global cash flow
+- Multi-entity picture: operating company + personal guarantors
+- K-1 income mapped to correct personal return
+- Ownership percentage applied to entity income
+- Personal debt obligations from personal returns included
 
 **Schedule M-1 Exploitation**
-- M-1 reconciles book income to tax income
-- Contains: depreciation timing differences, meals & entertainment,
-  officer life insurance, other book-tax differences
-- Using M-1 makes EBITDA reconstruction significantly more accurate
-- System must pull M-1 data when available and use it for add-back analysis
+- Book-to-tax bridge reveals non-cash and non-deductible items
+- Use M-1 data to improve EBITDA reconstruction accuracy
+- Flag significant book-tax differences for credit analysis
 
 ---
 
 ### PHASE 6 — Industry Intelligence 📋 QUEUED
 
-Build industry-aware extraction and analysis profiles.
+NAICS-based industry profiles that make every extraction and analysis
+industry-aware. Feeds directly into Phase 4 Reasonableness Engine.
 
-**NAICS-Based Industry Profiles**
-When a deal is classified to a NAICS code, load the corresponding industry
-profile that tells the system:
-- What COGS typically includes for this industry
-- Where interest expense typically lives (line 15 vs inside COGS)
-- What depreciation add-backs are typical
-- What officer compensation norms look like
-- What gross margin ranges are normal vs anomalous
-- Industry-specific red flags
-
-**Initial Industry Profiles to Build:**
-- Maritime / Charter Boats (NAICS 487210) — interest in COGS, heavy depreciation
+**Initial profiles:**
+- Maritime / Charter Boats (NAICS 487210) — interest in COGS, heavy depr
 - Real Estate (NAICS 531) — NOI-based analysis, depreciation add-back
 - Medical Practices (NAICS 621) — personal goodwill, equipment depreciation
-- Construction (NAICS 236-238) — WIP accounting, equipment, bonding
+- Construction (NAICS 236-238) — WIP, equipment, bonding
 - Retail (NAICS 44-45) — inventory method, COGS structure
 - Restaurants (NAICS 722) — food cost ratios, labor percentages
 - Professional Services (NAICS 541) — low COGS, high labor, DSO analysis
+
+Each profile includes: normal gross margin range, typical COGS components,
+where interest expense typically lives, officer comp norms, red flags.
 
 ---
 
 ### PHASE 7 — Cross-Document Reconciliation 📋 QUEUED
 
-Reconcile numbers across multiple documents to catch inconsistencies that
-single-document validation cannot detect.
+Reconcile numbers across multiple documents in a deal package.
 
-**Reconciliation Checks:**
-
-K-1 to Entity Return:
+**Checks:**
 ```
-sum(k1_ordinary_income × ownership_pct) ≈ entity_ordinary_business_income
-```
-
-K-1 to Personal Return:
-```
-k1_income_on_personal_return ≈ k1_income_on_entity_return × ownership_pct
-```
-
-Tax Return to Financial Statement:
-```
-tax_return_gross_receipts ≈ income_statement_revenue (within 5%)
-tax_return_total_assets ≈ balance_sheet_total_assets (within 5%)
-```
-
-Multi-Year Trend Reasonableness:
-```
-revenue_growth_yoy within industry norms
-gross_margin_change within ±10% year-over-year
-depreciation_as_pct_of_fixed_assets within expected range
+K-1 to Entity:    sum(k1_income × ownership_pct) ≈ entity_obi
+K-1 to Personal:  k1_on_personal ≈ k1_on_entity × ownership_pct
+Tax to Financials: tax_revenue ≈ statement_revenue (within 5%)
+Balance Sheet:    assets = liabilities + equity (both sources)
+Multi-year trend: revenue/margin changes within explainable bounds
 ```
 
 ---
 
 ### PHASE 8 — Golden Corpus + Continuous Learning 📋 QUEUED
 
-Build the test corpus and feedback loop that makes Buddy smarter over time.
-
 **Golden Corpus**
-A library of verified financial documents with ground-truth extraction values.
-Every document type, every major industry, multiple tax years.
-Automated tests assert that extraction matches ground truth on every commit.
-No regression may be introduced without failing tests.
+Library of verified documents with ground-truth values.
+Every type, every industry, multiple years.
+Automated CI tests assert extraction matches ground truth on every commit.
 
-Minimum corpus at launch:
-- 5 Form 1065 returns (different industries, different years)
-- 3 Form 1120 returns
-- 3 Form 1120S returns
-- 3 Form 1040 returns with Schedule C
-- 2 audited financial statements
-- 2 reviewed financial statements
+Minimum corpus:
+- 5 Form 1065 (different industries, different years)
+- 3 Form 1120 / 3 Form 1120S
+- 3 Form 1040 with Schedule C
+- 2 audited / 2 reviewed financial statements
 - 1 complex multi-entity deal with K-1s flowing to personal returns
 
-**Analyst Correction Loop**
-When an analyst corrects an extracted value:
-1. Write correction to `deal_financial_facts` with source_type = MANUAL
-2. Write correction event to ledger
-3. Write to `extraction_correction_log` with original vs corrected value,
-   document type, tax year, field, and analyst ID
-4. Nightly job computes correction frequency by field × document type
-5. High-frequency corrections flag the extraction rule for review
-6. Over time: corrections become training signal for improved extraction prompts
+**Continuous Learning Loop**
+Every exception routed to human review:
+1. Logs original extraction, correct values, and what failed
+2. Nightly analysis: which fields, which document types, which industries
+   produce the most exceptions
+3. High-frequency exception patterns flag extraction rules for improvement
+4. Over time: exception rate drops as rules improve
+5. Target: <2% exception rate on standard tax returns within 12 months
 
 ---
 
 ### PHASE 9 — Full Commercial Banking Relationship 📋 FUTURE
 
-Expand Buddy from loan-only to full commercial banking relationship.
+Expand beyond loans to full relationship banking.
 
-Commercial officers work across three pillars:
-- **Loans** — credit analysis, underwriting, risk assessment (current focus)
-- **Deposits** — operating account analysis, deposit relationship pricing
-- **Treasury** — cash management, interest rate products, FX, hedging
+**Three Pillars:**
+- Loans — credit analysis, underwriting (current focus)
+- Deposits — operating account analysis, relationship pricing
+- Treasury — cash management, rate products, FX, hedging
 
-Relationship Pricing:
-- Legally bundle treasury and deposit considerations into loan pricing
-- Move beyond illegal tying arrangements toward compliant relationship pricing
-- Model the full relationship value when making credit and pricing decisions
+**Relationship Pricing:**
+Model full relationship value in credit and pricing decisions.
+Legal compliant bundling (not tying) of treasury and deposit value.
 
-Crypto Lending:
-- Real-time monitoring of crypto collateral values
-- Trigger price indexing for margin calls (computationally efficient —
-  not continuous polling)
-- Integration with digital asset custody platforms
+**Crypto Lending:**
+Real-time collateral monitoring via trigger price indexing.
+Margin call automation. Digital asset custody integration.
 
 ---
 
@@ -394,9 +503,9 @@ Crypto Lending:
 | Database | Supabase (PostgreSQL) |
 | AI Models | Claude (Anthropic), Gemini Flash (extraction) |
 | Integration | MCP (Model Context Protocol) |
-| Event Ledger | Supabase `deal_events` table (append-only) |
+| Event Ledger | Supabase `deal_events` (append-only) |
 | Deployment | Vercel (frontend), Cloud Run (workers) |
-| Observability | Aegis findings system, Sentry |
+| Observability | Aegis findings, Sentry |
 | Testing | Vitest, Playwright |
 
 ---
@@ -404,43 +513,39 @@ Crypto Lending:
 ## Current Active Deals / Test Cases
 
 **Samaritus Management LLC** (EIN 86-2437722)
-- Charter boat business, Florida
-- Deal ID: 04312437-2bf3-4f72-b1eb-464a2b1bedc5
-- Documents: 2022 Form 1065, 2024 Form 1065
-- Ground truth verified manually:
-  - 2022: Revenue 797,989 | COGS 0 | GP 797,989 | OBI 325,912 | Depr 191,385
-  - 2024: Revenue 1,502,871 | COGS 449,671 | GP 1,053,200 | OBI 269,816 | Depr 287,050
-- Known extraction bugs caught by Phase 1 tests (Bugs 1, 2, 3 above)
-- Use this deal to verify all Phase 3 formula fixes
+Charter boat business, Florida
+Deal ID: 04312437-2bf3-4f72-b1eb-464a2b1bedc5
+
+Ground truth (manually verified):
+- 2022: Revenue 797,989 | COGS 0 | GP 797,989 | OBI 325,912 | Depr 191,385
+- 2024: Revenue 1,502,871 | COGS 449,671 | GP 1,053,200 | OBI 269,816 | Depr 287,050
+
+Use this deal to verify all Phase 3 formula fixes and Phase 4 gate logic.
 
 ---
 
-## Definition of Done — Institutional Grade
+## Definition of Done — God Tier
 
-Buddy reaches institutional-grade when ALL of the following are true:
+Buddy reaches god tier when ALL of the following are true:
 
-1. **IRS identity checks pass** on every extracted document before spreads render
-2. **Formula accuracy**: every computed line in every spread is mathematically
-   verifiable against source facts
-3. **Full provenance**: every number in every spread traces to a specific
-   document, page, line number, and extraction method
-4. **Analyst sign-off gate**: no spread reaches distribution without a human
-   reviewing and confirming accuracy
-5. **Golden corpus tests**: automated tests covering every major document type
-   pass on every commit
-6. **Correction loop**: analyst corrections feed back into extraction quality
-   metrics and flag high-frequency error patterns for remediation
-7. **Audit trail**: every fact, every computation, every decision is recorded
-   in the immutable event ledger with timestamps and actor IDs
+1. **AUTO-VERIFIED on 95%+ of clean tax returns** — no human data verification
+2. **IRS identity checks pass** on every extracted document
+3. **Multi-source corroboration** confirms key facts from independent sources
+4. **Reasonableness engine** catches impossible and anomalous values
+5. **Formula accuracy** — every computed spread line is mathematically verifiable
+6. **Full provenance** — every number traces to document, page, line, method
+7. **Golden corpus tests** pass on every commit, every document type
+8. **Continuous learning** — exception rate drops measurably each quarter
+9. **Audit certificate** generated for every AUTO-VERIFIED spread
+10. **Banker experience** — opens a spread, trusts the numbers, focuses on credit
 
-When all seven are true, Buddy produces spreads that can withstand OCC, FDIC,
-and internal audit scrutiny. That is the standard. That is the goal.
+When all ten are true, Buddy is the most accurate financial spreading system
+in commercial lending. Better than MMAS. Better than any competitor.
+Not because it's smarter — because it proves itself right before delivery.
 
 ---
 
 ## Build Principles
-
-From `BUDDY_BUILD_RULES.md` — enforced on every PR:
 
 - No inline math in templates. All formulas route through evaluateMetric().
 - No duplicate formulas. Metric registry is the single source of truth.
@@ -449,9 +554,11 @@ From `BUDDY_BUILD_RULES.md` — enforced on every PR:
 - RLS on every table. No exceptions.
 - Snapshot immutability. deal_model_snapshots is INSERT-only. Audit trail.
 - Validation errors are never fatal. They log, they flag, they never block.
+- Proof beats trust. Never trust extracted data — prove it or re-extract.
 
 ---
 
-*This document is the project's north star. Every PR should advance at least
-one phase. Every phase that completes makes Buddy more accurate, more
-auditable, and more valuable to the banks that depend on it.*
+*This document is the project's north star. Every PR advances at least one
+phase. Every phase makes Buddy more accurate, more autonomous, and more
+valuable. The mission is a system that a banker can trust completely —
+not because they verified it, but because it verified itself.*
