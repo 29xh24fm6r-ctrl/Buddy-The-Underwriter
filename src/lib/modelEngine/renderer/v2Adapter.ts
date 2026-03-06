@@ -29,8 +29,8 @@ const HELPER_METRIC_IDS = ["QUICK_ASSETS", "FIXED_CHARGES", "EBIT"];
 // ---------------------------------------------------------------------------
 
 const FACT_KEY_ALIASES: Record<string, string[]> = {
-  // IS aliases per MMAS
-  TOTAL_REVENUE: ["GROSS_RECEIPTS", "TOTAL_INCOME", "REVENUE", "GROSS_RENTAL_INCOME"],
+  // IS aliases per MMAS — OBI is net income, never revenue
+  TOTAL_REVENUE: ["GROSS_RECEIPTS", "TOTAL_INCOME"],
   COST_OF_GOODS_SOLD: ["COGS"],
   NET_PROFIT: ["NET_INCOME", "ORDINARY_BUSINESS_INCOME", "TAXABLE_INCOME", "ADJUSTED_GROSS_INCOME"],
   OFFICER_COMPENSATION: ["OFFICERS_COMPENSATION", "SALARIES_WAGES"],
