@@ -62,7 +62,9 @@ Proof-of-Correctness Engine                ✅ Phase 4 COMPLETE
         ↓
 Financial Intelligence Layer               ✅ Phase 5 COMPLETE
         ↓
-Industry Intelligence Layer                🔄 Phase 6 IN PROGRESS
+Industry Intelligence Layer                ✅ Phase 6 COMPLETE
+        ↓
+Cross-Document Reconciliation              🔄 Phase 7 IN PROGRESS
         ↓
 Spread Generation (MMAS format)
         ↓
@@ -97,11 +99,10 @@ AI explains. Rules decide. Humans retain final credit authority.
 Mathematical proof that extracted numbers are internally consistent.
 
 **Gate 2 — Multi-Source Corroboration** ✅ BUILT (Phase 4)
-Same value confirmed from two independent sources.
+Same value confirmed from two independent sources within the document set.
 
-**Gate 3 — Reasonableness Engine** ✅ BUILT (Phase 4)
-Financial sanity checks. Catches impossible and anomalous values.
-Phase 6 adds NAICS-calibrated industry norms.
+**Gate 3 — Reasonableness Engine** ✅ BUILT (Phase 4 + 6)
+Financial sanity checks with NAICS-calibrated industry norms (Phase 6).
 
 **Gate 4 — Confidence Threshold** ✅ BUILT (Phase 4)
 All extracted values must score ≥ 0.92 for AUTO-VERIFIED status.
@@ -155,7 +156,7 @@ Samaritus verified:
 - `corroborationEngine.ts` — cross-checks key facts against secondary sources
 - `reasonablenessEngine.ts` — hard failures (IMPOSSIBLE) and soft warnings (ANOMALOUS)
 - `confidenceAggregator.ts` — document-level score, AUTO_VERIFIED threshold 0.92
-- `auditCertificate.ts` — generates and persists cryptographic proof of correctness
+- `auditCertificate.ts` — cryptographic proof of correctness, OCC-auditable
 - `reExtractionOrchestrator.ts` — up to 3 attempts before exception queue
 - Migrations: `deal_document_audit_certificates`, `deal_extraction_exceptions`
 - 5/5 new tests. 116/116 existing tests. tsc clean.
@@ -165,145 +166,125 @@ Samaritus verified:
 ### PHASE 5 — Financial Intelligence Layer ✅ COMPLETE
 **PR #173 — commit 19099099**
 
-All pure functions. No DB required. Used by spread generation and credit memo.
+All pure functions. No DB required.
 
-- `ebitdaEngine.ts` — standard add-backs, partnership guaranteed payments,
-  non-recurring items, interest-in-COGS warning for maritime/construction
+- `ebitdaEngine.ts` — standard add-backs, guaranteed payments, non-recurring,
+  interest-in-COGS warning for maritime/construction
 - `officerCompEngine.ts` — EXTREME_HIGH/LOW flags, excess comp add-back,
-  distribution proxy detection for below-market comp
-- `globalCashFlowBuilder.ts` — multi-entity income assembly, ownership pct
-  allocation, debt obligation netting, global net cash flow
-- `scheduleM1Engine.ts` — book-to-tax bridge, depreciation timing differences,
-  meals & entertainment, significant difference flagging
+  distribution proxy detection
+- `globalCashFlowBuilder.ts` — multi-entity assembly, ownership pct allocation,
+  debt obligation netting
+- `scheduleM1Engine.ts` — book-to-tax bridge, timing differences, significant
+  difference flagging
 - 7/7 tests. Zero regressions. tsc clean.
 
 ---
 
-### PHASE 6 — Industry Intelligence 🔄 NEXT
+### PHASE 6 — Industry Intelligence ✅ COMPLETE
+**PR #174 — commit 1c6197c4**
 
-**Objective:** Make every extraction and analysis decision industry-aware.
-Replaces broad default norms in the Reasonableness Engine with
-NAICS-calibrated norms for each industry type.
+13 files, 848 additions. All pure data and functions. No DB required.
 
-After Phase 6, a charter boat return gets evaluated against maritime norms.
-A medical practice gets evaluated against healthcare norms.
-The system stops treating every business the same way.
-
-**Structure:**
-`src/lib/industryIntelligence/`
-- `types.ts` — IndustryProfile type definition
-- `naicsMapper.ts` — NAICS code → profile lookup
-- `profiles/maritime.ts` — NAICS 487210
-- `profiles/realEstate.ts` — NAICS 531x
-- `profiles/medical.ts` — NAICS 621x
-- `profiles/construction.ts` — NAICS 236-238
-- `profiles/retail.ts` — NAICS 44-45
-- `profiles/restaurant.ts` — NAICS 722x
-- `profiles/professionalServices.ts` — NAICS 541x
-- `profiles/default.ts` — broad defaults for unknown industries
-- `index.ts` — barrel + `getIndustryProfile(naicsCode)` router
-
-**IndustryProfile type:**
-```typescript
-type IndustryProfile = {
-  naicsCode: string
-  naicsDescription: string
-  displayName: string
-
-  // Gross margin norms (0-1 as decimal)
-  grossMarginNormal: { min: number; max: number }
-  grossMarginAnomaly: { min: number; max: number }  // outside = soft warning
-
-  // Where interest expense typically lives
-  interestInCogs: boolean        // true = check Form 1125-A, warn if missing
-  interestInCogsNote: string
-
-  // Officer comp norms (as % of revenue)
-  officerCompNormal: { min: number; max: number }
-
-  // Depreciation expectations
-  highDepreciationExpected: boolean
-  depreciationNote: string
-
-  // COGS composition notes
-  cogsComponents: string[]
-
-  // Industry-specific add-backs beyond standard
-  industryAddBacks: Array<{
-    key: string
-    description: string
-    applicability: string
-  }>
-
-  // Red flags specific to this industry
-  redFlags: Array<{
-    id: string
-    description: string
-    condition: string  // human-readable trigger condition
-    severity: "HIGH" | "MEDIUM" | "LOW"
-  }>
-
-  // Credit analysis notes for the credit memo
-  creditAnalysisNotes: string
-}
-```
-
-**Integration point — Reasonableness Engine:**
-After Phase 6, `checkReasonableness()` accepts an optional `industryProfile`
-parameter. When provided, gross margin, officer comp, and depreciation checks
-use profile norms instead of broad defaults.
-
-**Key profile details to encode:**
-
-Maritime (NAICS 487210):
-- interestInCogs: TRUE — boat financing interest commonly in COGS via 1125-A
-- grossMarginNormal: 0.40-0.75 (fuel, crew, marina fees in COGS)
-- highDepreciationExpected: TRUE — vessels depreciate heavily
-- redFlag: "Revenue < prior year by >20% without weather/seasonality explanation"
-
-Real Estate (NAICS 531x):
-- Analysis basis: NOI, not EBITDA
-- grossMarginNormal: 0.55-0.85
-- highDepreciationExpected: TRUE — buildings, improvements
-- industryAddBack: depreciation recapture note on sale
-- redFlag: "Vacancy rate implied by rent vs sq footage anomalous"
-
-Medical (NAICS 621x):
-- officerCompNormal: 0.25-0.60 (physician owners take large comp)
-- industryAddBack: "Personal goodwill — physician comp above market is entity value"
-- redFlag: "Accounts receivable >120 days revenue equivalent (collections issue)"
-
-Construction (NAICS 236-238):
-- interestInCogs: TRUE — equipment financing often in job costs
-- grossMarginNormal: 0.15-0.35 (materials-heavy)
-- redFlag: "WIP not disclosed — percentage completion accounting risk"
-- redFlag: "Revenue spike >40% YOY without backlog explanation"
-
-Restaurant (NAICS 722x):
-- grossMarginNormal: 0.55-0.75 (food cost 25-40% of revenue typical)
-- officerCompNormal: 0.05-0.20
-- redFlag: "Food cost ratio outside 25-40% band"
-- redFlag: "Labor cost >35% of revenue"
-
-Professional Services (NAICS 541x):
-- grossMarginNormal: 0.65-0.90 (low COGS, high margin)
-- interestInCogs: FALSE
-- redFlag: "DSO (days sales outstanding) >90 days"
-- redFlag: "Revenue concentration — single client >30% of revenue"
+- `IndustryProfile` type — gross margin norms, interest-in-COGS flag,
+  officer comp norms, depreciation expectations, red flags, credit notes
+- 7 industry profiles: Maritime (487210), Real Estate (531x), Medical (621x),
+  Construction (236-238), Retail (44-45), Restaurant (722x),
+  Professional Services (541x)
+- `default.ts` — broad defaults for unknown NAICS
+- `naicsMapper.ts` — prefix-based NAICS → profile routing
+- `reasonablenessEngine.ts` updated — backward-compatible `industryProfile`
+  parameter, NAICS-calibrated norms when profile provided
+- 10/10 tests. Zero regressions. tsc clean.
 
 ---
 
-### PHASE 7 — Cross-Document Reconciliation 📋 QUEUED
+### PHASE 7 — Cross-Document Reconciliation 🔄 NEXT
 
-Reconcile numbers across all documents in a deal package.
+**Objective:** Catch inconsistencies that single-document validation cannot see.
+
+A borrower who files a Form 1065 also issues K-1s to partners, and those
+partners report that K-1 income on their personal returns. The same dollar
+of income appears in three places. If any of the three disagree, something
+is wrong — mismatched ownership percentages, unreported income, or an
+extraction error. This phase catches all of it.
+
+**What reconciliation means at the deal level:**
+After all documents in a deal are extracted and individually validated,
+cross-document reconciliation runs once across the full package.
+It is the final accuracy gate before spread generation.
+
+**Reconciliation checks to implement:**
 
 ```
-K-1 → Entity:      sum(k1 × ownership_pct) ≈ entity_obi
-K-1 → Personal:    k1_on_personal ≈ k1_on_entity × ownership_pct
-Tax → Financials:  tax_revenue ≈ statement_revenue (within 5%)
-Balance Sheet:     assets = liabilities + equity (confirmed both sources)
-Multi-year trend:  changes within explainable bounds
+CHECK 1 — K-1 to Entity Return
+  sum(k1_ordinary_income_i × ownership_pct_i for all partners i)
+  ≈ entity_ordinary_business_income
+  Tolerance: $1
+  Required: entity OBI + at least one K-1 with ownership pct
+
+CHECK 2 — K-1 to Personal Return
+  k1_income_on_personal_return
+  ≈ k1_income_on_entity_return × reported_ownership_pct
+  Tolerance: 1% of value or $100, whichever is larger
+  Required: personal return K-1 line + entity K-1 for same EIN
+
+CHECK 3 — Tax Return to Financial Statement
+  tax_return_gross_receipts ≈ income_statement_revenue
+  Tolerance: 5% of value (accounting method differences are real)
+  Required: both a tax return and financial statement for same entity/year
+
+CHECK 4 — Balance Sheet Reconciliation
+  total_assets ≈ total_liabilities + total_equity
+  Tolerance: $1
+  Required: balance sheet data from any source (Schedule L, financial stmt)
+  Applies per source — flag if balance sheet from any source doesn't balance
+
+CHECK 5 — Multi-Year Revenue Trend
+  |revenue_change_yoy| within explainable bounds for industry
+  Threshold: use industryProfile.grossMarginNormal when available, else >50% = flag
+  Required: at least 2 years of the same entity's returns
+  Not a hard failure — soft flag for analyst attention
+
+CHECK 6 — Ownership Percentage Integrity
+  sum(all_partner_ownership_pcts) ≈ 1.00 (100%)
+  Tolerance: 1% rounding
+  Required: K-1s for all partners in a partnership
+  Flag if K-1 set appears incomplete (sum < 0.95)
 ```
+
+**Structure:**
+`src/lib/reconciliation/`
+- `types.ts` — ReconciliationCheck, ReconciliationResult, DealReconciliationSummary
+- `k1ToEntityCheck.ts` — CHECK 1
+- `k1ToPersonalCheck.ts` — CHECK 2
+- `taxToFinancialsCheck.ts` — CHECK 3
+- `balanceSheetCheck.ts` — CHECK 4
+- `multiYearTrendCheck.ts` — CHECK 5
+- `ownershipIntegrityCheck.ts` — CHECK 6
+- `dealReconciliator.ts` — orchestrator, runs all applicable checks
+- `index.ts` — barrel export
+
+All check files pure functions. `dealReconciliator.ts` is the only file that
+touches DB (loads facts for all documents in a deal package).
+
+**DealReconciliationSummary type:**
+```typescript
+type DealReconciliationSummary = {
+  dealId: string
+  checksRun: number
+  checksPassed: number
+  checksFailed: number
+  checksSkipped: number
+  hardFailures: ReconciliationCheck[]    // block spread or require sign-off
+  softFlags: ReconciliationCheck[]       // note in spread, don't block
+  overallStatus: "CLEAN" | "FLAGS" | "CONFLICTS"
+  reconciledAt: string
+}
+```
+
+CLEAN = all applicable checks passed
+FLAGS = only soft flags (trend anomalies, ownership gaps)
+CONFLICTS = any hard failure (K-1 sum mismatch, balance sheet out of balance)
 
 ---
 
@@ -362,9 +343,10 @@ Ground truth (verified, passing golden fixture tests):
 - 2022: Revenue 797,989 | COGS 0 | GP 797,989 | OBI 325,912 | Depr 191,385
 - 2024: Revenue 1,502,871 | COGS 449,671 | GP 1,053,200 | OBI 269,816 | Depr 287,050
 
-Note: This deal will be the first to benefit from Phase 6 Maritime profile.
-Interest-in-COGS warning already fires on 2024 return. Phase 6 will calibrate
-gross margin reasonableness check to maritime norms (40-75%) vs broad defaults.
+Phase 7 note: This deal has 2 years of returns from the same entity.
+Multi-year trend check (CHECK 5) will run and validate YOY revenue change
+against Maritime profile norms (~88% revenue growth 2022→2024 — will trigger
+soft flag for analyst awareness, which is correct behavior).
 
 ---
 
@@ -373,15 +355,16 @@ gross margin reasonableness check to maritime norms (40-75%) vs broad defaults.
 1. **AUTO-VERIFIED on 95%+ of clean tax returns** — zero human data verification
 2. **IRS identity checks pass** on every extracted document ✅ BUILT
 3. **Multi-source corroboration** confirms key facts independently ✅ BUILT
-4. **Reasonableness engine** catches impossible and anomalous values ✅ BUILT
+4. **Reasonableness engine** with NAICS-calibrated norms ✅ BUILT
 5. **Formula accuracy** — every spread line mathematically verifiable ✅ BUILT
 6. **Financial intelligence** — EBITDA, officer comp, global cash flow ✅ BUILT
-7. **Industry-calibrated norms** — NAICS-aware analysis 🔄 Phase 6
-8. **Full provenance** — every number traces to document, page, line, method
-9. **Golden corpus tests** pass on every commit, every document type
-10. **Continuous learning** — exception rate drops measurably each quarter
-11. **Audit certificate** generated for every AUTO-VERIFIED spread ✅ BUILT
-12. **Banker experience** — opens a spread, trusts the numbers, focuses on credit
+7. **Industry intelligence** — 7 NAICS profiles, calibrated analysis ✅ BUILT
+8. **Cross-document reconciliation** — K-1s, personal returns, financials 🔄 Phase 7
+9. **Full provenance** — every number traces to document, page, line, method
+10. **Golden corpus tests** pass on every commit, every document type
+11. **Continuous learning** — exception rate drops measurably each quarter
+12. **Audit certificate** generated for every AUTO-VERIFIED spread ✅ BUILT
+13. **Banker experience** — opens a spread, trusts the numbers, focuses on credit
 
 ---
 
@@ -408,8 +391,8 @@ gross margin reasonableness check to maritime norms (40-75%) vs broad defaults.
 | 3 | Formula Accuracy Fixes | ✅ Complete | #171 |
 | 4 | Proof-of-Correctness Engine | ✅ Complete | #172 |
 | 5 | Financial Intelligence Layer | ✅ Complete | #173 |
-| 6 | Industry Intelligence | 🔄 Next | — |
-| 7 | Cross-Document Reconciliation | 📋 Queued | — |
+| 6 | Industry Intelligence | ✅ Complete | #174 |
+| 7 | Cross-Document Reconciliation | 🔄 Next | — |
 | 8 | Golden Corpus + Learning | 📋 Queued | — |
 | 9 | Full Banking Relationship | 📋 Future | — |
 
