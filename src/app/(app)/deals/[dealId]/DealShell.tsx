@@ -265,9 +265,9 @@ export default function DealShell({
   })();
 
   const tabs = [
-    { label: "Overview", href: `/deals/${dealId}/underwrite` },
+    { label: "Overview", href: `${base}/cockpit` },
     { label: "Documents", href: `${base}/documents` },
-    { label: "Spreads", href: `${base}/spreads` },
+    { label: "Spreads", href: `${base}/cockpit?tab=underwriting` },
     { label: "Pricing", href: `${base}/pricing-memo` },
     { label: "Memo", href: `${base}/memo-template` },
     { label: "Terms", href: `${base}/loan-terms` },
@@ -399,7 +399,7 @@ export default function DealShell({
                 key={t.href}
                 href={t.href}
                 label={t.label}
-                active={(pathname ?? "") === t.href || (pathname ?? "").startsWith(t.href + "/")}
+                active={(() => { const hp = t.href.split("?")[0]; return (pathname ?? "") === hp || (pathname ?? "").startsWith(hp + "/"); })()}
               />
             ))}
           </div>

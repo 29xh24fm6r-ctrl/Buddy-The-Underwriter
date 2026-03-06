@@ -15,7 +15,7 @@ describe("flagRegistry", () => {
       assert.ok(rule.description.length > 0, "description must not be empty");
       assert.ok(Array.isArray(rule.canonical_keys_involved));
       assert.ok(typeof rule.generates_question === "boolean");
-      assert.ok(["borrower", "accountant", "attorney", "appraiser"].includes(rule.recipient_type));
+      assert.ok(["borrower", "accountant", "attorney", "appraiser", "banker"].includes(rule.recipient_type));
     }
   });
 

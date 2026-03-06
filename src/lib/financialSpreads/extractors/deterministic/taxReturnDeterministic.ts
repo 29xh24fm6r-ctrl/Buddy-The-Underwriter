@@ -7,7 +7,7 @@ import {
   type ExtractedLineItem,
   type ExtractionResult,
 } from "../shared";
-import type { DeterministicExtractorArgs, ExtractionPath } from "./types";
+import type { DeterministicExtractorArgs, ExtractionPath, PureDeterministicResult } from "./types";
 import {
   findLabeledAmount,
   resolveDocTaxYear,
@@ -21,6 +21,12 @@ import {
   extractFormFields,
   entityToMoney,
 } from "./structuredJsonParser";
+import { extractScheduleL } from "./scheduleLReconciliation";
+import { extractScheduleM1 } from "./scheduleM1Deterministic";
+import { extractForm4562 } from "./form4562Deterministic";
+import { extractForm8825 } from "./form8825Deterministic";
+import { extractForm1125A } from "./form1125aDeterministic";
+import { extractForm1125E } from "./form1125eDeterministic";
 
 // ---------------------------------------------------------------------------
 // Canonical line item keys (same as original extractor)
@@ -186,19 +192,46 @@ export async function extractTaxReturnDeterministic(
     path = "ocr_regex";
   }
 
-  if (items.length === 0) {
-    return { ok: true, factsWritten: 0, extractionPath: path };
+  // Write main tax return items
+  let factsWritten = 0;
+  if (items.length > 0) {
+    const mainResult = await writeFactsBatch({
+      dealId: args.dealId,
+      bankId: args.bankId,
+      sourceDocumentId: args.documentId,
+      factType: "TAX_RETURN",
+      items,
+    });
+    factsWritten += mainResult.factsWritten;
   }
 
-  const result = await writeFactsBatch({
-    dealId: args.dealId,
-    bankId: args.bankId,
-    sourceDocumentId: args.documentId,
-    factType: "TAX_RETURN",
-    items,
-  });
+  // Detect schedule presence and extract in parallel (non-blocking)
+  const ocrText = args.ocrText;
+  const taxYear = resolveDocTaxYear(ocrText, args.docYear);
 
-  return { ...result, extractionPath: path };
+  const scheduleChecks: Array<{
+    pattern: RegExp;
+    extractor: (a: DeterministicExtractorArgs) => PureDeterministicResult;
+    factType: string;
+  }> = [
+    { pattern: /schedule\s+l\b/i, extractor: extractScheduleL, factType: "TAX_RETURN_BALANCE_SHEET" },
+    { pattern: /schedule\s+m-?1\b/i, extractor: extractScheduleM1, factType: "TAX_RETURN_RECONCILIATION" },
+    { pattern: /form\s+4562\b/i, extractor: extractForm4562, factType: "TAX_RETURN_DEPRECIATION" },
+    { pattern: /form\s+8825\b/i, extractor: extractForm8825, factType: "TAX_RETURN_RENTAL" },
+    { pattern: /form\s+1125-?a\b|cost\s+of\s+goods\s+sold/i, extractor: extractForm1125A, factType: "TAX_RETURN_COGS_DETAIL" },
+    { pattern: /form\s+1125-?e\b|compensation\s+of\s+officers/i, extractor: extractForm1125E, factType: "TAX_RETURN_OFFICER_COMP" },
+  ];
+
+  const schedulePromises = scheduleChecks
+    .filter((s) => s.pattern.test(ocrText))
+    .map((s) => writeScheduleFacts(s.extractor(args), args, s.factType, taxYear));
+
+  const settled = await Promise.allSettled(schedulePromises);
+  for (const r of settled) {
+    if (r.status === "fulfilled") factsWritten += r.value;
+  }
+
+  return { ok: true, factsWritten, extractionPath: path };
 }
 
 // ---------------------------------------------------------------------------
@@ -479,6 +512,48 @@ function selectPatterns(formType: IrsFormType): LinePattern[] {
     default:
       return GENERIC_TAX_PATTERNS;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Schedule fact writer
+// ---------------------------------------------------------------------------
+
+async function writeScheduleFacts(
+  result: PureDeterministicResult,
+  args: DeterministicExtractorArgs,
+  factType: string,
+  taxYear: number | null,
+): Promise<number> {
+  const numericItems = result.items.filter((i) => typeof i.value === "number");
+  if (numericItems.length === 0) return 0;
+
+  const period = taxYear ? `FY${taxYear}` : null;
+  const { start: periodStart, end: periodEnd } = normalizePeriod(period);
+
+  const mapped: ExtractedLineItem[] = numericItems.map((i) => ({
+    factKey: i.key,
+    value: i.value as number,
+    confidence: 0.50,
+    periodStart,
+    periodEnd,
+    provenance: makeProvenance(
+      args.documentId,
+      periodEnd,
+      0.50,
+      i.snippet,
+      result.extractionPath,
+    ),
+  }));
+
+  const writeResult = await writeFactsBatch({
+    dealId: args.dealId,
+    bankId: args.bankId,
+    sourceDocumentId: args.documentId,
+    factType: factType as any,
+    items: mapped,
+  });
+
+  return writeResult.factsWritten;
 }
 
 // ---------------------------------------------------------------------------

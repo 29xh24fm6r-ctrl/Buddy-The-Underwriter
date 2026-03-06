@@ -35,6 +35,7 @@ type Flag = {
   banker_note: string | null;
   resolution_note: string | null;
   waived_reason: string | null;
+  metadata?: Record<string, unknown> | null;
   question: FlagQuestion | null;
   created_at: string;
 };
@@ -362,6 +363,11 @@ function FlagCard({
             <span className={`text-[9px] px-1 py-0.5 rounded ${STATUS_COLORS[flag.status] ?? ""}`}>
               {STATUS_LABELS[flag.status] ?? flag.status}
             </span>
+            {flag.metadata?.source === "research_engine" && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-900/40 text-blue-300">
+                Research
+              </span>
+            )}
           </div>
         </div>
       </button>

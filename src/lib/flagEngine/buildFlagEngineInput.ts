@@ -10,6 +10,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { FlagEngineInput } from "./types";
+import type { ResearchInference } from "@/lib/research/types";
 
 // ---------------------------------------------------------------------------
 // Main
@@ -27,6 +28,9 @@ export async function buildFlagEngineInput(dealId: string): Promise<FlagEngineIn
   // 3. Deal type (optional — not on deals table, inferred from facts if available)
   const deal_type = await loadDealType(sb, dealId);
 
+  // 4. Load research inferences (optional)
+  const research_inferences = await loadResearchInferences(sb, dealId);
+
   // QoE and trend reports have no dedicated tables yet — pass undefined
   return {
     deal_id: dealId,
@@ -34,6 +38,7 @@ export async function buildFlagEngineInput(dealId: string): Promise<FlagEngineIn
     ratios,
     years_available,
     deal_type: deal_type ?? undefined,
+    research_inferences: research_inferences.length > 0 ? research_inferences : undefined,
     // qoe_report: undefined — no DB table
     // trend_report: undefined — no DB table
   };
@@ -161,5 +166,39 @@ async function loadDealType(
     return data?.entity_type ?? null;
   } catch {
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Research inferences loader
+// ---------------------------------------------------------------------------
+
+async function loadResearchInferences(
+  sb: ReturnType<typeof supabaseAdmin>,
+  dealId: string,
+): Promise<ResearchInference[]> {
+  try {
+    // Get all completed mission IDs for this deal
+    const { data: missions } = await (sb as any)
+      .from("buddy_research_missions")
+      .select("id")
+      .eq("deal_id", dealId)
+      .eq("status", "complete");
+
+    const missionIds = (missions ?? []).map((m: any) => m.id as string);
+    if (missionIds.length === 0) return [];
+
+    const { data: inferences } = await (sb as any)
+      .from("buddy_research_inferences")
+      .select("id, mission_id, inference_type, conclusion, input_fact_ids, confidence, reasoning, created_at")
+      .in("mission_id", missionIds);
+
+    return (inferences ?? []) as ResearchInference[];
+  } catch (err: any) {
+    console.warn("[buildFlagEngineInput] research inferences load failed (non-fatal)", {
+      dealId,
+      error: err?.message,
+    });
+    return [];
   }
 }
