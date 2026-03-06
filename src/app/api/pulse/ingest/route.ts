@@ -2,19 +2,19 @@
  * POST /api/pulse/ingest
  *
  * Receives forwarded deal_pipeline_ledger events from forwardLedgerCore.ts
- * and writes them to buddy_ledger_events for Pulse observer visibility.
+ * and writes them to Pulse via the Pulse MCP server's buddy_ledger_write tool.
  *
  * Auth: HMAC-SHA256 signature on request body, verified against
  *       PULSE_BUDDY_INGEST_SECRET. Header: x-pulse-signature
  *
- * This is the target for PULSE_BUDDY_INGEST_URL env var.
- * Set PULSE_BUDDY_INGEST_URL = https://[your-vercel-domain]/api/pulse/ingest
- * Set PULSE_BUDDY_INGEST_SECRET = <random secret, same value used by forwarder>
+ * Env vars required:
+ *   PULSE_BUDDY_INGEST_SECRET  — shared HMAC secret with forwardLedgerCore
+ *   PULSE_MCP_URL              — Pulse MCP server base URL
+ *                                e.g. https://pulse-mcp-651478110010.us-central1.run.app
  */
 
 import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +24,6 @@ function verifySignature(body: string, signature: string, secret: string): boole
     .createHmac("sha256", secret)
     .update(body)
     .digest("hex");
-  // Constant-time comparison to prevent timing attacks
   try {
     return crypto.timingSafeEqual(
       Buffer.from(expected, "hex"),
@@ -65,24 +64,54 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
   }
 
-  const sb = supabaseAdmin();
-
-  const { error } = await sb.from("buddy_ledger_events").insert({
-    source: event.source ?? "buddy",
-    env: event.env ?? "unknown",
-    deal_id: event.deal_id,
-    bank_id: event.bank_id ?? null,
-    event_key: event.event_key,
-    event_created_at: event.created_at,
-    trace_id: event.trace_id,
-    payload: event.payload ?? {},
-    ingested_at: new Date().toISOString(),
-  });
-
-  if (error) {
-    console.error("[pulse/ingest] insert failed", error.message);
-    return NextResponse.json({ ok: false, error: "insert_failed" }, { status: 500 });
+  // Forward to Pulse MCP server using JSON-RPC 2.0 (tools/call)
+  const pulseMcpUrl = process.env.PULSE_MCP_URL;
+  if (!pulseMcpUrl) {
+    console.error("[pulse/ingest] PULSE_MCP_URL not set");
+    return NextResponse.json({ ok: false, error: "pulse_mcp_not_configured" }, { status: 503 });
   }
 
-  return NextResponse.json({ ok: true });
+  const mcpPayload = {
+    jsonrpc: "2.0",
+    id: crypto.randomUUID(),
+    method: "tools/call",
+    params: {
+      name: "buddy_ledger_write",
+      arguments: {
+        event_type: event.event_key,
+        status: "success",
+        deal_id: event.deal_id ?? undefined,
+        payload: {
+          source: event.source,
+          env: event.env,
+          bank_id: event.bank_id,
+          trace_id: event.trace_id,
+          event_created_at: event.created_at,
+          ...(typeof event.payload === "object" && event.payload !== null
+            ? (event.payload as Record<string, unknown>)
+            : { raw: event.payload }),
+        },
+      },
+    },
+  };
+
+  try {
+    const res = await fetch(`${pulseMcpUrl}/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(mcpPayload),
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error("[pulse/ingest] Pulse MCP write failed", res.status, text);
+      return NextResponse.json({ ok: false, error: `pulse_write_failed:${res.status}` }, { status: 502 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    console.error("[pulse/ingest] Pulse MCP request error", err?.message);
+    return NextResponse.json({ ok: false, error: "pulse_unreachable" }, { status: 502 });
+  }
 }
