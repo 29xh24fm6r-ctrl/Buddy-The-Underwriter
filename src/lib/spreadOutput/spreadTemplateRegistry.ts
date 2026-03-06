@@ -40,6 +40,25 @@ export interface TemplateCovenantSuggestion {
 }
 
 // ---------------------------------------------------------------------------
+// Balance Sheet line items (shared across all templates)
+// ---------------------------------------------------------------------------
+
+const BALANCE_SHEET_ITEMS: TemplateLineItem[] = [
+  { canonical_key: "SL_CASH",                    label: "Cash & Equivalents",        category: "balance_sheet" },
+  { canonical_key: "SL_AR_GROSS",                 label: "Accounts Receivable",       category: "balance_sheet" },
+  { canonical_key: "SL_INVENTORY",                label: "Inventory",                 category: "balance_sheet" },
+  { canonical_key: "SL_PPE_GROSS",                label: "PP&E (Gross)",              category: "balance_sheet" },
+  { canonical_key: "SL_ACCUMULATED_DEPRECIATION", label: "Accumulated Depreciation",  category: "balance_sheet" },
+  { canonical_key: "SL_LAND",                     label: "Land",                      category: "balance_sheet" },
+  { canonical_key: "SL_TOTAL_ASSETS",             label: "Total Assets",              category: "balance_sheet" },
+  { canonical_key: "SL_ACCOUNTS_PAYABLE",         label: "Accounts Payable",          category: "balance_sheet" },
+  { canonical_key: "SL_MORTGAGES_NOTES_BONDS",    label: "Mortgages / Notes Payable", category: "balance_sheet" },
+  { canonical_key: "SL_TOTAL_LIABILITIES",        label: "Total Liabilities",         category: "balance_sheet" },
+  { canonical_key: "SL_RETAINED_EARNINGS",        label: "Retained Earnings",         category: "balance_sheet" },
+  { canonical_key: "SL_TOTAL_EQUITY",             label: "Total Equity",              category: "balance_sheet" },
+];
+
+// ---------------------------------------------------------------------------
 // C&I Template
 // ---------------------------------------------------------------------------
 
@@ -82,6 +101,7 @@ const C_AND_I: SpreadTemplate = {
     { canonical_key: "cf_ncads", label: "Net Cash Available for Debt Service", category: "debt_service" },
     { canonical_key: "cf_annual_debt_service", label: "Annual Debt Service", category: "debt_service" },
     { canonical_key: "DSCR", label: "DSCR", category: "ratio" },
+    ...BALANCE_SHEET_ITEMS,
   ],
   policy_threshold_overrides: {},
   covenant_templates: [
@@ -134,6 +154,7 @@ const CRE_INVESTOR: SpreadTemplate = {
     { canonical_key: "cre_noi", label: "Net Operating Income", category: "ebitda" },
     { canonical_key: "cf_annual_debt_service", label: "Annual Debt Service", category: "debt_service" },
     { canonical_key: "cre_dscr", label: "NOI DSCR", category: "ratio" },
+    ...BALANCE_SHEET_ITEMS,
   ],
   policy_threshold_overrides: {
     dscr_minimum: 1.20,
@@ -181,7 +202,7 @@ const CRE_OWNER_OCCUPIED: SpreadTemplate = {
       ratio_keys: ["EBITDA_MARGIN", "ratio_ebitda_margin_pct", "GROSS_MARGIN"],
     },
   ],
-  line_item_order: C_AND_I.line_item_order,
+  line_item_order: [...C_AND_I.line_item_order],
   policy_threshold_overrides: {
     ltv_maximum: 0.80,
   },
@@ -208,7 +229,7 @@ const CRE_CONSTRUCTION: SpreadTemplate = {
       ratio_keys: ["CURRENT_RATIO", "ratio_current"],
     },
   ],
-  line_item_order: CRE_INVESTOR.line_item_order,
+  line_item_order: [...CRE_INVESTOR.line_item_order],
   policy_threshold_overrides: {
     ltc_maximum: 0.80,
     ltv_maximum: 0.70,
@@ -248,7 +269,7 @@ const SBA_7A: SpreadTemplate = {
       ratio_keys: ["EBITDA_MARGIN", "GROSS_MARGIN"],
     },
   ],
-  line_item_order: C_AND_I.line_item_order,
+  line_item_order: [...C_AND_I.line_item_order],
   policy_threshold_overrides: {
     dscr_minimum: 1.15,
   },
@@ -279,7 +300,7 @@ const PROFESSIONAL_PRACTICE: SpreadTemplate = {
       ratio_keys: ["CURRENT_RATIO", "ratio_current"],
     },
   ],
-  line_item_order: C_AND_I.line_item_order,
+  line_item_order: [...C_AND_I.line_item_order],
   policy_threshold_overrides: {},
   covenant_templates: [
     ...C_AND_I.covenant_templates,
@@ -317,7 +338,7 @@ const AGRICULTURE: SpreadTemplate = {
       ratio_keys: ["GROSS_MARGIN", "EBITDA_MARGIN", "NET_MARGIN"],
     },
   ],
-  line_item_order: C_AND_I.line_item_order,
+  line_item_order: [...C_AND_I.line_item_order],
   policy_threshold_overrides: {
     dscr_minimum: 1.15,
     ltv_maximum: 0.65,
