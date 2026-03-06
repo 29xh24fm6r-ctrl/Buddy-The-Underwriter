@@ -265,8 +265,8 @@ function tryStructuredEntities(args: DeterministicExtractorArgs): ExtractedLineI
 // ---------------------------------------------------------------------------
 
 function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
-  const text = args.ocrText;
-  const formType = detectIrsFormType(text);
+  const text = truncateBeforeK1(args.ocrText);
+  const formType = detectIrsFormType(args.ocrText); // detect on full text, parse on truncated
   const taxYear = resolveDocTaxYear(text, args.docYear);
   const period = taxYear ? `FY${taxYear}` : null;
   const { start: periodStart, end: periodEnd } = normalizePeriod(period);
@@ -292,6 +292,19 @@ function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
   }
 
   return items;
+}
+
+// ---------------------------------------------------------------------------
+// K-1 boundary guard — Schedule K-1 pages contain per-partner allocations
+// whose line/box numbers collide with Form 1065 main-form line numbers.
+// Truncate OCR text before the first K-1 header to prevent K-1 partner shares
+// from being misread as entity-level IS values (e.g. K-1 box 2 ≠ 1065 line 2).
+// ---------------------------------------------------------------------------
+
+function truncateBeforeK1(text: string): string {
+  const k1Match = text.search(/schedule\s+k-?1/i);
+  if (k1Match > 0) return text.substring(0, k1Match);
+  return text;
 }
 
 // ---------------------------------------------------------------------------
@@ -377,8 +390,8 @@ function getLineMap(formType: IrsFormType, _text: string): Record<string, string
  * Also handles inline: "1  797,989." and "1\t797,989."
  */
 function tryIrsLineNumberParsing(args: DeterministicExtractorArgs): ExtractedLineItem[] {
-  const text = args.ocrText;
-  const formType = detectIrsFormType(text);
+  const text = truncateBeforeK1(args.ocrText);
+  const formType = detectIrsFormType(args.ocrText); // detect on full text, parse on truncated
   const lineMap = getLineMap(formType, text);
   const taxYear = resolveDocTaxYear(text, args.docYear);
   const period = taxYear ? `FY${taxYear}` : null;
