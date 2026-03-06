@@ -19,8 +19,6 @@ Buddy is not a tool that assists humans in doing analysis.
 Buddy is a system that performs institutional-grade analysis autonomously.
 Humans provide credit judgment and final authority. Not data verification.
 
-The difference between Buddy and a spreadsheet is that Buddy handles 100%
-of the data work automatically and delivers a verified, ready-to-review spread.
 The difference between Buddy and Moody's MMAS is that Buddy proves its own
 accuracy mathematically before the spread ever reaches a banker's desk.
 
@@ -60,9 +58,11 @@ IRS Knowledge Base + Identity Validation    ✅ Phase 1 & 2 COMPLETE
         ↓
 Formula Accuracy Layer                      ✅ Phase 3 COMPLETE
         ↓
-Proof-of-Correctness Engine                🔄 Phase 4 IN PROGRESS
+Proof-of-Correctness Engine                ✅ Phase 4 COMPLETE
         ↓
-Financial Intelligence Layer               📋 Phase 5
+Financial Intelligence Layer               ✅ Phase 5 COMPLETE
+        ↓
+Industry Intelligence Layer                🔄 Phase 6 IN PROGRESS
         ↓
 Spread Generation (MMAS format)
         ↓
@@ -93,28 +93,18 @@ AI explains. Rules decide. Humans retain final credit authority.
 
 ## The Four-Gate Proof-of-Correctness System
 
-The system proves accuracy through four independent gates that must ALL pass
-before a spread is marked AUTO-VERIFIED. If any gate fails, the system
-re-extracts automatically. Only genuine failures after three attempts route
-to human review — with a precise diagnostic, not a vague flag.
-
 **Gate 1 — IRS Identity Checks** ✅ BUILT (Phase 1)
 Mathematical proof that extracted numbers are internally consistent.
-Line 1c - Line 2 = Line 3. Total Income - Deductions = OBI. Tolerance: $1.
 
-**Gate 2 — Multi-Source Corroboration** 🔄 Phase 4
+**Gate 2 — Multi-Source Corroboration** ✅ BUILT (Phase 4)
 Same value confirmed from two independent sources.
-Revenue page 1 == Schedule K. Depreciation page 1 == Form 4562.
-OBI == sum of K-1 allocations. Two sources agree → error probability near zero.
 
-**Gate 3 — Reasonableness Engine** 🔄 Phase 4
-Financial sanity checks. COGS never exceeds revenue. Gross margin within
-industry norms. Depreciation plausible relative to fixed assets.
-Catches errors that pass identity checks but are still obviously wrong.
+**Gate 3 — Reasonableness Engine** ✅ BUILT (Phase 4)
+Financial sanity checks. Catches impossible and anomalous values.
+Phase 6 adds NAICS-calibrated industry norms.
 
-**Gate 4 — Confidence Threshold** 🔄 Phase 4
-All extracted values must score ≥ 0.90. Deterministic match = 0.99.
-AI fallback = 0.75-0.88. Below threshold → re-extract with different method.
+**Gate 4 — Confidence Threshold** ✅ BUILT (Phase 4)
+All extracted values must score ≥ 0.92 for AUTO-VERIFIED status.
 
 **When all four pass:** `AUTO-VERIFIED`. No queue. No wait.
 **Target: 95%+ of clean tax returns AUTO-VERIFIED with zero human touch.**
@@ -126,195 +116,180 @@ AI fallback = 0.75-0.88. Below threshold → re-extract with different method.
 ---
 
 ### PHASE 1 — IRS Knowledge Base Foundation ✅ COMPLETE
-**PR #169 — Merged**
+**PR #169**
 
-- `src/lib/irsKnowledge/types.ts` — 57 canonical fact keys, 20 IRS form types
-- `src/lib/irsKnowledge/formSpecs/form1065.ts` — 2021-2024, OBI line shift handled
-- `src/lib/irsKnowledge/formSpecs/form1120.ts` — C-Corp and S-Corp
-- `src/lib/irsKnowledge/formSpecs/scheduleC.ts` — Sole proprietor
-- `src/lib/irsKnowledge/identityValidator.ts` — VERIFIED/FLAGGED/BLOCKED/PARTIAL
-- 5/5 tests passing. Test 3 catches the OBI-as-revenue production bug.
+- 57 canonical fact keys, 20 IRS form types, document trust hierarchy
+- Form 1065 (2021-2024), Form 1120/1120S, Schedule C
+- Identity validator: VERIFIED / FLAGGED / BLOCKED / PARTIAL
+- 5/5 tests. Catches OBI-as-revenue production bug.
 
 ---
 
 ### PHASE 2 — Wire Validator Into Extraction Pipeline ✅ COMPLETE
-**PR #170 — Merged (commit 508f24f1)**
+**PR #170 — commit 508f24f1**
 
-- `src/lib/extraction/postExtractionValidator.ts` — runs after every extraction,
-  validates facts against IRS identity checks, writes Aegis findings on failure
-- `src/lib/extraction/runRecord.ts` — dynamic import hook, fire-and-forget,
-  never blocks extraction finalization
-- Spread route returns `validationGate` object on every response
+- `postExtractionValidator.ts` — fires after every extraction, never throws
+- `runRecord.ts` — dynamic import hook, fire-and-forget
+- Spread route returns `validationGate` on every response
 - Migration: `deal_document_validation_results` table with RLS
 
 ---
 
 ### PHASE 3 — Formula Accuracy Fixes ✅ COMPLETE
-**PR #171 — Merged**
+**PR #171**
 
-Fixed three production bugs causing wrong numbers on real deals.
+- GROSS_PROFIT: null COGS treated as 0 (service businesses fixed)
+- EBITDA: computed from components, never identity lookup
+- OBI removed from TOTAL_REVENUE alias chain entirely
+- 6/6 golden fixture tests. 49/49 existing tests. tsc clean.
 
-- **Bug 1 FIXED:** GROSS_PROFIT `requiredFacts` → `["TOTAL_REVENUE"]` only.
-  Null COGS treated as 0. Service businesses now compute correctly.
-- **Bug 2 FIXED:** EBITDA expr → `"ORDINARY_BUSINESS_INCOME + INTEREST_EXPENSE
-  + DEPRECIATION"`. Computed from components, never looked up as stored value.
-- **Bug 3 FIXED:** OBI removed from TOTAL_REVENUE alias chain. `NULL_AS_ZERO_KEYS`
-  pre-processing added to both renderers.
-- 6/6 golden fixture tests pass. 49/49 existing tests pass. tsc clean.
-
-**Samaritus verified:**
+Samaritus verified:
 - 2022: Revenue 797,989 | COGS 0 | GP 797,989 | OBI 325,912 | EBITDA 526,365 ✓
 - 2024: Revenue 1,502,871 | COGS 449,671 | GP 1,053,200 | OBI 269,816 ✓
 
 ---
 
-### PHASE 4 — Proof-of-Correctness Engine 🔄 NEXT
+### PHASE 4 — Proof-of-Correctness Engine ✅ COMPLETE
+**PR #172**
 
-**Objective:** Buddy proves its own accuracy before delivery.
-A spread marked AUTO-VERIFIED requires zero human data verification.
-The banker's job is credit judgment. Not checking Buddy's math.
+- `corroborationEngine.ts` — cross-checks key facts against secondary sources
+- `reasonablenessEngine.ts` — hard failures (IMPOSSIBLE) and soft warnings (ANOMALOUS)
+- `confidenceAggregator.ts` — document-level score, AUTO_VERIFIED threshold 0.92
+- `auditCertificate.ts` — generates and persists cryptographic proof of correctness
+- `reExtractionOrchestrator.ts` — up to 3 attempts before exception queue
+- Migrations: `deal_document_audit_certificates`, `deal_extraction_exceptions`
+- 5/5 new tests. 116/116 existing tests. tsc clean.
 
-**Component 1: Multi-Source Corroboration Engine**
-`src/lib/irsKnowledge/corroborationEngine.ts`
+---
 
-Cross-check key facts against secondary sources in the same document set:
+### PHASE 5 — Financial Intelligence Layer ✅ COMPLETE
+**PR #173 — commit 19099099**
 
-```
-Form 1065:
-  GROSS_RECEIPTS:            page1_line1c == scheduleK_grossReceipts
-  ORDINARY_BUSINESS_INCOME:  page1_obi == sum(k1_ordinary_income_all_partners)
-  DEPRECIATION:              page1_line16c == form4562_totalDepreciation
-  INTEREST:                  page1_line15 + form1125a_interest == total_interest
-  TOTAL_ASSETS:              scheduleL_endOfYear == reported_total_assets
+All pure functions. No DB required. Used by spread generation and credit memo.
 
-Form 1120/1120S:
-  TOTAL_ASSETS:   scheduleL_endOfYear == balance_sheet_total_assets
-  OFFICER_COMP:   page1_line12 == form1125e_total_officer_comp
-```
+- `ebitdaEngine.ts` — standard add-backs, partnership guaranteed payments,
+  non-recurring items, interest-in-COGS warning for maritime/construction
+- `officerCompEngine.ts` — EXTREME_HIGH/LOW flags, excess comp add-back,
+  distribution proxy detection for below-market comp
+- `globalCashFlowBuilder.ts` — multi-entity income assembly, ownership pct
+  allocation, debt obligation netting, global net cash flow
+- `scheduleM1Engine.ts` — book-to-tax bridge, depreciation timing differences,
+  meals & entertainment, significant difference flagging
+- 7/7 tests. Zero regressions. tsc clean.
 
-Agreement within $1 = corroboration PASSED.
-Disagreement = flag with both values and source locations.
+---
 
-**Component 2: Reasonableness Engine**
-`src/lib/irsKnowledge/reasonablenessEngine.ts`
+### PHASE 6 — Industry Intelligence 🔄 NEXT
 
+**Objective:** Make every extraction and analysis decision industry-aware.
+Replaces broad default norms in the Reasonableness Engine with
+NAICS-calibrated norms for each industry type.
+
+After Phase 6, a charter boat return gets evaluated against maritime norms.
+A medical practice gets evaluated against healthcare norms.
+The system stops treating every business the same way.
+
+**Structure:**
+`src/lib/industryIntelligence/`
+- `types.ts` — IndustryProfile type definition
+- `naicsMapper.ts` — NAICS code → profile lookup
+- `profiles/maritime.ts` — NAICS 487210
+- `profiles/realEstate.ts` — NAICS 531x
+- `profiles/medical.ts` — NAICS 621x
+- `profiles/construction.ts` — NAICS 236-238
+- `profiles/retail.ts` — NAICS 44-45
+- `profiles/restaurant.ts` — NAICS 722x
+- `profiles/professionalServices.ts` — NAICS 541x
+- `profiles/default.ts` — broad defaults for unknown industries
+- `index.ts` — barrel + `getIndustryProfile(naicsCode)` router
+
+**IndustryProfile type:**
 ```typescript
-// Hard failures — mathematically impossible
-COGS_EXCEEDS_REVENUE:              cogs > grossReceipts
-NEGATIVE_TOTAL_ASSETS:             totalAssets < 0
-GROSS_MARGIN_OVER_100PCT:          grossProfit > grossReceipts
-INCOME_WITHOUT_REVENUE:            obi > 0 && grossReceipts === 0
+type IndustryProfile = {
+  naicsCode: string
+  naicsDescription: string
+  displayName: string
 
-// Soft warnings — anomalous, score penalty applied
-GROSS_MARGIN_OUTSIDE_INDUSTRY:     |margin - industryNorm| > 2 std devs
-REVENUE_CHANGE_EXTREME:            |yoyChange| > 50%
-DEPRECIATION_IMPLAUSIBLE:          depreciation > fixedAssetsGross * 0.5
-OFFICER_COMP_EXTREME:              officerComp > revenue * 0.5
-INTEREST_IMPLAUSIBLE:              interestExpense > reportedDebt * 0.20
-```
+  // Gross margin norms (0-1 as decimal)
+  grossMarginNormal: { min: number; max: number }
+  grossMarginAnomaly: { min: number; max: number }  // outside = soft warning
 
-Use broad default norms for Phase 4. Phase 6 will add NAICS-specific norms.
+  // Where interest expense typically lives
+  interestInCogs: boolean        // true = check Form 1125-A, warn if missing
+  interestInCogsNote: string
 
-**Component 3: Confidence Aggregator**
-`src/lib/irsKnowledge/confidenceAggregator.ts`
+  // Officer comp norms (as % of revenue)
+  officerCompNormal: { min: number; max: number }
 
-```
-document_confidence =
-  weighted_average(per_field_confidence_scores)
-  × identity_check_multiplier    (1.0 all pass | 0.7 any fail)
-  × corroboration_multiplier     (1.0 all pass | 0.8 partial | 0.5 fail)
-  × reasonableness_multiplier    (1.0 all pass | 0.9 soft warnings only)
+  // Depreciation expectations
+  highDepreciationExpected: boolean
+  depreciationNote: string
 
-AUTO_VERIFIED:  score >= 0.92
-FLAGGED:        score >= 0.75
-BLOCKED:        score < 0.75
-```
+  // COGS composition notes
+  cogsComponents: string[]
 
-**Component 4: Intelligent Re-Extraction**
-`src/lib/extraction/reExtractionOrchestrator.ts`
+  // Industry-specific add-backs beyond standard
+  industryAddBacks: Array<{
+    key: string
+    description: string
+    applicability: string
+  }>
 
-```
-Attempt 1: Deterministic line-number matching
-  → Gates fail → Attempt 2
+  // Red flags specific to this industry
+  redFlags: Array<{
+    id: string
+    description: string
+    condition: string  // human-readable trigger condition
+    severity: "HIGH" | "MEDIUM" | "LOW"
+  }>
 
-Attempt 2: Structural table extraction (layout-aware)
-  → Gates fail → Attempt 3
-
-Attempt 3: AI-guided extraction with full form spec in prompt
-  (includes line numbers, identity checks, known label variants)
-  → Gates fail → Route to exception queue
-
-Exception queue entry: which checks failed, by how much,
-all three attempts side by side. Precise, actionable, not vague.
-```
-
-**Component 5: AUTO-VERIFIED Audit Certificate**
-
-When all four gates pass, generate and store:
-```json
-{
-  "document_id": "...",
-  "verification_status": "AUTO_VERIFIED",
-  "gates_passed": {
-    "irs_identity_checks": { "passed": 3, "failed": 0 },
-    "multi_source_corroboration": { "passed": 4, "failed": 0 },
-    "reasonableness_checks": { "passed": 8, "failed": 0 },
-    "confidence_threshold": { "score": 0.97, "threshold": 0.92 }
-  },
-  "verified_at": "ISO_TIMESTAMP",
-  "extraction_attempt": 1,
-  "auditable": true
+  // Credit analysis notes for the credit memo
+  creditAnalysisNotes: string
 }
 ```
 
-OCC examiner can review this certificate and see exactly what was proved.
+**Integration point — Reasonableness Engine:**
+After Phase 6, `checkReasonableness()` accepts an optional `industryProfile`
+parameter. When provided, gross margin, officer comp, and depreciation checks
+use profile norms instead of broad defaults.
 
----
+**Key profile details to encode:**
 
-### PHASE 5 — Financial Intelligence Layer 📋 QUEUED
+Maritime (NAICS 487210):
+- interestInCogs: TRUE — boat financing interest commonly in COGS via 1125-A
+- grossMarginNormal: 0.40-0.75 (fuel, crew, marina fees in COGS)
+- highDepreciationExpected: TRUE — vessels depreciate heavily
+- redFlag: "Revenue < prior year by >20% without weather/seasonality explanation"
 
-Transform raw extracted numbers into analyst-quality adjusted financials.
+Real Estate (NAICS 531x):
+- Analysis basis: NOI, not EBITDA
+- grossMarginNormal: 0.55-0.85
+- highDepreciationExpected: TRUE — buildings, improvements
+- industryAddBack: depreciation recapture note on sale
+- redFlag: "Vacancy rate implied by rent vs sq footage anomalous"
 
-**EBITDA Add-Back Engine**
-- Standard: D&A, interest, Section 179, bonus depreciation
-- Partnership: guaranteed payments (equivalent to officer comp)
-- Industry: interest-in-COGS detection for maritime, construction
-- Non-recurring: one-time expenses and income identified and flagged
+Medical (NAICS 621x):
+- officerCompNormal: 0.25-0.60 (physician owners take large comp)
+- industryAddBack: "Personal goodwill — physician comp above market is entity value"
+- redFlag: "Accounts receivable >120 days revenue equivalent (collections issue)"
 
-**Officer Compensation Normalization**
-- Flag when officer comp >40% or <10% of revenue
-- Compute adjusted EBITDA with market-rate assumption
-- Document adjustment with source and methodology for audit trail
+Construction (NAICS 236-238):
+- interestInCogs: TRUE — equipment financing often in job costs
+- grossMarginNormal: 0.15-0.35 (materials-heavy)
+- redFlag: "WIP not disclosed — percentage completion accounting risk"
+- redFlag: "Revenue spike >40% YOY without backlog explanation"
 
-**Global Cash Flow Builder**
-- Entity operating income + personal guarantor income
-- K-1 allocations mapped to correct personal returns
-- Ownership percentage applied correctly
-- Personal debt obligations factored in
+Restaurant (NAICS 722x):
+- grossMarginNormal: 0.55-0.75 (food cost 25-40% of revenue typical)
+- officerCompNormal: 0.05-0.20
+- redFlag: "Food cost ratio outside 25-40% band"
+- redFlag: "Labor cost >35% of revenue"
 
-**Schedule M-1 Exploitation**
-- Book-to-tax bridge reveals non-cash and non-deductible items
-- Significant book-tax differences flagged for credit analysis
-- Improves EBITDA reconstruction accuracy meaningfully
-
----
-
-### PHASE 6 — Industry Intelligence 📋 QUEUED
-
-NAICS-based profiles that make extraction and analysis industry-aware.
-Feeds into Phase 4 Reasonableness Engine for calibrated norms.
-
-**Initial profiles:**
-- Maritime / Charter Boats (NAICS 487210)
-- Real Estate (NAICS 531)
-- Medical Practices (NAICS 621)
-- Construction (NAICS 236-238)
-- Retail (NAICS 44-45)
-- Restaurants (NAICS 722)
-- Professional Services (NAICS 541)
-
-Each profile: gross margin norms, COGS components, interest location,
-officer comp norms, depreciation expectations, industry red flags.
+Professional Services (NAICS 541x):
+- grossMarginNormal: 0.65-0.90 (low COGS, high margin)
+- interestInCogs: FALSE
+- redFlag: "DSO (days sales outstanding) >90 days"
+- redFlag: "Revenue concentration — single client >30% of revenue"
 
 ---
 
@@ -336,7 +311,6 @@ Multi-year trend:  changes within explainable bounds
 
 **Golden Corpus** — verified documents with ground-truth values.
 CI tests assert extraction matches ground truth on every commit.
-No regression without failing test.
 
 Minimum corpus:
 - 5 Form 1065 (different industries, multiple years)
@@ -345,9 +319,8 @@ Minimum corpus:
 - 1 complex multi-entity deal with K-1s to personal returns
 
 **Continuous Learning Loop**
-Every exception → logs original, correct values, what failed.
-Nightly analysis: which fields, which doc types, which industries fail most.
-High-frequency patterns flag extraction rules for improvement.
+Every exception → logs original vs correct values and what failed.
+Nightly: high-frequency error patterns flag extraction rules for improvement.
 Target: <2% exception rate on standard tax returns within 12 months.
 
 ---
@@ -382,12 +355,16 @@ Digital asset custody integration.
 ## Current Active Deals / Test Cases
 
 **Samaritus Management LLC** (EIN 86-2437722)
-Charter boat business, Florida
+Charter boat business, Florida — NAICS 487210 (Maritime)
 Deal ID: 04312437-2bf3-4f72-b1eb-464a2b1bedc5
 
-Ground truth (verified and passing golden fixture tests as of Phase 3):
+Ground truth (verified, passing golden fixture tests):
 - 2022: Revenue 797,989 | COGS 0 | GP 797,989 | OBI 325,912 | Depr 191,385
 - 2024: Revenue 1,502,871 | COGS 449,671 | GP 1,053,200 | OBI 269,816 | Depr 287,050
+
+Note: This deal will be the first to benefit from Phase 6 Maritime profile.
+Interest-in-COGS warning already fires on 2024 return. Phase 6 will calibrate
+gross margin reasonableness check to maritime norms (40-75%) vs broad defaults.
 
 ---
 
@@ -395,14 +372,16 @@ Ground truth (verified and passing golden fixture tests as of Phase 3):
 
 1. **AUTO-VERIFIED on 95%+ of clean tax returns** — zero human data verification
 2. **IRS identity checks pass** on every extracted document ✅ BUILT
-3. **Multi-source corroboration** confirms key facts independently
-4. **Reasonableness engine** catches impossible and anomalous values
+3. **Multi-source corroboration** confirms key facts independently ✅ BUILT
+4. **Reasonableness engine** catches impossible and anomalous values ✅ BUILT
 5. **Formula accuracy** — every spread line mathematically verifiable ✅ BUILT
-6. **Full provenance** — every number traces to document, page, line, method
-7. **Golden corpus tests** pass on every commit, every document type
-8. **Continuous learning** — exception rate drops measurably each quarter
-9. **Audit certificate** generated for every AUTO-VERIFIED spread
-10. **Banker experience** — opens a spread, trusts the numbers, focuses on credit
+6. **Financial intelligence** — EBITDA, officer comp, global cash flow ✅ BUILT
+7. **Industry-calibrated norms** — NAICS-aware analysis 🔄 Phase 6
+8. **Full provenance** — every number traces to document, page, line, method
+9. **Golden corpus tests** pass on every commit, every document type
+10. **Continuous learning** — exception rate drops measurably each quarter
+11. **Audit certificate** generated for every AUTO-VERIFIED spread ✅ BUILT
+12. **Banker experience** — opens a spread, trusts the numbers, focuses on credit
 
 ---
 
@@ -416,6 +395,7 @@ Ground truth (verified and passing golden fixture tests as of Phase 3):
 - Snapshot immutability. deal_model_snapshots is INSERT-only.
 - Validation errors are never fatal. They log, they flag, they never block.
 - Proof beats trust. Never trust extracted data — prove it or re-extract.
+- Pure functions first. DB access in thin service layers only.
 
 ---
 
@@ -426,13 +406,13 @@ Ground truth (verified and passing golden fixture tests as of Phase 3):
 | 1 | IRS Knowledge Base | ✅ Complete | #169 |
 | 2 | Wire Validator to Pipeline | ✅ Complete | #170 |
 | 3 | Formula Accuracy Fixes | ✅ Complete | #171 |
-| 4 | Proof-of-Correctness Engine | 🔄 Next | — |
-| 5 | Financial Intelligence Layer | 📋 Queued | — |
-| 6 | Industry Intelligence | 📋 Queued | — |
+| 4 | Proof-of-Correctness Engine | ✅ Complete | #172 |
+| 5 | Financial Intelligence Layer | ✅ Complete | #173 |
+| 6 | Industry Intelligence | 🔄 Next | — |
 | 7 | Cross-Document Reconciliation | 📋 Queued | — |
 | 8 | Golden Corpus + Learning | 📋 Queued | — |
 | 9 | Full Banking Relationship | 📋 Future | — |
 
 *Every PR advances at least one phase. Every phase makes Buddy more accurate,
 more autonomous, and more valuable. The mission: a system that proves itself
-right before delivery — so bankers can focus entirely on credit judgment.*
+right before delivery — so bankers focus entirely on credit judgment.*
