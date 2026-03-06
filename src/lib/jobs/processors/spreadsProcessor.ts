@@ -676,6 +676,20 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       });
     }
 
+    // Generate risk flags after spread facts materialized (non-fatal)
+    try {
+      const { generateAndPersistFlags } = await import(
+        "@/lib/flagEngine/persistFlagReport"
+      );
+      await generateAndPersistFlags(dealId, bankId);
+    } catch (flagErr: any) {
+      console.warn("[spreadsProcessor] flag generation failed (non-fatal)", {
+        dealId,
+        jobId,
+        error: flagErr?.message,
+      });
+    }
+
     // ── Job outcome: no silent "SUCCEEDED 0 work" ──────────────────────────
     const renderedCount = completedTypes.size;
     const attemptedCount = readyTypes.length;

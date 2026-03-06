@@ -33,6 +33,7 @@ function baseDerived(overrides: Partial<LifecycleDerived> = {}): LifecycleDerive
     hasPricingAssumptions: false,
     hasSubmittedLoanRequest: false,
     researchComplete: true,
+    criticalFlagsResolved: true,
     ...overrides,
   };
 }

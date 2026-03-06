@@ -164,7 +164,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   // 3–11. Parallel independent queries (snapshot, decision, packet, advancement, loan requests, pricing, ai pipeline, spreads)
-  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, legacyPricingResult, aiPipelineResult, spreadsResult, riskPricingResult, structuralPricingResult, pricingInputsResult, researchResult] = await Promise.all([
+  const [snapshotResult, decisionResult, packetResult, advancementResult, loanRequestResult, pricingResult, legacyPricingResult, aiPipelineResult, spreadsResult, riskPricingResult, structuralPricingResult, pricingInputsResult, researchResult, criticalFlagsResult] = await Promise.all([
     safeSupabaseCount(
       "snapshot",
       () =>
@@ -307,6 +307,18 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .in("status", ["queued", "running"]),
       ctx
     ),
+    // Critical risk flags — count unresolved critical flags for committee gate
+    safeSupabaseCount(
+      "critical_flags",
+      () =>
+        sb
+          .from("deal_flags")
+          .select("id", { count: "exact", head: true })
+          .eq("deal_id", dealId)
+          .eq("severity", "critical")
+          .in("status", ["open", "banker_reviewed"]),
+      ctx
+    ),
   ]);
 
   let financialSnapshotExists = false;
@@ -364,6 +376,12 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   let researchComplete = true; // no missions = vacuously complete
   if (researchResult.ok) {
     researchComplete = researchResult.data === 0;
+  }
+
+  // Fail-open: infrastructure failures never block deals
+  let criticalFlagsResolved = true;
+  if (criticalFlagsResult.ok) {
+    criticalFlagsResolved = criticalFlagsResult.data === 0;
   }
 
   let riskPricingFinalized = false;
@@ -479,6 +497,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     hasPricingAssumptions,
     hasSubmittedLoanRequest,
     researchComplete,
+    criticalFlagsResolved,
     ...gatekeeperDerived,
   };
 
@@ -778,6 +797,7 @@ function createNotFoundState(): LifecycleState {
       hasPricingAssumptions: false,
       hasSubmittedLoanRequest: false,
       researchComplete: true,
+      criticalFlagsResolved: true,
     },
   };
 }
@@ -813,6 +833,7 @@ function createErrorState(code: string, message: string): LifecycleState {
       hasPricingAssumptions: false,
       hasSubmittedLoanRequest: false,
       researchComplete: true,
+      criticalFlagsResolved: true,
     },
   };
 }

@@ -155,6 +155,17 @@ export function computeBlockers(
     });
   }
 
+  // Critical flags blocker — unresolved critical flags block committee advancement
+  if (
+    (stage === "underwrite_in_progress" || stage === "committee_ready") &&
+    !derived.criticalFlagsResolved
+  ) {
+    blockers.push({
+      code: "critical_flags_unresolved",
+      message: "Critical risk flags must be resolved or waived before this deal can advance to credit committee review.",
+    });
+  }
+
   // Committee readiness blockers
   if (stage === "underwrite_in_progress" || stage === "committee_ready") {
     if (!derived.committeePacketReady && derived.committeeRequired) {
