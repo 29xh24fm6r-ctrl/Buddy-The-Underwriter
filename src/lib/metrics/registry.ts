@@ -111,9 +111,9 @@ const GROSS_PROFIT: MetricDefinition = {
   label: "Gross Profit",
   expr: "TOTAL_REVENUE - COST_OF_GOODS_SOLD",
   precision: 0,
-  requiredFacts: ["TOTAL_REVENUE", "COST_OF_GOODS_SOLD"],
+  requiredFacts: ["TOTAL_REVENUE"],
   applicableTo: ALL,
-  version: 2,
+  version: 3,
 };
 
 const GROSS_MARGIN: MetricDefinition = {
@@ -130,11 +130,11 @@ const GROSS_MARGIN: MetricDefinition = {
 const EBITDA: MetricDefinition = {
   id: "EBITDA",
   label: "EBITDA",
-  expr: "EBITDA",
+  expr: "ORDINARY_BUSINESS_INCOME + INTEREST_EXPENSE + DEPRECIATION",
   precision: 0,
-  requiredFacts: ["EBITDA"],
+  requiredFacts: ["ORDINARY_BUSINESS_INCOME"],
   applicableTo: ALL,
-  version: 1,
+  version: 2,
 };
 
 const EBITDA_MARGIN: MetricDefinition = {
@@ -588,4 +588,4 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
 };
 
 /** Current version of the metric registry — bump on any formula change. */
-export const METRIC_REGISTRY_VERSION = 2;
+export const METRIC_REGISTRY_VERSION = 3;

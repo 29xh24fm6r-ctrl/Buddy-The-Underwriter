@@ -17,6 +17,14 @@ export type StandardRenderInput = {
 // sources in priority order (first found wins).
 // ---------------------------------------------------------------------------
 
+// Keys where null/missing should be treated as 0 (IRS nullAsZero fields).
+// Service businesses have no COGS; entities without debt have no interest.
+const NULL_AS_ZERO_KEYS = [
+  "COST_OF_GOODS_SOLD",
+  "INTEREST_EXPENSE",
+  "DEPRECIATION",
+];
+
 const FACT_KEY_ALIASES: Record<string, string[]> = {
   // IS aliases per MMAS — OBI is net income, never revenue
   TOTAL_REVENUE: ["GROSS_RECEIPTS", "TOTAL_INCOME"],
@@ -111,6 +119,12 @@ function buildFactsMap(
         break;
       }
     }
+  }
+
+  // Null-as-zero: IRS fields that should default to 0 when missing.
+  // Service businesses have no COGS; entities without debt have no interest.
+  for (const key of NULL_AS_ZERO_KEYS) {
+    if (map[key] === undefined) map[key] = 0;
   }
 
   return map;
