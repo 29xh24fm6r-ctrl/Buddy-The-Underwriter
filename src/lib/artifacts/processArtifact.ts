@@ -2074,6 +2074,18 @@ export async function processArtifact(
       });
     }
 
+    // 6.7b. Re-evaluate document flags after new artifact upload (non-fatal)
+    try {
+      const { rerunDocumentFlagsForDeal } = await import("@/lib/flagEngine/rerunDocumentFlags");
+      await rerunDocumentFlagsForDeal(dealId, bankId);
+    } catch (flagErr: any) {
+      console.warn("[processArtifact] flag re-evaluation failed (non-fatal)", {
+        dealId,
+        artifactId,
+        error: flagErr?.message,
+      });
+    }
+
     // 6.8. Two-phase naming: single entry point for document + deal naming
     try {
       const { runNamingDerivation } = await import("@/lib/naming/runNamingDerivation");

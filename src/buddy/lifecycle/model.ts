@@ -77,6 +77,8 @@ export type LifecycleBlockerCode =
   | "intake_health_below_threshold"
   // Intake confirmation gate — emitted when ENABLE_INTAKE_CONFIRMATION_GATE=true
   | "intake_confirmation_required"
+  // Critical risk flags blocker — emitted when unresolved critical flags exist
+  | "critical_flags_unresolved"
   // Pipeline stall blocker — emitted when artifacts stuck queued/processing
   | "artifacts_processing_stalled"
   // Generic fallbacks (use specific codes above when possible)
@@ -136,6 +138,8 @@ export type LifecycleDerived = {
   hasSubmittedLoanRequest: boolean;
   /** True if all research missions have completed (no queued/running missions) */
   researchComplete: boolean;
+  /** True if no unresolved critical risk flags exist (fail-open on query failure) */
+  criticalFlagsResolved: boolean;
   /** Request correlation ID for debugging (optional, set by route) */
   correlationId?: string;
   // Gatekeeper-derived readiness detail fields
