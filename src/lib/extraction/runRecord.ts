@@ -232,6 +232,21 @@ export async function finalizeExtractionRun(args: FinalizeRunArgs): Promise<void
     })
     .eq("id", args.runId);
 
+  // Fire post-extraction IRS identity validation (non-blocking, dynamic import)
+  if (args.status === "succeeded") {
+    void (async () => {
+      try {
+        const { runPostExtractionValidation } = await import("./postExtractionValidator");
+        await runPostExtractionValidation(
+          args.documentId,
+          args.dealId,
+          (args.metrics?.canonicalType as string) ?? "UNKNOWN",
+          (args.metrics?.taxYear as number) ?? null,
+        );
+      } catch { /* validation must never break extraction */ }
+    })();
+  }
+
   // Determine event kind
   const eventKind =
     args.status === "succeeded"
