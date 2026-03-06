@@ -373,6 +373,21 @@ export async function runMission(
     // 12. Mark mission as complete
     await updateMissionStatus(missionId, "complete");
 
+    // 13. Bridge: persist risk-indicator inferences as flags (non-fatal)
+    try {
+      if (persistedInferences.length > 0) {
+        const { flagFromResearchInferences } = await import("./flagFromResearchInferences");
+        const { persistResearchFlags } = await import("@/lib/flagEngine/persistResearchFlags");
+        const researchFlags = flagFromResearchInferences(dealId, persistedInferences, missionType);
+        if (researchFlags.length > 0) {
+          await persistResearchFlags(dealId, researchFlags);
+        }
+      }
+    } catch (err: any) {
+      // Non-fatal — mission is already marked complete
+      console.warn("[runMission] research→flag bridge failed (non-fatal)", err?.message);
+    }
+
     return {
       ok: true,
       mission_id: missionId,

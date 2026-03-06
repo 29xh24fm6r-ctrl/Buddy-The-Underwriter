@@ -7,6 +7,7 @@
 import type { QualityOfEarningsReport } from "../spreads/qoeEngine";
 import type { TrendAnalysisResult } from "../trends/trendAnalysis";
 import type { ConsolidationResult } from "../consolidation/consolidationEngine";
+import type { ResearchInference } from "../research/types";
 
 // ---------------------------------------------------------------------------
 // Enum-like unions
@@ -33,7 +34,7 @@ export type DocumentUrgency =
   | "required_before_closing"
   | "preferred";
 
-export type RecipientType = "borrower" | "accountant" | "attorney" | "appraiser";
+export type RecipientType = "borrower" | "accountant" | "attorney" | "appraiser" | "banker";
 
 // ---------------------------------------------------------------------------
 // Core domain types
@@ -60,6 +61,7 @@ export interface SpreadFlag {
   waived_by?: string;
   waived_reason?: string;
   auto_generated: boolean;
+  metadata?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -100,6 +102,7 @@ export interface FlagEngineInput {
   consolidated_spread?: ConsolidatedSpread;
   years_available: number[];
   deal_type?: string;
+  research_inferences?: ResearchInference[];
 }
 
 export interface FlagEngineOutput {
