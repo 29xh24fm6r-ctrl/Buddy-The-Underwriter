@@ -40,7 +40,7 @@
     "worker:intake": "node --conditions react-server --import tsx --env-file=.env.local scripts/intake-worker.ts"
   },
   "dependencies": {
-"@clerk/nextjs": "^6.36.3",
+    "@clerk/nextjs": "^6.36.3",
     "@google-cloud/storage": "^7.17.0",
     "@google-cloud/vertexai": "^1.9.0",
     "@modelcontextprotocol/sdk": "^1.25.3",
@@ -53,6 +53,7 @@
     "@opentelemetry/semantic-conventions": "^1.37.0",
     "@opentelemetry/winston-transport": "^0.19.0",
     "@radix-ui/react-progress": "^1.1.8",
+    "@react-pdf/renderer": "^4.3.2",
     "@sentry/nextjs": "^10.32.1",
     "@supabase/supabase-js": "^2.89.0",
     "@types/pdfkit": "^0.17.4",

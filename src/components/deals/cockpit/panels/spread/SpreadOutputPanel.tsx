@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SpreadOutputReport } from "@/lib/spreadOutput/types";
 import { ExecutiveSummaryPanel } from "./ExecutiveSummaryPanel";
 import { NormalizedSpreadPanel } from "./NormalizedSpreadPanel";
@@ -29,6 +29,8 @@ export function SpreadOutputPanel({ dealId }: { dealId: string }) {
   const [report, setReport] = useState<SpreadOutputReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const downloadRef = useRef<HTMLAnchorElement>(null);
 
   const fetchReport = useCallback(async () => {
     try {
@@ -46,6 +48,28 @@ export function SpreadOutputPanel({ dealId }: { dealId: string }) {
       setError(msg);
     } finally {
       setLoading(false);
+    }
+  }, [dealId]);
+
+  const handleExport = useCallback(async () => {
+    try {
+      setIsExporting(true);
+      const res = await fetch(`/api/deals/${dealId}/credit-memo/export`);
+      if (!res.ok) {
+        throw new Error(`Export failed (HTTP ${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      if (downloadRef.current) {
+        downloadRef.current.href = url;
+        downloadRef.current.download = `CreditMemo_${dealId.slice(0, 8)}.pdf`;
+        downloadRef.current.click();
+      }
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("PDF generation failed — try again");
+    } finally {
+      setIsExporting(false);
     }
   }, [dealId]);
 
@@ -90,21 +114,51 @@ export function SpreadOutputPanel({ dealId }: { dealId: string }) {
 
   return (
     <div className="space-y-3">
-      {/* Tab bar */}
-      <div className="flex gap-1 rounded-lg border border-zinc-700 bg-zinc-800/50 p-1">
-        {TABS.map((t) => (
+      {/* Hidden download anchor */}
+      {/* eslint-disable-next-line jsx-a11y/anchor-has-content */}
+      <a ref={downloadRef} className="hidden" aria-hidden="true" />
+
+      {/* Tab bar + Export button */}
+      <div className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800/50 p-1">
+        <div className="flex gap-1">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                tab === t.key
+                  ? "bg-zinc-700 text-zinc-100"
+                  : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="ml-auto">
           <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-              tab === t.key
-                ? "bg-zinc-700 text-zinc-100"
-                : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-            }`}
+            onClick={handleExport}
+            disabled={isExporting}
+            className="flex items-center gap-1.5 rounded-md border border-zinc-600 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:bg-zinc-700 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {t.label}
+            {isExporting ? (
+              <>
+                <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Generating PDF...
+              </>
+            ) : (
+              <>
+                <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+                Export Credit Memo
+              </>
+            )}
           </button>
-        ))}
+        </div>
       </div>
 
       {/* Tab content */}
