@@ -34,7 +34,7 @@ export type DeterministicExtractionResult = ExtractionResult & {
 /** Line item from a pure deterministic extractor (no DB writes). */
 export type PureLineItem = {
   key: string;
-  value: number;
+  value: number | string | boolean;
   period: string | null;
   snippet: string | null;
 };
