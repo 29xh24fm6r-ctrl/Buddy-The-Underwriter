@@ -64,7 +64,9 @@ Financial Intelligence Layer               ✅ Phase 5 COMPLETE
         ↓
 Industry Intelligence Layer                ✅ Phase 6 COMPLETE
         ↓
-Cross-Document Reconciliation              🔄 Phase 7 IN PROGRESS
+Cross-Document Reconciliation              ✅ Phase 7 COMPLETE
+        ↓
+Golden Corpus + Continuous Learning        🔄 Phase 8 IN PROGRESS
         ↓
 Spread Generation (MMAS format)
         ↓
@@ -102,12 +104,15 @@ Mathematical proof that extracted numbers are internally consistent.
 Same value confirmed from two independent sources within the document set.
 
 **Gate 3 — Reasonableness Engine** ✅ BUILT (Phase 4 + 6)
-Financial sanity checks with NAICS-calibrated industry norms (Phase 6).
+Financial sanity checks with NAICS-calibrated industry norms.
 
 **Gate 4 — Confidence Threshold** ✅ BUILT (Phase 4)
 All extracted values must score ≥ 0.92 for AUTO-VERIFIED status.
 
-**When all four pass:** `AUTO-VERIFIED`. No queue. No wait.
+**Cross-Document Layer** ✅ BUILT (Phase 7)
+K-1s reconcile to entity OBI. Balance sheets balance. Ownership sums to 100%.
+
+**When all gates pass:** `AUTO-VERIFIED`. No queue. No wait.
 **Target: 95%+ of clean tax returns AUTO-VERIFIED with zero human touch.**
 
 ---
@@ -169,13 +174,12 @@ Samaritus verified:
 All pure functions. No DB required.
 
 - `ebitdaEngine.ts` — standard add-backs, guaranteed payments, non-recurring,
-  interest-in-COGS warning for maritime/construction
+  interest-in-COGS warning
 - `officerCompEngine.ts` — EXTREME_HIGH/LOW flags, excess comp add-back,
   distribution proxy detection
 - `globalCashFlowBuilder.ts` — multi-entity assembly, ownership pct allocation,
   debt obligation netting
-- `scheduleM1Engine.ts` — book-to-tax bridge, timing differences, significant
-  difference flagging
+- `scheduleM1Engine.ts` — book-to-tax bridge, timing differences
 - 7/7 tests. Zero regressions. tsc clean.
 
 ---
@@ -185,124 +189,310 @@ All pure functions. No DB required.
 
 13 files, 848 additions. All pure data and functions. No DB required.
 
-- `IndustryProfile` type — gross margin norms, interest-in-COGS flag,
-  officer comp norms, depreciation expectations, red flags, credit notes
-- 7 industry profiles: Maritime (487210), Real Estate (531x), Medical (621x),
+- 7 NAICS profiles: Maritime (487210), Real Estate (531x), Medical (621x),
   Construction (236-238), Retail (44-45), Restaurant (722x),
-  Professional Services (541x)
-- `default.ts` — broad defaults for unknown NAICS
+  Professional Services (541x), plus broad default
 - `naicsMapper.ts` — prefix-based NAICS → profile routing
-- `reasonablenessEngine.ts` updated — backward-compatible `industryProfile`
-  parameter, NAICS-calibrated norms when profile provided
+- `reasonablenessEngine.ts` updated — NAICS-calibrated norms when profile provided
 - 10/10 tests. Zero regressions. tsc clean.
 
 ---
 
-### PHASE 7 — Cross-Document Reconciliation 🔄 NEXT
+### PHASE 7 — Cross-Document Reconciliation ✅ COMPLETE
+**PR #175 — commit cccc4eee**
 
-**Objective:** Catch inconsistencies that single-document validation cannot see.
+11 files, 1028 additions. Migration live in Supabase.
 
-A borrower who files a Form 1065 also issues K-1s to partners, and those
-partners report that K-1 income on their personal returns. The same dollar
-of income appears in three places. If any of the three disagree, something
-is wrong — mismatched ownership percentages, unreported income, or an
-extraction error. This phase catches all of it.
-
-**What reconciliation means at the deal level:**
-After all documents in a deal are extracted and individually validated,
-cross-document reconciliation runs once across the full package.
-It is the final accuracy gate before spread generation.
-
-**Reconciliation checks to implement:**
-
-```
-CHECK 1 — K-1 to Entity Return
-  sum(k1_ordinary_income_i × ownership_pct_i for all partners i)
-  ≈ entity_ordinary_business_income
-  Tolerance: $1
-  Required: entity OBI + at least one K-1 with ownership pct
-
-CHECK 2 — K-1 to Personal Return
-  k1_income_on_personal_return
-  ≈ k1_income_on_entity_return × reported_ownership_pct
-  Tolerance: 1% of value or $100, whichever is larger
-  Required: personal return K-1 line + entity K-1 for same EIN
-
-CHECK 3 — Tax Return to Financial Statement
-  tax_return_gross_receipts ≈ income_statement_revenue
-  Tolerance: 5% of value (accounting method differences are real)
-  Required: both a tax return and financial statement for same entity/year
-
-CHECK 4 — Balance Sheet Reconciliation
-  total_assets ≈ total_liabilities + total_equity
-  Tolerance: $1
-  Required: balance sheet data from any source (Schedule L, financial stmt)
-  Applies per source — flag if balance sheet from any source doesn't balance
-
-CHECK 5 — Multi-Year Revenue Trend
-  |revenue_change_yoy| within explainable bounds for industry
-  Threshold: use industryProfile.grossMarginNormal when available, else >50% = flag
-  Required: at least 2 years of the same entity's returns
-  Not a hard failure — soft flag for analyst attention
-
-CHECK 6 — Ownership Percentage Integrity
-  sum(all_partner_ownership_pcts) ≈ 1.00 (100%)
-  Tolerance: 1% rounding
-  Required: K-1s for all partners in a partnership
-  Flag if K-1 set appears incomplete (sum < 0.95)
-```
-
-**Structure:**
-`src/lib/reconciliation/`
-- `types.ts` — ReconciliationCheck, ReconciliationResult, DealReconciliationSummary
-- `k1ToEntityCheck.ts` — CHECK 1
-- `k1ToPersonalCheck.ts` — CHECK 2
-- `taxToFinancialsCheck.ts` — CHECK 3
-- `balanceSheetCheck.ts` — CHECK 4
-- `multiYearTrendCheck.ts` — CHECK 5
-- `ownershipIntegrityCheck.ts` — CHECK 6
-- `dealReconciliator.ts` — orchestrator, runs all applicable checks
-- `index.ts` — barrel export
-
-All check files pure functions. `dealReconciliator.ts` is the only file that
-touches DB (loads facts for all documents in a deal package).
-
-**DealReconciliationSummary type:**
-```typescript
-type DealReconciliationSummary = {
-  dealId: string
-  checksRun: number
-  checksPassed: number
-  checksFailed: number
-  checksSkipped: number
-  hardFailures: ReconciliationCheck[]    // block spread or require sign-off
-  softFlags: ReconciliationCheck[]       // note in spread, don't block
-  overallStatus: "CLEAN" | "FLAGS" | "CONFLICTS"
-  reconciledAt: string
-}
-```
-
-CLEAN = all applicable checks passed
-FLAGS = only soft flags (trend anomalies, ownership gaps)
-CONFLICTS = any hard failure (K-1 sum mismatch, balance sheet out of balance)
+- 6 reconciliation checks: K-1↔Entity, K-1↔Personal, Tax↔Financials,
+  Balance Sheet, Multi-Year Trend, Ownership Integrity
+- All check files pure functions. `dealReconciliator.ts` server-only orchestrator.
+- CLEAN / FLAGS / CONFLICTS deal-level status
+- Aegis findings written for HARD failures and SOFT flag sets
+- Migration: `deal_reconciliation_results` table with RLS
+- 12/12 tests. Zero regressions. tsc clean.
 
 ---
 
-### PHASE 8 — Golden Corpus + Continuous Learning 📋 QUEUED
+### PHASE 8 — Golden Corpus + Continuous Learning 🔄 NEXT
 
-**Golden Corpus** — verified documents with ground-truth values.
-CI tests assert extraction matches ground truth on every commit.
+**Objective:** Make every accuracy guarantee testable and self-improving.
 
-Minimum corpus:
-- 5 Form 1065 (different industries, multiple years)
-- 3 Form 1120 / 3 Form 1120S / 3 Form 1040 with Schedule C
-- 2 audited / 2 reviewed financial statements
-- 1 complex multi-entity deal with K-1s to personal returns
+Phases 1-7 built the intelligence. Phase 8 proves it works on real documents,
+catches regressions automatically, and closes the loop so every analyst
+correction makes the system smarter.
 
-**Continuous Learning Loop**
-Every exception → logs original vs correct values and what failed.
-Nightly: high-frequency error patterns flag extraction rules for improvement.
-Target: <2% exception rate on standard tax returns within 12 months.
+After Phase 8, no PR can silently break extraction accuracy. The CI suite
+will fail. Buddy gets measurably better over time without manual intervention.
+
+---
+
+**Part A: Golden Corpus Test Infrastructure**
+
+`src/lib/corpus/`
+
+The golden corpus is a set of verified financial documents with ground-truth
+fact values. Every commit, automated tests extract from these documents and
+assert the results match known-correct values. If any extraction changes,
+the test fails — the developer must either fix the regression or explicitly
+update the ground truth with justification.
+
+**FILE: src/lib/corpus/types.ts**
+
+```typescript
+export type CorpusDocument = {
+  id: string                    // stable identifier, e.g. "samaritus_2022_1065"
+  displayName: string
+  formType: string
+  taxYear: number
+  naicsCode: string | null
+  industry: string
+  groundTruth: Record<string, number | null>   // canonicalKey → expected value
+  tolerances?: Record<string, number>          // per-key tolerance, default $1
+  notes: string                                // why this document is in the corpus
+}
+
+export type CorpusTestResult = {
+  documentId: string
+  passed: boolean
+  failures: Array<{
+    factKey: string
+    expected: number | null
+    actual: number | null
+    delta: number | null
+    tolerance: number
+  }>
+  testedAt: string
+}
+```
+
+**FILE: src/lib/corpus/goldenDocuments.ts**
+
+Seed the corpus with known-good values from real deals.
+Start with the two Samaritus documents (already manually verified):
+
+```typescript
+export const GOLDEN_CORPUS: CorpusDocument[] = [
+  {
+    id: "samaritus_2022_1065",
+    displayName: "Samaritus Management LLC — Form 1065 (2022)",
+    formType: "FORM_1065",
+    taxYear: 2022,
+    naicsCode: "487210",
+    industry: "Maritime / Charter Boats",
+    groundTruth: {
+      GROSS_RECEIPTS: 797989,
+      COST_OF_GOODS_SOLD: 0,
+      GROSS_PROFIT: 797989,
+      TOTAL_DEDUCTIONS: 472077,
+      ORDINARY_BUSINESS_INCOME: 325912,
+      DEPRECIATION: 191385,
+      INTEREST_EXPENSE: 9068,
+      // EBITDA computed: 325912 + 191385 + 9068 = 526365
+    },
+    notes: "First verified deal in production. Service business, no COGS. Maritime industry. Used to catch OBI-as-revenue bug in Phase 1."
+  },
+  {
+    id: "samaritus_2024_1065",
+    displayName: "Samaritus Management LLC — Form 1065 (2024)",
+    formType: "FORM_1065",
+    taxYear: 2024,
+    naicsCode: "487210",
+    industry: "Maritime / Charter Boats",
+    groundTruth: {
+      GROSS_RECEIPTS: 1502871,
+      COST_OF_GOODS_SOLD: 449671,
+      GROSS_PROFIT: 1053200,
+      TOTAL_DEDUCTIONS: 783384,
+      ORDINARY_BUSINESS_INCOME: 269816,
+      DEPRECIATION: 287050,
+      INTEREST_EXPENSE: 12112,
+    },
+    notes: "2024 return uses Line 23 for OBI (vs Line 22 in 2022). COGS present — manufacturing/service hybrid. Revenue ~88% growth YOY triggers soft trend flag."
+  }
+]
+```
+
+As new deals close and are verified, add their ground truth here.
+Target minimum corpus by end of Phase 8:
+- 5 Form 1065 (different industries, different years)
+- 3 Form 1120 or 1120S
+- 2 Schedule C
+- 1 multi-entity deal with K-1s
+
+**FILE: src/lib/corpus/corpusValidator.ts**
+Pure function.
+
+```typescript
+export function validateAgainstCorpus(
+  corpusDoc: CorpusDocument,
+  extractedFacts: Record<string, number | null>
+): CorpusTestResult
+```
+
+For each key in `groundTruth`:
+- Get tolerance: `corpusDoc.tolerances?.[key] ?? 1`
+- Compare extracted value to expected
+- PASSED if `Math.abs(extracted - expected) <= tolerance` or both null
+- FAILED if delta exceeds tolerance or one is null and other is not
+
+**Tests: src/lib/corpus/__tests__/corpus.test.ts**
+
+Test 1: Samaritus 2022 — all ground truth keys pass (use hardcoded fact map)
+Test 2: Samaritus 2024 — all ground truth keys pass (use hardcoded fact map)
+Test 3: Introduced regression — GROSS_PROFIT wrong → test fails, delta reported
+Test 4: OBI-as-revenue regression — GROSS_RECEIPTS = 269816 (OBI value) → fails
+Test 5: Missing fact → delta reported, test fails unless groundTruth value is null
+
+---
+
+**Part B: Continuous Learning Loop**
+
+`src/lib/learningLoop/`
+
+Every time an analyst corrects an extracted value, that correction is logged.
+Nightly analysis identifies which fields and document types are corrected most
+frequently. High-frequency patterns surface as improvement candidates.
+
+**FILE: src/lib/learningLoop/types.ts**
+
+```typescript
+export type CorrectionEvent = {
+  id: string
+  dealId: string
+  documentId: string
+  documentType: string
+  taxYear: number | null
+  naicsCode: string | null
+  factKey: string
+  originalValue: number | null
+  correctedValue: number | null
+  correctionSource: "ANALYST_MANUAL" | "CORPUS_OVERRIDE" | "RE_EXTRACTION"
+  analystId: string | null
+  correctedAt: string
+}
+
+export type CorrectionPattern = {
+  factKey: string
+  documentType: string
+  correctionCount: number
+  errorRate: number           // corrections / total extractions for this key+docType
+  avgDelta: number | null     // average magnitude of corrections
+  trend: "IMPROVING" | "STABLE" | "DEGRADING"
+  lastSeen: string
+  flaggedForReview: boolean   // true when errorRate > 0.05 (5%)
+}
+```
+
+**FILE: src/lib/learningLoop/correctionLogger.ts**
+Server-only. Writes correction events.
+
+```typescript
+export async function logCorrection(event: Omit<CorrectionEvent, "id">): Promise<void>
+```
+
+Inserts to `extraction_correction_log` table.
+Never throws — fire-and-forget.
+Emits ledger event `extraction.analyst_correction` with factKey and delta.
+
+**FILE: src/lib/learningLoop/patternAnalyzer.ts**
+Pure function — takes correction events, returns patterns.
+
+```typescript
+export function analyzePatterns(
+  corrections: CorrectionEvent[],
+  totalExtractionsByKeyAndType: Record<string, number>
+): CorrectionPattern[]
+```
+
+Groups by `factKey + documentType`.
+Computes errorRate = corrections / totalExtractions.
+Flags for review when errorRate > 0.05.
+Trend: compare last-30-days rate to prior-30-days rate.
+
+**FILE: src/lib/learningLoop/patternReporter.ts**
+Server-only. Queries DB, runs analyzer, writes report.
+
+```typescript
+export async function generateDailyPatternReport(asOfDate: string): Promise<{
+  patterns: CorrectionPattern[]
+  topErrors: CorrectionPattern[]    // top 5 by errorRate
+  newFlags: CorrectionPattern[]     // newly crossed 5% threshold since last report
+  improvingFields: CorrectionPattern[]
+}>
+```
+
+Writes report to `extraction_learning_reports` table.
+Writes Aegis finding for each newly flagged field (severity MEDIUM).
+
+**MIGRATION:**
+
+```sql
+CREATE TABLE IF NOT EXISTS extraction_correction_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  deal_id UUID NOT NULL,
+  document_id UUID NOT NULL,
+  document_type TEXT NOT NULL,
+  tax_year INTEGER,
+  naics_code TEXT,
+  fact_key TEXT NOT NULL,
+  original_value NUMERIC,
+  corrected_value NUMERIC,
+  correction_source TEXT NOT NULL,
+  analyst_id TEXT,
+  corrected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_correction_log_fact_key
+  ON extraction_correction_log(fact_key);
+CREATE INDEX IF NOT EXISTS idx_correction_log_document_type
+  ON extraction_correction_log(document_type, fact_key);
+CREATE INDEX IF NOT EXISTS idx_correction_log_corrected_at
+  ON extraction_correction_log(corrected_at);
+ALTER TABLE extraction_correction_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_all" ON extraction_correction_log
+  FOR ALL USING (auth.role() = 'service_role');
+CREATE POLICY "authenticated_read" ON extraction_correction_log
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE TABLE IF NOT EXISTS extraction_learning_reports (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  report_date DATE NOT NULL,
+  patterns JSONB NOT NULL DEFAULT '[]',
+  top_errors JSONB NOT NULL DEFAULT '[]',
+  new_flags JSONB NOT NULL DEFAULT '[]',
+  improving_fields JSONB NOT NULL DEFAULT '[]',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_learning_reports_date
+  ON extraction_learning_reports(report_date);
+ALTER TABLE extraction_learning_reports ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_all" ON extraction_learning_reports
+  FOR ALL USING (auth.role() = 'service_role');
+CREATE POLICY "authenticated_read" ON extraction_learning_reports
+  FOR SELECT USING (auth.role() = 'authenticated');
+```
+
+**Tests: src/lib/learningLoop/__tests__/learningLoop.test.ts**
+
+Test 1: validateAgainstCorpus passes for correct facts
+Test 2: validateAgainstCorpus fails and reports delta for wrong facts
+Test 3: analyzePatterns — flags field when errorRate > 5%
+Test 4: analyzePatterns — IMPROVING trend when recent rate lower than prior
+Test 5: analyzePatterns — DEGRADING trend when recent rate higher than prior
+Test 6: analyzePatterns — fields with 0 corrections return empty patterns
+
+**ACCEPTANCE CRITERIA:**
+- tsc --noEmit clean
+- All tests pass (corpus + learning loop)
+- All existing tests pass — zero regressions
+- corpus/ files are pure (no DB, no server-only)
+- learningLoop/correctionLogger.ts and patternReporter.ts are server-only
+- patternAnalyzer.ts is pure
+- Both migrations apply cleanly
+- logCorrection never throws
+
+**PR TITLE:**
+`feat: Golden Corpus + Continuous Learning — regression protection and analyst feedback loop`
 
 ---
 
@@ -339,14 +529,9 @@ Digital asset custody integration.
 Charter boat business, Florida — NAICS 487210 (Maritime)
 Deal ID: 04312437-2bf3-4f72-b1eb-464a2b1bedc5
 
-Ground truth (verified, passing golden fixture tests):
+Ground truth (verified, in golden corpus as of Phase 8):
 - 2022: Revenue 797,989 | COGS 0 | GP 797,989 | OBI 325,912 | Depr 191,385
 - 2024: Revenue 1,502,871 | COGS 449,671 | GP 1,053,200 | OBI 269,816 | Depr 287,050
-
-Phase 7 note: This deal has 2 years of returns from the same entity.
-Multi-year trend check (CHECK 5) will run and validate YOY revenue change
-against Maritime profile norms (~88% revenue growth 2022→2024 — will trigger
-soft flag for analyst awareness, which is correct behavior).
 
 ---
 
@@ -359,10 +544,10 @@ soft flag for analyst awareness, which is correct behavior).
 5. **Formula accuracy** — every spread line mathematically verifiable ✅ BUILT
 6. **Financial intelligence** — EBITDA, officer comp, global cash flow ✅ BUILT
 7. **Industry intelligence** — 7 NAICS profiles, calibrated analysis ✅ BUILT
-8. **Cross-document reconciliation** — K-1s, personal returns, financials 🔄 Phase 7
-9. **Full provenance** — every number traces to document, page, line, method
-10. **Golden corpus tests** pass on every commit, every document type
-11. **Continuous learning** — exception rate drops measurably each quarter
+8. **Cross-document reconciliation** — K-1s, balance sheet, ownership ✅ BUILT
+9. **Golden corpus tests** pass on every commit, every document type 🔄 Phase 8
+10. **Continuous learning** — error rate drops measurably each quarter 🔄 Phase 8
+11. **Full provenance** — every number traces to document, page, line, method
 12. **Audit certificate** generated for every AUTO-VERIFIED spread ✅ BUILT
 13. **Banker experience** — opens a spread, trusts the numbers, focuses on credit
 
@@ -392,8 +577,8 @@ soft flag for analyst awareness, which is correct behavior).
 | 4 | Proof-of-Correctness Engine | ✅ Complete | #172 |
 | 5 | Financial Intelligence Layer | ✅ Complete | #173 |
 | 6 | Industry Intelligence | ✅ Complete | #174 |
-| 7 | Cross-Document Reconciliation | 🔄 Next | — |
-| 8 | Golden Corpus + Learning | 📋 Queued | — |
+| 7 | Cross-Document Reconciliation | ✅ Complete | #175 |
+| 8 | Golden Corpus + Learning Loop | 🔄 Next | — |
 | 9 | Full Banking Relationship | 📋 Future | — |
 
 *Every PR advances at least one phase. Every phase makes Buddy more accurate,
