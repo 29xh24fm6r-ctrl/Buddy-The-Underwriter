@@ -2,8 +2,11 @@
  * Proof-of-Correctness — Reasonableness Engine
  *
  * Hard failures (IMPOSSIBLE) and soft warnings (ANOMALOUS) for extracted facts.
+ * Optionally calibrated by industry profile (Phase 6).
  * Pure function — no DB calls.
  */
+
+import type { IndustryProfile } from "@/lib/industryIntelligence/types";
 
 export type ReasonablenessSeverity = "IMPOSSIBLE" | "ANOMALOUS";
 
@@ -33,11 +36,13 @@ function val(facts: FactMap, key: string): number | null {
  * @param facts - Extracted fact map
  * @param formType - IRS form type (unused for now, reserved for form-specific checks)
  * @param priorYearFacts - Prior year facts for year-over-year comparisons
+ * @param industryProfile - Optional industry profile for calibrated norms
  */
 export function checkReasonableness(
   facts: FactMap,
   formType: string,
   priorYearFacts?: FactMap,
+  industryProfile?: IndustryProfile,
 ): ReasonablenessCheck[] {
   const results: ReasonablenessCheck[] = [];
 
@@ -51,6 +56,16 @@ export function checkReasonableness(
   const officerComp = val(facts, "OFFICER_COMPENSATION");
   const interestExpense = val(facts, "INTEREST_EXPENSE");
   const ltDebt = val(facts, "LT_DEBT");
+  const salariesWages = val(facts, "SALARIES_WAGES");
+  const accountsReceivable = val(facts, "ACCOUNTS_RECEIVABLE");
+
+  // Resolve thresholds from industry profile or broad defaults
+  const officerCompUpper = industryProfile
+    ? industryProfile.officerCompNormal.max
+    : 0.5;
+  const officerCompLower = industryProfile
+    ? industryProfile.officerCompNormal.min
+    : 0.02;
 
   // --- Hard failures (IMPOSSIBLE) ---
 
@@ -133,15 +148,15 @@ export function checkReasonableness(
     });
   }
 
-  // OFFICER_COMP_EXTREME: officerComp > revenue * 0.5 || officerComp < revenue * 0.02
+  // OFFICER_COMP_EXTREME: using industry-calibrated or default thresholds
   if (officerComp !== null && grossReceipts !== null && grossReceipts > 0) {
-    const upperThreshold = grossReceipts * 0.5;
-    const lowerThreshold = grossReceipts * 0.02;
+    const upperThreshold = grossReceipts * officerCompUpper;
+    const lowerThreshold = grossReceipts * officerCompLower;
     const outOfRange = officerComp > upperThreshold || officerComp < lowerThreshold;
     results.push({
       checkId: "OFFICER_COMP_EXTREME",
       severity: "ANOMALOUS",
-      description: "Officer compensation outside 2%-50% of revenue range",
+      description: `Officer compensation outside ${(officerCompLower * 100).toFixed(0)}%-${(officerCompUpper * 100).toFixed(0)}% of revenue range`,
       value: officerComp,
       threshold: upperThreshold,
       passed: !outOfRange,
@@ -159,6 +174,171 @@ export function checkReasonableness(
       threshold,
       passed: interestExpense <= threshold,
     });
+  }
+
+  // --- Industry-specific checks (when profile provided) ---
+
+  if (industryProfile) {
+    // Interest-in-COGS warning
+    if (
+      industryProfile.interestInCogs &&
+      interestExpense === null &&
+      cogs !== null &&
+      cogs > 0
+    ) {
+      results.push({
+        checkId: "INDUSTRY_INTEREST_IN_COGS",
+        severity: "ANOMALOUS",
+        description: `Industry profile indicates interest may be embedded in COGS (${industryProfile.interestInCogsNote})`,
+        value: cogs,
+        threshold: null,
+        passed: true, // warning only, not a failure
+      });
+    }
+
+    // Evaluate profile red flags from available facts
+    if (grossReceipts !== null && grossReceipts > 0) {
+      // Gross margin checks
+      if (grossProfit !== null) {
+        const grossMargin = grossProfit / grossReceipts;
+
+        for (const flag of industryProfile.redFlags) {
+          if (flag.id === "MARITIME_MARGIN_LOW" && grossMargin < 0.35) {
+            results.push({
+              checkId: flag.id,
+              severity: "ANOMALOUS",
+              description: flag.description,
+              value: grossMargin,
+              threshold: 0.35,
+              passed: false,
+            });
+          }
+          if (flag.id === "CONST_MARGIN_LOW" && grossMargin < 0.12) {
+            results.push({
+              checkId: flag.id,
+              severity: "ANOMALOUS",
+              description: flag.description,
+              value: grossMargin,
+              threshold: 0.12,
+              passed: false,
+            });
+          }
+        }
+      }
+
+      for (const flag of industryProfile.redFlags) {
+        // REST_FOOD_COST_HIGH: COGS / revenue > 0.42
+        if (flag.id === "REST_FOOD_COST_HIGH" && cogs !== null && cogs / grossReceipts > 0.42) {
+          results.push({
+            checkId: flag.id,
+            severity: "ANOMALOUS",
+            description: flag.description,
+            value: cogs / grossReceipts,
+            threshold: 0.42,
+            passed: false,
+          });
+        }
+
+        // REST_LABOR_HIGH: salaries / revenue > 0.35
+        if (flag.id === "REST_LABOR_HIGH" && salariesWages !== null && salariesWages / grossReceipts > 0.35) {
+          results.push({
+            checkId: flag.id,
+            severity: "ANOMALOUS",
+            description: flag.description,
+            value: salariesWages / grossReceipts,
+            threshold: 0.35,
+            passed: false,
+          });
+        }
+
+        // REST_PRIME_COST_HIGH: (COGS + labor) / revenue > 0.70
+        if (flag.id === "REST_PRIME_COST_HIGH" && cogs !== null && salariesWages !== null && (cogs + salariesWages) / grossReceipts > 0.70) {
+          results.push({
+            checkId: flag.id,
+            severity: "ANOMALOUS",
+            description: flag.description,
+            value: (cogs + salariesWages) / grossReceipts,
+            threshold: 0.70,
+            passed: false,
+          });
+        }
+
+        // MARITIME_COGS_NO_INTEREST
+        if (flag.id === "MARITIME_COGS_NO_INTEREST" && cogs !== null && cogs > 0 && interestExpense === null) {
+          results.push({
+            checkId: flag.id,
+            severity: "ANOMALOUS",
+            description: flag.description,
+            value: cogs,
+            threshold: null,
+            passed: false,
+          });
+        }
+
+        // MEDICAL_AR_HIGH: AR > revenue / 3
+        if (flag.id === "MEDICAL_AR_HIGH" && accountsReceivable !== null && accountsReceivable > grossReceipts / 3) {
+          results.push({
+            checkId: flag.id,
+            severity: "ANOMALOUS",
+            description: flag.description,
+            value: accountsReceivable,
+            threshold: grossReceipts / 3,
+            passed: false,
+          });
+        }
+
+        // MEDICAL_COMP_EXTREME: officer comp > revenue * 0.65
+        if (flag.id === "MEDICAL_COMP_EXTREME" && officerComp !== null && officerComp > grossReceipts * 0.65) {
+          results.push({
+            checkId: flag.id,
+            severity: "ANOMALOUS",
+            description: flag.description,
+            value: officerComp,
+            threshold: grossReceipts * 0.65,
+            passed: false,
+          });
+        }
+
+        // RE_MORTGAGE_HEAVY: interest > (OBI + interest) * 0.40
+        if (flag.id === "RE_MORTGAGE_HEAVY" && interestExpense !== null && obi !== null && interestExpense > (obi + interestExpense) * 0.40) {
+          results.push({
+            checkId: flag.id,
+            severity: "ANOMALOUS",
+            description: flag.description,
+            value: interestExpense,
+            threshold: (obi + interestExpense) * 0.40,
+            passed: false,
+          });
+        }
+
+        // PROSERV_DSO_HIGH: AR / (revenue / 365) > 90
+        if (flag.id === "PROSERV_DSO_HIGH" && accountsReceivable !== null && accountsReceivable / (grossReceipts / 365) > 90) {
+          results.push({
+            checkId: flag.id,
+            severity: "ANOMALOUS",
+            description: flag.description,
+            value: accountsReceivable / (grossReceipts / 365),
+            threshold: 90,
+            passed: false,
+          });
+        }
+
+        // RETAIL_INVENTORY_HIGH: inventory > COGS / 4
+        if (flag.id === "RETAIL_INVENTORY_HIGH" && cogs !== null && cogs > 0) {
+          const inventory = val(facts, "INVENTORY");
+          if (inventory !== null && inventory > cogs / 4) {
+            results.push({
+              checkId: flag.id,
+              severity: "ANOMALOUS",
+              description: flag.description,
+              value: inventory,
+              threshold: cogs / 4,
+              passed: false,
+            });
+          }
+        }
+      }
+    }
   }
 
   return results;
