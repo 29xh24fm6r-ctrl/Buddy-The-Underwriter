@@ -17,6 +17,7 @@ import { ForceAdvancePanel } from "@/components/deals/ForceAdvancePanel";
 import { LoanRequestsSection } from "@/components/loanRequests/LoanRequestsSection";
 import { IntakeReviewTable } from "@/components/deals/intake/IntakeReviewTable";
 import RiskDashboardPanel from "@/components/deals/cockpit/panels/RiskDashboardPanel";
+import { SpreadOutputPanel } from "@/components/deals/cockpit/panels/spread/SpreadOutputPanel";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
@@ -199,6 +200,9 @@ export function SecondaryTabsPanel({
             <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider">Underwriting</h3>
             <SafeBoundary>
               <RiskDashboardPanel dealId={dealId} />
+            </SafeBoundary>
+            <SafeBoundary>
+              <SpreadOutputPanel dealId={dealId} />
             </SafeBoundary>
             <SafeBoundary>
               <UnderwritingControlPanel
