@@ -529,6 +529,186 @@ const FIXED_CHARGE_COVERAGE: MetricDefinition = {
   version: 1,
 };
 
+// ── God Tier Ratios — Activity / Efficiency ─────────────────────────────────
+
+const DSO: MetricDefinition = {
+  id: "DSO",
+  label: "Days Sales Outstanding",
+  expr: "ACCOUNTS_RECEIVABLE / TOTAL_REVENUE * 365",
+  precision: 0,
+  requiredFacts: ["ACCOUNTS_RECEIVABLE", "TOTAL_REVENUE"],
+  applicableTo: OP,
+  version: 1,
+};
+
+const DIO: MetricDefinition = {
+  id: "DIO",
+  label: "Days Inventory Outstanding",
+  expr: "INVENTORY / COST_OF_GOODS_SOLD * 365",
+  precision: 0,
+  requiredFacts: ["INVENTORY", "COST_OF_GOODS_SOLD"],
+  applicableTo: OP,
+  version: 1,
+};
+
+const DPO: MetricDefinition = {
+  id: "DPO",
+  label: "Days Payable Outstanding",
+  expr: "ACCOUNTS_PAYABLE / COST_OF_GOODS_SOLD * 365",
+  precision: 0,
+  requiredFacts: ["ACCOUNTS_PAYABLE", "COST_OF_GOODS_SOLD"],
+  applicableTo: OP,
+  version: 1,
+};
+
+const CCC: MetricDefinition = {
+  id: "CCC",
+  label: "Cash Conversion Cycle",
+  expr: "DSO + DIO - DPO",
+  precision: 0,
+  requiredFacts: ["DSO", "DIO", "DPO"],
+  applicableTo: OP,
+  version: 1,
+};
+
+const AR_TURNOVER: MetricDefinition = {
+  id: "AR_TURNOVER",
+  label: "Accounts Receivable Turnover",
+  expr: "TOTAL_REVENUE / ACCOUNTS_RECEIVABLE",
+  precision: 2,
+  requiredFacts: ["TOTAL_REVENUE", "ACCOUNTS_RECEIVABLE"],
+  applicableTo: OP,
+  version: 1,
+};
+
+const INVENTORY_TURNOVER: MetricDefinition = {
+  id: "INVENTORY_TURNOVER",
+  label: "Inventory Turnover",
+  expr: "COST_OF_GOODS_SOLD / INVENTORY",
+  precision: 2,
+  requiredFacts: ["COST_OF_GOODS_SOLD", "INVENTORY"],
+  applicableTo: OP,
+  version: 1,
+};
+
+const FIXED_ASSET_TURNOVER: MetricDefinition = {
+  id: "FIXED_ASSET_TURNOVER",
+  label: "Fixed Asset Turnover",
+  expr: "TOTAL_REVENUE / FIXED_ASSETS_NET",
+  precision: 2,
+  requiredFacts: ["TOTAL_REVENUE", "FIXED_ASSETS_NET"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+// ── God Tier Ratios — Leverage / Solvency ───────────────────────────────────
+
+const DEBT_TO_EBITDA: MetricDefinition = {
+  id: "DEBT_TO_EBITDA",
+  label: "Total Debt / EBITDA",
+  expr: "TOTAL_LIABILITIES / EBITDA",
+  precision: 2,
+  requiredFacts: ["TOTAL_LIABILITIES", "EBITDA"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const SENIOR_DEBT_TO_EBITDA: MetricDefinition = {
+  id: "SENIOR_DEBT_TO_EBITDA",
+  label: "Senior Debt / EBITDA",
+  expr: "LT_DEBT / EBITDA",
+  precision: 2,
+  requiredFacts: ["LT_DEBT", "EBITDA"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const TANGIBLE_NET_WORTH: MetricDefinition = {
+  id: "TANGIBLE_NET_WORTH",
+  label: "Tangible Net Worth",
+  expr: "NET_WORTH - INTANGIBLES_NET",
+  precision: 0,
+  requiredFacts: ["NET_WORTH", "INTANGIBLES_NET"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const LIABILITIES_TO_TNW: MetricDefinition = {
+  id: "LIABILITIES_TO_TNW",
+  label: "Total Liabilities / Tangible Net Worth",
+  expr: "TOTAL_LIABILITIES / TANGIBLE_NET_WORTH",
+  precision: 2,
+  requiredFacts: ["TOTAL_LIABILITIES", "TANGIBLE_NET_WORTH"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const NET_DEBT: MetricDefinition = {
+  id: "NET_DEBT",
+  label: "Net Debt",
+  expr: "TOTAL_LIABILITIES - CASH_AND_EQUIVALENTS",
+  precision: 0,
+  requiredFacts: ["TOTAL_LIABILITIES", "CASH_AND_EQUIVALENTS"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+// ── God Tier Ratios — Liquidity ─────────────────────────────────────────────
+
+const CASH_RATIO: MetricDefinition = {
+  id: "CASH_RATIO",
+  label: "Cash Ratio",
+  expr: "CASH_AND_EQUIVALENTS / TOTAL_CURRENT_LIABILITIES",
+  precision: 2,
+  requiredFacts: ["CASH_AND_EQUIVALENTS", "TOTAL_CURRENT_LIABILITIES"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const DAYS_CASH_ON_HAND: MetricDefinition = {
+  id: "DAYS_CASH_ON_HAND",
+  label: "Days Cash on Hand",
+  expr: "CASH_AND_EQUIVALENTS / TOTAL_OPERATING_EXPENSES * 365",
+  precision: 0,
+  requiredFacts: ["CASH_AND_EQUIVALENTS", "TOTAL_OPERATING_EXPENSES"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const WORKING_CAPITAL_TURNOVER: MetricDefinition = {
+  id: "WORKING_CAPITAL_TURNOVER",
+  label: "Working Capital Turnover",
+  expr: "TOTAL_REVENUE / WORKING_CAPITAL",
+  precision: 2,
+  requiredFacts: ["TOTAL_REVENUE", "WORKING_CAPITAL"],
+  applicableTo: OP,
+  version: 1,
+};
+
+// ── God Tier Ratios — Growth ────────────────────────────────────────────────
+
+const REVENUE_GROWTH_PCT: MetricDefinition = {
+  id: "REVENUE_GROWTH_PCT",
+  label: "Revenue Growth Rate",
+  expr: "REVENUE_GROWTH_PCT",
+  precision: 4,
+  isPercent: true,
+  requiredFacts: ["REVENUE_GROWTH_PCT"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const EBITDA_GROWTH_PCT: MetricDefinition = {
+  id: "EBITDA_GROWTH_PCT",
+  label: "EBITDA Growth Rate",
+  expr: "EBITDA_GROWTH_PCT",
+  precision: 4,
+  isPercent: true,
+  requiredFacts: ["EBITDA_GROWTH_PCT"],
+  applicableTo: ALL,
+  version: 1,
+};
+
 // ── Registry ──────────────────────────────────────────────────────────────────
 
 export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
@@ -585,7 +765,28 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
   OPEX_PCT,
   FIXED_CHARGES,
   FIXED_CHARGE_COVERAGE,
+  // God Tier — Activity / Efficiency
+  DSO,
+  DIO,
+  DPO,
+  CCC,
+  AR_TURNOVER,
+  INVENTORY_TURNOVER,
+  FIXED_ASSET_TURNOVER,
+  // God Tier — Leverage / Solvency
+  DEBT_TO_EBITDA,
+  SENIOR_DEBT_TO_EBITDA,
+  TANGIBLE_NET_WORTH,
+  LIABILITIES_TO_TNW,
+  NET_DEBT,
+  // God Tier — Liquidity
+  CASH_RATIO,
+  DAYS_CASH_ON_HAND,
+  WORKING_CAPITAL_TURNOVER,
+  // God Tier — Growth
+  REVENUE_GROWTH_PCT,
+  EBITDA_GROWTH_PCT,
 };
 
 /** Current version of the metric registry — bump on any formula change. */
-export const METRIC_REGISTRY_VERSION = 3;
+export const METRIC_REGISTRY_VERSION = 4;
