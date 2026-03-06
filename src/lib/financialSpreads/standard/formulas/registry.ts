@@ -114,7 +114,7 @@ export const STANDARD_FORMULAS: Record<string, StandardFormula> = {
 
   EBITDA_CALC: {
     id: "EBITDA_CALC",
-    expr: "EBITDA",
+    expr: "ORDINARY_BUSINESS_INCOME + INTEREST_EXPENSE + DEPRECIATION",
     metricRegistryId: "EBITDA",
     precision: 0,
     sourcePages: [2],
@@ -306,7 +306,7 @@ export const STANDARD_FORMULAS: Record<string, StandardFormula> = {
 
   EBITDA: {
     id: "EBITDA",
-    expr: "EBITDA",
+    expr: "ORDINARY_BUSINESS_INCOME + INTEREST_EXPENSE + DEPRECIATION",
     metricRegistryId: "EBITDA",
     precision: 0,
     sourcePages: [2],

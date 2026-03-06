@@ -28,6 +28,13 @@ const HELPER_METRIC_IDS = ["QUICK_ASSETS", "FIXED_CHARGES", "EBIT"];
 // Same aliases as renderStandardSpread.ts for consistency.
 // ---------------------------------------------------------------------------
 
+// Keys where null/missing should be treated as 0 (IRS nullAsZero fields).
+const NULL_AS_ZERO_KEYS = [
+  "COST_OF_GOODS_SOLD",
+  "INTEREST_EXPENSE",
+  "DEPRECIATION",
+];
+
 const FACT_KEY_ALIASES: Record<string, string[]> = {
   // IS aliases per MMAS — OBI is net income, never revenue
   TOTAL_REVENUE: ["GROSS_RECEIPTS", "TOTAL_INCOME"],
@@ -64,6 +71,11 @@ function applyAliases(map: Record<string, number | null>): void {
         break;
       }
     }
+  }
+
+  // Null-as-zero: IRS fields that should default to 0 when missing.
+  for (const key of NULL_AS_ZERO_KEYS) {
+    if (map[key] === undefined) map[key] = 0;
   }
 }
 
