@@ -30,3 +30,19 @@ export type DeterministicExtractionResult = ExtractionResult & {
   /** Number of fact slots the extractor attempted to fill (for zero-fact detection) */
   factsAttempted: number;
 };
+
+/** Line item from a pure deterministic extractor (no DB writes). */
+export type PureLineItem = {
+  key: string;
+  value: number;
+  period: string | null;
+  snippet: string | null;
+};
+
+/** Result from a pure deterministic extractor — returns items, no DB interaction. */
+export type PureDeterministicResult = {
+  ok: boolean;
+  items: PureLineItem[];
+  extractionPath: ExtractionPath;
+  factsAttempted: number;
+};
