@@ -143,10 +143,10 @@ export async function extractFactsFromDocument(args: {
     }
   }
 
-  // Always fetch deal_documents for doc_year (period resolution) + doc_type fallback
+  // Always fetch deal_documents for doc_year (period resolution) + doc_type fallback + storage info
   const { data: dealDoc } = await sb
     .from("deal_documents")
-    .select("document_type, ai_doc_type, canonical_type, doc_year")
+    .select("document_type, ai_doc_type, canonical_type, doc_year, storage_bucket, storage_path, mime_type")
     .eq("id", args.documentId)
     .maybeSingle();
 
@@ -198,6 +198,26 @@ export async function extractFactsFromDocument(args: {
     docYear,
   };
 
+  // ── Native PDF download (best-effort for Gemini native input) ─────────
+  let pdfBase64: string | undefined;
+  let pdfMimeType: string | undefined;
+  if (dealDoc?.storage_bucket && dealDoc?.storage_path) {
+    try {
+      const { downloadPrivateObject } = await import("@/lib/storage/adminStorage");
+      const bytes = await downloadPrivateObject({
+        bucket: dealDoc.storage_bucket,
+        path: dealDoc.storage_path,
+      });
+      pdfBase64 = Buffer.from(bytes).toString("base64");
+      pdfMimeType = dealDoc.mime_type ?? "application/pdf";
+    } catch (dlErr: any) {
+      console.warn("[extractFactsFromDocument] PDF download failed, using OCR text fallback", {
+        documentId: args.documentId,
+        error: dlErr?.message,
+      });
+    }
+  }
+
   // ── Gemini primary helper ───────────────────────────────────────────────
   // Shared logic: attempt Gemini primary extraction, write facts if successful.
   // Returns { succeeded, factsWritten } — never throws.
@@ -219,6 +239,8 @@ export async function extractFactsFromDocument(args: {
         ocrText: extractedText,
         docType: normDocType,
         docYear,
+        pdfBase64,
+        mimeType: pdfMimeType,
       });
       if (gemResult.ok && gemResult.items.length > 0) {
         const { writeFactsBatch } = await import(

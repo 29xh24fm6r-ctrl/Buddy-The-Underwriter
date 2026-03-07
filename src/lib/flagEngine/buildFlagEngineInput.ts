@@ -74,16 +74,20 @@ async function loadCanonicalFacts(
     const yearsSet = new Set<number>();
 
     for (const row of data as FactRow[]) {
-      // Prefer numeric value, fall back to text
-      facts[row.fact_key] = row.fact_value_num ?? row.fact_value_text ?? null;
+      const value = row.fact_value_num ?? row.fact_value_text ?? null;
 
-      // Extract year from period end date
       if (row.fact_period_end) {
         const year = new Date(row.fact_period_end).getFullYear();
         if (year >= 2000 && year <= 2100) {
           yearsSet.add(year);
+          // Year-keyed entry — primary lookup path in normalizedSpreadBuilder
+          // getValueForYear() tries "GROSS_RECEIPTS_2023" before "GROSS_RECEIPTS"
+          facts[`${row.fact_key}_${year}`] = value;
         }
       }
+
+      // Generic key — fallback, last writer wins (typically most recent year)
+      facts[row.fact_key] = value;
     }
 
     const years_available = Array.from(yearsSet).sort((a, b) => a - b);

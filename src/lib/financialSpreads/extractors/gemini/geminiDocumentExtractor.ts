@@ -15,11 +15,11 @@ import { normalizePeriod } from "../shared";
 import type { GeminiExtractionPrompt, GeminiExtractionResult } from "./types";
 
 // Prompt builders
-import { buildBusinessTaxReturnPrompt } from "./prompts/businessTaxReturn";
-import { buildPersonalTaxReturnPrompt } from "./prompts/personalTaxReturn";
-import { buildBalanceSheetPrompt } from "./prompts/balanceSheet";
-import { buildIncomeStatementPrompt } from "./prompts/incomeStatement";
-import { buildRentRollPrompt } from "./prompts/rentRoll";
+import { buildBusinessTaxReturnPrompt, buildBusinessTaxReturnPromptForPdf } from "./prompts/businessTaxReturn";
+import { buildPersonalTaxReturnPrompt, buildPersonalTaxReturnPromptForPdf } from "./prompts/personalTaxReturn";
+import { buildBalanceSheetPrompt, buildBalanceSheetPromptForPdf } from "./prompts/balanceSheet";
+import { buildIncomeStatementPrompt, buildIncomeStatementPromptForPdf } from "./prompts/incomeStatement";
+import { buildRentRollPrompt, buildRentRollPromptForPdf } from "./prompts/rentRoll";
 
 // ---------------------------------------------------------------------------
 // Doc type → prompt + factType mapping
@@ -27,6 +27,7 @@ import { buildRentRollPrompt } from "./prompts/rentRoll";
 
 type DocTypeConfig = {
   buildPrompt: (ocrText: string) => GeminiExtractionPrompt;
+  buildPromptForPdf: () => GeminiExtractionPrompt;
   factType: string;
 };
 
@@ -42,6 +43,7 @@ function getDocTypeConfig(
     case "TAX_RETURN":
       return {
         buildPrompt: buildBusinessTaxReturnPrompt,
+        buildPromptForPdf: buildBusinessTaxReturnPromptForPdf,
         factType: "TAX_RETURN",
       };
 
@@ -50,12 +52,14 @@ function getDocTypeConfig(
     case "PERSONAL_TAX_RETURN":
       return {
         buildPrompt: buildPersonalTaxReturnPrompt,
+        buildPromptForPdf: buildPersonalTaxReturnPromptForPdf,
         factType: "PERSONAL_INCOME",
       };
 
     case "BALANCE_SHEET":
       return {
         buildPrompt: buildBalanceSheetPrompt,
+        buildPromptForPdf: buildBalanceSheetPromptForPdf,
         factType: "BALANCE_SHEET",
       };
 
@@ -64,12 +68,14 @@ function getDocTypeConfig(
     case "OPERATING_STATEMENT":
       return {
         buildPrompt: buildIncomeStatementPrompt,
+        buildPromptForPdf: buildIncomeStatementPromptForPdf,
         factType: "INCOME_STATEMENT",
       };
 
     case "RENT_ROLL":
       return {
         buildPrompt: buildRentRollPrompt,
+        buildPromptForPdf: buildRentRollPromptForPdf,
         factType: "RENT_ROLL",
       };
 
@@ -90,6 +96,9 @@ export async function extractWithGeminiPrimary(args: {
   docType: string;
   docYear?: number | null;
   ownerEntityId?: string | null;
+  /** When present, sends native PDF via inlineData instead of OCR text */
+  pdfBase64?: string;
+  mimeType?: string;
 }): Promise<GeminiExtractionResult> {
   const emptyResult = (
     failureReason: string,
@@ -111,14 +120,17 @@ export async function extractWithGeminiPrimary(args: {
       return emptyResult("unsupported_doc_type");
     }
 
-    // 2. Build prompt with OCR text
-    const prompt = config.buildPrompt(args.ocrText);
+    // 2. Build prompt — native PDF path skips OCR text in prompt
+    const prompt = args.pdfBase64
+      ? config.buildPromptForPdf()
+      : config.buildPrompt(args.ocrText);
 
     // 3. Call Gemini
     const clientResult = await callGeminiForExtraction({
       prompt,
-      ocrText: args.ocrText,
       documentId: args.documentId,
+      pdfBase64: args.pdfBase64,
+      mimeType: args.mimeType,
     });
 
     if (!clientResult.ok || !clientResult.rawJson) {

@@ -22,9 +22,9 @@ import type { GeminiExtractionPrompt } from "./types";
 
 const GEMINI_MODEL = "gemini-2.0-flash";
 const GEMINI_TEMPERATURE = 0.0; // deterministic — lower than advisory's 0.1
-const GEMINI_PRIMARY_TIMEOUT_MS = 20_000; // 20s hard timeout
+const GEMINI_PRIMARY_TIMEOUT_MS = 45_000; // 45s hard timeout (native PDF processing is heavier)
 const MAX_RETRIES = 1;
-const MAX_OCR_TEXT_LENGTH = 50_000;
+
 
 // ---------------------------------------------------------------------------
 // GCP helpers (same pattern as geminiFlashStructuredAssist.ts)
@@ -94,11 +94,12 @@ export type GeminiClientResult = {
 
 export async function callGeminiForExtraction(args: {
   prompt: GeminiExtractionPrompt;
-  ocrText: string;
   documentId: string;
+  /** When present, sends native PDF via inlineData instead of OCR text in prompt */
+  pdfBase64?: string;
+  mimeType?: string;
 }): Promise<GeminiClientResult> {
   const started = Date.now();
-  const truncatedText = args.ocrText.slice(0, MAX_OCR_TEXT_LENGTH);
 
   try {
     await ensureGcpAdcBootstrap();
@@ -127,12 +128,25 @@ export async function callGeminiForExtraction(args: {
         },
       });
 
-      // Build user prompt with OCR text inserted (already done in prompt builder)
+      // Native PDF path: send the actual document as inlineData + instructions
+      // OCR text path: prompt already contains embedded OCR text
+      const userParts = args.pdfBase64
+        ? [
+            {
+              inlineData: {
+                mimeType: args.mimeType ?? "application/pdf",
+                data: args.pdfBase64,
+              },
+            },
+            { text: args.prompt.userPrompt },
+          ]
+        : [{ text: args.prompt.userPrompt }];
+
       const generatePromise = model.generateContent({
         contents: [
           {
             role: "user",
-            parts: [{ text: args.prompt.userPrompt }],
+            parts: userParts as any,
           },
         ],
         systemInstruction: {
@@ -204,6 +218,7 @@ export async function callGeminiForExtraction(args: {
         latencyMs,
         attempt,
         promptVersion: args.prompt.promptVersion,
+        inputMode: args.pdfBase64 ? "native_pdf" : "ocr_text",
       });
 
       return {

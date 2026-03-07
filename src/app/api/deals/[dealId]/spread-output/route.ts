@@ -105,11 +105,17 @@ async function loadCanonicalFacts(
     const yearsSet = new Set<number>();
 
     for (const row of data as FactRow[]) {
-      facts[row.fact_key] = row.fact_value_num ?? row.fact_value_text ?? null;
+      const value = row.fact_value_num ?? row.fact_value_text ?? null;
+
       if (row.fact_period_end) {
         const year = new Date(row.fact_period_end).getFullYear();
-        if (year >= 2000 && year <= 2100) yearsSet.add(year);
+        if (year >= 2000 && year <= 2100) {
+          yearsSet.add(year);
+          facts[`${row.fact_key}_${year}`] = value;
+        }
       }
+
+      facts[row.fact_key] = value;
     }
 
     return { facts, years: Array.from(yearsSet).sort((a, b) => a - b) };
