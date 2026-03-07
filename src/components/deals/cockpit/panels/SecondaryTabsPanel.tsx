@@ -17,7 +17,6 @@ import { ForceAdvancePanel } from "@/components/deals/ForceAdvancePanel";
 import { LoanRequestsSection } from "@/components/loanRequests/LoanRequestsSection";
 import { IntakeReviewTable } from "@/components/deals/intake/IntakeReviewTable";
 import RiskDashboardPanel from "@/components/deals/cockpit/panels/RiskDashboardPanel";
-import { SpreadOutputPanel } from "@/components/deals/cockpit/panels/spread/SpreadOutputPanel";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
@@ -44,13 +43,14 @@ const TABS = [
   { key: "setup", label: "Setup", icon: "settings" },
   { key: "portal", label: "Portal", icon: "link" },
   { key: "underwriting", label: "Underwriting", icon: "analytics" },
+  { key: "spreads", label: "Spreads", icon: "table_chart" },
   { key: "timeline", label: "Timeline", icon: "timeline" },
 ] as const;
 
 const ADMIN_TAB = { key: "admin" as const, label: "Admin", icon: "admin_panel_settings" };
 const INTAKE_TAB = { key: "intake" as const, label: "Intake Review", icon: "fact_check" };
 
-type TabKey = (typeof TABS)[number]["key"] | "admin" | "intake";
+type TabKey = (typeof TABS)[number]["key"] | "admin" | "intake" | "spreads";
 
 const VALID_TAB_KEYS = new Set<string>(TABS.map((t) => t.key));
 // Admin + Intake are conditionally valid but always recognized for URL parsing
@@ -128,6 +128,11 @@ export function SecondaryTabsPanel({
   ];
 
   const handleTabChange = (tab: TabKey) => {
+    // Spreads tab navigates to the dedicated spreads workspace
+    if (tab === "spreads") {
+      router.push(`/deals/${dealId}/spreads`);
+      return;
+    }
     setActiveTab(tab);
     // Update URL for deep linking without full navigation
     const params = new URLSearchParams(searchParams?.toString() || "");
@@ -200,9 +205,6 @@ export function SecondaryTabsPanel({
             <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider">Underwriting</h3>
             <SafeBoundary>
               <RiskDashboardPanel dealId={dealId} />
-            </SafeBoundary>
-            <SafeBoundary>
-              <SpreadOutputPanel dealId={dealId} />
             </SafeBoundary>
             <SafeBoundary>
               <UnderwritingControlPanel

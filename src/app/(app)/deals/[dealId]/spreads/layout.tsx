@@ -27,9 +27,17 @@ export default function SpreadsLayout({
   const dealId = match?.[1] ?? "";
   const base = `/deals/${dealId}/spreads`;
 
+  // On the root /spreads page, the SpreadsPageClient handles its own
+  // full-viewport layout (white bg, sticky header, tab nav). Pass through.
+  const isRootPage = pathname === base || pathname === `${base}/`;
+
+  if (isRootPage) {
+    return <>{children}</>;
+  }
+
   return (
     <div className="px-6 py-6">
-      {/* Tab navigation */}
+      {/* Tab navigation for sub-routes */}
       <div className="mb-6 flex items-center gap-2 overflow-x-auto no-scrollbar">
         {SPREAD_TABS.map((tab) => {
           const tabHref = `${base}/${tab.href}`;
