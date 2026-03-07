@@ -44,6 +44,7 @@ export type ExtendedCanonicalType =
   | "INSURANCE"
   | "APPRAISAL"
   | "ENTITY_DOCS"
+  | "DEBT_SCHEDULE"
   | "OTHER";
 
 export type DocTypeRoutingResult = {
@@ -138,6 +139,16 @@ function normalizeToExtendedCanonical(raw: string): ExtendedCanonicalType {
   )
     return "ENTITY_DOCS";
 
+  // ─── Debt Schedule ─────────────────────────────────────────
+  if (
+    [
+      "DEBT_SCHEDULE",
+      "SCHEDULE_OF_OBLIGATIONS",
+      "EXISTING_DEBT",
+    ].includes(upper)
+  )
+    return "DEBT_SCHEDULE";
+
   return "OTHER";
 }
 
@@ -158,9 +169,12 @@ const ROUTING_CLASS_MAP: Record<ExtendedCanonicalType, RoutingClass> = {
   // GEMINI_PACKET: Tabular/multi-page docs
   FINANCIAL_STATEMENT: "GEMINI_PACKET",
 
+  // GEMINI_STRUCTURED: Upgraded from GEMINI_STANDARD for extraction
+  BANK_STATEMENT: "GEMINI_STRUCTURED",
+  DEBT_SCHEDULE: "GEMINI_STRUCTURED",
+
   // GEMINI_STANDARD: Standard single-pass OCR
   RENT_ROLL: "GEMINI_STANDARD",
-  BANK_STATEMENT: "GEMINI_STANDARD",
   LEASE: "GEMINI_STANDARD",
   INSURANCE: "GEMINI_STANDARD",
   APPRAISAL: "GEMINI_STANDARD",

@@ -20,6 +20,9 @@ import { buildPersonalTaxReturnPrompt, buildPersonalTaxReturnPromptForPdf } from
 import { buildBalanceSheetPrompt, buildBalanceSheetPromptForPdf } from "./prompts/balanceSheet";
 import { buildIncomeStatementPrompt, buildIncomeStatementPromptForPdf } from "./prompts/incomeStatement";
 import { buildRentRollPrompt, buildRentRollPromptForPdf } from "./prompts/rentRoll";
+import { buildPfsPrompt, buildPfsPromptForPdf } from "./prompts/personalFinancialStatement";
+import { buildBankStatementPrompt, buildBankStatementPromptForPdf } from "./prompts/bankStatement";
+import { buildDebtSchedulePrompt, buildDebtSchedulePromptForPdf } from "./prompts/debtSchedule";
 
 // ---------------------------------------------------------------------------
 // Doc type → prompt + factType mapping
@@ -77,6 +80,30 @@ function getDocTypeConfig(
         buildPrompt: buildRentRollPrompt,
         buildPromptForPdf: buildRentRollPromptForPdf,
         factType: "RENT_ROLL",
+      };
+
+    case "PFS":
+    case "PERSONAL_FINANCIAL_STATEMENT":
+    case "SBA_413":
+      return {
+        buildPrompt: buildPfsPrompt,
+        buildPromptForPdf: buildPfsPromptForPdf,
+        factType: "PFS",
+      };
+
+    case "BANK_STATEMENT":
+      return {
+        buildPrompt: buildBankStatementPrompt,
+        buildPromptForPdf: buildBankStatementPromptForPdf,
+        factType: "BANK_STATEMENT",
+      };
+
+    case "DEBT_SCHEDULE":
+    case "SCHEDULE_OF_OBLIGATIONS":
+      return {
+        buildPrompt: buildDebtSchedulePrompt,
+        buildPromptForPdf: buildDebtSchedulePromptForPdf,
+        factType: "DEBT_SCHEDULE",
       };
 
     default:

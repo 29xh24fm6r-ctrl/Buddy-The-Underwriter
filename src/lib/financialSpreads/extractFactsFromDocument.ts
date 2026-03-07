@@ -437,25 +437,57 @@ export async function extractFactsFromDocument(args: {
     ["PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413"].includes(normDocType)
   ) {
     extractorRan = true;
-    try {
-      const ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
-      if (useDeterministic) {
-        const result = await extractPfsDeterministic({
-          ...deterministicArgs,
-          ownerEntityId,
-        });
-        factsWritten += result.factsWritten;
-        extractionPath = result.extractionPath;
-      } else {
-        const result = await extractPfs({
-          ...baseArgs,
-          ownerEntityId,
-        });
-        factsWritten += result.factsWritten;
+    // Try Gemini primary first
+    const gp = await attemptGeminiPrimary("PFS");
+    if (gp.succeeded) {
+      factsWritten += gp.factsWritten;
+      extractionPath = "gemini_primary";
+    } else {
+      try {
+        const ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
+        if (useDeterministic) {
+          const result = await extractPfsDeterministic({
+            ...deterministicArgs,
+            ownerEntityId,
+          });
+          factsWritten += result.factsWritten;
+          extractionPath = result.extractionPath;
+        } else {
+          const result = await extractPfs({
+            ...baseArgs,
+            ownerEntityId,
+          });
+          factsWritten += result.factsWritten;
+        }
+      } catch (err) {
+        console.error("[extractFactsFromDocument] pfs failed:", err);
       }
-    } catch (err) {
-      console.error("[extractFactsFromDocument] pfs failed:", err);
     }
+  }
+
+  // ── Bank Statement ─────────────────────────────────────────────────
+  if (extractedText && normDocType === "BANK_STATEMENT") {
+    extractorRan = true;
+    const gp = await attemptGeminiPrimary("BANK_STATEMENT");
+    if (gp.succeeded) {
+      factsWritten += gp.factsWritten;
+      extractionPath = "gemini_primary";
+    }
+    // No deterministic fallback for bank statements — Gemini primary only
+  }
+
+  // ── Debt Schedule ──────────────────────────────────────────────────
+  if (
+    extractedText &&
+    ["DEBT_SCHEDULE", "SCHEDULE_OF_OBLIGATIONS", "EXISTING_DEBT"].includes(normDocType)
+  ) {
+    extractorRan = true;
+    const gp = await attemptGeminiPrimary("DEBT_SCHEDULE");
+    if (gp.succeeded) {
+      factsWritten += gp.factsWritten;
+      extractionPath = "gemini_primary";
+    }
+    // No deterministic fallback for debt schedules — Gemini primary only
   }
 
   // ── Rule-based extractors (existing) ───────────────────────────────────
