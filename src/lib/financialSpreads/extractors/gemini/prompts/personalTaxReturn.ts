@@ -7,7 +7,7 @@
 import type { GeminiExtractionPrompt } from "../types";
 import { SYSTEM_PREFIX, RESPONSE_FORMAT_INSTRUCTION } from "./shared";
 
-const PROMPT_VERSION = "gemini_primary_ptr_v2";
+const PROMPT_VERSION = "gemini_primary_ptr_v3";
 
 const EXPECTED_KEYS = [
   // Page 1 (1040)
@@ -38,10 +38,27 @@ const EXPECTED_KEYS = [
   // Schedule F
   "SCHEDULE_F_GROSS_INCOME",
   "SCHEDULE_F_NET_PROFIT",
-  // K-1 detail
+  // K-1 detail (primary)
   "K1_ENTITY_NAME",
   "K1_GUARANTEED_PAYMENTS",
   "K1_RENTAL_INCOME",
+  // v3: Global cash flow addbacks
+  "SELF_EMPLOYMENT_TAX",
+  "SE_HEALTH_INSURANCE_DEDUCTION",
+  "QBI_DEDUCTION",
+  "IRA_CONTRIBUTION_DEDUCTION",
+  // v3: Additional income
+  "PENSION_ANNUITY_INCOME",
+  "OTHER_INCOME_SCH1",
+  // v3: Tax burden
+  "TOTAL_TAX",
+  // v3: Multi-entity K-1 support (2nd and 3rd K-1)
+  "K1_ENTITY_NAME_2",
+  "K1_ORDINARY_INCOME_2",
+  "K1_GUARANTEED_PAYMENTS_2",
+  "K1_ENTITY_NAME_3",
+  "K1_ORDINARY_INCOME_3",
+  "K1_GUARANTEED_PAYMENTS_3",
 ];
 
 const PTR_INSTRUCTIONS =
@@ -78,6 +95,28 @@ const PTR_INSTRUCTIONS =
   "- K1_ENTITY_NAME: Entity name from Schedule K-1 (as text, not a number)\n" +
   "- K1_GUARANTEED_PAYMENTS: Guaranteed payments (K-1, Box 4)\n" +
   "- K1_RENTAL_INCOME: Net rental real estate income from K-1 (Box 2)\n\n" +
+
+  "Global cash flow addbacks:\n" +
+  "- SELF_EMPLOYMENT_TAX: Self-employment tax (Schedule SE, Line 12)\n" +
+  "- SE_HEALTH_INSURANCE_DEDUCTION: Self-employed health insurance deduction (Schedule 1, Line 17)\n" +
+  "- QBI_DEDUCTION: Qualified Business Income deduction / Section 199A (Line 13)\n" +
+  "- IRA_CONTRIBUTION_DEDUCTION: IRA deduction (Schedule 1, Line 20)\n\n" +
+
+  "Additional income:\n" +
+  "- PENSION_ANNUITY_INCOME: Pensions and annuities, taxable amount (Line 4b + 5b combined)\n" +
+  "- OTHER_INCOME_SCH1: Other income from Schedule 1 (Line 8z / 10)\n\n" +
+
+  "Tax burden:\n" +
+  "- TOTAL_TAX: Total tax (Line 24)\n\n" +
+
+  "Multiple K-1s (if more than one K-1 is attached):\n" +
+  "- K1_ENTITY_NAME_2: Entity name from second K-1 (as text). Use null if fewer than 2 K-1s.\n" +
+  "- K1_ORDINARY_INCOME_2: Ordinary income/loss from second K-1\n" +
+  "- K1_GUARANTEED_PAYMENTS_2: Guaranteed payments from second K-1 (Box 4)\n" +
+  "- K1_ENTITY_NAME_3: Entity name from third K-1 (as text). Use null if fewer than 3 K-1s.\n" +
+  "- K1_ORDINARY_INCOME_3: Ordinary income/loss from third K-1\n" +
+  "- K1_GUARANTEED_PAYMENTS_3: Guaranteed payments from third K-1 (Box 4)\n\n" +
+
   "Metadata:\n" +
   "- tax_year: The tax year (e.g. 2023)\n" +
   "- taxpayer_name: Primary taxpayer name\n" +

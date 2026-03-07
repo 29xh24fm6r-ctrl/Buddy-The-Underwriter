@@ -7,7 +7,7 @@
 import type { GeminiExtractionPrompt } from "../types";
 import { SYSTEM_PREFIX, RESPONSE_FORMAT_INSTRUCTION } from "./shared";
 
-const PROMPT_VERSION = "gemini_primary_is_v1";
+const PROMPT_VERSION = "gemini_primary_is_v2";
 
 const EXPECTED_KEYS = [
   "TOTAL_REVENUE",
@@ -24,6 +24,24 @@ const EXPECTED_KEYS = [
   "VACANCY_LOSS",
   "EFFECTIVE_GROSS_INCOME",
   "NET_OPERATING_INCOME",
+  // v2: C&I operating expense line items
+  "SALARIES_WAGES_IS",
+  "OFFICER_COMPENSATION_IS",
+  "RENT_EXPENSE_IS",
+  "UTILITIES_IS",
+  "INSURANCE_EXPENSE_IS",
+  "REPAIRS_MAINTENANCE_IS",
+  "ADVERTISING_IS",
+  "PROFESSIONAL_FEES_IS",
+  "OTHER_OPERATING_EXPENSES_IS",
+  // v2: CRE operating statement line items
+  "PROPERTY_MGMT_FEE",
+  "REAL_ESTATE_TAXES_IS",
+  "INSURANCE_CRE_IS",
+  "MAINTENANCE_REPAIRS_CRE_IS",
+  "CAPEX_RESERVE",
+  "MANAGEMENT_FEES_IS",
+  "UTILITIES_CRE_IS",
 ];
 
 const IS_INSTRUCTIONS =
@@ -43,6 +61,27 @@ const IS_INSTRUCTIONS =
   "- VACANCY_LOSS: Vacancy and collection loss\n" +
   "- EFFECTIVE_GROSS_INCOME: Effective gross income (EGI)\n" +
   "- NET_OPERATING_INCOME: Net operating income (NOI)\n\n" +
+
+  "C&I operating expense line items (extract when present; use null if not broken out):\n" +
+  "- SALARIES_WAGES_IS: Total salaries and wages expense\n" +
+  "- OFFICER_COMPENSATION_IS: Officers' compensation (if shown separately)\n" +
+  "- RENT_EXPENSE_IS: Rent or lease expense\n" +
+  "- UTILITIES_IS: Utilities expense\n" +
+  "- INSURANCE_EXPENSE_IS: Insurance expense\n" +
+  "- REPAIRS_MAINTENANCE_IS: Repairs and maintenance expense\n" +
+  "- ADVERTISING_IS: Advertising and marketing expense\n" +
+  "- PROFESSIONAL_FEES_IS: Professional fees (legal, accounting, consulting)\n" +
+  "- OTHER_OPERATING_EXPENSES_IS: Other / miscellaneous operating expenses\n\n" +
+
+  "CRE operating statement line items (extract when present; use null if not a CRE property):\n" +
+  "- PROPERTY_MGMT_FEE: Property management fee\n" +
+  "- REAL_ESTATE_TAXES_IS: Real estate taxes / property taxes\n" +
+  "- INSURANCE_CRE_IS: Property insurance\n" +
+  "- MAINTENANCE_REPAIRS_CRE_IS: Maintenance and repairs (property)\n" +
+  "- CAPEX_RESERVE: Capital expenditure reserve or replacement reserve\n" +
+  "- MANAGEMENT_FEES_IS: Management fees (if separate from property mgmt fee)\n" +
+  "- UTILITIES_CRE_IS: Utilities (property-level)\n\n" +
+
   "Metadata:\n" +
   "- entity_name: Company or property name\n" +
   "- period_start: Period start date (e.g. 2023-01-01)\n" +
