@@ -27,6 +27,8 @@ import { extractForm4562 } from "./form4562Deterministic";
 import { extractForm8825 } from "./form8825Deterministic";
 import { extractForm1125A } from "./form1125aDeterministic";
 import { extractForm1125E } from "./form1125eDeterministic";
+import { extractK1 } from "./k1Deterministic";
+import { validateArithmetic } from "./arithmeticValidator";
 
 // ---------------------------------------------------------------------------
 // Canonical line item keys (same as original extractor)
@@ -205,9 +207,18 @@ export async function extractTaxReturnDeterministic(
     factsWritten += mainResult.factsWritten;
   }
 
-  // Detect schedule presence and extract in parallel (non-blocking)
+  // Detect K-1 presence and extract
   const ocrText = args.ocrText;
   const taxYear = resolveDocTaxYear(ocrText, args.docYear);
+
+  const hasK1 = /schedule\s+k-?1\b/i.test(ocrText);
+  let k1Facts = 0;
+  if (hasK1) {
+    const k1Result = extractK1(args);
+    k1Facts = await writeK1Facts(k1Result, args, taxYear);
+  }
+
+  // Detect schedule presence and extract in parallel (non-blocking)
 
   const scheduleChecks: Array<{
     pattern: RegExp;
@@ -229,6 +240,59 @@ export async function extractTaxReturnDeterministic(
   const settled = await Promise.allSettled(schedulePromises);
   for (const r of settled) {
     if (r.status === "fulfilled") factsWritten += r.value;
+  }
+
+  factsWritten += k1Facts;
+
+  // Arithmetic validation — build facts snapshot from this extraction run
+  const factsSnapshot: Record<string, number | null> = {};
+  for (const item of items) {
+    if (typeof item.value === "number") {
+      factsSnapshot[item.factKey] = item.value;
+    }
+  }
+  const validation = validateArithmetic(factsSnapshot);
+
+  if (validation.failCount > 0) {
+    console.warn(
+      `[taxReturnExtractor] Arithmetic validation failures for deal ${args.dealId}:`,
+      validation.results.filter((r) => !r.passes).map((r) => r.message),
+    );
+  }
+
+  // Write validation summary fact so the UI can surface data quality
+  if (validation.validationCount > 0) {
+    try {
+      await writeFactsBatch({
+        dealId: args.dealId,
+        bankId: args.bankId,
+        sourceDocumentId: args.documentId,
+        factType: "EXTRACTION_VALIDATION" as any,
+        items: [{
+          factKey: "EXTRACTION_CONFIDENCE",
+          value: validation.overallConfidence,
+          confidence: 1.0,
+          periodStart: null,
+          periodEnd: null,
+          provenance: {
+            source_type: "STRUCTURAL",
+            source_ref: `deal_documents:${args.documentId}`,
+            as_of_date: null,
+            extractor: "arithmeticValidator:v1",
+            confidence: 1.0,
+            extraction_path: "computed",
+            citations: validation.results
+              .filter((r) => !r.passes)
+              .map((r) => ({ page: null, snippet: r.message })),
+            raw_snippets: validation.results
+              .filter((r) => !r.passes)
+              .map((r) => r.message),
+          } as FinancialFactProvenance,
+        }],
+      });
+    } catch {
+      // Non-fatal — validation persistence is best-effort
+    }
   }
 
   return { ok: true, factsWritten, extractionPath: path };
@@ -554,6 +618,45 @@ async function writeScheduleFacts(
   });
 
   return writeResult.factsWritten;
+}
+
+// ---------------------------------------------------------------------------
+// K-1 fact writer
+// ---------------------------------------------------------------------------
+
+async function writeK1Facts(
+  result: PureDeterministicResult,
+  args: DeterministicExtractorArgs,
+  taxYear: number | null,
+): Promise<number> {
+  if (!result.ok || result.items.length === 0) return 0;
+  const period = taxYear ? `FY${taxYear}` : null;
+  const { start: periodStart, end: periodEnd } = normalizePeriod(period);
+  const mapped: ExtractedLineItem[] = result.items
+    .filter((i) => typeof i.value === "number" && i.value !== 0)
+    .map((i) => ({
+      factKey: i.key,
+      value: i.value as number,
+      confidence: 0.60,
+      periodStart,
+      periodEnd,
+      provenance: makeProvenance(
+        args.documentId,
+        periodEnd,
+        0.60,
+        i.snippet,
+        result.extractionPath,
+      ),
+    }));
+  if (mapped.length === 0) return 0;
+  const r = await writeFactsBatch({
+    dealId: args.dealId,
+    bankId: args.bankId,
+    sourceDocumentId: args.documentId,
+    factType: "TAX_RETURN_K1" as any,
+    items: mapped,
+  });
+  return r.factsWritten;
 }
 
 // ---------------------------------------------------------------------------

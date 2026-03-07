@@ -21,9 +21,11 @@ import { extractTaxReturnDeterministic } from "@/lib/financialSpreads/extractors
 import { extractRentRollDeterministic } from "@/lib/financialSpreads/extractors/deterministic/rentRollDeterministic";
 import { extractPersonalIncomeDeterministic } from "@/lib/financialSpreads/extractors/deterministic/personalIncomeDeterministic";
 import { extractPfsDeterministic } from "@/lib/financialSpreads/extractors/deterministic/pfsDeterministic";
+import { resolveDocTaxYear } from "@/lib/financialSpreads/extractors/deterministic/parseUtils";
+import { isGeminiPrimaryExtractionEnabled } from "@/lib/flags/geminiPrimaryExtraction";
 
 // ---------------------------------------------------------------------------
-// Feature flag
+// Feature flags
 // ---------------------------------------------------------------------------
 
 function isDeterministicEnabled(): boolean {
@@ -86,6 +88,7 @@ export async function extractFactsFromDocument(args: {
 }) {
   const sb = supabaseAdmin();
   const useDeterministic = isDeterministicEnabled();
+  const useGeminiPrimary = isGeminiPrimaryExtractionEnabled();
 
   // TODO: remove after pipeline validation
   if (process.env.DEBUG_PIPELINE === "true" || process.env.NODE_ENV !== "production") {
@@ -95,6 +98,7 @@ export async function extractFactsFromDocument(args: {
       docTypeHint: args.docTypeHint,
       DETERMINISTIC_EXTRACTORS_ENABLED: process.env.DETERMINISTIC_EXTRACTORS_ENABLED,
       useDeterministic,
+      useGeminiPrimary,
     });
   }
 
@@ -194,40 +198,99 @@ export async function extractFactsFromDocument(args: {
     docYear,
   };
 
+  // ── Gemini primary helper ───────────────────────────────────────────────
+  // Shared logic: attempt Gemini primary extraction, write facts if successful.
+  // Returns { succeeded, factsWritten } — never throws.
+  async function attemptGeminiPrimary(factType: string): Promise<{
+    succeeded: boolean;
+    factsWritten: number;
+  }> {
+    if (!useGeminiPrimary || !useDeterministic) {
+      return { succeeded: false, factsWritten: 0 };
+    }
+    try {
+      const { extractWithGeminiPrimary } = await import(
+        "@/lib/financialSpreads/extractors/gemini/geminiDocumentExtractor"
+      );
+      const gemResult = await extractWithGeminiPrimary({
+        dealId: args.dealId,
+        bankId: args.bankId,
+        documentId: args.documentId,
+        ocrText: extractedText,
+        docType: normDocType,
+        docYear,
+      });
+      if (gemResult.ok && gemResult.items.length > 0) {
+        const { writeFactsBatch } = await import(
+          "@/lib/financialSpreads/extractors/shared"
+        );
+        const wr = await writeFactsBatch({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: args.documentId,
+          factType,
+          items: gemResult.items,
+        });
+        return { succeeded: true, factsWritten: wr.factsWritten };
+      }
+      return { succeeded: false, factsWritten: 0 };
+    } catch (err: any) {
+      console.warn("[extractFactsFromDocument] Gemini primary failed, falling back", {
+        dealId: args.dealId,
+        documentId: args.documentId,
+        docType: normDocType,
+        error: err?.message,
+      });
+      return { succeeded: false, factsWritten: 0 };
+    }
+  }
+
   // ── Income Statement / T12 ─────────────────────────────────────────────
   if (
     extractedText &&
     ["FINANCIAL_STATEMENT", "INCOME_STATEMENT", "OPERATING_STATEMENT"].includes(normDocType)
   ) {
     extractorRan = true;
-    try {
-      if (useDeterministic) {
-        const result = await extractIncomeStatementDeterministic(deterministicArgs);
-        factsWritten += result.factsWritten;
-        extractionPath = result.extractionPath;
-      } else {
-        const result = await extractIncomeStatement(baseArgs);
-        factsWritten += result.factsWritten;
+    const gp = await attemptGeminiPrimary("INCOME_STATEMENT");
+    if (gp.succeeded) {
+      factsWritten += gp.factsWritten;
+      extractionPath = "gemini_primary";
+    } else {
+      try {
+        if (useDeterministic) {
+          const result = await extractIncomeStatementDeterministic(deterministicArgs);
+          factsWritten += result.factsWritten;
+          extractionPath = result.extractionPath;
+        } else {
+          const result = await extractIncomeStatement(baseArgs);
+          factsWritten += result.factsWritten;
+        }
+      } catch (err) {
+        console.error("[extractFactsFromDocument] incomeStatement failed:", err);
       }
-    } catch (err) {
-      console.error("[extractFactsFromDocument] incomeStatement failed:", err);
     }
   }
 
   // ── Balance Sheet ──────────────────────────────────────────────────────
   if (extractedText && normDocType === "BALANCE_SHEET") {
     extractorRan = true;
-    try {
-      if (useDeterministic) {
-        const result = await extractBalanceSheetDeterministic(deterministicArgs);
-        factsWritten += result.factsWritten;
-        extractionPath = result.extractionPath;
-      } else {
-        const result = await extractBalanceSheet(baseArgs);
-        factsWritten += result.factsWritten;
+    const gp = await attemptGeminiPrimary("BALANCE_SHEET");
+    if (gp.succeeded) {
+      factsWritten += gp.factsWritten;
+      extractionPath = "gemini_primary";
+    } else {
+      try {
+        if (useDeterministic) {
+          const result = await extractBalanceSheetDeterministic(deterministicArgs);
+          factsWritten += result.factsWritten;
+          extractionPath = result.extractionPath;
+        } else {
+          const result = await extractBalanceSheet(baseArgs);
+          factsWritten += result.factsWritten;
+        }
+      } catch (err) {
+        console.error("[extractFactsFromDocument] balanceSheet failed:", err);
       }
-    } catch (err) {
-      console.error("[extractFactsFromDocument] balanceSheet failed:", err);
     }
   }
 
@@ -237,34 +300,61 @@ export async function extractFactsFromDocument(args: {
     ["IRS_1040", "IRS_1120", "IRS_1120S", "IRS_1065", "IRS_BUSINESS", "IRS_PERSONAL", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN", "PERSONAL_TAX_RETURN"].includes(normDocType)
   ) {
     extractorRan = true;
-    try {
-      if (useDeterministic) {
-        const result = await extractTaxReturnDeterministic(deterministicArgs);
-        factsWritten += result.factsWritten;
-        extractionPath = result.extractionPath;
-      } else {
-        const result = await extractTaxReturn(baseArgs);
-        factsWritten += result.factsWritten;
+    const gp = await attemptGeminiPrimary("TAX_RETURN");
+    if (gp.succeeded) {
+      factsWritten += gp.factsWritten;
+      extractionPath = "gemini_primary";
+    } else {
+      try {
+        if (useDeterministic) {
+          const result = await extractTaxReturnDeterministic(deterministicArgs);
+          factsWritten += result.factsWritten;
+          extractionPath = result.extractionPath;
+        } else {
+          const result = await extractTaxReturn(baseArgs);
+          factsWritten += result.factsWritten;
+        }
+      } catch (err) {
+        console.error("[extractFactsFromDocument] taxReturn failed:", err);
       }
-    } catch (err) {
-      console.error("[extractFactsFromDocument] taxReturn failed:", err);
+    }
+
+    // Persist resolved tax year to document_artifacts (backfill NULL gap)
+    try {
+      const resolvedYear = resolveDocTaxYear(extractedText, docYear);
+      if (resolvedYear) {
+        await (sb as any)
+          .from("document_artifacts")
+          .update({ tax_year: resolvedYear, updated_at: new Date().toISOString() })
+          .eq("source_table", "deal_documents")
+          .eq("source_id", args.documentId)
+          .is("tax_year", null);
+      }
+    } catch {
+      // Non-fatal — tax year backfill is best-effort
     }
   }
 
   // ── Rent Roll ──────────────────────────────────────────────────────────
   if (extractedText && normDocType === "RENT_ROLL") {
     extractorRan = true;
-    try {
-      if (useDeterministic) {
-        const result = await extractRentRollDeterministic(deterministicArgs);
-        factsWritten += result.factsWritten;
-        extractionPath = result.extractionPath;
-      } else {
-        const result = await extractRentRoll(baseArgs);
-        factsWritten += result.factsWritten;
+    const gp = await attemptGeminiPrimary("RENT_ROLL");
+    if (gp.succeeded) {
+      factsWritten += gp.factsWritten;
+      extractionPath = "gemini_primary";
+    } else {
+      try {
+        if (useDeterministic) {
+          const result = await extractRentRollDeterministic(deterministicArgs);
+          factsWritten += result.factsWritten;
+          extractionPath = result.extractionPath;
+        } else {
+          const result = await extractRentRoll(baseArgs);
+          factsWritten += result.factsWritten;
+        }
+      } catch (err) {
+        console.error("[extractFactsFromDocument] rentRoll failed:", err);
       }
-    } catch (err) {
-      console.error("[extractFactsFromDocument] rentRoll failed:", err);
     }
   }
 
@@ -274,24 +364,48 @@ export async function extractFactsFromDocument(args: {
     ["PERSONAL_TAX_RETURN", "IRS_1040", "IRS_PERSONAL"].includes(normDocType)
   ) {
     extractorRan = true;
-    try {
-      const ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
-      if (useDeterministic) {
-        const result = await extractPersonalIncomeDeterministic({
-          ...deterministicArgs,
-          ownerEntityId,
-        });
-        factsWritten += result.factsWritten;
-        extractionPath = result.extractionPath;
-      } else {
-        const result = await extractPersonalIncome({
-          ...baseArgs,
-          ownerEntityId,
-        });
-        factsWritten += result.factsWritten;
+    // Note: Personal income Gemini primary uses PERSONAL_INCOME fact type
+    // but attemptGeminiPrimary does not pass ownerEntityId — personal docs
+    // handled by deterministic for now (owner resolution needed)
+    const gp = await attemptGeminiPrimary("PERSONAL_INCOME");
+    if (gp.succeeded) {
+      factsWritten += gp.factsWritten;
+      extractionPath = "gemini_primary";
+    } else {
+      try {
+        const ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
+        if (useDeterministic) {
+          const result = await extractPersonalIncomeDeterministic({
+            ...deterministicArgs,
+            ownerEntityId,
+          });
+          factsWritten += result.factsWritten;
+          extractionPath = result.extractionPath;
+        } else {
+          const result = await extractPersonalIncome({
+            ...baseArgs,
+            ownerEntityId,
+          });
+          factsWritten += result.factsWritten;
+        }
+      } catch (err) {
+        console.error("[extractFactsFromDocument] personalIncome failed:", err);
       }
-    } catch (err) {
-      console.error("[extractFactsFromDocument] personalIncome failed:", err);
+    }
+
+    // Persist resolved tax year to document_artifacts (backfill NULL gap)
+    try {
+      const resolvedYear = resolveDocTaxYear(extractedText, docYear);
+      if (resolvedYear) {
+        await (sb as any)
+          .from("document_artifacts")
+          .update({ tax_year: resolvedYear, updated_at: new Date().toISOString() })
+          .eq("source_table", "deal_documents")
+          .eq("source_id", args.documentId)
+          .is("tax_year", null);
+      }
+    } catch {
+      // Non-fatal — tax year backfill is best-effort
     }
   }
 
@@ -386,6 +500,7 @@ export async function extractFactsFromDocument(args: {
         ocr_length: extractedText.length,
         had_structured_json: !!structuredJson,
         deterministic: useDeterministic,
+        gemini_primary: useGeminiPrimary,
         extraction_path: extractionPath,
       },
     }).catch(() => {}); // fire-and-forget
@@ -405,9 +520,11 @@ export async function extractFactsFromDocument(args: {
       source_type: "DOC_EXTRACT",
       source_ref: `deal_documents:${args.documentId}`,
       as_of_date: null,
-      extractor: useDeterministic
-        ? "extractFactsFromDocument:v4:deterministic"
-        : "extractFactsFromDocument:v3",
+      extractor: useGeminiPrimary
+        ? "extractFactsFromDocument:v5:gemini_primary"
+        : useDeterministic
+          ? "extractFactsFromDocument:v4:deterministic"
+          : "extractFactsFromDocument:v3",
       ...(extractionPath ? { extraction_path: extractionPath } : {}),
     },
   });
