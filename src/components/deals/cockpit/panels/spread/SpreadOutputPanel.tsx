@@ -30,6 +30,7 @@ export function SpreadOutputPanel({ dealId }: { dealId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [isClassicExporting, setIsClassicExporting] = useState(false);
   const downloadRef = useRef<HTMLAnchorElement>(null);
 
   const fetchReport = useCallback(async () => {
@@ -70,6 +71,28 @@ export function SpreadOutputPanel({ dealId }: { dealId: string }) {
       alert("PDF generation failed — try again");
     } finally {
       setIsExporting(false);
+    }
+  }, [dealId]);
+
+  const handleClassicExport = useCallback(async () => {
+    try {
+      setIsClassicExporting(true);
+      const res = await fetch(`/api/deals/${dealId}/classic-spread`);
+      if (!res.ok) {
+        throw new Error(`Export failed (HTTP ${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      if (downloadRef.current) {
+        downloadRef.current.href = url;
+        downloadRef.current.download = `ClassicSpread_${dealId.slice(0, 8)}.pdf`;
+        downloadRef.current.click();
+      }
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Classic Spread PDF generation failed — try again");
+    } finally {
+      setIsClassicExporting(false);
     }
   }, [dealId]);
 
@@ -135,7 +158,24 @@ export function SpreadOutputPanel({ dealId }: { dealId: string }) {
             </button>
           ))}
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex gap-2">
+          <button
+            onClick={handleClassicExport}
+            disabled={isClassicExporting}
+            className="flex items-center gap-1.5 rounded-md border border-zinc-600 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:bg-zinc-700 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isClassicExporting ? (
+              <>
+                <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Generating...
+              </>
+            ) : (
+              "Classic Spread"
+            )}
+          </button>
           <button
             onClick={handleExport}
             disabled={isExporting}
