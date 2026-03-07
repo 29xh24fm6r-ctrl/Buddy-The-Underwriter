@@ -284,6 +284,7 @@ export default function NewDealClient({
   const [uploadOutcomes, setUploadOutcomes] = useState<Map<string, UploadOutcome>>(new Map());
   const [uploading, setUploading] = useState(false);
   const [dealName, setDealName] = useState(initialDealName || "");
+  const [dealMode, setDealMode] = useState<"quick_look" | "full_underwrite">("full_underwrite");
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [debugInfo, setDebugInfo] = useState<{ requestId: string | null; stage: string | null }>({
     requestId: null,
@@ -432,6 +433,7 @@ export default function NewDealClient({
       try {
         const payload = await createUploadSession({
           dealName: dealName || `Deal - ${new Date().toLocaleDateString()}`,
+          dealMode,
           source: "banker",
           files: entries.map((e) => ({
             name: e.file.name,
@@ -835,6 +837,45 @@ export default function NewDealClient({
               className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={isWorking}
             />
+          </div>
+
+          {/* Deal Mode Toggle */}
+          <div className="mb-8">
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Analysis Mode
+            </label>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDealMode("full_underwrite")}
+                disabled={isWorking}
+                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-medium transition-all ${
+                  dealMode === "full_underwrite"
+                    ? "border-blue-500 bg-blue-500/10 text-blue-300"
+                    : "border-gray-700 bg-gray-800/20 text-gray-400 hover:border-gray-500"
+                } ${isWorking ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                Full Underwrite
+                <span className="block text-xs font-normal mt-1 opacity-70">
+                  Complete document package required
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDealMode("quick_look")}
+                disabled={isWorking}
+                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-medium transition-all ${
+                  dealMode === "quick_look"
+                    ? "border-amber-500 bg-amber-500/10 text-amber-300"
+                    : "border-gray-700 bg-gray-800/20 text-gray-400 hover:border-gray-500"
+                } ${isWorking ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                Quick Look
+                <span className="block text-xs font-normal mt-1 opacity-70">
+                  2 years tax returns + YTD financials
+                </span>
+              </button>
+            </div>
           </div>
 
           {/* ============================================================= */}

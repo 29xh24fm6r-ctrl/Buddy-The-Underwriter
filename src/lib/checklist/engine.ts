@@ -23,7 +23,8 @@ function acceptableDocTypesForChecklistKey(checklistKeyRaw: string): CanonicalDo
   const key = String(checklistKeyRaw || "").toUpperCase();
   if (!key) return null;
 
-  if (key.startsWith("IRS_BUSINESS")) return ["business_tax_return"];
+  // PTR with Schedule C can satisfy BTR requirement (sole proprietors)
+  if (key.startsWith("IRS_BUSINESS")) return ["business_tax_return", "personal_tax_return"];
   if (key.startsWith("IRS_PERSONAL")) return ["personal_tax_return"];
 
   if (key === "FIN_STMT_PL_YTD") return ["income_statement", "financial_statement"];
@@ -173,17 +174,23 @@ export function buildChecklistRows(dealId: string, rules: ChecklistDefinition[])
 export async function reconcileDealChecklist(dealId: string) {
   const sb = supabaseAdmin();
 
-  // 1) Read intake loan_type
-  const { data: intake, error: intakeErr } = await sb
-    .from("deal_intake")
-    .select("loan_type")
-    .eq("deal_id", dealId)
-    .maybeSingle();
+  // 1) Read intake loan_type + deal_mode
+  const [intakeRes, dealRes] = await Promise.all([
+    sb.from("deal_intake").select("loan_type").eq("deal_id", dealId).maybeSingle(),
+    sb.from("deals").select("deal_mode").eq("id", dealId).maybeSingle(),
+  ]);
 
-  if (intakeErr) throw new Error(`intake_read_failed: ${intakeErr.message}`);
+  if (intakeRes.error) throw new Error(`intake_read_failed: ${intakeRes.error.message}`);
+  const intake = intakeRes.data;
+  const dealMode = (dealRes.data as any)?.deal_mode ?? "full_underwrite";
 
-  // Get ruleset for loan type, falling back to UNKNOWN (universal) if no match
-  let rs = getRuleSetForLoanType(intake?.loan_type ?? null);
+  // Quick look mode uses a reduced checklist regardless of loan type
+  let rs: ChecklistRuleSet | null;
+  if (dealMode === "quick_look") {
+    rs = getRuleSetForLoanType("QUICK_LOOK");
+  } else {
+    rs = getRuleSetForLoanType(intake?.loan_type ?? null);
+  }
   if (!rs) {
     // Use universal ruleset when loan_type is unknown or doesn't match
     rs = getRuleSetForLoanType("UNKNOWN");
@@ -534,13 +541,42 @@ export async function reconcileDealChecklist(dealId: string) {
     if (!itemKey) continue;
 
     const acceptableTypes = acceptableDocTypesForChecklistKey(itemKey);
-    const docsForItem = acceptableTypes
+    let docsForItem = acceptableTypes
       ? (() => {
           const byType = acceptableTypes.flatMap((t) => docsByType.get(t) ?? []);
           // Schema drift / older envs may not have document_type populated; fall back to checklist_key.
           return byType.length ? byType : (docsByKey.get(itemKey) ?? []);
         })()
       : (docsByKey.get(itemKey) ?? []);
+
+    // Conditional satisfaction: PTR only satisfies IRS_BUSINESS_* if it has Schedule C
+    if (itemKey.toUpperCase().startsWith("IRS_BUSINESS") && docsForItem.length > 0) {
+      const filtered: any[] = [];
+      for (const d of docsForItem) {
+        const bucket = normalizeDocIntelDocTypeToCanonicalBucket((d as any)?.document_type);
+        if (bucket === "personal_tax_return") {
+          // Only include if this PTR has Schedule C
+          try {
+            const { data: schedCFact } = await sb
+              .from("deal_financial_facts")
+              .select("fact_value_num")
+              .eq("deal_id", dealId)
+              .eq("source_document_id", (d as any).id)
+              .eq("fact_key", "PTR_HAS_SCHEDULE_C")
+              .maybeSingle();
+            if (schedCFact && Number(schedCFact.fact_value_num) === 1) {
+              filtered.push(d);
+            }
+          } catch {
+            // On query failure, exclude PTR from BTR satisfaction (conservative)
+          }
+        } else {
+          filtered.push(d);
+        }
+      }
+      docsForItem = filtered;
+    }
+
     if (docsForItem.length === 0) continue;
 
     const requiredYearsFromDb = Array.isArray((item as any)?.required_years)

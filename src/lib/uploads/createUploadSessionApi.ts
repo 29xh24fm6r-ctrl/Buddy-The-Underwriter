@@ -21,6 +21,7 @@ type UploadSessionFileInput = {
 type CreateUploadSessionBody = {
   dealId?: string | null;
   dealName?: string | null;
+  dealMode?: "quick_look" | "full_underwrite" | null;
   source?: UploadSessionSource | string | null;
   files?: UploadSessionFileInput[] | null;
   portalToken?: string | null;
@@ -173,10 +174,16 @@ export async function handleCreateUploadSession(
       // Do NOT re-query replicas to confirm existence.
       // Downstream retry logic in /files/record is defensive only.
       // =======================================================================
+      // Set deal_mode if specified (quick_look or full_underwrite)
+      if (body.dealMode === "quick_look") {
+        await sb.from("deals").update({ deal_mode: "quick_look" }).eq("id", dealId);
+      }
+
       console.log("[deal:create] deal bootstrap confirmed via primary write", {
         dealId,
         sessionId,
         bankId,
+        dealMode: body.dealMode ?? "full_underwrite",
         source: "deals/new",
       });
 

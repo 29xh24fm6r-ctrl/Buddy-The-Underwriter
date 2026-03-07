@@ -7,6 +7,7 @@ export type UploadSessionFileInput = {
 export type CreateUploadSessionInput = {
   dealId?: string | null;
   dealName?: string | null;
+  dealMode?: "quick_look" | "full_underwrite" | null;
   source: "banker" | "borrower";
   files: UploadSessionFileInput[];
   portalToken?: string | null;

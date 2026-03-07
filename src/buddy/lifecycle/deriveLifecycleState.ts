@@ -65,6 +65,7 @@ type DealData = {
   bank_id: string | null;
   stage: string | null;
   ready_at: string | null;
+  deal_mode: string | null;
 };
 
 /**
@@ -103,7 +104,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     () =>
       sb
         .from("deals")
-        .select("id, bank_id, stage, ready_at")
+        .select("id, bank_id, stage, ready_at, deal_mode")
         .eq("id", dealId)
         .maybeSingle(),
     ctx

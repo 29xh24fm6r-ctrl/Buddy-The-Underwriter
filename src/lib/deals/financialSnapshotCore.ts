@@ -281,6 +281,19 @@ export const SNAPSHOT_REQUIRED_METRICS_V1: SnapshotMetricName[] = [
   "bank_loan_total",
 ];
 
+/**
+ * Quick Look: operating company essentials only.
+ * Quick look mode uses a smaller denominator for completeness_pct,
+ * so a deal with just BTR + YTD financials can show meaningful progress.
+ */
+export const SNAPSHOT_REQUIRED_METRICS_QUICK_LOOK: SnapshotMetricName[] = [
+  "total_income_ttm",
+  "ebitda",
+  "depreciation_addback",
+  "noi_ttm",
+  "cash_flow_available",
+];
+
 export function buildEmptyMetric(): SnapshotMetricValue {
   return {
     value_num: null,
@@ -297,6 +310,7 @@ export function buildSnapshotFromFacts(args: {
   facts: MinimalFact[];
   metricSpecs: MetricSpec[];
   waltYears?: SnapshotMetricValue;
+  dealMode?: string;
 }): DealFinancialSnapshotV1 {
   const byMetric: Partial<Record<SnapshotMetricName, SnapshotMetricValue>> = {};
   const sources: SnapshotSourceSummary[] = [];
@@ -348,22 +362,27 @@ export function buildSnapshotFromFacts(args: {
     rejected: [],
   });
 
+  // Select required metrics based on deal mode
+  const requiredMetrics = args.dealMode === "quick_look"
+    ? SNAPSHOT_REQUIRED_METRICS_QUICK_LOOK
+    : SNAPSHOT_REQUIRED_METRICS_V1;
+
   // Snapshot-level as_of_date: only set if all present required metrics share the same as_of_date.
-  const presentAsOf = SNAPSHOT_REQUIRED_METRICS_V1.map((m) => (byMetric[m]?.as_of_date ?? null)).filter(Boolean) as string[];
+  const presentAsOf = requiredMetrics.map((m) => (byMetric[m]?.as_of_date ?? null)).filter(Boolean) as string[];
   const unique = Array.from(new Set(presentAsOf));
   const snapshotAsOf = unique.length === 1 ? unique[0]! : null;
   if (unique.length > 1) {
     sources.push({ metric: "cash_flow_available", chosen: null, rejected: [], note: "mixed_as_of_dates" });
   }
 
-  const missingRequired = SNAPSHOT_REQUIRED_METRICS_V1.filter((m) => {
+  const missingRequired = requiredMetrics.filter((m) => {
     const v = byMetric[m];
     return !v || (v.value_num === null && v.value_text === null);
   });
 
-  const completeCount = SNAPSHOT_REQUIRED_METRICS_V1.length - missingRequired.length;
-  const completenessPct = SNAPSHOT_REQUIRED_METRICS_V1.length
-    ? Math.round((completeCount / SNAPSHOT_REQUIRED_METRICS_V1.length) * 1000) / 10
+  const completeCount = requiredMetrics.length - missingRequired.length;
+  const completenessPct = requiredMetrics.length
+    ? Math.round((completeCount / requiredMetrics.length) * 1000) / 10
     : 0;
 
   const get = (m: SnapshotMetricName) => byMetric[m] ?? buildEmptyMetric();

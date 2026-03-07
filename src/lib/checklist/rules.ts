@@ -50,7 +50,46 @@ const UNIVERSAL_ITEMS = [
   },
 ];
 
+/**
+ * Quick Look — reduced requirements for fast initial analysis.
+ * Only 2 years of business tax returns + a YTD financial statement.
+ * Personal docs are optional (encouraged, not required).
+ */
+const QUICK_LOOK_ITEMS = [
+  {
+    checklist_key: "IRS_BUSINESS_2Y",
+    title: "Business Tax Returns (2+ years)",
+    required: true,
+    description: "Most recent 2 years of business tax returns (3 preferred)",
+  },
+  {
+    checklist_key: "FIN_STMT_YTD",
+    title: "YTD Financial Statement (P&L or Balance Sheet)",
+    required: true,
+    description: "Year-to-date income statement or balance sheet",
+  },
+  {
+    checklist_key: "IRS_PERSONAL_3Y",
+    title: "Personal Tax Returns",
+    required: false,
+    description: "Personal tax returns (optional for quick look)",
+  },
+  {
+    checklist_key: "PFS_CURRENT",
+    title: "Personal Financial Statement",
+    required: false,
+    description: "Personal financial statement (optional for quick look)",
+  },
+];
+
 export const RULESETS: ChecklistRuleSet[] = [
+  // Quick Look - reduced requirements for fast initial analysis
+  {
+    key: "QUICK_LOOK_V1",
+    loan_type_norm: "QUICK_LOOK",
+    version: 1,
+    items: QUICK_LOOK_ITEMS,
+  },
   // Universal/default - used when loan_type is unknown
   {
     key: "UNIVERSAL_V1",

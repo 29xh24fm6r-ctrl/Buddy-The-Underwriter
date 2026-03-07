@@ -155,35 +155,47 @@ export async function buildDealFinancialSnapshot(dealId: string): Promise<DealFi
 export async function buildDealFinancialSnapshotForBank(args: {
   dealId: string;
   bankId: string;
+  dealMode?: string;
 }): Promise<DealFinancialSnapshotV1> {
   const bankId = args.bankId;
   const sb = supabaseAdmin();
 
-  const factsRes = await (sb as any)
-    .from("deal_financial_facts")
-    .select("*")
-    .eq("deal_id", args.dealId)
-    .eq("bank_id", bankId);
+  // Load facts, rent roll rows, and deal_mode in parallel
+  const [factsRes, rrRes, dealModeRes] = await Promise.all([
+    (sb as any)
+      .from("deal_financial_facts")
+      .select("*")
+      .eq("deal_id", args.dealId)
+      .eq("bank_id", bankId),
+    (sb as any)
+      .from("deal_rent_roll_rows")
+      .select("*")
+      .eq("deal_id", args.dealId)
+      .eq("bank_id", bankId),
+    // Only fetch deal_mode from DB if not provided by caller
+    args.dealMode
+      ? Promise.resolve({ data: null })
+      : (sb as any)
+          .from("deals")
+          .select("deal_mode")
+          .eq("id", args.dealId)
+          .maybeSingle(),
+  ]);
 
   if (factsRes.error) {
     throw new Error(`deal_financial_facts_select_failed:${factsRes.error.message}`);
   }
 
-  const facts = (factsRes.data ?? []) as MinimalFact[];
-
-  const rrRes = await (sb as any)
-    .from("deal_rent_roll_rows")
-    .select("*")
-    .eq("deal_id", args.dealId)
-    .eq("bank_id", bankId);
-
   if (rrRes.error) {
     throw new Error(`deal_rent_roll_rows_select_failed:${rrRes.error.message}`);
   }
 
+  const facts = (factsRes.data ?? []) as MinimalFact[];
   const rrRows = (rrRes.data ?? []) as RentRollRow[];
   const rrAsOf = latestAsOfDateFromRentRollRows(rrRows);
   const waltYears = rrAsOf ? computeWaltYearsFromRentRoll({ rows: rrRows, asOfDate: rrAsOf }) : buildEmptyMetric();
 
-  return buildSnapshotFromFacts({ facts, metricSpecs: metricSpecsV1(), waltYears });
+  const dealMode = args.dealMode ?? (dealModeRes.data as any)?.deal_mode ?? "full_underwrite";
+
+  return buildSnapshotFromFacts({ facts, metricSpecs: metricSpecsV1(), waltYears, dealMode });
 }

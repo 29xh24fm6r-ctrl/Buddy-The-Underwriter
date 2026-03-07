@@ -101,35 +101,42 @@ export function computePreflightBlockers(
   }
 
   // ── 1. Intake must be confirmed ─────────────────────────────────
-  if (!CONFIRMED_PHASES.has(input.intakePhase)) {
+  // EXCEPTION: If facts already exist, allow spread rendering —
+  // the banker should see what Buddy knows immediately.
+  // A partial spread with honest gaps > a blocked screen.
+  if (!CONFIRMED_PHASES.has(input.intakePhase) && input.visibleFactCount === 0) {
     blockers.push({
       code: "INTAKE_NOT_CONFIRMED",
       message: `Deal is in phase "${input.intakePhase}" — intake must be confirmed before spreads can run`,
     });
   }
 
-  // ── 2. Snapshot hash must match (exact same logic as intake) ────
-  if (!input.storedSnapshotHash) {
-    blockers.push({
-      code: "INTAKE_SNAPSHOT_HASH_MISMATCH",
-      message:
-        "Intake snapshot hash missing — intake may not have completed confirmation",
-    });
-  } else if (input.activeDocs.length > 0) {
-    const sealable = input.activeDocs.filter((d) => d.logical_key != null);
-    const computed = computeIntakeSnapshotHash(
-      sealable.map((d) => ({
-        id: d.id,
-        canonical_type: d.canonical_type,
-        doc_year: d.doc_year,
-      })),
-    );
-    if (computed !== input.storedSnapshotHash) {
+  // ── 2. Snapshot hash must match — only enforce post-confirmation ─
+  // Pre-confirmation renders skip hash check entirely: the doc set
+  // is still being assembled, so a hash mismatch is expected.
+  if (CONFIRMED_PHASES.has(input.intakePhase)) {
+    if (!input.storedSnapshotHash) {
       blockers.push({
         code: "INTAKE_SNAPSHOT_HASH_MISMATCH",
         message:
-          "Document set has changed since confirmation — snapshot hash mismatch",
+          "Intake snapshot hash missing — intake may not have completed confirmation",
       });
+    } else if (input.activeDocs.length > 0) {
+      const sealable = input.activeDocs.filter((d) => d.logical_key != null);
+      const computed = computeIntakeSnapshotHash(
+        sealable.map((d) => ({
+          id: d.id,
+          canonical_type: d.canonical_type,
+          doc_year: d.doc_year,
+        })),
+      );
+      if (computed !== input.storedSnapshotHash) {
+        blockers.push({
+          code: "INTAKE_SNAPSHOT_HASH_MISMATCH",
+          message:
+            "Document set has changed since confirmation — snapshot hash mismatch",
+        });
+      }
     }
   }
 

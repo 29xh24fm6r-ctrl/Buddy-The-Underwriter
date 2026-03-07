@@ -73,19 +73,27 @@ export async function computeAuthoritativeEngine(
 ): Promise<AuthoritativeResult> {
   const sb = supabaseAdmin();
 
-  // 1. Load canonical facts
-  const { data: rawFacts, error: factsErr } = await (sb as any)
-    .from("deal_financial_facts")
-    .select("*")
-    .eq("deal_id", dealId)
-    .eq("bank_id", bankId)
-    .neq("fact_type", "EXTRACTION_HEARTBEAT");
+  // 1. Load canonical facts + deal_mode (parallel)
+  const [factsRes, dealModeRes] = await Promise.all([
+    (sb as any)
+      .from("deal_financial_facts")
+      .select("*")
+      .eq("deal_id", dealId)
+      .eq("bank_id", bankId)
+      .neq("fact_type", "EXTRACTION_HEARTBEAT"),
+    (sb as any)
+      .from("deals")
+      .select("deal_mode")
+      .eq("id", dealId)
+      .maybeSingle(),
+  ]);
 
-  if (factsErr) {
-    throw new Error(`facts_load_failed: ${factsErr.message}`);
+  if (factsRes.error) {
+    throw new Error(`facts_load_failed: ${factsRes.error.message}`);
   }
 
-  const facts = (rawFacts ?? []) as FinancialFact[];
+  const facts = (factsRes.data ?? []) as FinancialFact[];
+  const dealMode: string = (dealModeRes.data as any)?.deal_mode ?? "full_underwrite";
 
   // 2. Build financial model
   const financialModel = buildFinancialModel(dealId, facts);
