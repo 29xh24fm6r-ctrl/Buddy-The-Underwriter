@@ -9,8 +9,9 @@ import type { ExtractionResult } from "../shared";
  *  gemini_structured — Parsed from Gemini Flash structured assist JSON entities
  *  gemini_table      — Parsed from Gemini Flash structured assist table extraction
  *  ocr_regex         — Parsed from OCR text using regex patterns
+ *  gemini_primary    — Extracted directly by Gemini 2.0 Flash as primary extractor
  */
-export type ExtractionPath = "gemini_structured" | "ocr_regex" | "gemini_table" | "ocr_generic_scan";
+export type ExtractionPath = "gemini_structured" | "ocr_regex" | "gemini_table" | "ocr_generic_scan" | "gemini_primary";
 
 export type DeterministicExtractorArgs = {
   dealId: string;
