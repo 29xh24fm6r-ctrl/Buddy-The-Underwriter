@@ -201,7 +201,7 @@ export async function extractFactsFromDocument(args: {
   // ── Native PDF download (best-effort for Gemini native input) ─────────
   let pdfBase64: string | undefined;
   let pdfMimeType: string | undefined;
-  if (dealDoc?.storage_bucket && dealDoc?.storage_path) {
+  if (useGeminiPrimary && dealDoc?.storage_bucket && dealDoc?.storage_path) {
     try {
       const { downloadPrivateObject } = await import("@/lib/storage/adminStorage");
       const bytes = await downloadPrivateObject({
