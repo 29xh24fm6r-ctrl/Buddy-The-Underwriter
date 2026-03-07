@@ -47,7 +47,12 @@ function buildPeriodMaps(facts: RawFact[]): {
     }
   }
 
-  const periods = Array.from(periodSet).sort();
+  // Cap at 4 periods to prevent layout overflow (each period ~116pt, 4 × 116 = 464pt ≤ 540pt usable)
+  const MAX_PERIODS = 4;
+  let periods = Array.from(periodSet).sort();
+  if (periods.length > MAX_PERIODS) {
+    periods = periods.slice(-MAX_PERIODS); // keep most recent
+  }
   const byPeriod = new Map<string, Map<string, number | null>>();
   for (const pe of periods) {
     const m = new Map<string, number | null>();
@@ -629,7 +634,17 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
     bankName = (bank as { name: string } | null)?.name ?? "Bank";
   }
 
-  const facts = (factsRes.data ?? []) as RawFact[];
+  // Exclude sentinel EXTRACTION_HEARTBEAT facts:
+  // - fact_key starting with "document:" are OCR anchor facts (not financial data)
+  // - fact_period_end year < 2000 is a sentinel date (1900-01-01 used for heartbeats)
+  const facts = ((factsRes.data ?? []) as RawFact[]).filter((f) => {
+    if (f.fact_key?.startsWith("document:")) return false;
+    if (f.fact_period_end) {
+      const year = parseInt(f.fact_period_end.slice(0, 4), 10);
+      if (!isNaN(year) && year < 2000) return false;
+    }
+    return true;
+  });
   const { periods, byPeriod } = buildPeriodMaps(facts);
   const currentYear = new Date().getFullYear();
 

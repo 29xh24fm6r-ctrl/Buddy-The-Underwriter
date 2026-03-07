@@ -439,12 +439,27 @@ export function buildSnapshotFromFacts(args: {
   });
 
   // Select required metrics based on deal mode and deal type
+  // Normalize dealType to lowercase+underscore for case-insensitive matching
+  // (DB stores values like "SBA", "SBA_7A", "c_and_i", "cre_investor" — normalize all)
+  const dealTypeNorm = args.dealType
+    ? args.dealType.toLowerCase().replace(/[^a-z0-9]/g, "_")
+    : null;
+
   let requiredMetrics: SnapshotMetricName[];
   if (args.dealMode === "quick_look") {
     requiredMetrics = SNAPSHOT_REQUIRED_METRICS_QUICK_LOOK;
-  } else if (args.dealType === "c_and_i" || args.dealType === "sba_7a") {
+  } else if (
+    dealTypeNorm === "c_and_i" ||
+    dealTypeNorm === "sba" ||
+    dealTypeNorm === "sba_7a" ||
+    dealTypeNorm === "sba_504"
+  ) {
     requiredMetrics = SNAPSHOT_REQUIRED_METRICS_CI;
-  } else if (args.dealType === "cre_investor" || args.dealType === "cre_owner_occupied") {
+  } else if (
+    dealTypeNorm === "cre_investor" ||
+    dealTypeNorm === "cre_owner_occupied" ||
+    dealTypeNorm === "cre"
+  ) {
     requiredMetrics = SNAPSHOT_REQUIRED_METRICS_CRE;
   } else {
     requiredMetrics = SNAPSHOT_REQUIRED_METRICS_V1;
