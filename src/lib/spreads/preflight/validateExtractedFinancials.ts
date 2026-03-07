@@ -157,6 +157,7 @@ export function validateTaxReturn(
   // Tax returns should have at least one income/financial signal.
   // These are the canonical keys our tax return extractor produces.
   const taxSignalKeys = [
+    // Business tax return signals
     "GROSS_RECEIPTS",
     "GROSS_PROFIT",
     "TOTAL_INCOME",
@@ -168,6 +169,15 @@ export function validateTaxReturn(
     "TAX_LIABILITY",
     "WAGES_W2",
     "BUSINESS_INCOME_SCHEDULE_C",
+    // Personal tax return signals (Schedule C / E / K1)
+    "SCHEDULE_C_NET_PROFIT",
+    "SCHEDULE_C_GROSS_RECEIPTS",
+    "RENTAL_INCOME_SCHED_E",
+    "K1_ORDINARY_INCOME",
+    "INTEREST_INCOME",
+    "DIVIDEND_INCOME",
+    "CAPITAL_GAINS",
+    "SOCIAL_SECURITY_INCOME",
   ];
 
   const hasSignal = taxSignalKeys.some(

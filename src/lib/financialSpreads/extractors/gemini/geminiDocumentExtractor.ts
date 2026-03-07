@@ -182,6 +182,76 @@ export async function extractWithGeminiPrimary(args: {
       periodEnd,
     });
 
+    // 6. Schedule C/E/K1 detection for personal tax returns
+    //    Write detection flags as facts so the checklist engine can
+    //    let a PTR with Schedule C satisfy the BTR requirement.
+    if (config.factType === "PERSONAL_INCOME" || config.factType === "TAX_RETURN") {
+      const facts = rawObj.facts as Record<string, unknown> | undefined;
+
+      const hasScheduleC = !!(
+        (facts?.SCHEDULE_C_NET_PROFIT && Number(facts.SCHEDULE_C_NET_PROFIT) !== 0) ||
+        (facts?.SCHEDULE_C_GROSS_RECEIPTS && Number(facts.SCHEDULE_C_GROSS_RECEIPTS) !== 0) ||
+        metadata?.schedule_c_present === true
+      );
+      const hasScheduleE = !!(
+        (facts?.SCHEDULE_E_GROSS_RENTS && Number(facts.SCHEDULE_E_GROSS_RENTS) !== 0) ||
+        (facts?.RENTAL_INCOME_SCHED_E && Number(facts.RENTAL_INCOME_SCHED_E) !== 0) ||
+        metadata?.schedule_e_present === true
+      );
+      const hasK1 = !!(
+        (facts?.K1_ORDINARY_INCOME && Number(facts.K1_ORDINARY_INCOME) !== 0) ||
+        metadata?.k1_present === true
+      );
+
+      const detectionProvenance = {
+        source_type: "DOC_EXTRACT" as const,
+        source_ref: `deal_documents:${args.documentId}`,
+        as_of_date: periodEnd,
+        extractor: "gemini_primary_schedule_detect",
+        confidence: 0.90,
+      };
+
+      if (hasScheduleC) {
+        items.push({
+          factKey: "PTR_HAS_SCHEDULE_C",
+          value: 1,
+          confidence: 0.90,
+          periodStart,
+          periodEnd,
+          provenance: detectionProvenance,
+        });
+      }
+      if (hasScheduleE) {
+        items.push({
+          factKey: "PTR_HAS_SCHEDULE_E",
+          value: 1,
+          confidence: 0.90,
+          periodStart,
+          periodEnd,
+          provenance: detectionProvenance,
+        });
+      }
+      if (hasK1) {
+        items.push({
+          factKey: "PTR_HAS_K1",
+          value: 1,
+          confidence: 0.90,
+          periodStart,
+          periodEnd,
+          provenance: detectionProvenance,
+        });
+      }
+
+      if (hasScheduleC || hasScheduleE || hasK1) {
+        console.log("[GeminiDocumentExtractor] Schedule detection", {
+          documentId: args.documentId,
+          hasScheduleC,
+          hasScheduleE,
+          hasK1,
+        });
+      }
+    }
+
     console.log("[GeminiDocumentExtractor] Extraction completed", {
       documentId: args.documentId,
       docType: args.docType,

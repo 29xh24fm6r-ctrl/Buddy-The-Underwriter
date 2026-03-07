@@ -33,6 +33,10 @@ export type GeminiRawResponse = {
     ein?: string | null;
     taxpayer_name?: string | null;
     filing_status?: string | null;
+    schedule_c_present?: boolean | null;
+    schedule_e_present?: boolean | null;
+    schedule_f_present?: boolean | null;
+    k1_present?: boolean | null;
   };
 };
 
