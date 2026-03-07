@@ -104,7 +104,7 @@ export function computePreflightBlockers(
   // EXCEPTION: If facts already exist, allow spread rendering —
   // the banker should see what Buddy knows immediately.
   // A partial spread with honest gaps > a blocked screen.
-  if (!CONFIRMED_PHASES.has(input.intakePhase) && input.visibleFactCount === 0) {
+  if (!CONFIRMED_PHASES.has(input.intakePhase) && input.visibleFactCount === 0 && input.extractionHeartbeatDocIds.size === 0) {
     blockers.push({
       code: "INTAKE_NOT_CONFIRMED",
       message: `Deal is in phase "${input.intakePhase}" — intake must be confirmed before spreads can run`,

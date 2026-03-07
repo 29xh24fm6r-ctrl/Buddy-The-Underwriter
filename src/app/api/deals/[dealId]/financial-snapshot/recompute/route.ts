@@ -187,6 +187,14 @@ export async function POST(_req: Request, ctx: Ctx) {
 
         const backfill = await backfillCanonicalFactsFromSpreads({ dealId, bankId: access.bankId });
 
+        if (!backfill.ok) {
+          console.error("[recompute] backfillCanonicalFactsFromSpreads failed", {
+            dealId,
+            bankId: access.bankId,
+            result: JSON.parse(JSON.stringify(backfill)),
+          });
+        }
+
         logLedgerEvent({
           dealId,
           bankId: access.bankId,
@@ -197,7 +205,7 @@ export async function POST(_req: Request, ctx: Ctx) {
             : `Auto-materialization failed: ${(backfill as any).error}`,
           meta: backfill.ok
             ? { factsWritten: backfill.factsWritten, notes: backfill.notes, trigger: "snapshot_recompute" }
-            : { error: (backfill as any).error, trigger: "snapshot_recompute" },
+            : { error: (backfill as any).error, result: JSON.parse(JSON.stringify(backfill)), trigger: "snapshot_recompute" },
         }).catch(() => {});
 
         // Re-check facts after materialization

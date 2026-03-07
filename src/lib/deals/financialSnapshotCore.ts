@@ -294,6 +294,40 @@ export const SNAPSHOT_REQUIRED_METRICS_QUICK_LOOK: SnapshotMetricName[] = [
   "cash_flow_available",
 ];
 
+/**
+ * C&I (Commercial & Industrial): income-focused metrics.
+ */
+export const SNAPSHOT_REQUIRED_METRICS_CI: SnapshotMetricName[] = [
+  "revenue",
+  "cogs",
+  "gross_profit",
+  "ebitda",
+  "net_income",
+  "cash_flow_available",
+  "annual_debt_service",
+  "dscr",
+  "dscr_stressed_300bps",
+  "total_assets",
+  "total_liabilities",
+  "net_worth",
+];
+
+/**
+ * CRE (Commercial Real Estate): collateral + NOI focused metrics.
+ */
+export const SNAPSHOT_REQUIRED_METRICS_CRE: SnapshotMetricName[] = [
+  "total_income_ttm",
+  "noi_ttm",
+  "opex_ttm",
+  "cash_flow_available",
+  "annual_debt_service",
+  "dscr",
+  "collateral_gross_value",
+  "ltv_gross",
+  "occupancy_pct",
+  "in_place_rent_mo",
+];
+
 export function buildEmptyMetric(): SnapshotMetricValue {
   return {
     value_num: null,
@@ -311,6 +345,7 @@ export function buildSnapshotFromFacts(args: {
   metricSpecs: MetricSpec[];
   waltYears?: SnapshotMetricValue;
   dealMode?: string;
+  dealType?: string | null;
 }): DealFinancialSnapshotV1 {
   const byMetric: Partial<Record<SnapshotMetricName, SnapshotMetricValue>> = {};
   const sources: SnapshotSourceSummary[] = [];
@@ -340,6 +375,47 @@ export function buildSnapshotFromFacts(args: {
     };
   }
 
+  // ── Computed fallback: cash_flow_available from tax return components ──
+  // If no direct CASH_FLOW_AVAILABLE fact exists, derive from
+  // OBI (Ordinary Business Income) + Depreciation + Section 179 addbacks.
+  if ((byMetric["cash_flow_available"]?.value_num ?? null) === null) {
+    const obiFacts = args.facts.filter((f) => f.fact_key === "ORDINARY_BUSINESS_INCOME");
+    const depFacts = args.facts.filter((f) => f.fact_key === "DEPRECIATION");
+    const s179Facts = args.facts.filter((f) => f.fact_key === "SEC_179_EXPENSE");
+
+    const bestObi = selectBestFact(obiFacts).chosen;
+    const bestDep = selectBestFact(depFacts).chosen;
+    const bestS179 = selectBestFact(s179Facts).chosen;
+
+    if (bestObi?.fact_value_num != null) {
+      const obiVal = bestObi.fact_value_num;
+      const depVal = bestDep?.fact_value_num ?? 0;
+      const s179Val = bestS179?.fact_value_num ?? 0;
+      const computed = obiVal + depVal + s179Val;
+
+      byMetric["cash_flow_available"] = {
+        value_num: computed,
+        value_text: null,
+        as_of_date: factAsOfDate(bestObi),
+        confidence: 0.75,
+        source_type: "SPREAD",
+        source_ref: "computed:obi+dep+s179",
+        provenance: {
+          source_type: "SPREAD",
+          extractor: "snapshot:cash_flow_fallback:v1",
+          components: { obi: obiVal, depreciation: depVal, s179: s179Val },
+        },
+      };
+
+      sources.push({
+        metric: "cash_flow_available",
+        chosen: null,
+        rejected: [],
+        note: "computed_from_tax_return_components",
+      });
+    }
+  }
+
   // Optional computed metric: walt_years (not required)
   const walt = args.waltYears ?? buildEmptyMetric();
   sources.push({
@@ -362,10 +438,17 @@ export function buildSnapshotFromFacts(args: {
     rejected: [],
   });
 
-  // Select required metrics based on deal mode
-  const requiredMetrics = args.dealMode === "quick_look"
-    ? SNAPSHOT_REQUIRED_METRICS_QUICK_LOOK
-    : SNAPSHOT_REQUIRED_METRICS_V1;
+  // Select required metrics based on deal mode and deal type
+  let requiredMetrics: SnapshotMetricName[];
+  if (args.dealMode === "quick_look") {
+    requiredMetrics = SNAPSHOT_REQUIRED_METRICS_QUICK_LOOK;
+  } else if (args.dealType === "c_and_i" || args.dealType === "sba_7a") {
+    requiredMetrics = SNAPSHOT_REQUIRED_METRICS_CI;
+  } else if (args.dealType === "cre_investor" || args.dealType === "cre_owner_occupied") {
+    requiredMetrics = SNAPSHOT_REQUIRED_METRICS_CRE;
+  } else {
+    requiredMetrics = SNAPSHOT_REQUIRED_METRICS_V1;
+  }
 
   // Snapshot-level as_of_date: only set if all present required metrics share the same as_of_date.
   const presentAsOf = requiredMetrics.map((m) => (byMetric[m]?.as_of_date ?? null)).filter(Boolean) as string[];

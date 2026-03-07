@@ -5,13 +5,14 @@ import { Icon } from "@/components/ui/Icon";
 
 const fetcher = async (url: string) => {
   const res = await fetch(url, { cache: "no-store" });
+  if (res.status === 404) return { ok: false, notFound: true };
   return res.json();
 };
 
 export default function MatchedLendersPanel({ dealId }: { dealId: string }) {
   const { data, error, isLoading } = useSWR(`/api/deals/${dealId}/lenders/match`, fetcher, {
-    revalidateOnFocus: true,
-    dedupingInterval: 15_000,
+    revalidateOnFocus: false,
+    dedupingInterval: 60_000,
   });
 
   if (isLoading) {

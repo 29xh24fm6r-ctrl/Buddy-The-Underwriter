@@ -177,7 +177,7 @@ export async function buildDealFinancialSnapshotForBank(args: {
       ? Promise.resolve({ data: null })
       : (sb as any)
           .from("deals")
-          .select("deal_mode")
+          .select("deal_mode, deal_type")
           .eq("id", args.dealId)
           .maybeSingle(),
   ]);
@@ -196,6 +196,7 @@ export async function buildDealFinancialSnapshotForBank(args: {
   const waltYears = rrAsOf ? computeWaltYearsFromRentRoll({ rows: rrRows, asOfDate: rrAsOf }) : buildEmptyMetric();
 
   const dealMode = args.dealMode ?? (dealModeRes.data as any)?.deal_mode ?? "full_underwrite";
+  const dealType: string | null = (dealModeRes.data as any)?.deal_type ?? null;
 
-  return buildSnapshotFromFacts({ facts, metricSpecs: metricSpecsV1(), waltYears, dealMode });
+  return buildSnapshotFromFacts({ facts, metricSpecs: metricSpecsV1(), waltYears, dealMode, dealType });
 }

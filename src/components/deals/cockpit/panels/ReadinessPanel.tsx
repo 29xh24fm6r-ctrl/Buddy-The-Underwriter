@@ -147,6 +147,16 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const autoHealAttempted = useRef(false);
+  const [suppressedBlockerCodes, setSuppressedBlockerCodes] = useState<Set<string>>(new Set());
+
+  // Clear blocker suppression when lifecycle state refreshes with new data
+  const blockerFingerprint = (lifecycleState?.blockers ?? []).map((b: any) => b.code).sort().join(",");
+  useEffect(() => {
+    if (suppressedBlockerCodes.size > 0) {
+      setSuppressedBlockerCodes(new Set());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockerFingerprint]);
 
   const handleServerAction = useCallback(
     async (action: string) => {
@@ -225,6 +235,8 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
             return;
           }
           autoHealAttempted.current = false; // Reset on success for future attempts
+          // Suppress current blockers optimistically until lifecycle refreshes
+          setSuppressedBlockerCodes(new Set((lifecycleState?.blockers ?? []).map((b: any) => b.code)));
           onAdvance?.();
           return;
         }
@@ -251,7 +263,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
   );
 
   const derived = lifecycleState?.derived;
-  const blockers = lifecycleState?.blockers ?? [];
+  const blockers = (lifecycleState?.blockers ?? []).filter((b: any) => !suppressedBlockerCodes.has(b.code));
   const stage = lifecycleState?.stage;
 
   // Compute overall progress from stage position

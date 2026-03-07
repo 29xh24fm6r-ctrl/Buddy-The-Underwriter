@@ -87,7 +87,7 @@ const C_AND_I: SpreadTemplate = {
     },
   ],
   line_item_order: [
-    { canonical_key: "TOTAL_REVENUE", label: "Gross Revenue", category: "revenue" },
+    { canonical_key: "GROSS_RECEIPTS", label: "Gross Revenue", category: "revenue" },
     { canonical_key: "COGS", label: "Cost of Goods Sold", category: "cogs" },
     { canonical_key: "GROSS_PROFIT", label: "Gross Profit", category: "revenue" },
     { canonical_key: "TOTAL_OPERATING_EXPENSES", label: "Total Operating Expenses", category: "expense" },

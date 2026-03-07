@@ -15,6 +15,21 @@ type GuardResult = {
   stats: { blockedCount: number; warnCount: number };
 };
 
+function humanizeGuardError(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === "object" && parsed !== null) {
+      return parsed.message ?? parsed.error ?? "Unexpected error";
+    }
+  } catch {
+    // Not JSON — use as-is
+  }
+  if (raw.startsWith("{") || raw.startsWith("[")) {
+    return "Unexpected error loading underwrite guard";
+  }
+  return raw;
+}
+
 function routeForFixTarget(target: { kind: string; dealId: string }) {
   // Keep this canonical + compatible with your evolving routes.
   // These are safe defaults; adjust paths later if you want prettier deep-links.
@@ -47,7 +62,7 @@ export function UnderwriteGuardBanner(props: { dealId: string; bankerUserId: str
       if (!json?.ok) throw new Error(json?.error ?? "Failed to load underwrite guard");
       setGuard(json.guard ?? null);
     } catch (e: any) {
-      setError(e?.message ?? "Unknown error");
+      setError(humanizeGuardError(e?.message ?? "Unknown error"));
     } finally {
       setLoading(false);
     }
