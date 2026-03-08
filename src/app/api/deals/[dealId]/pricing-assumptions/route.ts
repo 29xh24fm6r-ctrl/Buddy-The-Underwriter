@@ -294,6 +294,20 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
           console.warn("[pricing-assumptions] debt service failed:", dsResult.error);
         }
 
+        // Refresh financial snapshot so completeness_pct updates immediately
+        try {
+          const { buildDealFinancialSnapshotForBank } = await import(
+            "@/lib/deals/financialSnapshot"
+          );
+          const { persistFinancialSnapshot } = await import(
+            "@/lib/deals/financialSnapshotPersistence"
+          );
+          const snapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
+          await persistFinancialSnapshot({ dealId, bankId, snapshot });
+        } catch (snapErr: any) {
+          console.warn("[pricing-assumptions] snapshot refresh failed (non-fatal):", snapErr?.message);
+        }
+
         // Write ledger event
         const { logLedgerEvent } = await import("@/lib/pipeline/logLedgerEvent");
         await logLedgerEvent({
