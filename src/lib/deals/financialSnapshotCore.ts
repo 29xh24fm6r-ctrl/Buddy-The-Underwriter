@@ -416,6 +416,248 @@ export function buildSnapshotFromFacts(args: {
     }
   }
 
+  // ── Computed fallbacks: CI/SBA income statement + balance sheet ──
+  // These fire when the primary MetricSpec lookup returns null.
+  // Primary specs point to FINANCIAL_ANALYSIS namespace; BTR extractor writes
+  // to TAX_RETURN namespace. These fallbacks bridge the gap without changing
+  // any MetricSpec bindings (zero regression risk to spread-written facts).
+  // Source priority: MANUAL > STRUCTURAL > SPREAD > DOC_EXTRACT.
+  // Fallbacks use source_type = "SPREAD", source_ref = "computed:snapshot_fallback:v2".
+
+  // F1 — revenue: GROSS_RECEIPTS (priority) → TOTAL_INCOME
+  if ((byMetric["revenue"]?.value_num ?? null) === null) {
+    const grossReceiptsFacts = args.facts.filter(
+      (f) => f.fact_type === "TAX_RETURN" && f.fact_key === "GROSS_RECEIPTS",
+    );
+    const totalIncomeFacts = args.facts.filter(
+      (f) => f.fact_type === "TAX_RETURN" && f.fact_key === "TOTAL_INCOME",
+    );
+    const best = selectBestFact(grossReceiptsFacts).chosen
+      ?? selectBestFact(totalIncomeFacts).chosen;
+    if (best?.fact_value_num != null) {
+      byMetric["revenue"] = {
+        value_num: best.fact_value_num,
+        value_text: null,
+        as_of_date: factAsOfDate(best),
+        confidence: best.confidence ?? 0.8,
+        source_type: "SPREAD",
+        source_ref: "computed:snapshot_fallback:v2",
+        provenance: {
+          source_type: "SPREAD",
+          source_ref: "computed:snapshot_fallback:v2",
+          extractor: "snapshot:revenue_fallback:v1",
+          fact_key_used: best.fact_key,
+        },
+      };
+    }
+  }
+
+  // F2 — cogs: COST_OF_GOODS_SOLD from TAX_RETURN
+  if ((byMetric["cogs"]?.value_num ?? null) === null) {
+    const cogsFacts = args.facts.filter(
+      (f) => f.fact_type === "TAX_RETURN" && f.fact_key === "COST_OF_GOODS_SOLD",
+    );
+    const best = selectBestFact(cogsFacts).chosen;
+    if (best?.fact_value_num != null) {
+      byMetric["cogs"] = {
+        value_num: best.fact_value_num,
+        value_text: null,
+        as_of_date: factAsOfDate(best),
+        confidence: best.confidence ?? 0.8,
+        source_type: "SPREAD",
+        source_ref: "computed:snapshot_fallback:v2",
+        provenance: {
+          source_type: "SPREAD",
+          source_ref: "computed:snapshot_fallback:v2",
+          extractor: "snapshot:cogs_fallback:v1",
+        },
+      };
+    }
+  }
+
+  // F3 — gross_profit: revenue_resolved − cogs_resolved (computed)
+  // Only fires after F1/F2 have had a chance to populate revenue and cogs.
+  if ((byMetric["gross_profit"]?.value_num ?? null) === null) {
+    const rev = byMetric["revenue"]?.value_num ?? null;
+    const cogs = byMetric["cogs"]?.value_num ?? null;
+    if (rev !== null && cogs !== null) {
+      byMetric["gross_profit"] = {
+        value_num: rev - cogs,
+        value_text: null,
+        as_of_date: byMetric["revenue"]?.as_of_date ?? null,
+        confidence: 0.8,
+        source_type: "SPREAD",
+        source_ref: "computed:snapshot_fallback:v2",
+        provenance: {
+          source_type: "SPREAD",
+          source_ref: "computed:snapshot_fallback:v2",
+          extractor: "snapshot:gross_profit_fallback:v1",
+          components: { revenue: rev, cogs },
+        },
+      };
+    }
+  }
+
+  // F4 — net_income: ORDINARY_BUSINESS_INCOME (priority) → NET_INCOME from TAX_RETURN
+  if ((byMetric["net_income"]?.value_num ?? null) === null) {
+    const obiFacts = args.facts.filter(
+      (f) => f.fact_type === "TAX_RETURN" && f.fact_key === "ORDINARY_BUSINESS_INCOME",
+    );
+    const netIncomeFacts = args.facts.filter(
+      (f) => f.fact_type === "TAX_RETURN" && f.fact_key === "NET_INCOME",
+    );
+    const best = selectBestFact(obiFacts).chosen
+      ?? selectBestFact(netIncomeFacts).chosen;
+    if (best?.fact_value_num != null) {
+      byMetric["net_income"] = {
+        value_num: best.fact_value_num,
+        value_text: null,
+        as_of_date: factAsOfDate(best),
+        confidence: best.confidence ?? 0.8,
+        source_type: "SPREAD",
+        source_ref: "computed:snapshot_fallback:v2",
+        provenance: {
+          source_type: "SPREAD",
+          source_ref: "computed:snapshot_fallback:v2",
+          extractor: "snapshot:net_income_fallback:v1",
+          fact_key_used: best.fact_key,
+        },
+      };
+    }
+  }
+
+  // F5 — ebitda: net_income_resolved + DEPRECIATION + INTEREST_EXPENSE from TAX_RETURN
+  // Requires F4 to have fired first. Uses addback methodology.
+  if ((byMetric["ebitda"]?.value_num ?? null) === null) {
+    const netIncome = byMetric["net_income"]?.value_num ?? null;
+    if (netIncome !== null) {
+      const depFacts = args.facts.filter(
+        (f) => f.fact_type === "TAX_RETURN" && f.fact_key === "DEPRECIATION",
+      );
+      const intFacts = args.facts.filter(
+        (f) => f.fact_type === "TAX_RETURN" && f.fact_key === "INTEREST_EXPENSE",
+      );
+      const bestDep = selectBestFact(depFacts).chosen;
+      const bestInt = selectBestFact(intFacts).chosen;
+      const dep = bestDep?.fact_value_num ?? 0;
+      const interest = bestInt?.fact_value_num ?? 0;
+      const computed = netIncome + dep + interest;
+      byMetric["ebitda"] = {
+        value_num: computed,
+        value_text: null,
+        as_of_date: byMetric["net_income"]?.as_of_date ?? null,
+        confidence: 0.75,
+        source_type: "SPREAD",
+        source_ref: "computed:snapshot_fallback:v2",
+        provenance: {
+          source_type: "SPREAD",
+          source_ref: "computed:snapshot_fallback:v2",
+          extractor: "snapshot:ebitda_fallback:v1",
+          components: { net_income: netIncome, depreciation: dep, interest_expense: interest },
+        },
+      };
+    }
+  }
+
+  // F6 — total_assets: SL_TOTAL_ASSETS from TAX_RETURN (BTR Schedule L)
+  // Fires only when no BALANCE_SHEET/TOTAL_ASSETS fact exists.
+  if ((byMetric["total_assets"]?.value_num ?? null) === null) {
+    const slAssetsFacts = args.facts.filter(
+      (f) => f.fact_type === "TAX_RETURN" && f.fact_key === "SL_TOTAL_ASSETS",
+    );
+    const best = selectBestFact(slAssetsFacts).chosen;
+    if (best?.fact_value_num != null) {
+      byMetric["total_assets"] = {
+        value_num: best.fact_value_num,
+        value_text: null,
+        as_of_date: factAsOfDate(best),
+        confidence: best.confidence ?? 0.8,
+        source_type: "SPREAD",
+        source_ref: "computed:snapshot_fallback:v2",
+        provenance: {
+          source_type: "SPREAD",
+          source_ref: "computed:snapshot_fallback:v2",
+          extractor: "snapshot:total_assets_fallback:v1",
+          fact_key_used: "SL_TOTAL_ASSETS",
+        },
+      };
+    }
+  }
+
+  // F7 — total_liabilities: SL_TOTAL_LIABILITIES from TAX_RETURN (BTR Schedule L)
+  // Fires only when no BALANCE_SHEET/TOTAL_LIABILITIES fact exists.
+  if ((byMetric["total_liabilities"]?.value_num ?? null) === null) {
+    const slLiabFacts = args.facts.filter(
+      (f) => f.fact_type === "TAX_RETURN" && f.fact_key === "SL_TOTAL_LIABILITIES",
+    );
+    const best = selectBestFact(slLiabFacts).chosen;
+    if (best?.fact_value_num != null) {
+      byMetric["total_liabilities"] = {
+        value_num: best.fact_value_num,
+        value_text: null,
+        as_of_date: factAsOfDate(best),
+        confidence: best.confidence ?? 0.8,
+        source_type: "SPREAD",
+        source_ref: "computed:snapshot_fallback:v2",
+        provenance: {
+          source_type: "SPREAD",
+          source_ref: "computed:snapshot_fallback:v2",
+          extractor: "snapshot:total_liabilities_fallback:v1",
+          fact_key_used: "SL_TOTAL_LIABILITIES",
+        },
+      };
+    }
+  }
+
+  // F8 — net_worth: SL_TOTAL_EQUITY (TAX_RETURN) → compute (total_assets − total_liabilities)
+  // Three-tier resolution:
+  //   Tier 1: SL_TOTAL_EQUITY from TAX_RETURN (explicit equity from Schedule L)
+  //   Tier 2: total_assets_resolved − total_liabilities_resolved (after F6/F7)
+  //   Fires only when no BALANCE_SHEET/NET_WORTH fact exists.
+  if ((byMetric["net_worth"]?.value_num ?? null) === null) {
+    // Tier 1: SL_TOTAL_EQUITY
+    const slEquityFacts = args.facts.filter(
+      (f) => f.fact_type === "TAX_RETURN" && f.fact_key === "SL_TOTAL_EQUITY",
+    );
+    const bestEquity = selectBestFact(slEquityFacts).chosen;
+    if (bestEquity?.fact_value_num != null) {
+      byMetric["net_worth"] = {
+        value_num: bestEquity.fact_value_num,
+        value_text: null,
+        as_of_date: factAsOfDate(bestEquity),
+        confidence: bestEquity.confidence ?? 0.8,
+        source_type: "SPREAD",
+        source_ref: "computed:snapshot_fallback:v2",
+        provenance: {
+          source_type: "SPREAD",
+          source_ref: "computed:snapshot_fallback:v2",
+          extractor: "snapshot:net_worth_fallback:v1",
+          fact_key_used: "SL_TOTAL_EQUITY",
+        },
+      };
+    } else {
+      // Tier 2: derived from resolved total_assets and total_liabilities
+      const assets = byMetric["total_assets"]?.value_num ?? null;
+      const liabs = byMetric["total_liabilities"]?.value_num ?? null;
+      if (assets !== null && liabs !== null) {
+        byMetric["net_worth"] = {
+          value_num: assets - liabs,
+          value_text: null,
+          as_of_date: byMetric["total_assets"]?.as_of_date ?? null,
+          confidence: 0.75,
+          source_type: "SPREAD",
+          source_ref: "computed:snapshot_fallback:v2",
+          provenance: {
+            source_type: "SPREAD",
+            source_ref: "computed:snapshot_fallback:v2",
+            extractor: "snapshot:net_worth_fallback:v1",
+            components: { total_assets: assets, total_liabilities: liabs },
+          },
+        };
+      }
+    }
+  }
+
   // Optional computed metric: walt_years (not required)
   const walt = args.waltYears ?? buildEmptyMetric();
   sources.push({
