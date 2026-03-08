@@ -438,7 +438,7 @@ export async function extractFactsFromDocument(args: {
   ) {
     extractorRan = true;
     // Try Gemini primary first
-    const gp = await attemptGeminiPrimary("PFS");
+    const gp = await attemptGeminiPrimary("PERSONAL_FINANCIAL_STATEMENT");
     if (gp.succeeded) {
       factsWritten += gp.factsWritten;
       extractionPath = "gemini_primary";
