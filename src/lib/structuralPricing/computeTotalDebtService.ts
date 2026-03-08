@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { upsertDealFinancialFact, SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
+import { computeDebtService } from "./debtServiceMath";
 
 export type TotalDebtServiceResult = {
   proposed: number | null;
@@ -9,6 +10,7 @@ export type TotalDebtServiceResult = {
   total: number | null;
   dscr: number | null;
   gcf_dscr: number | null;
+  dscr_stressed_300bps: number | null;
 };
 
 /**
@@ -38,7 +40,7 @@ export async function computeTotalDebtService(args: {
     // Step 1: Get latest proposed ADS from structural pricing
     const { data: spRow, error: spErr } = await (sb as any)
       .from("deal_structural_pricing")
-      .select("annual_debt_service_est")
+      .select("annual_debt_service_est, structural_rate_pct, loan_amount, amort_months, interest_only_months")
       .eq("deal_id", dealId)
       .order("computed_at", { ascending: false })
       .limit(1)
@@ -161,6 +163,7 @@ export async function computeTotalDebtService(args: {
     // Step 5: If NOI available, compute and write DSCR
     let dscr: number | null = null;
     let gcf_dscr: number | null = null;
+    let dscr_stressed_300bps: number | null = null;
 
     if (total != null && total > 0) {
       const { data: noiFact } = await (sb as any)
@@ -226,11 +229,50 @@ export async function computeTotalDebtService(args: {
           ownerEntityId: SENTINEL_UUID,
         });
       }
+
+      // Step 7: Stressed DSCR at +300bps
+      const structRate = spRow?.structural_rate_pct != null ? Number(spRow.structural_rate_pct) : null;
+      const loanAmt = spRow?.loan_amount != null ? Number(spRow.loan_amount) : null;
+      const amortMo = spRow?.amort_months != null ? Number(spRow.amort_months) : null;
+      const ioMo = spRow?.interest_only_months != null ? Number(spRow.interest_only_months) : 0;
+
+      if (structRate != null && loanAmt != null && amortMo != null && noiFact?.fact_value_num != null) {
+        const stressedRate = structRate + 3.0;
+        const stressedDs = computeDebtService({
+          principal: loanAmt,
+          ratePct: stressedRate,
+          amortMonths: amortMo,
+          interestOnlyMonths: ioMo,
+        });
+
+        if (stressedDs.annualDebtService != null && stressedDs.annualDebtService > 0) {
+          const stressedAds = stressedDs.annualDebtService + (existing ?? 0);
+          dscr_stressed_300bps = Number(noiFact.fact_value_num) / stressedAds;
+
+          await upsertDealFinancialFact({
+            dealId,
+            bankId,
+            sourceDocumentId: SENTINEL_UUID,
+            factType: "FINANCIAL_ANALYSIS",
+            factKey: "DSCR_STRESSED_300BPS",
+            factValueNum: Math.round(dscr_stressed_300bps * 1000) / 1000,
+            confidence: 0.9,
+            provenance: {
+              source_type: "STRUCTURAL",
+              source_ref: `computed:noi/stressed_total_debt`,
+              as_of_date: asOfDate,
+              calc: `${noiFact.fact_value_num} / (stressed_proposed=${stressedDs.annualDebtService} + existing=${existing ?? 0}); stressed_rate=${stressedRate}%`,
+            },
+            ownerType: "DEAL",
+            ownerEntityId: SENTINEL_UUID,
+          });
+        }
+      }
     }
 
     return {
       ok: true,
-      data: { proposed, existing, total, dscr, gcf_dscr },
+      data: { proposed, existing, total, dscr, gcf_dscr, dscr_stressed_300bps },
     };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
