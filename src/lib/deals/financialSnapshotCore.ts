@@ -588,7 +588,7 @@ export function buildSnapshotFromFacts(args: {
   // Fires only when no BALANCE_SHEET/TOTAL_LIABILITIES fact exists.
   if ((byMetric["total_liabilities"]?.value_num ?? null) === null) {
     const slLiabFacts = args.facts.filter(
-      (f) => f.fact_type === "TAX_RETURN" && f.fact_key === "SL_TOTAL_LIABILITIES",
+      (f) => (f.fact_type === "TAX_RETURN" || f.fact_type === "BALANCE_SHEET") && f.fact_key === "SL_TOTAL_LIABILITIES",
     );
     const best = selectBestFact(slLiabFacts).chosen;
     if (best?.fact_value_num != null) {
@@ -617,7 +617,7 @@ export function buildSnapshotFromFacts(args: {
   if ((byMetric["net_worth"]?.value_num ?? null) === null) {
     // Tier 1: SL_TOTAL_EQUITY
     const slEquityFacts = args.facts.filter(
-      (f) => f.fact_type === "TAX_RETURN" && f.fact_key === "SL_TOTAL_EQUITY",
+      (f) => (f.fact_type === "TAX_RETURN" || f.fact_type === "BALANCE_SHEET") && f.fact_key === "SL_TOTAL_EQUITY",
     );
     const bestEquity = selectBestFact(slEquityFacts).chosen;
     if (bestEquity?.fact_value_num != null) {
