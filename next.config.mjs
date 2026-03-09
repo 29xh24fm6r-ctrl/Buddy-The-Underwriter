@@ -30,7 +30,13 @@ const nextConfig = {
   // Skip TypeScript checks during build (errors handled in CI)
   typescript: {
     ignoreBuildErrors: true,
-  },  
+  },
+  // pdfkit reads AFM font files from disk at runtime using __dirname-relative
+  // paths inside the package. When Next.js bundles it into a serverless
+  // function the paths break and the route throws a 500. Marking it as an
+  // external package tells Next.js to load it from node_modules at runtime
+  // instead of inlining it, so the font file resolution works correctly.
+  serverExternalPackages: ["pdfkit"],
   async headers() {
     return [
       {
