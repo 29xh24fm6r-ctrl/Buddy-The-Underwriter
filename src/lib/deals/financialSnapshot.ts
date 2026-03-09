@@ -12,6 +12,7 @@ import {
   type SnapshotMetricValue,
   type MinimalFact,
 } from "@/lib/deals/financialSnapshotCore";
+import { upsertDealFinancialFact, SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 
 function toIsoDatePrefix(s: unknown): string | null {
   if (!s) return null;
@@ -199,4 +200,46 @@ export async function buildDealFinancialSnapshotForBank(args: {
   const dealType: string | null = (dealModeRes.data as any)?.deal_type ?? null;
 
   return buildSnapshotFromFacts({ facts, metricSpecs: metricSpecsV1(), waltYears, dealMode, dealType });
+}
+
+/**
+ * If the snapshot computed cash_flow_available via the OBI+DEP+S179 fallback,
+ * persist it to deal_financial_facts so computeTotalDebtService can find it.
+ * Idempotent — upsertDealFinancialFact handles conflicts.
+ * Never throws.
+ */
+export async function persistCashFlowAvailableFromSnapshot(args: {
+  dealId: string;
+  bankId: string;
+  snapshot: DealFinancialSnapshotV1;
+}): Promise<void> {
+  const { dealId, bankId, snapshot } = args;
+  const cfa = snapshot.cash_flow_available;
+
+  if (cfa.value_num === null) return;
+  // Only persist if this was a computed fallback (not already a real DB fact)
+  if (cfa.source_ref !== "computed:obi+dep+s179") return;
+
+  try {
+    await upsertDealFinancialFact({
+      dealId,
+      bankId,
+      sourceDocumentId: SENTINEL_UUID,
+      factType: "FINANCIAL_ANALYSIS",
+      factKey: "CASH_FLOW_AVAILABLE",
+      factValueNum: cfa.value_num,
+      confidence: cfa.confidence ?? 0.75,
+      provenance: {
+        source_type: "STRUCTURAL",
+        source_ref: "computed:obi+dep+s179",
+        as_of_date: cfa.as_of_date,
+        extractor: "snapshot:cash_flow_fallback:v1:persisted",
+        calc: JSON.stringify(cfa.provenance?.components ?? {}),
+      },
+      ownerType: "DEAL",
+      ownerEntityId: SENTINEL_UUID,
+    });
+  } catch (err: any) {
+    console.warn("[financialSnapshot] persistCashFlowAvailable failed (non-fatal):", err?.message);
+  }
 }

@@ -280,7 +280,22 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
           return;
         }
 
-        // Compute total debt service (writes canonical facts + DSCR)
+        // ── PASS 1: Build snapshot to compute + persist CASH_FLOW_AVAILABLE ──
+        // computeTotalDebtService needs CASH_FLOW_AVAILABLE in deal_financial_facts.
+        // The snapshot builder derives it from OBI+DEP+S179 if no direct fact exists.
+        // We persist it here so the DSCR chain can find it in Pass 2.
+        const {
+          buildDealFinancialSnapshotForBank,
+          persistCashFlowAvailableFromSnapshot,
+        } = await import("@/lib/deals/financialSnapshot");
+        const { persistFinancialSnapshot } = await import(
+          "@/lib/deals/financialSnapshotPersistence"
+        );
+
+        const pass1Snapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
+        await persistCashFlowAvailableFromSnapshot({ dealId, bankId, snapshot: pass1Snapshot });
+
+        // ── PASS 2: Compute total debt service — now CASH_FLOW_AVAILABLE exists ──
         const { computeTotalDebtService } = await import(
           "@/lib/structuralPricing/computeTotalDebtService"
         );
@@ -294,19 +309,9 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
           console.warn("[pricing-assumptions] debt service failed:", dsResult.error);
         }
 
-        // Refresh financial snapshot so completeness_pct updates immediately
-        try {
-          const { buildDealFinancialSnapshotForBank } = await import(
-            "@/lib/deals/financialSnapshot"
-          );
-          const { persistFinancialSnapshot } = await import(
-            "@/lib/deals/financialSnapshotPersistence"
-          );
-          const snapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
-          await persistFinancialSnapshot({ dealId, bankId, snapshot });
-        } catch (snapErr: any) {
-          console.warn("[pricing-assumptions] snapshot refresh failed (non-fatal):", snapErr?.message);
-        }
+        // ── PASS 3: Final snapshot — now includes DSCR + DSCR_stressed ──
+        const finalSnapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
+        await persistFinancialSnapshot({ dealId, bankId, snapshot: finalSnapshot });
 
         // Write ledger event
         const { logLedgerEvent } = await import("@/lib/pipeline/logLedgerEvent");
@@ -322,6 +327,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
             structural_rate_pct: spResult.data.structural_rate_pct,
             annual_debt_service_est: spResult.data.annual_debt_service_est,
             dscr: dsResult.ok ? dsResult.data.dscr : null,
+            completeness_pct: finalSnapshot.completeness_pct,
           },
         });
       })
