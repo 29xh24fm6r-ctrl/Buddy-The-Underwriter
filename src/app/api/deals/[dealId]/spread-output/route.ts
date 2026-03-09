@@ -131,18 +131,66 @@ async function loadCanonicalFacts(
     const facts: Record<string, unknown> = {};
     const yearsSet = new Set<number>();
 
+    // PFS facts use a statement date (e.g. 2026-01-01), not a fiscal year-end.
+    // They must not create spread columns.
+    const PFS_KEY_PREFIXES = ["PFS_", "PERSONAL_FINANCIAL_STATEMENT"];
+
+    function toNum(val: unknown): number | null {
+      if (val === null || val === undefined) return null;
+      const n = Number(val);
+      return isFinite(n) ? n : null;
+    }
+
     for (const row of data as FactRow[]) {
       const value = row.fact_value_num ?? row.fact_value_text ?? null;
 
       if (row.fact_period_end) {
         const year = new Date(row.fact_period_end).getFullYear();
-        if (year >= 2000 && year <= 2100) {
+        const isPfsKey = PFS_KEY_PREFIXES.some((p) => row.fact_key.startsWith(p));
+        if (!isPfsKey && year >= 2000 && year <= 2100) {
           yearsSet.add(year);
+        }
+        if (year >= 2000 && year <= 2100) {
           facts[`${row.fact_key}_${year}`] = value;
         }
       }
+    }
 
-      facts[row.fact_key] = value;
+    // Revenue aliasing: income statements often extract as TOTAL_REVENUE,
+    // but the spread template uses GROSS_RECEIPTS. Alias if missing.
+    for (const year of Array.from(yearsSet)) {
+      const grKey = `GROSS_RECEIPTS_${year}`;
+      if (facts[grKey] == null) {
+        const alias =
+          toNum(facts[`TOTAL_REVENUE_${year}`]) ??
+          toNum(facts[`TOTAL_INCOME_${year}`]);
+        if (alias !== null) facts[grKey] = alias;
+      }
+    }
+
+    // EBITDA derivation: not stored as a fact — derive per year.
+    // Formula: OBI (or NET_INCOME) + DEPRECIATION + INTEREST_EXPENSE
+    for (const year of Array.from(yearsSet)) {
+      const ebitdaKey = `EBITDA_${year}`;
+      if (facts[ebitdaKey] == null) {
+        const obi =
+          toNum(facts[`ORDINARY_BUSINESS_INCOME_${year}`]) ??
+          toNum(facts[`NET_INCOME_${year}`]);
+        const dep = toNum(facts[`DEPRECIATION_${year}`]) ?? 0;
+        const ie  = toNum(facts[`INTEREST_EXPENSE_${year}`]) ?? 0;
+        if (obi !== null) facts[ebitdaKey] = obi + dep + ie;
+      }
+    }
+
+    // cf_ncads aliasing: template key → snapshot key
+    // The 3-pass pricing pipeline persists cash_flow_available;
+    // alias it so the spread template can find it.
+    for (const year of Array.from(yearsSet)) {
+      const ncadsKey = `cf_ncads_${year}`;
+      if (facts[ncadsKey] == null) {
+        const alias = toNum(facts[`CASH_FLOW_AVAILABLE_${year}`]);
+        if (alias !== null) facts[ncadsKey] = alias;
+      }
     }
 
     return { facts, years: Array.from(yearsSet).sort((a, b) => a - b) };

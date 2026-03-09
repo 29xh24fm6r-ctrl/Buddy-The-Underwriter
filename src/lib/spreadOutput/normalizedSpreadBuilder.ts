@@ -71,7 +71,9 @@ export function buildNormalizedSpread(input: SpreadOutputInput): NormalizedSprea
 }
 
 // ---------------------------------------------------------------------------
-// Value lookup — tries year-specific keys, falls back to generic
+// Value lookup — year-specific key only
+// Generic key fallback was removed — it caused last-write-wins pollution
+// across all periods when a key was missing for a given year.
 // ---------------------------------------------------------------------------
 
 function getValueForYear(
@@ -81,14 +83,10 @@ function getValueForYear(
 ): number | null {
   const facts = input.canonical_facts;
 
-  // Try year-specific key first (e.g., "TOTAL_REVENUE_2023")
+  // Year-specific key (e.g., "TOTAL_REVENUE_2023")
   const yearKey = `${canonicalKey}_${year}`;
   const yearVal = toNum(facts[yearKey]);
   if (yearVal !== null) return yearVal;
-
-  // Try generic key (single-year deals or latest-year keys)
-  const genericVal = toNum(facts[canonicalKey]);
-  if (genericVal !== null) return genericVal;
 
   // Try ratio keys
   const ratioVal = input.ratios[canonicalKey];
