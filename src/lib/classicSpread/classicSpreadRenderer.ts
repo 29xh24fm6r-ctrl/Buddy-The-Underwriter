@@ -16,9 +16,11 @@ const FONT_SIZE_BODY = 8;
 const FONT_SIZE_HEADER = 9;
 const FONT_SIZE_TITLE = 11;
 const FONT_SIZE_META = 7;
-const COL_WIDTH_LABEL = 220;
-const COL_WIDTH_VALUE = 76;
-const COL_WIDTH_PCT = 48;
+// Tuned to fit 4 periods + % columns within letter portrait (540pt usable).
+// 165 + 4 × (60 + 30) = 525pt — fits with margin to spare.
+const COL_WIDTH_LABEL = 165;
+const COL_WIDTH_VALUE = 60;
+const COL_WIDTH_PCT = 30;
 const ROW_HEIGHT = 12;
 const PAGE_MARGIN = 36;
 const HEADER_HEIGHT = 56;
@@ -340,9 +342,7 @@ function drawRatioSections(s: DocState, sections: RatioSection[]) {
 
 export function renderClassicSpread(input: ClassicSpreadInput): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
-    // Letter landscape gives 792pt usable width (720pt after margins) — required
-    // for 4-period spreads with % columns. Standard bank spread format.
-    const doc = new PDFDocument({ size: "letter", layout: "landscape", margin: PAGE_MARGIN });
+    const doc = new PDFDocument({ size: "letter", margin: PAGE_MARGIN });
     const chunks: Buffer[] = [];
 
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
