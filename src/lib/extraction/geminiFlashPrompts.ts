@@ -22,7 +22,7 @@
  * Current prompt version. Increment on ANY prompt text change.
  * Recorded in deal_extraction_runs.prompt_version.
  */
-export const PROMPT_VERSION = "flash_prompts_v1";
+export const PROMPT_VERSION = "flash_prompts_v2";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,23 +75,52 @@ function buildBusinessTaxReturnPrompt(ocrText: string): StructuredAssistPrompt {
     userPrompt:
       "Extract the following fields from this business tax return document.\n\n" +
       "Monetary fields (use entities array):\n" +
-      "- gross_receipts (IRS Line: Gross receipts or sales)\n" +
-      "- total_income\n" +
-      "- net_income (Taxable income or Net income)\n" +
-      "- officer_compensation (Compensation of officers)\n" +
-      "- salaries_wages (Salaries and wages)\n" +
-      "- depreciation\n" +
-      "- amortization\n" +
+      "INCOME STATEMENT ITEMS:\n" +
+      "- gross_receipts (Form 1120S Line 1a, 1120 Line 1a, 1065 Line 1a)\n" +
+      "- total_income (total income before deductions)\n" +
+      "- cost_of_goods_sold (Line: Cost of goods sold / COGS)\n" +
+      "- gross_profit (Revenue minus COGS)\n" +
+      "- officer_compensation (Compensation of officers, Line 7)\n" +
+      "- salaries_wages (Salaries and wages Line 8 - EXCLUDE officer comp)\n" +
+      "- repairs_maintenance (Repairs and maintenance Line 9)\n" +
+      "- bad_debt_expense (Bad debts Line 10)\n" +
+      "- rent_expense (Rents paid Line 18)\n" +
+      "- taxes_paid (Taxes and licenses Line 12)\n" +
+      "- depreciation (Depreciation Line 14)\n" +
+      "- amortization (Amortization if separately stated)\n" +
       "- interest_expense (Interest paid or accrued)\n" +
-      "- rent_expense (Rents paid)\n" +
-      "- taxes_paid\n" +
-      "- ordinary_business_income (Ordinary business income/loss)\n" +
+      "- advertising_expense (Advertising Line 19)\n" +
+      "- pension_profit_sharing (Pension/profit sharing Line 17)\n" +
+      "- employee_benefits (Employee benefit programs Line 18)\n" +
+      "- other_deductions (Other deductions total from attached schedule)\n" +
+      "- ordinary_business_income (Ordinary business income/loss, Line 21)\n" +
+      "- net_income (Net income after tax if C-corp, same as OBI for S-corp)\n" +
+      "- other_income (Other income Line 5: interest, dividends, etc.)\n" +
+      "- distributions (Distributions to shareholders / partners)\n" +
       "- net_rental_real_estate_income\n" +
       "- guaranteed_payments\n" +
-      "- distributions\n" +
-      "- total_assets (from Schedule L if present)\n" +
-      "- total_liabilities (from Schedule L if present)\n" +
-      "- total_equity (from Schedule L: partners capital / retained earnings)\n\n" +
+      "\nBALANCE SHEET — SCHEDULE L:\n" +
+      "- cash_schedule_l (Schedule L Line 1: Cash)\n" +
+      "- accounts_receivable_schedule_l (Schedule L Line 2a: Trade notes/AR)\n" +
+      "- inventory_schedule_l (Schedule L Line 3: Inventories)\n" +
+      "- other_current_assets_schedule_l (Schedule L Lines 4-5: Other current assets)\n" +
+      "- officer_shareholder_loans_receivable (Schedule L Line 7: Loans to shareholders)\n" +
+      "- ppe_gross_schedule_l (Schedule L Line 9a: Buildings/depreciable assets gross)\n" +
+      "- accumulated_depreciation_schedule_l (Schedule L Line 9b: Accum depreciation)\n" +
+      "- intangibles_gross_schedule_l (Schedule L Line 12a: Intangible assets gross)\n" +
+      "- accumulated_amortization_schedule_l (Schedule L Line 12b: Accum amortization)\n" +
+      "- land_schedule_l (Schedule L Line 11: Land)\n" +
+      "- total_assets\n" +
+      "- accounts_payable_schedule_l (Schedule L Line 15: AP trade)\n" +
+      "- wages_payable_schedule_l (Schedule L Line 16: Wages payable)\n" +
+      "- other_current_liabilities_schedule_l (Schedule L Lines 17-18: Other current liabs)\n" +
+      "- operating_current_liabilities_schedule_l (total current liabilities from Sch L if subtotaled)\n" +
+      "- mortgages_notes_bonds_lt (Schedule L Line 20: Mortgages/notes > 1 year)\n" +
+      "- loans_from_shareholders (Schedule L Line 19: Loans from shareholders LT)\n" +
+      "- total_liabilities\n" +
+      "- retained_earnings_schedule_l (Schedule L Line 24: Retained earnings / M2 ending balance)\n" +
+      "- paid_in_capital_schedule_l (Schedule L Lines 22-23: Common stock + APIC)\n" +
+      "- total_equity\n\n" +
       "Non-monetary fields (use formFields array):\n" +
       "- ein (Employer Identification Number, format: XX-XXXXXXX)\n" +
       "- business_name (Entity name)\n" +

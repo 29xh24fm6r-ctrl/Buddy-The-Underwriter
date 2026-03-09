@@ -50,6 +50,15 @@ const VALID_LINE_KEYS = new Set([
   "OTHER_INCOME", "OTHER_DEDUCTIONS", "MEALS_ENTERTAINMENT",
   "RENT_EXPENSE", "TAXES_LICENSES", "INSURANCE_EXPENSE",
   "REPAIRS_MAINTENANCE", "ADVERTISING", "PENSION_PROFIT_SHARING",
+  "EMPLOYEE_BENEFITS", "BAD_DEBT_EXPENSE",
+  // Schedule L keys (also validated via scheduleLReconciliation)
+  "SL_CASH", "SL_AR_GROSS", "SL_INVENTORY", "SL_OTHER_CURRENT_ASSETS",
+  "SL_SHAREHOLDER_LOANS_RECEIVABLE", "SL_PPE_GROSS", "SL_ACCUMULATED_DEPRECIATION",
+  "SL_INTANGIBLES_GROSS", "SL_ACCUMULATED_AMORTIZATION", "SL_LAND",
+  "SL_TOTAL_ASSETS", "SL_ACCOUNTS_PAYABLE", "SL_WAGES_PAYABLE",
+  "SL_OTHER_LIABILITIES", "SL_OPERATING_CURRENT_LIABILITIES",
+  "SL_MORTGAGES_NOTES_BONDS", "SL_LOANS_FROM_SHAREHOLDERS",
+  "SL_TOTAL_LIABILITIES", "SL_RETAINED_EARNINGS", "SL_CAPITAL_STOCK", "SL_TOTAL_EQUITY",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -127,6 +136,7 @@ const GENERIC_TAX_PATTERNS: LinePattern[] = [
 // ---------------------------------------------------------------------------
 
 const ENTITY_MAP: Record<string, string> = {
+  // Income statement
   gross_receipts: "GROSS_RECEIPTS",
   cost_of_goods_sold: "COST_OF_GOODS_SOLD",
   gross_profit: "GROSS_PROFIT",
@@ -142,12 +152,45 @@ const ENTITY_MAP: Record<string, string> = {
   salaries_wages: "SALARIES_WAGES",
   interest_expense: "INTEREST_EXPENSE",
   rent: "RENT_EXPENSE",
+  rent_expense: "RENT_EXPENSE",
+  repairs_maintenance: "REPAIRS_MAINTENANCE",
+  bad_debt_expense: "BAD_DEBT_EXPENSE",
+  advertising_expense: "ADVERTISING",
+  pension_profit_sharing: "PENSION_PROFIT_SHARING",
+  employee_benefits: "EMPLOYEE_BENEFITS",
+  other_deductions: "OTHER_DEDUCTIONS",
+  other_income: "OTHER_INCOME",
   ordinary_income: "ORDINARY_BUSINESS_INCOME",
+  ordinary_business_income: "ORDINARY_BUSINESS_INCOME",
   guaranteed_payments: "GUARANTEED_PAYMENTS",
   distributions: "DISTRIBUTIONS",
+  taxes_paid: "TAXES_LICENSES",
+  // Personal return keys
   wages: "WAGES_W2",
   adjusted_gross_income: "ADJUSTED_GROSS_INCOME",
   capital_gains: "CAPITAL_GAINS",
+  // Schedule L balance sheet (maps to SL_ prefix via scheduleLReconciliation)
+  cash_schedule_l: "SL_CASH",
+  accounts_receivable_schedule_l: "SL_AR_GROSS",
+  inventory_schedule_l: "SL_INVENTORY",
+  other_current_assets_schedule_l: "SL_OTHER_CURRENT_ASSETS",
+  officer_shareholder_loans_receivable: "SL_SHAREHOLDER_LOANS_RECEIVABLE",
+  ppe_gross_schedule_l: "SL_PPE_GROSS",
+  accumulated_depreciation_schedule_l: "SL_ACCUMULATED_DEPRECIATION",
+  intangibles_gross_schedule_l: "SL_INTANGIBLES_GROSS",
+  accumulated_amortization_schedule_l: "SL_ACCUMULATED_AMORTIZATION",
+  land_schedule_l: "SL_LAND",
+  total_assets: "SL_TOTAL_ASSETS",
+  accounts_payable_schedule_l: "SL_ACCOUNTS_PAYABLE",
+  wages_payable_schedule_l: "SL_WAGES_PAYABLE",
+  other_current_liabilities_schedule_l: "SL_OTHER_LIABILITIES",
+  operating_current_liabilities_schedule_l: "SL_OPERATING_CURRENT_LIABILITIES",
+  mortgages_notes_bonds_lt: "SL_MORTGAGES_NOTES_BONDS",
+  loans_from_shareholders: "SL_LOANS_FROM_SHAREHOLDERS",
+  total_liabilities: "SL_TOTAL_LIABILITIES",
+  retained_earnings_schedule_l: "SL_RETAINED_EARNINGS",
+  paid_in_capital_schedule_l: "SL_CAPITAL_STOCK",
+  total_equity: "SL_TOTAL_EQUITY",
 };
 
 // ---------------------------------------------------------------------------

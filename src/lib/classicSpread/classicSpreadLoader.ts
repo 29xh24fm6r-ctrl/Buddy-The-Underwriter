@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
+  CashFlowRow,
   ClassicSpreadInput,
   FinancialRow,
   RatioRow,
@@ -144,56 +145,92 @@ function buildBalanceSheetRows(
 ): FinancialRow[] {
   const totalAssets = getVals(byPeriod, periods, "SL_TOTAL_ASSETS");
 
+  // --- Current Assets ---
   const cash = getVals(byPeriod, periods, "SL_CASH");
   const ar = getVals(byPeriod, periods, "SL_AR_GROSS");
+  const arAllowance = getVals(byPeriod, periods, "SL_AR_ALLOWANCE");
+  const netAr = sub(ar, arAllowance);
   const inventory = getVals(byPeriod, periods, "SL_INVENTORY");
-  const totalCurrentAssets = getValsFallback(byPeriod, periods, "TOTAL_CURRENT_ASSETS", "SL_TOTAL_CURRENT_ASSETS");
-  const otherCurrentAssets = deriveValues(periods, (p) => {
-    const tca = getVal(byPeriod, p, "TOTAL_CURRENT_ASSETS") ?? getVal(byPeriod, p, "SL_TOTAL_CURRENT_ASSETS");
-    const known =
-      (getVal(byPeriod, p, "SL_CASH") ?? 0) +
-      (getVal(byPeriod, p, "SL_AR_GROSS") ?? 0) +
-      (getVal(byPeriod, p, "SL_INVENTORY") ?? 0);
-    return tca != null ? tca - known : null;
+  const usGov = getVals(byPeriod, periods, "SL_US_GOV_OBLIGATIONS");
+  const taxExempt = getVals(byPeriod, periods, "SL_TAX_EXEMPT_SECURITIES");
+  const otherCA = getVals(byPeriod, periods, "SL_OTHER_CURRENT_ASSETS");
+  const totalCurrentAssets = deriveValues(periods, (p) => {
+    const direct = getVal(byPeriod, p, "TOTAL_CURRENT_ASSETS") ?? getVal(byPeriod, p, "SL_TOTAL_CURRENT_ASSETS");
+    if (direct != null) return direct;
+    // Derive: sum of current asset components
+    const components = [
+      getVal(byPeriod, p, "SL_CASH"),
+      (() => { const a = getVal(byPeriod, p, "SL_AR_GROSS"); return a != null ? a - (getVal(byPeriod, p, "SL_AR_ALLOWANCE") ?? 0) : null; })(),
+      getVal(byPeriod, p, "SL_INVENTORY"),
+      getVal(byPeriod, p, "SL_US_GOV_OBLIGATIONS"),
+      getVal(byPeriod, p, "SL_TAX_EXEMPT_SECURITIES"),
+      getVal(byPeriod, p, "SL_OTHER_CURRENT_ASSETS"),
+    ];
+    const nonNull = components.filter((v) => v != null) as number[];
+    return nonNull.length > 0 ? nonNull.reduce((a, b) => a + b, 0) : null;
   });
 
+  // --- Non-Current Assets ---
+  const officerLoansRcv = getVals(byPeriod, periods, "SL_SHAREHOLDER_LOANS_RECEIVABLE");
+  const mortgageLoans = getVals(byPeriod, periods, "SL_MORTGAGE_LOANS");
+  const otherInvestments = getVals(byPeriod, periods, "SL_OTHER_INVESTMENTS");
   const ppeGross = getVals(byPeriod, periods, "SL_PPE_GROSS");
   const accumDepr = getVals(byPeriod, periods, "SL_ACCUMULATED_DEPRECIATION");
-  const netFixed = deriveValues(periods, (p) => {
-    const ppe = getVal(byPeriod, p, "SL_PPE_GROSS");
-    const dep = getVal(byPeriod, p, "SL_ACCUMULATED_DEPRECIATION");
-    return ppe != null ? ppe - (dep ?? 0) : null;
-  });
-  const intangibles = getVals(byPeriod, periods, "SL_INTANGIBLES_NET");
+  const netFixed = sub(ppeGross, accumDepr);
+  const depletable = getVals(byPeriod, periods, "SL_DEPLETABLE_ASSETS");
+  const land = getVals(byPeriod, periods, "SL_LAND");
+  const intangiblesGross = getVals(byPeriod, periods, "SL_INTANGIBLES_GROSS");
+  const accumAmort = getVals(byPeriod, periods, "SL_ACCUMULATED_AMORTIZATION");
+  const intangiblesNet = sub(intangiblesGross, accumAmort);
+  const otherAssets = getVals(byPeriod, periods, "SL_OTHER_ASSETS");
   const totalNonCurrentAssets = deriveValues(periods, (p) => {
     const ta = getVal(byPeriod, p, "SL_TOTAL_ASSETS");
-    const tca = getVal(byPeriod, p, "TOTAL_CURRENT_ASSETS") ?? getVal(byPeriod, p, "SL_TOTAL_CURRENT_ASSETS");
+    const i = periods.indexOf(p);
+    const tca = totalCurrentAssets[i];
     return ta != null && tca != null ? ta - tca : null;
   });
 
+  // --- Current Liabilities ---
   const ap = getVals(byPeriod, periods, "SL_ACCOUNTS_PAYABLE");
+  const wagesPayable = getVals(byPeriod, periods, "SL_WAGES_PAYABLE");
   const shortTermDebt = getVals(byPeriod, periods, "SL_SHORT_TERM_DEBT");
-  const totalCurrentLiab = getValsFallback(byPeriod, periods, "TOTAL_CURRENT_LIABILITIES", "SL_TOTAL_CURRENT_LIABILITIES");
+  const operatingCurrLiab = getVals(byPeriod, periods, "SL_OPERATING_CURRENT_LIABILITIES");
+  const totalCurrentLiab = deriveValues(periods, (p) => {
+    const direct = getVal(byPeriod, p, "TOTAL_CURRENT_LIABILITIES") ?? getVal(byPeriod, p, "SL_TOTAL_CURRENT_LIABILITIES");
+    if (direct != null) return direct;
+    // Derive from components
+    const components = [
+      getVal(byPeriod, p, "SL_ACCOUNTS_PAYABLE"),
+      getVal(byPeriod, p, "SL_WAGES_PAYABLE"),
+      getVal(byPeriod, p, "SL_SHORT_TERM_DEBT"),
+      getVal(byPeriod, p, "SL_OPERATING_CURRENT_LIABILITIES"),
+    ];
+    const nonNull = components.filter((v) => v != null) as number[];
+    return nonNull.length > 0 ? nonNull.reduce((a, b) => a + b, 0) : null;
+  });
   const otherCurrentLiab = deriveValues(periods, (p) => {
-    const tcl = getVal(byPeriod, p, "TOTAL_CURRENT_LIABILITIES") ?? getVal(byPeriod, p, "SL_TOTAL_CURRENT_LIABILITIES");
+    const i = periods.indexOf(p);
+    const tcl = totalCurrentLiab[i];
     const known =
       (getVal(byPeriod, p, "SL_ACCOUNTS_PAYABLE") ?? 0) +
+      (getVal(byPeriod, p, "SL_WAGES_PAYABLE") ?? 0) +
       (getVal(byPeriod, p, "SL_SHORT_TERM_DEBT") ?? 0);
     return tcl != null ? tcl - known : null;
   });
 
+  // --- Non-Current Liabilities ---
   const mortgages = getVals(byPeriod, periods, "SL_MORTGAGES_NOTES_BONDS");
+  const loansFromShareholders = getVals(byPeriod, periods, "SL_LOANS_FROM_SHAREHOLDERS");
+  const otherLiabilities = getVals(byPeriod, periods, "SL_OTHER_LIABILITIES");
 
-  const commonStock = getVals(byPeriod, periods, "SL_COMMON_STOCK");
-  const paidInCapital = getVals(byPeriod, periods, "SL_PAID_IN_CAPITAL");
+  // --- Equity ---
+  const capitalStock = getVals(byPeriod, periods, "SL_CAPITAL_STOCK");
   const retainedEarnings = getVals(byPeriod, periods, "SL_RETAINED_EARNINGS");
 
-  // For S-corp tax returns, Schedule L Retained Earnings (M2 EOY) IS total equity.
-  // Derive if SL_TOTAL_EQUITY is not directly stored.
+  // S-corp fallback: retained earnings = total equity
   const totalEquity = deriveValues(periods, (p) => {
     const direct = getVal(byPeriod, p, "SL_TOTAL_EQUITY");
     if (direct != null) return direct;
-    // S-corp fallback: retained earnings = total equity
     return getVal(byPeriod, p, "SL_RETAINED_EARNINGS");
   });
 
@@ -207,53 +244,73 @@ function buildBalanceSheetRows(
   });
 
   const totalNonCurrentLiab = deriveValues(periods, (p) => {
-    const tl = totalLiabilities[periods.indexOf(p)];
-    const tcl = getVal(byPeriod, p, "TOTAL_CURRENT_LIABILITIES") ?? getVal(byPeriod, p, "SL_TOTAL_CURRENT_LIABILITIES");
+    const i = periods.indexOf(p);
+    const tl = totalLiabilities[i];
+    const tcl = totalCurrentLiab[i];
     return tl != null && tcl != null ? tl - tcl : null;
   });
 
   const workingCapital = sub(totalCurrentAssets, totalCurrentLiab);
   const tangNetWorth = deriveValues(periods, (p) => {
     const eq = totalEquity[periods.indexOf(p)];
-    const intg = getVal(byPeriod, p, "SL_INTANGIBLES_NET") ?? 0;
+    const intg = intangiblesNet[periods.indexOf(p)] ?? 0;
     return eq != null ? eq - intg : null;
   });
 
   const rows: FinancialRow[] = [
+    // -- Current Assets --
     { label: "CURRENT ASSETS", indent: 0, isBold: true, values: periods.map(() => null), showPct: false },
     { label: "Cash & Equivalents", indent: 1, isBold: false, values: cash, showPct: true, pctBase: totalAssets },
-    { label: "Accounts Receivable (Net)", indent: 1, isBold: false, values: ar, showPct: true, pctBase: totalAssets },
+    { label: "Accounts Receivable (Gross)", indent: 1, isBold: false, values: ar, showPct: true, pctBase: totalAssets },
+    { label: "Less: Allowance for Bad Debts", indent: 2, isBold: false, values: arAllowance, showPct: true, pctBase: totalAssets, isNegative: true },
+    { label: "Net Accounts Receivable", indent: 1, isBold: false, values: netAr, showPct: true, pctBase: totalAssets },
     { label: "Inventory", indent: 1, isBold: false, values: inventory, showPct: true, pctBase: totalAssets },
-    { label: "Other Current Assets", indent: 1, isBold: false, values: otherCurrentAssets, showPct: true, pctBase: totalAssets },
+    { label: "U.S. Gov Obligations", indent: 1, isBold: false, values: usGov, showPct: true, pctBase: totalAssets },
+    { label: "Tax-Exempt Securities", indent: 1, isBold: false, values: taxExempt, showPct: true, pctBase: totalAssets },
+    { label: "Other Current Assets", indent: 1, isBold: false, values: otherCA, showPct: true, pctBase: totalAssets },
     { label: "TOTAL CURRENT ASSETS", indent: 0, isBold: true, values: totalCurrentAssets, showPct: true, pctBase: totalAssets },
-    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false }, // spacer
+    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
+    // -- Non-Current Assets --
     { label: "NON-CURRENT ASSETS", indent: 0, isBold: true, values: periods.map(() => null), showPct: false },
-    { label: "Property, Plant & Equipment", indent: 1, isBold: false, values: ppeGross, showPct: true, pctBase: totalAssets },
-    { label: "Accum Depreciation", indent: 1, isBold: false, values: accumDepr, showPct: true, pctBase: totalAssets, isNegative: true },
+    { label: "Loans to Shareholders / Officers", indent: 1, isBold: false, values: officerLoansRcv, showPct: true, pctBase: totalAssets },
+    { label: "Mortgage & Real Estate Loans", indent: 1, isBold: false, values: mortgageLoans, showPct: true, pctBase: totalAssets },
+    { label: "Other Investments", indent: 1, isBold: false, values: otherInvestments, showPct: true, pctBase: totalAssets },
+    { label: "Buildings & Depreciable Assets", indent: 1, isBold: false, values: ppeGross, showPct: true, pctBase: totalAssets },
+    { label: "Less: Accum Depreciation", indent: 2, isBold: false, values: accumDepr, showPct: true, pctBase: totalAssets, isNegative: true },
     { label: "Net Fixed Assets", indent: 1, isBold: false, values: netFixed, showPct: true, pctBase: totalAssets },
-    { label: "Intangibles - Net", indent: 1, isBold: false, values: intangibles, showPct: true, pctBase: totalAssets },
+    { label: "Depletable Assets", indent: 1, isBold: false, values: depletable, showPct: true, pctBase: totalAssets },
+    { label: "Land", indent: 1, isBold: false, values: land, showPct: true, pctBase: totalAssets },
+    { label: "Intangible Assets (Gross)", indent: 1, isBold: false, values: intangiblesGross, showPct: true, pctBase: totalAssets },
+    { label: "Less: Accum Amortization", indent: 2, isBold: false, values: accumAmort, showPct: true, pctBase: totalAssets, isNegative: true },
+    { label: "Net Intangibles", indent: 1, isBold: false, values: intangiblesNet, showPct: true, pctBase: totalAssets },
+    { label: "Other Assets", indent: 1, isBold: false, values: otherAssets, showPct: true, pctBase: totalAssets },
     { label: "TOTAL NON-CURRENT ASSETS", indent: 0, isBold: true, values: totalNonCurrentAssets, showPct: true, pctBase: totalAssets },
-    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false }, // spacer
+    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
     { label: "TOTAL ASSETS", indent: 0, isBold: true, values: totalAssets, showPct: true, pctBase: totalAssets },
-    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false }, // spacer
+    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
+    // -- Current Liabilities --
     { label: "CURRENT LIABILITIES", indent: 0, isBold: true, values: periods.map(() => null), showPct: false },
-    { label: "Accounts Payable", indent: 1, isBold: false, values: ap, showPct: true, pctBase: totalAssets },
+    { label: "Accounts Payable (Trade)", indent: 1, isBold: false, values: ap, showPct: true, pctBase: totalAssets },
+    { label: "Wages Payable", indent: 1, isBold: false, values: wagesPayable, showPct: true, pctBase: totalAssets },
     { label: "Short-Term Debt", indent: 1, isBold: false, values: shortTermDebt, showPct: true, pctBase: totalAssets },
     { label: "Other Current Liabilities", indent: 1, isBold: false, values: otherCurrentLiab, showPct: true, pctBase: totalAssets },
     { label: "TOTAL CURRENT LIABILITIES", indent: 0, isBold: true, values: totalCurrentLiab, showPct: true, pctBase: totalAssets },
-    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false }, // spacer
+    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
+    // -- Non-Current Liabilities --
     { label: "NON-CURRENT LIABILITIES", indent: 0, isBold: true, values: periods.map(() => null), showPct: false },
-    { label: "Mortgages / Notes Payable", indent: 1, isBold: false, values: mortgages, showPct: true, pctBase: totalAssets },
+    { label: "Mortgages / Notes / Bonds", indent: 1, isBold: false, values: mortgages, showPct: true, pctBase: totalAssets },
+    { label: "Loans from Shareholders", indent: 1, isBold: false, values: loansFromShareholders, showPct: true, pctBase: totalAssets },
+    { label: "Other Liabilities", indent: 1, isBold: false, values: otherLiabilities, showPct: true, pctBase: totalAssets },
     { label: "TOTAL NON-CURRENT LIABILITIES", indent: 0, isBold: true, values: totalNonCurrentLiab, showPct: true, pctBase: totalAssets },
-    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false }, // spacer
+    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
     { label: "TOTAL LIABILITIES", indent: 0, isBold: true, values: totalLiabilities, showPct: true, pctBase: totalAssets },
-    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false }, // spacer
+    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
+    // -- Net Worth --
     { label: "NET WORTH", indent: 0, isBold: true, values: periods.map(() => null), showPct: false },
-    { label: "Common Stock", indent: 1, isBold: false, values: commonStock, showPct: true, pctBase: totalAssets },
-    { label: "Paid-In Capital", indent: 1, isBold: false, values: paidInCapital, showPct: true, pctBase: totalAssets },
+    { label: "Capital Stock", indent: 1, isBold: false, values: capitalStock, showPct: true, pctBase: totalAssets },
     { label: "Retained Earnings", indent: 1, isBold: false, values: retainedEarnings, showPct: true, pctBase: totalAssets },
     { label: "TOTAL NET WORTH", indent: 0, isBold: true, values: totalEquity, showPct: true, pctBase: totalAssets },
-    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false }, // spacer
+    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
     { label: "TOTAL LIABILITIES & NET WORTH", indent: 0, isBold: true, values: totalAssets, showPct: true, pctBase: totalAssets },
     // Memo items
     { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
@@ -271,52 +328,77 @@ function buildIncomeStatementRows(
   const revenue = getValsFallback(byPeriod, periods, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
   const cogs = getVals(byPeriod, periods, "COST_OF_GOODS_SOLD");
   const grossProfit = getValsFallback(byPeriod, periods, "GROSS_PROFIT");
-  // Fallback: derive gross profit = revenue - cogs
   const effectiveGrossProfit = grossProfit.map((v, i) => {
     if (v != null) return v;
     return revenue[i] != null ? revenue[i]! - (cogs[i] ?? 0) : null;
   });
 
+  // --- Detailed Operating Expenses ---
   const officerComp = getVals(byPeriod, periods, "OFFICER_COMPENSATION");
+  const salariesWages = getVals(byPeriod, periods, "SALARIES_WAGES");
+  const rentExpense = getVals(byPeriod, periods, "RENT_EXPENSE");
+  const repairsMaint = getVals(byPeriod, periods, "REPAIRS_MAINTENANCE");
+  const badDebt = getVals(byPeriod, periods, "BAD_DEBT_EXPENSE");
+  const taxesLicenses = getVals(byPeriod, periods, "TAXES_LICENSES");
   const depreciation = getVals(byPeriod, periods, "DEPRECIATION");
+  const amortization = getVals(byPeriod, periods, "AMORTIZATION");
   const interestExpense = getVals(byPeriod, periods, "INTEREST_EXPENSE");
+  const advertising = getVals(byPeriod, periods, "ADVERTISING");
+  const pensionProfitSharing = getVals(byPeriod, periods, "PENSION_PROFIT_SHARING");
+  const employeeBenefits = getVals(byPeriod, periods, "EMPLOYEE_BENEFITS");
+  const insuranceExpense = getVals(byPeriod, periods, "INSURANCE_EXPENSE");
+  const otherDeductions = getVals(byPeriod, periods, "OTHER_DEDUCTIONS");
+
   const totalOpex = deriveValues(periods, (p) => {
-    const direct = getVal(byPeriod, p, "TOTAL_OPERATING_EXPENSES");
+    const direct = getVal(byPeriod, p, "TOTAL_OPERATING_EXPENSES") ?? getVal(byPeriod, p, "TOTAL_DEDUCTIONS");
     if (direct != null) return direct;
-    // Derive from known components when not directly stored (tax return years)
-    const components = [
-      "DEPRECIATION", "INTEREST_EXPENSE", "OFFICER_COMPENSATION",
-      "SALARIES_WAGES_IS", "REPAIRS_MAINTENANCE_IS", "INSURANCE_EXPENSE_IS",
-      "ADVERTISING_IS", "OTHER_OPERATING_EXPENSES_IS",
-    ].reduce((sum, k) => sum + (getVal(byPeriod, p, k) ?? 0), 0);
-    return components > 0 ? components : null;
+    const componentKeys = [
+      "OFFICER_COMPENSATION", "SALARIES_WAGES", "RENT_EXPENSE", "REPAIRS_MAINTENANCE",
+      "BAD_DEBT_EXPENSE", "TAXES_LICENSES", "DEPRECIATION", "AMORTIZATION",
+      "INTEREST_EXPENSE", "ADVERTISING", "PENSION_PROFIT_SHARING",
+      "EMPLOYEE_BENEFITS", "INSURANCE_EXPENSE", "OTHER_DEDUCTIONS",
+    ];
+    const sum = componentKeys.reduce((s, k) => s + (getVal(byPeriod, p, k) ?? 0), 0);
+    return sum > 0 ? sum : null;
   });
+
   const otherOpex = deriveValues(periods, (p) => {
-    const tot = totalOpex[periods.indexOf(p)];
-    const known =
-      (getVal(byPeriod, p, "OFFICER_COMPENSATION") ?? 0) +
-      (getVal(byPeriod, p, "DEPRECIATION") ?? 0) +
-      (getVal(byPeriod, p, "INTEREST_EXPENSE") ?? 0);
-    return tot != null ? tot - known : null;
+    const i = periods.indexOf(p);
+    const tot = totalOpex[i];
+    const knownKeys = [
+      "OFFICER_COMPENSATION", "SALARIES_WAGES", "RENT_EXPENSE", "REPAIRS_MAINTENANCE",
+      "BAD_DEBT_EXPENSE", "TAXES_LICENSES", "DEPRECIATION", "AMORTIZATION",
+      "INTEREST_EXPENSE", "ADVERTISING", "PENSION_PROFIT_SHARING",
+      "EMPLOYEE_BENEFITS", "INSURANCE_EXPENSE", "OTHER_DEDUCTIONS",
+    ];
+    const known = knownKeys.reduce((s, k) => s + (getVal(byPeriod, p, k) ?? 0), 0);
+    return tot != null && tot > known ? tot - known : null;
   });
 
   const netOpProfit = deriveValues(periods, (p) => {
     const oi = getVal(byPeriod, p, "OPERATING_INCOME");
     if (oi != null) return oi;
-    const gp = getVal(byPeriod, p, "GROSS_PROFIT") ??
-      ((getVal(byPeriod, p, "GROSS_RECEIPTS") ?? getVal(byPeriod, p, "TOTAL_REVENUE") ?? getVal(byPeriod, p, "TOTAL_INCOME")) != null
-        ? (getVal(byPeriod, p, "GROSS_RECEIPTS") ?? getVal(byPeriod, p, "TOTAL_REVENUE") ?? getVal(byPeriod, p, "TOTAL_INCOME"))! - (getVal(byPeriod, p, "COST_OF_GOODS_SOLD") ?? 0)
-        : null);
-    const opex = totalOpex[periods.indexOf(p)];
+    const i = periods.indexOf(p);
+    const gp = effectiveGrossProfit[i];
+    const opex = totalOpex[i];
     return gp != null && opex != null ? gp - opex : null;
   });
 
+  // --- Below the line ---
+  const otherIncome = getVals(byPeriod, periods, "OTHER_INCOME");
   const netIncome = getValsFallback(byPeriod, periods, "NET_INCOME", "ORDINARY_BUSINESS_INCOME");
+  const distributions = getVals(byPeriod, periods, "DISTRIBUTIONS");
 
   const ebit = deriveValues(periods, (p) => {
     const ni = getVal(byPeriod, p, "NET_INCOME") ?? getVal(byPeriod, p, "ORDINARY_BUSINESS_INCOME");
     const ie = getVal(byPeriod, p, "INTEREST_EXPENSE") ?? 0;
     return ni != null ? ni + ie : null;
+  });
+
+  const depAmort = deriveValues(periods, (p) => {
+    const dep = getVal(byPeriod, p, "DEPRECIATION") ?? 0;
+    const amort = getVal(byPeriod, p, "AMORTIZATION") ?? 0;
+    return dep + amort > 0 ? dep + amort : null;
   });
 
   const ebitda = deriveValues(periods, (p) => {
@@ -332,19 +414,153 @@ function buildIncomeStatementRows(
     { label: "Cost of Goods Sold", indent: 1, isBold: false, values: cogs, showPct: true, pctBase: revenue },
     { label: "GROSS PROFIT", indent: 0, isBold: true, values: effectiveGrossProfit, showPct: true, pctBase: revenue },
     { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
+    // Operating Expenses
+    { label: "OPERATING EXPENSES", indent: 0, isBold: true, values: periods.map(() => null), showPct: false },
     { label: "Officers' Compensation", indent: 1, isBold: false, values: officerComp, showPct: true, pctBase: revenue },
-    { label: "Depreciation & Amortization", indent: 1, isBold: false, values: depreciation, showPct: true, pctBase: revenue },
+    { label: "Salaries & Wages", indent: 1, isBold: false, values: salariesWages, showPct: true, pctBase: revenue },
+    { label: "Rent Expense", indent: 1, isBold: false, values: rentExpense, showPct: true, pctBase: revenue },
+    { label: "Repairs & Maintenance", indent: 1, isBold: false, values: repairsMaint, showPct: true, pctBase: revenue },
+    { label: "Bad Debt Expense", indent: 1, isBold: false, values: badDebt, showPct: true, pctBase: revenue },
+    { label: "Taxes & Licenses", indent: 1, isBold: false, values: taxesLicenses, showPct: true, pctBase: revenue },
+    { label: "Depreciation", indent: 1, isBold: false, values: depreciation, showPct: true, pctBase: revenue },
+    { label: "Amortization", indent: 1, isBold: false, values: amortization, showPct: true, pctBase: revenue },
     { label: "Interest Expense", indent: 1, isBold: false, values: interestExpense, showPct: true, pctBase: revenue },
+    { label: "Advertising", indent: 1, isBold: false, values: advertising, showPct: true, pctBase: revenue },
+    { label: "Pension & Profit Sharing", indent: 1, isBold: false, values: pensionProfitSharing, showPct: true, pctBase: revenue },
+    { label: "Employee Benefits", indent: 1, isBold: false, values: employeeBenefits, showPct: true, pctBase: revenue },
+    { label: "Insurance", indent: 1, isBold: false, values: insuranceExpense, showPct: true, pctBase: revenue },
+    { label: "Other Deductions", indent: 1, isBold: false, values: otherDeductions, showPct: true, pctBase: revenue },
     { label: "Other Operating Expense", indent: 1, isBold: false, values: otherOpex, showPct: true, pctBase: revenue },
     { label: "TOTAL OPERATING EXPENSE", indent: 0, isBold: true, values: totalOpex, showPct: true, pctBase: revenue },
     { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
     { label: "NET OPERATING PROFIT", indent: 0, isBold: true, values: netOpProfit, showPct: true, pctBase: revenue },
     { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
+    // Below the line
+    { label: "Other Income / (Expense)", indent: 1, isBold: false, values: otherIncome, showPct: true, pctBase: revenue },
     { label: "NET PROFIT", indent: 0, isBold: true, values: netIncome, showPct: true, pctBase: revenue },
     { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
+    { label: "Distributions", indent: 1, isBold: false, values: distributions, showPct: true, pctBase: revenue },
+    { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
     { label: "EBIT", indent: 1, isBold: false, values: ebit, showPct: true, pctBase: revenue },
+    { label: "Dep & Amort", indent: 1, isBold: false, values: depAmort, showPct: true, pctBase: revenue },
     { label: "EBITDA", indent: 0, isBold: true, values: ebitda, showPct: true, pctBase: revenue },
   ];
+
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// UCA Cash Flow (indirect method)
+// ---------------------------------------------------------------------------
+
+function buildCashFlowRows(
+  byPeriod: Map<string, Map<string, number | null>>,
+  periods: string[],
+): CashFlowRow[] {
+  // Need at least 2 periods for delta-based items
+  if (periods.length < 2) return [];
+
+  const rows: CashFlowRow[] = [];
+
+  // --- Net Income ---
+  const netIncome = periods.map((p) =>
+    getVal(byPeriod, p, "NET_INCOME") ?? getVal(byPeriod, p, "ORDINARY_BUSINESS_INCOME"),
+  );
+
+  rows.push({ label: "Net Income", indent: 0, isBold: true, values: netIncome });
+
+  // --- Non-cash adjustments ---
+  rows.push({ label: "ADJUSTMENTS", indent: 0, isBold: true, values: periods.map(() => null) });
+
+  const depreciation = periods.map((p) => getVal(byPeriod, p, "DEPRECIATION"));
+  const amortization = periods.map((p) => getVal(byPeriod, p, "AMORTIZATION"));
+  const totalDA = periods.map((_, i) => {
+    const d = depreciation[i] ?? 0;
+    const a = amortization[i] ?? 0;
+    return d + a > 0 ? d + a : null;
+  });
+
+  rows.push({ label: "Depreciation & Amortization", indent: 1, isBold: false, values: totalDA });
+
+  // --- Working capital changes (delta = prior - current for assets, current - prior for liabilities) ---
+  rows.push({ label: "CHANGES IN WORKING CAPITAL", indent: 0, isBold: true, values: periods.map(() => null) });
+
+  function delta(key: string, invert: boolean): (number | null)[] {
+    return periods.map((p, i) => {
+      if (i === 0) return null; // no prior period
+      const cur = getVal(byPeriod, p, key);
+      const prev = getVal(byPeriod, periods[i - 1]!, key);
+      if (cur == null || prev == null) return null;
+      // For assets: decrease = source of cash (prior - current)
+      // For liabilities: increase = source of cash (current - prior)
+      return invert ? cur - prev : prev - cur;
+    });
+  }
+
+  const dAR = delta("SL_AR_GROSS", false); // asset: decrease = cash in
+  const dInventory = delta("SL_INVENTORY", false);
+  const dOtherCA = delta("SL_OTHER_CURRENT_ASSETS", false);
+  const dAP = delta("SL_ACCOUNTS_PAYABLE", true); // liability: increase = cash in
+  const dWagesPayable = delta("SL_WAGES_PAYABLE", true);
+  const dOtherCL = delta("SL_OTHER_LIABILITIES", true);
+
+  rows.push({ label: "(Inc) / Dec in Accounts Receivable", indent: 1, isBold: false, values: dAR });
+  rows.push({ label: "(Inc) / Dec in Inventory", indent: 1, isBold: false, values: dInventory });
+  rows.push({ label: "(Inc) / Dec in Other Current Assets", indent: 1, isBold: false, values: dOtherCA });
+  rows.push({ label: "Inc / (Dec) in Accounts Payable", indent: 1, isBold: false, values: dAP });
+  rows.push({ label: "Inc / (Dec) in Wages Payable", indent: 1, isBold: false, values: dWagesPayable });
+  rows.push({ label: "Inc / (Dec) in Other Liabilities", indent: 1, isBold: false, values: dOtherCL });
+
+  // Total working capital change
+  const wcChange = periods.map((_, i) => {
+    if (i === 0) return null;
+    const items = [dAR[i], dInventory[i], dOtherCA[i], dAP[i], dWagesPayable[i], dOtherCL[i]];
+    const nonNull = items.filter((v) => v != null) as number[];
+    return nonNull.length > 0 ? nonNull.reduce((a, b) => a + b, 0) : null;
+  });
+  rows.push({ label: "NET WORKING CAPITAL CHANGE", indent: 0, isBold: true, values: wcChange });
+
+  // --- Cash from Operations (UCA CFO) ---
+  const cfo = periods.map((_, i) => {
+    const ni = netIncome[i];
+    const da = totalDA[i] ?? 0;
+    const wc = wcChange[i] ?? 0;
+    return ni != null ? ni + da + wc : null;
+  });
+  rows.push({ label: "", indent: 0, isBold: false, values: periods.map(() => null) });
+  rows.push({ label: "CASH FROM OPERATIONS (UCA)", indent: 0, isBold: true, values: cfo });
+
+  // --- Capital Expenditures (change in gross PP&E) ---
+  const capex = periods.map((p, i) => {
+    if (i === 0) return null;
+    const cur = getVal(byPeriod, p, "SL_PPE_GROSS");
+    const prev = getVal(byPeriod, periods[i - 1]!, "SL_PPE_GROSS");
+    if (cur == null || prev == null) return null;
+    return -(cur - prev); // negative = cash outflow
+  });
+  rows.push({ label: "Capital Expenditures", indent: 1, isBold: false, values: capex, isNegative: true });
+
+  // Net Cash After CapEx
+  const netCashAfterCapex = periods.map((_, i) => {
+    const c = cfo[i];
+    const cx = capex[i] ?? 0;
+    return c != null ? c + cx : null;
+  });
+  rows.push({ label: "NET CASH AFTER CAPEX", indent: 0, isBold: true, values: netCashAfterCapex });
+
+  // --- Distributions ---
+  const distributions = periods.map((p) => getVal(byPeriod, p, "DISTRIBUTIONS"));
+  const distNeg = distributions.map((v) => (v != null ? -v : null));
+  rows.push({ label: "Less: Distributions", indent: 1, isBold: false, values: distNeg, isNegative: true });
+
+  // Cash Available for Debt Service
+  const cashAvail = periods.map((_, i) => {
+    const ncac = netCashAfterCapex[i];
+    const dist = distNeg[i] ?? 0;
+    return ncac != null ? ncac + dist : null;
+  });
+  rows.push({ label: "", indent: 0, isBold: false, values: periods.map(() => null) });
+  rows.push({ label: "CASH AVAILABLE FOR DEBT SERVICE", indent: 0, isBold: true, values: cashAvail });
 
   return rows;
 }
@@ -352,6 +568,7 @@ function buildIncomeStatementRows(
 function buildRatioSections(
   byPeriod: Map<string, Map<string, number | null>>,
   periods: string[],
+  cashFlowRows: CashFlowRow[],
 ): RatioSection[] {
   const g = (p: string, ...keys: string[]) => {
     for (const k of keys) {
@@ -361,8 +578,8 @@ function buildRatioSections(
     return null;
   };
 
-  function ratioVals(fn: (p: string) => number | string | null): (number | string | null)[] {
-    return periods.map(fn);
+  function ratioVals(fn: (p: string, i: number) => number | string | null): (number | string | null)[] {
+    return periods.map((p, i) => fn(p, i));
   }
 
   function safeDiv(a: number | null, b: number | null): number | string | null {
@@ -372,6 +589,78 @@ function buildRatioSections(
     return a / b;
   }
 
+  // Helper: get UCA CFO from cash flow rows
+  function getCfo(periodIndex: number): number | null {
+    const cfoRow = cashFlowRows.find((r) => r.label === "CASH FROM OPERATIONS (UCA)");
+    return cfoRow?.values[periodIndex] ?? null;
+  }
+
+  // Helper: derive total equity with S-corp fallback
+  function getEquity(p: string): number | null {
+    return g(p, "SL_TOTAL_EQUITY") ?? g(p, "SL_RETAINED_EARNINGS");
+  }
+
+  // Helper: derive total liabilities
+  function getLiabilities(p: string): number | null {
+    const direct = g(p, "SL_TOTAL_LIABILITIES");
+    if (direct != null) return direct;
+    const ta = g(p, "SL_TOTAL_ASSETS");
+    const eq = getEquity(p);
+    return ta != null && eq != null ? ta - eq : null;
+  }
+
+  // Helper: derive total current assets
+  function getTCA(p: string): number | null {
+    return g(p, "TOTAL_CURRENT_ASSETS", "SL_TOTAL_CURRENT_ASSETS") ?? (() => {
+      const components = [
+        g(p, "SL_CASH"),
+        (() => { const a = g(p, "SL_AR_GROSS"); return a != null ? a - (g(p, "SL_AR_ALLOWANCE") ?? 0) : null; })(),
+        g(p, "SL_INVENTORY"),
+        g(p, "SL_US_GOV_OBLIGATIONS"),
+        g(p, "SL_TAX_EXEMPT_SECURITIES"),
+        g(p, "SL_OTHER_CURRENT_ASSETS"),
+      ].filter((v) => v != null) as number[];
+      return components.length > 0 ? components.reduce((a, b) => a + b, 0) : null;
+    })();
+  }
+
+  // Helper: derive total current liabilities
+  function getTCL(p: string): number | null {
+    return g(p, "TOTAL_CURRENT_LIABILITIES", "SL_TOTAL_CURRENT_LIABILITIES") ?? (() => {
+      const components = [
+        g(p, "SL_ACCOUNTS_PAYABLE"),
+        g(p, "SL_WAGES_PAYABLE"),
+        g(p, "SL_SHORT_TERM_DEBT"),
+        g(p, "SL_OPERATING_CURRENT_LIABILITIES"),
+      ].filter((v) => v != null) as number[];
+      return components.length > 0 ? components.reduce((a, b) => a + b, 0) : null;
+    })();
+  }
+
+  // Helper: derive total opex
+  function getOpex(p: string): number | null {
+    const direct = g(p, "TOTAL_OPERATING_EXPENSES") ?? g(p, "TOTAL_DEDUCTIONS");
+    if (direct != null) return direct;
+    const componentKeys = [
+      "OFFICER_COMPENSATION", "SALARIES_WAGES", "RENT_EXPENSE", "REPAIRS_MAINTENANCE",
+      "BAD_DEBT_EXPENSE", "TAXES_LICENSES", "DEPRECIATION", "AMORTIZATION",
+      "INTEREST_EXPENSE", "ADVERTISING", "PENSION_PROFIT_SHARING",
+      "EMPLOYEE_BENEFITS", "INSURANCE_EXPENSE", "OTHER_DEDUCTIONS",
+    ];
+    const sum = componentKeys.reduce((s, k) => s + (g(p, k) ?? 0), 0);
+    return sum > 0 ? sum : null;
+  }
+
+  function yoyGrowth(keysFn: (p: string) => number | null): (number | string | null)[] {
+    return periods.map((p, i) => {
+      if (i === 0) return null;
+      const cur = keysFn(p);
+      const prev = keysFn(periods[i - 1]!);
+      if (cur == null || prev == null || prev === 0) return null;
+      return ((cur - prev) / Math.abs(prev)) * 100;
+    });
+  }
+
   const sections: RatioSection[] = [
     {
       title: "LIQUIDITY",
@@ -379,26 +668,23 @@ function buildRatioSections(
         {
           label: "Working Capital",
           values: ratioVals((p) => {
-            const ca = g(p, "TOTAL_CURRENT_ASSETS", "SL_TOTAL_CURRENT_ASSETS");
-            const cl = g(p, "TOTAL_CURRENT_LIABILITIES", "SL_TOTAL_CURRENT_LIABILITIES");
+            const ca = getTCA(p);
+            const cl = getTCL(p);
             return ca != null && cl != null ? ca - cl : null;
           }),
           format: "currency", decimals: 0,
         },
         {
           label: "Current Ratio",
-          values: ratioVals((p) => safeDiv(
-            g(p, "TOTAL_CURRENT_ASSETS", "SL_TOTAL_CURRENT_ASSETS"),
-            g(p, "TOTAL_CURRENT_LIABILITIES", "SL_TOTAL_CURRENT_LIABILITIES"),
-          )),
+          values: ratioVals((p) => safeDiv(getTCA(p), getTCL(p))),
           format: "ratio", decimals: 2,
         },
         {
           label: "Quick Ratio",
           values: ratioVals((p) => {
-            const ca = g(p, "TOTAL_CURRENT_ASSETS", "SL_TOTAL_CURRENT_ASSETS");
+            const ca = getTCA(p);
             const inv = g(p, "SL_INVENTORY") ?? 0;
-            const cl = g(p, "TOTAL_CURRENT_LIABILITIES", "SL_TOTAL_CURRENT_LIABILITIES");
+            const cl = getTCL(p);
             return ca != null && cl != null ? safeDiv(ca - inv, cl) : null;
           }),
           format: "ratio", decimals: 2,
@@ -410,17 +696,40 @@ function buildRatioSections(
       rows: [
         {
           label: "Net Worth",
-          values: ratioVals((p) => g(p, "SL_TOTAL_EQUITY")),
+          values: ratioVals((p) => getEquity(p)),
+          format: "currency", decimals: 0,
+        },
+        {
+          label: "Tangible Net Worth",
+          values: ratioVals((p) => {
+            const eq = getEquity(p);
+            const intgGross = g(p, "SL_INTANGIBLES_GROSS") ?? 0;
+            const intgAmort = g(p, "SL_ACCUMULATED_AMORTIZATION") ?? 0;
+            const intg = intgGross - intgAmort;
+            return eq != null ? eq - intg : null;
+          }),
           format: "currency", decimals: 0,
         },
         {
           label: "Debt / Worth",
-          values: ratioVals((p) => safeDiv(g(p, "SL_TOTAL_LIABILITIES"), g(p, "SL_TOTAL_EQUITY"))),
+          values: ratioVals((p) => safeDiv(getLiabilities(p), getEquity(p))),
+          format: "ratio", decimals: 2,
+        },
+        {
+          label: "Debt / Tangible Net Worth",
+          values: ratioVals((p) => {
+            const tl = getLiabilities(p);
+            const eq = getEquity(p);
+            const intgGross = g(p, "SL_INTANGIBLES_GROSS") ?? 0;
+            const intgAmort = g(p, "SL_ACCUMULATED_AMORTIZATION") ?? 0;
+            const tnw = eq != null ? eq - (intgGross - intgAmort) : null;
+            return safeDiv(tl, tnw);
+          }),
           format: "ratio", decimals: 2,
         },
         {
           label: "Total Liabilities / Total Assets",
-          values: ratioVals((p) => safeDiv(g(p, "SL_TOTAL_LIABILITIES"), g(p, "SL_TOTAL_ASSETS"))),
+          values: ratioVals((p) => safeDiv(getLiabilities(p), g(p, "SL_TOTAL_ASSETS"))),
           format: "ratio", decimals: 2,
         },
       ],
@@ -448,15 +757,24 @@ function buildRatioSections(
           format: "ratio", decimals: 2,
         },
         {
-          label: "DSCR",
+          label: "DSCR (Traditional)",
           values: ratioVals((p) => {
             const ni = g(p, "NET_INCOME", "ORDINARY_BUSINESS_INCOME");
             const dep = g(p, "DEPRECIATION") ?? 0;
             const ie = g(p, "INTEREST_EXPENSE");
             if (ni == null || ie == null) return "N/A";
-            const ds = ie; // Simplified: no CPLTD available
-            if (ds === 0) return "N/A";
-            return (ni + dep + ie) / ds;
+            if (ie === 0) return "N/A";
+            return (ni + dep + ie) / ie;
+          }),
+          format: "ratio", decimals: 2,
+        },
+        {
+          label: "UCA Cash Flow DSCR",
+          values: ratioVals((_, i) => {
+            const cfo = getCfo(i);
+            const ie = g(periods[i]!, "INTEREST_EXPENSE");
+            if (cfo == null || ie == null || ie === 0) return "N/A";
+            return safeDiv(cfo, ie);
           }),
           format: "ratio", decimals: 2,
         },
@@ -476,12 +794,14 @@ function buildRatioSections(
           format: "percent", decimals: 1,
         },
         {
-          label: "Operating Expense %",
+          label: "Operating Profit Margin %",
           values: ratioVals((p) => {
             const rev = g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
-            const opex = g(p, "TOTAL_OPERATING_EXPENSES");
-            if (rev == null || opex == null || rev === 0) return null;
-            return (opex / rev) * 100;
+            if (rev == null || rev === 0) return null;
+            const gp = g(p, "GROSS_PROFIT") ?? (rev - (g(p, "COST_OF_GOODS_SOLD") ?? 0));
+            const opex = getOpex(p);
+            if (opex == null) return null;
+            return ((gp - opex) / rev) * 100;
           }),
           format: "percent", decimals: 1,
         },
@@ -509,7 +829,7 @@ function buildRatioSections(
           label: "Return on Equity %",
           values: ratioVals((p) => {
             const ni = g(p, "NET_INCOME", "ORDINARY_BUSINESS_INCOME");
-            const eq = g(p, "SL_TOTAL_EQUITY");
+            const eq = getEquity(p);
             if (ni == null || eq == null || eq === 0) return null;
             return (ni / eq) * 100;
           }),
@@ -521,7 +841,7 @@ function buildRatioSections(
       title: "ACTIVITY",
       rows: [
         {
-          label: "Net AR Days",
+          label: "AR Days",
           values: ratioVals((p) => {
             const ar = g(p, "SL_AR_GROSS");
             const rev = g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
@@ -531,56 +851,66 @@ function buildRatioSections(
           format: "days", decimals: 1,
         },
         {
-          label: "Net Sales / Total Assets",
+          label: "AP Days",
           values: ratioVals((p) => {
-            const rev = g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
-            const ta = g(p, "SL_TOTAL_ASSETS");
-            return safeDiv(rev, ta);
+            const ap = g(p, "SL_ACCOUNTS_PAYABLE");
+            const cogs = g(p, "COST_OF_GOODS_SOLD");
+            if (ap == null || cogs == null || cogs === 0) return null;
+            return (ap / cogs) * 365;
           }),
+          format: "days", decimals: 1,
+        },
+        {
+          label: "Inventory Days",
+          values: ratioVals((p) => {
+            const inv = g(p, "SL_INVENTORY");
+            const cogs = g(p, "COST_OF_GOODS_SOLD");
+            if (inv == null || cogs == null || cogs === 0) return null;
+            return (inv / cogs) * 365;
+          }),
+          format: "days", decimals: 1,
+        },
+        {
+          label: "Net Sales / Total Assets",
+          values: ratioVals((p) => safeDiv(g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME"), g(p, "SL_TOTAL_ASSETS"))),
           format: "ratio", decimals: 2,
         },
         {
           label: "Net Sales / Net Worth",
-          values: ratioVals((p) => {
-            const rev = g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
-            const eq = g(p, "SL_TOTAL_EQUITY");
-            return safeDiv(rev, eq);
-          }),
+          values: ratioVals((p) => safeDiv(g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME"), getEquity(p))),
           format: "ratio", decimals: 2,
         },
       ],
     },
     {
       title: "GROWTH",
-      rows: (() => {
-        const growthRows: RatioRow[] = [];
-        const revKeys = ["GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME"];
-        const niKeys = ["NET_INCOME", "ORDINARY_BUSINESS_INCOME"];
-
-        function yoyGrowth(keys: string[]): (number | string | null)[] {
-          return periods.map((p, i) => {
-            if (i === 0) return null; // no prior period
-            let cur: number | null = null;
-            let prev: number | null = null;
-            for (const k of keys) {
-              if (cur == null) cur = getVal(byPeriod, p, k);
-              if (prev == null) prev = getVal(byPeriod, periods[i - 1]!, k);
-            }
-            if (cur == null || prev == null || prev === 0) return null;
-            return ((cur - prev) / Math.abs(prev)) * 100;
-          });
-        }
-
-        growthRows.push({ label: "Net Sales Growth %", values: yoyGrowth(revKeys), format: "percent", decimals: 1 });
-        growthRows.push({ label: "Net Profit Growth %", values: yoyGrowth(niKeys), format: "percent", decimals: 1 });
-        growthRows.push({
-          label: "Total Assets Growth %",
-          values: yoyGrowth(["SL_TOTAL_ASSETS"]),
+      rows: [
+        {
+          label: "Net Sales Growth %",
+          values: yoyGrowth((p) => g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME")),
           format: "percent", decimals: 1,
-        });
-
-        return growthRows;
-      })(),
+        },
+        {
+          label: "Net Profit Growth %",
+          values: yoyGrowth((p) => g(p, "NET_INCOME", "ORDINARY_BUSINESS_INCOME")),
+          format: "percent", decimals: 1,
+        },
+        {
+          label: "Total Assets Growth %",
+          values: yoyGrowth((p) => g(p, "SL_TOTAL_ASSETS")),
+          format: "percent", decimals: 1,
+        },
+        {
+          label: "Total Liabilities Growth %",
+          values: yoyGrowth((p) => getLiabilities(p)),
+          format: "percent", decimals: 1,
+        },
+        {
+          label: "Net Worth Growth %",
+          values: yoyGrowth((p) => getEquity(p)),
+          format: "percent", decimals: 1,
+        },
+      ],
     },
   ];
 
@@ -734,6 +1064,10 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
     hour12: true,
   }) + ", " + now.toLocaleDateString("en-US");
 
+  const cashFlowRows = hasBsData && hasIsData ? buildCashFlowRows(byPeriod, periods) : [];
+  // Cash flow periods exclude the first period (need prior for deltas)
+  const cfPeriods = periods.length >= 2 ? statementPeriods : [];
+
   return {
     dealId,
     companyName: deal?.borrower_name ?? deal?.name ?? "Unknown Company",
@@ -744,7 +1078,9 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
     periods: statementPeriods,
     balanceSheet: hasBsData ? buildBalanceSheetRows(byPeriod, periods) : [],
     incomeStatement: hasIsData ? buildIncomeStatementRows(byPeriod, periods) : [],
-    ratioSections: buildRatioSections(byPeriod, periods),
+    cashFlow: cashFlowRows,
+    cashFlowPeriods: cfPeriods,
+    ratioSections: buildRatioSections(byPeriod, periods, cashFlowRows),
     executiveSummary: buildExecutiveSummary(byPeriod, periods),
   };
 }
