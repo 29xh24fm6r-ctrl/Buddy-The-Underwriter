@@ -148,6 +148,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
   const [actionError, setActionError] = useState<string | null>(null);
   const autoHealAttempted = useRef(false);
   const [suppressedBlockerCodes, setSuppressedBlockerCodes] = useState<Set<string>>(new Set());
+  const [snapshotGeneratedLocally, setSnapshotGeneratedLocally] = useState(false);
 
   // Clear blocker suppression when lifecycle state refreshes with new data
   const blockerFingerprint = (lifecycleState?.blockers ?? []).map((b: any) => b.code).sort().join(",");
@@ -157,6 +158,15 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockerFingerprint]);
+
+  // Once the server confirms the snapshot exists, clear the local override —
+  // the blocker will have been removed from server data at that point.
+  const derived = lifecycleState?.derived;
+  useEffect(() => {
+    if (snapshotGeneratedLocally && derived?.financialSnapshotExists) {
+      setSnapshotGeneratedLocally(false);
+    }
+  }, [snapshotGeneratedLocally, derived?.financialSnapshotExists]);
 
   const handleServerAction = useCallback(
     async (action: string) => {
@@ -235,8 +245,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
             return;
           }
           autoHealAttempted.current = false; // Reset on success for future attempts
-          // Suppress current blockers optimistically until lifecycle refreshes
-          setSuppressedBlockerCodes(new Set((lifecycleState?.blockers ?? []).map((b: any) => b.code)));
+          setSnapshotGeneratedLocally(true);
           onAdvance?.();
           return;
         }
@@ -262,8 +271,11 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
     [dealId, onServerAction, onAdvance],
   );
 
-  const derived = lifecycleState?.derived;
-  const blockers = (lifecycleState?.blockers ?? []).filter((b: any) => !suppressedBlockerCodes.has(b.code));
+  const blockers = (lifecycleState?.blockers ?? []).filter((b: any) => {
+    if (suppressedBlockerCodes.has(b.code)) return false;
+    if (snapshotGeneratedLocally && b.code === "FINANCIAL_SNAPSHOT_MISSING") return false;
+    return true;
+  });
   const stage = lifecycleState?.stage;
 
   // Compute overall progress from stage position
