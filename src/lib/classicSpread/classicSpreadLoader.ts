@@ -335,43 +335,68 @@ function buildIncomeStatementRows(
 
   // --- Detailed Operating Expenses ---
   const officerComp = getVals(byPeriod, periods, "OFFICER_COMPENSATION");
-  const salariesWages = getVals(byPeriod, periods, "SALARIES_WAGES");
-  const rentExpense = getVals(byPeriod, periods, "RENT_EXPENSE");
-  const repairsMaint = getVals(byPeriod, periods, "REPAIRS_MAINTENANCE");
-  const badDebt = getVals(byPeriod, periods, "BAD_DEBT_EXPENSE");
+  const salariesWages = getValsFallback(byPeriod, periods, "SALARIES_WAGES", "SALARIES_WAGES_IS");
+  const rentExpense = getValsFallback(byPeriod, periods, "RENT_EXPENSE", "RENT_EXPENSE_IS");
+  const repairsMaint = getValsFallback(byPeriod, periods, "REPAIRS_MAINTENANCE", "REPAIRS_MAINTENANCE_IS");
+  const badDebt = getValsFallback(byPeriod, periods, "BAD_DEBT_EXPENSE", "BAD_DEBT_EXPENSE_IS");
   const taxesLicenses = getVals(byPeriod, periods, "TAXES_LICENSES");
   const depreciation = getVals(byPeriod, periods, "DEPRECIATION");
   const amortization = getVals(byPeriod, periods, "AMORTIZATION");
   const interestExpense = getVals(byPeriod, periods, "INTEREST_EXPENSE");
-  const advertising = getVals(byPeriod, periods, "ADVERTISING");
+  const advertising = getValsFallback(byPeriod, periods, "ADVERTISING", "ADVERTISING_IS");
   const pensionProfitSharing = getVals(byPeriod, periods, "PENSION_PROFIT_SHARING");
   const employeeBenefits = getVals(byPeriod, periods, "EMPLOYEE_BENEFITS");
-  const insuranceExpense = getVals(byPeriod, periods, "INSURANCE_EXPENSE");
-  const otherDeductions = getVals(byPeriod, periods, "OTHER_DEDUCTIONS");
+  const insuranceExpense = getValsFallback(byPeriod, periods, "INSURANCE_EXPENSE", "INSURANCE_EXPENSE_IS");
+  const otherDeductions = getValsFallback(byPeriod, periods, "OTHER_DEDUCTIONS", "OTHER_DEDUCTIONS_IS", "OTHER_OPERATING_EXPENSES_IS");
+
+  // Helper: first non-null value across key variants for a single period
+  const getFirstVal = (p: string, ...keys: string[]): number | null => {
+    for (const k of keys) {
+      const v = getVal(byPeriod, p, k);
+      if (v != null) return v;
+    }
+    return null;
+  };
 
   const totalOpex = deriveValues(periods, (p) => {
     const direct = getVal(byPeriod, p, "TOTAL_OPERATING_EXPENSES") ?? getVal(byPeriod, p, "TOTAL_DEDUCTIONS");
     if (direct != null) return direct;
-    const componentKeys = [
-      "OFFICER_COMPENSATION", "SALARIES_WAGES", "RENT_EXPENSE", "REPAIRS_MAINTENANCE",
-      "BAD_DEBT_EXPENSE", "TAXES_LICENSES", "DEPRECIATION", "AMORTIZATION",
-      "INTEREST_EXPENSE", "ADVERTISING", "PENSION_PROFIT_SHARING",
-      "EMPLOYEE_BENEFITS", "INSURANCE_EXPENSE", "OTHER_DEDUCTIONS",
-    ];
-    const sum = componentKeys.reduce((s, k) => s + (getVal(byPeriod, p, k) ?? 0), 0);
+    const sum =
+      (getVal(byPeriod, p, "OFFICER_COMPENSATION") ?? 0) +
+      (getFirstVal(p, "SALARIES_WAGES", "SALARIES_WAGES_IS") ?? 0) +
+      (getFirstVal(p, "RENT_EXPENSE", "RENT_EXPENSE_IS") ?? 0) +
+      (getFirstVal(p, "REPAIRS_MAINTENANCE", "REPAIRS_MAINTENANCE_IS") ?? 0) +
+      (getFirstVal(p, "BAD_DEBT_EXPENSE", "BAD_DEBT_EXPENSE_IS") ?? 0) +
+      (getVal(byPeriod, p, "TAXES_LICENSES") ?? 0) +
+      (getVal(byPeriod, p, "DEPRECIATION") ?? 0) +
+      (getVal(byPeriod, p, "AMORTIZATION") ?? 0) +
+      (getVal(byPeriod, p, "INTEREST_EXPENSE") ?? 0) +
+      (getFirstVal(p, "ADVERTISING", "ADVERTISING_IS") ?? 0) +
+      (getVal(byPeriod, p, "PENSION_PROFIT_SHARING") ?? 0) +
+      (getVal(byPeriod, p, "EMPLOYEE_BENEFITS") ?? 0) +
+      (getFirstVal(p, "INSURANCE_EXPENSE", "INSURANCE_EXPENSE_IS") ?? 0) +
+      (getFirstVal(p, "OTHER_DEDUCTIONS", "OTHER_DEDUCTIONS_IS", "OTHER_OPERATING_EXPENSES_IS") ?? 0);
     return sum > 0 ? sum : null;
   });
 
   const otherOpex = deriveValues(periods, (p) => {
     const i = periods.indexOf(p);
     const tot = totalOpex[i];
-    const knownKeys = [
-      "OFFICER_COMPENSATION", "SALARIES_WAGES", "RENT_EXPENSE", "REPAIRS_MAINTENANCE",
-      "BAD_DEBT_EXPENSE", "TAXES_LICENSES", "DEPRECIATION", "AMORTIZATION",
-      "INTEREST_EXPENSE", "ADVERTISING", "PENSION_PROFIT_SHARING",
-      "EMPLOYEE_BENEFITS", "INSURANCE_EXPENSE", "OTHER_DEDUCTIONS",
-    ];
-    const known = knownKeys.reduce((s, k) => s + (getVal(byPeriod, p, k) ?? 0), 0);
+    const known =
+      (getVal(byPeriod, p, "OFFICER_COMPENSATION") ?? 0) +
+      (getFirstVal(p, "SALARIES_WAGES", "SALARIES_WAGES_IS") ?? 0) +
+      (getFirstVal(p, "RENT_EXPENSE", "RENT_EXPENSE_IS") ?? 0) +
+      (getFirstVal(p, "REPAIRS_MAINTENANCE", "REPAIRS_MAINTENANCE_IS") ?? 0) +
+      (getFirstVal(p, "BAD_DEBT_EXPENSE", "BAD_DEBT_EXPENSE_IS") ?? 0) +
+      (getVal(byPeriod, p, "TAXES_LICENSES") ?? 0) +
+      (getVal(byPeriod, p, "DEPRECIATION") ?? 0) +
+      (getVal(byPeriod, p, "AMORTIZATION") ?? 0) +
+      (getVal(byPeriod, p, "INTEREST_EXPENSE") ?? 0) +
+      (getFirstVal(p, "ADVERTISING", "ADVERTISING_IS") ?? 0) +
+      (getVal(byPeriod, p, "PENSION_PROFIT_SHARING") ?? 0) +
+      (getVal(byPeriod, p, "EMPLOYEE_BENEFITS") ?? 0) +
+      (getFirstVal(p, "INSURANCE_EXPENSE", "INSURANCE_EXPENSE_IS") ?? 0) +
+      (getFirstVal(p, "OTHER_DEDUCTIONS", "OTHER_DEDUCTIONS_IS", "OTHER_OPERATING_EXPENSES_IS") ?? 0);
     return tot != null && tot > known ? tot - known : null;
   });
 
@@ -637,17 +662,25 @@ function buildRatioSections(
     })();
   }
 
-  // Helper: derive total opex
+  // Helper: derive total opex (with _IS suffix fallbacks for tax return data)
   function getOpex(p: string): number | null {
     const direct = g(p, "TOTAL_OPERATING_EXPENSES") ?? g(p, "TOTAL_DEDUCTIONS");
     if (direct != null) return direct;
-    const componentKeys = [
-      "OFFICER_COMPENSATION", "SALARIES_WAGES", "RENT_EXPENSE", "REPAIRS_MAINTENANCE",
-      "BAD_DEBT_EXPENSE", "TAXES_LICENSES", "DEPRECIATION", "AMORTIZATION",
-      "INTEREST_EXPENSE", "ADVERTISING", "PENSION_PROFIT_SHARING",
-      "EMPLOYEE_BENEFITS", "INSURANCE_EXPENSE", "OTHER_DEDUCTIONS",
-    ];
-    const sum = componentKeys.reduce((s, k) => s + (g(p, k) ?? 0), 0);
+    const sum =
+      (g(p, "OFFICER_COMPENSATION") ?? 0) +
+      (g(p, "SALARIES_WAGES", "SALARIES_WAGES_IS") ?? 0) +
+      (g(p, "RENT_EXPENSE", "RENT_EXPENSE_IS") ?? 0) +
+      (g(p, "REPAIRS_MAINTENANCE", "REPAIRS_MAINTENANCE_IS") ?? 0) +
+      (g(p, "BAD_DEBT_EXPENSE", "BAD_DEBT_EXPENSE_IS") ?? 0) +
+      (g(p, "TAXES_LICENSES") ?? 0) +
+      (g(p, "DEPRECIATION") ?? 0) +
+      (g(p, "AMORTIZATION") ?? 0) +
+      (g(p, "INTEREST_EXPENSE") ?? 0) +
+      (g(p, "ADVERTISING", "ADVERTISING_IS") ?? 0) +
+      (g(p, "PENSION_PROFIT_SHARING") ?? 0) +
+      (g(p, "EMPLOYEE_BENEFITS") ?? 0) +
+      (g(p, "INSURANCE_EXPENSE", "INSURANCE_EXPENSE_IS") ?? 0) +
+      (g(p, "OTHER_DEDUCTIONS", "OTHER_DEDUCTIONS_IS", "OTHER_OPERATING_EXPENSES_IS") ?? 0);
     return sum > 0 ? sum : null;
   }
 
@@ -945,7 +978,19 @@ function buildExecutiveSummary(
       { label: "Cash & Equivalents", indent: 1, isBold: false, values: getVals(byPeriod, periods, "SL_CASH"), showPct: true, pctBase: totalAssets },
       { label: "Accounts Receivable", indent: 1, isBold: false, values: getVals(byPeriod, periods, "SL_AR_GROSS"), showPct: true, pctBase: totalAssets },
       { label: "Inventory", indent: 1, isBold: false, values: getVals(byPeriod, periods, "SL_INVENTORY"), showPct: true, pctBase: totalAssets },
-      { label: "TOTAL CURRENT ASSETS", indent: 0, isBold: true, values: getValsFallback(byPeriod, periods, "TOTAL_CURRENT_ASSETS", "SL_TOTAL_CURRENT_ASSETS"), showPct: true, pctBase: totalAssets },
+      { label: "TOTAL CURRENT ASSETS", indent: 0, isBold: true, values: deriveValues(periods, (p) => {
+        const direct = getVal(byPeriod, p, "TOTAL_CURRENT_ASSETS") ?? getVal(byPeriod, p, "SL_TOTAL_CURRENT_ASSETS");
+        if (direct != null) return direct;
+        const components = [
+          getVal(byPeriod, p, "SL_CASH"),
+          (() => { const a = getVal(byPeriod, p, "SL_AR_GROSS"); return a != null ? a - (getVal(byPeriod, p, "SL_AR_ALLOWANCE") ?? 0) : null; })(),
+          getVal(byPeriod, p, "SL_INVENTORY"),
+          getVal(byPeriod, p, "SL_US_GOV_OBLIGATIONS"),
+          getVal(byPeriod, p, "SL_TAX_EXEMPT_SECURITIES"),
+          getVal(byPeriod, p, "SL_OTHER_CURRENT_ASSETS"),
+        ].filter((v) => v != null) as number[];
+        return components.length > 0 ? components.reduce((a, b) => a + b, 0) : null;
+      }), showPct: true, pctBase: totalAssets },
       { label: "Net Fixed Assets", indent: 1, isBold: false, values: deriveValues(periods, (p) => {
         const ppe = getVal(byPeriod, p, "SL_PPE_GROSS");
         return ppe != null ? ppe - (getVal(byPeriod, p, "SL_ACCUMULATED_DEPRECIATION") ?? 0) : null;
@@ -953,7 +998,17 @@ function buildExecutiveSummary(
       { label: "TOTAL ASSETS", indent: 0, isBold: true, values: totalAssets, showPct: true, pctBase: totalAssets },
     ],
     liabilitiesAndNetWorth: [
-      { label: "TOTAL CURRENT LIABILITIES", indent: 0, isBold: true, values: getValsFallback(byPeriod, periods, "TOTAL_CURRENT_LIABILITIES", "SL_TOTAL_CURRENT_LIABILITIES"), showPct: true, pctBase: totalAssets },
+      { label: "TOTAL CURRENT LIABILITIES", indent: 0, isBold: true, values: deriveValues(periods, (p) => {
+        const direct = getVal(byPeriod, p, "TOTAL_CURRENT_LIABILITIES") ?? getVal(byPeriod, p, "SL_TOTAL_CURRENT_LIABILITIES");
+        if (direct != null) return direct;
+        const components = [
+          getVal(byPeriod, p, "SL_ACCOUNTS_PAYABLE"),
+          getVal(byPeriod, p, "SL_WAGES_PAYABLE"),
+          getVal(byPeriod, p, "SL_SHORT_TERM_DEBT"),
+          getVal(byPeriod, p, "SL_OPERATING_CURRENT_LIABILITIES"),
+        ].filter((v) => v != null) as number[];
+        return components.length > 0 ? components.reduce((a, b) => a + b, 0) : null;
+      }), showPct: true, pctBase: totalAssets },
       { label: "Long-Term Debt", indent: 1, isBold: false, values: getVals(byPeriod, periods, "SL_MORTGAGES_NOTES_BONDS"), showPct: true, pctBase: totalAssets },
       { label: "TOTAL LIABILITIES", indent: 0, isBold: true, values: totalLiabilities, showPct: true, pctBase: totalAssets },
       { label: "TOTAL NET WORTH", indent: 0, isBold: true, values: totalEquity, showPct: true, pctBase: totalAssets },
