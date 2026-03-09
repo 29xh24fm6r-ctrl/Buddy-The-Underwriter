@@ -31,6 +31,31 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
     const sb = supabaseAdmin();
 
+    // --- PRICING GATE ---
+    const { data: pricingRow, error: pricingErr } = await (sb as any)
+      .from("deal_structural_pricing")
+      .select("id, annual_debt_service_est")
+      .eq("deal_id", dealId)
+      .eq("bank_id", access.bankId)
+      .maybeSingle();
+
+    if (pricingErr) {
+      console.error("[spread-output] pricing check error", pricingErr.message);
+    }
+
+    if (!pricingRow || pricingRow.annual_debt_service_est == null) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "pricing_assumptions_required",
+          message:
+            "Pricing assumptions must be saved before spreads can be generated. Set pricing on the Pricing tab first.",
+        },
+        { status: 422 },
+      );
+    }
+    // --- END PRICING GATE ---
+
     // Build SpreadOutputInput from DB — parallel queries
     const [factsResult, ratiosResult, dealResult, qoeResult, trendResult, flagInput] =
       await Promise.all([
