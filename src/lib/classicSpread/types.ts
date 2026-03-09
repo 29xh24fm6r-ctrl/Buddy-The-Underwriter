@@ -16,6 +16,14 @@ export type FinancialRow = {
   isNegative?: boolean; // display in parentheses when positive (e.g. accumulated depreciation)
 };
 
+export type CashFlowRow = {
+  label: string;
+  indent: number; // 0 = section header, 1 = line item, 2 = sub-item
+  isBold: boolean;
+  values: (number | null)[]; // one per period
+  isNegative?: boolean;
+};
+
 export type RatioRow = {
   label: string;
   values: (number | string | null)[]; // "N/A" allowed
@@ -43,6 +51,10 @@ export type ClassicSpreadInput = {
   // Financial statements
   balanceSheet: FinancialRow[];
   incomeStatement: FinancialRow[];
+
+  // Cash flow (UCA indirect method)
+  cashFlow: CashFlowRow[];
+  cashFlowPeriods: StatementPeriod[];
 
   // Ratios
   ratioSections: RatioSection[];

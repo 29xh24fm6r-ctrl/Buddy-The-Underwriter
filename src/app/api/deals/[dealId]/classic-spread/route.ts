@@ -5,6 +5,7 @@ import { requireRoleApi } from "@/lib/auth/requireRole";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { loadClassicSpreadData } from "@/lib/classicSpread/classicSpreadLoader";
 import { renderClassicSpread } from "@/lib/classicSpread/classicSpreadRenderer";
+import { generateSpreadNarrative } from "@/lib/classicSpread/narrativeEngine";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -22,7 +23,9 @@ export async function GET(_req: Request, ctx: Ctx) {
     }
 
     const input = await loadClassicSpreadData(dealId);
-    const pdf = await renderClassicSpread(input);
+    // Narrative is optional — graceful fallback if API key missing or call fails
+    const narrative = await generateSpreadNarrative(input).catch(() => null);
+    const pdf = await renderClassicSpread(input, narrative);
 
     return new NextResponse(new Uint8Array(pdf), {
       status: 200,
