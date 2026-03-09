@@ -273,7 +273,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
 
   const blockers = (lifecycleState?.blockers ?? []).filter((b: any) => {
     if (suppressedBlockerCodes.has(b.code)) return false;
-    if (snapshotGeneratedLocally && b.code === "FINANCIAL_SNAPSHOT_MISSING") return false;
+    if (snapshotGeneratedLocally && b.code === "financial_snapshot_missing") return false;
     return true;
   });
   const stage = lifecycleState?.stage;
