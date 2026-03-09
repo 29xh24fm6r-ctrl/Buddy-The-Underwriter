@@ -37,6 +37,8 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       .select("id, annual_debt_service_est")
       .eq("deal_id", dealId)
       .eq("bank_id", access.bankId)
+      .order("computed_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (pricingErr) {
