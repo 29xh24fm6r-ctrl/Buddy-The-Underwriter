@@ -24,6 +24,36 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       );
     }
 
+    const sb = supabaseAdmin();
+
+    // --- PRICING GATE ---
+    const { data: pricingRow, error: pricingErr } = await (sb as any)
+      .from("deal_structural_pricing")
+      .select("id, annual_debt_service_est")
+      .eq("deal_id", dealId)
+      .eq("bank_id", access.bankId)
+      .maybeSingle();
+
+    if (pricingErr) {
+      console.error("[spreads] pricing check error", pricingErr.message);
+    }
+
+    const pricingComplete =
+      pricingRow != null && pricingRow.annual_debt_service_est != null;
+
+    if (!pricingComplete) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "pricing_assumptions_required",
+          message:
+            "Pricing assumptions must be saved before spreads can be generated. Set pricing on the Pricing tab first.",
+        },
+        { status: 422 },
+      );
+    }
+    // --- END PRICING GATE ---
+
     const url = new URL(req.url);
     const typesRaw = url.searchParams.get("types") ?? "";
     const types = typesRaw
@@ -31,7 +61,6 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       .map((s) => s.trim())
       .filter(Boolean);
 
-    const sb = supabaseAdmin();
     let q = (sb as any)
       .from("deal_spreads")
       .select("deal_id, bank_id, spread_type, spread_version, status, rendered_json, updated_at, error, owner_type, owner_entity_id")

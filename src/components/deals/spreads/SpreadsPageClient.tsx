@@ -28,6 +28,7 @@ export function SpreadsPageClient({ dealId, dealName, dealType }: Props) {
   const [report, setReport] = useState<SpreadOutputReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pricingRequired, setPricingRequired] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isClassicExporting, setIsClassicExporting] = useState(false);
   const downloadRef = useRef<HTMLAnchorElement>(null);
@@ -36,9 +37,14 @@ export function SpreadsPageClient({ dealId, dealName, dealType }: Props) {
     try {
       setLoading(true);
       setError(null);
+      setPricingRequired(false);
       const res = await fetch(`/api/deals/${dealId}/spread-output`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        if (body.error === "pricing_assumptions_required") {
+          setPricingRequired(true);
+          return;
+        }
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
       const data = await res.json();
@@ -201,7 +207,29 @@ export function SpreadsPageClient({ dealId, dealName, dealType }: Props) {
             </div>
           )}
 
-          {error && !loading && (
+          {pricingRequired && !loading && (
+            <div className="flex h-64 flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50">
+              <svg className="w-10 h-10 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Pricing assumptions required
+              </h3>
+              <p className="text-sm text-gray-500 max-w-sm text-center">
+                Spreads cannot be generated until pricing assumptions have been saved.
+                Set the proposed loan amount, rate, and term on the Pricing tab first.
+              </p>
+              <Link
+                href={`/deals/${dealId}/cockpit`}
+                className="mt-2 inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700"
+              >
+                Set Pricing Assumptions →
+              </Link>
+            </div>
+          )}
+
+          {error && !loading && !pricingRequired && (
             <div className="rounded-xl border border-red-200 bg-red-50 p-6">
               <p className="text-sm font-medium text-red-700">{error}</p>
               <button
