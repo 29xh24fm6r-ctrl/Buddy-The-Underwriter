@@ -33,6 +33,9 @@ function buildPeriodMaps(facts: RawFact[]): {
   for (const f of facts) {
     const pe = f.fact_period_end?.slice(0, 10);
     if (!pe || f.fact_value_num == null) continue;
+    // PFS statements use a statement date, not a fiscal year-end.
+    // Never create a financial spread column for PFS data.
+    if (f.fact_key.startsWith("PFS_") || f.fact_key === "PERSONAL_FINANCIAL_STATEMENT") continue;
     periodSet.add(pe);
 
     if (!grouped.has(pe)) grouped.set(pe, new Map());
@@ -600,6 +603,21 @@ function buildExecutiveSummary(
 }
 
 // ---------------------------------------------------------------------------
+// Audit method derivation
+// ---------------------------------------------------------------------------
+
+function deriveAuditMethod(
+  byPeriod: Map<string, Map<string, number | null>>,
+  period: string,
+): string {
+  const m = byPeriod.get(period);
+  if (!m) return "Company Prepared";
+  if (m.has("BUSINESS_TAX_RETURN") || m.has("PERSONAL_TAX_RETURN")) return "Tax Return";
+  if (m.has("INCOME_STATEMENT") || m.has("BALANCE_SHEET")) return "Company Prepared";
+  return "Company Prepared";
+}
+
+// ---------------------------------------------------------------------------
 // Main Loader
 // ---------------------------------------------------------------------------
 
@@ -648,13 +666,16 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
   const { periods, byPeriod } = buildPeriodMaps(facts);
   const currentYear = new Date().getFullYear();
 
-  const statementPeriods: StatementPeriod[] = periods.map((p) => ({
-    date: formatPeriodDate(p),
-    months: deriveMonths(p),
-    auditMethod: "Unaudited", // Default; can be enhanced later with doc metadata
-    stmtType: deriveMonths(p) === 12 ? "Annual" : "Interim",
-    label: derivePeriodLabel(p, currentYear),
-  }));
+  const statementPeriods: StatementPeriod[] = periods.map((p) => {
+    const auditMethod = deriveAuditMethod(byPeriod, p);
+    return {
+      date: formatPeriodDate(p),
+      months: deriveMonths(p),
+      auditMethod,
+      stmtType: auditMethod === "Tax Return" ? "Annual" : (deriveMonths(p) === 12 ? "Annual" : "Interim"),
+      label: derivePeriodLabel(p, currentYear),
+    };
+  });
 
   // Check if we have BS or IS data
   const hasBsData = periods.some((p) => getVal(byPeriod, p, "SL_TOTAL_ASSETS") != null);
