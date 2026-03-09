@@ -380,7 +380,13 @@ export function buildSnapshotFromFacts(args: {
   // OBI (Ordinary Business Income) + Depreciation + Section 179 addbacks.
   if ((byMetric["cash_flow_available"]?.value_num ?? null) === null) {
     const obiFacts = args.facts.filter((f) => f.fact_key === "ORDINARY_BUSINESS_INCOME");
-    const depFacts = args.facts.filter((f) => f.fact_key === "DEPRECIATION");
+    // Prefer TAX_RETURN depreciation over INCOME_STATEMENT to avoid YTD distortion
+    const taxReturnDepFacts = args.facts.filter(
+      (f) => f.fact_key === "DEPRECIATION" && f.fact_type === "TAX_RETURN",
+    );
+    const depFacts = taxReturnDepFacts.length > 0
+      ? taxReturnDepFacts
+      : args.facts.filter((f) => f.fact_key === "DEPRECIATION");
     const s179Facts = args.facts.filter((f) => f.fact_key === "SEC_179_EXPENSE");
 
     const bestObi = selectBestFact(obiFacts).chosen;
