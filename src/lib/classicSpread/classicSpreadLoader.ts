@@ -183,21 +183,38 @@ function buildBalanceSheetRows(
   });
 
   const mortgages = getVals(byPeriod, periods, "SL_MORTGAGES_NOTES_BONDS");
-  const totalLiabilities = getVals(byPeriod, periods, "SL_TOTAL_LIABILITIES");
-  const totalNonCurrentLiab = deriveValues(periods, (p) => {
-    const tl = getVal(byPeriod, p, "SL_TOTAL_LIABILITIES");
-    const tcl = getVal(byPeriod, p, "TOTAL_CURRENT_LIABILITIES") ?? getVal(byPeriod, p, "SL_TOTAL_CURRENT_LIABILITIES");
-    return tl != null && tcl != null ? tl - tcl : null;
-  });
 
   const commonStock = getVals(byPeriod, periods, "SL_COMMON_STOCK");
   const paidInCapital = getVals(byPeriod, periods, "SL_PAID_IN_CAPITAL");
   const retainedEarnings = getVals(byPeriod, periods, "SL_RETAINED_EARNINGS");
-  const totalEquity = getVals(byPeriod, periods, "SL_TOTAL_EQUITY");
+
+  // For S-corp tax returns, Schedule L Retained Earnings (M2 EOY) IS total equity.
+  // Derive if SL_TOTAL_EQUITY is not directly stored.
+  const totalEquity = deriveValues(periods, (p) => {
+    const direct = getVal(byPeriod, p, "SL_TOTAL_EQUITY");
+    if (direct != null) return direct;
+    // S-corp fallback: retained earnings = total equity
+    return getVal(byPeriod, p, "SL_RETAINED_EARNINGS");
+  });
+
+  // Derive total liabilities when not directly stored
+  const totalLiabilities = deriveValues(periods, (p) => {
+    const direct = getVal(byPeriod, p, "SL_TOTAL_LIABILITIES");
+    if (direct != null) return direct;
+    const ta = getVal(byPeriod, p, "SL_TOTAL_ASSETS");
+    const eq = totalEquity[periods.indexOf(p)];
+    return ta != null && eq != null ? ta - eq : null;
+  });
+
+  const totalNonCurrentLiab = deriveValues(periods, (p) => {
+    const tl = totalLiabilities[periods.indexOf(p)];
+    const tcl = getVal(byPeriod, p, "TOTAL_CURRENT_LIABILITIES") ?? getVal(byPeriod, p, "SL_TOTAL_CURRENT_LIABILITIES");
+    return tl != null && tcl != null ? tl - tcl : null;
+  });
 
   const workingCapital = sub(totalCurrentAssets, totalCurrentLiab);
   const tangNetWorth = deriveValues(periods, (p) => {
-    const eq = getVal(byPeriod, p, "SL_TOTAL_EQUITY");
+    const eq = totalEquity[periods.indexOf(p)];
     const intg = getVal(byPeriod, p, "SL_INTANGIBLES_NET") ?? 0;
     return eq != null ? eq - intg : null;
   });
@@ -568,6 +585,22 @@ function buildExecutiveSummary(
   const totalAssets = getVals(byPeriod, periods, "SL_TOTAL_ASSETS");
   const revenue = getValsFallback(byPeriod, periods, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
 
+  // S-corp fallback: retained earnings = total equity when SL_TOTAL_EQUITY missing
+  const totalEquity = deriveValues(periods, (p) => {
+    const direct = getVal(byPeriod, p, "SL_TOTAL_EQUITY");
+    if (direct != null) return direct;
+    return getVal(byPeriod, p, "SL_RETAINED_EARNINGS");
+  });
+
+  // Derive total liabilities when not directly stored
+  const totalLiabilities = deriveValues(periods, (p) => {
+    const direct = getVal(byPeriod, p, "SL_TOTAL_LIABILITIES");
+    if (direct != null) return direct;
+    const ta = getVal(byPeriod, p, "SL_TOTAL_ASSETS");
+    const eq = totalEquity[periods.indexOf(p)];
+    return ta != null && eq != null ? ta - eq : null;
+  });
+
   return {
     assets: [
       { label: "Cash & Equivalents", indent: 1, isBold: false, values: getVals(byPeriod, periods, "SL_CASH"), showPct: true, pctBase: totalAssets },
@@ -583,8 +616,8 @@ function buildExecutiveSummary(
     liabilitiesAndNetWorth: [
       { label: "TOTAL CURRENT LIABILITIES", indent: 0, isBold: true, values: getValsFallback(byPeriod, periods, "TOTAL_CURRENT_LIABILITIES", "SL_TOTAL_CURRENT_LIABILITIES"), showPct: true, pctBase: totalAssets },
       { label: "Long-Term Debt", indent: 1, isBold: false, values: getVals(byPeriod, periods, "SL_MORTGAGES_NOTES_BONDS"), showPct: true, pctBase: totalAssets },
-      { label: "TOTAL LIABILITIES", indent: 0, isBold: true, values: getVals(byPeriod, periods, "SL_TOTAL_LIABILITIES"), showPct: true, pctBase: totalAssets },
-      { label: "TOTAL NET WORTH", indent: 0, isBold: true, values: getVals(byPeriod, periods, "SL_TOTAL_EQUITY"), showPct: true, pctBase: totalAssets },
+      { label: "TOTAL LIABILITIES", indent: 0, isBold: true, values: totalLiabilities, showPct: true, pctBase: totalAssets },
+      { label: "TOTAL NET WORTH", indent: 0, isBold: true, values: totalEquity, showPct: true, pctBase: totalAssets },
       { label: "TOTAL LIABILITIES & NET WORTH", indent: 0, isBold: true, values: totalAssets, showPct: true, pctBase: totalAssets },
     ],
     incomeStatement: [
