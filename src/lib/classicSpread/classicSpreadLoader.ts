@@ -280,9 +280,19 @@ function buildIncomeStatementRows(
   const officerComp = getVals(byPeriod, periods, "OFFICER_COMPENSATION");
   const depreciation = getVals(byPeriod, periods, "DEPRECIATION");
   const interestExpense = getVals(byPeriod, periods, "INTEREST_EXPENSE");
-  const totalOpex = getVals(byPeriod, periods, "TOTAL_OPERATING_EXPENSES");
+  const totalOpex = deriveValues(periods, (p) => {
+    const direct = getVal(byPeriod, p, "TOTAL_OPERATING_EXPENSES");
+    if (direct != null) return direct;
+    // Derive from known components when not directly stored (tax return years)
+    const components = [
+      "DEPRECIATION", "INTEREST_EXPENSE", "OFFICER_COMPENSATION",
+      "SALARIES_WAGES_IS", "REPAIRS_MAINTENANCE_IS", "INSURANCE_EXPENSE_IS",
+      "ADVERTISING_IS", "OTHER_OPERATING_EXPENSES_IS",
+    ].reduce((sum, k) => sum + (getVal(byPeriod, p, k) ?? 0), 0);
+    return components > 0 ? components : null;
+  });
   const otherOpex = deriveValues(periods, (p) => {
-    const tot = getVal(byPeriod, p, "TOTAL_OPERATING_EXPENSES");
+    const tot = totalOpex[periods.indexOf(p)];
     const known =
       (getVal(byPeriod, p, "OFFICER_COMPENSATION") ?? 0) +
       (getVal(byPeriod, p, "DEPRECIATION") ?? 0) +
@@ -290,7 +300,6 @@ function buildIncomeStatementRows(
     return tot != null ? tot - known : null;
   });
 
-  const operatingIncome = getValsFallback(byPeriod, periods, "OPERATING_INCOME");
   const netOpProfit = deriveValues(periods, (p) => {
     const oi = getVal(byPeriod, p, "OPERATING_INCOME");
     if (oi != null) return oi;
@@ -298,7 +307,7 @@ function buildIncomeStatementRows(
       ((getVal(byPeriod, p, "GROSS_RECEIPTS") ?? getVal(byPeriod, p, "TOTAL_REVENUE") ?? getVal(byPeriod, p, "TOTAL_INCOME")) != null
         ? (getVal(byPeriod, p, "GROSS_RECEIPTS") ?? getVal(byPeriod, p, "TOTAL_REVENUE") ?? getVal(byPeriod, p, "TOTAL_INCOME"))! - (getVal(byPeriod, p, "COST_OF_GOODS_SOLD") ?? 0)
         : null);
-    const opex = getVal(byPeriod, p, "TOTAL_OPERATING_EXPENSES");
+    const opex = totalOpex[periods.indexOf(p)];
     return gp != null && opex != null ? gp - opex : null;
   });
 

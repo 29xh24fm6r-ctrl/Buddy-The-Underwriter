@@ -24,7 +24,7 @@ const COL_WIDTH_PCT = 30;
 const ROW_HEIGHT = 12;
 const PAGE_MARGIN = 36;
 const HEADER_HEIGHT = 56;
-const FOOTER_HEIGHT = 36;
+const FOOTER_HEIGHT = 50;
 
 const DOUBLE_RULE_LABELS = new Set([
   "TOTAL ASSETS",
@@ -131,16 +131,16 @@ function drawPageFooter(s: DocState) {
   doc.moveTo(PAGE_MARGIN, footerTop).lineTo(rightEdge, footerTop).lineWidth(0.3).stroke("#999999");
 
   doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#666666");
-  doc.text(`Page ${s.pageNum}`, PAGE_MARGIN, footerTop + 6, { width: 100 });
-  doc.text("Buddy The Underwriter", rightEdge - 160, footerTop + 6, { width: 160, align: "right" });
+  doc.text(`Page ${s.pageNum}`, PAGE_MARGIN, footerTop + 6, { width: 100, lineBreak: false });
+  doc.text("Buddy The Underwriter", rightEdge - 160, footerTop + 6, { width: 160, align: "right", lineBreak: false });
 
   let naicsLine = input.companyName;
   if (input.naicsCode) {
     naicsLine += `          NAICS ${input.naicsCode}`;
     if (input.naicsDescription) naicsLine += ` \u2014 ${input.naicsDescription}`;
   }
-  doc.text(naicsLine, PAGE_MARGIN, footerTop + 16, { width: rightEdge - PAGE_MARGIN });
-  doc.text("Confidential \u2014 For Internal Use Only", PAGE_MARGIN, footerTop + 26, { width: rightEdge - PAGE_MARGIN, align: "center" });
+  doc.text(naicsLine, PAGE_MARGIN, footerTop + 16, { width: rightEdge - PAGE_MARGIN, lineBreak: false });
+  doc.text("Confidential \u2014 For Internal Use Only", PAGE_MARGIN, footerTop + 26, { width: rightEdge - PAGE_MARGIN, align: "center", lineBreak: false });
 
   doc.fillColor("#000000"); // reset
 }
