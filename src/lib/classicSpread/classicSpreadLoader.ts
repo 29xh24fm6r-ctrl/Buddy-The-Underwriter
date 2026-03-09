@@ -614,7 +614,7 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
       .not("fact_value_num", "is", null),
     sb
       .from("deals")
-      .select("id, name, bank_id, naics_code, naics_description")
+      .select("id, name, borrower_name, bank_id")
       .eq("id", dealId)
       .maybeSingle(),
     // We'll get the bank name after we have the bank_id
@@ -622,7 +622,7 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
   ]);
 
   if (factsRes.error) throw new Error(`facts_query_failed: ${factsRes.error.message}`);
-  const deal = dealRes.data as { id: string; name: string | null; bank_id: string | null; naics_code: string | null; naics_description: string | null } | null;
+  const deal = dealRes.data as { id: string; name: string | null; borrower_name: string | null; bank_id: string | null } | null;
 
   let bankName = "Bank";
   if (deal?.bank_id) {
@@ -673,10 +673,10 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
 
   return {
     dealId,
-    companyName: deal?.name ?? "Unknown Company",
+    companyName: deal?.borrower_name ?? deal?.name ?? "Unknown Company",
     preparedDate,
-    naicsCode: deal?.naics_code ?? null,
-    naicsDescription: deal?.naics_description ?? null,
+    naicsCode: null,
+    naicsDescription: null,
     bankName,
     periods: statementPeriods,
     balanceSheet: hasBsData ? buildBalanceSheetRows(byPeriod, periods) : [],
