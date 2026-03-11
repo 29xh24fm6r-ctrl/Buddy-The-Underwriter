@@ -160,8 +160,8 @@ export function composeNarratives(input: SpreadOutputInput): ComposedNarratives 
   const trendReport = input.trend_report;
   if (trendReport) {
     // Revenue declining
-    if (trendReport.trendRevenue.direction === "DECLINING") {
-      const revValues = trendReport.trendRevenue.values.filter((v): v is number => v !== null);
+    if (trendReport.trendRevenue?.direction === "DECLINING") {
+      const revValues = (trendReport.trendRevenue?.values ?? []).filter((v): v is number => v !== null);
       if (revValues.length >= 2) {
         const peak = Math.max(...revValues);
         const current = revValues[revValues.length - 1];
@@ -176,8 +176,8 @@ export function composeNarratives(input: SpreadOutputInput): ComposedNarratives 
     }
 
     // Margin compressing
-    if (trendReport.trendGrossMargin.direction === "COMPRESSING") {
-      const marginValues = trendReport.trendGrossMargin.values.filter((v): v is number => v !== null);
+    if (trendReport.trendGrossMargin?.direction === "COMPRESSING") {
+      const marginValues = (trendReport.trendGrossMargin?.values ?? []).filter((v): v is number => v !== null);
       if (marginValues.length >= 2) {
         const prior = marginValues[0];
         const current = marginValues[marginValues.length - 1];
