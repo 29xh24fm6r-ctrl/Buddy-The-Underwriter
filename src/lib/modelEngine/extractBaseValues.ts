@@ -39,5 +39,13 @@ export function extractBaseValues(model: FinancialModel): Record<string, number 
   if (latest.cashflow.cfads !== undefined) baseValues["CFADS"] = latest.cashflow.cfads;
   if (latest.income.interest !== undefined) baseValues["DEBT_SERVICE"] = latest.income.interest;
 
+  // Bridge CFADS → CASH_FLOW_AVAILABLE for metric graph (DSCR numerator).
+  // The registry expects CASH_FLOW_AVAILABLE; fall back to EBITDA if CFADS unavailable.
+  if (latest.cashflow.cfads !== undefined) {
+    baseValues["CASH_FLOW_AVAILABLE"] = latest.cashflow.cfads;
+  } else if (latest.cashflow.ebitda !== undefined) {
+    baseValues["CASH_FLOW_AVAILABLE"] = latest.cashflow.ebitda;
+  }
+
   return baseValues;
 }
