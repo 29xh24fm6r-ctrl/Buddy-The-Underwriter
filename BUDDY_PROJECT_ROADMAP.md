@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 12 Complete — Structure Lab Live**
+**Status: Phase 13 Complete — Risk Signal Grid + Evidence Audit Live**
 
 ---
 
@@ -433,7 +433,8 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | Phase 10 | Deal Command Center (Intelligence tab) | ✅ Complete | #216 |
 | Phase 11 | Financial Intelligence Workspace (Financials tab) | ✅ Complete | #217 |
 | Phase 12 | Structure Lab (Structure tab) | ✅ Complete | #218 |
-| **Phase 13** | **Committee Studio** | **⬅ NEXT** | — |
+| Phase 13 | Risk Signal Grid + Evidence Audit (Risk tab) | ✅ Complete | #219 |
+| **Phase 14** | **Committee Studio** | **⬅ NEXT** | — |
 | PTR Extractor | Form 1040, Sched E/F, 4562, 8825 | 🔴 Not started | — |
 | Re-extraction | v2 prompt re-extraction of existing docs | 🔜 Manual action | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔜 Queued | — |
