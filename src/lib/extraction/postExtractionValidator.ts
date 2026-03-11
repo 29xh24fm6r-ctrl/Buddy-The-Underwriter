@@ -15,6 +15,9 @@ const DOC_TYPE_TO_IRS_FORM: Record<string, IrsFormType> = {
   PARTNERSHIP_RETURN: "FORM_1065",
   CORPORATE_RETURN: "FORM_1120",
   S_CORP_RETURN: "FORM_1120S",
+  PERSONAL_TAX_RETURN: "FORM_1040",
+  INDIVIDUAL_TAX_RETURN: "FORM_1040",
+  SCHEDULE_E: "SCHEDULE_E",
 };
 
 // ── Return type ─────────────────────────────────────────────────────
