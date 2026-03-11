@@ -91,6 +91,7 @@ const C_AND_I: SpreadTemplate = {
     { canonical_key: "COGS", label: "Cost of Goods Sold", category: "cogs" },
     { canonical_key: "GROSS_PROFIT", label: "Gross Profit", category: "revenue" },
     { canonical_key: "TOTAL_OPERATING_EXPENSES", label: "Total Operating Expenses", category: "expense" },
+    { canonical_key: "NET_OPERATING_PROFIT",    label: "Net Operating Profit",      category: "expense" },
     { canonical_key: "EBITDA", label: "EBITDA", category: "ebitda" },
     { canonical_key: "DEPRECIATION", label: "Depreciation Add-back", category: "ebitda" },
     { canonical_key: "cf_qoe_adjustment", label: "QoE Adjustments", category: "ebitda" },

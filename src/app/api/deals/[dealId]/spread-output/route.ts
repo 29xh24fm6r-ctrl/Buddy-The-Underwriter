@@ -14,6 +14,12 @@ import type { FlagEngineInput } from "@/lib/flagEngine/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function toNumSafe(val: unknown): number | null {
+  if (val === null || val === undefined) return null;
+  const n = Number(val);
+  return isFinite(n) ? n : null;
+}
+
 type Ctx = { params: Promise<{ dealId: string }> };
 
 // ---------------------------------------------------------------------------
@@ -68,6 +74,17 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         loadTrendReport(sb, dealId),
         loadFlagEngineInput(sb, dealId),
       ]);
+
+    // Inject ADS from pricing into facts for all years
+    const annualDebtService = toNumSafe(pricingRow.annual_debt_service_est);
+    if (annualDebtService !== null) {
+      for (const year of factsResult.years) {
+        const adsKey = `cf_annual_debt_service_${year}`;
+        if ((factsResult.facts as Record<string, unknown>)[adsKey] == null) {
+          (factsResult.facts as Record<string, unknown>)[adsKey] = annualDebtService;
+        }
+      }
+    }
 
     // Detect deal type
     const dealType: DealType =
@@ -168,6 +185,66 @@ async function loadCanonicalFacts(
       }
     }
 
+    // COGS aliasing: extractor writes COST_OF_GOODS_SOLD; template uses COGS
+    for (const year of Array.from(yearsSet)) {
+      const cogsKey = `COGS_${year}`;
+      if (facts[cogsKey] == null) {
+        const alias = toNum(facts[`COST_OF_GOODS_SOLD_${year}`]);
+        if (alias !== null) facts[cogsKey] = alias;
+      }
+    }
+
+    // Taxes aliasing: template uses TAXES; extractors write TAX_LIABILITY or TAXES_LICENSES
+    for (const year of Array.from(yearsSet)) {
+      const taxKey = `TAXES_${year}`;
+      if (facts[taxKey] == null) {
+        const alias =
+          toNum(facts[`TAX_LIABILITY_${year}`]) ??
+          toNum(facts[`TAXES_LICENSES_${year}`]) ??
+          toNum(facts[`INCOME_TAX_EXPENSE_${year}`]) ??
+          toNum(facts[`TAX_PROVISION_${year}`]);
+        if (alias !== null) facts[taxKey] = alias;
+      }
+    }
+
+    // Interest expense aliasing: handles alternate keys from different form types
+    for (const year of Array.from(yearsSet)) {
+      const ieKey = `INTEREST_EXPENSE_${year}`;
+      if (facts[ieKey] == null) {
+        const alias =
+          toNum(facts[`DEBT_SERVICE_${year}`]) ??
+          toNum(facts[`INTEREST_ON_BUSINESS_INDEBTEDNESS_${year}`]) ??
+          toNum(facts[`INTEREST_PAID_${year}`]);
+        if (alias !== null) facts[ieKey] = alias;
+      }
+    }
+
+    // Gross Profit derivation: derive if not stored
+    for (const year of Array.from(yearsSet)) {
+      const gpKey = `GROSS_PROFIT_${year}`;
+      if (facts[gpKey] == null) {
+        const rev = toNum(facts[`GROSS_RECEIPTS_${year}`]);
+        const cogs = toNum(facts[`COGS_${year}`]) ?? toNum(facts[`COST_OF_GOODS_SOLD_${year}`]);
+        if (rev !== null) {
+          facts[gpKey] = rev - (cogs ?? 0);
+        }
+      }
+    }
+
+    // Net Operating Profit derivation: GP - Total OpEx
+    for (const year of Array.from(yearsSet)) {
+      const nopKey = `NET_OPERATING_PROFIT_${year}`;
+      if (facts[nopKey] == null) {
+        const grossProfit = toNum(facts[`GROSS_PROFIT_${year}`]);
+        const totalOpEx =
+          toNum(facts[`TOTAL_OPERATING_EXPENSES_${year}`]) ??
+          toNum(facts[`TOTAL_DEDUCTIONS_${year}`]);
+        if (grossProfit !== null && totalOpEx !== null) {
+          facts[nopKey] = grossProfit - totalOpEx;
+        }
+      }
+    }
+
     // EBITDA derivation: not stored as a fact — derive per year.
     // Formula: OBI (or NET_INCOME) + DEPRECIATION + INTEREST_EXPENSE
     for (const year of Array.from(yearsSet)) {
@@ -182,14 +259,28 @@ async function loadCanonicalFacts(
       }
     }
 
-    // cf_ncads aliasing: template key → snapshot key
-    // The 3-pass pricing pipeline persists cash_flow_available;
-    // alias it so the spread template can find it.
+    // cf_ncads derivation: EBITDA as simplified NCADS (Phase 1)
+    // QoE and owner add-backs are $0 until QoE engine runs
     for (const year of Array.from(yearsSet)) {
       const ncadsKey = `cf_ncads_${year}`;
       if (facts[ncadsKey] == null) {
         const alias = toNum(facts[`CASH_FLOW_AVAILABLE_${year}`]);
-        if (alias !== null) facts[ncadsKey] = alias;
+        if (alias !== null) {
+          facts[ncadsKey] = alias;
+        } else {
+          // Fallback: use EBITDA as simplified NCADS
+          const ebitda = toNum(facts[`EBITDA_${year}`]);
+          if (ebitda !== null) facts[ncadsKey] = ebitda;
+        }
+      }
+    }
+
+    // cf_ebitda_adjusted: EBITDA + QoE adjustments (seed as EBITDA base)
+    for (const year of Array.from(yearsSet)) {
+      const adjKey = `cf_ebitda_adjusted_${year}`;
+      if (facts[adjKey] == null) {
+        const ebitda = toNum(facts[`EBITDA_${year}`]);
+        if (ebitda !== null) facts[adjKey] = ebitda;
       }
     }
 
