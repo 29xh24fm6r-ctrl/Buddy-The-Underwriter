@@ -264,8 +264,17 @@ export function buildFinancialModel(
 function deriveComputedValues(period: FinancialPeriod): void {
   const { income, balance, cashflow } = period;
 
-  // EBITDA = revenue - cogs - operatingExpenses (+ depreciation add-back)
-  if (income.revenue !== undefined) {
+  // EBITDA derivation — prefer netIncome-based formula.
+  // When operatingExpenses comes from TOTAL_DEDUCTIONS (tax returns), it
+  // already includes depreciation and interest, so the old formula
+  // (revenue - cogs - opex + depr) missed the interest add-back.
+  // Correct formula: netIncome + depreciation + interest.
+  if (income.netIncome !== undefined) {
+    const dep = income.depreciation ?? 0;
+    const ie  = income.interest ?? 0;
+    cashflow.ebitda = income.netIncome + dep + ie;
+  } else if (income.revenue !== undefined) {
+    // Fallback when no netIncome: use revenue - cogs - opex + depr
     const cogs = income.cogs ?? 0;
     const opex = income.operatingExpenses ?? 0;
     const depr = income.depreciation ?? 0;

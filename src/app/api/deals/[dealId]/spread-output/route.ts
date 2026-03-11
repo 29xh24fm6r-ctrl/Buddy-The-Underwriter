@@ -8,6 +8,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { composeSpreadOutput } from "@/lib/spreadOutput/spreadOutputComposer";
 import { detectDealType } from "@/lib/spreadOutput/dealTypeDetection";
 import { composeFlagReport } from "@/lib/flagEngine/flagComposer";
+import { computeAuthoritativeEngine } from "@/lib/modelEngine/engineAuthority";
 import type { SpreadOutputInput, DealType } from "@/lib/spreadOutput/types";
 import type { FlagEngineInput } from "@/lib/flagEngine/types";
 
@@ -64,11 +65,21 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     }
     // --- END PRICING GATE ---
 
+    // --- Fix B (PR #212): Run V2 engine for fresh metrics (non-fatal) ---
+    let v2Metrics: Record<string, number | null> | null = null;
+    try {
+      const v2Result = await computeAuthoritativeEngine(dealId, access.bankId);
+      v2Metrics = v2Result.computedMetrics;
+    } catch (v2Err) {
+      console.warn("[spread-output] V2 engine failed (non-fatal), falling back to snapshot",
+        v2Err instanceof Error ? v2Err.message : String(v2Err));
+    }
+
     // Build SpreadOutputInput from DB — parallel queries
     const [factsResult, ratiosResult, dealResult, qoeResult, trendResult, flagInput] =
       await Promise.all([
         loadCanonicalFacts(sb, dealId),
-        loadRatios(sb, dealId),
+        v2Metrics ? Promise.resolve(v2Metrics) : loadRatios(sb, dealId),
         loadDealMeta(sb, dealId),
         loadQoEReport(sb, dealId),
         loadTrendReport(sb, dealId),
@@ -328,16 +339,18 @@ async function loadRatios(
   const ratios: Record<string, number | null> = {};
 
   try {
+    // Fix A (PR #212): Read from deal_model_snapshots.computed_metrics
+    // (deal_truth_snapshots does not exist — was never written to)
     const { data } = await (sb as any)
-      .from("deal_truth_snapshots")
-      .select("truth_json")
+      .from("deal_model_snapshots")
+      .select("computed_metrics")
       .eq("deal_id", dealId)
-      .order("version", { ascending: false })
+      .order("calculated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (data?.truth_json && typeof data.truth_json === "object") {
-      for (const [key, val] of Object.entries(data.truth_json as Record<string, unknown>)) {
+    if (data?.computed_metrics && typeof data.computed_metrics === "object") {
+      for (const [key, val] of Object.entries(data.computed_metrics as Record<string, unknown>)) {
         if (typeof val === "number") ratios[key] = val;
       }
     }

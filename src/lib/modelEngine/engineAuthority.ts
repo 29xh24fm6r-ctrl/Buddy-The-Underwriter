@@ -73,8 +73,8 @@ export async function computeAuthoritativeEngine(
 ): Promise<AuthoritativeResult> {
   const sb = supabaseAdmin();
 
-  // 1. Load canonical facts + deal_mode (parallel)
-  const [factsRes, dealModeRes] = await Promise.all([
+  // 1. Load canonical facts + deal_mode + pricing ADS (parallel)
+  const [factsRes, dealModeRes, pricingRes] = await Promise.all([
     (sb as any)
       .from("deal_financial_facts")
       .select("*")
@@ -85,6 +85,14 @@ export async function computeAuthoritativeEngine(
       .from("deals")
       .select("deal_mode")
       .eq("id", dealId)
+      .maybeSingle(),
+    (sb as any)
+      .from("deal_structural_pricing")
+      .select("annual_debt_service_est")
+      .eq("deal_id", dealId)
+      .eq("bank_id", bankId)
+      .order("computed_at", { ascending: false })
+      .limit(1)
       .maybeSingle(),
   ]);
 
@@ -101,6 +109,18 @@ export async function computeAuthoritativeEngine(
   // 3. Evaluate metric graph (audit mode — captures dependency graph)
   const metricDefs = await loadMetricRegistry(sb, "v1");
   const baseValues = extractBaseValues(financialModel);
+
+  // Fix D (PR #212): Inject ADS from pricing so DSCR can be computed
+  const adsEst = pricingRes?.data?.annual_debt_service_est;
+  if (adsEst != null) {
+    const adsNum = Number(adsEst);
+    if (isFinite(adsNum) && adsNum > 0) {
+      // DEBT_SERVICE in baseValues is interest expense from income statement.
+      // ANNUAL_DEBT_SERVICE is the actual loan payment for DSCR denominator.
+      baseValues["ANNUAL_DEBT_SERVICE"] = adsNum;
+    }
+  }
+
   const auditResult = evaluateMetricGraphWithAudit(metricDefs, baseValues);
   const computedMetrics = auditResult.values;
   const dependencyGraph = auditResult.dependencyGraph;
