@@ -271,6 +271,7 @@ export default function DealShell({
     { label: "Structure", href: `${base}/structure` },
     { label: "Risk", href: `${base}/risk` },
     { label: "Relationship", href: `${base}/relationship` },
+    { label: "Committee", href: `${base}/committee-studio` },
     { label: "Borrower", href: `${base}/borrower` },
     { label: "Portal", href: `${base}/portal-inbox` },
   ];
