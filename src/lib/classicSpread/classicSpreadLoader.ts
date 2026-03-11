@@ -5,6 +5,7 @@ import type {
   CashFlowRow,
   ClassicSpreadInput,
   FinancialRow,
+  GlobalCashFlowSection,
   RatioRow,
   RatioSection,
   StatementPeriod,
@@ -1045,6 +1046,135 @@ function deriveAuditMethod(
 }
 
 // ---------------------------------------------------------------------------
+// Global Cash Flow Section
+// ---------------------------------------------------------------------------
+
+async function buildGlobalCashFlowSection(
+  dealId: string,
+): Promise<GlobalCashFlowSection | null> {
+  const sb = supabaseAdmin();
+
+  // Read GCF-related facts
+  const { data: gcfFacts } = await (sb as any)
+    .from("deal_financial_facts")
+    .select("fact_key, fact_value_num, owner_type, owner_entity_id, fact_period_end")
+    .eq("deal_id", dealId)
+    .in("fact_key", [
+      "GCF_GLOBAL_CASH_FLOW",
+      "GCF_DSCR",
+      "GLOBAL_CASH_FLOW",
+      "ANNUAL_DEBT_SERVICE_PROPOSED",
+      "ANNUAL_DEBT_SERVICE",
+      "TOTAL_PERSONAL_INCOME",
+      "CASH_FLOW_AVAILABLE",
+      "NOI_TTM",
+      "EBITDA",
+    ]);
+
+  const facts = (gcfFacts ?? []) as Array<{
+    fact_key: string;
+    fact_value_num: number | null;
+    owner_type: string | null;
+    owner_entity_id: string | null;
+    fact_period_end: string | null;
+  }>;
+
+  // Helper to find a fact value
+  function findFact(key: string, ownerType?: string): number | null {
+    const match = facts.find((f) => {
+      if (f.fact_key !== key) return false;
+      if (ownerType && f.owner_type !== ownerType) return false;
+      return true;
+    });
+    return match?.fact_value_num ?? null;
+  }
+
+  const globalCashFlow =
+    findFact("GCF_GLOBAL_CASH_FLOW") ?? findFact("GLOBAL_CASH_FLOW");
+  const globalDscr = findFact("GCF_DSCR");
+  const entityCashFlowAvailable =
+    findFact("CASH_FLOW_AVAILABLE") ??
+    findFact("NOI_TTM") ??
+    findFact("EBITDA");
+  const proposedDebtService =
+    findFact("ANNUAL_DEBT_SERVICE_PROPOSED") ??
+    findFact("ANNUAL_DEBT_SERVICE");
+
+  // If we have no GCF data at all, skip the page
+  const hasAnyData =
+    globalCashFlow != null ||
+    entityCashFlowAvailable != null ||
+    facts.some((f) => f.fact_key === "TOTAL_PERSONAL_INCOME");
+  if (!hasAnyData) return null;
+
+  // Count operating entities
+  const { data: entityRows } = await (sb as any)
+    .from("deal_entities")
+    .select("id, name, entity_kind")
+    .eq("deal_id", dealId)
+    .in("entity_kind", ["OPCO", "PROPCO", "HOLDCO"]);
+  const entityCount = (entityRows ?? []).length;
+
+  // Build sponsor list from personal income facts
+  const personalFacts = facts.filter(
+    (f) => f.fact_key === "TOTAL_PERSONAL_INCOME" && f.owner_type === "PERSONAL",
+  );
+
+  // Load sponsor display names
+  const sponsorEntityIds = personalFacts
+    .map((f) => f.owner_entity_id)
+    .filter(Boolean) as string[];
+
+  let sponsorNames = new Map<string, string>();
+  if (sponsorEntityIds.length > 0) {
+    const { data: sponsorRows } = await (sb as any)
+      .from("deal_entities")
+      .select("id, name")
+      .in("id", sponsorEntityIds);
+    for (const r of sponsorRows ?? []) {
+      sponsorNames.set(r.id as string, (r.name ?? "Guarantor") as string);
+    }
+  }
+
+  const sponsors = personalFacts.map((f, i) => ({
+    entityId: f.owner_entity_id ?? `unknown-${i}`,
+    displayName:
+      sponsorNames.get(f.owner_entity_id ?? "") ?? `Guarantor ${i + 1}`,
+    personalCashAvailable: f.fact_value_num,
+  }));
+
+  // Derive tax year from most recent fact period
+  let taxYear: number | null = null;
+  for (const f of facts) {
+    if (f.fact_period_end) {
+      const y = parseInt(f.fact_period_end.slice(0, 4), 10);
+      if (!isNaN(y) && y > 2000 && (taxYear === null || y > taxYear)) {
+        taxYear = y;
+      }
+    }
+  }
+
+  // Coverage status
+  let coverageStatus: GlobalCashFlowSection["coverageStatus"] = "UNKNOWN";
+  if (globalDscr != null) {
+    if (globalDscr >= 1.25) coverageStatus = "ADEQUATE";
+    else if (globalDscr >= 1.0) coverageStatus = "TIGHT";
+    else coverageStatus = "DEFICIT";
+  }
+
+  return {
+    taxYear,
+    entityCashFlowAvailable,
+    entityCount,
+    sponsors,
+    globalCashFlow,
+    proposedAnnualDebtService: proposedDebtService,
+    globalDscr,
+    coverageStatus,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Main Loader
 // ---------------------------------------------------------------------------
 
@@ -1123,6 +1253,9 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
   // Cash flow periods exclude the first period (need prior for deltas)
   const cfPeriods = periods.length >= 2 ? statementPeriods : [];
 
+  // Global cash flow section (Phase 18 facts → Phase 19 PDF page)
+  const globalCashFlow = await buildGlobalCashFlowSection(dealId);
+
   return {
     dealId,
     companyName: deal?.borrower_name ?? deal?.name ?? "Unknown Company",
@@ -1136,6 +1269,7 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
     cashFlow: cashFlowRows,
     cashFlowPeriods: cfPeriods,
     ratioSections: buildRatioSections(byPeriod, periods, cashFlowRows),
+    globalCashFlow,
     executiveSummary: buildExecutiveSummary(byPeriod, periods),
   };
 }

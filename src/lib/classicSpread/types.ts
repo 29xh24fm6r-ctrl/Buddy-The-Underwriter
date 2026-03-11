@@ -36,6 +36,23 @@ export type RatioSection = {
   rows: RatioRow[];
 };
 
+export type GlobalCashFlowSponsor = {
+  entityId: string;
+  displayName: string;
+  personalCashAvailable: number | null;
+};
+
+export type GlobalCashFlowSection = {
+  taxYear: number | null;
+  entityCashFlowAvailable: number | null;
+  entityCount: number;
+  sponsors: GlobalCashFlowSponsor[];
+  globalCashFlow: number | null;
+  proposedAnnualDebtService: number | null;
+  globalDscr: number | null;
+  coverageStatus: "ADEQUATE" | "TIGHT" | "DEFICIT" | "UNKNOWN";
+};
+
 export type ClassicSpreadInput = {
   // Deal metadata
   dealId: string;
@@ -58,6 +75,9 @@ export type ClassicSpreadInput = {
 
   // Ratios
   ratioSections: RatioSection[];
+
+  // Global cash flow (entity + personal aggregation)
+  globalCashFlow: GlobalCashFlowSection | null;
 
   // Executive summary (combined BS + IS condensed)
   executiveSummary: {
