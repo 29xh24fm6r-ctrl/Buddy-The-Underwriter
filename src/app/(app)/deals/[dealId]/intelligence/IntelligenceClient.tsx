@@ -1,8 +1,11 @@
 "use client";
 
+import { useState, useEffect, useCallback } from "react";
 import { useSpreadOutput } from "@/hooks/useSpreadOutput";
 import { useFinancialSnapshot } from "@/hooks/useFinancialSnapshot";
 import Link from "next/link";
+import type { DscrReconciliationResult } from "@/lib/financialIntelligence/dscrReconciliation";
+import type { SpreadCompletenessResult } from "@/lib/financialIntelligence/spreadCompletenessScore";
 
 // ─── Formatting helpers ────────────────────────────────────────────────────
 
@@ -149,6 +152,78 @@ function EvidenceChip({
   );
 }
 
+// ─── DSCR card ────────────────────────────────────────────────────────────
+
+function DscrCard({
+  label,
+  value,
+  isGoverning,
+}: {
+  label: string;
+  value: number | null;
+  isGoverning: boolean;
+}) {
+  const highlight =
+    value == null
+      ? null
+      : value >= 1.25
+      ? "good"
+      : value >= 1.0
+      ? "elevated"
+      : "critical";
+
+  const borderColor =
+    highlight === "critical"
+      ? "border-rose-500/50"
+      : highlight === "elevated"
+      ? "border-amber-500/50"
+      : highlight === "good"
+      ? "border-emerald-500/40"
+      : "border-white/10";
+
+  return (
+    <div
+      className={`bg-white/5 border ${borderColor} rounded-lg px-4 py-3 flex flex-col gap-0.5`}
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] uppercase tracking-wide text-white/50">
+          {label}
+        </span>
+        {isGoverning && (
+          <span className="rounded-full bg-primary/20 border border-primary/30 px-1.5 py-0.5 text-[9px] font-semibold text-primary uppercase">
+            Governs
+          </span>
+        )}
+      </div>
+      <span className="text-white font-semibold text-xl leading-tight">
+        {value != null ? `${value.toFixed(2)}x` : "—"}
+      </span>
+    </div>
+  );
+}
+
+// ─── Section progress bar ─────────────────────────────────────────────────
+
+function SectionBar({ label, score }: { label: string; score: number }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] text-white/50">{label}</span>
+        <span className="text-[10px] font-medium text-white/70">{score}%</span>
+      </div>
+      <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+        <div
+          className={[
+            "h-full rounded-full",
+            score >= 80 ? "bg-emerald-500" : score >= 50 ? "bg-amber-500" : "bg-rose-500",
+          ].join(" ")}
+          style={{ width: `${score}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ────────────────────────────────────────────────────────
 
 type Props = {
@@ -168,6 +243,25 @@ export default function IntelligenceClient({
 }: Props) {
   const { data: spread, loading: spreadLoading, pricingRequired } = useSpreadOutput(dealId);
   const { data: snapshot } = useFinancialSnapshot(dealId);
+
+  // Spread intelligence (DSCR reconciliation + completeness)
+  const [dscrRecon, setDscrRecon] = useState<DscrReconciliationResult | null>(null);
+  const [spreadCompleteness, setSpreadCompleteness] = useState<SpreadCompletenessResult | null>(null);
+
+  const loadSpreadIntel = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/deals/${dealId}/spread-intelligence`, { cache: "no-store" });
+      const json = await res.json();
+      if (json?.ok) {
+        setDscrRecon(json.dscr ?? null);
+        setSpreadCompleteness(json.completeness ?? null);
+      }
+    } catch {
+      // non-critical
+    }
+  }, [dealId]);
+
+  useEffect(() => { loadSpreadIntel(); }, [loadSpreadIntel]);
 
   // ── Derived values ────────────────────────────────────────────────────────
 
@@ -451,6 +545,166 @@ export default function IntelligenceClient({
             <MetricCell label="Current Ratio" value={snapCurrentRatio != null ? `${snapCurrentRatio.toFixed(2)}x` : "—"} context="Liquidity" />
             <MetricCell label="Working Capital" value={fmtDollars(snapWorkingCapital)} context="BS derived" />
           </div>
+        </div>
+      )}
+
+      {/* ── Panel F: DSCR Triangle ─────────────────────────────────────── */}
+      {dscrRecon ? (
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-white/40 mb-2">
+            DSCR Triangle
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+            <DscrCard
+              label="Entity DSCR"
+              value={dscrRecon.dscrTriangle.entity}
+              isGoverning={dscrRecon.covenantTestingDscr === "ENTITY"}
+            />
+            <DscrCard
+              label="UCA DSCR"
+              value={dscrRecon.dscrTriangle.uca}
+              isGoverning={dscrRecon.covenantTestingDscr === "UCA"}
+            />
+            <DscrCard
+              label="Global DSCR"
+              value={dscrRecon.dscrTriangle.global}
+              isGoverning={dscrRecon.covenantTestingDscr === "GLOBAL"}
+            />
+          </div>
+
+          {/* Variance explanation */}
+          <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 mb-3">
+            <p className="text-sm text-white/70 leading-relaxed">
+              {dscrRecon.varianceExplanation}
+            </p>
+            <p className="mt-2 text-xs text-white/50">
+              {dscrRecon.covenantRationale}
+            </p>
+          </div>
+
+          {/* Flags */}
+          {dscrRecon.flags.length > 0 && (
+            <div className="space-y-2">
+              {dscrRecon.flags.map((flag, i) => (
+                <div
+                  key={i}
+                  className={[
+                    "rounded-r-lg px-4 py-2 text-sm",
+                    flag.severity === "FLAG"
+                      ? "border-l-2 border-rose-500 bg-rose-950/20 text-rose-300"
+                      : flag.severity === "CAUTION"
+                      ? "border-l-2 border-amber-500 bg-amber-950/20 text-amber-300"
+                      : "border-l-2 border-blue-500/50 bg-blue-950/20 text-blue-300",
+                  ].join(" ")}
+                >
+                  {flag.message}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3">
+          <div className="text-[10px] uppercase tracking-wide text-white/40 mb-1">
+            DSCR Triangle
+          </div>
+          <p className="text-sm text-white/50">
+            Re-save pricing to compute DSCR values.
+          </p>
+        </div>
+      )}
+
+      {/* ── Panel G: Spread Completeness Score ─────────────────────────── */}
+      {spreadCompleteness && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-white/40 mb-2">
+            Spread Completeness
+          </div>
+
+          {/* Grade + Score header */}
+          <div className="flex items-center gap-4 mb-3">
+            <div
+              className={[
+                "flex h-16 w-16 items-center justify-center rounded-xl border-2 text-2xl font-bold",
+                spreadCompleteness.grade === "A"
+                  ? "border-emerald-500/50 bg-emerald-950/20 text-emerald-400"
+                  : spreadCompleteness.grade === "B"
+                  ? "border-blue-500/50 bg-blue-950/20 text-blue-400"
+                  : spreadCompleteness.grade === "C"
+                  ? "border-amber-500/50 bg-amber-950/20 text-amber-400"
+                  : spreadCompleteness.grade === "D"
+                  ? "border-orange-500/50 bg-orange-950/20 text-orange-400"
+                  : "border-rose-500/50 bg-rose-950/20 text-rose-400",
+              ].join(" ")}
+            >
+              {spreadCompleteness.grade}
+            </div>
+            <div>
+              <div className="text-xl font-semibold text-white">
+                {spreadCompleteness.overallScore}%
+              </div>
+              <div className="text-xs text-white/50">Overall completeness</div>
+            </div>
+            {/* Score bar */}
+            <div className="flex-1 max-w-[200px]">
+              <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className={[
+                    "h-full rounded-full transition-all",
+                    spreadCompleteness.overallScore >= 80
+                      ? "bg-emerald-500"
+                      : spreadCompleteness.overallScore >= 60
+                      ? "bg-amber-500"
+                      : "bg-rose-500",
+                  ].join(" ")}
+                  style={{ width: `${spreadCompleteness.overallScore}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Below minimum standard warning */}
+          {!spreadCompleteness.meetsMinimumStandard && (
+            <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-300">
+              Spread does not meet minimum standard for committee submission.
+            </div>
+          )}
+
+          {/* Section progress bars */}
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 mb-3">
+            <SectionBar label="Balance Sheet" score={spreadCompleteness.sections.balanceSheet.score} />
+            <SectionBar label="Income Stmt" score={spreadCompleteness.sections.incomeStatement.score} />
+            <SectionBar label="Cash Flow" score={spreadCompleteness.sections.cashFlow.score} />
+            <SectionBar label="Ratios" score={spreadCompleteness.sections.ratios.score} />
+            <SectionBar label="Global CF" score={spreadCompleteness.sections.globalCashFlow.score} />
+          </div>
+
+          {/* Top missing fields */}
+          {spreadCompleteness.topMissingFields.length > 0 && (
+            <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3">
+              <div className="text-xs font-medium text-white/50 mb-2">Top Missing Fields</div>
+              <div className="space-y-1.5">
+                {spreadCompleteness.topMissingFields.slice(0, 3).map((f) => (
+                  <div key={f.key} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={[
+                          "inline-block h-1.5 w-1.5 rounded-full",
+                          f.impact === "HIGH"
+                            ? "bg-rose-400"
+                            : f.impact === "MEDIUM"
+                            ? "bg-amber-400"
+                            : "bg-white/30",
+                        ].join(" ")}
+                      />
+                      <span className="text-white/70">{f.label}</span>
+                    </div>
+                    <span className="text-xs text-white/40">{f.remediation}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
