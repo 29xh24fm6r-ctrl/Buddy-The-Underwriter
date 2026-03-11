@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 15 Complete — Committee Studio Live — COS Core UI Phases Complete**
+**Status: Phase 16 Complete — PTR Extractor Live**
 
 ---
 
@@ -386,7 +386,8 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 15. ✅ UCA Cash Flow statement in PDF
 16. ✅ Expanded MMAS ratio set (liquidity, leverage, coverage, profitability, activity, growth)
 17. ✅ AI narrative engine (optional, graceful fallback)
-18. 🔜 Banker experience — opens a spread, trusts every number, focuses on credit
+18. ✅ Personal tax return extraction with IRS identity validation (Phase 16)
+19. 🔜 Banker experience — opens a spread, trusts every number, focuses on credit
     (this one is never fully done — it's the ongoing standard)
 
 ---
@@ -436,8 +437,8 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | Phase 13 | Risk Signal Grid + Evidence Audit (Risk tab) | ✅ Complete | #219 |
 | Phase 14 | Relationship Wallet (Relationship tab) | ✅ Complete | #220 |
 | Phase 15 | Committee Studio (Committee tab) | ✅ Complete | #221 |
-| **Phase 16** | **TBD** | **⬅ NEXT** | — |
-| PTR Extractor | Form 1040, Sched E/F, 4562, 8825 | 🔴 Not started | — |
+| Phase 16 | Personal Tax Return Extractor (Form 1040 + Schedule E) | ✅ Complete | #222 |
+| **Phase 17** | **TBD** | **⬅ NEXT** | — |
 | Re-extraction | v2 prompt re-extraction of existing docs | 🔜 Manual action | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔜 Queued | — |
 | Observability | Telemetry pipeline activation | 🔜 Queued | — |

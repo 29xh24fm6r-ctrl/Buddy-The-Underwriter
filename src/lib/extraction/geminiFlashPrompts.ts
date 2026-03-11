@@ -140,27 +140,84 @@ function buildPersonalTaxReturnPrompt(ocrText: string): StructuredAssistPrompt {
     promptVersion: PROMPT_VERSION,
     systemInstruction: SYSTEM_PREFIX,
     userPrompt:
-      "Extract the following fields from this personal tax return (Form 1040) document.\n\n" +
-      "Monetary fields (use entities array):\n" +
-      "- wages_w2 (Wages, salaries, tips - Line 1)\n" +
-      "- interest_income (Taxable interest - Line 2b)\n" +
-      "- dividend_income (Ordinary dividends - Line 3b)\n" +
-      "- capital_gains (Capital gain or loss - Line 7)\n" +
-      "- business_income_schedule_c (Business income/loss - Schedule C net)\n" +
-      "- rental_income (Rental real estate, royalties - Schedule E)\n" +
-      "- k1_ordinary_income (Partnership/S-Corp income from K-1)\n" +
-      "- social_security (Social security benefits - Line 6a/6b)\n" +
-      "- ira_distributions (IRA distributions - Line 4a/4b)\n" +
-      "- total_income (Total income - Line 9)\n" +
-      "- adjusted_gross_income (AGI - Line 11)\n" +
-      "- taxable_income (Taxable income - Line 15)\n" +
-      "- standard_deduction\n" +
-      "- itemized_deductions\n\n" +
+      "Extract the following fields from this personal tax return package " +
+      "(may include Form 1040 and attached Schedules C, E, F, and Forms 4562 and 8825).\n\n" +
+
+      "Monetary fields (use entities array):\n\n" +
+
+      "FORM 1040 — INCOME:\n" +
+      "- wages_w2 (Line 1a or 1z: Total wages, salaries, tips from all W-2s)\n" +
+      "- taxable_interest (Line 2b: Taxable interest income)\n" +
+      "- ordinary_dividends (Line 3b: Ordinary dividends)\n" +
+      "- qualified_dividends (Line 3a: Qualified dividends)\n" +
+      "- ira_distributions_taxable (Line 4b: Taxable IRA distributions)\n" +
+      "- pension_annuity_taxable (Line 5b: Taxable pension/annuity distributions)\n" +
+      "- social_security_taxable (Line 6b: Taxable Social Security benefits)\n" +
+      "- capital_gains_total (Line 7: Total capital gain or loss)\n" +
+      "- schedule_c_net_profit (Net profit from Schedule C — sole proprietor business)\n" +
+      "- schedule_e_rental_total (Net income/loss from Schedule E Part I — rentals)\n" +
+      "- k1_ordinary_income (Net income from partnerships/S-corps Schedule E Part II)\n" +
+      "- other_income (Line 8: Other income from Schedule 1 — alimony, gambling, etc.)\n" +
+      "- total_income (Line 9: Total income before adjustments)\n" +
+      "- adjustments_to_income (Schedule 1 Part II total: IRA, student loan, SE health, etc.)\n" +
+      "- adjusted_gross_income (Line 11: AGI)\n" +
+      "- standard_deduction (Line 12a: Standard deduction)\n" +
+      "- itemized_deductions (Schedule A total — if taken instead of standard deduction)\n" +
+      "- qbi_deduction (Line 13: Qualified business income deduction — Section 199A)\n" +
+      "- taxable_income (Line 15: Taxable income)\n" +
+      "- total_tax (Line 24: Total tax)\n\n" +
+
+      "SCHEDULE E PART I — RENTAL REAL ESTATE & ROYALTIES:\n" +
+      "- sch_e_gross_rents_received (Line 3 total across all properties: Total gross rents)\n" +
+      "- sch_e_advertising (Line 5: Advertising)\n" +
+      "- sch_e_auto_travel (Line 6: Auto and travel)\n" +
+      "- sch_e_cleaning_maintenance (Line 7: Cleaning and maintenance)\n" +
+      "- sch_e_commissions (Line 8: Commissions)\n" +
+      "- sch_e_insurance (Line 9: Insurance)\n" +
+      "- sch_e_legal_professional (Line 10: Legal and other professional fees)\n" +
+      "- sch_e_management_fees (Line 11: Management fees)\n" +
+      "- sch_e_mortgage_interest (Line 12: Mortgage interest paid)\n" +
+      "- sch_e_other_interest (Line 13: Other interest)\n" +
+      "- sch_e_repairs (Line 14: Repairs)\n" +
+      "- sch_e_supplies (Line 15: Supplies)\n" +
+      "- sch_e_taxes (Line 16: Taxes)\n" +
+      "- sch_e_utilities (Line 17: Utilities)\n" +
+      "- sch_e_depreciation (Line 18: Depreciation expense or depletion)\n" +
+      "- sch_e_other_expenses (Line 19: Other expenses)\n" +
+      "- sch_e_total_expenses (Line 20: Total expenses per property)\n" +
+      "- sch_e_net_income_loss (Line 22/24/26: Net income or loss — total all properties)\n\n" +
+
+      "SCHEDULE E PART II — PARTNERSHIP / S-CORP INCOME:\n" +
+      "- sch_e_k1_passive_income (Column G: Passive income from partnerships/S-corps)\n" +
+      "- sch_e_k1_nonpassive_income (Column J: Nonpassive income from partnerships/S-corps)\n" +
+      "- sch_e_k1_net_total (Lines 32-34: Total partnership and S-corporation income)\n\n" +
+
+      "FORM 4562 — DEPRECIATION AND AMORTIZATION (if attached):\n" +
+      "- f4562_sec179_elected (Line 1: Section 179 deduction elected this year)\n" +
+      "- f4562_sec179_carryover (Line 13: Carryover of unused Section 179 from prior year)\n" +
+      "- f4562_bonus_depreciation (Line 14: Special depreciation allowance — bonus depr)\n" +
+      "- f4562_macrs_total (Lines 19-26: Total MACRS depreciation)\n" +
+      "- f4562_amortization_total (Part VI Line 42: Total amortization)\n" +
+      "- f4562_total_depreciation_amortization (Line 22: Total depreciation + amortization)\n\n" +
+
+      "FORM 8825 — RENTAL REAL ESTATE (Partnership/S-Corp) (if attached):\n" +
+      "- f8825_total_gross_rents (Line 2 column totals: Total gross rents all properties)\n" +
+      "- f8825_total_expenses (Line 15 totals: Total expenses all properties)\n" +
+      "- f8825_depreciation (Line 14 totals: Total depreciation)\n" +
+      "- f8825_net_income_loss (Line 21: Total net income or loss)\n\n" +
+
       "Non-monetary fields (use formFields array):\n" +
-      "- ssn (Social Security Number, format: XXX-XX-XXXX — redact middle digits if visible)\n" +
-      "- taxpayer_name (Primary taxpayer name)\n" +
-      "- tax_year (e.g. 2023)\n" +
-      "- filing_status (e.g. Single, Married Filing Jointly)\n\n" +
+      "- taxpayer_name (Primary taxpayer full name)\n" +
+      "- spouse_name (Spouse name if filing jointly)\n" +
+      "- ssn_last4 (Last 4 digits of taxpayer SSN only — do NOT extract full SSN)\n" +
+      "- tax_year (Tax year, e.g. 2023)\n" +
+      "- filing_status (Single / Married Filing Jointly / MFS / HoH / QW)\n" +
+      "- sch_c_business_name (Business name from Schedule C if present)\n" +
+      "- sch_e_property_count (Number of rental properties on Schedule E)\n\n" +
+
+      "CRITICAL PRIVACY RULE: Do NOT extract full SSN or full EIN for any individual. " +
+      "Use ssn_last4 (last 4 digits only) for individual identity.\n\n" +
+
       ENTITY_FORMAT_INSTRUCTION +
       "\n\nDocument text:\n" + ocrText,
   };
