@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 20 Complete — Bulk Re-extraction Trigger**
+**Status: Phase 21 Complete — DSCR Reconciliation + Spread Completeness Score**
 
 ---
 
@@ -442,7 +442,8 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | Phase 18 | Global Cash Flow Computation (entity + personal aggregation) | ✅ Complete | #224 |
 | Phase 19 | Global Cash Flow PDF Page (Classic Spread) | ✅ Complete | #225 |
 | Phase 20 | Bulk Re-extraction Trigger (POST + status + UI button) | ✅ Complete | #226 |
-| **Phase 21** | **TBD** | **⬅ NEXT** | — |
+| Phase 21 | DSCR Reconciliation + Spread Completeness Score | ✅ Complete | #227 |
+| **Phase 22** | **TBD** | **⬅ NEXT** | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔜 Queued | — |
 | Observability | Telemetry pipeline activation | 🔜 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔜 Queued | — |
