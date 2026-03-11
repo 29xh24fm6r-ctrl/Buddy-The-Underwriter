@@ -664,6 +664,37 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       });
     }
 
+    // Compute global cash flow (entity + personal income aggregation)
+    try {
+      const { persistGlobalCashFlow } = await import(
+        "@/lib/financialIntelligence/persistGlobalCashFlow"
+      );
+      const gcf = await persistGlobalCashFlow({ dealId, bankId });
+      if (gcf.ok) {
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "gcf.computation.completed",
+          uiState: "done",
+          uiMessage: `Global cash flow: $${gcf.result.globalCashFlowAvailable?.toFixed(0) ?? "n/a"}, DSCR: ${gcf.result.globalDscr?.toFixed(2) ?? "n/a"}x`,
+          meta: {
+            jobId,
+            factsWritten: gcf.factsWritten,
+            globalCashFlowAvailable: gcf.result.globalCashFlowAvailable,
+            globalDscr: gcf.result.globalDscr,
+            entityCount: gcf.result.entities.length,
+            sponsorCount: gcf.result.sponsors.length,
+          },
+        });
+      }
+    } catch (gcfErr: any) {
+      console.warn("[spreadsProcessor] global cash flow failed (non-fatal)", {
+        dealId,
+        jobId,
+        error: gcfErr?.message,
+      });
+    }
+
     // Recompute deal readiness after facts are materialized (non-fatal)
     try {
       const { recomputeDealReady } = await import("@/lib/deals/readiness");
