@@ -444,7 +444,8 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | Phase 20 | Bulk Re-extraction Trigger (POST + status + UI button) | ✅ Complete | #226 |
 | Phase 21 | DSCR Reconciliation + Spread Completeness Score | ✅ Complete | #227 |
 | Phase 22 | Gemini Migration (narrativeEngine + aiJson + creditMemo) | ✅ Complete | #228 |
-| **Phase 23** | **TBD** | **⬅ NEXT** | — |
+| Phase 23 | Gemini Document Classifier (Shadow Mode) | ✅ Complete | #229 |
+| **Phase 24** | **TBD** | **⬅ NEXT** | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔜 Queued | — |
 | Observability | Telemetry pipeline activation | 🔜 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔜 Queued | — |

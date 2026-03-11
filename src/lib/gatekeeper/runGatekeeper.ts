@@ -25,6 +25,7 @@ import {
   getGatekeeperModel,
 } from "./classifyWithOpenAI";
 import { computeGatekeeperRoute, computeNeedsReviewReasonCode } from "./routing";
+import { runClassificationShadow } from "./classificationShadowMode";
 import type {
   GatekeeperDocInput,
   GatekeeperResult,
@@ -149,6 +150,7 @@ export async function runGatekeeperForDocument(
       completion_tokens?: number;
     };
     let inputPath: GatekeeperResult["input_path"];
+    let visionBase64: string | null = null;
 
     if (input.ocrText && input.ocrText.length > 100) {
       // Text path (preferred — cheaper)
@@ -157,8 +159,8 @@ export async function runGatekeeperForDocument(
     } else if (VISION_MIME_TYPES.has(input.mimeType.toLowerCase())) {
       // Vision path for image files
       const fileBytes = await downloadFile(sb, input.storageBucket, input.storagePath);
-      const base64 = fileBytes.toString("base64");
-      classification = await classifyWithOpenAIVision(base64, input.mimeType);
+      visionBase64 = fileBytes.toString("base64");
+      classification = await classifyWithOpenAIVision(visionBase64, input.mimeType);
       inputPath = "vision";
     } else {
       // PDF or other non-image without OCR text — route to NEEDS_REVIEW
@@ -179,6 +181,20 @@ export async function runGatekeeperForDocument(
       await emitLedgerEvents(input, failResult, mode);
       return failResult;
     }
+
+    // ── 4b. Shadow mode — run Gemini classifier in parallel (fire-and-forget)
+    runClassificationShadow({
+      dealId: input.dealId,
+      documentId: input.documentId,
+      filename: input.storagePath,
+      inputPath: inputPath as "text" | "vision",
+      ocrText: input.ocrText,
+      imageBase64: visionBase64,
+      mimeType: input.mimeType,
+      primaryDocType: classification.doc_type,
+      primaryConfidence: classification.confidence,
+      primaryModel: classification.model,
+    });
 
     // ── 5. Apply routing rules ──────────────────────────────────────────
     const route = computeGatekeeperRoute(classification);
