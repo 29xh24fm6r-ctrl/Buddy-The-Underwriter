@@ -274,11 +274,13 @@ function deriveComputedValues(period: FinancialPeriod): void {
     const ie  = income.interest ?? 0;
     cashflow.ebitda = income.netIncome + dep + ie;
   } else if (income.revenue !== undefined) {
-    // Fallback when no netIncome: use revenue - cogs - opex + depr
+    // Fallback: income statement data where operatingExpenses is pure OPEX
+    // (excludes interest and depreciation). Add-backs are still required.
     const cogs = income.cogs ?? 0;
     const opex = income.operatingExpenses ?? 0;
-    const depr = income.depreciation ?? 0;
-    cashflow.ebitda = income.revenue - cogs - opex + depr;
+    const dep  = income.depreciation ?? 0;
+    const ie   = income.interest ?? 0;
+    cashflow.ebitda = income.revenue - cogs - opex + dep + ie;
   }
 
   // Equity = totalAssets - totalLiabilities (if not provided)

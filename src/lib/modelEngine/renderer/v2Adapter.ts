@@ -96,7 +96,10 @@ function periodToFactMap(period: FinancialPeriod): Record<string, number | null>
     map["INTEREST_EXPENSE"] = period.income.interest;
     map["DEBT_SERVICE"] = period.income.interest; // alias for CRE templates
   }
-  if (period.income.netIncome !== undefined) map["NET_INCOME"] = period.income.netIncome;
+  if (period.income.netIncome !== undefined) {
+    map["NET_INCOME"] = period.income.netIncome;
+    map["ORDINARY_BUSINESS_INCOME"] = period.income.netIncome; // alias for string-registry EBITDA formula
+  }
 
   // Balance → standard keys
   if (period.balance.cash !== undefined) map["CASH_AND_EQUIVALENTS"] = period.balance.cash;

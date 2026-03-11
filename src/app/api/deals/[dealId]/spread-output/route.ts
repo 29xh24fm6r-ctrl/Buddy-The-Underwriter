@@ -65,25 +65,18 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     }
     // --- END PRICING GATE ---
 
-    // --- Fix B (PR #212): Run V2 engine for fresh metrics (non-fatal) ---
-    let v2Metrics: Record<string, number | null> | null = null;
-    try {
-      const v2Result = await computeAuthoritativeEngine(dealId, access.bankId);
-      v2Metrics = v2Result.computedMetrics;
-    } catch (v2Err) {
-      console.warn("[spread-output] V2 engine failed (non-fatal), falling back to snapshot",
-        v2Err instanceof Error ? v2Err.message : String(v2Err));
-    }
-
-    // Build SpreadOutputInput from DB — parallel queries
-    const [factsResult, ratiosResult, dealResult, qoeResult, trendResult, flagInput] =
+    // Build SpreadOutputInput from DB + V2 engine — parallel queries
+    const [factsResult, authResult, dealResult, qoeResult, trendResult] =
       await Promise.all([
         loadCanonicalFacts(sb, dealId),
-        v2Metrics ? Promise.resolve(v2Metrics) : loadRatios(sb, dealId),
+        computeAuthoritativeEngine(dealId, access.bankId).catch((err: unknown) => {
+          console.warn("[spread-output] V2 engine failed (non-fatal)",
+            err instanceof Error ? err.message : String(err));
+          return null;
+        }),
         loadDealMeta(sb, dealId),
         loadQoEReport(sb, dealId),
         loadTrendReport(sb, dealId),
-        loadFlagEngineInput(sb, dealId),
       ]);
 
     // Inject ADS from pricing into facts for all years
@@ -97,12 +90,12 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       }
     }
 
-    // --- Fix A: Derive key ratios inline from year-keyed facts ---
+    // --- Ratios: derived inline as safety net, V2 authoritative wins ---
     const derivedRatios = deriveInlineRatios(factsResult.facts, factsResult.years);
-    // Truth snapshot wins — only fill gaps
-    for (const [key, val] of Object.entries(derivedRatios)) {
-      if (ratiosResult[key] == null && val !== null) {
-        ratiosResult[key] = val;
+    const ratiosResult: Record<string, number | null> = { ...derivedRatios };
+    if (authResult) {
+      for (const [k, v] of Object.entries(authResult.computedMetrics)) {
+        if (v !== null) ratiosResult[k] = v;
       }
     }
     // Inject per-year DSCR back into facts so the template can render it
@@ -133,7 +126,11 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       (dealResult.entity_type as DealType) ??
       detectDealType(factsResult.facts);
 
-    // Build flag report if we have input
+    // Build flag report from already-loaded facts + ratios (no duplicate DB call)
+    const flagInput: FlagEngineInput | null =
+      Object.keys(factsResult.facts).length > 0
+        ? { deal_id: dealId, canonical_facts: factsResult.facts, ratios: ratiosResult, years_available: factsResult.years }
+        : null;
     const flagReport = flagInput
       ? composeFlagReport(flagInput)
       : undefined;
@@ -332,35 +329,6 @@ async function loadCanonicalFacts(
   }
 }
 
-async function loadRatios(
-  sb: ReturnType<typeof supabaseAdmin>,
-  dealId: string,
-): Promise<Record<string, number | null>> {
-  const ratios: Record<string, number | null> = {};
-
-  try {
-    // Fix A (PR #212): Read from deal_model_snapshots.computed_metrics
-    // (deal_truth_snapshots does not exist — was never written to)
-    const { data } = await (sb as any)
-      .from("deal_model_snapshots")
-      .select("computed_metrics")
-      .eq("deal_id", dealId)
-      .order("calculated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (data?.computed_metrics && typeof data.computed_metrics === "object") {
-      for (const [key, val] of Object.entries(data.computed_metrics as Record<string, unknown>)) {
-        if (typeof val === "number") ratios[key] = val;
-      }
-    }
-  } catch {
-    // non-fatal
-  }
-
-  return ratios;
-}
-
 async function loadDealMeta(
   sb: ReturnType<typeof supabaseAdmin>,
   dealId: string,
@@ -456,27 +424,6 @@ async function loadTrendReport(
       .maybeSingle();
 
     return data?.analysis_json ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function loadFlagEngineInput(
-  sb: ReturnType<typeof supabaseAdmin>,
-  dealId: string,
-): Promise<FlagEngineInput | null> {
-  try {
-    const { facts, years } = await loadCanonicalFacts(sb, dealId);
-    const ratios = await loadRatios(sb, dealId);
-
-    if (Object.keys(facts).length === 0) return null;
-
-    return {
-      deal_id: dealId,
-      canonical_facts: facts,
-      ratios,
-      years_available: years,
-    };
   } catch {
     return null;
   }
