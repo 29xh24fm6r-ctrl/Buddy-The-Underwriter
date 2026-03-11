@@ -1,3 +1,4 @@
+// Migrated to Gemini — filename retained for import stability
 // src/lib/ai/openai.ts
 import { assertServerOnly } from "@/lib/serverOnly";
 
@@ -34,7 +35,7 @@ function envInt(name: string, fallback: number) {
 
 function withTimeout<T>(p: Promise<T>, ms: number) {
   return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`OPENAI_TIMEOUT_${ms}MS`)), ms);
+    const t = setTimeout(() => reject(new Error(`AI_TIMEOUT_${ms}MS`)), ms);
     p.then((x) => {
       clearTimeout(t);
       resolve(x);
@@ -62,99 +63,92 @@ function extractFirstJsonObject(text: string): string | null {
   return null;
 }
 
-async function openaiChatJson(args: {
-  model: string;
+const GEMINI_MODEL = "gemini-2.0-flash";
+
+function geminiUrl(apiKey: string) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+}
+
+async function geminiChatJson(args: {
   system: string;
   user: string;
-  // A "shape hint" (example object) to keep structure stable.
   jsonSchemaHint: string;
 }) {
-  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+  const r = await fetch(geminiUrl(process.env.GEMINI_API_KEY!), {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: args.model,
-      temperature: 0.1,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: args.system },
-        {
-          role: "user",
-          content:
+      contents: [{
+        role: "user",
+        parts: [{
+          text:
+            `${args.system}\n\n` +
             `${args.user}\n\n` +
             `Return ONLY valid JSON. No markdown. No backticks.\n` +
             `Match this JSON shape example exactly (keys + nesting). Use null when unknown:\n` +
             `${args.jsonSchemaHint}`,
-        },
-      ],
+        }],
+      }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0.1,
+        maxOutputTokens: 4096,
+      },
     }),
   });
 
   const json = await r.json().catch(() => null);
   if (!r.ok) {
-    const msg =
-      (json && (json.error?.message || json.error)) ||
-      `openai_error_status_${r.status}`;
+    const msg = json?.error?.message || `gemini_error_status_${r.status}`;
     throw new Error(msg);
   }
 
-  const outputText =
-    (json?.choices?.[0]?.message?.content as string) || "";
-
-  return { raw: json, text: String(outputText || "") };
+  const outputText = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  return { raw: json, text: String(outputText) };
 }
 
 async function repairToJson(args: {
-  model: string;
   system: string;
   badText: string;
   jsonSchemaHint: string;
 }) {
-  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+  const r = await fetch(geminiUrl(process.env.GEMINI_API_KEY!), {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: args.model,
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: args.system },
-        {
-          role: "user",
-          content:
+      contents: [{
+        role: "user",
+        parts: [{
+          text:
+            `${args.system}\n\n` +
             `The following text was supposed to be JSON but is invalid.\n` +
             `Fix it into STRICT valid JSON ONLY (no markdown), matching this example shape:\n` +
             `${args.jsonSchemaHint}\n\n` +
             `BAD_TEXT:\n${args.badText}`,
-        },
-      ],
+        }],
+      }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0,
+        maxOutputTokens: 4096,
+      },
     }),
   });
 
   const json = await r.json().catch(() => null);
   if (!r.ok) {
-    const msg =
-      (json && (json.error?.message || json.error)) ||
-      `openai_repair_error_status_${r.status}`;
+    const msg = json?.error?.message || `gemini_repair_error_status_${r.status}`;
     throw new Error(msg);
   }
 
-  const outputText =
-    (json?.choices?.[0]?.message?.content as string) || "";
-
-  return String(outputText || "");
+  const outputText = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  return String(outputText);
 }
 
 /**
  * Canonical AI JSON call used across Buddy engines.
- * - Works without OpenAI key (returns schema-shaped fallback, requires review)
- * - With key: calls OpenAI Chat Completions API with JSON mode
+ * - Works without GEMINI_API_KEY (returns schema-shaped fallback, requires review)
+ * - With key: calls Gemini with JSON mode
  * - Parses + retries + repairs invalid JSON
  */
 export async function aiJson<T = Json>(args: {
@@ -165,12 +159,12 @@ export async function aiJson<T = Json>(args: {
   jsonSchemaHint: string;
 }): Promise<AiJsonResult<T>> {
   try {
-    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-    const timeoutMs = envInt("OPENAI_TIMEOUT_MS", 20000);
-    const maxRetries = envInt("OPENAI_MAX_RETRIES", 2);
+    const model = GEMINI_MODEL;
+    const timeoutMs = envInt("AI_TIMEOUT_MS", 20000);
+    const maxRetries = envInt("AI_MAX_RETRIES", 2);
 
     // Deterministic fallback if key missing (keeps builds safe)
-    if (!process.env.OPENAI_API_KEY) {
+    if (!process.env.GEMINI_API_KEY) {
       const shape = extractFirstJsonObject(args.jsonSchemaHint) || "{}";
       let fallback: any = {};
       try {
@@ -185,7 +179,7 @@ export async function aiJson<T = Json>(args: {
         evidence: [
           {
             kind: "system_note",
-            note: "OPENAI_API_KEY missing; returned fallback schema-shaped object.",
+            note: "GEMINI_API_KEY missing; returned fallback schema-shaped object.",
             scope: args.scope,
             action: args.action,
           },
@@ -202,8 +196,7 @@ export async function aiJson<T = Json>(args: {
       attempt++;
 
       const resp = await withTimeout(
-        openaiChatJson({
-          model,
+        geminiChatJson({
           system: args.system,
           user: args.user,
           jsonSchemaHint: args.jsonSchemaHint,
@@ -261,7 +254,6 @@ export async function aiJson<T = Json>(args: {
         // Repair attempt (1x per loop)
         const repaired = await withTimeout(
           repairToJson({
-            model,
             system: args.system,
             badText: resp.text.slice(0, 12000),
             jsonSchemaHint: args.jsonSchemaHint,
@@ -298,7 +290,7 @@ export async function aiJson<T = Json>(args: {
       ok: false,
       error: "AI_JSON_PARSE_FAILED_AFTER_RETRIES",
       rawText: lastRawText,
-      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      model,
     };
   } catch (e: any) {
     return {

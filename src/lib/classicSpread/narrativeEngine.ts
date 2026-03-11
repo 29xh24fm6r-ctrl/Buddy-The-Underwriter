@@ -83,18 +83,20 @@ const SYSTEM_INSTRUCTION =
   "Flag any concerning trends. Do NOT use bullet points — use flowing prose.";
 
 // ---------------------------------------------------------------------------
-// API Call
+// API Call — Gemini 2.0 Flash
 // ---------------------------------------------------------------------------
 
-const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const MODEL = "claude-sonnet-4-5-20250929";
+const GEMINI_MODEL = "gemini-2.0-flash";
+
+const GEMINI_API_URL = (apiKey: string) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
 
 export async function generateSpreadNarrative(
   input: ClassicSpreadInput,
 ): Promise<SpreadNarrative | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    console.warn("[narrativeEngine] ANTHROPIC_API_KEY not set — skipping narrative");
+    console.warn("[narrativeEngine] GEMINI_API_KEY not set — skipping narrative");
     return null;
   }
 
@@ -106,36 +108,29 @@ export async function generateSpreadNarrative(
   const financialData = buildNarrativePrompt(input);
 
   try {
-    const resp = await fetch(ANTHROPIC_API_URL, {
+    const resp = await fetch(GEMINI_API_URL(apiKey), {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 1500,
-        system: SYSTEM_INSTRUCTION,
-        messages: [
-          {
-            role: "user",
-            content: `Analyze the following financial spread data and write a narrative analysis:\n\n${financialData}`,
-          },
-        ],
+        contents: [{
+          role: "user",
+          parts: [{
+            text: `${SYSTEM_INSTRUCTION}\n\nAnalyze the following financial spread data and write a narrative analysis:\n\n${financialData}`,
+          }],
+        }],
+        generationConfig: { maxOutputTokens: 1500, temperature: 0.3 },
       }),
     });
 
     if (!resp.ok) {
-      console.error(`[narrativeEngine] API error ${resp.status}: ${await resp.text()}`);
+      console.error(`[narrativeEngine] Gemini error ${resp.status}: ${await resp.text()}`);
       return null;
     }
 
     const json = await resp.json() as {
-      content: Array<{ type: string; text: string }>;
-      model: string;
+      candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
     };
-    const text = json.content.find((c) => c.type === "text")?.text ?? "";
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
     // Parse sections from markdown headers
     const sections: NarrativeSection[] = [];
@@ -156,7 +151,7 @@ export async function generateSpreadNarrative(
 
     return {
       sections,
-      model: json.model ?? MODEL,
+      model: GEMINI_MODEL,
       generatedAt: new Date().toISOString(),
     };
   } catch (err) {

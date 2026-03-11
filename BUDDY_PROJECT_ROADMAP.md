@@ -259,7 +259,7 @@ Root cause: Extraction stores IS expense keys with `_IS` suffix
 | TCA/TCL derived from components for tax return years | ✅ After PR #209 |
 | Liquidity ratios (Current, Quick, Working Capital) | ✅ After PR #209 |
 | Cash Flow page in PDF | ✅ After PR #208/209 |
-| Narrative page in PDF | ✅ After PR #208 (requires ANTHROPIC_API_KEY in Vercel) |
+| Narrative page in PDF | ✅ After PR #208 (requires GEMINI_API_KEY in Vercel) |
 | DSCR — requires pricing re-save to trigger re-computation | 🔜 Manual action |
 | IS detail for 2022–2024 (salaries, rent, repairs) | 🔴 Needs re-extraction with v2 prompts |
 | Schedule L expanded keys (land, intangibles, officer loans) | 🔴 Needs re-extraction with v2 prompts |
@@ -349,7 +349,7 @@ The loader code will correctly populate them the moment the facts exist.
 |-------|-----------|
 | Frontend | Next.js, Tailwind, Vercel |
 | Database | Supabase (PostgreSQL) |
-| AI Models | Claude claude-opus-4-6 (spreads/narrative), Gemini Flash (extraction) |
+| AI Models | Gemini 2.0 Flash (extraction, spreads, narrative, credit memo), Claude claude-sonnet-4-5-20250929 (financial extraction) |
 | Integration | MCP (Model Context Protocol) |
 | Event Ledger | Supabase `deal_events` (append-only) |
 | PDF Generation | PDFKit (portrait 8.5×11, serverExternalPackages) |
@@ -443,7 +443,8 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | Phase 19 | Global Cash Flow PDF Page (Classic Spread) | ✅ Complete | #225 |
 | Phase 20 | Bulk Re-extraction Trigger (POST + status + UI button) | ✅ Complete | #226 |
 | Phase 21 | DSCR Reconciliation + Spread Completeness Score | ✅ Complete | #227 |
-| **Phase 22** | **TBD** | **⬅ NEXT** | — |
+| Phase 22 | Gemini Migration (narrativeEngine + aiJson + creditMemo) | ✅ Complete | #228 |
+| **Phase 23** | **TBD** | **⬅ NEXT** | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔜 Queued | — |
 | Observability | Telemetry pipeline activation | 🔜 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔜 Queued | — |

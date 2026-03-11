@@ -1,3 +1,5 @@
+// TODO Phase 23: migrate to Gemini after shadow mode validation
+
 /**
  * OpenAI Gatekeeper — Classification via OpenAI Structured Outputs
  *
