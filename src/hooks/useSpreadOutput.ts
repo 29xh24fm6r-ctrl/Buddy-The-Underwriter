@@ -35,7 +35,7 @@ type UseSpreadOutputResult = {
   pricingRequired: boolean;
 };
 
-export function useSpreadOutput(dealId: string): UseSpreadOutputResult {
+export function useSpreadOutput(dealId: string, refreshKey?: number): UseSpreadOutputResult {
   const [data, setData] = useState<SpreadOutputReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +70,7 @@ export function useSpreadOutput(dealId: string): UseSpreadOutputResult {
       });
 
     return () => { cancelled = true; };
-  }, [dealId]);
+  }, [dealId, refreshKey]);
 
   return { data, loading, error, pricingRequired };
 }
