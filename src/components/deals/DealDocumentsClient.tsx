@@ -168,6 +168,17 @@ function UploadDropZone({
 // DealDocumentsClient
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Re-extract Status
+// ---------------------------------------------------------------------------
+
+type ReextractStatus = {
+  eligibleDocuments: number;
+  documentsByType: Record<string, number>;
+  lastExtractionAt: string | null;
+  hasNewPromptVersion: boolean;
+};
+
 export default function DealDocumentsClient({ dealId }: { dealId: string }) {
   const [docs, setDocs] = useState<DealDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -175,6 +186,12 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [typeFilter, setTypeFilter] = useState<string>("");
   const [uploading, setUploading] = useState(false);
+
+  // Re-extract All state
+  const [reextractStatus, setReextractStatus] = useState<ReextractStatus | null>(null);
+  const [showReextractModal, setShowReextractModal] = useState(false);
+  const [reextracting, setReextracting] = useState(false);
+  const [reextractResult, setReextractResult] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -192,6 +209,47 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
   }, [dealId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Load re-extract pre-flight status
+  const loadReextractStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/deals/${dealId}/reextract-all/status`, { cache: "no-store" });
+      const json = await res.json();
+      if (json?.ok) setReextractStatus(json);
+    } catch {
+      // non-critical — button just won't show eligible count
+    }
+  }, [dealId]);
+
+  useEffect(() => { loadReextractStatus(); }, [loadReextractStatus]);
+
+  async function handleReextractAll() {
+    setReextracting(true);
+    setReextractResult(null);
+    setShowReextractModal(false);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/reextract-all`, {
+        method: "POST",
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (json?.ok) {
+        setReextractResult(
+          `Re-extracted ${json.queued} documents (${json.factsWritten} facts)` +
+          (json.skipped ? `, ${json.skipped} skipped` : "") +
+          (json.gcf ? ", GCF updated" : ""),
+        );
+        load(); // refresh document list
+        loadReextractStatus();
+      } else {
+        setError(json?.error ?? "Re-extraction failed");
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Re-extraction failed");
+    } finally {
+      setReextracting(false);
+    }
+  }
 
   // Derive unique document types for filter dropdown
   const docTypes = Array.from(
@@ -217,12 +275,120 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
   return (
     <div>
       {/* Header */}
-      <div className="mb-4">
-        <h1 className="text-2xl font-semibold text-white">Documents</h1>
-        <p className="mt-1 text-sm text-white/70">
-          All documents for this deal. Upload banker files or review borrower submissions.
-        </p>
+      <div className="mb-4 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-white">Documents</h1>
+          <p className="mt-1 text-sm text-white/70">
+            All documents for this deal. Upload banker files or review borrower submissions.
+          </p>
+        </div>
+
+        {/* Re-extract All button */}
+        <button
+          type="button"
+          disabled={reextracting || !reextractStatus || reextractStatus.eligibleDocuments === 0}
+          onClick={() => setShowReextractModal(true)}
+          className={[
+            "ml-4 mt-1 shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+            reextracting
+              ? "border-amber-500/30 bg-amber-500/10 text-amber-300 cursor-wait"
+              : reextractStatus && reextractStatus.eligibleDocuments > 0
+                ? "border-blue-500/30 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"
+                : "border-white/10 bg-white/5 text-white/30 cursor-not-allowed",
+          ].join(" ")}
+        >
+          {reextracting
+            ? "Re-extracting..."
+            : `Re-extract All${reextractStatus ? ` (${reextractStatus.eligibleDocuments})` : ""}`}
+        </button>
       </div>
+
+      {/* Re-extract result banner */}
+      {reextractResult && (
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-sm text-green-300">
+          <span>{reextractResult}</span>
+          <button
+            type="button"
+            onClick={() => setReextractResult(null)}
+            className="ml-2 text-green-400 hover:text-green-200"
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
+      {/* Re-extract confirmation modal */}
+      {showReextractModal && reextractStatus && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="mx-4 w-full max-w-md rounded-xl border border-white/15 bg-[#1a1a2e] p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-white">
+              Re-extract All Documents
+            </h2>
+            <p className="mt-2 text-sm text-white/70">
+              This will re-run fact extraction on{" "}
+              <span className="font-semibold text-white">
+                {reextractStatus.eligibleDocuments}
+              </span>{" "}
+              classified documents, recompute spreads, and update Global Cash Flow.
+            </p>
+
+            {/* Type breakdown */}
+            <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-white/40">
+                Documents by Type
+              </div>
+              <div className="mt-2 space-y-1">
+                {Object.entries(reextractStatus.documentsByType).map(
+                  ([type, count]) => (
+                    <div
+                      key={type}
+                      className="flex items-center justify-between text-sm"
+                    >
+                      <span className="text-white/70">
+                        {type.replace(/_/g, " ")}
+                      </span>
+                      <span className="text-white/50">{count}</span>
+                    </div>
+                  ),
+                )}
+              </div>
+            </div>
+
+            {/* Last extraction info */}
+            {reextractStatus.lastExtractionAt && (
+              <div className="mt-3 text-xs text-white/50">
+                Last extraction:{" "}
+                {fmtRelativeTime(reextractStatus.lastExtractionAt)}
+              </div>
+            )}
+
+            {/* New prompt version badge */}
+            {reextractStatus.hasNewPromptVersion && (
+              <div className="mt-2 inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                New extractor version available
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowReextractModal(false)}
+                className="rounded-lg border border-white/15 px-4 py-2 text-sm text-white/70 hover:bg-white/5"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleReextractAll}
+                className="rounded-lg border border-blue-500/30 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
+              >
+                Re-extract {reextractStatus.eligibleDocuments} Documents
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Upload Zone */}
       <div className="mb-6">
