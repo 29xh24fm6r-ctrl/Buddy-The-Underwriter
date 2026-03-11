@@ -1,3 +1,4 @@
+// TODO: voice migration requires Gemini Live evaluation — retained on OpenAI intentionally
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { clerkAuth } from "@/lib/auth/clerkServer";

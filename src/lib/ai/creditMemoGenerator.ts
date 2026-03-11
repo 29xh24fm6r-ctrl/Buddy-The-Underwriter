@@ -1,7 +1,39 @@
-import OpenAI from "openai";
 import { z } from "zod";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// ---------------------------------------------------------------------------
+// Gemini HTTP helper
+// ---------------------------------------------------------------------------
+
+const GEMINI_MODEL = "gemini-2.0-flash";
+
+async function geminiGenerate(system: string, userContent: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY!;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      contents: [{
+        role: "user",
+        parts: [{ text: `${system}\n\n${userContent}` }],
+      }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0.2,
+        maxOutputTokens: 8192,
+      },
+    }),
+  });
+
+  if (!r.ok) throw new Error(`gemini_error_${r.status}`);
+  const json = await r.json();
+  return json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+}
+
+// ---------------------------------------------------------------------------
+// Schema
+// ---------------------------------------------------------------------------
 
 const MemoJsonSchema = z.object({
   meta: z.object({
@@ -105,16 +137,7 @@ Sections required (use these titles in order):
   };
 
   // Attempt 1
-  const r1 = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0.2,
-    messages: [
-      { role: "system", content: system.trim() },
-      { role: "user", content: JSON.stringify(userPayload) },
-    ],
-  });
-
-  const t1 = r1.choices?.[0]?.message?.content?.trim() ?? "";
+  const t1 = await geminiGenerate(system.trim(), JSON.stringify(userPayload));
   const p1 = safeJsonParse(t1);
   if (p1.ok) {
     const v = MemoJsonSchema.safeParse(p1.value);
@@ -122,16 +145,10 @@ Sections required (use these titles in order):
   }
 
   // Attempt 2 (repair)
-  const r2 = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0,
-    messages: [
-      { role: "system", content: system.trim() },
-      { role: "user", content: `Fix into valid JSON matching schema. Output JSON only:\n${t1}` },
-    ],
-  });
-
-  const t2 = r2.choices?.[0]?.message?.content?.trim() ?? "";
+  const t2 = await geminiGenerate(
+    system.trim(),
+    `Fix into valid JSON matching schema. Output JSON only:\n${t1}`,
+  );
   const p2 = safeJsonParse(t2);
   if (p2.ok) {
     const v = MemoJsonSchema.safeParse(p2.value);

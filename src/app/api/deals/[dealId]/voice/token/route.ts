@@ -1,3 +1,4 @@
+// TODO: voice migration requires Gemini Live evaluation — retained on OpenAI intentionally
 // src/app/api/deals/[dealId]/voice/token/route.ts
 import { NextResponse } from "next/server";
 // If you already have Clerk in this repo (you likely do), keep this.
