@@ -1,4 +1,5 @@
-// TODO Phase 23: migrate to Gemini after shadow mode validation
+// Phase 23: Gemini shadow classifier runs in parallel via runGatekeeper.ts
+// Phase 24: cut over to Gemini primary after shadow data confirms ≥95% agree rate
 
 /**
  * OpenAI Gatekeeper — Classification via OpenAI Structured Outputs
