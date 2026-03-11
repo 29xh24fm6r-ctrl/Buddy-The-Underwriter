@@ -28,6 +28,7 @@ export async function persistModelV2SnapshotFromDeal(opts: {
   bankId: string;
   model: FinancialModel;
   engineSource: "authoritative" | "v1_fallback";
+  annualDebtService?: number | null;
 }): Promise<{
   snapshotId: string | null;
   computedMetrics: Record<string, number | null>;
@@ -40,8 +41,10 @@ export async function persistModelV2SnapshotFromDeal(opts: {
     // 1. Load metric registry
     const metricDefs = await loadMetricRegistry(sb, "v1");
 
-    // 2. Build base values from latest period
-    const baseValues = extractBaseValues(model);
+    // 2. Build base values from latest period (with ADS override for DSCR)
+    const baseValues = extractBaseValues(model, {
+      annualDebtService: opts.annualDebtService,
+    });
 
     // 3. Evaluate metrics
     const computedMetrics = evaluateMetricGraph(metricDefs, baseValues);

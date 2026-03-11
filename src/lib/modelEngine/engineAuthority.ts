@@ -108,19 +108,16 @@ export async function computeAuthoritativeEngine(
 
   // 3. Evaluate metric graph (audit mode — captures dependency graph)
   const metricDefs = await loadMetricRegistry(sb, "v1");
-  const baseValues = extractBaseValues(financialModel);
 
-  // Fix D (PR #212): Inject ADS from pricing so DSCR can be computed
-  const adsEst = pricingRes?.data?.annual_debt_service_est;
-  if (adsEst != null) {
-    const adsNum = Number(adsEst);
-    if (isFinite(adsNum) && adsNum > 0) {
-      // DEBT_SERVICE in baseValues is interest expense from income statement.
-      // ANNUAL_DEBT_SERVICE is the actual loan payment for DSCR denominator.
-      baseValues["ANNUAL_DEBT_SERVICE"] = adsNum;
-    }
-  }
+  // Extract ADS from pricing for DSCR denominator
+  const annualDebtService = (() => {
+    const raw = pricingRes?.data?.annual_debt_service_est;
+    if (raw == null) return null;
+    const n = Number(raw);
+    return isFinite(n) ? n : null;
+  })();
 
+  const baseValues = extractBaseValues(financialModel, { annualDebtService });
   const auditResult = evaluateMetricGraphWithAudit(metricDefs, baseValues);
   const computedMetrics = auditResult.values;
   const dependencyGraph = auditResult.dependencyGraph;
@@ -158,6 +155,7 @@ export async function computeAuthoritativeEngine(
       bankId,
       model: financialModel,
       engineSource: "authoritative",
+      annualDebtService,
     });
     snapshotId = persistResult?.snapshotId ?? null;
   } catch {

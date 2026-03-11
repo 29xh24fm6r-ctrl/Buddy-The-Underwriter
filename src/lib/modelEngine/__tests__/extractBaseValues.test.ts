@@ -38,7 +38,7 @@ describe("Phase 13 — extractBaseValues", () => {
     assert.equal(result["COGS"], 400000);
     assert.equal(result["NET_INCOME"], 150000);
     assert.equal(result["OPERATING_EXPENSES"], 200000);
-    assert.equal(result["DEBT_SERVICE"], 50000);
+    assert.equal(result["INTEREST_EXPENSE"], 50000);
   });
 
   it("extracts balance fields and computes TOTAL_DEBT", async () => {

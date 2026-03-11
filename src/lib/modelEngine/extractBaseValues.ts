@@ -7,7 +7,10 @@
 
 import type { FinancialModel } from "./types";
 
-export function extractBaseValues(model: FinancialModel): Record<string, number | null> {
+export function extractBaseValues(
+  model: FinancialModel,
+  overrides?: { annualDebtService?: number | null },
+): Record<string, number | null> {
   const baseValues: Record<string, number | null> = {};
   if (model.periods.length === 0) return baseValues;
 
@@ -35,16 +38,26 @@ export function extractBaseValues(model: FinancialModel): Record<string, number 
   if (latest.balance.shortTermDebt !== undefined) baseValues["CURRENT_LIABILITIES"] = latest.balance.shortTermDebt;
 
   // Cash flow
-  if (latest.cashflow.ebitda !== undefined) baseValues["EBITDA"] = latest.cashflow.ebitda;
-  if (latest.cashflow.cfads !== undefined) baseValues["CFADS"] = latest.cashflow.cfads;
-  if (latest.income.interest !== undefined) baseValues["DEBT_SERVICE"] = latest.income.interest;
-
-  // Bridge CFADS → CASH_FLOW_AVAILABLE for metric graph (DSCR numerator).
-  // The registry expects CASH_FLOW_AVAILABLE; fall back to EBITDA if CFADS unavailable.
+  if (latest.cashflow.ebitda !== undefined) {
+    baseValues["EBITDA"] = latest.cashflow.ebitda;
+  }
   if (latest.cashflow.cfads !== undefined) {
+    // Emit under BOTH keys — seed formula uses CFADS, string registry uses CASH_FLOW_AVAILABLE
+    baseValues["CFADS"] = latest.cashflow.cfads;
     baseValues["CASH_FLOW_AVAILABLE"] = latest.cashflow.cfads;
   } else if (latest.cashflow.ebitda !== undefined) {
+    // Fall back to EBITDA when CFADS unavailable
     baseValues["CASH_FLOW_AVAILABLE"] = latest.cashflow.ebitda;
+  }
+
+  // Interest expense — for FCCR / interest coverage calcs, NOT DSCR denominator
+  if (latest.income.interest !== undefined) {
+    baseValues["INTEREST_EXPENSE"] = latest.income.interest;
+  }
+
+  // ADS from pricing — the real DSCR denominator
+  if (overrides?.annualDebtService != null && isFinite(overrides.annualDebtService)) {
+    baseValues["ANNUAL_DEBT_SERVICE"] = overrides.annualDebtService;
   }
 
   return baseValues;
