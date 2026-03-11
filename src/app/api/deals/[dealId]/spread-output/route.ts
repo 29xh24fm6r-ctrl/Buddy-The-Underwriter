@@ -86,6 +86,37 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       }
     }
 
+    // --- Fix A: Derive key ratios inline from year-keyed facts ---
+    const derivedRatios = deriveInlineRatios(factsResult.facts, factsResult.years);
+    // Truth snapshot wins — only fill gaps
+    for (const [key, val] of Object.entries(derivedRatios)) {
+      if (ratiosResult[key] == null && val !== null) {
+        ratiosResult[key] = val;
+      }
+    }
+    // Inject per-year DSCR back into facts so the template can render it
+    for (const year of factsResult.years) {
+      const dscrVal = toNumSafe(derivedRatios[`DSCR_${year}`]);
+      if (dscrVal !== null && (factsResult.facts as Record<string, unknown>)[`DSCR_${year}`] == null) {
+        (factsResult.facts as Record<string, unknown>)[`DSCR_${year}`] = dscrVal;
+      }
+    }
+
+    // --- Fix B: Merge borrower context into canonical facts ---
+    if (dealResult.meta_facts) {
+      for (const [key, val] of Object.entries(dealResult.meta_facts)) {
+        if (val != null && (factsResult.facts as Record<string, unknown>)[key] == null) {
+          (factsResult.facts as Record<string, unknown>)[key] = val;
+        }
+      }
+    }
+
+    // --- Fix C: Derive inline trend report if DB is empty ---
+    let resolvedTrendReport = trendResult;
+    if (!resolvedTrendReport && factsResult.years.length >= 2) {
+      resolvedTrendReport = deriveInlineTrend(factsResult.facts, factsResult.years);
+    }
+
     // Detect deal type
     const dealType: DealType =
       (dealResult.entity_type as DealType) ??
@@ -103,7 +134,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       ratios: ratiosResult,
       years_available: factsResult.years,
       qoe_report: qoeResult ?? undefined,
-      trend_report: trendResult ?? undefined,
+      trend_report: resolvedTrendReport ?? undefined,
       flag_report: flagReport,
     };
 
@@ -320,17 +351,62 @@ async function loadRatios(
 async function loadDealMeta(
   sb: ReturnType<typeof supabaseAdmin>,
   dealId: string,
-): Promise<{ entity_type: string | null }> {
+): Promise<{ entity_type: string | null; meta_facts: Record<string, unknown> | null }> {
   try {
-    const { data } = await (sb as any)
+    const { data: deal } = await (sb as any)
       .from("deals")
-      .select("entity_type")
+      .select("entity_type, borrower_id, loan_amount")
       .eq("id", dealId)
       .maybeSingle();
 
-    return { entity_type: data?.entity_type ?? null };
+    const meta: Record<string, unknown> = {};
+    const entityType = deal?.entity_type ?? null;
+
+    if (deal?.loan_amount != null) {
+      meta["loan_amount"] = Number(deal.loan_amount);
+    }
+
+    // Join borrower for entity_name + NAICS
+    if (deal?.borrower_id) {
+      const { data: borrower } = await (sb as any)
+        .from("borrowers")
+        .select("legal_name, naics_code, entity_type")
+        .eq("id", deal.borrower_id)
+        .maybeSingle();
+
+      if (borrower) {
+        if (borrower.legal_name) meta["entity_name"] = borrower.legal_name;
+        if (borrower.naics_code) meta["naics_code"] = borrower.naics_code;
+        // Borrower entity_type as fallback if deal doesn't have one
+        if (!entityType && borrower.entity_type) {
+          meta["entity_type"] = borrower.entity_type;
+        }
+      }
+    }
+
+    // Loan purpose from deal_loan_requests
+    const { data: loanReq } = await (sb as any)
+      .from("deal_loan_requests")
+      .select("loan_purpose, purpose, requested_amount")
+      .eq("deal_id", dealId)
+      .order("request_number", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (loanReq) {
+      const purpose = loanReq.loan_purpose ?? loanReq.purpose;
+      if (purpose) meta["loan_purpose"] = purpose;
+      if (loanReq.requested_amount != null && meta["loan_amount"] == null) {
+        meta["loan_amount"] = Number(loanReq.requested_amount);
+      }
+    }
+
+    return {
+      entity_type: entityType,
+      meta_facts: Object.keys(meta).length > 0 ? meta : null,
+    };
   } catch {
-    return { entity_type: null };
+    return { entity_type: null, meta_facts: null };
   }
 }
 
@@ -391,4 +467,131 @@ async function loadFlagEngineInput(
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Fix A: Derive key ratios inline from year-keyed facts
+// ---------------------------------------------------------------------------
+
+function deriveInlineRatios(
+  facts: Record<string, unknown>,
+  years: number[],
+): Record<string, number | null> {
+  const ratios: Record<string, number | null> = {};
+
+  for (const year of years) {
+    const ebitda = toNumSafe(facts[`EBITDA_${year}`]);
+    const revenue = toNumSafe(facts[`GROSS_RECEIPTS_${year}`]);
+    const grossProfit = toNumSafe(facts[`GROSS_PROFIT_${year}`]);
+    const ads = toNumSafe(facts[`cf_annual_debt_service_${year}`]);
+    const interestExpense = toNumSafe(facts[`INTEREST_EXPENSE_${year}`]);
+
+    // DSCR = EBITDA / ADS (or cf_ncads / ADS)
+    if (ads !== null && ads > 0) {
+      const ncads = toNumSafe(facts[`cf_ncads_${year}`]) ?? ebitda;
+      if (ncads !== null) {
+        const dscr = Math.round((ncads / ads) * 100) / 100;
+        ratios[`DSCR_${year}`] = dscr;
+        // Also set the latest year as the headline DSCR
+        ratios["DSCR"] = dscr;
+        ratios["ratio_dscr_final"] = dscr;
+      }
+    }
+
+    // EBITDA Margin = EBITDA / Revenue
+    if (ebitda !== null && revenue !== null && revenue > 0) {
+      const margin = Math.round((ebitda / revenue) * 10000) / 10000;
+      ratios[`EBITDA_MARGIN_${year}`] = margin;
+      ratios["EBITDA_MARGIN"] = margin;
+      ratios["ratio_ebitda_margin_pct"] = margin;
+    }
+
+    // Gross Margin = Gross Profit / Revenue
+    if (grossProfit !== null && revenue !== null && revenue > 0) {
+      const gm = Math.round((grossProfit / revenue) * 10000) / 10000;
+      ratios[`GROSS_MARGIN_${year}`] = gm;
+      ratios["GROSS_MARGIN"] = gm;
+      ratios["ratio_gross_margin_pct"] = gm;
+    }
+
+    // Interest Coverage = EBITDA / Interest Expense
+    if (ebitda !== null && interestExpense !== null && interestExpense > 0) {
+      const ic = Math.round((ebitda / interestExpense) * 100) / 100;
+      ratios[`INTEREST_COVERAGE_${year}`] = ic;
+      ratios["INTEREST_COVERAGE"] = ic;
+    }
+  }
+
+  return ratios;
+}
+
+// ---------------------------------------------------------------------------
+// Fix C: Derive inline trend report from year-keyed facts
+// ---------------------------------------------------------------------------
+
+function deriveInlineTrend(
+  facts: Record<string, unknown>,
+  years: number[],
+): Record<string, unknown> | null {
+  if (years.length < 2) return null;
+
+  const sorted = [...years].sort((a, b) => a - b);
+  const firstYear = sorted[0];
+  const lastYear = sorted[sorted.length - 1];
+
+  type TrendItem = {
+    metric: string;
+    first_year: number;
+    last_year: number;
+    first_value: number;
+    last_value: number;
+    change_pct: number;
+    direction: "POSITIVE" | "DECLINING" | "STABLE";
+  };
+
+  const trends: TrendItem[] = [];
+
+  function addTrend(metric: string, factKey: string) {
+    const first = toNumSafe(facts[`${factKey}_${firstYear}`]);
+    const last = toNumSafe(facts[`${factKey}_${lastYear}`]);
+    if (first === null || last === null) return;
+
+    const changePct = first !== 0
+      ? Math.round(((last - first) / Math.abs(first)) * 10000) / 10000
+      : 0;
+
+    let direction: "POSITIVE" | "DECLINING" | "STABLE";
+    if (Math.abs(changePct) < 0.02) {
+      direction = "STABLE";
+    } else if (metric === "DSCR") {
+      // For DSCR: higher is positive
+      direction = changePct > 0 ? "POSITIVE" : "DECLINING";
+    } else {
+      // For revenue/EBITDA: growth is positive
+      direction = changePct > 0 ? "POSITIVE" : "DECLINING";
+    }
+
+    trends.push({
+      metric,
+      first_year: firstYear,
+      last_year: lastYear,
+      first_value: first,
+      last_value: last,
+      change_pct: changePct,
+      direction,
+    });
+  }
+
+  addTrend("REVENUE", "GROSS_RECEIPTS");
+  addTrend("EBITDA", "EBITDA");
+  addTrend("GROSS_MARGIN", "GROSS_PROFIT"); // Using gross profit as proxy
+  addTrend("DSCR", "DSCR");
+
+  if (trends.length === 0) return null;
+
+  return {
+    source: "inline_derived",
+    period: { first_year: firstYear, last_year: lastYear },
+    trends,
+  };
 }
