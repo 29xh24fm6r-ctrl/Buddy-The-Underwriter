@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 17 Complete — PTR Entity Map Live**
+**Status: Phase 18 Complete — Global Cash Flow Computation**
 
 ---
 
@@ -439,7 +439,8 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | Phase 15 | Committee Studio (Committee tab) | ✅ Complete | #221 |
 | Phase 16 | Personal Tax Return Extractor (Form 1040 + Schedule E) | ✅ Complete | #222 |
 | Phase 17 | PTR Entity Map (wire extraction output to facts) | ✅ Complete | #223 |
-| **Phase 18** | **TBD** | **⬅ NEXT** | — |
+| Phase 18 | Global Cash Flow Computation (entity + personal aggregation) | ✅ Complete | #224 |
+| **Phase 19** | **TBD** | **⬅ NEXT** | — |
 | Re-extraction | v2 prompt re-extraction of existing docs | 🔜 Manual action | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔜 Queued | — |
 | Observability | Telemetry pipeline activation | 🔜 Queued | — |
