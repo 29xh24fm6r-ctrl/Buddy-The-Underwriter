@@ -292,9 +292,10 @@ async function loadCanonicalFacts(
         const obi =
           toNum(facts[`ORDINARY_BUSINESS_INCOME_${year}`]) ??
           toNum(facts[`NET_INCOME_${year}`]);
-        const dep = toNum(facts[`DEPRECIATION_${year}`]) ?? 0;
-        const ie  = toNum(facts[`INTEREST_EXPENSE_${year}`]) ?? 0;
-        if (obi !== null) facts[ebitdaKey] = obi + dep + ie;
+        const dep  = toNum(facts[`DEPRECIATION_${year}`]) ?? 0;
+        const ie   = toNum(facts[`INTEREST_EXPENSE_${year}`]) ?? 0;
+        const s179 = toNum(facts[`SK_SECTION_179_DEDUCTION_${year}`]) ?? 0;
+        if (obi !== null) facts[ebitdaKey] = obi + dep + ie + s179;
       }
     }
 
@@ -309,7 +310,8 @@ async function loadCanonicalFacts(
         } else {
           // Fallback: use EBITDA as simplified NCADS
           const ebitda = toNum(facts[`EBITDA_${year}`]);
-          if (ebitda !== null) facts[ncadsKey] = ebitda;
+          const rental = toNum(facts[`RENTAL_INCOME_SCHED_E_${year}`]) ?? 0;
+          if (ebitda !== null) facts[ncadsKey] = ebitda + rental;
         }
       }
     }
@@ -320,6 +322,28 @@ async function loadCanonicalFacts(
       if (facts[adjKey] == null) {
         const ebitda = toNum(facts[`EBITDA_${year}`]);
         if (ebitda !== null) facts[adjKey] = ebitda;
+      }
+    }
+
+    // PFS bare-key aliasing: map PFS_*_year facts to bare keys used by collateral/narrative generators
+    const pfsNetWorthKey = Object.keys(facts).filter((k) => k.startsWith("PFS_NET_WORTH_")).sort().pop();
+    if (pfsNetWorthKey) {
+      const pfsYear = parseInt(pfsNetWorthKey.replace("PFS_NET_WORTH_", ""), 10);
+      if (!isNaN(pfsYear)) {
+        const pfsAliasMap: Record<string, string> = {
+          [`PFS_NET_WORTH_${pfsYear}`]:          "personal_net_worth",
+          [`PFS_LIQUID_ASSETS_${pfsYear}`]:       "personal_liquidity",
+          [`PFS_TOTAL_ASSETS_${pfsYear}`]:        "personal_total_assets",
+          [`PFS_TOTAL_LIABILITIES_${pfsYear}`]:   "personal_total_liabilities",
+          [`PFS_REAL_ESTATE_MV_${pfsYear}`]:      "personal_real_estate_value",
+          [`PFS_MORTGAGE_BALANCE_${pfsYear}`]:    "personal_mortgage_balance",
+          [`PFS_STOCKS_BONDS_${pfsYear}`]:        "personal_stocks_bonds",
+          [`PFS_TOTAL_ANNUAL_INCOME_${pfsYear}`]: "personal_annual_income",
+          [`PFS_REAL_ESTATE_INCOME_${pfsYear}`]:  "personal_real_estate_income",
+        };
+        for (const [src, dest] of Object.entries(pfsAliasMap)) {
+          if (facts[src] != null && facts[dest] == null) facts[dest] = facts[src];
+        }
       }
     }
 
@@ -489,69 +513,53 @@ function deriveInlineRatios(
 // Fix C: Derive inline trend report from year-keyed facts
 // ---------------------------------------------------------------------------
 
+type TrendSeries = {
+  direction: "POSITIVE" | "DECLINING" | "STABLE" | "COMPRESSING";
+  values: (number | null)[];
+  first_year: number;
+  last_year: number;
+  change_pct: number;
+};
+
+function buildTrendSeries(
+  facts: Record<string, unknown>,
+  sortedYears: number[],
+  factKey: string,
+  higherIsBetter: boolean = true,
+): TrendSeries | null {
+  const values: (number | null)[] = sortedYears.map((y) => toNumSafe(facts[`${factKey}_${y}`]));
+  const nonNull = values.filter((v): v is number => v !== null);
+  if (nonNull.length < 2) return null;
+  const first = nonNull[0];
+  const last = nonNull[nonNull.length - 1];
+  const changePct = first !== 0 ? Math.round(((last - first) / Math.abs(first)) * 10000) / 10000 : 0;
+  let direction: TrendSeries["direction"];
+  if (Math.abs(changePct) < 0.02) direction = "STABLE";
+  else direction = (changePct > 0) === higherIsBetter ? "POSITIVE" : "DECLINING";
+  return { direction, values, first_year: sortedYears[0], last_year: sortedYears[sortedYears.length - 1], change_pct: changePct };
+}
+
 function deriveInlineTrend(
   facts: Record<string, unknown>,
   years: number[],
 ): Record<string, unknown> | null {
   if (years.length < 2) return null;
-
   const sorted = [...years].sort((a, b) => a - b);
-  const firstYear = sorted[0];
-  const lastYear = sorted[sorted.length - 1];
-
-  type TrendItem = {
-    metric: string;
-    first_year: number;
-    last_year: number;
-    first_value: number;
-    last_value: number;
-    change_pct: number;
-    direction: "POSITIVE" | "DECLINING" | "STABLE";
-  };
-
-  const trends: TrendItem[] = [];
-
-  function addTrend(metric: string, factKey: string) {
-    const first = toNumSafe(facts[`${factKey}_${firstYear}`]);
-    const last = toNumSafe(facts[`${factKey}_${lastYear}`]);
-    if (first === null || last === null) return;
-
-    const changePct = first !== 0
-      ? Math.round(((last - first) / Math.abs(first)) * 10000) / 10000
-      : 0;
-
-    let direction: "POSITIVE" | "DECLINING" | "STABLE";
-    if (Math.abs(changePct) < 0.02) {
-      direction = "STABLE";
-    } else if (metric === "DSCR") {
-      // For DSCR: higher is positive
-      direction = changePct > 0 ? "POSITIVE" : "DECLINING";
-    } else {
-      // For revenue/EBITDA: growth is positive
-      direction = changePct > 0 ? "POSITIVE" : "DECLINING";
-    }
-
-    trends.push({
-      metric,
-      first_year: firstYear,
-      last_year: lastYear,
-      first_value: first,
-      last_value: last,
-      change_pct: changePct,
-      direction,
-    });
-  }
-
-  addTrend("REVENUE", "GROSS_RECEIPTS");
-  addTrend("EBITDA", "EBITDA");
-  addTrend("GROSS_MARGIN", "GROSS_PROFIT"); // Using gross profit as proxy
-  addTrend("DSCR", "DSCR");
-
-  if (trends.length === 0) return null;
-
+  const trendRevenue  = buildTrendSeries(facts, sorted, "GROSS_RECEIPTS", true);
+  const trendEbitda   = buildTrendSeries(facts, sorted, "EBITDA", true);
+  const trendGrossRaw = buildTrendSeries(facts, sorted, "GROSS_PROFIT", true);
+  const trendDscr     = buildTrendSeries(facts, sorted, "DSCR", true);
+  // Label gross margin compression explicitly for narrativeComposer trigger
+  const trendGrossMargin = trendGrossRaw
+    ? { ...trendGrossRaw, direction: trendGrossRaw.direction === "DECLINING" ? ("COMPRESSING" as const) : trendGrossRaw.direction }
+    : null;
+  if (!trendRevenue && !trendEbitda) return null;
   return {
     source: "inline_derived",
-    period: { first_year: firstYear, last_year: lastYear },
-    trends,
+    period: { first_year: sorted[0], last_year: sorted[sorted.length - 1] },
+    trendRevenue:     trendRevenue     ?? undefined,
+    trendGrossMargin: trendGrossMargin ?? undefined,
+    trendEbitda:      trendEbitda      ?? undefined,
+    trendDscr:        trendDscr        ?? undefined,
   };
 }
