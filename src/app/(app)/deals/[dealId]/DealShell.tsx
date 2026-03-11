@@ -268,7 +268,7 @@ export default function DealShell({
     { label: "Intelligence", href: `${base}/intelligence` },
     { label: "Documents", href: `${base}/documents` },
     { label: "Financials", href: `${base}/financials` },
-    { label: "Pricing", href: `${base}/pricing-memo` },
+    { label: "Structure", href: `${base}/structure` },
     { label: "Memo", href: `${base}/memo-template` },
     { label: "Terms", href: `${base}/loan-terms` },
     { label: "Borrower", href: `${base}/borrower` },
