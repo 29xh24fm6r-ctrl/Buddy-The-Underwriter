@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 25 Complete — Gemini 3 Flash Orchestrator Shadow Mode Active | Gate Monitoring Next**
+**Status: Phase 26 Complete — ai-risk route wired, shadow gate accumulating | Cutover pending gate**
 
 ---
 
@@ -213,7 +213,7 @@ Root cause: PDFKit auto-page-break at 756pt. Footer drawn at ~766pt triggered
 auto-insert blank page before explicit addPage() — doubling page count.
 - Fix A: FOOTER_HEIGHT=50, all footer text gets lineBreak:false
 - Fix B: TOTAL OPEX derived from component sum when direct key missing
-- Fix C: Portrait column widths (165+4×90=525pt ≤ 540pt usable)
+- Fix C: Portrait column widths (165+4×90=525pt ≈ 540pt usable)
 - Fix D: Deals query .select("id, name, borrower_name, bank_id")
 - Fix E: PFS periods filtered from buildPeriodMaps
 - Result: 4 clean pages, zero ghost blanks
@@ -245,7 +245,7 @@ Root cause: Extraction stores IS expense keys with `_IS` suffix
 
 ---
 
-## COS UI + AI Provider Migration (PRs #216–#233)
+## COS UI + AI Provider Migration (PRs #216–#233+)
 
 ### Phase 10 — Deal Command Center (Intelligence tab) ✅ PR #216
 ### Phase 11 — Financial Intelligence Workspace (Financials tab) ✅ PR #217
@@ -381,7 +381,7 @@ independently. Cron remains as safety net.
 **Result:** 9 docs complete in ~60–120s (parallel) instead of ~9 min (sequential).
 
 | Docs | Sequential (cron only) | Parallel fan-out (6 concurrent) |
-|------|------------------------|--------------------------------|
+|------|------------------------|----------------------------------|
 | 9 | ~9 min | ~60–120s |
 | 20 | ~20 min | ~3–4 min |
 | 40 | ~40 min | ~7 min |
@@ -446,6 +446,29 @@ ORCHESTRATOR_SHADOW_ENABLED=true   # safe now — fire-and-forget, never affects
 ORCHESTRATOR_USE_GEMINI3_FLASH=false  # flip after gate passes
 ```
 
+### Phase 26 — ai-risk Route + Run AI Assessment Button ✅ COMPLETE — commit bbee0903
+
+**Root cause of gap:** Phase 25 built the full provider infrastructure
+(`gemini3FlashProvider.ts`, `shadowOrchestrator.ts`, `provider.ts`), but
+`getAIProvider().generateRisk()` was never called by any API route or UI button.
+The shadow log was empty — the gate could never fill.
+
+**What shipped:**
+- `src/app/api/deals/[dealId]/ai-risk/route.ts` — GET returns latest run from
+  `ai_risk_runs`; POST builds deal snapshot (financials, borrower, docs), calls
+  `getAIProvider().generateRisk()`, persists result to `ai_risk_runs`
+- `src/hooks/useAIRisk.ts` — loads previous run on mount, `runAssessment()`
+  triggers POST
+- `src/app/(app)/deals/[dealId]/risk/RiskClient.tsx` — AI Risk Assessment panel
+  with grade, pricing breakdown (base + premium + total bps), key factors with
+  direction dots and confidence %, pricing adders
+- Migration `ai_risk_runs` table with RLS bank isolation, index on
+  `(deal_id, created_at desc)`
+
+Each "Run AI Assessment" click now populates both `ai_risk_runs` and
+`orchestrator_shadow_log` (when `ORCHESTRATOR_SHADOW_ENABLED=true`),
+building toward the shadow gate threshold.
+
 ---
 
 ## Current State — Active Deal ffcc9733
@@ -473,7 +496,8 @@ ORCHESTRATOR_USE_GEMINI3_FLASH=false  # flip after gate passes
 ### P1 — Immediate
 
 1. **Shadow gate monitoring — orchestrator cutover**
-   Run `orchestrator_shadow_log` gate query after each `generateRisk` call.
+   Wire is live (Phase 26). Run `orchestrator_shadow_log` gate query after each
+   "Run AI Assessment" click. Build toward ≥20 rows via repeated runs on multiple deals.
    Target: ≥20 rows, ≥95% agree, 0 shadow errors → flip `ORCHESTRATOR_USE_GEMINI3_FLASH=true`.
    Verification deal: ffcc9733 (ADS=$67,368 / EBITDA=$368,499 → expected ~5.5x DSCR).
 
@@ -565,8 +589,8 @@ The loader code will correctly populate them the moment the facts exist.
 | General aiJson() wrapper | Gemini 2.0 Flash | ✅ |
 | Document classification | Gemini 2.0 Flash | ✅ Active (Phase 24) |
 | Voice interview sessions | gpt-4o-realtime-preview | ✅ Retained on OpenAI intentionally |
-| Risk + Memo orchestrator | OpenAI primary + Gemini 3 Flash shadow | 🔜 Shadow active — cutover pending gate |
-| chatAboutDeal | OpenAI (gpt-4o-2024-08-06) | ✅ Retained — evaluated separately Phase 26 |
+| Risk + Memo orchestrator | OpenAI primary + Gemini 3 Flash shadow | 🔴 Shadow active — accumulating rows via ai-risk route (Phase 26) |
+| chatAboutDeal | OpenAI (gpt-4o-2024-08-06) | ✅ Retained — evaluated separately Phase 27 |
 
 ---
 
@@ -606,8 +630,9 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 21. ✅ New deal intake completes in <60s — no soft deadline timeouts (AAR 22)
 22. ✅ Extraction fan-out — 9 docs complete in ~60-120s, not ~9 min (AAR 22b)
 23. ✅ Gemini 3 Flash orchestrator shadow mode active (Phase 25)
-24. 🔜 Gemini 3 Flash orchestrator cutover — pending shadow gate (≥20 rows, ≥95% agree)
-25. 🔜 Banker experience — opens a spread, trusts every number, focuses on credit
+24. ✅ generateRisk() wired to live route + UI — shadow log accumulating (Phase 26)
+25. 🔴 Gemini 3 Flash orchestrator cutover — pending shadow gate (≥20 rows, ≥95% agree)
+26. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
     (this one is never fully done — it's the ongoing standard)
 
 ---
@@ -646,7 +671,10 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
   — omit `temperature` entirely. Strip thought-signature parts from response
   before JSON parsing (filter `p.thought === true`).
 - Composite provider pattern for cutover: Gemini handles risk+memo,
-  OpenAI retained for chatAboutDeal until separately evaluated (Phase 26).
+  OpenAI retained for chatAboutDeal until separately evaluated (Phase 27).
+- Shadow log fills only from `generateRisk`/`generateMemo` calls via `AIProvider`
+  through the `/api/deals/[dealId]/ai-risk` route — NOT from document upload,
+  re-extraction, classification, flag engine, or `aiJson()` calls.
 
 ---
 
@@ -692,10 +720,11 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | AAR 22 | Async extraction decoupling — 240s soft deadline fix | ✅ Complete | PR #231 |
 | AAR 22b | Parallel extraction fan-out — 9 docs in ~60-120s not ~9 min | ✅ Complete | PR #232 |
 | **Phase 25** | **Gemini 3 Flash orchestrator shadow mode — `orchestrator_shadow_log` active** | **✅ Complete** | **PR #233** |
-| Shadow Gate | Monitor `orchestrator_shadow_log` → flip cutover flag when gate passes | 🔜 Active | — |
-| Model Engine V2 | Feature flag + seeding + wiring | 🔜 Queued | — |
-| Observability | Telemetry pipeline activation | 🔜 Queued | — |
-| Corpus Expansion | 10+ verified docs across industries | 🔜 Queued | — |
+| **Phase 26** | **ai-risk route + Run AI Assessment button — shadow gate wired** | **✅ Complete** | **bbee0903** |
+| Shadow Gate | Monitor `orchestrator_shadow_log` → flip cutover flag when gate passes | 🔴 Active — accumulating rows | — |
+| Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
+| Observability | Telemetry pipeline activation | 🔴 Queued | — |
+| Corpus Expansion | 10+ verified docs across industries | 🔴 Queued | — |
 
 ---
 
