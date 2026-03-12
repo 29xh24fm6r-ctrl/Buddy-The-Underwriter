@@ -234,11 +234,10 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
       });
       const json = await res.json();
       if (json?.ok) {
-        setReextractResult(
-          `Re-extracted ${json.queued} documents (${json.factsWritten} facts)` +
-          (json.skipped ? `, ${json.skipped} skipped` : "") +
-          (json.gcf ? ", GCF updated" : ""),
-        );
+        // Phase 28: route is async — response shape is { ok, queued, message }.
+        // Use json.message which already contains the full human-readable string
+        // (e.g. "9 documents queued for extraction in background").
+        setReextractResult(json.message ?? `${json.queued ?? 0} documents queued for re-extraction`);
         load(); // refresh document list
         loadReextractStatus();
       } else {
