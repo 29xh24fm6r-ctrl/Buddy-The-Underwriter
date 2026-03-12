@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: AAR 22 Complete — Async Extraction Decoupling — Phase 25 Next**
+**Status: AAR 22b Complete — Parallel Extraction Fan-out — Phase 25 Next**
 
 ---
 
@@ -61,19 +61,19 @@ IRS Knowledge Base + Identity Validation   ✅ Phase 1 & 2 COMPLETE
         ↓
 Formula Accuracy Layer                     ✅ Phase 3 COMPLETE
         ↓
-Proof-of-Correctness Engine                ✅ Phase 4 COMPLETE
+Proof-of-Correctness Engine               ✅ Phase 4 COMPLETE
         ↓
-Financial Intelligence Layer               ✅ Phase 5 COMPLETE
+Financial Intelligence Layer              ✅ Phase 5 COMPLETE
         ↓
-Industry Intelligence Layer                ✅ Phase 6 COMPLETE
+Industry Intelligence Layer               ✅ Phase 6 COMPLETE
         ↓
-Cross-Document Reconciliation              ✅ Phase 7 COMPLETE
+Cross-Document Reconciliation             ✅ Phase 7 COMPLETE
         ↓
-Golden Corpus + Continuous Learning        ✅ Phase 8 COMPLETE
+Golden Corpus + Continuous Learning       ✅ Phase 8 COMPLETE
         ↓
-Full Banking Relationship                  ✅ Phase 9 COMPLETE
+Full Banking Relationship                 ✅ Phase 9 COMPLETE
         ↓
-Classic Banker Spread PDF (MMAS format)    ✅ PRs #180–#209
+Classic Banker Spread PDF (MMAS format)   ✅ PRs #180–#209
         ↓
 AUTO-VERIFIED → Banker reviews for credit judgment only
         ↓
@@ -365,6 +365,39 @@ _Phase B — Doc extraction worker (async, one event per doc):_
 populated within 1–3 minutes. Facts + spreads populate progressively as
 each doc extracts.
 
+### AAR 22b — Parallel Extraction Fan-out ✅ PR #232
+
+**Root cause of gap:** AAR 22 decoupled extraction correctly but the async
+worker processed docs sequentially. With `max=1` cron, a 9-doc deal took
+~9 minutes (1 doc/minute). The banker sat on an empty spread.
+
+**Solution:** After `processConfirmedIntake` queues all `doc.extract` outbox
+events, immediately fire `min(N_extractable_docs, MAX_CONCURRENT_EXTRACTIONS)`
+parallel self-invocations to `/api/workers/doc-extraction?max=1`. Each
+invocation lands in its own Vercel Lambda, claims one row via
+`FOR UPDATE SKIP LOCKED` (no collision possible), and runs `extractByDocType()`
+independently. Cron remains as safety net.
+
+**Result:** 9 docs complete in ~60–120s (parallel) instead of ~9 min (sequential).
+
+| Docs | Sequential (cron only) | Parallel fan-out (6 concurrent) |
+|------|------------------------|----------------------------------|
+| 9 | ~9 min | ~60–120s |
+| 20 | ~20 min | ~3–4 min |
+| 40 | ~40 min | ~7 min |
+
+**Files changed:**
+
+| File | Change |
+|------|--------|
+| `src/lib/intake/constants.ts` | Added `MAX_CONCURRENT_EXTRACTIONS = 6` |
+| `src/lib/intake/processing/fanOutDocExtraction.ts` | New — fires N parallel `fetch()` to `/api/workers/doc-extraction?max=1` |
+| `src/lib/intake/processing/processConfirmedIntake.ts` | Added fan-out call after extraction queuing |
+| `src/app/api/workers/doc-extraction/route.ts` | Added `fanOutIndex` header for log tracing |
+| `vercel.json` | Cron `max=10` → `max=1` (safety net only) |
+
+No Supabase migration needed — reuses existing outbox + claim function from AAR 22.
+
 ---
 
 ## Current State — Active Deal ffcc9733
@@ -517,7 +550,8 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 19. ✅ Classic Spreads as first-class tab on every deal (AAR 21)
 20. ✅ Intelligence tab fully populated — all 12 metric cells, DSCR Triangle, Buddy's Assessment (AAR 20)
 21. ✅ New deal intake completes in <60s — no soft deadline timeouts (AAR 22)
-22. 🔜 Banker experience — opens a spread, trusts every number, focuses on credit
+22. ✅ Extraction fan-out — 9 docs complete in ~60-120s, not ~9 min (AAR 22b)
+23. 🔜 Banker experience — opens a spread, trusts every number, focuses on credit
     (this one is never fully done — it's the ongoing standard)
 
 ---
@@ -543,6 +577,10 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 - Gemini extraction is duration-unpredictable (30–120s per doc). Never await it
   inline inside a time-bounded orchestration window. Always queue extraction as
   outbox events and let a dedicated worker handle it asynchronously.
+- Extraction fan-out: after queueing async outbox events, immediately fire
+  `min(N, MAX_CONCURRENT_EXTRACTIONS)` parallel self-invocations. `FOR UPDATE
+  SKIP LOCKED` guarantees no collision. Cron is safety net only, not primary
+  throughput mechanism.
 
 ---
 
@@ -586,6 +624,7 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | AAR 20 | Intelligence tab blank metrics — spread-output shape mismatch | ✅ Complete | fb811545 |
 | AAR 21 | Classic Spreads tab + PDF button fix | ✅ Complete | 6e449800 |
 | AAR 22 | Async extraction decoupling — 240s soft deadline fix | ✅ Complete | PR #231 |
+| AAR 22b | Parallel extraction fan-out — 9 docs in ~60-120s not ~9 min | ✅ Complete | PR #232 |
 | **Phase 25** | **Orchestrator reasoning model — Gemini 2.5 Pro evaluation** | **⬅ NEXT** | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔜 Queued | — |
 | Observability | Telemetry pipeline activation | 🔜 Queued | — |
@@ -595,7 +634,7 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 
 ## Phase 25 Spec — Orchestrator Reasoning Model
 
-**Branch:** `feature/orchestrator-reasoning-model` | **PR:** #232
+**Branch:** `feature/orchestrator-reasoning-model` | **PR:** #233
 **Commit:** `feat: Phase 25 — Gemini 2.5 Pro orchestrator evaluation`
 **Gate:** `pnpm tsc --noEmit` — zero errors.
 
