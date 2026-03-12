@@ -27,6 +27,10 @@
     {
       "path": "/api/workers/intake-recovery",
       "schedule": "*/3 * * * *"
+    },
+    {
+      "path": "/api/workers/doc-extraction?max=10",
+      "schedule": "*/1 * * * *"
     }
   ]
 }

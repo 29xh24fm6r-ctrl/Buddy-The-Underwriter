@@ -424,17 +424,28 @@ export async function processConfirmedIntake(
       }
     }
 
-    // 2b. Extraction
+    // 2b. Queue extraction as async outbox event (does not block intake processing)
+    // extractByDocType() takes 30-120s per doc via Gemini OCR. Running it inline
+    // exceeded the 240s soft deadline for 6+ document deals.
+    // The doc-extraction worker (/api/workers/doc-extraction) claims these events
+    // and runs extraction asynchronously, triggering deal recomputation after each doc.
     if (effectiveDocType && EXTRACT_ELIGIBLE.has(effectiveDocType)) {
       try {
-        const { extractByDocType } = await import(
-          "@/lib/extract/router/extractByDocType"
+        const { queueDocExtractionOutbox } = await import(
+          "@/lib/intake/processing/queueDocExtractionOutbox"
         );
-        await extractByDocType(doc.id);
+        await queueDocExtractionOutbox({
+          docId: doc.id,
+          dealId,
+          bankId,
+          intakeRunId: runId ?? "no_run_id",
+        });
         extractResults.push({ documentId: doc.id, ok: true });
       } catch (err: any) {
+        // Queue failure is non-fatal — intake must complete.
+        // Banker can trigger extraction via Re-extract All button.
         extractResults.push({ documentId: doc.id, ok: false });
-        errors.push(`extract:${doc.id}:${err?.message}`);
+        errors.push(`queue_extract:${doc.id}:${err?.message}`);
       }
     }
   }
@@ -464,40 +475,14 @@ export async function processConfirmedIntake(
     if (runId) void stampProcessingHeartbeat(dealId, runId, `batch_${i}`);
   }
 
-  // ── E2: Proof-driven spread orchestration ─────────────────────────
-  // Runs AFTER matching + extraction are complete for all docs.
-  // Orchestrator verifies intake proof, then enqueues spreads.
-  try {
-    const { orchestrateSpreads } = await import(
-      "@/lib/spreads/orchestrateSpreads"
-    );
-    const orchResult = await orchestrateSpreads(
-      dealId,
-      bankId,
-      "intake_confirmed",
-    );
-    if (!orchResult.ok) {
-      errors.push(
-        `orchestrate:preflight_blocked:${orchResult.blockers?.length ?? 0}_blockers`,
-      );
-    }
-  } catch (err: any) {
-    errors.push(`orchestrate:${err?.message}`);
-  }
-  if (runId) void stampProcessingHeartbeat(dealId, runId, "spreads_orchestrated");
+  // ── E2: Spread orchestration + fact materialization ────────────────
+  // These are now triggered by the doc-extraction worker after each
+  // extractByDocType() completes. Facts don't exist yet at this point
+  // (extraction is async). The worker calls triggerPostExtractionOps()
+  // after each doc which runs orchestrateSpreads + materializeFactsFromArtifacts.
+  if (runId) void stampProcessingHeartbeat(dealId, runId, "extraction_queued");
 
-  // 3. Deal-level operations
-
-  // 3a. Materialize facts
-  try {
-    const { materializeFactsFromArtifacts } = await import(
-      "@/lib/financialFacts/materializeFactsFromArtifacts"
-    );
-    await materializeFactsFromArtifacts({ dealId, bankId });
-  } catch (err: any) {
-    errors.push(`materialize:${err?.message}`);
-  }
-  if (runId) void stampProcessingHeartbeat(dealId, runId, "facts_materialized");
+  // 3. Deal-level operations (non-fact-dependent)
 
   // 3b. Reconcile checklist
   try {
