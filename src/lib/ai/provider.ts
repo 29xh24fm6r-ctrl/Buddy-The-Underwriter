@@ -1,5 +1,7 @@
 import type { EvidenceRef } from "@/lib/evidence/types";
 import { OpenAIProvider } from "@/lib/ai/openaiProvider";
+import { Gemini3FlashProvider } from "@/lib/ai/gemini3FlashProvider";
+import { withShadow } from "@/lib/ai/shadowOrchestrator";
 
 export type RiskInput = {
   dealId: string;
@@ -205,9 +207,34 @@ class StubProvider implements AIProvider {
 }
 
 export function getAIProvider(): AIProvider {
-  // If OPENAI_API_KEY is present, use real OpenAI; otherwise fall back to demo stub.
-  if (process.env.OPENAI_API_KEY) {
-    return new OpenAIProvider();
+  const hasCutover = process.env.ORCHESTRATOR_USE_GEMINI3_FLASH === "true";
+  const hasShadow = process.env.ORCHESTRATOR_SHADOW_ENABLED === "true";
+  const hasOpenAI = !!process.env.OPENAI_API_KEY;
+  const hasGemini = !!process.env.GEMINI_API_KEY;
+
+  // Full cutover: Gemini 3 Flash as primary for risk + memo
+  if (hasCutover && hasGemini) {
+    const gemini = new Gemini3FlashProvider();
+    // chatAboutDeal still needs OpenAI until Phase 26
+    if (hasOpenAI) {
+      const openai = new OpenAIProvider();
+      return {
+        generateRisk: (i) => gemini.generateRisk(i),
+        generateMemo: (i) => gemini.generateMemo(i),
+        chatAboutDeal: (i) => openai.chatAboutDeal(i),
+      };
+    }
+    // No OpenAI — full Gemini (chatAboutDeal will throw, which is acceptable)
+    return gemini;
   }
+
+  // Shadow mode: OpenAI primary, Gemini 3 Flash shadow for risk + memo
+  if (hasShadow && hasOpenAI && hasGemini) {
+    const primaryModelName = process.env.OPENAI_MODEL || "gpt-4o-2024-08-06";
+    return withShadow(new OpenAIProvider(), new Gemini3FlashProvider(), primaryModelName);
+  }
+
+  // Default
+  if (hasOpenAI) return new OpenAIProvider();
   return new StubProvider();
 }
