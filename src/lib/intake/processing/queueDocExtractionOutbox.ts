@@ -3,6 +3,9 @@
  *
  * Called by processConfirmedIntake after matching, replacing inline extractByDocType().
  * The doc-extraction worker claims these events and runs extraction asynchronously.
+ *
+ * Also called by the "Re-extract All" route with forceRefresh=true to bypass
+ * SHA-256 dedup and re-run Gemini on the raw PDFs.
  */
 
 import "server-only";
@@ -12,19 +15,23 @@ export async function queueDocExtractionOutbox(opts: {
   docId: string;
   dealId: string;
   bankId: string;
-  intakeRunId: string;
+  intakeRunId?: string;
+  docType?: string;
+  forceRefresh?: boolean;
 }): Promise<void> {
   const sb = supabaseAdmin();
   const { error } = await sb.from("buddy_outbox_events").insert({
     kind: "doc.extract",
     deal_id: opts.dealId,
     bank_id: opts.bankId,
-    source: "intake",
+    source: opts.forceRefresh ? "reextract" : "intake",
     payload: {
       doc_id: opts.docId,
       deal_id: opts.dealId,
       bank_id: opts.bankId,
-      intake_run_id: opts.intakeRunId,
+      intake_run_id: opts.intakeRunId ?? null,
+      doc_type: opts.docType ?? null,
+      force_refresh: opts.forceRefresh ?? false,
     },
   });
 
