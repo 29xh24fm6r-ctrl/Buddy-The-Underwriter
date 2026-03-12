@@ -13,6 +13,7 @@
  */
 import "server-only";
 
+import { createHash } from "crypto";
 import type { GatekeeperClassification } from "./types";
 
 // ─── Config ─────────────────────────────────────────────────────────────────
@@ -163,6 +164,31 @@ export async function classifyWithGeminiVision(
   } catch {
     return null;
   }
+}
+
+// ─── Prompt Version / Hash (mirrors classifyWithOpenAI.ts exports) ───────────
+
+/** Version string stamped on cache rows and deal_documents. */
+export const GEMINI_PROMPT_VERSION = "gemini_classifier_v1";
+
+let _geminiPromptHashCache: string | null = null;
+
+/**
+ * Deterministic prompt hash for cache keying.
+ * Changing the system prompt must change this value to bust the cache.
+ */
+export function getGeminiPromptHash(): string {
+  if (!_geminiPromptHashCache) {
+    _geminiPromptHashCache = createHash("sha256")
+      .update(SYSTEM_PROMPT.slice(0, 120))
+      .digest("hex")
+      .slice(0, 16);
+  }
+  return _geminiPromptHashCache;
+}
+
+export function getGeminiPromptVersion(): string {
+  return GEMINI_PROMPT_VERSION;
 }
 
 // ─── Response Parser ────────────────────────────────────────────────────────

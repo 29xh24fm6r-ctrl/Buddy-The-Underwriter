@@ -1,5 +1,5 @@
-// Phase 23: Gemini shadow classifier runs in parallel via runGatekeeper.ts
-// Phase 24: cut over to Gemini primary after shadow data confirms ≥95% agree rate
+// Phase 24: Gemini is now the primary classifier. This file is no longer called by runGatekeeper.ts.
+// Phase 25: remove after 30 days of Gemini primary with no regressions.
 
 /**
  * OpenAI Gatekeeper — Classification via OpenAI Structured Outputs

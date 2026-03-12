@@ -1,14 +1,15 @@
 /**
- * OpenAI Gatekeeper — Per-Document Orchestrator
+ * Gemini Gatekeeper — Per-Document Orchestrator
  *
  * Runs gatekeeper classification for a single document:
  * 1. Idempotency check (already classified?)
  * 2. Cache check by (bank_id, sha256, prompt_hash)
- * 3. OpenAI call (text or vision path)
+ * 3. Gemini call (text or vision path)
  * 4. Apply deterministic routing rules
  * 5. Stamp ONLY gatekeeper_* fields on deal_documents (never canonical_type/routing_class)
  * 6. Write cache + ledger events
  *
+ * Phase 24: Gemini 2.0 Flash is the primary classifier. OpenAI removed from path.
  * Fail-closed: any error → route = NEEDS_REVIEW, never blocks the deal.
  */
 import "server-only";
@@ -18,14 +19,12 @@ import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { readGatekeeperCache, writeGatekeeperCache } from "./gatekeeperCache";
 import {
-  classifyWithOpenAIText,
-  classifyWithOpenAIVision,
-  getPromptHash,
-  getPromptVersion,
-  getGatekeeperModel,
-} from "./classifyWithOpenAI";
+  classifyWithGeminiText,
+  classifyWithGeminiVision,
+  getGeminiPromptHash,
+  getGeminiPromptVersion,
+} from "./geminiClassifier";
 import { computeGatekeeperRoute, computeNeedsReviewReasonCode } from "./routing";
-import { runClassificationShadow } from "./classificationShadowMode";
 import type {
   GatekeeperDocInput,
   GatekeeperResult,
@@ -51,8 +50,8 @@ export async function runGatekeeperForDocument(
   options?: { mode?: "inline" | "batch" },
 ): Promise<GatekeeperResult> {
   const sb = supabaseAdmin();
-  const promptHash = getPromptHash();
-  const promptVersion = getPromptVersion();
+  const promptHash = getGeminiPromptHash();
+  const promptVersion = getGeminiPromptVersion();
   const started = Date.now();
   const mode = options?.mode ?? "inline";
 
@@ -99,11 +98,11 @@ export async function runGatekeeperForDocument(
       const cached = await readGatekeeperCache(input.bankId, input.sha256, promptHash);
       if (cached) {
         // Defense-in-depth: verify cache row was produced by current prompt
-        if (cached.prompt_version !== getPromptVersion()) {
+        if (cached.prompt_version !== getGeminiPromptVersion()) {
           console.warn("[Gatekeeper] cache prompt_version drift (hash matched)", {
             documentId: input.documentId,
             cachedVersion: cached.prompt_version,
-            currentVersion: getPromptVersion(),
+            currentVersion: getGeminiPromptVersion(),
           });
           // prompt_hash is authoritative — if hash matched, cache is still valid.
         }
@@ -125,22 +124,6 @@ export async function runGatekeeperForDocument(
         };
         await stampDocument(sb, input, result);
         await emitLedgerEvents(input, result, mode);
-
-        // Shadow: fire Gemini classifier on cache hits too, so cached docs
-        // contribute shadow data. Fire-and-forget, never blocks the pipeline.
-        runClassificationShadow({
-          dealId: input.dealId,
-          documentId: input.documentId,
-          filename: input.storagePath,
-          inputPath: "cache",
-          ocrText: input.ocrText ?? null,
-          imageBase64: null,     // image bytes not available on cache hits
-          mimeType: input.mimeType,
-          primaryDocType: result.doc_type,
-          primaryConfidence: result.confidence,
-          primaryModel: result.model,
-        });
-
         return result;
       }
     }
@@ -157,7 +140,7 @@ export async function runGatekeeperForDocument(
       },
     }).catch(() => {});
 
-    // ── 4. Call OpenAI ──────────────────────────────────────────────────
+    // ── 4. Call Gemini (primary classifier — Phase 24) ─────────────────
     let classification: GatekeeperClassification & {
       model: string;
       prompt_version: string;
@@ -166,21 +149,51 @@ export async function runGatekeeperForDocument(
       completion_tokens?: number;
     };
     let inputPath: GatekeeperResult["input_path"];
-    let visionBase64: string | null = null;
 
     if (input.ocrText && input.ocrText.length > 100) {
-      // Text path (preferred — cheaper)
-      classification = await classifyWithOpenAIText(input.ocrText);
+      // Text path (preferred — cheaper, faster)
+      const geminiResult = await classifyWithGeminiText(input.ocrText);
+      if (!geminiResult) {
+        inputPath = "no_ocr_no_image";
+        const failResult = buildFailResult(
+          promptHash, promptVersion, "no_ocr_no_image",
+          "Gemini classifier returned null on text path",
+          Date.now() - started,
+        );
+        await stampDocument(sb, input, failResult);
+        await emitLedgerEvents(input, failResult, mode);
+        return failResult;
+      }
+      classification = {
+        ...geminiResult,
+        prompt_version: promptVersion,
+        prompt_hash: promptHash,
+      };
       inputPath = "text";
     } else if (VISION_MIME_TYPES.has(input.mimeType.toLowerCase())) {
       // Vision path for image files
       const fileBytes = await downloadFile(sb, input.storageBucket, input.storagePath);
-      visionBase64 = fileBytes.toString("base64");
-      classification = await classifyWithOpenAIVision(visionBase64, input.mimeType);
+      const visionBase64 = fileBytes.toString("base64");
+      const geminiVisionResult = await classifyWithGeminiVision(visionBase64, input.mimeType);
+      if (!geminiVisionResult) {
+        inputPath = "no_ocr_no_image";
+        const failResult = buildFailResult(
+          promptHash, promptVersion, "no_ocr_no_image",
+          "Gemini classifier returned null on vision path",
+          Date.now() - started,
+        );
+        await stampDocument(sb, input, failResult);
+        await emitLedgerEvents(input, failResult, mode);
+        return failResult;
+      }
+      classification = {
+        ...geminiVisionResult,
+        prompt_version: promptVersion,
+        prompt_hash: promptHash,
+      };
       inputPath = "vision";
     } else {
       // PDF or other non-image without OCR text — route to NEEDS_REVIEW
-      // We log this explicitly so it can be monitored
       console.warn("[Gatekeeper] No OCR text and non-image file, routing to NEEDS_REVIEW", {
         documentId: input.documentId,
         mimeType: input.mimeType,
@@ -197,20 +210,6 @@ export async function runGatekeeperForDocument(
       await emitLedgerEvents(input, failResult, mode);
       return failResult;
     }
-
-    // ── 4b. Shadow mode — run Gemini classifier in parallel (fire-and-forget)
-    runClassificationShadow({
-      dealId: input.dealId,
-      documentId: input.documentId,
-      filename: input.storagePath,
-      inputPath: inputPath as "text" | "vision",
-      ocrText: input.ocrText,
-      imageBase64: visionBase64,
-      mimeType: input.mimeType,
-      primaryDocType: classification.doc_type,
-      primaryConfidence: classification.confidence,
-      primaryModel: classification.model,
-    });
 
     // ── 5. Apply routing rules ──────────────────────────────────────────
     const route = computeGatekeeperRoute(classification);
@@ -262,8 +261,8 @@ export async function runGatekeeperForDocument(
         },
         model: classification.model,
         promptVersion: classification.prompt_version,
-        promptTokens: classification.prompt_tokens,
-        completionTokens: classification.completion_tokens,
+        promptTokens: undefined,
+        completionTokens: undefined,
       }).catch(() => {});
     }
 
