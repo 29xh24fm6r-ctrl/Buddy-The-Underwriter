@@ -10,6 +10,7 @@ import type {
   RatioSection,
   StatementPeriod,
 } from "./types";
+import { loadPersonalIncome } from "./personalIncomeLoader";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1256,6 +1257,11 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
   // Global cash flow section (Phase 18 facts → Phase 19 PDF page)
   const globalCashFlow = await buildGlobalCashFlowSection(dealId);
 
+  // Personal income section — load PERSONAL_INCOME facts if any exist
+  const personalIncome = deal?.bank_id
+    ? await loadPersonalIncome(dealId, deal.bank_id)
+    : null;
+
   return {
     dealId,
     companyName: deal?.borrower_name ?? deal?.name ?? "Unknown Company",
@@ -1270,6 +1276,7 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
     cashFlowPeriods: cfPeriods,
     ratioSections: buildRatioSections(byPeriod, periods, cashFlowRows),
     globalCashFlow,
+    personalIncome,
     executiveSummary: buildExecutiveSummary(byPeriod, periods),
   };
 }
