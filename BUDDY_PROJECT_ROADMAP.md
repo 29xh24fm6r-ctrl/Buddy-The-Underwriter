@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 21 Complete — DSCR Reconciliation + Spread Completeness Score**
+**Status: Phase 23 Complete — Gemini Classifier Shadow Mode — Phase 24 Next**
 
 ---
 
@@ -349,7 +349,10 @@ The loader code will correctly populate them the moment the facts exist.
 |-------|-----------|
 | Frontend | Next.js, Tailwind, Vercel |
 | Database | Supabase (PostgreSQL) |
-| AI Models | Gemini 2.0 Flash (extraction, spreads, narrative, credit memo), Claude claude-sonnet-4-5-20250929 (financial extraction) |
+| AI — Primary | Gemini 2.0 Flash (extraction, narrative, credit memo, aiJson, shadow classifier) |
+| AI — Classification | gpt-4o-mini (primary, cutover pending Phase 24 data) |
+| AI — Voice | gpt-4o-realtime-preview (intentionally retained on OpenAI) |
+| AI — Reasoning | o1-preview (orchestrator, Phase 25 migration evaluation) |
 | Integration | MCP (Model Context Protocol) |
 | Event Ledger | Supabase `deal_events` (append-only) |
 | PDF Generation | PDFKit (portrait 8.5×11, serverExternalPackages) |
@@ -444,11 +447,51 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | Phase 20 | Bulk Re-extraction Trigger (POST + status + UI button) | ✅ Complete | #226 |
 | Phase 21 | DSCR Reconciliation + Spread Completeness Score | ✅ Complete | #227 |
 | Phase 22 | Gemini Migration (narrativeEngine + aiJson + creditMemo) | ✅ Complete | #228 |
-| Phase 23 | Gemini Document Classifier (Shadow Mode) | ✅ Complete | #229 |
-| **Phase 24** | **TBD** | **⬅ NEXT** | — |
+| Phase 23 | Gemini Classifier Shadow Mode + classification_shadow_log | ✅ Complete | #229 |
+| **Phase 24** | **Gemini Classifier Cutover (data-gated, ≥95% agree required)** | **⬅ NEXT** | #230 |
+| Phase 25 | Orchestrator reasoning model — Gemini 2.5 Pro evaluation | 🔜 Queued | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔜 Queued | — |
 | Observability | Telemetry pipeline activation | 🔜 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔜 Queued | — |
+
+## Phase 24 Spec — Gemini Classifier Cutover
+
+**Branch:** `feature/gemini-classifier-cutover` | **PR:** #230
+**Commit:** `feat: Phase 24 — Gemini primary document classifier cutover`
+**Gate:** `pnpm tsc --noEmit` — zero errors. No new migrations.
+
+**Prerequisite — run this query before writing a single line of code:**
+```sql
+select
+  count(*) as total,
+  sum(case when agree then 1 else 0 end) as agreed,
+  round(100.0 * sum(case when agree then 1 else 0 end) / count(*), 1) as agree_pct
+from classification_shadow_log;
+```
+If `agree_pct` < 95 or `total` < 20 — stop. Review disagreement rows first.
+
+**The entire code change is two lines in `classificationShadowMode.ts`:**
+```typescript
+// Phase 23 return (current):
+return primaryResult;  // OpenAI
+
+// Phase 24 return (cutover):
+return shadowResult ?? primaryResult;  // Gemini, fallback to OpenAI if null
+```
+
+Also swap the `primary_model` / `shadow_model` label strings in `logShadowResult()` to reflect the new roles.
+
+Update the TODO in `classifyWithOpenAI.ts` to Phase 25: remove after 30 days of Gemini primary with no regressions.
+
+**Rollback:** revert the two-line swap. The shadow log keeps accumulating either way.
+
+**Verification:**
+1. `pnpm tsc --noEmit` clean
+2. Upload a document — new `classification_shadow_log` row shows `primary_model = gemini-2.0-flash`
+3. Correct extractor fires for the classified type
+4. `OPENAI_API_KEY` stays in `env.ts` (voice still needs it)
+
+---
 
 *The mission: a system that proves itself right before delivery —
 so bankers focus entirely on credit judgment.*
