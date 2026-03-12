@@ -52,3 +52,6 @@ export const SOFT_DEADLINE_MS = 4 * 60 * 1000;
  * events for forward-compat and debugging.
  */
 export const PROCESSING_OBSERVABILITY_VERSION = "observability_v1";
+
+/** Maximum concurrent extraction Lambdas to fire on intake completion. */
+export const MAX_CONCURRENT_EXTRACTIONS = 6;

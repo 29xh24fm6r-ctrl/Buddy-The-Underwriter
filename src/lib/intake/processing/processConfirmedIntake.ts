@@ -475,11 +475,39 @@ export async function processConfirmedIntake(
     if (runId) void stampProcessingHeartbeat(dealId, runId, `batch_${i}`);
   }
 
-  // ── E2: Spread orchestration + fact materialization ────────────────
-  // These are now triggered by the doc-extraction worker after each
-  // extractByDocType() completes. Facts don't exist yet at this point
-  // (extraction is async). The worker calls triggerPostExtractionOps()
-  // after each doc which runs orchestrateSpreads + materializeFactsFromArtifacts.
+  // ── E2: Fan-out parallel extraction Lambdas ────────────────────────
+  // Fire min(N_queued, MAX_CONCURRENT_EXTRACTIONS) parallel worker
+  // invocations immediately. Each claims one doc.extract outbox row via
+  // FOR UPDATE SKIP LOCKED — no double-processing possible.
+  // Cron remains as safety net.
+  const extractableCount = confirmedDocs.filter(
+    (d) => EXTRACT_ELIGIBLE.has(d.canonical_type ?? d.document_type ?? d.ai_doc_type ?? "")
+  ).length;
+
+  if (extractableCount > 0) {
+    try {
+      const { fanOutDocExtraction } = await import(
+        "@/lib/intake/processing/fanOutDocExtraction"
+      );
+      const appBaseUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : "http://localhost:3000";
+      const secret =
+        process.env.CRON_SECRET ?? process.env.WORKER_SECRET ?? "";
+
+      // Fire-and-forget — do not await extraction completion
+      void fanOutDocExtraction(extractableCount, appBaseUrl, secret);
+    } catch (err: any) {
+      // Non-fatal — cron handles extraction if fan-out fails
+      console.warn("[processConfirmedIntake] fan-out failed (non-fatal)", {
+        dealId,
+        error: err?.message,
+      });
+    }
+  }
+
   if (runId) void stampProcessingHeartbeat(dealId, runId, "extraction_queued");
 
   // 3. Deal-level operations (non-fact-dependent)
