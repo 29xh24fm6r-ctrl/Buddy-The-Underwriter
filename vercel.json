@@ -29,7 +29,7 @@
       "schedule": "*/3 * * * *"
     },
     {
-      "path": "/api/workers/doc-extraction?max=10",
+      "path": "/api/workers/doc-extraction?max=1",
       "schedule": "*/1 * * * *"
     }
   ]

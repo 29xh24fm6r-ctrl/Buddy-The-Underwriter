@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
   console.log("[doc-extraction] cron_invocation_seen", {
     ts: new Date().toISOString(),
     ua: req.headers.get("user-agent") ?? null,
+    fanOutIndex: req.headers.get("x-fan-out-index") ?? "cron",
   });
 
   if (!hasValidWorkerSecret(req)) {
