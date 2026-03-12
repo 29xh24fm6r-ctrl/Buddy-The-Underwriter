@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
 import { resolveDealLabel } from "@/lib/deals/dealLabel";
 import { Icon } from "@/components/ui/Icon";
-import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonicalMemoPdfButton";
+
 import { useFinancialSnapshot } from "@/hooks/useFinancialSnapshot";
 import { useFinancialSnapshotDecision } from "@/hooks/useFinancialSnapshotDecision";
 import { useLenderMatches } from "@/hooks/useLenderMatches";
@@ -274,6 +274,7 @@ export default function DealShell({
     { label: "Committee", href: `${base}/committee-studio` },
     { label: "Borrower", href: `${base}/borrower` },
     { label: "Portal", href: `${base}/portal-inbox` },
+    { label: "Classic Spreads", href: `${base}/classic-spreads` },
   ];
 
   return (
@@ -343,11 +344,13 @@ export default function DealShell({
                 </span>
                 <span className="hidden sm:inline">Credit Memo</span>
               </Link>
-              <ExportCanonicalMemoPdfButton
-                dealId={dealId}
-                className="hidden sm:inline-flex items-center rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10 disabled:opacity-60"
-                label="PDF"
-              />
+              <Link
+                href={`/deals/${dealId}/classic-spreads`}
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>table_chart</span>
+                <span>Spreads</span>
+              </Link>
             </div>
           </div>
 
