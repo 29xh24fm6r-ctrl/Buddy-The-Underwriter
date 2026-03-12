@@ -1,3 +1,6 @@
+export type { PersonalIncomeSection, PersonalIncomeYear } from "./personalIncomeLoader";
+import type { PersonalIncomeSection } from "./personalIncomeLoader";
+
 export type StatementPeriod = {
   date: string; // "12/31/2023"
   months: number; // 12
@@ -78,6 +81,9 @@ export type ClassicSpreadInput = {
 
   // Global cash flow (entity + personal aggregation)
   globalCashFlow: GlobalCashFlowSection | null;
+
+  // Personal income (Form 1040 guarantor summary)
+  personalIncome?: PersonalIncomeSection | null;
 
   // Executive summary (combined BS + IS condensed)
   executiveSummary: {
