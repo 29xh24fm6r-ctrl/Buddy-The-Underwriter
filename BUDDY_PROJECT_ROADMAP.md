@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: AAR 22b Complete — Parallel Extraction Fan-out — Phase 25 Next**
+**Status: Phase 25 Complete — Gemini 3 Flash Orchestrator Shadow Mode Active | Gate Monitoring Next**
 
 ---
 
@@ -245,7 +245,7 @@ Root cause: Extraction stores IS expense keys with `_IS` suffix
 
 ---
 
-## COS UI + AI Provider Migration (PRs #216–#231)
+## COS UI + AI Provider Migration (PRs #216–#233)
 
 ### Phase 10 — Deal Command Center (Intelligence tab) ✅ PR #216
 ### Phase 11 — Financial Intelligence Workspace (Financials tab) ✅ PR #217
@@ -381,7 +381,7 @@ independently. Cron remains as safety net.
 **Result:** 9 docs complete in ~60–120s (parallel) instead of ~9 min (sequential).
 
 | Docs | Sequential (cron only) | Parallel fan-out (6 concurrent) |
-|------|------------------------|----------------------------------|
+|------|------------------------|--------------------------------|
 | 9 | ~9 min | ~60–120s |
 | 20 | ~20 min | ~3–4 min |
 | 40 | ~40 min | ~7 min |
@@ -397,6 +397,54 @@ independently. Cron remains as safety net.
 | `vercel.json` | Cron `max=10` → `max=1` (safety net only) |
 
 No Supabase migration needed — reuses existing outbox + claim function from AAR 22.
+
+### Phase 25 — Orchestrator Reasoning Model ✅ COMPLETE — PR #233
+
+**Branch:** `feature/orchestrator-reasoning-model`
+**Commit:** `feat: Phase 25 — Gemini 3 Flash orchestrator shadow mode`
+
+**Model chosen:** `gemini-3-flash-preview` — Pro-level reasoning at Flash speed/pricing.
+$0.50/1M input, $3/1M output. Configurable thinking levels (minimal/low/medium/high).
+Designed for agentic workflows and complex multi-turn reasoning. Dynamic thinking
+enabled by default. Outperforms prior generation Flash models across reasoning benchmarks.
+
+**Files created/modified:**
+
+| File | Change |
+|------|--------|
+| `src/lib/ai/gemini3FlashProvider.ts` | New — `Gemini3FlashProvider` implements `AIProvider`; `thinkingConfig: { thinkingLevel: "medium" }`; thought-part filtering on response parse; `chatAboutDeal` throws (routes to OpenAI at provider level) |
+| `src/lib/ai/shadowOrchestrator.ts` | New — `withShadow()` wrapper; fire-and-forget shadow; logs to `orchestrator_shadow_log`; `SHADOW_MODEL_NAME = "gemini-3-flash-preview"` exported |
+| `src/lib/ai/provider.ts` | Modified — imports `Gemini3FlashProvider` + `withShadow`; env var `ORCHESTRATOR_USE_GEMINI3_FLASH`; cutover creates composite provider (Gemini for risk+memo, OpenAI for chatAboutDeal) |
+| Migration `20260312_orchestrator_shadow_log.sql` | New table — model-agnostic schema with `primary_model`, `shadow_model`, `agree`, `primary_ms`, `shadow_ms` columns |
+
+**Routing table:**
+
+| Env | Risk + Memo | chatAboutDeal |
+|-----|-------------|---------------|
+| `ORCHESTRATOR_USE_GEMINI3_FLASH=true` | Gemini 3 Flash | OpenAI (fallback) |
+| `ORCHESTRATOR_SHADOW_ENABLED=true` | OpenAI primary + Gemini 3 Flash shadow | OpenAI (no shadow) |
+| Default | OpenAI | OpenAI |
+
+**Cutover gate query:**
+```sql
+select
+  count(*)                                                      as total_rows,
+  round(100.0 * count(*) filter (where agree = true)
+        / nullif(count(*), 0), 1)                              as agree_pct,
+  count(*) filter (where error_shadow   is not null)            as shadow_errors,
+  count(*) filter (where error_primary  is not null)            as primary_errors,
+  round(avg(shadow_ms))                                         as avg_shadow_ms
+from orchestrator_shadow_log
+where operation = 'generateRisk';
+```
+Gate: `total_rows >= 20` AND `agree_pct >= 95` AND `shadow_errors = 0`
+→ flip `ORCHESTRATOR_USE_GEMINI3_FLASH=true`.
+
+**Env vars to set in Vercel:**
+```
+ORCHESTRATOR_SHADOW_ENABLED=true   # safe now — fire-and-forget, never affects primary
+ORCHESTRATOR_USE_GEMINI3_FLASH=false  # flip after gate passes
+```
 
 ---
 
@@ -424,12 +472,17 @@ No Supabase migration needed — reuses existing outbox + claim function from AA
 
 ### P1 — Immediate
 
-1. **PTR extractor not built**
+1. **Shadow gate monitoring — orchestrator cutover**
+   Run `orchestrator_shadow_log` gate query after each `generateRisk` call.
+   Target: ≥20 rows, ≥95% agree, 0 shadow errors → flip `ORCHESTRATOR_USE_GEMINI3_FLASH=true`.
+   Verification deal: ffcc9733 (ADS=$67,368 / EBITDA=$368,499 → expected ~5.5x DSCR).
+
+2. **PTR extractor not built**
    PTR documents classified as BUSINESS_TAX_RETURN, run through BTR extractor.
    Form 1040, Schedule E, Schedule F, Form 4562, Form 8825 need dedicated
    extraction prompts and fact key mappings.
 
-2. **Re-extract 2022–2024 documents with v2 prompts**
+3. **Re-extract 2022–2024 documents with v2 prompts**
    Schedule L keys (SL_LAND, SL_INTANGIBLES_GROSS, SL_AR_GROSS,
    SL_WAGES_PAYABLE, SL_LOANS_FROM_SHAREHOLDERS) and IS keys
    (SALARIES_WAGES_IS, RENT_EXPENSE_IS, REPAIRS_MAINTENANCE_IS) only
@@ -438,29 +491,29 @@ No Supabase migration needed — reuses existing outbox + claim function from AA
 
 ### P2 — Near Term
 
-3. **Model Engine V2 activation**
+4. **Model Engine V2 activation**
    USE_MODEL_ENGINE_V2 feature flag disabled. DB tables (metric_definitions,
    model_snapshots) empty. Pulse telemetry events not forwarding. Voice
    constraints exist in code but not injected into OpenAI realtime sessions.
 
-4. **Observability pipeline wiring**
+5. **Observability pipeline wiring**
    Infrastructure exists (deal_pipeline_ledger, forwarding logic, Vercel cron)
    but events not flowing. Missing env vars: PULSE_TELEMETRY_ENABLED,
    PULSE_BUDDY_INGEST_URL, PULSE_BUDDY_INGEST_SECRET, CRON_SECRET.
 
-5. **Corpus expansion**
+6. **Corpus expansion**
    Currently 2 Samaritus docs. Need 10+ across industries. Add Form 1120,
    Form 1065, first multi-entity deal with K-1s.
 
 ### P3 — Future
 
-6. **Crypto lending module** — trigger-price-indexed margin call monitoring,
+7. **Crypto lending module** — trigger-price-indexed margin call monitoring,
    tiered risk proximity, Supabase collateral tracking.
 
-7. **Treasury product auto-proposal engine** — leverage financial data already
+8. **Treasury product auto-proposal engine** — leverage financial data already
    collected during loan underwriting.
 
-8. **RMA peer/industry comparison** — industry benchmark ratios on the spread.
+9. **RMA peer/industry comparison** — industry benchmark ratios on the spread.
 
 ---
 
@@ -492,7 +545,7 @@ The loader code will correctly populate them the moment the facts exist.
 | Database | Supabase (PostgreSQL) |
 | AI — Primary | Gemini 2.0 Flash (extraction, narrative, credit memo, aiJson, classifier) |
 | AI — Voice | gpt-4o-realtime-preview (intentionally retained on OpenAI) |
-| AI — Reasoning | o1-preview / Gemini 2.5 Pro (orchestrator, Phase 25 evaluation) |
+| AI — Reasoning | Gemini 3 Flash (orchestrator shadow active, cutover pending gate) |
 | Integration | MCP (Model Context Protocol) |
 | Event Ledger | Supabase `deal_events` (append-only) |
 | PDF Generation | PDFKit (portrait 8.5×11, serverExternalPackages) |
@@ -512,7 +565,8 @@ The loader code will correctly populate them the moment the facts exist.
 | General aiJson() wrapper | Gemini 2.0 Flash | ✅ |
 | Document classification | Gemini 2.0 Flash | ✅ Active (Phase 24) |
 | Voice interview sessions | gpt-4o-realtime-preview | ✅ Retained on OpenAI intentionally |
-| Underwriting orchestrator | o1-preview / Gemini 2.5 Pro eval | 🔜 Phase 25 |
+| Risk + Memo orchestrator | OpenAI primary + Gemini 3 Flash shadow | 🔜 Shadow active — cutover pending gate |
+| chatAboutDeal | OpenAI (gpt-4o-2024-08-06) | ✅ Retained — evaluated separately Phase 26 |
 
 ---
 
@@ -551,7 +605,9 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 20. ✅ Intelligence tab fully populated — all 12 metric cells, DSCR Triangle, Buddy's Assessment (AAR 20)
 21. ✅ New deal intake completes in <60s — no soft deadline timeouts (AAR 22)
 22. ✅ Extraction fan-out — 9 docs complete in ~60-120s, not ~9 min (AAR 22b)
-23. 🔜 Banker experience — opens a spread, trusts every number, focuses on credit
+23. ✅ Gemini 3 Flash orchestrator shadow mode active (Phase 25)
+24. 🔜 Gemini 3 Flash orchestrator cutover — pending shadow gate (≥20 rows, ≥95% agree)
+25. 🔜 Banker experience — opens a spread, trusts every number, focuses on credit
     (this one is never fully done — it's the ongoing standard)
 
 ---
@@ -577,10 +633,20 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 - Gemini extraction is duration-unpredictable (30–120s per doc). Never await it
   inline inside a time-bounded orchestration window. Always queue extraction as
   outbox events and let a dedicated worker handle it asynchronously.
-- Extraction fan-out: after queueing async outbox events, immediately fire
+- Extraction fan-out: after queuing async outbox events, immediately fire
   `min(N, MAX_CONCURRENT_EXTRACTIONS)` parallel self-invocations. `FOR UPDATE
   SKIP LOCKED` guarantees no collision. Cron is safety net only, not primary
   throughput mechanism.
+- Shadow mode for model migrations: implement new provider behind `AIProvider`
+  interface, gate with `ORCHESTRATOR_SHADOW_ENABLED=true`, log key-field
+  agreement (`grade` family for risk, `sections.length` for memo) to
+  `orchestrator_shadow_log`. Flip cutover flag only after ≥20 rows at ≥95%
+  agree with zero shadow errors.
+- Gemini 3 Flash (and thinking model variants) use `thinkingConfig.thinkingLevel`
+  — omit `temperature` entirely. Strip thought-signature parts from response
+  before JSON parsing (filter `p.thought === true`).
+- Composite provider pattern for cutover: Gemini handles risk+memo,
+  OpenAI retained for chatAboutDeal until separately evaluated (Phase 26).
 
 ---
 
@@ -597,10 +663,10 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | 7 | Cross-Document Reconciliation | ✅ Complete | #175 |
 | 8 | Golden Corpus + Learning Loop | ✅ Complete | #176 |
 | 9 | Full Banking Relationship | ✅ Complete | #177 |
-| 2C–3D | Credit Memo + Cockpit Panels | ✅ Complete | #180–184 |
-| Spread v1 | Spread output infrastructure | ✅ Complete | #185–187 |
-| AARs 1–7 | 7-bug batch fix | ✅ Complete | #188–194 |
-| AARs 8–16 | Spread route + snapshot wiring | ✅ Complete | #195–196 |
+| 2C–3D | Credit Memo + Cockpit Panels | ✅ Complete | #180–#184 |
+| Spread v1 | Spread output infrastructure | ✅ Complete | #185–#187 |
+| AARs 1–7 | 7-bug batch fix | ✅ Complete | #188–#194 |
+| AARs 8–16 | Spread route + snapshot wiring | ✅ Complete | #195–#196 |
 | AAR 17 | PDFKit serverExternalPackages | ✅ Complete | hotfix |
 | Classic Spread v1 | BS/IS/Ratios/Exec PDF | ✅ Complete | #197 |
 | AAR 18 | Portrait layout + ghost pages + OPEX | ✅ Complete | #207 |
@@ -625,69 +691,11 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | AAR 21 | Classic Spreads tab + PDF button fix | ✅ Complete | 6e449800 |
 | AAR 22 | Async extraction decoupling — 240s soft deadline fix | ✅ Complete | PR #231 |
 | AAR 22b | Parallel extraction fan-out — 9 docs in ~60-120s not ~9 min | ✅ Complete | PR #232 |
-| **Phase 25** | **Orchestrator reasoning model — Gemini 2.5 Pro evaluation** | **⬅ NEXT** | — |
+| **Phase 25** | **Gemini 3 Flash orchestrator shadow mode — `orchestrator_shadow_log` active** | **✅ Complete** | **PR #233** |
+| Shadow Gate | Monitor `orchestrator_shadow_log` → flip cutover flag when gate passes | 🔜 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔜 Queued | — |
 | Observability | Telemetry pipeline activation | 🔜 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔜 Queued | — |
-
----
-
-## Phase 25 Spec — Orchestrator Reasoning Model
-
-**Branch:** `feature/orchestrator-reasoning-model` | **PR:** #233
-**Commit:** `feat: Phase 25 — Gemini 2.5 Pro orchestrator evaluation`
-**Gate:** `pnpm tsc --noEmit` — zero errors.
-
-**Context:** The underwriting orchestrator currently runs on `o1-preview`.
-Gemini 2.5 Pro is now available and offers comparable reasoning with tighter
-Gemini ecosystem integration. This phase evaluates parity and optionally
-migrates.
-
-**Evaluation criteria:**
-1. DSCR computation accuracy — compare orchestrator output for deal ffcc9733
-   with manual calculation (ADS=$67,368 / EBITDA=$368,499 → expected ~5.5x)
-2. Credit memo narrative quality — compare Gemini 2.5 Pro vs o1-preview output
-   on the same deal facts
-3. Latency — Gemini 2.5 Pro target: ≤ o1-preview p95 latency
-4. Cost — Gemini 2.5 Pro pricing vs o1-preview per 1M tokens
-
-**Implementation pattern (shadow before cutover):**
-```typescript
-// Phase 25 shadow: run both, log disagreements
-const o1Result = await runOrchestratorO1(input);
-const geminiResult = await runOrchestratorGemini25(input);
-await logOrchestratorShadow({ o1Result, geminiResult, dealId });
-return o1Result; // primary until cutover
-```
-
-**Migration — `src/lib/orchestrator/runOrchestrator.ts`:**
-- Add `runOrchestratorGemini25()` alongside existing `runOrchestratorO1()`
-- Wire shadow logging to new `orchestrator_shadow_log` table
-- Cutover: swap return to `geminiResult` after 20+ rows with ≥95% agree
-
-**Migration — Supabase:**
-```sql
-create table orchestrator_shadow_log (
-  id uuid primary key default gen_random_uuid(),
-  deal_id uuid references deals(id),
-  o1_result jsonb,
-  gemini_result jsonb,
-  agree boolean generated always as (
-    o1_result->>'classification' = gemini_result->>'classification'
-  ) stored,
-  created_at timestamptz default now()
-);
-alter table orchestrator_shadow_log enable row level security;
-```
-
-**No functional change to banker-facing output in Phase 25.**
-This is purely an evaluation + shadow mode phase.
-
-**Verification:**
-1. `pnpm tsc --noEmit` clean
-2. Run orchestrator on deal ffcc9733 — both o1 and Gemini 2.5 Pro fire
-3. `orchestrator_shadow_log` row inserted
-4. Primary result (o1) returned unchanged to caller
 
 ---
 
