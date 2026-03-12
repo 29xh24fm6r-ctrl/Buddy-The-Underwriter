@@ -148,7 +148,28 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
     const report = composeSpreadOutput(input);
 
-    return NextResponse.json({ ok: true, report });
+    // Pass through canonical_facts, ratios, years, flags, and
+    // map story_panel → narrative_report so IntelligenceClient can read them.
+    return NextResponse.json({
+      ok: true,
+      report: {
+        ...report,
+        canonical_facts: input.canonical_facts,
+        ratios: ratiosResult,
+        years_available: input.years_available,
+        flag_report: input.flag_report,
+        trend_report: resolvedTrendReport ?? undefined,
+        narrative_report: report.story_panel
+          ? {
+              final_narrative: report.story_panel.final_narrative,
+              resolution_narrative: report.story_panel.resolution_narrative,
+              top_risks: report.story_panel.top_risks,
+              top_strengths: report.story_panel.top_strengths,
+              ratio_narratives: {},
+            }
+          : undefined,
+      },
+    });
   } catch (err: unknown) {
     rethrowNextErrors(err);
     if (err instanceof AuthorizationError) {
