@@ -92,21 +92,30 @@ export async function loadPersonalIncome(
       periodEnd: `${year}-12-31`,
       wagesW2: helper(b, "WAGES_W2"),
       schedCNet: helper(b, "SCHED_C_NET"),
-      schedENet: helper(b, "SCHED_E_NET", "SCH_E_NET", "SCH_E_RENTAL_TOTAL"),
-      k1OrdinaryIncome: helper(b, "K1_ORDINARY_INCOME", "SCH_E_K1_NET_TOTAL"),
+      schedENet: helper(b, "SCHED_E_NET", "SCH_E_NET", "SCH_E_RENTAL_TOTAL", "RENTAL_INCOME_SCHED_E"),
+      k1OrdinaryIncome: (() => {
+        const canonical = helper(b, "K1_ORDINARY_INCOME", "SCH_E_K1_NET_TOTAL");
+        if (canonical != null) return canonical;
+        // Gemini primary writes multi-source K-1s as K1_ORDINARY_INCOME_2, _3, etc.
+        // Sum all numbered variants.
+        const k1Keys = Object.keys(b).filter((k) => /^K1_ORDINARY_INCOME_\d+$/.test(k));
+        if (k1Keys.length === 0) return null;
+        const sum = k1Keys.reduce((acc, k) => acc + (b[k] ?? 0), 0);
+        return sum !== 0 ? sum : null;
+      })(),
       taxableInterest: helper(b, "TAXABLE_INTEREST", "INTEREST_INCOME"),
       ordinaryDividends: helper(b, "ORDINARY_DIVIDENDS", "DIVIDEND_INCOME"),
       capitalGains: helper(b, "CAPITAL_GAINS"),
       pensionAnnuity: helper(b, "PENSION_ANNUITY"),
       socialSecurity: helper(b, "SOCIAL_SECURITY"),
-      otherIncome: helper(b, "OTHER_INCOME"),
+      otherIncome: helper(b, "OTHER_INCOME", "OTHER_INCOME_SCH1"),
       adjustmentsToIncome: helper(b, "ADJUSTMENTS_TO_INCOME"),
       adjustedGrossIncome: helper(b, "ADJUSTED_GROSS_INCOME"),
       standardDeduction: helper(b, "STANDARD_DEDUCTION"),
       qbiDeduction: helper(b, "QBI_DEDUCTION"),
       taxableIncome: helper(b, "TAXABLE_INCOME"),
       totalTax: helper(b, "TOTAL_TAX"),
-      schEGrossRents: helper(b, "SCH_E_GROSS_RENTS_RECEIVED"),
+      schEGrossRents: helper(b, "SCH_E_GROSS_RENTS_RECEIVED", "RENTAL_INCOME_SCHED_E"),
       schEMortgageInterest: helper(b, "SCH_E_MORTGAGE_INTEREST"),
       schEDepreciation: helper(b, "SCH_E_DEPRECIATION"),
       schETotalExpenses: helper(b, "SCH_E_TOTAL_EXPENSES"),

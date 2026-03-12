@@ -386,33 +386,30 @@ export async function extractFactsFromDocument(args: {
     ["PERSONAL_TAX_RETURN", "IRS_1040", "IRS_PERSONAL"].includes(normDocType)
   ) {
     extractorRan = true;
-    // Note: Personal income Gemini primary uses PERSONAL_INCOME fact type
-    // but attemptGeminiPrimary does not pass ownerEntityId — personal docs
-    // handled by deterministic for now (owner resolution needed)
-    const gp = await attemptGeminiPrimary("PERSONAL_INCOME");
-    if (gp.succeeded) {
-      factsWritten += gp.factsWritten;
-      extractionPath = "gemini_primary";
-    } else {
-      try {
-        const ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
-        if (useDeterministic) {
-          const result = await extractPersonalIncomeDeterministic({
-            ...deterministicArgs,
-            ownerEntityId,
-          });
-          factsWritten += result.factsWritten;
-          extractionPath = result.extractionPath;
-        } else {
-          const result = await extractPersonalIncome({
-            ...baseArgs,
-            ownerEntityId,
-          });
-          factsWritten += result.factsWritten;
-        }
-      } catch (err) {
-        console.error("[extractFactsFromDocument] personalIncome failed:", err);
+    // Gemini primary is intentionally skipped for personal income.
+    // The Gemini BTR prompt produces non-canonical keys that the
+    // personalIncomeLoader cannot map (e.g. RENTAL_INCOME_SCHED_E vs
+    // SCH_E_GROSS_RENTS_RECEIVED, K1_ORDINARY_INCOME_2 vs K1_ORDINARY_INCOME).
+    // Owner resolution is also required for accurate guarantor attribution.
+    // Always use the deterministic extractor for personal docs.
+    try {
+      const ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
+      if (useDeterministic) {
+        const result = await extractPersonalIncomeDeterministic({
+          ...deterministicArgs,
+          ownerEntityId,
+        });
+        factsWritten += result.factsWritten;
+        extractionPath = result.extractionPath;
+      } else {
+        const result = await extractPersonalIncome({
+          ...baseArgs,
+          ownerEntityId,
+        });
+        factsWritten += result.factsWritten;
       }
+    } catch (err) {
+      console.error("[extractFactsFromDocument] personalIncome failed:", err);
     }
 
     // Persist resolved tax year to document_artifacts (backfill NULL gap)
