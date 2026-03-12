@@ -125,6 +125,22 @@ export async function runGatekeeperForDocument(
         };
         await stampDocument(sb, input, result);
         await emitLedgerEvents(input, result, mode);
+
+        // Shadow: fire Gemini classifier on cache hits too, so cached docs
+        // contribute shadow data. Fire-and-forget, never blocks the pipeline.
+        runClassificationShadow({
+          dealId: input.dealId,
+          documentId: input.documentId,
+          filename: input.storagePath,
+          inputPath: "cache",
+          ocrText: input.ocrText ?? null,
+          imageBase64: null,     // image bytes not available on cache hits
+          mimeType: input.mimeType,
+          primaryDocType: result.doc_type,
+          primaryConfidence: result.confidence,
+          primaryModel: result.model,
+        });
+
         return result;
       }
     }
