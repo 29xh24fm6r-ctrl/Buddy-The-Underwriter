@@ -85,7 +85,8 @@ export async function processDocExtractionOutbox(
     try {
       console.log("[doc-extraction] starting extraction", { rowId: row.id, docId, dealId });
 
-      await extractByDocType(docId);
+      const forceRefresh = (row.payload as any)?.force_refresh === true;
+      await extractByDocType(docId, { forceRefresh });
 
       const elapsedMs = Date.now() - startMs;
       console.log("[doc-extraction] extraction complete", { rowId: row.id, docId, dealId, elapsedMs });

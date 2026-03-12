@@ -316,7 +316,10 @@ async function tryStructuredAssist(
  *
  * Falls back to resolveDocTypeRouting() for rows not yet stamped by classifier.
  */
-export async function extractByDocType(docId: string): Promise<ExtractByDocTypeResult> {
+export async function extractByDocType(
+  docId: string,
+  options?: { forceRefresh?: boolean },
+): Promise<ExtractByDocTypeResult> {
   const started = Date.now();
 
   const doc = await loadDocumentFromDb(docId);
@@ -329,7 +332,8 @@ export async function extractByDocType(docId: string): Promise<ExtractByDocTypeR
   }
 
   // ── Extraction dedup: skip if identical file already has extraction results ──
-  if (doc.sha256) {
+  // SKIP ENTIRELY when forceRefresh=true — stale v1 cache must not block re-extraction
+  if (doc.sha256 && !options?.forceRefresh) {
     try {
       const sb = supabaseAdmin();
       const { data: donorDoc } = await (sb as any)

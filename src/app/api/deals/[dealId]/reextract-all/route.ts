@@ -3,11 +3,9 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { extractFactsFromDocument } from "@/lib/financialSpreads/extractFactsFromDocument";
+import { queueDocExtractionOutbox } from "@/lib/intake/processing/queueDocExtractionOutbox";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { clerkAuth } from "@/lib/auth/clerkServer";
-import type { SpreadType } from "@/lib/financialSpreads/types";
-import { spreadsForDocType } from "@/lib/financialSpreads/docTypeToSpreadTypes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,8 +16,14 @@ type Ctx = { params: Promise<{ dealId: string }> };
 /**
  * POST /api/deals/[dealId]/reextract-all
  *
- * Bulk re-extraction: re-runs fact extraction for every classified document
- * in the deal, orchestrates spreads, and triggers Global Cash Flow computation.
+ * Bulk re-extraction: queues every classified document in the deal for
+ * async re-extraction via the doc.extract outbox with forceRefresh=true.
+ *
+ * forceRefresh bypasses SHA-256 dedup so Gemini re-runs on the raw PDFs
+ * even when an identical file was previously extracted under v1 prompts.
+ *
+ * The outbox worker handles: extractByDocType (fresh OCR + structured assist)
+ * → triggerPostExtractionOps (spreads, facts, readiness).
  */
 export async function POST(_req: NextRequest, ctx: Ctx) {
   try {
@@ -64,97 +68,45 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       return NextResponse.json({
         ok: true,
         queued: 0,
-        skipped: 0,
-        factsWritten: 0,
         message: "No classified documents to re-extract",
       });
     }
 
     let queued = 0;
-    let skipped = 0;
-    let factsWritten = 0;
-    const spreadTypesNeeded = new Set<SpreadType>();
     const errors: string[] = [];
 
-    // Sequential extraction — one document at a time
+    // Queue each document for async re-extraction with dedup bypass
     for (const doc of allDocs) {
       try {
         const docType =
           doc.canonical_type ?? doc.ai_doc_type ?? doc.document_type;
 
-        const result = await extractFactsFromDocument({
+        await queueDocExtractionOutbox({
           dealId,
           bankId: access.bankId,
-          documentId: doc.id,
-          docTypeHint: docType,
+          docId: doc.id,
+          docType,
+          forceRefresh: true,
         });
 
-        factsWritten += result.factsWritten;
         queued++;
-
-        for (const st of spreadsForDocType(docType)) {
-          spreadTypesNeeded.add(st);
-        }
       } catch (err: any) {
-        skipped++;
         errors.push(`${doc.id}: ${err?.message ?? "unknown"}`);
       }
-    }
-
-    // STANDARD spread is always needed when any docs processed
-    if (queued > 0) spreadTypesNeeded.add("STANDARD");
-
-    // Orchestrate spreads
-    let orchestrateResult: any = null;
-    try {
-      const { orchestrateSpreads } = await import(
-        "@/lib/spreads/orchestrateSpreads"
-      );
-      orchestrateResult = await orchestrateSpreads(
-        dealId,
-        access.bankId,
-        "recompute",
-        userId,
-      );
-    } catch (orchErr: any) {
-      errors.push(`orchestrate: ${orchErr?.message ?? "unknown"}`);
-    }
-
-    // Trigger Global Cash Flow computation
-    let gcfResult: any = null;
-    try {
-      const { persistGlobalCashFlow } = await import(
-        "@/lib/financialIntelligence/persistGlobalCashFlow"
-      );
-      gcfResult = await persistGlobalCashFlow({
-        dealId,
-        bankId: access.bankId,
-      });
-    } catch (gcfErr: any) {
-      errors.push(`gcf: ${gcfErr?.message ?? "unknown"}`);
     }
 
     // Emit ledger event
     await logLedgerEvent({
       dealId,
       bankId: access.bankId,
-      eventKey: "reextraction.batch.completed",
+      eventKey: "reextraction.batch.queued",
       uiState: "working",
-      uiMessage: `Bulk re-extracted ${queued} documents (${factsWritten} facts), ${skipped} skipped`,
+      uiMessage: `Queued ${queued} documents for re-extraction (dedup bypass enabled)`,
       meta: {
         triggered_by: userId,
         queued,
-        skipped,
-        facts_written: factsWritten,
-        spread_types: Array.from(spreadTypesNeeded),
-        orchestrate: orchestrateResult,
-        gcf: gcfResult?.ok
-          ? {
-              factsWritten: gcfResult.factsWritten,
-              globalCashFlowAvailable: gcfResult.result?.globalCashFlowAvailable,
-              globalDscr: gcfResult.result?.globalDscr,
-            }
-          : null,
+        total_docs: allDocs.length,
+        force_refresh: true,
         errors: errors.length > 0 ? errors : undefined,
       },
     });
@@ -162,10 +114,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     return NextResponse.json({
       ok: true,
       queued,
-      skipped,
-      factsWritten,
-      spreadTypes: Array.from(spreadTypesNeeded),
-      gcf: gcfResult?.ok ?? false,
+      message: `${queued} documents queued for re-extraction. Results will appear as each document completes.`,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error: any) {
