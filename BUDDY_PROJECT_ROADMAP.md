@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 26 Complete — ai-risk route wired, shadow gate accumulating | Cutover pending gate**
+**Status: Phase 27 Complete — Personal Income PDF page in Classic Spread | Phase 28 queued**
 
 ---
 
@@ -61,17 +61,17 @@ IRS Knowledge Base + Identity Validation   ✅ Phase 1 & 2 COMPLETE
         ↓
 Formula Accuracy Layer                     ✅ Phase 3 COMPLETE
         ↓
-Proof-of-Correctness Engine               ✅ Phase 4 COMPLETE
+Proof-of-Correctness Engine                ✅ Phase 4 COMPLETE
         ↓
-Financial Intelligence Layer              ✅ Phase 5 COMPLETE
+Financial Intelligence Layer               ✅ Phase 5 COMPLETE
         ↓
-Industry Intelligence Layer               ✅ Phase 6 COMPLETE
+Industry Intelligence Layer                ✅ Phase 6 COMPLETE
         ↓
-Cross-Document Reconciliation             ✅ Phase 7 COMPLETE
+Cross-Document Reconciliation              ✅ Phase 7 COMPLETE
         ↓
-Golden Corpus + Continuous Learning       ✅ Phase 8 COMPLETE
+Golden Corpus + Continuous Learning        ✅ Phase 8 COMPLETE
         ↓
-Full Banking Relationship                 ✅ Phase 9 COMPLETE
+Full Banking Relationship                  ✅ Phase 9 COMPLETE
         ↓
 Classic Banker Spread PDF (MMAS format)   ✅ PRs #180–#209
         ↓
@@ -213,7 +213,7 @@ Root cause: PDFKit auto-page-break at 756pt. Footer drawn at ~766pt triggered
 auto-insert blank page before explicit addPage() — doubling page count.
 - Fix A: FOOTER_HEIGHT=50, all footer text gets lineBreak:false
 - Fix B: TOTAL OPEX derived from component sum when direct key missing
-- Fix C: Portrait column widths (165+4×90=525pt ≈ 540pt usable)
+- Fix C: Portrait column widths (165+4×90=525pt ≤ 540pt usable)
 - Fix D: Deals query .select("id, name, borrower_name, bank_id")
 - Fix E: PFS periods filtered from buildPeriodMaps
 - Result: 4 clean pages, zero ghost blanks
@@ -428,12 +428,12 @@ enabled by default. Outperforms prior generation Flash models across reasoning b
 **Cutover gate query:**
 ```sql
 select
-  count(*)                                                      as total_rows,
+  count(*)                                                                     as total_rows,
   round(100.0 * count(*) filter (where agree = true)
-        / nullif(count(*), 0), 1)                              as agree_pct,
-  count(*) filter (where error_shadow   is not null)            as shadow_errors,
-  count(*) filter (where error_primary  is not null)            as primary_errors,
-  round(avg(shadow_ms))                                         as avg_shadow_ms
+        / nullif(count(*), 0), 1)                                             as agree_pct,
+  count(*) filter (where error_shadow   is not null)                          as shadow_errors,
+  count(*) filter (where error_primary  is not null)                          as primary_errors,
+  round(avg(shadow_ms))                                                        as avg_shadow_ms
 from orchestrator_shadow_log
 where operation = 'generateRisk';
 ```
@@ -469,6 +469,34 @@ Each "Run AI Assessment" click now populates both `ai_risk_runs` and
 `orchestrator_shadow_log` (when `ORCHESTRATOR_SHADOW_ENABLED=true`),
 building toward the shadow gate threshold.
 
+### Phase 27 — Personal Income PDF Page (Classic Spread) ✅ COMPLETE — commit 712961c5
+
+**What this unlocked:** Personal tax return facts (extracted into
+`deal_financial_facts` with `fact_type = 'PERSONAL_INCOME'` by
+`personalIncomeDeterministic.ts`) were invisible to bankers — no PDF page,
+no spread section, no guarantor view. Phase 27 closes that gap.
+
+**What shipped:**
+- `src/lib/classicSpread/personalIncomeLoader.ts` — NEW. Loads `PERSONAL_INCOME`
+  facts from `deal_financial_facts`, groups by tax year, returns `PersonalIncomeSection`
+  with 26 fields per year (wages, Schedule C/E/K-1, AGI, deductions, QBI,
+  Form 4562 depreciation addback, Form 8825 entity rental)
+- `src/lib/classicSpread/types.ts` — re-exports `PersonalIncomeSection` /
+  `PersonalIncomeYear`, adds optional `personalIncome` to `ClassicSpreadInput`
+- `src/lib/classicSpread/classicSpreadLoader.ts` — calls
+  `loadPersonalIncome(dealId, bankId)` and includes in return
+- `src/lib/classicSpread/classicSpreadRenderer.ts` — adds `renderPersonalIncomePage()`
+  with 6 row groups (Income Sources, AGI, Deductions, Form 4562, Schedule E detail,
+  Form 8825), up to 4 year columns, page break handling, footer with `lineBreak: false`
+  per AAR 18 pattern. Called after Global Cash Flow, before Executive Summary —
+  only if `personalIncome.years.length > 0`
+
+No new migrations, no new API routes. tsc clean.
+
+**Build principle added:** Personal Income page is omitted entirely when no
+`PERSONAL_INCOME` facts exist — the existing 4–6 page PDF is unchanged for
+deals without guarantor PTRs uploaded.
+
 ---
 
 ## Current State — Active Deal ffcc9733
@@ -501,17 +529,17 @@ building toward the shadow gate threshold.
    Target: ≥20 rows, ≥95% agree, 0 shadow errors → flip `ORCHESTRATOR_USE_GEMINI3_FLASH=true`.
    Verification deal: ffcc9733 (ADS=$67,368 / EBITDA=$368,499 → expected ~5.5x DSCR).
 
-2. **PTR extractor not built**
-   PTR documents classified as BUSINESS_TAX_RETURN, run through BTR extractor.
-   Form 1040, Schedule E, Schedule F, Form 4562, Form 8825 need dedicated
-   extraction prompts and fact key mappings.
-
-3. **Re-extract 2022–2024 documents with v2 prompts**
+2. **Re-extract 2022–2024 documents with v2 prompts** ← **Phase 28**
    Schedule L keys (SL_LAND, SL_INTANGIBLES_GROSS, SL_AR_GROSS,
    SL_WAGES_PAYABLE, SL_LOANS_FROM_SHAREHOLDERS) and IS keys
    (SALARIES_WAGES_IS, RENT_EXPENSE_IS, REPAIRS_MAINTENANCE_IS) only
    populate on newly extracted documents. Existing facts were extracted
-   under v1 prompts.
+   under v1 prompts. Bulk re-extraction with version-aware targeting needed.
+
+3. **PTR extractor not built**
+   PTR documents classified as BUSINESS_TAX_RETURN, run through BTR extractor.
+   Form 1040, Schedule E, Schedule F, Form 4562, Form 8825 need dedicated
+   extraction prompts and fact key mappings.
 
 ### P2 — Near Term
 
@@ -590,7 +618,7 @@ The loader code will correctly populate them the moment the facts exist.
 | Document classification | Gemini 2.0 Flash | ✅ Active (Phase 24) |
 | Voice interview sessions | gpt-4o-realtime-preview | ✅ Retained on OpenAI intentionally |
 | Risk + Memo orchestrator | OpenAI primary + Gemini 3 Flash shadow | 🔴 Shadow active — accumulating rows via ai-risk route (Phase 26) |
-| chatAboutDeal | OpenAI (gpt-4o-2024-08-06) | ✅ Retained — evaluated separately Phase 27 |
+| chatAboutDeal | OpenAI (gpt-4o-2024-08-06) | ✅ Retained — evaluated separately |
 
 ---
 
@@ -631,8 +659,10 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 22. ✅ Extraction fan-out — 9 docs complete in ~60-120s, not ~9 min (AAR 22b)
 23. ✅ Gemini 3 Flash orchestrator shadow mode active (Phase 25)
 24. ✅ generateRisk() wired to live route + UI — shadow log accumulating (Phase 26)
-25. 🔴 Gemini 3 Flash orchestrator cutover — pending shadow gate (≥20 rows, ≥95% agree)
-26. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+25. ✅ Personal Income PDF page in Classic Spread — guarantor Form 1040 visible to banker (Phase 27)
+26. 🔴 Gemini 3 Flash orchestrator cutover — pending shadow gate (≥20 rows, ≥95% agree)
+27. 🔴 Spread completeness ≥80% — IS/BS gaps filled via v2 re-extraction (Phase 28 target)
+28. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
     (this one is never fully done — it's the ongoing standard)
 
 ---
@@ -671,10 +701,12 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
   — omit `temperature` entirely. Strip thought-signature parts from response
   before JSON parsing (filter `p.thought === true`).
 - Composite provider pattern for cutover: Gemini handles risk+memo,
-  OpenAI retained for chatAboutDeal until separately evaluated (Phase 27).
+  OpenAI retained for chatAboutDeal until separately evaluated.
 - Shadow log fills only from `generateRisk`/`generateMemo` calls via `AIProvider`
   through the `/api/deals/[dealId]/ai-risk` route — NOT from document upload,
   re-extraction, classification, flag engine, or `aiJson()` calls.
+- Personal Income PDF page is omitted entirely when no `PERSONAL_INCOME` facts
+  exist — the 4–6 page spread PDF is unchanged for deals without PTRs uploaded.
 
 ---
 
@@ -721,7 +753,9 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | AAR 22b | Parallel extraction fan-out — 9 docs in ~60-120s not ~9 min | ✅ Complete | PR #232 |
 | **Phase 25** | **Gemini 3 Flash orchestrator shadow mode — `orchestrator_shadow_log` active** | **✅ Complete** | **PR #233** |
 | **Phase 26** | **ai-risk route + Run AI Assessment button — shadow gate wired** | **✅ Complete** | **bbee0903** |
+| **Phase 27** | **Personal Income PDF page — guarantor Form 1040 in Classic Spread** | **✅ Complete** | **712961c5** |
 | Shadow Gate | Monitor `orchestrator_shadow_log` → flip cutover flag when gate passes | 🔴 Active — accumulating rows | — |
+| **Phase 28** | **Version-aware bulk re-extraction — fill IS/BS gaps from v2 prompts** | **🔴 Queued** | **—** |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔴 Queued | — |
