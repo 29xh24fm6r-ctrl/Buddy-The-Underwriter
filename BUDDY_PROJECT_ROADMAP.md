@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 24 Complete — Gemini Classifier Cutover — Phase 25 Next**
+**Status: AAR 22 Complete — Async Extraction Decoupling — Phase 25 Next**
 
 ---
 
@@ -57,9 +57,9 @@ Document Classification + OCR
         ↓
 Structured Extraction Engine (Gemini Flash)
         ↓
-IRS Knowledge Base + Identity Validation    ✅ Phase 1 & 2 COMPLETE
+IRS Knowledge Base + Identity Validation   ✅ Phase 1 & 2 COMPLETE
         ↓
-Formula Accuracy Layer                      ✅ Phase 3 COMPLETE
+Formula Accuracy Layer                     ✅ Phase 3 COMPLETE
         ↓
 Proof-of-Correctness Engine                ✅ Phase 4 COMPLETE
         ↓
@@ -149,7 +149,7 @@ All pure functions. No DB required.
 - Reasonableness engine updated with NAICS-calibrated norms
 
 ### PHASE 7 — Cross-Document Reconciliation ✅ COMPLETE — PR #175
-- 6 checks: K-1↔Entity, K-1↔Personal, Tax↔Financials,
+- 6 checks: K-1→Entity, K-1→Personal, Tax→Financials,
   Balance Sheet, Multi-Year Trend, Ownership Integrity
 - CLEAN / FLAGS / CONFLICTS deal-level status
 - Migration: `deal_reconciliation_results`
@@ -245,7 +245,7 @@ Root cause: Extraction stores IS expense keys with `_IS` suffix
 
 ---
 
-## COS UI + AI Provider Migration (PRs #216–#230)
+## COS UI + AI Provider Migration (PRs #216–#231)
 
 ### Phase 10 — Deal Command Center (Intelligence tab) ✅ PR #216
 ### Phase 11 — Financial Intelligence Workspace (Financials tab) ✅ PR #217
@@ -313,7 +313,7 @@ Readiness score.
 buried as an output rather than a first-class banker workflow.
 
 **Fix:**
-- `DealShell.tsx` — added `{ label: "Classic Spreads", href: ${base}/classic-spreads }` 
+- `DealShell.tsx` — added `{ label: "Classic Spreads", href: ${base}/classic-spreads }`
   to the tab array; replaced broken PDF button with a `<Link>` shortcut to
   the new tab; removed unused `ExportCanonicalMemoPdfButton` import
 - `src/app/(app)/deals/[dealId]/classic-spreads/page.tsx` — new server
@@ -324,6 +324,46 @@ buried as an output rather than a first-class banker workflow.
 
 Classic Spreads is now the 10th tab on every deal, with a "Spreads" shortcut
 in the header action bar. PDF generation and inline preview work end-to-end.
+
+### AAR 22 — Async Document Extraction Decoupling ✅ PR #231
+
+**Root cause:** `processConfirmedIntake.ts` called `extractByDocType()` for
+every document inline inside the 240s soft deadline. Each call: Supabase
+Storage download + Gemini OCR (30–120s per doc) + optional structured assist.
+With 9 docs at DOC_CONCURRENCY=3: 3 batches × 60–90s = 180–270s — reliably
+blowing past `SOFT_DEADLINE_MS = 240000ms`. Every new deal landed in
+`PROCESSING_COMPLETE_WITH_ERRORS`.
+
+**Architecture after fix:**
+
+_Phase A — Intake processing (fast, <60s):_
+1. Document matching for all docs (2–5s each)
+2. Insert `doc.extract` outbox event per extractable doc
+3. Non-fact-dependent deal ops: checklist reconcile, lifecycle bootstrap, naming
+4. Mark deal `PROCESSING_COMPLETE`
+
+_Phase B — Doc extraction worker (async, one event per doc):_
+1. Cron fires every 1 minute, claims up to 10 `doc.extract` events
+2. Runs `extractByDocType(docId)` for each claimed doc
+3. After each success: triggers `orchestrateSpreads` + `materializeFactsFromArtifacts`
+   + `recomputeDealReady` (idempotent — recomputes with whatever facts exist)
+4. Marks outbox event delivered; exponential backoff; dead-letters after 5 attempts
+
+**Files changed:**
+
+| File | Change |
+|------|--------|
+| `src/lib/intake/processing/queueDocExtractionOutbox.ts` | New — inserts `doc.extract` outbox events |
+| `src/lib/workers/processDocExtractionOutbox.ts` | New — durable worker, exponential backoff, dead-letter at 5 attempts |
+| `src/app/api/workers/doc-extraction/route.ts` | New — Vercel cron (every 1 min, max 10 docs, 300s maxDuration) |
+| `src/lib/intake/processing/processConfirmedIntake.ts` | Replaced inline `extractByDocType()` with outbox queue; removed `orchestrateSpreads` + `materializeFactsFromArtifacts` blocks |
+| `vercel.json` | Added `/api/workers/doc-extraction?max=10` cron at `*/1 * * * *` |
+| Migration | `claim_doc_extraction_outbox_batch` SQL function applied |
+
+**Verification:** New deals reach `PROCESSING_COMPLETE` in <60s.
+`buddy_outbox_events` rows with `kind = 'doc.extract'` get `delivered_at`
+populated within 1–3 minutes. Facts + spreads populate progressively as
+each doc extracts.
 
 ---
 
@@ -338,7 +378,7 @@ in the header action bar. PDF generation and inline preview work end-to-end.
 | ADS = $67,368 | ✅ Computed (deal_structural_pricing) |
 | Intelligence tab metrics | ✅ After AAR 20 fix (fb811545) |
 | Classic Spreads tab | ✅ After AAR 21 fix (6e449800) |
-| DSCR Triangle (ADS=$67K, EBITDA=$368K–$557K → ~5x+) | ✅ Should populate after deploy |
+| DSCR Triangle (ADS=$67K, EBITDA=$368K–$557K → ~5x+) | ✅ Populated after deploy |
 | Spread Completeness | 48% F — Revenue/OPEX/OpIncome missing |
 | financial_snapshots | 2 rows from 00:36 UTC — stale, but spread-output route reads facts directly |
 
@@ -414,7 +454,7 @@ The loader code will correctly populate them the moment the facts exist.
 ## Technical Stack
 
 | Layer | Technology |
-|-------|-----------|
+|-------|------------|
 | Frontend | Next.js, Tailwind, Vercel |
 | Database | Supabase (PostgreSQL) |
 | AI — Primary | Gemini 2.0 Flash (extraction, narrative, credit memo, aiJson, classifier) |
@@ -434,9 +474,9 @@ The loader code will correctly populate them the moment the facts exist.
 | Workload | Model | Status |
 |----------|-------|--------|
 | Document extraction | Gemini 2.0 Flash | ✅ Active |
-| Classic Spread narrative | Gemini 2.0 Flash | ✅ Active |
-| Credit memo generation | Gemini 2.0 Flash | ✅ Active |
-| General aiJson() wrapper | Gemini 2.0 Flash | ✅ Active |
+| Classic Spread narrative | Gemini 2.0 Flash | ✅ |
+| Credit memo generation | Gemini 2.0 Flash | ✅ |
+| General aiJson() wrapper | Gemini 2.0 Flash | ✅ |
 | Document classification | Gemini 2.0 Flash | ✅ Active (Phase 24) |
 | Voice interview sessions | gpt-4o-realtime-preview | ✅ Retained on OpenAI intentionally |
 | Underwriting orchestrator | o1-preview / Gemini 2.5 Pro eval | 🔜 Phase 25 |
@@ -476,7 +516,8 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 18. ✅ Personal tax return extraction with IRS identity validation (Phase 16)
 19. ✅ Classic Spreads as first-class tab on every deal (AAR 21)
 20. ✅ Intelligence tab fully populated — all 12 metric cells, DSCR Triangle, Buddy's Assessment (AAR 20)
-21. 🔜 Banker experience — opens a spread, trusts every number, focuses on credit
+21. ✅ New deal intake completes in <60s — no soft deadline timeouts (AAR 22)
+22. 🔜 Banker experience — opens a spread, trusts every number, focuses on credit
     (this one is never fully done — it's the ongoing standard)
 
 ---
@@ -499,6 +540,9 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
   TypeScript won't catch shape mismatches when routes cast as `any`.
   Always verify what IntelligenceClient / hooks actually read from the API.
 - reextract-all bypasses gatekeeper entirely — shadow never fires from re-extractions.
+- Gemini extraction is duration-unpredictable (30–120s per doc). Never await it
+  inline inside a time-bounded orchestration window. Always queue extraction as
+  outbox events and let a dedicated worker handle it asynchronously.
 
 ---
 
@@ -541,6 +585,7 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | Phase 24 | Gemini Classifier Cutover (direct, data gate skipped) | ✅ Complete | dfdfc066 |
 | AAR 20 | Intelligence tab blank metrics — spread-output shape mismatch | ✅ Complete | fb811545 |
 | AAR 21 | Classic Spreads tab + PDF button fix | ✅ Complete | 6e449800 |
+| AAR 22 | Async extraction decoupling — 240s soft deadline fix | ✅ Complete | PR #231 |
 | **Phase 25** | **Orchestrator reasoning model — Gemini 2.5 Pro evaluation** | **⬅ NEXT** | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔜 Queued | — |
 | Observability | Telemetry pipeline activation | 🔜 Queued | — |
@@ -550,7 +595,7 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 
 ## Phase 25 Spec — Orchestrator Reasoning Model
 
-**Branch:** `feature/orchestrator-reasoning-model` | **PR:** #231
+**Branch:** `feature/orchestrator-reasoning-model` | **PR:** #232
 **Commit:** `feat: Phase 25 — Gemini 2.5 Pro orchestrator evaluation`
 **Gate:** `pnpm tsc --noEmit` — zero errors.
 
