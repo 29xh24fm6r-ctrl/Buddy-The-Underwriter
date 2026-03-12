@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 27 Complete — Personal Income PDF page in Classic Spread | Phase 28 queued**
+**Status: Phase 28 Complete — Re-extraction dedup bypass + GEMINI_PRIMARY_EXTRACTION_ENABLED | Phase 29 queued**
 
 ---
 
@@ -497,6 +497,39 @@ No new migrations, no new API routes. tsc clean.
 `PERSONAL_INCOME` facts exist — the existing 4–6 page PDF is unchanged for
 deals without guarantor PTRs uploaded.
 
+### Phase 28 — Re-extraction Dedup Bypass + Gemini Primary Activation ✅ COMPLETE
+
+**Root cause:** SHA-256 dedup in `extractByDocType.ts` was reusing cached
+`document_extracts` rows from deal `07541fce` when re-extracting `ffcc9733`
+(same Samaritus entity, identical PDFs). Fresh OCR never ran; v2 BTR prompt
+entities (`SL_LAND`, `SALARIES_WAGES_IS`, etc.) were never extracted.
+Spread completeness stuck at 48% F despite loader code being correct.
+
+**What shipped (4 files):**
+- `src/lib/extract/router/extractByDocType.ts` — Added optional
+  `options?: { forceRefresh?: boolean }` parameter. When `forceRefresh` is
+  true, the SHA-256 dedup block is skipped entirely, forcing Gemini to re-run
+  OCR + structured assist on the raw PDF.
+- `src/lib/workers/processDocExtractionOutbox.ts` — Reads `force_refresh` from
+  the outbox event payload and passes `{ forceRefresh }` to `extractByDocType()`.
+- `src/lib/intake/processing/queueDocExtractionOutbox.ts` — Made `intakeRunId`
+  optional, added `docType` and `forceRefresh` params. Includes `force_refresh`
+  in outbox payload JSONB. Sets `source: "reextract"` when forceRefresh is true.
+- `src/app/api/deals/[dealId]/reextract-all/route.ts` — Changed from inline
+  `extractFactsFromDocument` calls to async outbox queuing via
+  `queueDocExtractionOutbox` with `forceRefresh: true`. Outbox worker now
+  handles the full pipeline: extractByDocType (fresh OCR, dedup bypassed)
+  → triggerPostExtractionOps (orchestrateSpreads → spreadsProcessor
+  → extractFactsFromDocument → facts → readiness).
+
+**Fix 2 (env var):** `GEMINI_PRIMARY_EXTRACTION_ENABLED=true` set in Vercel
+production to activate `attemptGeminiPrimary()` in `extractFactsFromDocument`
+— uses v2 BTR prompts from `geminiFlashPrompts.ts`.
+
+**Expected outcome:** After "Re-extract All" on `ffcc9733`, spread completeness
+climbs from 48% F toward 75%+ as `SALARIES_WAGES_IS`, `SL_LAND`,
+`SL_WAGES_PAYABLE`, `SL_INTANGIBLES_GROSS` appear in `deal_financial_facts`.
+
 ---
 
 ## Current State — Active Deal ffcc9733
@@ -511,7 +544,7 @@ deals without guarantor PTRs uploaded.
 | Intelligence tab metrics | ✅ After AAR 20 fix (fb811545) |
 | Classic Spreads tab | ✅ After AAR 21 fix (6e449800) |
 | DSCR Triangle (ADS=$67K, EBITDA=$368K–$557K → ~5x+) | ✅ Populated after deploy |
-| Spread Completeness | 48% F — Revenue/OPEX/OpIncome missing |
+| Spread Completeness | 48% F — Revenue/OPEX/OpIncome missing (Phase 28 targets this) |
 | financial_snapshots | 2 rows from 00:36 UTC — stale, but spread-output route reads facts directly |
 
 **Revenue 4 years:** $798K → $1.2M → $1.5M → $1.4M
@@ -529,17 +562,19 @@ deals without guarantor PTRs uploaded.
    Target: ≥20 rows, ≥95% agree, 0 shadow errors → flip `ORCHESTRATOR_USE_GEMINI3_FLASH=true`.
    Verification deal: ffcc9733 (ADS=$67,368 / EBITDA=$368,499 → expected ~5.5x DSCR).
 
-2. **Re-extract 2022–2024 documents with v2 prompts** ← **Phase 28**
-   Schedule L keys (SL_LAND, SL_INTANGIBLES_GROSS, SL_AR_GROSS,
-   SL_WAGES_PAYABLE, SL_LOANS_FROM_SHAREHOLDERS) and IS keys
-   (SALARIES_WAGES_IS, RENT_EXPENSE_IS, REPAIRS_MAINTENANCE_IS) only
-   populate on newly extracted documents. Existing facts were extracted
-   under v1 prompts. Bulk re-extraction with version-aware targeting needed.
+2. **Spread completeness verification after Phase 28**
+   Trigger "Re-extract All" on ffcc9733. Confirm `SALARIES_WAGES_IS`, `SL_LAND`,
+   `SL_WAGES_PAYABLE`, and other v2-only keys appear in `deal_financial_facts`.
+   Check spread completeness score — target ≥75%.
 
-3. **PTR extractor not built**
-   PTR documents classified as BUSINESS_TAX_RETURN, run through BTR extractor.
-   Form 1040, Schedule E, Schedule F, Form 4562, Form 8825 need dedicated
-   extraction prompts and fact key mappings.
+3. **PTR facts not flowing into spread — routing gap** ← **Phase 29**
+   `extractFactsFromClassifiedArtifacts.ts` routes docs to `extractFactsFromDocument()`
+   which calls `attemptGeminiPrimary()` for BTR docs. PTR docs (Form 1040,
+   Schedule E) have their own deterministic extractor (`personalIncomeDeterministic.ts`)
+   but whether they are correctly routed through it — rather than falling through
+   to a generic BTR path — needs verification and hardening. `PERSONAL_INCOME`
+   facts being absent from ffcc9733 despite PTR docs being uploaded is the signal
+   that this routing gap exists.
 
 ### P2 — Near Term
 
@@ -559,19 +594,23 @@ deals without guarantor PTRs uploaded.
 
 ### P3 — Future
 
-7. **Crypto lending module** — trigger-price-indexed margin call monitoring,
+7. **chatAboutDeal Gemini migration** — complete the AI provider migration;
+   same shadow pattern as Phase 23–25.
+
+8. **Crypto lending module** — trigger-price-indexed margin call monitoring,
    tiered risk proximity, Supabase collateral tracking.
 
-8. **Treasury product auto-proposal engine** — leverage financial data already
+9. **Treasury product auto-proposal engine** — leverage financial data already
    collected during loan underwriting.
 
-9. **RMA peer/industry comparison** — industry benchmark ratios on the spread.
+10. **RMA peer/industry comparison** — industry benchmark ratios on the spread.
 
 ---
 
-## What Will Still Be Blank Until Re-Extraction
+## What Will Still Be Blank Until Re-Extraction (Pre-Phase 28)
 
-After PRs #208–#209, these line items require re-extraction with v2 prompts:
+After PRs #208–#209, these line items required re-extraction with v2 prompts.
+Phase 28 unblocked this — trigger "Re-extract All" to fill them:
 
 ```
 IS 2022–2024: Officers Comp, Salaries & Wages, Rent Expense,
@@ -584,8 +623,8 @@ Cash Flow:    Working Capital delta rows sparse (AP exists but wages/
               other CL don't yet) — UCA CFO = NI + D&A only for most years
 ```
 
-These are not bugs — they are extraction gaps awaiting re-extraction.
-The loader code will correctly populate them the moment the facts exist.
+These are not bugs — they are extraction gaps that Phase 28 resolves.
+The loader code will correctly populate them the moment fresh facts exist.
 
 ---
 
@@ -618,7 +657,7 @@ The loader code will correctly populate them the moment the facts exist.
 | Document classification | Gemini 2.0 Flash | ✅ Active (Phase 24) |
 | Voice interview sessions | gpt-4o-realtime-preview | ✅ Retained on OpenAI intentionally |
 | Risk + Memo orchestrator | OpenAI primary + Gemini 3 Flash shadow | 🔴 Shadow active — accumulating rows via ai-risk route (Phase 26) |
-| chatAboutDeal | OpenAI (gpt-4o-2024-08-06) | ✅ Retained — evaluated separately |
+| chatAboutDeal | OpenAI (gpt-4o-2024-08-06) | 🔴 Evaluated separately — Gemini migration queued (P3) |
 
 ---
 
@@ -660,9 +699,12 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 23. ✅ Gemini 3 Flash orchestrator shadow mode active (Phase 25)
 24. ✅ generateRisk() wired to live route + UI — shadow log accumulating (Phase 26)
 25. ✅ Personal Income PDF page in Classic Spread — guarantor Form 1040 visible to banker (Phase 27)
-26. 🔴 Gemini 3 Flash orchestrator cutover — pending shadow gate (≥20 rows, ≥95% agree)
-27. 🔴 Spread completeness ≥80% — IS/BS gaps filled via v2 re-extraction (Phase 28 target)
-28. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+26. ✅ Re-extraction dedup bypass — "Re-extract All" forces fresh Gemini OCR (Phase 28)
+27. ✅ GEMINI_PRIMARY_EXTRACTION_ENABLED — v2 BTR prompts active in production (Phase 28)
+28. 🔴 Gemini 3 Flash orchestrator cutover — pending shadow gate (≥20 rows, ≥95% agree)
+29. 🔴 PTR routing hardening — PERSONAL_INCOME facts flowing reliably (Phase 29 target)
+30. 🔴 Spread completeness ≥80% — IS/BS gaps filled via Phase 28 re-extraction
+31. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
     (this one is never fully done — it's the ongoing standard)
 
 ---
@@ -707,6 +749,9 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
   re-extraction, classification, flag engine, or `aiJson()` calls.
 - Personal Income PDF page is omitted entirely when no `PERSONAL_INCOME` facts
   exist — the 4–6 page spread PDF is unchanged for deals without PTRs uploaded.
+- forceRefresh=true on re-extraction bypasses SHA-256 dedup — guarantees fresh
+  Gemini OCR even when identical files exist in other deals. The dedup cache is
+  a performance optimization for intake only, never for forced re-extraction.
 
 ---
 
@@ -754,8 +799,9 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | **Phase 25** | **Gemini 3 Flash orchestrator shadow mode — `orchestrator_shadow_log` active** | **✅ Complete** | **PR #233** |
 | **Phase 26** | **ai-risk route + Run AI Assessment button — shadow gate wired** | **✅ Complete** | **bbee0903** |
 | **Phase 27** | **Personal Income PDF page — guarantor Form 1040 in Classic Spread** | **✅ Complete** | **712961c5** |
+| **Phase 28** | **Re-extraction dedup bypass + GEMINI_PRIMARY_EXTRACTION_ENABLED** | **✅ Complete** | **—** |
 | Shadow Gate | Monitor `orchestrator_shadow_log` → flip cutover flag when gate passes | 🔴 Active — accumulating rows | — |
-| **Phase 28** | **Version-aware bulk re-extraction — fill IS/BS gaps from v2 prompts** | **🔴 Queued** | **—** |
+| **Phase 29** | **PTR fact routing audit + hardening — PERSONAL_INCOME facts flowing reliably** | **🔴 Queued** | **—** |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔴 Queued | — |
