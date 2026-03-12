@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useSpreadOutput } from "@/hooks/useSpreadOutput";
+import { useAIRisk } from "@/hooks/useAIRisk";
 import type { AuditCertRow } from "./page";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -198,8 +199,8 @@ export default function RiskClient({
   dealId: string;
   auditCerts: AuditCertRow[];
 }) {
-  void dealId; // used for spread output hook below
   const { data: spread, loading } = useSpreadOutput(dealId);
+  const { run: aiRun, loading: aiLoading, running: aiRunning, error: aiError, runAssessment } = useAIRisk(dealId);
   const [expandedFlags, setExpandedFlags] = useState<Set<string>>(new Set());
   const [showResolved, setShowResolved] = useState(false);
   const [activeFilter, setActiveFilter] = useState<FlagSeverity | "all">("all");
@@ -258,6 +259,116 @@ export default function RiskClient({
 
   return (
     <div className="px-6 py-6 space-y-8">
+      {/* ── AI Risk Assessment Panel ──────────────────────────────────────── */}
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="text-sm font-semibold text-white/90">AI Risk Assessment</div>
+            <div className="text-xs text-white/40 mt-0.5">
+              Explainable risk grade + pricing rationale from Buddy AI
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={runAssessment}
+            disabled={aiRunning}
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 text-xs font-semibold text-white transition-colors"
+          >
+            {aiRunning ? (
+              <>
+                <span className="animate-spin inline-block w-3 h-3 border border-white/40 border-t-white rounded-full" />
+                Running&hellip;
+              </>
+            ) : (
+              "Run AI Assessment"
+            )}
+          </button>
+        </div>
+
+        {aiError && (
+          <div className="rounded-lg border border-rose-500/30 bg-rose-950/20 px-4 py-3 text-xs text-rose-400 mb-4">
+            {aiError}
+          </div>
+        )}
+
+        {aiLoading && !aiRun && (
+          <div className="text-xs text-white/30 py-2">Loading previous assessment&hellip;</div>
+        )}
+
+        {aiRun && (
+          <div className="space-y-4">
+            {/* Grade + Pricing */}
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-indigo-300">{aiRun.grade}</span>
+                <span className="text-xs text-white/40 uppercase tracking-wide">Risk Grade</span>
+              </div>
+              <div className="text-xs text-white/50">
+                Base: <span className="text-white/80 font-mono">{aiRun.baseRateBps} bps</span>
+                {" \u00b7 "}
+                Premium: <span className="text-white/80 font-mono">{aiRun.riskPremiumBps} bps</span>
+                {" \u00b7 "}
+                Total: <span className="text-indigo-300 font-mono font-semibold">{aiRun.baseRateBps + aiRun.riskPremiumBps} bps</span>
+              </div>
+              {aiRun.createdAt && (
+                <div className="ml-auto text-[10px] text-white/30">
+                  {new Date(aiRun.createdAt).toLocaleString()}
+                </div>
+              )}
+            </div>
+
+            {/* Factors */}
+            {aiRun.factors.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-white/30 mb-2">Key Factors</div>
+                {aiRun.factors.map((f, i) => (
+                  <div
+                    key={i}
+                    className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5"
+                  >
+                    <span
+                      className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${
+                        f.direction === "positive"
+                          ? "bg-emerald-400"
+                          : f.direction === "negative"
+                          ? "bg-rose-400"
+                          : "bg-white/30"
+                      }`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs text-white/80 font-medium">{f.label}</div>
+                      <div className="text-[11px] text-white/45 mt-0.5 leading-relaxed">{f.rationale}</div>
+                    </div>
+                    <div className="shrink-0 text-[10px] text-white/30 tabular-nums">
+                      {Math.round(f.confidence * 100)}%
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Pricing Explain */}
+            {aiRun.pricingExplain.length > 0 && (
+              <div className="space-y-1">
+                <div className="text-[10px] uppercase tracking-wide text-white/30 mb-2">Pricing Adders</div>
+                {aiRun.pricingExplain.map((p, i) => (
+                  <div key={i} className="flex items-center justify-between text-xs px-3 py-1.5 rounded-lg border border-white/[0.05] bg-white/[0.01]">
+                    <span className="text-white/60">{p.label}</span>
+                    <span className="font-mono text-white/80">+{p.bps} bps</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!aiRun && !aiLoading && !aiRunning && (
+          <div className="text-xs text-white/30 py-2">
+            No assessment yet. Click &quot;Run AI Assessment&quot; to generate an explainable risk grade.
+          </div>
+        )}
+      </div>
+
       {/* ── Section 1: Risk Summary Bar ───────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {(["critical", "elevated", "watch", "info"] as FlagSeverity[]).map(
