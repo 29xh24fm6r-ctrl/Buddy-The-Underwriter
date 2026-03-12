@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 23 Complete — Gemini Classifier Shadow Mode — Phase 24 Next**
+**Status: Phase 24 Complete — Gemini Classifier Cutover — Phase 25 Next**
 
 ---
 
@@ -245,28 +245,105 @@ Root cause: Extraction stores IS expense keys with `_IS` suffix
 
 ---
 
-## Current State — Live Deal 07541fce (Run 21)
+## COS UI + AI Provider Migration (PRs #216–#230)
 
-"CLAUDE FIX 21" — Samaritus test deal
+### Phase 10 — Deal Command Center (Intelligence tab) ✅ PR #216
+### Phase 11 — Financial Intelligence Workspace (Financials tab) ✅ PR #217
+### Phase 12 — Structure Lab (Structure tab) ✅ PR #218
+### Phase 13 — Risk Signal Grid + Evidence Audit (Risk tab) ✅ PR #219
+### Phase 14 — Relationship Wallet (Relationship tab) ✅ PR #220
+### Phase 15 — Committee Studio (Committee tab) ✅ PR #221
+### Phase 16 — Personal Tax Return Extractor (Form 1040 + Schedule E) ✅ PR #222
+### Phase 17 — PTR Entity Map (wire extraction output to facts) ✅ PR #223
+### Phase 18 — Global Cash Flow Computation (entity + personal aggregation) ✅ PR #224
+### Phase 19 — Global Cash Flow PDF Page (Classic Spread) ✅ PR #225
+### Phase 20 — Bulk Re-extraction Trigger (POST + status + UI button) ✅ PR #226
+### Phase 21 — DSCR Reconciliation + Spread Completeness Score ✅ PR #227
+### Phase 22 — Gemini Migration (narrativeEngine + aiJson + creditMemo) ✅ PR #228
+### Phase 23 — Gemini Classifier Shadow Mode + classification_shadow_log ✅ PR #229
+### Phase 24 — Gemini Classifier Cutover ✅ COMPLETE — commit dfdfc066
+
+Data gate rationale: Shadow log accumulates only during fresh gatekeeper
+classification. `reextract-all` bypasses gatekeeper entirely — shadow never
+fires from re-extractions. With only 2 deals / 9 docs, the 20-row / 95%
+agree gate had no statistical validity. Skipped data gate; cut over directly.
+
+Two files changed:
+- `src/lib/gatekeeper/geminiClassifier.ts` — added `GEMINI_PROMPT_VERSION`,
+  `getGeminiPromptHash()`, `getGeminiPromptVersion()` exports
+- `src/lib/gatekeeper/runGatekeeper.ts` — swapped OpenAI primary for Gemini
+  primary (`classifyWithGeminiText` / `classifyWithGeminiVision`), removed
+  shadow call block entirely, updated prompt hash/version helpers
+
+Rollback: revert the two-line swap. Shadow log keeps accumulating either way.
+Verification: `deal_documents.gatekeeper_model = "gemini-2.0-flash"` on next upload.
+
+---
+
+## After-Action Reviews — Current Session
+
+### AAR 20 — Intelligence Tab Blank Metrics (spread-output shape mismatch) ✅ commit fb811545
+
+**Root cause:** `composeSpreadOutput()` returns `SpreadOutputReport` with
+`{ executive_summary, normalized_spread, ratio_scorecard, story_panel,
+generated_at }`. `IntelligenceClient.tsx` reads `canonical_facts`, `ratios`,
+`years_available`, `flag_report`, `trend_report`, `narrative_report` directly
+off the spread response — none of those fields were in the composed output.
+Route built perfect data in `input` and `ratiosResult`, called
+`composeSpreadOutput(input)`, then returned only the composed report —
+silently dropping all raw fields. TypeScript didn't catch it because the
+route casts as `any` and the hook's local type was aspirational.
+
+**Fix — `src/app/api/deals/[dealId]/spread-output/route.ts`:**
+Return merged object spreading both the composed report and the raw fields:
+`canonical_facts`, `ratios`, `years_available`, `flag_report`, `trend_report`,
+and `narrative_report` (mapped from `story_panel`).
+
+**What this fixed:** All 12 metric cells in Intelligence tab, DSCR Triangle,
+Financial Snapshot row, Buddy's Assessment narrative, Risk signals, Committee
+Readiness score.
+
+### AAR 21 — Classic Spreads tab + PDF button fix ✅ commit 6e449800
+
+**Problem 1:** PDF button in deal header called
+`/api/deals/[dealId]/credit-memo/canonical/pdf` which was 500ing
+(canonical credit memo PDF — separate broken route).
+
+**Problem 2:** Classic Spreads PDF had no prominent entry point — it was
+buried as an output rather than a first-class banker workflow.
+
+**Fix:**
+- `DealShell.tsx` — added `{ label: "Classic Spreads", href: ${base}/classic-spreads }` 
+  to the tab array; replaced broken PDF button with a `<Link>` shortcut to
+  the new tab; removed unused `ExportCanonicalMemoPdfButton` import
+- `src/app/(app)/deals/[dealId]/classic-spreads/page.tsx` — new server
+  component with auth guard (`requireRole`, `ensureDealBankAccess`)
+- `src/app/(app)/deals/[dealId]/classic-spreads/ClassicSpreadsClient.tsx` —
+  client: idle → Generate button → calls `/api/deals/[dealId]/classic-spread`
+  → streams PDF → renders inline in full-height iframe with Download button
+
+Classic Spreads is now the 10th tab on every deal, with a "Spreads" shortcut
+in the header action bar. PDF generation and inline preview work end-to-end.
+
+---
+
+## Current State — Active Deal ffcc9733
+
+"Samaritus Management LLC" — deal ffcc9733-f866-47fc-83f9-7c08403cea71
 
 | Area | Status |
 |------|--------|
-| Document extraction (9/9 docs) | ✅ Complete |
-| Pricing saved ($600K / 6.5% / 10yr) | ✅ Complete |
-| ADS = $81,754 | ✅ Computed |
-| Classic Spread PDF — 4+ clean pages, no ghost blanks | ✅ Working |
-| IS detail lines (2025) — Salaries, Repairs, Advertising, Insurance | ✅ After PR #209 |
-| TCA/TCL derived from components for tax return years | ✅ After PR #209 |
-| Liquidity ratios (Current, Quick, Working Capital) | ✅ After PR #209 |
-| Cash Flow page in PDF | ✅ After PR #208/209 |
-| Narrative page in PDF | ✅ After PR #208 (requires GEMINI_API_KEY in Vercel) |
-| DSCR — requires pricing re-save to trigger re-computation | 🔜 Manual action |
-| IS detail for 2022–2024 (salaries, rent, repairs) | 🔴 Needs re-extraction with v2 prompts |
-| Schedule L expanded keys (land, intangibles, officer loans) | 🔴 Needs re-extraction with v2 prompts |
+| Document extraction | ✅ 159 facts across 6 periods |
+| Re-extract All triggered | ✅ succeeded, run_reason=recompute |
+| ADS = $67,368 | ✅ Computed (deal_structural_pricing) |
+| Intelligence tab metrics | ✅ After AAR 20 fix (fb811545) |
+| Classic Spreads tab | ✅ After AAR 21 fix (6e449800) |
+| DSCR Triangle (ADS=$67K, EBITDA=$368K–$557K → ~5x+) | ✅ Should populate after deploy |
+| Spread Completeness | 48% F — Revenue/OPEX/OpIncome missing |
+| financial_snapshots | 2 rows from 00:36 UTC — stale, but spread-output route reads facts directly |
 
-**Post-deploy action required:**
-Go to deal 07541fce → Pricing tab → re-save pricing assumptions
-→ triggers 3-pass pipeline → computes cash_flow_available → DSCR populates.
+**Revenue 4 years:** $798K → $1.2M → $1.5M → $1.4M
+**EBITDA 4 years:** $326K → $475K → $557K → $368K
 
 ---
 
@@ -274,52 +351,43 @@ Go to deal 07541fce → Pricing tab → re-save pricing assumptions
 
 ### P1 — Immediate
 
-1. **Re-extract 2022–2024 documents with v2 prompts**
-   The new Schedule L keys (SL_LAND, SL_INTANGIBLES_GROSS, SL_AR_GROSS,
+1. **PTR extractor not built**
+   PTR documents classified as BUSINESS_TAX_RETURN, run through BTR extractor.
+   Form 1040, Schedule E, Schedule F, Form 4562, Form 8825 need dedicated
+   extraction prompts and fact key mappings.
+
+2. **Re-extract 2022–2024 documents with v2 prompts**
+   Schedule L keys (SL_LAND, SL_INTANGIBLES_GROSS, SL_AR_GROSS,
    SL_WAGES_PAYABLE, SL_LOANS_FROM_SHAREHOLDERS) and IS keys
    (SALARIES_WAGES_IS, RENT_EXPENSE_IS, REPAIRS_MAINTENANCE_IS) only
-   populate on newly extracted documents. Existing 2022–2024 facts were
-   extracted under v1 prompts. Re-extract each document via the extraction
-   panel to populate these keys.
-
-2. **Personal Tax Return (PTR) extractor not built**
-   PTR documents are currently classified as BUSINESS_TAX_RETURN and run
-   through the BTR extractor. Form 1040, Schedule E, Schedule F, Form 4562,
-   Form 8825 need dedicated extraction prompts and fact key mappings.
-
-3. **DSCR re-computation**
-   Re-save pricing on deal 07541fce to trigger pipeline and populate
-   cash_flow_available for DSCR.
+   populate on newly extracted documents. Existing facts were extracted
+   under v1 prompts.
 
 ### P2 — Near Term
 
-4. **Model Engine V2 activation**
-   USE_MODEL_ENGINE_V2 feature flag disabled in production. DB tables
-   (metric_definitions, model_snapshots) empty. Pulse telemetry events
-   not forwarding. Voice constraints exist in code but not injected into
-   OpenAI realtime sessions.
+3. **Model Engine V2 activation**
+   USE_MODEL_ENGINE_V2 feature flag disabled. DB tables (metric_definitions,
+   model_snapshots) empty. Pulse telemetry events not forwarding. Voice
+   constraints exist in code but not injected into OpenAI realtime sessions.
 
-5. **Observability pipeline wiring**
-   Infrastructure exists (deal_pipeline_ledger, forwarding logic, Vercel
-   cron) but events not flowing. Missing env vars:
-   PULSE_TELEMETRY_ENABLED, PULSE_BUDDY_INGEST_URL,
-   PULSE_BUDDY_INGEST_SECRET, CRON_SECRET.
+4. **Observability pipeline wiring**
+   Infrastructure exists (deal_pipeline_ledger, forwarding logic, Vercel cron)
+   but events not flowing. Missing env vars: PULSE_TELEMETRY_ENABLED,
+   PULSE_BUDDY_INGEST_URL, PULSE_BUDDY_INGEST_SECRET, CRON_SECRET.
 
-6. **Corpus expansion**
-   Currently 2 Samaritus docs. Need 10+ across industries for bank-grade
-   confidence. Add Form 1120, Form 1065, first multi-entity deal with K-1s.
+5. **Corpus expansion**
+   Currently 2 Samaritus docs. Need 10+ across industries. Add Form 1120,
+   Form 1065, first multi-entity deal with K-1s.
 
 ### P3 — Future
 
-7. **Crypto lending module**
-   Trigger-price-indexed margin call monitoring, tiered risk proximity
-   system, Supabase schema extensions for collateral tracking.
+6. **Crypto lending module** — trigger-price-indexed margin call monitoring,
+   tiered risk proximity, Supabase collateral tracking.
 
-8. **Treasury product auto-proposal engine**
-   Leverage financial data already collected during loan underwriting.
+7. **Treasury product auto-proposal engine** — leverage financial data already
+   collected during loan underwriting.
 
-9. **RMA peer/industry comparison**
-   Connect to RMA data for industry benchmark ratios on the spread.
+8. **RMA peer/industry comparison** — industry benchmark ratios on the spread.
 
 ---
 
@@ -349,10 +417,9 @@ The loader code will correctly populate them the moment the facts exist.
 |-------|-----------|
 | Frontend | Next.js, Tailwind, Vercel |
 | Database | Supabase (PostgreSQL) |
-| AI — Primary | Gemini 2.0 Flash (extraction, narrative, credit memo, aiJson, shadow classifier) |
-| AI — Classification | gpt-4o-mini (primary, cutover pending Phase 24 data) |
+| AI — Primary | Gemini 2.0 Flash (extraction, narrative, credit memo, aiJson, classifier) |
 | AI — Voice | gpt-4o-realtime-preview (intentionally retained on OpenAI) |
-| AI — Reasoning | o1-preview (orchestrator, Phase 25 migration evaluation) |
+| AI — Reasoning | o1-preview / Gemini 2.5 Pro (orchestrator, Phase 25 evaluation) |
 | Integration | MCP (Model Context Protocol) |
 | Event Ledger | Supabase `deal_events` (append-only) |
 | PDF Generation | PDFKit (portrait 8.5×11, serverExternalPackages) |
@@ -362,11 +429,28 @@ The loader code will correctly populate them the moment the facts exist.
 
 ---
 
+## AI Provider Inventory
+
+| Workload | Model | Status |
+|----------|-------|--------|
+| Document extraction | Gemini 2.0 Flash | ✅ Active |
+| Classic Spread narrative | Gemini 2.0 Flash | ✅ Active |
+| Credit memo generation | Gemini 2.0 Flash | ✅ Active |
+| General aiJson() wrapper | Gemini 2.0 Flash | ✅ Active |
+| Document classification | Gemini 2.0 Flash | ✅ Active (Phase 24) |
+| Voice interview sessions | gpt-4o-realtime-preview | ✅ Retained on OpenAI intentionally |
+| Underwriting orchestrator | o1-preview / Gemini 2.5 Pro eval | 🔜 Phase 25 |
+
+---
+
 ## Active Test Deals
 
 **Deal 07541fce** — "CLAUDE FIX 21" / Samaritus Management LLC
-Primary active test deal. Run 21. 9/9 docs extracted.
+Primary regression test deal. Run 21. 9/9 docs extracted.
 EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
+
+**Deal ffcc9733** — Samaritus Management LLC (current active)
+159 facts, 6 periods. Intelligence tab fix deployed. ADS=$67,368.
 
 ---
 
@@ -390,7 +474,9 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 16. ✅ Expanded MMAS ratio set (liquidity, leverage, coverage, profitability, activity, growth)
 17. ✅ AI narrative engine (optional, graceful fallback)
 18. ✅ Personal tax return extraction with IRS identity validation (Phase 16)
-19. 🔜 Banker experience — opens a spread, trusts every number, focuses on credit
+19. ✅ Classic Spreads as first-class tab on every deal (AAR 21)
+20. ✅ Intelligence tab fully populated — all 12 metric cells, DSCR Triangle, Buddy's Assessment (AAR 20)
+21. 🔜 Banker experience — opens a spread, trusts every number, focuses on credit
     (this one is never fully done — it's the ongoing standard)
 
 ---
@@ -409,13 +495,17 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 - Compliance is structural. Section 106, SR 11-7 — baked in, not bolted on.
 - Key names are contracts. IS suffix (_IS) vs bare names must be consistent
   across extraction and loader layers. Use getValsFallback() for both variants.
+- Route response shapes must match client consumption types exactly.
+  TypeScript won't catch shape mismatches when routes cast as `any`.
+  Always verify what IntelligenceClient / hooks actually read from the API.
+- reextract-all bypasses gatekeeper entirely — shadow never fires from re-extractions.
 
 ---
 
 ## Progress Tracker
 
-| Phase | Description | Status | PR |
-|-------|-------------|--------|----|
+| Phase | Description | Status | PR / Commit |
+|-------|-------------|--------|-------------|
 | 1 | IRS Knowledge Base | ✅ Complete | #169 |
 | 2 | Wire Validator to Pipeline | ✅ Complete | #170 |
 | 3 | Formula Accuracy Fixes | ✅ Complete | #171 |
@@ -448,48 +538,72 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | Phase 21 | DSCR Reconciliation + Spread Completeness Score | ✅ Complete | #227 |
 | Phase 22 | Gemini Migration (narrativeEngine + aiJson + creditMemo) | ✅ Complete | #228 |
 | Phase 23 | Gemini Classifier Shadow Mode + classification_shadow_log | ✅ Complete | #229 |
-| **Phase 24** | **Gemini Classifier Cutover (data-gated, ≥95% agree required)** | **⬅ NEXT** | #230 |
-| Phase 25 | Orchestrator reasoning model — Gemini 2.5 Pro evaluation | 🔜 Queued | — |
+| Phase 24 | Gemini Classifier Cutover (direct, data gate skipped) | ✅ Complete | dfdfc066 |
+| AAR 20 | Intelligence tab blank metrics — spread-output shape mismatch | ✅ Complete | fb811545 |
+| AAR 21 | Classic Spreads tab + PDF button fix | ✅ Complete | 6e449800 |
+| **Phase 25** | **Orchestrator reasoning model — Gemini 2.5 Pro evaluation** | **⬅ NEXT** | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔜 Queued | — |
 | Observability | Telemetry pipeline activation | 🔜 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔜 Queued | — |
 
-## Phase 24 Spec — Gemini Classifier Cutover
+---
 
-**Branch:** `feature/gemini-classifier-cutover` | **PR:** #230
-**Commit:** `feat: Phase 24 — Gemini primary document classifier cutover`
-**Gate:** `pnpm tsc --noEmit` — zero errors. No new migrations.
+## Phase 25 Spec — Orchestrator Reasoning Model
 
-**Prerequisite — run this query before writing a single line of code:**
-```sql
-select
-  count(*) as total,
-  sum(case when agree then 1 else 0 end) as agreed,
-  round(100.0 * sum(case when agree then 1 else 0 end) / count(*), 1) as agree_pct
-from classification_shadow_log;
-```
-If `agree_pct` < 95 or `total` < 20 — stop. Review disagreement rows first.
+**Branch:** `feature/orchestrator-reasoning-model` | **PR:** #231
+**Commit:** `feat: Phase 25 — Gemini 2.5 Pro orchestrator evaluation`
+**Gate:** `pnpm tsc --noEmit` — zero errors.
 
-**The entire code change is two lines in `classificationShadowMode.ts`:**
+**Context:** The underwriting orchestrator currently runs on `o1-preview`.
+Gemini 2.5 Pro is now available and offers comparable reasoning with tighter
+Gemini ecosystem integration. This phase evaluates parity and optionally
+migrates.
+
+**Evaluation criteria:**
+1. DSCR computation accuracy — compare orchestrator output for deal ffcc9733
+   with manual calculation (ADS=$67,368 / EBITDA=$368,499 → expected ~5.5x)
+2. Credit memo narrative quality — compare Gemini 2.5 Pro vs o1-preview output
+   on the same deal facts
+3. Latency — Gemini 2.5 Pro target: ≤ o1-preview p95 latency
+4. Cost — Gemini 2.5 Pro pricing vs o1-preview per 1M tokens
+
+**Implementation pattern (shadow before cutover):**
 ```typescript
-// Phase 23 return (current):
-return primaryResult;  // OpenAI
-
-// Phase 24 return (cutover):
-return shadowResult ?? primaryResult;  // Gemini, fallback to OpenAI if null
+// Phase 25 shadow: run both, log disagreements
+const o1Result = await runOrchestratorO1(input);
+const geminiResult = await runOrchestratorGemini25(input);
+await logOrchestratorShadow({ o1Result, geminiResult, dealId });
+return o1Result; // primary until cutover
 ```
 
-Also swap the `primary_model` / `shadow_model` label strings in `logShadowResult()` to reflect the new roles.
+**Migration — `src/lib/orchestrator/runOrchestrator.ts`:**
+- Add `runOrchestratorGemini25()` alongside existing `runOrchestratorO1()`
+- Wire shadow logging to new `orchestrator_shadow_log` table
+- Cutover: swap return to `geminiResult` after 20+ rows with ≥95% agree
 
-Update the TODO in `classifyWithOpenAI.ts` to Phase 25: remove after 30 days of Gemini primary with no regressions.
+**Migration — Supabase:**
+```sql
+create table orchestrator_shadow_log (
+  id uuid primary key default gen_random_uuid(),
+  deal_id uuid references deals(id),
+  o1_result jsonb,
+  gemini_result jsonb,
+  agree boolean generated always as (
+    o1_result->>'classification' = gemini_result->>'classification'
+  ) stored,
+  created_at timestamptz default now()
+);
+alter table orchestrator_shadow_log enable row level security;
+```
 
-**Rollback:** revert the two-line swap. The shadow log keeps accumulating either way.
+**No functional change to banker-facing output in Phase 25.**
+This is purely an evaluation + shadow mode phase.
 
 **Verification:**
 1. `pnpm tsc --noEmit` clean
-2. Upload a document — new `classification_shadow_log` row shows `primary_model = gemini-2.0-flash`
-3. Correct extractor fires for the classified type
-4. `OPENAI_API_KEY` stays in `env.ts` (voice still needs it)
+2. Run orchestrator on deal ffcc9733 — both o1 and Gemini 2.5 Pro fire
+3. `orchestrator_shadow_log` row inserted
+4. Primary result (o1) returned unchanged to caller
 
 ---
 
