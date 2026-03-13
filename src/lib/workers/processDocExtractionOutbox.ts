@@ -162,6 +162,38 @@ export async function processDocExtractionOutbox(
 }
 
 /**
+ * Stamp finalized_at on a document that is already classified but missing it.
+ *
+ * materializeFactsFromArtifacts() guards on `finalized_at IS NOT NULL`. For
+ * re-extract-all flows on PROCESSING_COMPLETE deals, processArtifact hits the
+ * Post-Confirm Freeze Gate and returns immediately — so finalized_at is never
+ * set. This leaves 0 rows in deal_financial_facts and breaks spreads.
+ *
+ * Safe condition: only stamps when canonical_type IS NOT NULL (already classified
+ * during original intake) AND finalized_at IS NULL (not yet marked complete).
+ * Idempotent: the IS NULL guard prevents double-stamping.
+ */
+async function stampFinalizedAt(docId: string): Promise<void> {
+  const sb = supabaseAdmin();
+
+  const { error } = await (sb as any)
+    .from("deal_documents")
+    .update({ finalized_at: new Date().toISOString() })
+    .eq("id", docId)
+    .not("canonical_type", "is", null)
+    .is("finalized_at", null);
+
+  if (error) {
+    console.warn("[doc-extraction] stampFinalizedAt failed (non-fatal)", {
+      docId,
+      error: error.message,
+    });
+  } else {
+    console.log("[doc-extraction] stampFinalizedAt: finalized_at set", { docId });
+  }
+}
+
+/**
  * After each doc extraction, recompute spread, facts, and readiness.
  * Idempotent — safe to run multiple times as extractions complete.
  */
@@ -170,6 +202,20 @@ async function triggerPostExtractionOps(
   bankId: string,
   docId: string,
 ): Promise<void> {
+  // 0. Stamp finalized_at on docs that are classified but missing it.
+  //    materializeFactsFromArtifacts() guards on this column. For re-extract-all
+  //    on PROCESSING_COMPLETE deals, processArtifact is frozen by the Post-Confirm
+  //    Freeze Gate and never sets finalized_at — we stamp it here after OCR.
+  try {
+    await stampFinalizedAt(docId);
+  } catch (e: any) {
+    console.error("[doc-extraction] stampFinalizedAt threw (non-fatal)", {
+      dealId,
+      docId,
+      error: e?.message,
+    });
+  }
+
   // 1. Orchestrate spreads (uses whatever facts exist now)
   try {
     const { orchestrateSpreads } = await import("@/lib/spreads/orchestrateSpreads");
@@ -178,7 +224,7 @@ async function triggerPostExtractionOps(
     console.error("[doc-extraction] orchestrateSpreads failed", { dealId, docId, error: e?.message });
   }
 
-  // 2. Materialize facts from artifacts
+  // 2. Materialize facts from artifacts (now unblocked by finalized_at stamp above)
   try {
     const { materializeFactsFromArtifacts } = await import(
       "@/lib/financialFacts/materializeFactsFromArtifacts"
