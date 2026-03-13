@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 28 Complete — Re-extraction dedup bypass + GEMINI_PRIMARY_EXTRACTION_ENABLED | Phase 29 queued**
+**Status: AAR 23 Complete — document_extracts persist fix (extractByDocType normal path) | Phase 29 active**
 
 ---
 
@@ -61,17 +61,17 @@ IRS Knowledge Base + Identity Validation   ✅ Phase 1 & 2 COMPLETE
         ↓
 Formula Accuracy Layer                     ✅ Phase 3 COMPLETE
         ↓
-Proof-of-Correctness Engine                ✅ Phase 4 COMPLETE
+Proof-of-Correctness Engine               ✅ Phase 4 COMPLETE
         ↓
 Financial Intelligence Layer               ✅ Phase 5 COMPLETE
         ↓
-Industry Intelligence Layer                ✅ Phase 6 COMPLETE
+Industry Intelligence Layer               ✅ Phase 6 COMPLETE
         ↓
-Cross-Document Reconciliation              ✅ Phase 7 COMPLETE
+Cross-Document Reconciliation             ✅ Phase 7 COMPLETE
         ↓
-Golden Corpus + Continuous Learning        ✅ Phase 8 COMPLETE
+Golden Corpus + Continuous Learning       ✅ Phase 8 COMPLETE
         ↓
-Full Banking Relationship                  ✅ Phase 9 COMPLETE
+Full Banking Relationship                 ✅ Phase 9 COMPLETE
         ↓
 Classic Banker Spread PDF (MMAS format)   ✅ PRs #180–#209
         ↓
@@ -356,7 +356,7 @@ _Phase B — Doc extraction worker (async, one event per doc):_
 | `src/lib/intake/processing/queueDocExtractionOutbox.ts` | New — inserts `doc.extract` outbox events |
 | `src/lib/workers/processDocExtractionOutbox.ts` | New — durable worker, exponential backoff, dead-letter at 5 attempts |
 | `src/app/api/workers/doc-extraction/route.ts` | New — Vercel cron (every 1 min, max 10 docs, 300s maxDuration) |
-| `src/lib/intake/processing/processConfirmedIntake.ts` | Replaced inline `extractByDocType()` with outbox queue; removed `orchestrateSpreads` + `materializeFactsFromArtifacts` blocks |
+| `src/lib/intake/processing/processConfirmedIntake.ts` | Replaced inline `extractByDocType()` with outbox queuing; removed `orchestrateSpreads` + `materializeFactsFromArtifacts` blocks |
 | `vercel.json` | Added `/api/workers/doc-extraction?max=10` cron at `*/1 * * * *` |
 | Migration | `claim_doc_extraction_outbox_batch` SQL function applied |
 
@@ -428,12 +428,12 @@ enabled by default. Outperforms prior generation Flash models across reasoning b
 **Cutover gate query:**
 ```sql
 select
-  count(*)                                                                     as total_rows,
+  count(*)                                                                              as total_rows,
   round(100.0 * count(*) filter (where agree = true)
-        / nullif(count(*), 0), 1)                                             as agree_pct,
-  count(*) filter (where error_shadow   is not null)                          as shadow_errors,
-  count(*) filter (where error_primary  is not null)                          as primary_errors,
-  round(avg(shadow_ms))                                                        as avg_shadow_ms
+        / nullif(count(*), 0), 1)                                                       as agree_pct,
+  count(*) filter (where error_shadow   is not null)                                    as shadow_errors,
+  count(*) filter (where error_primary  is not null)                                    as primary_errors,
+  round(avg(shadow_ms))                                                                 as avg_shadow_ms
 from orchestrator_shadow_log
 where operation = 'generateRisk';
 ```
@@ -530,6 +530,45 @@ production to activate `attemptGeminiPrimary()` in `extractFactsFromDocument`
 climbs from 48% F toward 75%+ as `SALARIES_WAGES_IS`, `SL_LAND`,
 `SL_WAGES_PAYABLE`, `SL_INTANGIBLES_GROSS` appear in `deal_financial_facts`.
 
+### AAR 23 — `document_extracts` not persisted in normal extraction path ✅ COMPLETE
+
+**Root cause:** `extractByDocType.ts` had two code paths:
+1. SHA-256 dedup path (lines ~200–250): upserts to `document_extracts` ✅
+2. Normal path (Gemini OCR + structured assist): returned the result but
+   **never wrote anything to `document_extracts`** ❌
+
+`extractFactsFromDocument` calls `loadStructuredJson(docId)` which reads from
+`document_extracts`. Since the normal path never wrote there, `loadStructuredJson`
+always returned null for non-dedup docs. Deterministic extractors fell back to
+`document_ocr_results` (legacy OCR pipeline), which had short/partial text
+(936–26,699 chars) — insufficient for regex-based fact extraction.
+
+All 9 docs had `EXTRACTION_HEARTBEAT` rows with `extraction_quality_status = PASSED`
+(confirming `extractFactsFromDocument` ran) but zero numeric facts for the 8
+business docs (BALANCE_SHEET, INCOME_STATEMENT, 3× BUSINESS_TAX_RETURN).
+
+**Diagnosis confirmed via SQL (Images 1 & 2):**
+- Image 1: `document_extracts` — ALL NULL for all 9 docs (extract_status,
+  extracted_at, json_size all NULL) → Gemini OCR output was never persisted
+- Image 2: Heartbeats present for all 9 docs, `extraction_quality_status = PASSED`,
+  OCR char counts from `document_ocr_results` fallback → extractor ran but
+  used short legacy OCR text, not Gemini structured JSON
+
+**Fix — `src/lib/extract/router/extractByDocType.ts`:**
+Added `document_extracts` upsert at the end of the main `try` block, after
+structured assist completes and before `return`. Writes `fields_json` (including
+`structuredJson` when present), `tables_json`, `evidence_json`, and
+`provider_metrics`. Non-fatal try/catch — extraction still succeeds even if
+the persist fails. The dedup path at line ~200 is unchanged.
+
+**Impact:** Every subsequent `extractByDocType` call (re-extract-all, new intake
+fan-out) now populates `document_extracts`. On next re-extract-all + spread
+job cycle:
+- `loadStructuredJson(docId)` returns the full Gemini structured JSON
+- Deterministic extractors process v2 BTR prompt output instead of 936-char legacy OCR
+- BALANCE_SHEET, INCOME_STATEMENT, BUSINESS_TAX_RETURN numeric facts will populate
+- Spread completeness expected to climb from current level toward 75%+
+
 ---
 
 ## Current State — Active Deal ffcc9733
@@ -544,7 +583,7 @@ climbs from 48% F toward 75%+ as `SALARIES_WAGES_IS`, `SL_LAND`,
 | Intelligence tab metrics | ✅ After AAR 20 fix (fb811545) |
 | Classic Spreads tab | ✅ After AAR 21 fix (6e449800) |
 | DSCR Triangle (ADS=$67K, EBITDA=$368K–$557K → ~5x+) | ✅ Populated after deploy |
-| Spread Completeness | 48% F — Revenue/OPEX/OpIncome missing (Phase 28 targets this) |
+| Spread Completeness | 48% F — Revenue/OPEX/OpIncome missing (Phase 28 + AAR 23 target) |
 | financial_snapshots | 2 rows from 00:36 UTC — stale, but spread-output route reads facts directly |
 
 **Revenue 4 years:** $798K → $1.2M → $1.5M → $1.4M
@@ -556,18 +595,26 @@ climbs from 48% F toward 75%+ as `SALARIES_WAGES_IS`, `SL_LAND`,
 
 ### P1 — Immediate
 
-1. **Shadow gate monitoring — orchestrator cutover**
+1. **Spread completeness verification after AAR 23**
+   Trigger "Re-extract All" on deal `07541fce` (Claude Fix 21) and `ffcc9733`.
+   After extraction completes (~2 min cron), run:
+   ```sql
+   SELECT d.canonical_type, de.status, length(de.fields_json::text) AS json_size
+   FROM deal_documents d
+   LEFT JOIN document_extracts de ON de.attachment_id = d.id AND de.status = 'SUCCEEDED'
+   WHERE d.deal_id = '07541fce-4300-467c-a875-b429e48098b2' AND d.is_active = true
+   ORDER BY d.canonical_type;
+   ```
+   Expect: SUCCEEDED rows with large `json_size` for BALANCE_SHEET,
+   BUSINESS_TAX_RETURN, INCOME_STATEMENT. Then check spread completeness — target ≥75%.
+
+2. **Shadow gate monitoring — orchestrator cutover**
    Wire is live (Phase 26). Run `orchestrator_shadow_log` gate query after each
    "Run AI Assessment" click. Build toward ≥20 rows via repeated runs on multiple deals.
    Target: ≥20 rows, ≥95% agree, 0 shadow errors → flip `ORCHESTRATOR_USE_GEMINI3_FLASH=true`.
    Verification deal: ffcc9733 (ADS=$67,368 / EBITDA=$368,499 → expected ~5.5x DSCR).
 
-2. **Spread completeness verification after Phase 28**
-   Trigger "Re-extract All" on ffcc9733. Confirm `SALARIES_WAGES_IS`, `SL_LAND`,
-   `SL_WAGES_PAYABLE`, and other v2-only keys appear in `deal_financial_facts`.
-   Check spread completeness score — target ≥75%.
-
-3. **PTR facts not flowing into spread — routing gap** ← **Phase 29**
+3. **PTR facts not flowing into spread — routing gap** → **Phase 29**
    `extractFactsFromClassifiedArtifacts.ts` routes docs to `extractFactsFromDocument()`
    which calls `attemptGeminiPrimary()` for BTR docs. PTR docs (Form 1040,
    Schedule E) have their own deterministic extractor (`personalIncomeDeterministic.ts`)
@@ -623,7 +670,7 @@ Cash Flow:    Working Capital delta rows sparse (AP exists but wages/
               other CL don't yet) — UCA CFO = NI + D&A only for most years
 ```
 
-These are not bugs — they are extraction gaps that Phase 28 resolves.
+These are not bugs — they are extraction gaps that Phase 28 + AAR 23 resolve.
 The loader code will correctly populate them the moment fresh facts exist.
 
 ---
@@ -701,10 +748,11 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 25. ✅ Personal Income PDF page in Classic Spread — guarantor Form 1040 visible to banker (Phase 27)
 26. ✅ Re-extraction dedup bypass — "Re-extract All" forces fresh Gemini OCR (Phase 28)
 27. ✅ GEMINI_PRIMARY_EXTRACTION_ENABLED — v2 BTR prompts active in production (Phase 28)
-28. 🔴 Gemini 3 Flash orchestrator cutover — pending shadow gate (≥20 rows, ≥95% agree)
-29. 🔴 PTR routing hardening — PERSONAL_INCOME facts flowing reliably (Phase 29 target)
-30. 🔴 Spread completeness ≥80% — IS/BS gaps filled via Phase 28 re-extraction
-31. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+28. ✅ `document_extracts` persisted for every extraction — `loadStructuredJson()` now returns Gemini structured JSON instead of falling back to legacy OCR (AAR 23)
+29. 🔴 Gemini 3 Flash orchestrator cutover — pending shadow gate (≥20 rows, ≥95% agree)
+30. 🔴 PTR routing hardening — PERSONAL_INCOME facts flowing reliably (Phase 29 target)
+31. 🔴 Spread completeness ≥80% — IS/BS gaps filled via Phase 28 + AAR 23 re-extraction
+32. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
     (this one is never fully done — it's the ongoing standard)
 
 ---
@@ -752,6 +800,12 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 - forceRefresh=true on re-extraction bypasses SHA-256 dedup — guarantees fresh
   Gemini OCR even when identical files exist in other deals. The dedup cache is
   a performance optimization for intake only, never for forced re-extraction.
+- **`document_extracts` persistence is required for fact extraction to work.**
+  `extractByDocType` must write `fields_json` (including `structuredJson`) to
+  `document_extracts` for every extraction path — not just the dedup path.
+  `loadStructuredJson(docId)` reads from `document_extracts`; if null, the
+  deterministic extractors fall back to legacy `document_ocr_results` which
+  is short/partial and produces zero numeric facts. This is a silent failure.
 
 ---
 
@@ -800,6 +854,7 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | **Phase 26** | **ai-risk route + Run AI Assessment button — shadow gate wired** | **✅ Complete** | **bbee0903** |
 | **Phase 27** | **Personal Income PDF page — guarantor Form 1040 in Classic Spread** | **✅ Complete** | **712961c5** |
 | **Phase 28** | **Re-extraction dedup bypass + GEMINI_PRIMARY_EXTRACTION_ENABLED** | **✅ Complete** | **—** |
+| **AAR 23** | **`document_extracts` not persisted in normal extraction path — `loadStructuredJson()` always returned null for non-dedup docs** | **✅ Complete** | **—** |
 | Shadow Gate | Monitor `orchestrator_shadow_log` → flip cutover flag when gate passes | 🔴 Active — accumulating rows | — |
 | **Phase 29** | **PTR fact routing audit + hardening — PERSONAL_INCOME facts flowing reliably** | **🔴 Queued** | **—** |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
