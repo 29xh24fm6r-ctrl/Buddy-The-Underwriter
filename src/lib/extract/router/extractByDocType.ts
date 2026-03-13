@@ -511,6 +511,38 @@ export async function extractByDocType(
       provider: provider_metrics.provider,
     });
 
+    // Persist Gemini OCR result to document_extracts so extractFactsFromDocument
+    // can load structuredJson + extractedText via loadStructuredJson().
+    // Without this write, document_extracts stays NULL for all non-dedup docs,
+    // forcing the deterministic extractors to fall back to document_ocr_results
+    // (which is often short/partial) and producing zero numeric facts.
+    try {
+      const sb = supabaseAdmin();
+      await (sb as any)
+        .from("document_extracts")
+        .upsert(
+          {
+            deal_id: doc.deal_id,
+            attachment_id: docId,
+            provider: provider_metrics.provider ?? "gemini_ocr",
+            status: "SUCCEEDED",
+            fields_json: result.fields,
+            tables_json: result.tables ?? [],
+            evidence_json: result.evidence ?? [],
+            provider_metrics: provider_metrics,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "attachment_id" },
+        );
+    } catch (persistErr: any) {
+      // Non-fatal — log and continue. extractFactsFromDocument falls back to
+      // document_ocr_results if document_extracts is missing.
+      console.warn("[SmartRouter] Failed to persist extraction result to document_extracts (non-fatal)", {
+        docId,
+        error: persistErr?.message,
+      });
+    }
+
     return { doc, result, provider_metrics };
   } catch (error: any) {
     await logLedgerEvent({
