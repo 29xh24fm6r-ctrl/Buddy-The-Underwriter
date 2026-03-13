@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: AAR 23 Complete — document_extracts persist fix (extractByDocType normal path) | Phase 29 active**
+**Status: Phase 29 Complete — Intelligence tab 4-fix batch | Phase 30 queued**
 
 ---
 
@@ -400,22 +400,9 @@ No Supabase migration needed — reuses existing outbox + claim function from AA
 
 ### Phase 25 — Orchestrator Reasoning Model ✅ COMPLETE — PR #233
 
-**Branch:** `feature/orchestrator-reasoning-model`
-**Commit:** `feat: Phase 25 — Gemini 3 Flash orchestrator shadow mode`
-
 **Model chosen:** `gemini-3-flash-preview` — Pro-level reasoning at Flash speed/pricing.
 $0.50/1M input, $3/1M output. Configurable thinking levels (minimal/low/medium/high).
-Designed for agentic workflows and complex multi-turn reasoning. Dynamic thinking
-enabled by default. Outperforms prior generation Flash models across reasoning benchmarks.
-
-**Files created/modified:**
-
-| File | Change |
-|------|--------|
-| `src/lib/ai/gemini3FlashProvider.ts` | New — `Gemini3FlashProvider` implements `AIProvider`; `thinkingConfig: { thinkingLevel: "medium" }`; thought-part filtering on response parse; `chatAboutDeal` throws (routes to OpenAI at provider level) |
-| `src/lib/ai/shadowOrchestrator.ts` | New — `withShadow()` wrapper; fire-and-forget shadow; logs to `orchestrator_shadow_log`; `SHADOW_MODEL_NAME = "gemini-3-flash-preview"` exported |
-| `src/lib/ai/provider.ts` | Modified — imports `Gemini3FlashProvider` + `withShadow`; env var `ORCHESTRATOR_USE_GEMINI3_FLASH`; cutover creates composite provider (Gemini for risk+memo, OpenAI for chatAboutDeal) |
-| Migration `20260312_orchestrator_shadow_log.sql` | New table — model-agnostic schema with `primary_model`, `shadow_model`, `agree`, `primary_ms`, `shadow_ms` columns |
+Dynamic thinking enabled by default.
 
 **Routing table:**
 
@@ -425,169 +412,142 @@ enabled by default. Outperforms prior generation Flash models across reasoning b
 | `ORCHESTRATOR_SHADOW_ENABLED=true` | OpenAI primary + Gemini 3 Flash shadow | OpenAI (no shadow) |
 | Default | OpenAI | OpenAI |
 
-**Cutover gate query:**
-```sql
-select
-  count(*)                                                                              as total_rows,
-  round(100.0 * count(*) filter (where agree = true)
-        / nullif(count(*), 0), 1)                                                       as agree_pct,
-  count(*) filter (where error_shadow   is not null)                                    as shadow_errors,
-  count(*) filter (where error_primary  is not null)                                    as primary_errors,
-  round(avg(shadow_ms))                                                                 as avg_shadow_ms
-from orchestrator_shadow_log
-where operation = 'generateRisk';
-```
 Gate: `total_rows >= 20` AND `agree_pct >= 95` AND `shadow_errors = 0`
 → flip `ORCHESTRATOR_USE_GEMINI3_FLASH=true`.
 
-**Env vars to set in Vercel:**
-```
-ORCHESTRATOR_SHADOW_ENABLED=true   # safe now — fire-and-forget, never affects primary
-ORCHESTRATOR_USE_GEMINI3_FLASH=false  # flip after gate passes
-```
-
 ### Phase 26 — ai-risk Route + Run AI Assessment Button ✅ COMPLETE — commit bbee0903
-
-**Root cause of gap:** Phase 25 built the full provider infrastructure
-(`gemini3FlashProvider.ts`, `shadowOrchestrator.ts`, `provider.ts`), but
-`getAIProvider().generateRisk()` was never called by any API route or UI button.
-The shadow log was empty — the gate could never fill.
 
 **What shipped:**
 - `src/app/api/deals/[dealId]/ai-risk/route.ts` — GET returns latest run from
-  `ai_risk_runs`; POST builds deal snapshot (financials, borrower, docs), calls
-  `getAIProvider().generateRisk()`, persists result to `ai_risk_runs`
-- `src/hooks/useAIRisk.ts` — loads previous run on mount, `runAssessment()`
-  triggers POST
+  `ai_risk_runs`; POST builds deal snapshot, calls `getAIProvider().generateRisk()`,
+  persists result to `ai_risk_runs`
+- `src/hooks/useAIRisk.ts` — loads previous run on mount, `runAssessment()` triggers POST
 - `src/app/(app)/deals/[dealId]/risk/RiskClient.tsx` — AI Risk Assessment panel
-  with grade, pricing breakdown (base + premium + total bps), key factors with
-  direction dots and confidence %, pricing adders
-- Migration `ai_risk_runs` table with RLS bank isolation, index on
-  `(deal_id, created_at desc)`
+- Migration `ai_risk_runs` table with RLS bank isolation
 
 Each "Run AI Assessment" click now populates both `ai_risk_runs` and
-`orchestrator_shadow_log` (when `ORCHESTRATOR_SHADOW_ENABLED=true`),
-building toward the shadow gate threshold.
+`orchestrator_shadow_log` (when `ORCHESTRATOR_SHADOW_ENABLED=true`).
 
 ### Phase 27 — Personal Income PDF Page (Classic Spread) ✅ COMPLETE — commit 712961c5
 
-**What this unlocked:** Personal tax return facts (extracted into
-`deal_financial_facts` with `fact_type = 'PERSONAL_INCOME'` by
-`personalIncomeDeterministic.ts`) were invisible to bankers — no PDF page,
-no spread section, no guarantor view. Phase 27 closes that gap.
-
 **What shipped:**
 - `src/lib/classicSpread/personalIncomeLoader.ts` — NEW. Loads `PERSONAL_INCOME`
-  facts from `deal_financial_facts`, groups by tax year, returns `PersonalIncomeSection`
-  with 26 fields per year (wages, Schedule C/E/K-1, AGI, deductions, QBI,
-  Form 4562 depreciation addback, Form 8825 entity rental)
-- `src/lib/classicSpread/types.ts` — re-exports `PersonalIncomeSection` /
-  `PersonalIncomeYear`, adds optional `personalIncome` to `ClassicSpreadInput`
-- `src/lib/classicSpread/classicSpreadLoader.ts` — calls
-  `loadPersonalIncome(dealId, bankId)` and includes in return
+  facts, groups by tax year, returns `PersonalIncomeSection` with 26 fields per year
 - `src/lib/classicSpread/classicSpreadRenderer.ts` — adds `renderPersonalIncomePage()`
-  with 6 row groups (Income Sources, AGI, Deductions, Form 4562, Schedule E detail,
-  Form 8825), up to 4 year columns, page break handling, footer with `lineBreak: false`
-  per AAR 18 pattern. Called after Global Cash Flow, before Executive Summary —
-  only if `personalIncome.years.length > 0`
+  with 6 row groups, up to 4 year columns, page break handling per AAR 18 pattern.
+  Only rendered if `personalIncome.years.length > 0`
 
 No new migrations, no new API routes. tsc clean.
-
-**Build principle added:** Personal Income page is omitted entirely when no
-`PERSONAL_INCOME` facts exist — the existing 4–6 page PDF is unchanged for
-deals without guarantor PTRs uploaded.
 
 ### Phase 28 — Re-extraction Dedup Bypass + Gemini Primary Activation ✅ COMPLETE
 
 **Root cause:** SHA-256 dedup in `extractByDocType.ts` was reusing cached
-`document_extracts` rows from deal `07541fce` when re-extracting `ffcc9733`
-(same Samaritus entity, identical PDFs). Fresh OCR never ran; v2 BTR prompt
-entities (`SL_LAND`, `SALARIES_WAGES_IS`, etc.) were never extracted.
+`document_extracts` rows from deal `07541fce` when re-extracting `ffcc9733`.
+Fresh OCR never ran; v2 BTR prompt entities were never extracted.
 Spread completeness stuck at 48% F despite loader code being correct.
 
 **What shipped (4 files):**
-- `src/lib/extract/router/extractByDocType.ts` — Added optional
-  `options?: { forceRefresh?: boolean }` parameter. When `forceRefresh` is
-  true, the SHA-256 dedup block is skipped entirely, forcing Gemini to re-run
-  OCR + structured assist on the raw PDF.
-- `src/lib/workers/processDocExtractionOutbox.ts` — Reads `force_refresh` from
-  the outbox event payload and passes `{ forceRefresh }` to `extractByDocType()`.
-- `src/lib/intake/processing/queueDocExtractionOutbox.ts` — Made `intakeRunId`
-  optional, added `docType` and `forceRefresh` params. Includes `force_refresh`
-  in outbox payload JSONB. Sets `source: "reextract"` when forceRefresh is true.
-- `src/app/api/deals/[dealId]/reextract-all/route.ts` — Changed from inline
-  `extractFactsFromDocument` calls to async outbox queuing via
-  `queueDocExtractionOutbox` with `forceRefresh: true`. Outbox worker now
-  handles the full pipeline: extractByDocType (fresh OCR, dedup bypassed)
-  → triggerPostExtractionOps (orchestrateSpreads → spreadsProcessor
-  → extractFactsFromDocument → facts → readiness).
+- `extractByDocType.ts` — Added `options?: { forceRefresh?: boolean }`. When true, SHA-256 dedup block skipped.
+- `processDocExtractionOutbox.ts` — Reads `force_refresh` from outbox payload, passes to `extractByDocType()`.
+- `queueDocExtractionOutbox.ts` — Added `forceRefresh` param, sets `source: "reextract"`.
+- `reextract-all/route.ts` — Queues via `queueDocExtractionOutbox` with `forceRefresh: true`.
 
-**Fix 2 (env var):** `GEMINI_PRIMARY_EXTRACTION_ENABLED=true` set in Vercel
-production to activate `attemptGeminiPrimary()` in `extractFactsFromDocument`
-— uses v2 BTR prompts from `geminiFlashPrompts.ts`.
-
-**Expected outcome:** After "Re-extract All" on `ffcc9733`, spread completeness
-climbs from 48% F toward 75%+ as `SALARIES_WAGES_IS`, `SL_LAND`,
-`SL_WAGES_PAYABLE`, `SL_INTANGIBLES_GROSS` appear in `deal_financial_facts`.
+**Fix 2 (env var):** `GEMINI_PRIMARY_EXTRACTION_ENABLED=true` set in Vercel production.
 
 ### AAR 23 — `document_extracts` not persisted in normal extraction path ✅ COMPLETE
 
 **Root cause:** `extractByDocType.ts` had two code paths:
-1. SHA-256 dedup path (lines ~200–250): upserts to `document_extracts` ✅
-2. Normal path (Gemini OCR + structured assist): returned the result but
-   **never wrote anything to `document_extracts`** ❌
+1. SHA-256 dedup path: upserts to `document_extracts` ✅
+2. Normal path (Gemini OCR + structured assist): **never wrote to `document_extracts`** ❌
 
-`extractFactsFromDocument` calls `loadStructuredJson(docId)` which reads from
-`document_extracts`. Since the normal path never wrote there, `loadStructuredJson`
-always returned null for non-dedup docs. Deterministic extractors fell back to
-`document_ocr_results` (legacy OCR pipeline), which had short/partial text
-(936–26,699 chars) — insufficient for regex-based fact extraction.
-
-All 9 docs had `EXTRACTION_HEARTBEAT` rows with `extraction_quality_status = PASSED`
-(confirming `extractFactsFromDocument` ran) but zero numeric facts for the 8
-business docs (BALANCE_SHEET, INCOME_STATEMENT, 3× BUSINESS_TAX_RETURN).
-
-**Diagnosis confirmed via SQL (Images 1 & 2):**
-- Image 1: `document_extracts` — ALL NULL for all 9 docs (extract_status,
-  extracted_at, json_size all NULL) → Gemini OCR output was never persisted
-- Image 2: Heartbeats present for all 9 docs, `extraction_quality_status = PASSED`,
-  OCR char counts from `document_ocr_results` fallback → extractor ran but
-  used short legacy OCR text, not Gemini structured JSON
+`loadStructuredJson(docId)` reads from `document_extracts`. Since the normal path
+never wrote there, it always returned null for non-dedup docs. Deterministic
+extractors fell back to `document_ocr_results` (legacy OCR, 936–26,699 chars) —
+insufficient for regex-based fact extraction.
 
 **Fix — `src/lib/extract/router/extractByDocType.ts`:**
 Added `document_extracts` upsert at the end of the main `try` block, after
 structured assist completes and before `return`. Writes `fields_json` (including
 `structuredJson` when present), `tables_json`, `evidence_json`, and
-`provider_metrics`. Non-fatal try/catch — extraction still succeeds even if
-the persist fails. The dedup path at line ~200 is unchanged.
+`provider_metrics`. Non-fatal try/catch. The dedup path is unchanged.
 
-**Impact:** Every subsequent `extractByDocType` call (re-extract-all, new intake
-fan-out) now populates `document_extracts`. On next re-extract-all + spread
-job cycle:
-- `loadStructuredJson(docId)` returns the full Gemini structured JSON
-- Deterministic extractors process v2 BTR prompt output instead of 936-char legacy OCR
-- BALANCE_SHEET, INCOME_STATEMENT, BUSINESS_TAX_RETURN numeric facts will populate
-- Spread completeness expected to climb from current level toward 75%+
+**Confirmed working:** 9/9 docs SUCCEEDED on deal `4371108e`, `ffcc9733`. json_size
+values 4,779–60,089 bytes. All BTR/IS/BS structured facts now flowing.
+
+### Phase 29 — Intelligence Tab 4-Fix Batch ✅ COMPLETE
+
+Diagnosed and fixed four issues visible on deal `ffcc9733` after AAR 23 confirmed
+extraction working. All 4 root causes identified precisely via SQL diagnostics.
+tsc clean.
+
+**Fix 1 — TOTAL_OPERATING_EXPENSES / OPERATING_INCOME false-missing in completeness**
+
+Root cause: `loadCanonicalFacts` in `spread-output/route.ts` did not derive
+`TOTAL_OPERATING_EXPENSES_${year}` or `OPERATING_INCOME_${year}` for BTR-only years.
+For partnership/S-corp BTRs, `GROSS_PROFIT - OBI = total deductions = total opex`.
+
+- `src/app/api/deals/[dealId]/spread-output/route.ts` — Added two derivation blocks
+  in `loadCanonicalFacts` (before NOP derivation):
+  - `TOTAL_OPERATING_EXPENSES`: derives from `TOTAL_DEDUCTIONS`, falls back to `GROSS_PROFIT - OBI`
+  - `OPERATING_INCOME`: aliases `ORDINARY_BUSINESS_INCOME` (or `NET_INCOME`) for BTR-only deals
+- `src/lib/financialSpreads/standard/renderStandardSpread.ts` — Added
+  `NET_OPERATING_PROFIT: ["OPERATING_INCOME", "ORDINARY_BUSINESS_INCOME"]` to `FACT_KEY_ALIASES`
+
+**Fix 2 — DSCR Triangle shows all dashes**
+
+Root cause: `spread-intelligence/route.ts` extracts entity DSCR by label-matching
+`"dscr"` in `classicSpreadLoader` ratio rows. But `classicSpreadLoader` reads ADS
+from `deal_financial_facts` (where it doesn't exist) — not from `deal_structural_pricing`
+(where it does). So the DSCR ratio row always returned null.
+
+- `src/app/api/deals/[dealId]/spread-intelligence/route.ts` — Added ADS fallback
+  after `loadClassicSpreadData`. When `entityDscr` is null, reads
+  `annual_debt_service_est` from `deal_structural_pricing` and computes DSCR
+  from latest EBITDA/OBI/NET_INCOME fact. Non-fatal try/catch.
+
+**Fix 3 — Global CF at 0% (TOTAL_PERSONAL_INCOME missing)**
+
+Root cause: Diagnostic confirmed PTR 2023 facts DO exist (15 `PERSONAL_INCOME`
+rows, period 2023-12-31, extraction PASSED). The real root cause: `TOTAL_PERSONAL_INCOME`
+(the materialized fact Global CF needs) only existed for 2022 with a value of 3.
+Missing for 2023 and 2024. `buildGlobalCashFlowSection` in `classicSpreadLoader.ts`
+had no fallback when materialized `TOTAL_PERSONAL_INCOME` facts were absent.
+
+- `src/lib/classicSpread/classicSpreadLoader.ts` — Added fallback in
+  `buildGlobalCashFlowSection`: when no materialized `TOTAL_PERSONAL_INCOME`
+  facts exist with `owner_type = "PERSONAL"`, queries raw `PERSONAL_INCOME`-type
+  facts, groups by owner, and computes `AGI + depreciation add-backs + QBI`
+  as personal income directly from extracted facts.
+
+**Fix 4 — Revenue / Gross Receipts false-missing in completeness bar**
+
+Root cause: `spreadCompletenessScore.ts` had `IS_REQUIRED` key mismatches —
+labels didn't match `classicSpreadLoader` row labels. Also had 4 phantom entries
+that never matched any real classic spread rows (always scored as missing).
+
+- `src/lib/financialIntelligence/spreadCompletenessScore.ts` — Fixed label mismatches:
+  `"Gross Receipts / Sales"` → `"Sales / Revenues"`, `"Total Operating Expenses"` →
+  `"TOTAL OPERATING EXPENSE"`, `"Net Income"` → `"NET PROFIT"`. Removed 4 phantom
+  entries (Operating Income, Depreciation, Interest, Officers' Comp) that had no
+  matching classic spread rows. IS now checks 6 real rows instead of 10 phantom ones.
+
+**Verification target:** On deal `ffcc9733` after deploy:
+- Income Stmt completeness section bar increases from 40%
+- DSCR Triangle Entity DSCR shows ~5.47x
+- Global CF section bar increases from 0%
+- Overall completeness score increases from 48% F
 
 ---
 
-## Current State — Active Deal ffcc9733
+## Current State — Active Deals
 
-"Samaritus Management LLC" — deal ffcc9733-f866-47fc-83f9-7c08403cea71
+**Deal ffcc9733** — Samaritus Management LLC (primary active)
+9/9 docs extracted. Revenue: $798K → $1.2M → $1.5M → $1.4M.
+EBITDA: $326K → $475K → $557K → $368K. ADS=$67,368. DSCR=5.47x.
 
-| Area | Status |
-|------|--------|
-| Document extraction | ✅ 159 facts across 6 periods |
-| Re-extract All triggered | ✅ succeeded, run_reason=recompute |
-| ADS = $67,368 | ✅ Computed (deal_structural_pricing) |
-| Intelligence tab metrics | ✅ After AAR 20 fix (fb811545) |
-| Classic Spreads tab | ✅ After AAR 21 fix (6e449800) |
-| DSCR Triangle (ADS=$67K, EBITDA=$368K–$557K → ~5x+) | ✅ Populated after deploy |
-| Spread Completeness | 48% F — Revenue/OPEX/OpIncome missing (Phase 28 + AAR 23 target) |
-| financial_snapshots | 2 rows from 00:36 UTC — stale, but spread-output route reads facts directly |
-
-**Revenue 4 years:** $798K → $1.2M → $1.5M → $1.4M
-**EBITDA 4 years:** $326K → $475K → $557K → $368K
+**Deal 07541fce** — "CLAUDE FIX 21" / Samaritus Management LLC
+Primary regression test deal. Run 21. 9/9 docs extracted.
+EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 
 ---
 
@@ -595,83 +555,45 @@ job cycle:
 
 ### P1 — Immediate
 
-1. **Spread completeness verification after AAR 23**
-   Trigger "Re-extract All" on deal `07541fce` (Claude Fix 21) and `ffcc9733`.
-   After extraction completes (~2 min cron), run:
-   ```sql
-   SELECT d.canonical_type, de.status, length(de.fields_json::text) AS json_size
-   FROM deal_documents d
-   LEFT JOIN document_extracts de ON de.attachment_id = d.id AND de.status = 'SUCCEEDED'
-   WHERE d.deal_id = '07541fce-4300-467c-a875-b429e48098b2' AND d.is_active = true
-   ORDER BY d.canonical_type;
-   ```
-   Expect: SUCCEEDED rows with large `json_size` for BALANCE_SHEET,
-   BUSINESS_TAX_RETURN, INCOME_STATEMENT. Then check spread completeness — target ≥75%.
-
-2. **Shadow gate monitoring — orchestrator cutover**
+1. **Shadow gate monitoring — orchestrator cutover**
    Wire is live (Phase 26). Run `orchestrator_shadow_log` gate query after each
    "Run AI Assessment" click. Build toward ≥20 rows via repeated runs on multiple deals.
    Target: ≥20 rows, ≥95% agree, 0 shadow errors → flip `ORCHESTRATOR_USE_GEMINI3_FLASH=true`.
    Verification deal: ffcc9733 (ADS=$67,368 / EBITDA=$368,499 → expected ~5.5x DSCR).
 
-3. **PTR facts not flowing into spread — routing gap** → **Phase 29**
-   `extractFactsFromClassifiedArtifacts.ts` routes docs to `extractFactsFromDocument()`
-   which calls `attemptGeminiPrimary()` for BTR docs. PTR docs (Form 1040,
-   Schedule E) have their own deterministic extractor (`personalIncomeDeterministic.ts`)
-   but whether they are correctly routed through it — rather than falling through
-   to a generic BTR path — needs verification and hardening. `PERSONAL_INCOME`
-   facts being absent from ffcc9733 despite PTR docs being uploaded is the signal
-   that this routing gap exists.
+2. **Spread completeness verification post-Phase 29**
+   Trigger re-extract or spread regeneration on `ffcc9733`. Verify Intelligence tab:
+   DSCR Triangle shows ~5.47x, Income Stmt bar increases from 40%, Global CF from 0%,
+   overall score rises above 48% F.
 
 ### P2 — Near Term
 
-4. **Model Engine V2 activation**
+3. **Model Engine V2 activation**
    USE_MODEL_ENGINE_V2 feature flag disabled. DB tables (metric_definitions,
    model_snapshots) empty. Pulse telemetry events not forwarding. Voice
    constraints exist in code but not injected into OpenAI realtime sessions.
 
-5. **Observability pipeline wiring**
+4. **Observability pipeline wiring**
    Infrastructure exists (deal_pipeline_ledger, forwarding logic, Vercel cron)
    but events not flowing. Missing env vars: PULSE_TELEMETRY_ENABLED,
    PULSE_BUDDY_INGEST_URL, PULSE_BUDDY_INGEST_SECRET, CRON_SECRET.
 
-6. **Corpus expansion**
+5. **Corpus expansion**
    Currently 2 Samaritus docs. Need 10+ across industries. Add Form 1120,
    Form 1065, first multi-entity deal with K-1s.
 
 ### P3 — Future
 
-7. **chatAboutDeal Gemini migration** — complete the AI provider migration;
+6. **chatAboutDeal Gemini migration** — complete the AI provider migration;
    same shadow pattern as Phase 23–25.
 
-8. **Crypto lending module** — trigger-price-indexed margin call monitoring,
+7. **Crypto lending module** — trigger-price-indexed margin call monitoring,
    tiered risk proximity, Supabase collateral tracking.
 
-9. **Treasury product auto-proposal engine** — leverage financial data already
+8. **Treasury product auto-proposal engine** — leverage financial data already
    collected during loan underwriting.
 
-10. **RMA peer/industry comparison** — industry benchmark ratios on the spread.
-
----
-
-## What Will Still Be Blank Until Re-Extraction (Pre-Phase 28)
-
-After PRs #208–#209, these line items required re-extraction with v2 prompts.
-Phase 28 unblocked this — trigger "Re-extract All" to fill them:
-
-```
-IS 2022–2024: Officers Comp, Salaries & Wages, Rent Expense,
-              Repairs & Maintenance, Advertising, Bad Debt
-
-BS all years: Land, Intangibles Gross/Net, Officer Loans Receivable,
-              Wages Payable, Loans from Shareholders
-
-Cash Flow:    Working Capital delta rows sparse (AP exists but wages/
-              other CL don't yet) — UCA CFO = NI + D&A only for most years
-```
-
-These are not bugs — they are extraction gaps that Phase 28 + AAR 23 resolve.
-The loader code will correctly populate them the moment fresh facts exist.
+9. **RMA peer/industry comparison** — industry benchmark ratios on the spread.
 
 ---
 
@@ -708,17 +630,6 @@ The loader code will correctly populate them the moment fresh facts exist.
 
 ---
 
-## Active Test Deals
-
-**Deal 07541fce** — "CLAUDE FIX 21" / Samaritus Management LLC
-Primary regression test deal. Run 21. 9/9 docs extracted.
-EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
-
-**Deal ffcc9733** — Samaritus Management LLC (current active)
-159 facts, 6 periods. Intelligence tab fix deployed. ADS=$67,368.
-
----
-
 ## Definition of Done — God Tier
 
 1. ✅ AUTO-VERIFIED on 95%+ of clean tax returns — zero human data verification
@@ -748,11 +659,14 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 25. ✅ Personal Income PDF page in Classic Spread — guarantor Form 1040 visible to banker (Phase 27)
 26. ✅ Re-extraction dedup bypass — "Re-extract All" forces fresh Gemini OCR (Phase 28)
 27. ✅ GEMINI_PRIMARY_EXTRACTION_ENABLED — v2 BTR prompts active in production (Phase 28)
-28. ✅ `document_extracts` persisted for every extraction — `loadStructuredJson()` now returns Gemini structured JSON instead of falling back to legacy OCR (AAR 23)
-29. 🔴 Gemini 3 Flash orchestrator cutover — pending shadow gate (≥20 rows, ≥95% agree)
-30. 🔴 PTR routing hardening — PERSONAL_INCOME facts flowing reliably (Phase 29 target)
-31. 🔴 Spread completeness ≥80% — IS/BS gaps filled via Phase 28 + AAR 23 re-extraction
-32. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+28. ✅ `document_extracts` persisted for every extraction — `loadStructuredJson()` returns Gemini structured JSON (AAR 23)
+29. ✅ DSCR Triangle populated from `deal_structural_pricing` ADS fallback (Phase 29)
+30. ✅ TOTAL_OPERATING_EXPENSES + OPERATING_INCOME derived for BTR-only years (Phase 29)
+31. ✅ Global CF fallback computes personal income from raw PERSONAL_INCOME facts when TOTAL_PERSONAL_INCOME absent (Phase 29)
+32. ✅ Spread completeness checker label mismatches fixed — 6 real IS rows, 0 phantom entries (Phase 29)
+33. 🔴 Gemini 3 Flash orchestrator cutover — pending shadow gate (≥20 rows, ≥95% agree)
+34. 🔴 Spread completeness ≥80% — target after Phase 29 deploy + re-extract
+35. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
     (this one is never fully done — it's the ongoing standard)
 
 ---
@@ -784,9 +698,8 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
   throughput mechanism.
 - Shadow mode for model migrations: implement new provider behind `AIProvider`
   interface, gate with `ORCHESTRATOR_SHADOW_ENABLED=true`, log key-field
-  agreement (`grade` family for risk, `sections.length` for memo) to
-  `orchestrator_shadow_log`. Flip cutover flag only after ≥20 rows at ≥95%
-  agree with zero shadow errors.
+  agreement to `orchestrator_shadow_log`. Flip cutover flag only after ≥20 rows
+  at ≥95% agree with zero shadow errors.
 - Gemini 3 Flash (and thinking model variants) use `thinkingConfig.thinkingLevel`
   — omit `temperature` entirely. Strip thought-signature parts from response
   before JSON parsing (filter `p.thought === true`).
@@ -806,6 +719,22 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
   `loadStructuredJson(docId)` reads from `document_extracts`; if null, the
   deterministic extractors fall back to legacy `document_ocr_results` which
   is short/partial and produces zero numeric facts. This is a silent failure.
+- **Completeness checker label strings must exactly match `classicSpreadLoader` row labels.**
+  Phantom IS_REQUIRED entries that never match any spread row always score as
+  missing, artificially depressing completeness grades. Audit label strings
+  whenever adding or renaming spread rows.
+- **DSCR triangle reads from `deal_structural_pricing`, not `deal_financial_facts`.**
+  ADS is never written to `deal_financial_facts`. When entity DSCR is null after
+  label-scanning ratio rows, always fall back to reading `annual_debt_service_est`
+  from `deal_structural_pricing` and computing DSCR from latest EBITDA/OBI fact.
+- **BTR-only years need TOTAL_OPERATING_EXPENSES and OPERATING_INCOME derived.**
+  For partnership/S-corp returns without a standalone IS: `TOTAL_DEDUCTIONS` =
+  total opex; `GROSS_PROFIT - OBI` as fallback. `OPERATING_INCOME` aliases `OBI`.
+  Without these derivations, completeness checker always flags them as missing.
+- **Global CF personal income fallback:** When `TOTAL_PERSONAL_INCOME` materialized
+  facts are absent, compute from raw `PERSONAL_INCOME`-type facts grouped by owner:
+  `AGI + depreciation add-backs + QBI`. Required for multi-guarantor deals where
+  the materialization job hasn't run or produced zero values.
 
 ---
 
@@ -855,8 +784,8 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 | **Phase 27** | **Personal Income PDF page — guarantor Form 1040 in Classic Spread** | **✅ Complete** | **712961c5** |
 | **Phase 28** | **Re-extraction dedup bypass + GEMINI_PRIMARY_EXTRACTION_ENABLED** | **✅ Complete** | **—** |
 | **AAR 23** | **`document_extracts` not persisted in normal extraction path — `loadStructuredJson()` always returned null for non-dedup docs** | **✅ Complete** | **—** |
+| **Phase 29** | **Intelligence tab 4-fix batch: DSCR triangle ADS fallback, TOTAL_OPERATING_EXPENSES/OPERATING_INCOME derivation, Global CF personal income fallback, completeness label fix** | **✅ Complete** | **—** |
 | Shadow Gate | Monitor `orchestrator_shadow_log` → flip cutover flag when gate passes | 🔴 Active — accumulating rows | — |
-| **Phase 29** | **PTR fact routing audit + hardening — PERSONAL_INCOME facts flowing reliably** | **🔴 Queued** | **—** |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔴 Queued | — |
