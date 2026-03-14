@@ -62,9 +62,7 @@ async function gemini3Structured<T>(args: {
 
   const prompt =
     `${args.system}\n\n` +
-    `Return ONLY valid JSON matching this EXACT schema. No markdown. No backticks. No commentary.\n` +
-    `Use EXACTLY these field names — do not rename, add, or omit any required field.\n\n` +
-    `REQUIRED JSON SCHEMA:\n${JSON.stringify(cleanSchema, null, 2)}\n\n` +
+    `Return ONLY valid JSON. No markdown. No backticks. No commentary.\n\n` +
     `INPUT:\n${JSON.stringify(args.payload, null, 2)}`;
 
   const resp = await fetch(gemini3FlashUrl(apiKey), {
@@ -74,6 +72,7 @@ async function gemini3Structured<T>(args: {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         responseMimeType: "application/json",
+        responseSchema: cleanSchema,
         maxOutputTokens: 8192,
         thinkingConfig: { thinkingLevel },
       },
