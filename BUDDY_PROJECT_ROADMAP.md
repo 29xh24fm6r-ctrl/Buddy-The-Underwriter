@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 30 active — AI Risk Assessment LIVE ✅ | AAR 34 complete**
+**Status: Phase 31 complete — Research Engine LIVE | Credit Memo gated on research**
 
 ---
 
@@ -46,7 +46,10 @@ Documents (tax returns, financials, statements)
         ↓ Full Banking Relationship                 ✅ Phase 9
         ↓ Classic Banker Spread PDF (MMAS format)   ✅ PRs #180–#209
         ↓ AUTO-VERIFIED → Banker reviews for credit judgment only
-        ↓ Credit Memo + Committee Package
+        ↓ AI Risk Assessment (Gemini 3 Flash)       ✅ BB+ LIVE
+        ↓ Institutional Research Engine (BRE)       ✅ Phase 31
+        ↓ Credit Memo (research-grounded)           ✅ Phase 31
+        ↓ Committee Package
         ↓ Deposit Profile + Treasury Proposals surfaced automatically
 ```
 
@@ -75,51 +78,58 @@ Documents (tax returns, financials, statements)
 
 ---
 
-## Phase 30 — Deal Flow to Approval (Active)
+## Phase 30 — Deal Flow to Approval
 
-### AAR 25–33 ✅ — See prior roadmap entries for full details
+### AAR 25–34 ✅ — Full Gemini structured output chain + AI Risk Assessment LIVE
 
-### AAR 34 — Hand-written `structureHint` in prompt — AI Risk Assessment LIVE ✅ COMPLETE
+**AI Risk Assessment result on deal ffcc9733:** BB+ grade, 975 bps (Base: 525 + Premium: 450),
+4 risk factors, 3 pricing adders. Final working pattern: `responseMimeType: "application/json"`
+only + clean `structureHint` in prompt. `zodToJsonSchema` output causes serialization failure
+on deeply nested objects — avoid entirely for Gemini structured output.
 
-**Root cause of AAR 34:** Even with `responseJsonSchema` (correct field from AAR 33
-research), the `zodToJsonSchema` output includes strict constraints — `additionalProperties: false`,
-`minimum`/`maximum` on numbers, enum constraints — that cause Gemini 3 Flash to
-serialize array items as plain text strings when it cannot satisfy all constraints
-simultaneously. These plain strings don't start/end with `{}` so `unwrapJsonStrings`
-cannot recover them.
+---
 
-**Fix:** Removed `responseJsonSchema` entirely and `zodToJsonSchema` import.
-Replaced with a clean `structureHint` string passed alongside the prompt — a
-hand-written JSON structure example showing field names and types without any
-constraints. `responseMimeType: "application/json"` alone ensures valid JSON output.
-Zod validates the result against the full schema for type safety downstream.
+## Phase 31 — Research Engine Activation + Credit Memo Integration ✅ COMPLETE
 
-This is exactly how Gemini 2.0 Flash works throughout the rest of the extraction
-pipeline — and it has always worked reliably.
+### What was built
 
-**Result: BB+ grade, 975 bps total pricing, 4 risk factors, 3 pricing adders,
-rendered live on deal ffcc9733. 34 AARs to get here.**
+The Buddy Research Engine (`src/lib/research/`) was fully implemented — 22 files,
+~300KB of code covering source discovery, ingestion, fact extraction, inference
+derivation, narrative compilation, conflict resolution, provenance scoring, and
+integrity validation across 12 database tables. But zero missions had ever run
+because no trigger route existed.
 
-**Final working pattern for Gemini 3 Flash structured output:**
-```typescript
-// generationConfig — NO responseJsonSchema, NO responseSchema
-generationConfig: {
-  responseMimeType: "application/json",   // JSON mode only
-  maxOutputTokens: 8192,
-  thinkingConfig: { thinkingLevel: "minimal" },
-}
+**FILE 1 — Created: `src/app/api/deals/[dealId]/research/run/route.ts`**
 
-// Prompt includes a clean hand-written structure hint — no constraints, no $schema keywords
-const prompt = `${system}\n\nReturn ONLY a valid JSON object with this structure:\n${structureHint}\n\nINPUT:\n${payload}`;
+POST route that activates the dormant research engine:
+- Resolves NAICS code from `borrowers.naics_code` via `deals.borrower_id`
+- Falls back to `"999999"` if NAICS missing (never blocks)
+- Dedupes against running/queued missions for the same deal
+- Calls `runIndustryLandscapeMission()` at `"committee"` depth
+- `maxDuration = 60` — runs synchronously to completion (research must complete before memo)
+- Full UUID validation, error handling, pipeline ledger logging
+
+**FILE 2 — Replaced: `src/app/api/deals/[dealId]/credit-memo/generate/route.ts`**
+
+Replaced the legacy `aiJson()` path with the full Gemini 3 Flash provider:
+- **Gate 1:** Requires completed AI risk assessment in `ai_risk_runs` — 400 if missing
+- **Gate 2:** Requires completed research mission with narrative in `buddy_research_narratives` — 400 if missing
+- Builds `dealSnapshot` including research narrative as plain text (sections → sentences)
+- Calls `getAIProvider().generateMemo()` (Gemini 3 Flash path)
+- Persists result to `canonical_memo_narratives`
+- Logs pipeline ledger on success and failure
+
+**The required sequence is now enforced in code:**
+```
+AI Risk Assessment ✅ → Research Run ✅ → Generate Credit Memo
 ```
 
-**Build principle:** When Gemini structured output schema enforcement produces
-serialization failures, fall back to `responseMimeType: "application/json"` only
-with a clean hand-written structure hint in the prompt. Zod validates downstream.
-`zodToJsonSchema` output contains strict keywords (`additionalProperties: false`,
-numeric bounds) that Gemini cannot always satisfy for deeply nested objects — this
-causes it to serialize the entire parent as a plain text string. A simple structural
-example in the prompt avoids all constraint pressure while still guiding field names.
+**Build principle — research-gating credit memo:**
+The credit memo AI prompt now includes institutional research narrative as context.
+This gives Gemini 3 Flash industry benchmarks, competitive landscape, macro factors,
+and regulatory environment to write against — not just deal financials in isolation.
+A memo without research context is a formatted summary. A memo with research context
+is institutional-grade credit analysis.
 
 ---
 
@@ -128,8 +138,8 @@ example in the prompt avoids all constraint pressure while still guiding field n
 **Deal ffcc9733** — Samaritus Management LLC (primary active)
 9/9 docs extracted. Revenue: $798K → $1.2M → $1.5M → $1.4M.
 EBITDA: $326K → $475K → $557K → $368K. ADS=$67,368. DSCR=5.47x.
-**✅ AI Risk Assessment LIVE: BB+ grade, 975 bps (Base: 525 + Premium: 450)**
-Next: Generate Narratives → Regenerate Classic Spread → Reconciliation → Committee.
+✅ AI Risk Assessment LIVE: BB+ grade, 975 bps
+**Next: Run Research → Generate Credit Memo → Regenerate Spreads → Reconciliation → Committee**
 
 ---
 
@@ -138,26 +148,27 @@ Next: Generate Narratives → Regenerate Classic Spread → Reconciliation → C
 ### P1 — Immediate: Complete deal ffcc9733 approval flow
 
 1. **✅ Risk tab → AI Risk Assessment** — COMPLETE. BB+ grade live.
-2. **Credit Memo → "Generate Narratives"** — Writes to `canonical_memo_narratives`.
-3. **Classic Spreads → "Regenerate"** — Picks up all Phase 29/30 fixes.
-4. **Reconciliation** — `recon_status` NULL. Blocks Committee "Reconciliation Complete".
-5. **Audit certificates** — 0 certs. Check after next re-extract cycle.
+2. **Credit Memo tab → "Run Research"** — Triggers `/research/run`. Industry landscape mission.
+3. **Credit Memo tab → "Generate Narratives"** — Now gated on research. Calls Gemini 3 Flash.
+4. **Classic Spreads → "Regenerate"** — Picks up all Phase 29/30 fixes.
+5. **Reconciliation** — `recon_status` NULL. Blocks Committee "Reconciliation Complete".
+6. **Audit certificates** — 0 certs. Check after next re-extract cycle.
 
 **Committee "Approve" signal requires:** DSCR ≥ 1.25x ✅, 0 critical flags ✅,
 Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial data ✅, Pricing ✅.
 
 ### P2 — Near Term
 
-2. **Model Engine V2 activation** — feature flag disabled, DB tables empty, Pulse telemetry not forwarding.
-3. **Observability pipeline** — missing env vars: PULSE_TELEMETRY_ENABLED, PULSE_BUDDY_INGEST_URL, PULSE_BUDDY_INGEST_SECRET, CRON_SECRET.
-4. **Corpus expansion** — 2 Samaritus docs. Need 10+ across industries.
+- **Model Engine V2 activation** — feature flag disabled, DB tables empty, Pulse telemetry not forwarding.
+- **Observability pipeline** — missing env vars: PULSE_TELEMETRY_ENABLED, PULSE_BUDDY_INGEST_URL, PULSE_BUDDY_INGEST_SECRET, CRON_SECRET.
+- **Corpus expansion** — 2 Samaritus docs. Need 10+ across industries.
 
 ### P3 — Future
 
-5. **chatAboutDeal Gemini migration**
-6. **Crypto lending module**
-7. **Treasury product auto-proposal engine**
-8. **RMA peer/industry comparison**
+- **chatAboutDeal Gemini migration**
+- **Crypto lending module**
+- **Treasury product auto-proposal engine**
+- **RMA peer/industry comparison**
 
 ---
 
@@ -184,10 +195,9 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 |----------|-------|------|--------|
 | Document extraction | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active |
 | Classic Spread narrative | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ |
-| Credit memo generation | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ |
 | Document classification | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active (Phase 24) |
 | Voice interview sessions | gpt-4o-realtime-preview | OpenAI API key | ✅ Retained on OpenAI |
-| Risk + Memo orchestrator | Gemini 3 Flash | GEMINI_API_KEY (Dev API) | ✅ **LIVE — BB+ grade on ffcc9733** |
+| Risk + Memo orchestrator | Gemini 3 Flash | GEMINI_API_KEY (Dev API) | ✅ **LIVE — BB+ on ffcc9733** |
 | chatAboutDeal | OpenAI gpt-4o-2024-08-06 | OpenAI API key | 🔴 Gemini migration queued (P3) |
 
 ---
@@ -200,12 +210,15 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 35–37. ✅ Spread fixes — hasMaterializedPI, Current Ratio, GEMINI_API_KEY (AARs 25–27)
 38–42. ✅ Gemini structured output chain (AARs 28–32)
 43. ✅ Research-grounded: `responseJsonSchema`, no schema in prompt, `thinkingLevel: "minimal"` (AAR 33)
-44. ✅ **AI Risk Assessment LIVE — BB+ grade, 975 bps, rendered on deal ffcc9733 (AAR 34)**
-45. 🔴 Credit Memo narratives generated
-46. 🔴 Classic Spreads regenerated with all Phase 29/30 fixes
-47. 🔴 Reconciliation complete — Committee Approve signal unlocked
-48. 🔴 Spread completeness ≥80%
-49. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+44. ✅ AI Risk Assessment LIVE — BB+ grade, 975 bps (AAR 34)
+45. ✅ **Research Engine activated — `/research/run` wired to `runIndustryLandscapeMission()` (Phase 31)**
+46. ✅ **Credit Memo gated on research — `generateMemo()` receives research narrative context (Phase 31)**
+47. 🔴 Run Research on ffcc9733 — first live mission
+48. 🔴 Generate Credit Memo — first research-grounded memo
+49. 🔴 Classic Spreads regenerated with all Phase 29/30 fixes
+50. 🔴 Reconciliation complete — Committee Approve signal unlocked
+51. 🔴 Spread completeness ≥80%
+52. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -246,13 +259,16 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 - **Gemini 3 Flash structured output — final working pattern:**
   - `responseMimeType: "application/json"` only — no `responseJsonSchema`, no `responseSchema`
   - Clean `structureHint` string in prompt showing field names/types without constraints
-  - `zodToJsonSchema` output contains `additionalProperties: false` + numeric bounds that
-    cause Gemini to serialize entire nested objects as plain strings — avoid entirely
+  - `zodToJsonSchema` output causes plain-string serialization of nested objects — avoid entirely
   - `thinkingLevel: "minimal"` is the lowest valid level for Gemini 3 Flash
-  - `thinkingBudget` is Gemini 2.5-series only
-  - `"none"` is not a valid `thinkingLevel` — causes 400 INVALID_ARGUMENT
+  - `thinkingBudget` is Gemini 2.5-series only; `"none"` causes 400 INVALID_ARGUMENT
   - Evidence arrays must be `.optional().default([])` in Zod schemas
   - `unwrapJsonStrings()` pre-processor before Zod validation handles residual cases
+- **Research must complete before credit memo generation.** The memo prompt includes
+  the full research narrative (industry benchmarks, competitive landscape, macro context)
+  as context. A memo without research is a formatted summary — not institutional-grade analysis.
+- **`runMission()` is imported from `"@/lib/research/runMission"` directly, not from
+  `"@/lib/research"` — it is server-only and not re-exported from the index.**
 
 ---
 
@@ -270,8 +286,9 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 | AAR 25–27 | hasMaterializedPI, Current Ratio, GEMINI_API_KEY | ✅ Complete | — |
 | AAR 28–32 | Gemini structured output chain (5 iterations) | ✅ Complete | — |
 | AAR 33 | Research-grounded: responseJsonSchema, minimal thinking | ✅ Complete | — |
-| **AAR 34** | **structureHint in prompt — AI Risk Assessment LIVE (BB+, 975 bps)** | **✅ Complete** | **—** |
-| Phase 30 | Deal flow to approval — narratives, reconciliation, committee | 🔴 Active | — |
+| AAR 34 | structureHint in prompt — AI Risk Assessment LIVE (BB+, 975 bps) | ✅ Complete | — |
+| **Phase 31** | **Research Engine activated + Credit Memo gated on research** | **✅ Complete** | **—** |
+| Phase 30 remaining | Narratives, Classic Spreads, Reconciliation, Committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔴 Queued | — |
