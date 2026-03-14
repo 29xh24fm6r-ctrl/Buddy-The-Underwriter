@@ -403,6 +403,57 @@ async function loadCanonicalFacts(
       }
     }
 
+    // ── Derive CURRENT_ASSETS from SL_ components (for Current Ratio + Working Capital) ──
+    // Intelligence tab reads CURRENT_ASSETS / CURRENT_LIABILITIES bare keys.
+    // These never exist as direct facts — must be derived from SL_ balance sheet components.
+    for (const year of Array.from(yearsSet)) {
+      const caKey = `CURRENT_ASSETS_${year}`;
+      if (facts[caKey] == null) {
+        const cash = toNum(facts[`SL_CASH_${year}`]);
+        const arGross = toNum(facts[`SL_AR_GROSS_${year}`]);
+        const arAllow = toNum(facts[`SL_AR_ALLOWANCE_${year}`]) ?? 0;
+        const netAr = arGross != null ? arGross - arAllow : null;
+        const inventory = toNum(facts[`SL_INVENTORY_${year}`]);
+        const usGov = toNum(facts[`SL_US_GOV_OBLIGATIONS_${year}`]);
+        const taxExempt = toNum(facts[`SL_TAX_EXEMPT_SECURITIES_${year}`]);
+        const otherCA = toNum(facts[`SL_OTHER_CURRENT_ASSETS_${year}`]);
+        // Also check direct SL_ materialized value
+        const directTCA = toNum(facts[`SL_TOTAL_CURRENT_ASSETS_${year}`]);
+        if (directTCA != null) {
+          facts[caKey] = directTCA;
+        } else {
+          const components = [cash, netAr, inventory, usGov, taxExempt, otherCA].filter(
+            (v): v is number => v != null,
+          );
+          if (components.length > 0) {
+            facts[caKey] = components.reduce((a, b) => a + b, 0);
+          }
+        }
+      }
+    }
+
+    // ── Derive CURRENT_LIABILITIES from SL_ components ──
+    for (const year of Array.from(yearsSet)) {
+      const clKey = `CURRENT_LIABILITIES_${year}`;
+      if (facts[clKey] == null) {
+        const directTCL = toNum(facts[`SL_TOTAL_CURRENT_LIABILITIES_${year}`]);
+        if (directTCL != null) {
+          facts[clKey] = directTCL;
+        } else {
+          const ap = toNum(facts[`SL_ACCOUNTS_PAYABLE_${year}`]);
+          const wages = toNum(facts[`SL_WAGES_PAYABLE_${year}`]);
+          const stDebt = toNum(facts[`SL_SHORT_TERM_DEBT_${year}`]);
+          const operCL = toNum(facts[`SL_OPERATING_CURRENT_LIABILITIES_${year}`]);
+          const components = [ap, wages, stDebt, operCL].filter(
+            (v): v is number => v != null,
+          );
+          if (components.length > 0) {
+            facts[clKey] = components.reduce((a, b) => a + b, 0);
+          }
+        }
+      }
+    }
+
     return { facts, years: Array.from(yearsSet).sort((a, b) => a - b) };
   } catch {
     return { facts: {}, years: [] };

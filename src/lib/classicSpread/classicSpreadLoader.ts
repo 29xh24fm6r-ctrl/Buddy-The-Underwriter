@@ -1103,8 +1103,14 @@ async function buildGlobalCashFlowSection(
 
   // Fallback: if no TOTAL_PERSONAL_INCOME facts exist (backfill hasn't run),
   // compute from raw PERSONAL_INCOME-type facts (AGI + depreciation add-backs).
+  // Require at least one TOTAL_PERSONAL_INCOME fact with owner_type="PERSONAL"
+  // AND a meaningful value (> 1000) to be considered materialized.
+  // A value of 3 or similar is a Phase 17 bootstrap placeholder — treat as absent.
   const hasMaterializedPI = facts.some(
-    (f) => f.fact_key === "TOTAL_PERSONAL_INCOME" && f.owner_type === "PERSONAL",
+    (f) =>
+      f.fact_key === "TOTAL_PERSONAL_INCOME" &&
+      f.owner_type === "PERSONAL" &&
+      (f.fact_value_num ?? 0) > 1000,
   );
   if (!hasMaterializedPI) {
     const { data: rawPiFacts } = await (sb as any)

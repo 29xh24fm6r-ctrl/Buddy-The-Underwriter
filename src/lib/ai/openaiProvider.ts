@@ -10,13 +10,32 @@ import {
   type CommitteeAnswerT,
 } from "./schemas";
 
+// OpenAI strict mode requires additionalProperties: false on every object schema
+// recursively — including nested objects inside arrays and properties.
+function enforceAdditionalProperties(schema: any): any {
+  if (!schema || typeof schema !== "object") return schema;
+  if (Array.isArray(schema)) return schema.map(enforceAdditionalProperties);
+
+  const result: any = {};
+  for (const [key, value] of Object.entries(schema)) {
+    result[key] = enforceAdditionalProperties(value);
+  }
+
+  if (result.type === "object" || result.properties) {
+    result.additionalProperties = false;
+    // OpenAI strict mode also requires all properties to be in required[]
+    if (result.properties && !result.required) {
+      result.required = Object.keys(result.properties);
+    }
+  }
+
+  return result;
+}
+
 function jsonSchemaFor(_name: string, schema: any) {
-  // Pass $refStrategy: "none" to inline all definitions — avoids $ref wrapping
-  // at the top level which causes OpenAI structured outputs to see type: undefined.
   const js = zodToJsonSchema(schema, { $refStrategy: "none" });
-  // Strip $schema metadata field — OpenAI doesn't need it and may reject extra fields
   const { $schema: _unused, ...clean } = js as any;
-  return clean;
+  return enforceAdditionalProperties(clean);
 }
 
 function evidenceRulesBlock() {

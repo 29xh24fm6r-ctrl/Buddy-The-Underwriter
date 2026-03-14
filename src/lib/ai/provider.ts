@@ -213,9 +213,15 @@ export function getAIProvider(): AIProvider {
   const hasGemini = !!process.env.GEMINI_API_KEY;
 
   // Full cutover: Gemini 3 Flash as primary for risk + memo
-  if (hasCutover && hasGemini) {
+  if (hasCutover) {
+    if (!hasGemini) {
+      // Misconfiguration — cutover requested but key missing. Fail loudly.
+      throw new Error(
+        "ORCHESTRATOR_USE_GEMINI3_FLASH=true but GEMINI_API_KEY is not set. " +
+        "Add GEMINI_API_KEY to Vercel environment variables and redeploy."
+      );
+    }
     const gemini = new Gemini3FlashProvider();
-    // chatAboutDeal still needs OpenAI until Phase 26
     if (hasOpenAI) {
       const openai = new OpenAIProvider();
       return {
@@ -224,7 +230,6 @@ export function getAIProvider(): AIProvider {
         chatAboutDeal: (i) => openai.chatAboutDeal(i),
       };
     }
-    // No OpenAI — full Gemini (chatAboutDeal will throw, which is acceptable)
     return gemini;
   }
 
