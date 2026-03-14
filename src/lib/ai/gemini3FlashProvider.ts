@@ -110,7 +110,36 @@ async function gemini3Structured<T>(args: {
     parsed = JSON.parse(text.slice(start, end + 1));
   }
 
-  return args.schema.parse(parsed);
+  // Gemini responseSchema sometimes JSON-encodes nested array items as strings.
+  // Recursively unwrap any string values that are valid JSON objects/arrays
+  // before Zod validation.
+  function unwrapJsonStrings(val: unknown): unknown {
+    if (typeof val === "string") {
+      const trimmed = val.trim();
+      if ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+          (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+        try {
+          return unwrapJsonStrings(JSON.parse(trimmed));
+        } catch {
+          return val;
+        }
+      }
+      return val;
+    }
+    if (Array.isArray(val)) {
+      return val.map(unwrapJsonStrings);
+    }
+    if (val !== null && typeof val === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+        out[k] = unwrapJsonStrings(v);
+      }
+      return out;
+    }
+    return val;
+  }
+
+  return args.schema.parse(unwrapJsonStrings(parsed));
 }
 
 export class Gemini3FlashProvider implements AIProvider {
