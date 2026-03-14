@@ -76,7 +76,7 @@ export const RiskOutputSchema = z.object({
       label: z.string(),
       bps: z.number().int(),
       rationale: z.string(),
-      evidence: z.array(z.record(z.string(), z.unknown())).optional().default([]),
+      evidence: z.array(EvidenceRefSchema).optional().default([]),
     })
   ),
   factors: z.array(
@@ -87,7 +87,7 @@ export const RiskOutputSchema = z.object({
       contribution: z.number(),
       confidence: z.number().min(0).max(1),
       rationale: z.string(),
-      evidence: z.array(z.record(z.string(), z.unknown())).optional().default([]),
+      evidence: z.array(EvidenceRefSchema).optional().default([]),
     })
   ),
 });

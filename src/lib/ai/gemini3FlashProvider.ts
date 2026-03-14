@@ -48,12 +48,12 @@ async function gemini3Structured<T>(args: {
   payload: unknown;
   schema: z.ZodType<T>;
   schemaName: string;
-  thinkingLevel?: "none" | "minimal" | "low" | "medium" | "high";
+  thinkingLevel?: "minimal" | "low" | "medium" | "high";
 }): Promise<T> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY missing");
 
-  const thinkingLevel = args.thinkingLevel ?? "none";
+  const thinkingLevel = args.thinkingLevel ?? "minimal";
 
   // Generate the JSON schema so Gemini knows exact field names and types.
   // $refStrategy: "none" inlines all definitions — no $ref wrapping.
@@ -62,9 +62,7 @@ async function gemini3Structured<T>(args: {
 
   const prompt =
     `${args.system}\n\n` +
-    `Return ONLY valid JSON matching this EXACT schema. No markdown. No backticks. No commentary.\n` +
-    `Use EXACTLY these field names.\n\n` +
-    `REQUIRED JSON SCHEMA:\n${JSON.stringify(cleanSchema, null, 2)}\n\n` +
+    `Return ONLY valid JSON. No markdown. No backticks. No commentary.\n\n` +
     `INPUT:\n${JSON.stringify(args.payload, null, 2)}`;
 
   const resp = await fetch(gemini3FlashUrl(apiKey), {
@@ -74,8 +72,9 @@ async function gemini3Structured<T>(args: {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         responseMimeType: "application/json",
+        responseJsonSchema: cleanSchema,
         maxOutputTokens: 8192,
-        ...(thinkingLevel !== "none" ? { thinkingConfig: { thinkingLevel } } : {}),
+        thinkingConfig: { thinkingLevel },
       },
     }),
   });
@@ -155,7 +154,7 @@ export class Gemini3FlashProvider implements AIProvider {
     return gemini3Structured({
       schemaName: "RiskOutput",
       schema: RiskOutputSchema,
-      thinkingLevel: "none",
+      thinkingLevel: "minimal",
       system: [
         "You are Buddy, an underwriting copilot that produces explainable risk and pricing.",
         "Return ONLY valid JSON that matches the RiskOutput schema.",
@@ -180,7 +179,7 @@ export class Gemini3FlashProvider implements AIProvider {
     return gemini3Structured({
       schemaName: "MemoOutput",
       schema: MemoOutputSchema,
-      thinkingLevel: "none",
+      thinkingLevel: "minimal",
       system: [
         "You are Buddy, generating a credit memo from deal facts and an explainable risk run.",
         "Return ONLY valid JSON that matches the MemoOutput schema.",

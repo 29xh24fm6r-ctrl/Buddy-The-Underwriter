@@ -13,14 +13,14 @@ export type RiskOutput = {
   grade: string; // e.g. "B+"
   baseRateBps: number; // e.g. 450
   riskPremiumBps: number; // e.g. 200
-  pricingExplain: Array<{ label: string; bps: number; evidence?: Record<string, unknown>[]; rationale: string }>;
+  pricingExplain: Array<{ label: string; bps: number; evidence?: EvidenceRef[]; rationale: string }>;
   factors: Array<{
     label: string;
     category: string;
     direction: "positive" | "negative" | "neutral";
     contribution: number;
     confidence: number;
-    evidence?: Record<string, unknown>[];
+    evidence?: EvidenceRef[];
     rationale: string;
   }>;
 };
