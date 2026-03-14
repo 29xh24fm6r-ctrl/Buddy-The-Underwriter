@@ -74,7 +74,7 @@ async function gemini3Structured<T>(args: {
         responseMimeType: "application/json",
         responseSchema: cleanSchema,
         maxOutputTokens: 8192,
-        thinkingConfig: { thinkingLevel },
+        ...(thinkingLevel !== "none" ? { thinkingConfig: { thinkingLevel } } : {}),
       },
     }),
   });
