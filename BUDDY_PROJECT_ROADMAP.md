@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 30 active — deal flow to approval | AAR 29 complete**
+**Status: Phase 30 active — deal flow to approval | AAR 30 complete**
 
 ---
 
@@ -15,10 +15,6 @@ The north star: **every number that reaches a credit committee must be
 correct, traceable, and defensible under audit — without requiring a human
 to manually verify the math.**
 
-Buddy is not a tool that assists humans in doing analysis.
-Buddy is a system that performs institutional-grade analysis autonomously.
-Humans provide credit judgment and final authority. Not data verification.
-
 **The goal: a banker opens a spread and focuses entirely on credit judgment.
 They never wonder if the numbers are right. They already know they are.**
 
@@ -26,14 +22,9 @@ They never wonder if the numbers are right. They already know they are.**
 
 ## The Accuracy Philosophy — Two Distinct Problems
 
-**Problem 1 — Data accuracy verification.**
-Are the extracted numbers correct? This is a TECHNICAL problem.
-It can be solved with sufficient rigor. When solved, NO human verification needed.
-
-**Problem 2 — Credit decision authority.**
-Should this loan be approved? At what rate? With what structure?
-This is a JUDGMENT problem. OCC SR 11-7 and FDIC guidance require human
-oversight of credit decisions. Non-negotiable and should not be.
+**Problem 1 — Data accuracy verification.** TECHNICAL problem. Solvable with rigor.
+**Problem 2 — Credit decision authority.** JUDGMENT problem. OCC SR 11-7 and FDIC
+guidance require human oversight. Non-negotiable.
 
 **The target state:** Buddy solves Problem 1 completely and autonomously.
 Humans focus entirely on Problem 2.
@@ -46,34 +37,20 @@ Humans focus entirely on Problem 2.
 
 ```
 Documents (tax returns, financials, statements)
-        ↓
-Document Classification + OCR
-        ↓
-Structured Extraction Engine (Gemini Flash)
-        ↓
-IRS Knowledge Base + Identity Validation   ✅ Phase 1 & 2 COMPLETE
-        ↓
-Formula Accuracy Layer                     ✅ Phase 3 COMPLETE
-        ↓
-Proof-of-Correctness Engine               ✅ Phase 4 COMPLETE
-        ↓
-Financial Intelligence Layer               ✅ Phase 5 COMPLETE
-        ↓
-Industry Intelligence Layer               ✅ Phase 6 COMPLETE
-        ↓
-Cross-Document Reconciliation             ✅ Phase 7 COMPLETE
-        ↓
-Golden Corpus + Continuous Learning       ✅ Phase 8 COMPLETE
-        ↓
-Full Banking Relationship                 ✅ Phase 9 COMPLETE
-        ↓
-Classic Banker Spread PDF (MMAS format)   ✅ PRs #180–#209
-        ↓
-AUTO-VERIFIED → Banker reviews for credit judgment only
-        ↓
-Credit Memo + Committee Package
-        ↓
-Deposit Profile + Treasury Proposals surfaced automatically
+        ↓ Document Classification + OCR
+        ↓ Structured Extraction Engine (Gemini Flash)
+        ↓ IRS Knowledge Base + Identity Validation   ✅ Phase 1 & 2
+        ↓ Formula Accuracy Layer                     ✅ Phase 3
+        ↓ Proof-of-Correctness Engine               ✅ Phase 4
+        ↓ Financial Intelligence Layer               ✅ Phase 5
+        ↓ Industry Intelligence Layer               ✅ Phase 6
+        ↓ Cross-Document Reconciliation             ✅ Phase 7
+        ↓ Golden Corpus + Continuous Learning       ✅ Phase 8
+        ↓ Full Banking Relationship                 ✅ Phase 9
+        ↓ Classic Banker Spread PDF (MMAS format)   ✅ PRs #180–#209
+        ↓ AUTO-VERIFIED → Banker reviews for credit judgment only
+        ↓ Credit Memo + Committee Package
+        ↓ Deposit Profile + Treasury Proposals surfaced automatically
 ```
 
 ---
@@ -110,98 +87,89 @@ Deposit Profile + Treasury Proposals surfaced automatically
 ## After-Action Reviews — Current Session
 
 ### AAR 20–22b ✅ Complete — fb811545, 6e449800, PR #231, PR #232
-### Phase 25 — Orchestrator Reasoning Model ✅ COMPLETE — PR #233
-### Phase 26 — ai-risk Route + Run AI Assessment Button ✅ COMPLETE — commit bbee0903
-### Phase 27 — Personal Income PDF Page ✅ COMPLETE — commit 712961c5
-### Phase 28 — Re-extraction Dedup Bypass + Gemini Primary ✅ COMPLETE
-### AAR 23 — `document_extracts` persistence fix ✅ COMPLETE
-### Phase 29 — Intelligence Tab 4-Fix Batch ✅ COMPLETE
+### Phase 25–29 ✅ COMPLETE — PR #233, bbee0903, 712961c5
+### AAR 23 ✅ COMPLETE — `document_extracts` persistence fix
 ### Gemini 3 Flash Orchestrator Cutover ✅ COMPLETE
-### AAR 24 — OpenAI zodToJsonSchema Schema Wrapping Bug ✅ COMPLETE
+### AAR 24 ✅ COMPLETE — OpenAI zodToJsonSchema schema wrapping
 
 ---
 
 ## Phase 30 — Deal Flow to Approval (Active)
 
 ### AAR 25 — Global CF hasMaterializedPI false positive ✅ COMPLETE
+`hasMaterializedPI` now requires `fact_value_num > 1000` to filter bootstrap
+placeholders (Phase 17 value=3 row).
 
-**Root cause:** Bootstrap placeholder `TOTAL_PERSONAL_INCOME` value = 3 (Phase 17)
-made `hasMaterializedPI` guard return `true`, preventing fallback to real AGI facts.
-**Fix:** `hasMaterializedPI` now requires `fact_value_num > 1000`.
-**Build principle:** Bootstrap placeholder facts (value ≤ 1000 for income) must
-never pass the `hasMaterializedPI` guard.
+### AAR 26 — Current Ratio / Working Capital blank ✅ COMPLETE
+`CURRENT_ASSETS_{year}` / `CURRENT_LIABILITIES_{year}` derived from `SL_`
+components in `spread-output/route.ts` `loadCanonicalFacts`.
 
-### AAR 26 — Current Ratio / Working Capital blank in Intelligence tab ✅ COMPLETE
+### AAR 27 — GEMINI_API_KEY missing from Vercel ✅ COMPLETE
+Provider guard now throws loudly on misconfiguration. `GEMINI_API_KEY` added
+to Vercel (Google AI Studio). `enforceAdditionalProperties()` added for OpenAI strict mode.
 
-**Root cause:** `CURRENT_ASSETS_{year}` / `CURRENT_LIABILITIES_{year}` never exist
-as direct facts — must be derived from `SL_` balance sheet components. `spread-output`
-route had no derivation.
-**Fix:** Added two derivation blocks in `loadCanonicalFacts` in `spread-output/route.ts`.
-**Build principle:** `CURRENT_ASSETS` and `CURRENT_LIABILITIES` are never stored as
-direct facts — always derive from `SL_` components.
+### AAR 28 — Gemini 3 Flash wrong field names in output ✅ COMPLETE
+Full JSON schema embedded in prompt via `zodToJsonSchema`. `responseSchema`
+passed in `generationConfig` for API-level enforcement.
 
-### AAR 27 — GEMINI_API_KEY missing from Vercel — silent fallback to OpenAI ✅ COMPLETE
+### AAR 29 — Gemini `responseSchema` API-level enforcement ✅ COMPLETE
 
-**Root cause:** `getAIProvider()` gated cutover on `hasGemini = !!process.env.GEMINI_API_KEY`.
-Key missing (extraction uses Vertex AI / GCP ADC — separate auth system). Silent fallback.
-**Fix 1:** Provider guard now throws loudly on misconfiguration.
-**Fix 2:** `enforceAdditionalProperties()` for OpenAI strict mode on `chatAboutDeal`.
-**Resolution:** `GEMINI_API_KEY` added to Vercel (Google AI Studio). Fresh deploy.
-**Build principle:** Gemini extraction (Vertex AI, GCP ADC) and Gemini 3 Flash
-orchestrator (Developer API, `GEMINI_API_KEY`) are separate Google auth systems.
-Both must be present in Vercel.
+**Root cause:** Even with schema in prompt (AAR 28), Gemini 3 Flash in thinking
+mode continued producing wrong field names. Prompt instruction is advisory —
+thinking mode can deviate from specified field names.
 
-### AAR 28 — Gemini 3 Flash schema inference bug — wrong field names in output ✅ COMPLETE
+**Fix:** `cleanSchema` (from `zodToJsonSchema`) passed as `responseSchema` in
+`generationConfig`. Prompt simplified — verbose schema block removed since API
+enforces it now.
 
-**Root cause:** Gemini was called successfully but produced wrong field names
-(`name` instead of `label`, `type` instead of `category`) because the prompt only
-named the schema, never showed it. Zod `.parse()` failed with a wall of validation errors.
-**Fix:** `zodToJsonSchema` generates the full schema; it's embedded in the prompt
-with `REQUIRED JSON SCHEMA:` header. `cleanSchema` also passed as `responseSchema`
-in `generationConfig` for API-level enforcement.
-**Build principle:** When using Gemini with JSON output mode, embed the full JSON
-schema in the prompt AND pass it as `responseSchema` in `generationConfig`. Prompt
-instruction alone is advisory — `responseSchema` enforces at the token-sampling level.
+**Build principle:** For Gemini structured output, `responseSchema` in
+`generationConfig` is mandatory. Always pass it alongside
+`responseMimeType: "application/json"`. Enforces field names at token-sampling
+level — Zod validation becomes a formality, not a failure point.
 
-### AAR 29 — Gemini `responseSchema` — API-level schema enforcement ✅ COMPLETE
+### AAR 30 — Gemini array items returned as JSON strings instead of objects ✅ COMPLETE
 
-**Root cause:** Even with the full JSON schema embedded in the prompt (AAR 28),
-Gemini 3 Flash in thinking mode continued to produce wrong field names. The prompt
-is advisory — thinking mode reasons through it and can deviate from the specified
-field names when the schema is complex.
+**Root cause:** `responseSchema` enforcement correctly produced the top-level
+structure, but array items in `pricingExplain[]` and `factors[]` were returned
+as JSON-encoded strings (e.g. `"{ \"label\": \"...\" }"`) instead of actual
+objects. Zod sees `"expected object, received string"` at `pricingExplain[0]`,
+`pricingExplain[1]`, `factors[0]`, `factors[1]` etc.
+
+This is a known Gemini behavior: `responseSchema` constrains top-level shape
+correctly but can serialize complex nested array items as JSON strings when
+the nesting depth is high. The outer response validates but the array contents
+are string-encoded.
 
 **Fix — `src/lib/ai/gemini3FlashProvider.ts`:**
 
-`cleanSchema` (already computed via `zodToJsonSchema`) is now passed as
-`responseSchema` in `generationConfig`:
+Added `unwrapJsonStrings()` recursive pre-processor before `args.schema.parse()`:
 ```typescript
-generationConfig: {
-  responseMimeType: "application/json",
-  responseSchema: cleanSchema,
-  maxOutputTokens: 8192,
-  thinkingConfig: { thinkingLevel },
-},
-```
-Prompt simplified — verbose schema block removed since the API enforces it now:
-```typescript
-const prompt =
-  `${args.system}\n\n` +
-  `Return ONLY valid JSON. No markdown. No backticks. No commentary.\n\n` +
-  `INPUT:\n${JSON.stringify(args.payload, null, 2)}`;
+function unwrapJsonStrings(val: unknown): unknown {
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+        (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+      try { return unwrapJsonStrings(JSON.parse(trimmed)); } catch { return val; }
+    }
+    return val;
+  }
+  if (Array.isArray(val)) return val.map(unwrapJsonStrings);
+  if (val !== null && typeof val === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(val as Record<string, unknown>))
+      out[k] = unwrapJsonStrings(v);
+    return out;
+  }
+  return val;
+}
+
+return args.schema.parse(unwrapJsonStrings(parsed));
 ```
 
-**Why this works:** `responseSchema` in Gemini's `generationConfig` is equivalent
-to OpenAI's `response_format: { type: "json_schema" }`. The API constrains token
-generation to only produce JSON conforming to the schema — field names are enforced
-at the sampling level, not the reasoning level. Thinking mode reasoning is separated
-from output format enforcement.
-
-**Build principle:** For Gemini structured output, `responseSchema` in
-`generationConfig` is mandatory — not optional. Prompt-based schema instruction
-alone is insufficient when thinking mode is active. Always pass `responseSchema`
-alongside `responseMimeType: "application/json"`. The combination of
-`responseSchema` + `responseMimeType` at the API level makes Zod validation
-a formality, not a failure point.
+**Build principle:** Gemini's `responseSchema` can JSON-encode nested array
+items as strings even when the outer structure is correct. Always run
+`unwrapJsonStrings()` recursively before Zod validation when using Gemini
+JSON mode. The unwrapper is idempotent — safe to run on all responses.
 
 ---
 
@@ -210,7 +178,7 @@ a formality, not a failure point.
 **Deal ffcc9733** — Samaritus Management LLC (primary active)
 9/9 docs extracted. Revenue: $798K → $1.2M → $1.5M → $1.4M.
 EBITDA: $326K → $475K → $557K → $368K. ADS=$67,368. DSCR=5.47x.
-Overall spread completeness: 66% D. AI Assessment should now succeed (AAR 29).
+AI Assessment should now succeed after AAR 30 (unwrapJsonStrings fix).
 
 **Deal 07541fce** — "CLAUDE FIX 21" / Samaritus Management LLC
 Primary regression test deal. Run 21. 9/9 docs extracted.
@@ -221,10 +189,10 @@ Primary regression test deal. Run 21. 9/9 docs extracted.
 
 ### P1 — Immediate: Complete deal ffcc9733 approval flow
 
-1. **Risk tab → "Run AI Assessment"** — AAR 29 fix deployed. `responseSchema` enforces field names at API level. Should succeed.
+1. **Risk tab → "Run AI Assessment"** — AAR 30 fix. Should now succeed.
 2. **Credit Memo → "Generate Narratives"** — Writes to `canonical_memo_narratives`.
 3. **Classic Spreads → "Regenerate"** — Picks up all Phase 29/30 fixes.
-4. **Reconciliation** — `recon_status` NULL. Blocks Committee "Reconciliation Complete" check.
+4. **Reconciliation** — `recon_status` NULL. Blocks Committee "Reconciliation Complete".
 5. **Audit certificates** — 0 certs. Check after next re-extract cycle.
 
 **Committee "Approve" signal requires:** DSCR ≥ 1.25x ✅, 0 critical flags ✅,
@@ -278,48 +246,18 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 
 ## Definition of Done — God Tier
 
-1. ✅ AUTO-VERIFIED on 95%+ of clean tax returns — zero human data verification
-2. ✅ IRS identity checks on every extracted document
-3. ✅ Multi-source corroboration from independent sources
-4. ✅ Reasonableness engine with NAICS-calibrated norms
-5. ✅ Formula accuracy — every spread line mathematically verifiable
-6. ✅ Financial intelligence — EBITDA, officer comp, global cash flow
-7. ✅ Industry intelligence — 7 NAICS profiles
-8. ✅ Cross-document reconciliation — K-1s, balance sheet, ownership
-9. ✅ Golden corpus regression tests on every commit
-10. ✅ Continuous learning — analyst corrections feed back into accuracy metrics
-11. ✅ Audit certificate generated for every AUTO-VERIFIED spread
-12. ✅ Full relationship view — loans + deposits + treasury in one workflow
-13. ✅ Section 106 compliance baked into relationship pricing output
-14. ✅ Classic Banker Spread PDF — MMAS format, 6+ pages, zero ghost blanks
-15. ✅ UCA Cash Flow statement in PDF
-16. ✅ Expanded MMAS ratio set
-17. ✅ AI narrative engine (optional, graceful fallback)
-18. ✅ Personal tax return extraction with IRS identity validation (Phase 16)
-19. ✅ Classic Spreads as first-class tab on every deal (AAR 21)
-20. ✅ Intelligence tab fully populated — all 12 metric cells, DSCR Triangle (AAR 20)
-21. ✅ New deal intake completes in <60s (AAR 22)
-22. ✅ Extraction fan-out — 9 docs in ~60-120s (AAR 22b)
-23. ✅ Gemini 3 Flash orchestrator shadow mode active (Phase 25)
-24. ✅ generateRisk() wired to live route + UI (Phase 26)
-25. ✅ Personal Income PDF page in Classic Spread (Phase 27)
-26. ✅ Re-extraction dedup bypass (Phase 28)
-27. ✅ GEMINI_PRIMARY_EXTRACTION_ENABLED — v2 BTR prompts active (Phase 28)
-28. ✅ `document_extracts` persisted for every extraction (AAR 23)
-29. ✅ DSCR Triangle ADS fallback (Phase 29)
-30. ✅ TOTAL_OPERATING_EXPENSES + OPERATING_INCOME derived for BTR-only years (Phase 29)
-31. ✅ Global CF personal income fallback (Phase 29)
-32. ✅ Spread completeness IS label mismatches fixed (Phase 29)
+1–32. ✅ All foundation phases and MMAS sprint items complete — see prior entries.
 33. ✅ Gemini 3 Flash orchestrator cutover complete
 34. ✅ OpenAI zodToJsonSchema schema wrapping fixed (AAR 24)
 35. ✅ Global CF hasMaterializedPI > 1000 guard (AAR 25)
 36. ✅ Current Ratio / Working Capital derived from SL_ components (AAR 26)
 37. ✅ GEMINI_API_KEY added to Vercel — orchestrator fully active (AAR 27)
 38. ✅ Gemini 3 Flash prompt embeds full JSON schema (AAR 28)
-39. ✅ **Gemini 3 Flash `responseSchema` in `generationConfig` — field names enforced at API sampling level (AAR 29)**
-40. 🔴 Deal `ffcc9733` through full approval flow — AI risk run, narratives, reconciliation, committee
-41. 🔴 Spread completeness ≥80%
-42. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+39. ✅ Gemini 3 Flash `responseSchema` in `generationConfig` — API-level enforcement (AAR 29)
+40. ✅ **Gemini array items unwrapped from JSON strings before Zod validation (AAR 30)**
+41. 🔴 Deal `ffcc9733` through full approval flow — AI risk run, narratives, reconciliation, committee
+42. 🔴 Spread completeness ≥80%
+43. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -336,7 +274,6 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 - Pure functions first. DB access in thin service layers only.
 - Compliance is structural. Section 106, SR 11-7 — baked in, not bolted on.
 - Key names are contracts. IS suffix (_IS) vs bare names must be consistent.
-  Use getValsFallback() for both variants.
 - Route response shapes must match client consumption types exactly.
 - reextract-all bypasses gatekeeper entirely — shadow never fires.
 - Gemini extraction is duration-unpredictable. Always queue as outbox events.
@@ -361,9 +298,10 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
   Both must be present in Vercel.**
 - **For Gemini structured output, `responseSchema` in `generationConfig` is mandatory.
   Prompt-based schema instruction alone is insufficient when thinking mode is active.
-  Always pass `responseSchema` alongside `responseMimeType: "application/json"`.
-  This enforces field names at the token-sampling level — Zod validation becomes
-  a formality, not a failure point.**
+  Always pass `responseSchema` alongside `responseMimeType: "application/json"`.**
+- **Gemini's `responseSchema` can JSON-encode nested array items as strings even
+  when the outer structure is correct. Always run `unwrapJsonStrings()` recursively
+  before Zod validation when using Gemini JSON mode. The unwrapper is idempotent.**
 
 ---
 
@@ -393,7 +331,8 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 | AAR 26 | Current Ratio / WC derived from SL_ components | ✅ Complete | — |
 | AAR 27 | GEMINI_API_KEY added to Vercel + provider guard | ✅ Complete | — |
 | AAR 28 | Gemini 3 Flash prompt embeds full JSON schema | ✅ Complete | — |
-| **AAR 29** | **Gemini `responseSchema` in `generationConfig` — API-level schema enforcement** | **✅ Complete** | **—** |
+| AAR 29 | Gemini `responseSchema` in `generationConfig` | ✅ Complete | — |
+| **AAR 30** | **Gemini array items unwrapped from JSON strings — `unwrapJsonStrings()` pre-processor** | **✅ Complete** | **—** |
 | Phase 30 | Deal flow to approval — AI risk, narratives, reconciliation, committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
