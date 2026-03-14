@@ -13,6 +13,7 @@
 
 import "server-only";
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   RiskOutputSchema,
   MemoOutputSchema,
@@ -54,10 +55,16 @@ async function gemini3Structured<T>(args: {
 
   const thinkingLevel = args.thinkingLevel ?? "medium";
 
+  // Generate the JSON schema so Gemini knows exact field names and types.
+  // $refStrategy: "none" inlines all definitions — no $ref wrapping.
+  const jsonSchema = zodToJsonSchema(args.schema as any, { $refStrategy: "none" });
+  const { $schema: _unused, ...cleanSchema } = jsonSchema as any;
+
   const prompt =
     `${args.system}\n\n` +
-    `Return ONLY valid JSON. No markdown. No backticks. No commentary before or after.\n` +
-    `Schema target: ${args.schemaName}\n\n` +
+    `Return ONLY valid JSON matching this EXACT schema. No markdown. No backticks. No commentary.\n` +
+    `Use EXACTLY these field names — do not rename, add, or omit any required field.\n\n` +
+    `REQUIRED JSON SCHEMA:\n${JSON.stringify(cleanSchema, null, 2)}\n\n` +
     `INPUT:\n${JSON.stringify(args.payload, null, 2)}`;
 
   const resp = await fetch(gemini3FlashUrl(apiKey), {
