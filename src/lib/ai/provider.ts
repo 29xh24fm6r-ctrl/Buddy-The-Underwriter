@@ -13,14 +13,14 @@ export type RiskOutput = {
   grade: string; // e.g. "B+"
   baseRateBps: number; // e.g. 450
   riskPremiumBps: number; // e.g. 200
-  pricingExplain: Array<{ label: string; bps: number; evidence?: EvidenceRef[]; rationale: string }>;
+  pricingExplain: Array<{ label: string; bps: number; evidence?: Record<string, unknown>[]; rationale: string }>;
   factors: Array<{
     label: string;
     category: string;
     direction: "positive" | "negative" | "neutral";
     contribution: number;
     confidence: number;
-    evidence: EvidenceRef[];
+    evidence?: Record<string, unknown>[];
     rationale: string;
   }>;
 };
@@ -127,7 +127,7 @@ class StubProvider implements AIProvider {
     const citations = (keys: string[]) =>
       r.factors
         .filter((f) => keys.some((k) => f.label.toLowerCase().includes(k)))
-        .flatMap((f) => f.evidence);
+        .flatMap((f) => f.evidence ?? []) as EvidenceRef[];
 
     return {
       sections: [
@@ -146,7 +146,7 @@ class StubProvider implements AIProvider {
           content:
             `${s.borrowerName ?? "Borrower"} operates in ${s.industry ?? "its industry"} with ${s.yearsInBusiness ?? "multiple"} years of history. ` +
             `Primary revenue drivers and operating profile reviewed; see supporting evidence for cash receipts and aging schedules.`,
-          citations: r.factors.flatMap((f) => f.evidence).slice(0, 2),
+          citations: r.factors.flatMap((f) => f.evidence ?? []).slice(0, 2) as EvidenceRef[],
         },
         {
           sectionKey: "facility",
@@ -162,7 +162,7 @@ class StubProvider implements AIProvider {
           content:
             `Risk grade ${r.grade} reflects (i) positive cashflow coverage, offset by (ii) revenue volatility and customer concentration. ` +
             `Collateral quality provides mitigation and supports advance rates.`,
-          citations: r.factors.flatMap((f) => f.evidence).slice(0, 4),
+          citations: r.factors.flatMap((f) => f.evidence ?? []).slice(0, 4) as EvidenceRef[],
         },
         {
           sectionKey: "pricing",
@@ -170,7 +170,7 @@ class StubProvider implements AIProvider {
           content:
             `Pricing is composed of base rate and incremental risk premium. ` +
             `Key adders include revenue volatility, concentration, and collateral haircut as supported by the attached schedules.`,
-          citations: r.pricingExplain.flatMap((p) => p.evidence ?? []).slice(0, 3),
+          citations: r.pricingExplain.flatMap((p) => p.evidence ?? []).slice(0, 3) as EvidenceRef[],
         },
         {
           sectionKey: "covenants",
@@ -189,7 +189,7 @@ class StubProvider implements AIProvider {
     const factors = input.risk?.factors ?? [];
     const topNeg = factors.filter(f => f.direction === 'negative').slice(0, 2);
     const topPos = factors.filter(f => f.direction === 'positive').slice(0, 2);
-    const citations = [...topNeg.flatMap(f => f.evidence), ...topPos.flatMap(f => f.evidence)].slice(0, 4);
+    const citations = [...topNeg.flatMap(f => f.evidence ?? []), ...topPos.flatMap(f => f.evidence ?? [])].slice(0, 4) as EvidenceRef[];
     const answer =
       q.includes('why') || q.includes('premium') || q.includes('bps')
         ? `The risk premium is driven primarily by ${topNeg.map(f=>f.label).join(' and ') || 'identified risks'}; mitigants include ${topPos.map(f=>f.label).join(' and ') || 'strengths'}. See linked evidence.`

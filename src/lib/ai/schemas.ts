@@ -68,15 +68,15 @@ export const EvidenceRefSchema = z.object({
 });
 
 export const RiskOutputSchema = z.object({
-  grade: z.string(), // e.g. "B+"
+  grade: z.string(),
   baseRateBps: z.number().int().nonnegative(),
   riskPremiumBps: z.number().int().nonnegative(),
   pricingExplain: z.array(
     z.object({
       label: z.string(),
       bps: z.number().int(),
-      evidence: z.array(EvidenceRefSchema).optional(),
       rationale: z.string(),
+      evidence: z.array(z.record(z.string(), z.unknown())).optional().default([]),
     })
   ),
   factors: z.array(
@@ -84,10 +84,10 @@ export const RiskOutputSchema = z.object({
       label: z.string(),
       category: z.string(),
       direction: z.enum(["positive", "negative", "neutral"]),
-      contribution: z.number(), // allow decimals
+      contribution: z.number(),
       confidence: z.number().min(0).max(1),
-      evidence: z.array(EvidenceRefSchema).optional().default([]),
       rationale: z.string(),
+      evidence: z.array(z.record(z.string(), z.unknown())).optional().default([]),
     })
   ),
 });
