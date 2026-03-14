@@ -13,7 +13,6 @@
 
 import "server-only";
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   RiskOutputSchema,
   MemoOutputSchema,
@@ -48,6 +47,7 @@ async function gemini3Structured<T>(args: {
   payload: unknown;
   schema: z.ZodType<T>;
   schemaName: string;
+  structureHint: string;
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
 }): Promise<T> {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -55,14 +55,10 @@ async function gemini3Structured<T>(args: {
 
   const thinkingLevel = args.thinkingLevel ?? "minimal";
 
-  // Generate the JSON schema so Gemini knows exact field names and types.
-  // $refStrategy: "none" inlines all definitions — no $ref wrapping.
-  const jsonSchema = zodToJsonSchema(args.schema as any, { $refStrategy: "none" });
-  const { $schema: _unused, ...cleanSchema } = jsonSchema as any;
-
   const prompt =
     `${args.system}\n\n` +
-    `Return ONLY valid JSON. No markdown. No backticks. No commentary.\n\n` +
+    `Return ONLY a valid JSON object with this exact structure — no extra fields, no markdown, no backticks:\n` +
+    `${args.structureHint}\n\n` +
     `INPUT:\n${JSON.stringify(args.payload, null, 2)}`;
 
   const resp = await fetch(gemini3FlashUrl(apiKey), {
@@ -72,7 +68,6 @@ async function gemini3Structured<T>(args: {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         responseMimeType: "application/json",
-        responseJsonSchema: cleanSchema,
         maxOutputTokens: 8192,
         thinkingConfig: { thinkingLevel },
       },
@@ -85,22 +80,18 @@ async function gemini3Structured<T>(args: {
   }
 
   const json = await resp.json();
-  // Strip thought signature parts — only keep non-thought text parts
   const text: string = json?.candidates?.[0]?.content?.parts
     ?.filter((p: { thought?: boolean }) => !p.thought)
     ?.map((p: { text?: string }) => p.text ?? "")
     ?.join("") ?? "";
 
-  // Parse + validate
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    // Extract first balanced {...} object from text
     const start = text.indexOf("{");
     if (start === -1) throw new Error("gemini3flash_no_json_in_response");
-    let depth = 0;
-    let end = -1;
+    let depth = 0, end = -1;
     for (let i = start; i < text.length; i++) {
       if (text[i] === "{") depth++;
       if (text[i] === "}") depth--;
@@ -110,30 +101,20 @@ async function gemini3Structured<T>(args: {
     parsed = JSON.parse(text.slice(start, end + 1));
   }
 
-  // Gemini responseSchema sometimes JSON-encodes nested array items as strings.
-  // Recursively unwrap any string values that are valid JSON objects/arrays
-  // before Zod validation.
   function unwrapJsonStrings(val: unknown): unknown {
     if (typeof val === "string") {
       const trimmed = val.trim();
       if ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
           (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
-        try {
-          return unwrapJsonStrings(JSON.parse(trimmed));
-        } catch {
-          return val;
-        }
+        try { return unwrapJsonStrings(JSON.parse(trimmed)); } catch { return val; }
       }
       return val;
     }
-    if (Array.isArray(val)) {
-      return val.map(unwrapJsonStrings);
-    }
+    if (Array.isArray(val)) return val.map(unwrapJsonStrings);
     if (val !== null && typeof val === "object") {
       const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+      for (const [k, v] of Object.entries(val as Record<string, unknown>))
         out[k] = unwrapJsonStrings(v);
-      }
       return out;
     }
     return val;
@@ -155,6 +136,24 @@ export class Gemini3FlashProvider implements AIProvider {
       schemaName: "RiskOutput",
       schema: RiskOutputSchema,
       thinkingLevel: "minimal",
+      structureHint: `{
+  "grade": "string (bond-style, e.g. B+, BB-, A)",
+  "baseRateBps": integer,
+  "riskPremiumBps": integer,
+  "pricingExplain": [
+    { "label": "string", "bps": integer, "rationale": "string" }
+  ],
+  "factors": [
+    {
+      "label": "string",
+      "category": "string",
+      "direction": "positive" or "negative" or "neutral",
+      "contribution": number,
+      "confidence": number between 0 and 1,
+      "rationale": "string"
+    }
+  ]
+}`,
       system: [
         "You are Buddy, an underwriting copilot that produces explainable risk and pricing.",
         "Return ONLY valid JSON that matches the RiskOutput schema.",
@@ -180,6 +179,16 @@ export class Gemini3FlashProvider implements AIProvider {
       schemaName: "MemoOutput",
       schema: MemoOutputSchema,
       thinkingLevel: "minimal",
+      structureHint: `{
+  "sections": [
+    {
+      "sectionKey": "string",
+      "title": "string",
+      "content": "string",
+      "citations": []
+    }
+  ]
+}`,
       system: [
         "You are Buddy, generating a credit memo from deal facts and an explainable risk run.",
         "Return ONLY valid JSON that matches the MemoOutput schema.",
