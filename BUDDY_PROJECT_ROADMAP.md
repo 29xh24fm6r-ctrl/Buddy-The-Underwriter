@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 30 active — deal flow to approval | AAR 31 patch complete**
+**Status: Phase 30 active — deal flow to approval | AAR 32 complete**
 
 ---
 
@@ -92,48 +92,46 @@ Documents (tax returns, financials, statements)
 ### AAR 28 ✅ — Gemini prompt embeds full JSON schema via zodToJsonSchema
 ### AAR 29 ✅ — Gemini `responseSchema` in `generationConfig` — API-level enforcement
 ### AAR 30 ✅ — Gemini array items unwrapped from JSON strings — `unwrapJsonStrings()` pre-processor
+### AAR 31 ✅ — `thinkingConfig` omitted entirely when "none"; `"none"` is not a valid Gemini enum
 
-### AAR 31 — thinkingLevel "none" + omit thinkingConfig entirely ✅ COMPLETE
+### AAR 32 — `factors[].evidence` made optional to unblock Gemini serialization ✅ COMPLETE
 
-**Root cause (AAR 31 original):** After AAR 30, still getting `"expected string,
-received undefined"` at `grade`, `pricingExplain[0].label`, `factors[0].category`
-etc. `thinkingLevel: "medium"` causes Gemini to reason independently about output
-structure, overriding `responseSchema` enforcement on deeply nested fields.
+**Root cause:** After AAR 31 (thinkingConfig omitted, 400 error resolved), still
+getting `"expected object, received string"` at `factors[0]`. With thinking
+disabled, Gemini's `responseSchema` enforcement correctly handles most fields,
+but serializes entire `factors` array items as JSON strings when the item
+contains a required complex nested array (`evidence: z.array(EvidenceRefSchema)`).
 
-**Fix (AAR 31 original):** Changed default `thinkingLevel` to `"none"` and both
-`generateRisk` and `generateMemo` explicitly pass `thinkingLevel: "none"`.
+The divergence between `factors` and `pricingExplain` was the clue: `pricingExplain`
+items have `evidence: z.array(EvidenceRefSchema).optional()` and work fine.
+`factors` items have `evidence: z.array(EvidenceRefSchema)` — required — and fail.
+`EvidenceRefSchema` includes optional `bbox` (object with 4 floats), `spanIds`
+(string array), `excerpt` (string) — complex enough that without thinking mode,
+Gemini serializes the whole parent object as a string rather than failing
+individual fields.
 
-**Root cause (AAR 31 patch):** `"none"` is not a valid Gemini API enum value for
-`thinkingConfig.thinkingLevel`. The API returned `400 INVALID_ARGUMENT:
-"Invalid value at 'generation_config.thinking_config.thinking_level'
-(type.googleapis.com/google.ai.generativelanguage.v1beta.ThinkingConfig.ThinkingLevel),
-\"none\""`. Valid values are `"minimal"`, `"low"`, `"medium"`, `"high"` only.
+**Fix — `src/lib/ai/schemas.ts`:**
 
-**Fix (AAR 31 patch) — `src/lib/ai/gemini3FlashProvider.ts`:**
-
-`thinkingConfig` is now conditionally omitted entirely when `thinkingLevel` is
-`"none"`, which is the correct Gemini API pattern for disabling thinking:
+Changed `factors[].evidence` from required to optional with default:
 ```typescript
-generationConfig: {
-  responseMimeType: "application/json",
-  responseSchema: cleanSchema,
-  maxOutputTokens: 8192,
-  ...(thinkingLevel !== "none" ? { thinkingConfig: { thinkingLevel } } : {}),
-},
+// Before:
+evidence: z.array(EvidenceRefSchema),
+
+// After:
+evidence: z.array(EvidenceRefSchema).optional().default([]),
 ```
 
-**Build principle:** To disable Gemini thinking, omit `thinkingConfig` entirely
-from `generationConfig`. Do NOT pass `thinkingLevel: "none"` — `"none"` is not
-a valid enum value and causes a 400 INVALID_ARGUMENT error. The valid levels are
-`"minimal"`, `"low"`, `"medium"`, `"high"`. For schema-constrained JSON
-generation, omit `thinkingConfig` entirely (equivalent to no-thinking mode) to
-ensure `responseSchema` is reliably enforced at all nesting depths.
+**Why this is safe:** Downstream `generateMemo` already uses `f.evidence ?? []`
+for all factor evidence access — the optional change has no runtime impact.
+`pricingExplain[].evidence` was already optional for the same reason.
 
-**Full Gemini 3 Flash structured output defense stack (all four layers now in place):**
-1. `responseSchema` in `generationConfig` — enforces field names at token-sampling level
-2. Full JSON schema embedded in prompt via `zodToJsonSchema` — advisory backup
-3. `unwrapJsonStrings()` recursive pre-processor — unwraps JSON-stringified nested items
-4. `thinkingConfig` omitted entirely — prevents thinking-mode reasoning from overriding schema enforcement
+**Build principle:** For Gemini structured output with `thinkingConfig` omitted,
+required complex nested arrays (especially those containing optional sub-objects
+with many fields like `EvidenceRefSchema`) can cause Gemini to serialize the
+entire parent object as a JSON string. Mark deeply nested array fields as
+`.optional().default([])` to allow Gemini to omit them rather than failing
+on the whole object. Evidence arrays should always be optional in AI output
+schemas — evidence is best-effort, not required.
 
 ---
 
@@ -142,7 +140,7 @@ ensure `responseSchema` is reliably enforced at all nesting depths.
 **Deal ffcc9733** — Samaritus Management LLC (primary active)
 9/9 docs extracted. Revenue: $798K → $1.2M → $1.5M → $1.4M.
 EBITDA: $326K → $475K → $557K → $368K. ADS=$67,368. DSCR=5.47x.
-AI Assessment should now succeed — `thinkingConfig` omitted entirely.
+AI Assessment should now succeed — `factors[].evidence` is optional.
 
 **Deal 07541fce** — "CLAUDE FIX 21" / Samaritus Management LLC
 Primary regression test deal. Run 21. 9/9 docs extracted.
@@ -153,7 +151,7 @@ Primary regression test deal. Run 21. 9/9 docs extracted.
 
 ### P1 — Immediate: Complete deal ffcc9733 approval flow
 
-1. **Risk tab → "Run AI Assessment"** — AAR 31 patch deployed. Should now succeed.
+1. **Risk tab → "Run AI Assessment"** — AAR 32 fix. Should now succeed.
 2. **Credit Memo → "Generate Narratives"** — Writes to `canonical_memo_narratives`.
 3. **Classic Spreads → "Regenerate"** — Picks up all Phase 29/30 fixes.
 4. **Reconciliation** — `recon_status` NULL. Blocks Committee "Reconciliation Complete".
@@ -219,10 +217,11 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 38. ✅ Gemini 3 Flash prompt embeds full JSON schema (AAR 28)
 39. ✅ Gemini `responseSchema` in `generationConfig` — API-level enforcement (AAR 29)
 40. ✅ Gemini array items unwrapped from JSON strings — `unwrapJsonStrings()` (AAR 30)
-41. ✅ `thinkingLevel: "none"` default set; `thinkingConfig` omitted entirely when "none" (AAR 31 + patch)
-42. 🔴 Deal `ffcc9733` through full approval flow — AI risk run, narratives, reconciliation, committee
-43. 🔴 Spread completeness ≥80%
-44. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+41. ✅ `thinkingConfig` omitted entirely when "none"; "none" not a valid enum (AAR 31)
+42. ✅ **`factors[].evidence` made optional — matches `pricingExplain` pattern (AAR 32)**
+43. 🔴 Deal `ffcc9733` through full approval flow — AI risk run, narratives, reconciliation, committee
+44. 🔴 Spread completeness ≥80%
+45. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -268,8 +267,12 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
   before Zod validation. The unwrapper is idempotent.**
 - **To disable Gemini thinking, omit `thinkingConfig` entirely from `generationConfig`.
   Do NOT pass `thinkingLevel: "none"` — `"none"` is not a valid enum value and
-  causes 400 INVALID_ARGUMENT. Valid levels: `"minimal"`, `"low"`, `"medium"`,
-  `"high"`. For schema-constrained JSON generation, omit `thinkingConfig` entirely.**
+  causes 400 INVALID_ARGUMENT. Valid levels: `"minimal"`, `"low"`, `"medium"`, `"high"`.**
+- **For Gemini structured output with `thinkingConfig` omitted, required complex
+  nested arrays (e.g. `EvidenceRefSchema` with optional sub-objects) can cause
+  Gemini to serialize the entire parent object as a string. Mark deeply nested
+  array fields as `.optional().default([])`. Evidence arrays should always be
+  optional in AI output schemas — evidence is best-effort, not required.**
 
 ---
 
@@ -288,14 +291,9 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 | AAR 23 | `document_extracts` persistence fix | ✅ Complete | — |
 | Phase 29 | Intelligence tab 4-fix batch | ✅ Complete | — |
 | Orchestrator Cutover | ORCHESTRATOR_USE_GEMINI3_FLASH=true | ✅ Complete | Vercel env var |
-| AAR 24 | OpenAI zodToJsonSchema $ref wrapping | ✅ Complete | — |
-| AAR 25 | Global CF hasMaterializedPI > 1000 guard | ✅ Complete | — |
-| AAR 26 | Current Ratio / WC derived from SL_ components | ✅ Complete | — |
-| AAR 27 | GEMINI_API_KEY added to Vercel + provider guard | ✅ Complete | — |
-| AAR 28 | Gemini 3 Flash prompt embeds full JSON schema | ✅ Complete | — |
-| AAR 29 | Gemini `responseSchema` in `generationConfig` | ✅ Complete | — |
-| AAR 30 | Gemini array items JSON-string unwrapper | ✅ Complete | — |
-| AAR 31 | thinkingLevel "none" default; thinkingConfig omitted entirely when "none" | ✅ Complete | — |
+| AAR 24–30 | Gemini schema enforcement chain | ✅ Complete | — |
+| AAR 31 | thinkingConfig omitted entirely when "none" | ✅ Complete | — |
+| **AAR 32** | **`factors[].evidence` optional — complex nested arrays must be optional for Gemini** | **✅ Complete** | **—** |
 | Phase 30 | Deal flow to approval — AI risk, narratives, reconciliation, committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
