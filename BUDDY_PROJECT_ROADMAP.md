@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Gemini 3 Flash Orchestrator Cutover Complete + AAR 24 | Phase 30 active — deal flow to approval**
+**Status: Phase 30 active — deal flow to approval | AAR 25/26/27 complete**
 
 ---
 
@@ -91,15 +91,6 @@ Deposit Profile + Treasury Proposals surfaced automatically
 
 AI explains. Rules decide. Humans retain final credit authority.
 
-### Six Kernel Primitives
-
-1. **Entity** — what exists
-2. **State** — what Omega believes is true (with confidence score)
-3. **Event** — immutable record of what happened (append-only ledger)
-4. **Constraint** — governing rules
-5. **Confidence** — certainty levels that gate autonomous action
-6. **Trace** — decision explanations (full audit trail)
-
 ---
 
 ## The Proof-of-Correctness System — All Gates Live
@@ -110,9 +101,6 @@ AI explains. Rules decide. Humans retain final credit authority.
 **Gate 4 — Confidence Threshold** ✅ Phase 4
 **Cross-Document Reconciliation** ✅ Phase 7
 **Regression Protection (Golden Corpus)** ✅ Phase 8
-
-**When all gates pass:** `AUTO-VERIFIED`. No queue. No wait.
-**Target: 95%+ of clean tax returns AUTO-VERIFIED with zero human touch.**
 
 ---
 
@@ -155,80 +143,98 @@ AI explains. Rules decide. Humans retain final credit authority.
 ### AAR 21 — Classic Spreads tab + PDF button fix ✅ commit 6e449800
 ### AAR 22 — Async Document Extraction Decoupling ✅ PR #231
 ### AAR 22b — Parallel Extraction Fan-out ✅ PR #232
-
 ### Phase 25 — Orchestrator Reasoning Model ✅ COMPLETE — PR #233
-
-**Model chosen:** `gemini-3-flash-preview` — Pro-level reasoning at Flash speed/pricing.
-$0.50/1M input, $3/1M output. Configurable thinking levels (minimal/low/medium/high).
-
 ### Phase 26 — ai-risk Route + Run AI Assessment Button ✅ COMPLETE — commit bbee0903
-
 ### Phase 27 — Personal Income PDF Page (Classic Spread) ✅ COMPLETE — commit 712961c5
-
 ### Phase 28 — Re-extraction Dedup Bypass + Gemini Primary Activation ✅ COMPLETE
-
 ### AAR 23 — `document_extracts` not persisted in normal extraction path ✅ COMPLETE
-
-**Root cause:** `extractByDocType.ts` normal path (Gemini OCR + structured assist)
-returned the result but **never wrote to `document_extracts`**. `loadStructuredJson(docId)`
-reads from `document_extracts` — always returned null for non-dedup docs. Deterministic
-extractors fell back to `document_ocr_results` (legacy OCR, 936–26,699 chars) — insufficient.
-
-**Fix:** Added `document_extracts` upsert at end of main `try` block in
-`src/lib/extract/router/extractByDocType.ts`. Non-fatal try/catch. Confirmed working:
-9/9 docs SUCCEEDED on deals `4371108e`, `ffcc9733`. json_size values 4,779–60,089 bytes.
-
 ### Phase 29 — Intelligence Tab 4-Fix Batch ✅ COMPLETE
-
-Four issues diagnosed and fixed on deal `ffcc9733` after AAR 23 confirmed extraction working.
-
-- **Fix 1:** `TOTAL_OPERATING_EXPENSES` / `OPERATING_INCOME` derived for BTR-only years in `spread-output/route.ts`
-- **Fix 2:** DSCR Triangle ADS fallback from `deal_structural_pricing` in `spread-intelligence/route.ts`
-- **Fix 3:** Global CF personal income fallback computes from raw `PERSONAL_INCOME` facts in `classicSpreadLoader.ts`
-- **Fix 4:** Spread completeness IS_REQUIRED label mismatches fixed — 6 real rows, 0 phantom entries in `spreadCompletenessScore.ts`
-
 ### Gemini 3 Flash Orchestrator Cutover ✅ COMPLETE
-
-**Gate bypass rationale:** OpenAI's structured outputs API was rejecting all
-`generateRisk()` calls with `400 Invalid schema for response_format 'RiskOutput':
-schema must be a JSON Schema of type: 'object', got type: 'None'`. The shadow gate
-could never accumulate rows with a broken primary — a deadlock. With 0 successful
-runs, the 20-row / 95% agree gate had zero statistical validity. Same rationale
-as Phase 24 classifier cutover — skipped gate, cut over directly.
-
-**What changed:** `ORCHESTRATOR_USE_GEMINI3_FLASH=true` set in Vercel production.
-`getAIProvider()` now routes `generateRisk()` and `generateMemo()` to
-`Gemini3FlashProvider` in all environments. `chatAboutDeal` remains on OpenAI
-until separately evaluated (P3).
-
-**Result:** "Run AI Assessment" now calls Gemini 3 Flash instead of OpenAI.
-Shadow log is no longer needed for cutover — it remains as a comparison tool.
-
 ### AAR 24 — OpenAI `zodToJsonSchema` Schema Wrapping Bug ✅ COMPLETE
 
-**Root cause:** `zodToJsonSchema(schema, name)` in `openaiProvider.ts` — passing
-a string `name` argument causes the library to return a `$ref`-wrapped document:
-```json
-{ "$ref": "#/definitions/RiskOutput", "definitions": { ... } }
-```
-The top-level object has no `type` field — just a `$ref`. OpenAI structured outputs
-reads `type` at the root, finds `undefined`, and reports `400: got type: 'None'`.
+---
 
-**Fix — `src/lib/ai/openaiProvider.ts` — `jsonSchemaFor()` function:**
+## Phase 30 — Deal Flow to Approval (Active)
+
+### AAR 25 — Global CF at 0% — hasMaterializedPI false positive ✅ COMPLETE
+
+**Root cause:** `buildGlobalCashFlowSection` in `classicSpreadLoader.ts` checks
+`hasMaterializedPI` before running the personal income fallback. It found
+`TOTAL_PERSONAL_INCOME` for 2022 with `owner_type = "PERSONAL"` and value = 3 —
+a Phase 17 bootstrap placeholder row. Guard returned `true`, fallback never ran.
+Sponsors array was populated with $3 personal income. Real `ADJUSTED_GROSS_INCOME`
+facts for 2023 ($-53,464) and 2024 ($104,776) with `fact_type = "PERSONAL_INCOME"`
+existed but were never reached.
+
+**Fix — `src/lib/classicSpread/classicSpreadLoader.ts`:**
 ```typescript
-function jsonSchemaFor(_name: string, schema: any) {
-  // $refStrategy: "none" inlines all definitions — avoids $ref wrapping
-  // that causes OpenAI structured outputs to see type: undefined
-  const js = zodToJsonSchema(schema, { $refStrategy: "none" });
-  // Strip $schema metadata URL — OpenAI strict mode rejects it
-  const { $schema: _unused, ...clean } = js as any;
-  return clean;
-}
+// Require fact_value_num > 1000 to exclude Phase 17 bootstrap placeholders (e.g. value of 3)
+const hasMaterializedPI = facts.some(
+  (f) =>
+    f.fact_key === "TOTAL_PERSONAL_INCOME" &&
+    f.owner_type === "PERSONAL" &&
+    (f.fact_value_num ?? 0) > 1000,
+);
 ```
 
-**Impact:** `chatAboutDeal` (the remaining OpenAI call) now works correctly.
-The cutover to Gemini made this non-blocking for `generateRisk()`, but the fix
-ensures `openaiProvider.ts` is correct for all future OpenAI usage. tsc clean.
+**Build principle added:** Bootstrap placeholder facts (value ≤ 1000 for income
+fields) must never be treated as real materialized data. Always validate that
+computed aggregate facts have meaningful values before treating them as present.
+
+### AAR 26 — Current Ratio / Working Capital blank in Intelligence tab ✅ COMPLETE
+
+**Root cause:** `spread-output/route.ts` `loadCanonicalFacts` reads bare
+`CURRENT_ASSETS_{year}` and `CURRENT_LIABILITIES_{year}` keys. These never exist
+as direct facts in `deal_financial_facts` — they must be derived from `SL_`
+balance sheet components (`SL_CASH`, `SL_AR_GROSS`, `SL_ACCOUNTS_PAYABLE`, etc.).
+`classicSpreadLoader` already derives them correctly but `spread-output` route
+had no equivalent derivation, so Intelligence tab always showed `—`.
+
+**Fix — `src/app/api/deals/[dealId]/spread-output/route.ts`:**
+Added two derivation blocks in `loadCanonicalFacts` (after Phase 29 derivations,
+before `return canonicalFacts`):
+- `CURRENT_ASSETS_{year}` — derived from `SL_TOTAL_CURRENT_ASSETS` (direct) or
+  sum of `SL_CASH + net AR + SL_INVENTORY + SL_US_GOV_OBLIGATIONS + SL_TAX_EXEMPT_SECURITIES + SL_OTHER_CURRENT_ASSETS`
+- `CURRENT_LIABILITIES_{year}` — derived from `SL_TOTAL_CURRENT_LIABILITIES` (direct)
+  or sum of `SL_ACCOUNTS_PAYABLE + SL_WAGES_PAYABLE + SL_SHORT_TERM_DEBT + SL_OPERATING_CURRENT_LIABILITIES`
+
+**Expected result:** Current Ratio shows (SL_CASH / SL_ACCOUNTS_PAYABLE basis),
+Working Capital shows positive value. Both visible in Intelligence tab Liquidity section.
+
+**Build principle added:** `CURRENT_ASSETS` and `CURRENT_LIABILITIES` are never
+stored as direct facts — they must always be derived from `SL_` components in
+any route that needs them for ratio computation.
+
+### AAR 27 — GEMINI_API_KEY missing from Vercel — silent fallback to OpenAI ✅ COMPLETE
+
+**Root cause:** `getAIProvider()` in `provider.ts` gated the Gemini 3 Flash
+cutover on both `ORCHESTRATOR_USE_GEMINI3_FLASH=true` AND `hasGemini = !!process.env.GEMINI_API_KEY`.
+`GEMINI_API_KEY` was not in Vercel env vars (extraction uses Vertex AI with GCP
+service account credentials — a different auth system). With `hasGemini = false`,
+`hasCutover && hasGemini` was `false` and `getAIProvider()` silently fell through
+to `return new OpenAIProvider()`. The cutover flag appeared set but was never active.
+
+Note: the Gemini extraction pipeline uses `@google-cloud/vertexai` with
+`GOOGLE_CLOUD_PROJECT` + GCP ADC credentials — NOT `GEMINI_API_KEY`.
+`gemini3FlashProvider.ts` calls the Gemini Developer API (`generativelanguage.googleapis.com`)
+which uses a simple API key. These are two separate Google auth systems.
+
+**Fix 1 — `provider.ts`:** Guard now throws loudly if `ORCHESTRATOR_USE_GEMINI3_FLASH=true`
+but `GEMINI_API_KEY` is missing, instead of silently falling back to OpenAI.
+
+**Fix 2 — `openaiProvider.ts`:** Added `enforceAdditionalProperties()` recursive
+post-processor — stamps `additionalProperties: false` and fills `required[]` on
+every object node in the schema, satisfying OpenAI strict mode for `chatAboutDeal`.
+
+**Resolution:** `GEMINI_API_KEY` added to Vercel env vars (generated from
+Google AI Studio). Fresh deploy completed. `getAIProvider()` now correctly routes
+`generateRisk()` and `generateMemo()` to Gemini 3 Flash.
+
+**Build principle added:** The Gemini extraction stack (Vertex AI, GCP ADC) and
+the Gemini 3 Flash orchestrator (Developer API, `GEMINI_API_KEY`) are separate
+Google auth systems. Both must be present in Vercel env vars for their respective
+workloads to function. `ORCHESTRATOR_USE_GEMINI3_FLASH=true` without
+`GEMINI_API_KEY` silently falls back to OpenAI — always guard for this.
 
 ---
 
@@ -237,6 +243,9 @@ ensures `openaiProvider.ts` is correct for all future OpenAI usage. tsc clean.
 **Deal ffcc9733** — Samaritus Management LLC (primary active)
 9/9 docs extracted. Revenue: $798K → $1.2M → $1.5M → $1.4M.
 EBITDA: $326K → $475K → $557K → $368K. ADS=$67,368. DSCR=5.47x.
+Overall spread completeness: 66% D (up from 48% F after Phase 29).
+Next: Run AI Assessment (Gemini 3 Flash now active), Generate Narratives,
+trigger reconciliation to unlock Committee Approve signal.
 
 **Deal 07541fce** — "CLAUDE FIX 21" / Samaritus Management LLC
 Primary regression test deal. Run 21. 9/9 docs extracted.
@@ -246,48 +255,30 @@ EBITDA: 2022=325,912 / 2023=475,246 / 2024=556,866 / 2025=368,499
 
 ## Known Gaps — Priority Order
 
-### P1 — Immediate: Deal Flow to Approval (ffcc9733)
+### P1 — Immediate: Complete deal ffcc9733 approval flow
 
-To get deal `ffcc9733` to "prepared for approval" in one session:
-
-1. **Risk tab → "Run AI Assessment"** — Now routes to Gemini 3 Flash. Populates
-   `ai_risk_runs` with grade, factors, pricing rationale. Committee tab DSCR check
-   unlocks once this runs.
-
-2. **Credit Memo → "Generate Narratives"** — Calls Gemini narrative engine, writes
-   to `canonical_memo_narratives`. Memo renders with AI-authored executive summary,
-   income analysis, borrower background, and guarantor strength.
-
-3. **Classic Spreads → "Regenerate"** — Picks up Phase 29 fixes and fresh extraction.
-
-4. **Reconciliation** — `recon_status` is NULL for ffcc9733. Cross-document
-   reconciliation hasn't run. Blocks Committee "Reconciliation Complete" check.
-   May need manual trigger via Underwrite tab or re-extract cycle to fire.
-
-5. **Audit certificates** — 0 certs. Generated by proof-of-correctness engine
-   (Phase 4) as part of `postExtractionValidator`. Check after next re-extract.
+1. **Risk tab → "Run AI Assessment"** — Gemini 3 Flash now active. Should succeed.
+2. **Credit Memo → "Generate Narratives"** — Gemini narrative engine. Writes to `canonical_memo_narratives`.
+3. **Classic Spreads → "Regenerate"** — picks up all Phase 29/30 fixes.
+4. **Reconciliation** — `recon_status` NULL. Cross-document reconciliation hasn't run.
+   Blocks Committee "Reconciliation Complete" check.
+5. **Audit certificates** — 0 certs. Check after next re-extract cycle.
 
 **Committee "Approve" signal requires:** DSCR ≥ 1.25x ✅, 0 critical flags ✅,
 Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial data ✅, Pricing ✅.
 
 ### P2 — Near Term
 
-2. **Model Engine V2 activation** — USE_MODEL_ENGINE_V2 feature flag disabled.
-   DB tables (metric_definitions, model_snapshots) empty. Pulse telemetry events
-   not forwarding. Voice constraints not injected into OpenAI realtime sessions.
-
-3. **Observability pipeline wiring** — Missing env vars: PULSE_TELEMETRY_ENABLED,
-   PULSE_BUDDY_INGEST_URL, PULSE_BUDDY_INGEST_SECRET, CRON_SECRET.
-
-4. **Corpus expansion** — Currently 2 Samaritus docs. Need 10+ across industries.
-   Add Form 1120, Form 1065, first multi-entity deal with K-1s.
+2. **Model Engine V2 activation** — feature flag disabled, DB tables empty, Pulse telemetry not forwarding.
+3. **Observability pipeline** — missing env vars: PULSE_TELEMETRY_ENABLED, PULSE_BUDDY_INGEST_URL, PULSE_BUDDY_INGEST_SECRET, CRON_SECRET.
+4. **Corpus expansion** — 2 Samaritus docs. Need 10+ across industries.
 
 ### P3 — Future
 
-5. **chatAboutDeal Gemini migration** — complete the AI provider migration.
-6. **Crypto lending module** — trigger-price-indexed margin call monitoring.
+5. **chatAboutDeal Gemini migration**
+6. **Crypto lending module**
 7. **Treasury product auto-proposal engine**
-8. **RMA peer/industry comparison** — industry benchmark ratios on the spread.
+8. **RMA peer/industry comparison**
 
 ---
 
@@ -297,9 +288,9 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 |-------|------------|
 | Frontend | Next.js, Tailwind, Vercel |
 | Database | Supabase (PostgreSQL) |
-| AI — Primary | Gemini 2.0 Flash (extraction, narrative, credit memo, aiJson, classifier) |
+| AI — Extraction | Gemini 2.0 Flash via Vertex AI (GOOGLE_CLOUD_PROJECT + GCP ADC) |
 | AI — Voice | gpt-4o-realtime-preview (intentionally retained on OpenAI) |
-| AI — Reasoning | Gemini 3 Flash (risk + memo orchestrator — cutover complete) |
+| AI — Reasoning | Gemini 3 Flash via Developer API (GEMINI_API_KEY) — risk + memo cutover complete |
 | Integration | MCP (Model Context Protocol) |
 | Event Ledger | Supabase `deal_events` (append-only) |
 | PDF Generation | PDFKit (portrait 8.5×11, serverExternalPackages) |
@@ -311,16 +302,15 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 
 ## AI Provider Inventory
 
-| Workload | Model | Status |
-|----------|-------|--------|
-| Document extraction | Gemini 2.0 Flash | ✅ Active |
-| Classic Spread narrative | Gemini 2.0 Flash | ✅ |
-| Credit memo generation | Gemini 2.0 Flash | ✅ |
-| General aiJson() wrapper | Gemini 2.0 Flash | ✅ |
-| Document classification | Gemini 2.0 Flash | ✅ Active (Phase 24) |
-| Voice interview sessions | gpt-4o-realtime-preview | ✅ Retained on OpenAI intentionally |
-| Risk + Memo orchestrator | Gemini 3 Flash | ✅ **Cutover complete** — `ORCHESTRATOR_USE_GEMINI3_FLASH=true` |
-| chatAboutDeal | OpenAI (gpt-4o-2024-08-06) | 🔴 Evaluated separately — Gemini migration queued (P3) |
+| Workload | Model | Auth | Status |
+|----------|-------|------|--------|
+| Document extraction | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active |
+| Classic Spread narrative | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ |
+| Credit memo generation | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ |
+| Document classification | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active (Phase 24) |
+| Voice interview sessions | gpt-4o-realtime-preview | OpenAI API key | ✅ Retained on OpenAI |
+| Risk + Memo orchestrator | Gemini 3 Flash | GEMINI_API_KEY (Dev API) | ✅ **Cutover complete** |
+| chatAboutDeal | OpenAI gpt-4o-2024-08-06 | OpenAI API key | 🔴 Gemini migration queued (P3) |
 
 ---
 
@@ -345,25 +335,27 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 17. ✅ AI narrative engine (optional, graceful fallback)
 18. ✅ Personal tax return extraction with IRS identity validation (Phase 16)
 19. ✅ Classic Spreads as first-class tab on every deal (AAR 21)
-20. ✅ Intelligence tab fully populated — all 12 metric cells, DSCR Triangle, Buddy's Assessment (AAR 20)
+20. ✅ Intelligence tab fully populated — all 12 metric cells, DSCR Triangle (AAR 20)
 21. ✅ New deal intake completes in <60s — no soft deadline timeouts (AAR 22)
-22. ✅ Extraction fan-out — 9 docs complete in ~60-120s, not ~9 min (AAR 22b)
+22. ✅ Extraction fan-out — 9 docs complete in ~60-120s (AAR 22b)
 23. ✅ Gemini 3 Flash orchestrator shadow mode active (Phase 25)
-24. ✅ generateRisk() wired to live route + UI — shadow log accumulating (Phase 26)
-25. ✅ Personal Income PDF page in Classic Spread — guarantor Form 1040 visible to banker (Phase 27)
-26. ✅ Re-extraction dedup bypass — "Re-extract All" forces fresh Gemini OCR (Phase 28)
-27. ✅ GEMINI_PRIMARY_EXTRACTION_ENABLED — v2 BTR prompts active in production (Phase 28)
-28. ✅ `document_extracts` persisted for every extraction — `loadStructuredJson()` returns Gemini structured JSON (AAR 23)
-29. ✅ DSCR Triangle populated from `deal_structural_pricing` ADS fallback (Phase 29)
+24. ✅ generateRisk() wired to live route + UI (Phase 26)
+25. ✅ Personal Income PDF page in Classic Spread (Phase 27)
+26. ✅ Re-extraction dedup bypass (Phase 28)
+27. ✅ GEMINI_PRIMARY_EXTRACTION_ENABLED — v2 BTR prompts active (Phase 28)
+28. ✅ `document_extracts` persisted for every extraction (AAR 23)
+29. ✅ DSCR Triangle ADS fallback (Phase 29)
 30. ✅ TOTAL_OPERATING_EXPENSES + OPERATING_INCOME derived for BTR-only years (Phase 29)
-31. ✅ Global CF fallback computes personal income from raw PERSONAL_INCOME facts (Phase 29)
-32. ✅ Spread completeness checker label mismatches fixed — 6 real IS rows, 0 phantom entries (Phase 29)
-33. ✅ **Gemini 3 Flash orchestrator cutover — ORCHESTRATOR_USE_GEMINI3_FLASH=true in production**
-34. ✅ **OpenAI zodToJsonSchema schema wrapping fixed — root schema always has type: "object" (AAR 24)**
-35. 🔴 Deal `ffcc9733` through full approval flow — AI risk, narratives, reconciliation, committee
-36. 🔴 Spread completeness ≥80% — IS/BS gaps filled via Phase 28 + AAR 23 re-extraction
-37. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
-    (this one is never fully done — it's the ongoing standard)
+31. ✅ Global CF personal income fallback (Phase 29)
+32. ✅ Spread completeness IS label mismatches fixed (Phase 29)
+33. ✅ Gemini 3 Flash orchestrator cutover — ORCHESTRATOR_USE_GEMINI3_FLASH=true
+34. ✅ OpenAI zodToJsonSchema schema wrapping fixed (AAR 24)
+35. ✅ **Global CF hasMaterializedPI guard — > 1000 threshold filters Phase 17 placeholders (AAR 25)**
+36. ✅ **Current Ratio / Working Capital derived from SL_ components in spread-output route (AAR 26)**
+37. ✅ **GEMINI_API_KEY added to Vercel — Gemini 3 Flash orchestrator fully active (AAR 27)**
+38. 🔴 Deal `ffcc9733` through full approval flow — AI risk run, narratives, reconciliation, committee
+39. 🔴 Spread completeness ≥80%
+40. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -382,38 +374,30 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 - Key names are contracts. IS suffix (_IS) vs bare names must be consistent
   across extraction and loader layers. Use getValsFallback() for both variants.
 - Route response shapes must match client consumption types exactly.
-  TypeScript won't catch shape mismatches when routes cast as `any`.
-- reextract-all bypasses gatekeeper entirely — shadow never fires from re-extractions.
-- Gemini extraction is duration-unpredictable (30–120s per doc). Never await it
-  inline inside a time-bounded orchestration window. Always queue as outbox events.
-- Extraction fan-out: after queuing async outbox events, immediately fire
-  `min(N, MAX_CONCURRENT_EXTRACTIONS)` parallel self-invocations. `FOR UPDATE
-  SKIP LOCKED` guarantees no collision. Cron is safety net only.
-- Shadow mode for model migrations: implement new provider behind `AIProvider`
-  interface, gate with `ORCHESTRATOR_SHADOW_ENABLED=true`, log key-field
-  agreement to `orchestrator_shadow_log`. Flip cutover flag only after ≥20 rows
-  at ≥95% agree with zero shadow errors. **Exception: if the primary is broken
-  and the gate cannot fill, bypass it directly — same rationale as Phase 24.**
+- reextract-all bypasses gatekeeper entirely — shadow never fires.
+- Gemini extraction is duration-unpredictable. Always queue as outbox events.
+- Shadow mode for model migrations: gate with shadow flag, flip cutover after
+  ≥20 rows at ≥95% agree. **Exception: if primary is broken and gate cannot
+  fill, bypass it directly — same rationale as Phase 24.**
 - Gemini 3 Flash uses `thinkingConfig.thinkingLevel` — omit `temperature` entirely.
-  Strip thought-signature parts from response before JSON parsing.
-- Composite provider pattern: Gemini handles risk+memo, OpenAI retained for
-  chatAboutDeal until separately evaluated.
-- **`zodToJsonSchema(schema, name)` with a string name produces a `$ref`-wrapped
-  document — root has no `type` field. OpenAI structured outputs rejects this with
-  `type: 'None'`. Always call `zodToJsonSchema(schema, { $refStrategy: "none" })`
-  and strip the `$schema` metadata key before passing to OpenAI.**
+- **`zodToJsonSchema(schema, name)` with string name = `$ref`-wrapped document.
+  Always use `{ $refStrategy: "none" }` + strip `$schema` key for OpenAI.**
+- **OpenAI strict mode requires `additionalProperties: false` recursively on all
+  object nodes. Use `enforceAdditionalProperties()` post-processor before passing
+  any schema to OpenAI structured outputs.**
 - **`document_extracts` persistence is required for fact extraction to work.**
-  `extractByDocType` must write `fields_json` (including `structuredJson`) to
-  `document_extracts` for every extraction path. If null, deterministic extractors
-  fall back to legacy `document_ocr_results` — silent zero-facts failure.
 - **Completeness checker label strings must exactly match `classicSpreadLoader` row labels.**
-  Phantom IS_REQUIRED entries always score as missing. Audit labels when renaming rows.
 - **DSCR triangle reads from `deal_structural_pricing`, not `deal_financial_facts`.**
-  ADS is never written to facts. Always fall back to `annual_debt_service_est`.
 - **BTR-only years need TOTAL_OPERATING_EXPENSES and OPERATING_INCOME derived.**
-  `TOTAL_DEDUCTIONS` = total opex; `GROSS_PROFIT - OBI` as fallback.
-- **Global CF personal income fallback:** When `TOTAL_PERSONAL_INCOME` absent,
-  compute from raw `PERSONAL_INCOME` facts: `AGI + depreciation add-backs + QBI`.
+- **Global CF personal income fallback: compute from raw `PERSONAL_INCOME` facts
+  grouped by owner: `AGI + depreciation add-backs + QBI`. Bootstrap placeholder
+  facts (value ≤ 1000 for income) must never pass the `hasMaterializedPI` guard.**
+- **`CURRENT_ASSETS` and `CURRENT_LIABILITIES` are never stored as direct facts.
+  Always derive from SL_ balance sheet components in any route that needs them.**
+- **The Gemini extraction stack (Vertex AI, GCP ADC) and the Gemini 3 Flash
+  orchestrator (Developer API, `GEMINI_API_KEY`) are separate Google auth systems.
+  Both must be present in Vercel. `ORCHESTRATOR_USE_GEMINI3_FLASH=true` without
+  `GEMINI_API_KEY` silently falls back to OpenAI — guard throws loudly now.**
 
 ---
 
@@ -429,34 +413,20 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 | AAR 18 | Portrait layout + ghost pages + OPEX | ✅ Complete | #207 |
 | MMAS Parity A–G | Full MMAS spread (7 phases, 865 insertions) | ✅ Complete | #208 |
 | AAR 19 | IS key suffix mismatch + exec TCA/TCL | ✅ Complete | #209 |
-| Phase 10 | Deal Command Center (Intelligence tab) | ✅ Complete | #216 |
-| Phase 11 | Financial Intelligence Workspace (Financials tab) | ✅ Complete | #217 |
-| Phase 12 | Structure Lab (Structure tab) | ✅ Complete | #218 |
-| Phase 13 | Risk Signal Grid + Evidence Audit (Risk tab) | ✅ Complete | #219 |
-| Phase 14 | Relationship Wallet (Relationship tab) | ✅ Complete | #220 |
-| Phase 15 | Committee Studio (Committee tab) | ✅ Complete | #221 |
-| Phase 16 | Personal Tax Return Extractor (Form 1040 + Schedule E) | ✅ Complete | #222 |
-| Phase 17 | PTR Entity Map (wire extraction output to facts) | ✅ Complete | #223 |
-| Phase 18 | Global Cash Flow Computation (entity + personal aggregation) | ✅ Complete | #224 |
-| Phase 19 | Global Cash Flow PDF Page (Classic Spread) | ✅ Complete | #225 |
-| Phase 20 | Bulk Re-extraction Trigger (POST + status + UI button) | ✅ Complete | #226 |
-| Phase 21 | DSCR Reconciliation + Spread Completeness Score | ✅ Complete | #227 |
-| Phase 22 | Gemini Migration (narrativeEngine + aiJson + creditMemo) | ✅ Complete | #228 |
-| Phase 23 | Gemini Classifier Shadow Mode + classification_shadow_log | ✅ Complete | #229 |
-| Phase 24 | Gemini Classifier Cutover (direct, data gate skipped) | ✅ Complete | dfdfc066 |
-| AAR 20 | Intelligence tab blank metrics — spread-output shape mismatch | ✅ Complete | fb811545 |
-| AAR 21 | Classic Spreads tab + PDF button fix | ✅ Complete | 6e449800 |
-| AAR 22 | Async extraction decoupling — 240s soft deadline fix | ✅ Complete | PR #231 |
-| AAR 22b | Parallel extraction fan-out — 9 docs in ~60-120s not ~9 min | ✅ Complete | PR #232 |
+| Phase 10–24 | COS UI + AI Provider Migration | ✅ Complete | #216–#229, dfdfc066 |
+| AAR 20–22b | Intelligence tab, Classic Spreads, async extraction | ✅ Complete | fb811545, 6e449800, #231, #232 |
 | **Phase 25** | **Gemini 3 Flash orchestrator shadow mode** | **✅ Complete** | **PR #233** |
 | **Phase 26** | **ai-risk route + Run AI Assessment button** | **✅ Complete** | **bbee0903** |
-| **Phase 27** | **Personal Income PDF page — guarantor Form 1040 in Classic Spread** | **✅ Complete** | **712961c5** |
-| **Phase 28** | **Re-extraction dedup bypass + GEMINI_PRIMARY_EXTRACTION_ENABLED** | **✅ Complete** | **—** |
-| **AAR 23** | **`document_extracts` not persisted in normal extraction path** | **✅ Complete** | **—** |
+| **Phase 27** | **Personal Income PDF page** | **✅ Complete** | **712961c5** |
+| **Phase 28** | **Re-extraction dedup bypass + GEMINI_PRIMARY** | **✅ Complete** | **—** |
+| **AAR 23** | **`document_extracts` persistence fix** | **✅ Complete** | **—** |
 | **Phase 29** | **Intelligence tab 4-fix batch** | **✅ Complete** | **—** |
-| **Orchestrator Cutover** | **ORCHESTRATOR_USE_GEMINI3_FLASH=true — Gemini 3 Flash primary for risk+memo** | **✅ Complete** | **Vercel env var** |
-| **AAR 24** | **OpenAI zodToJsonSchema $ref wrapping — root schema type: None — inlined with $refStrategy: none** | **✅ Complete** | **—** |
-| Phase 30 | Deal flow to approval — AI risk, narratives, reconciliation, committee package | 🔴 Active | — |
+| **Orchestrator Cutover** | **ORCHESTRATOR_USE_GEMINI3_FLASH=true** | **✅ Complete** | **Vercel env var** |
+| **AAR 24** | **OpenAI zodToJsonSchema $ref wrapping** | **✅ Complete** | **—** |
+| **AAR 25** | **Global CF hasMaterializedPI > 1000 guard** | **✅ Complete** | **—** |
+| **AAR 26** | **Current Ratio / WC derived from SL_ components in spread-output** | **✅ Complete** | **—** |
+| **AAR 27** | **GEMINI_API_KEY added to Vercel + provider guard throws on misconfiguration** | **✅ Complete** | **—** |
+| Phase 30 | Deal flow to approval — AI risk, narratives, reconciliation, committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔴 Queued | — |
