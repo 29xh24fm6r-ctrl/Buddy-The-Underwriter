@@ -86,7 +86,7 @@ export const RiskOutputSchema = z.object({
       direction: z.enum(["positive", "negative", "neutral"]),
       contribution: z.number(), // allow decimals
       confidence: z.number().min(0).max(1),
-      evidence: z.array(EvidenceRefSchema),
+      evidence: z.array(EvidenceRefSchema).optional().default([]),
       rationale: z.string(),
     })
   ),
