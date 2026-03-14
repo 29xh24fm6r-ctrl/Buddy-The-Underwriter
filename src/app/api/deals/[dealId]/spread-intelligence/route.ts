@@ -58,6 +58,56 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     const sponsorCount = spreadData.globalCashFlow?.sponsors?.length ?? 0;
     const entityCount = spreadData.globalCashFlow?.entityCount ?? 0;
 
+    // Fallback: if entity DSCR is null (ADS not in deal_financial_facts),
+    // compute directly from deal_structural_pricing + latest EBITDA/NCADS fact.
+    if (entityDscr === null) {
+      try {
+        const sb = (await import("@/lib/supabase/admin")).supabaseAdmin();
+
+        const { data: pricingRow } = await (sb as any)
+          .from("deal_structural_pricing")
+          .select("annual_debt_service_est")
+          .eq("deal_id", dealId)
+          .order("computed_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const ads = pricingRow?.annual_debt_service_est
+          ? Number(pricingRow.annual_debt_service_est)
+          : null;
+
+        if (ads !== null && ads > 0) {
+          const { data: factRows } = await (sb as any)
+            .from("deal_financial_facts")
+            .select("fact_key, fact_value_num, fact_period_end")
+            .eq("deal_id", dealId)
+            .in("fact_key", ["ORDINARY_BUSINESS_INCOME", "NET_INCOME", "EBITDA"])
+            .not("fact_value_num", "is", null)
+            .order("fact_period_end", { ascending: false })
+            .limit(10);
+
+          if (factRows && factRows.length > 0) {
+            const latest = factRows[0];
+            const latestPeriod = latest.fact_period_end;
+            const periodFacts = (factRows as any[]).filter(
+              (r) => r.fact_period_end === latestPeriod,
+            );
+            const ncads =
+              periodFacts.find((r: any) => r.fact_key === "EBITDA")?.fact_value_num ??
+              periodFacts.find((r: any) => r.fact_key === "ORDINARY_BUSINESS_INCOME")?.fact_value_num ??
+              periodFacts.find((r: any) => r.fact_key === "NET_INCOME")?.fact_value_num ??
+              null;
+
+            if (ncads !== null && isFinite(Number(ncads))) {
+              entityDscr = Math.round((Number(ncads) / ads) * 100) / 100;
+            }
+          }
+        }
+      } catch (fallbackErr: any) {
+        console.warn("[spread-intelligence] Entity DSCR fallback failed (non-fatal)", fallbackErr?.message);
+      }
+    }
+
     // UCA Cash From Operations — find from cash flow rows
     let ucaCashFromOperations: number | null = null;
     for (const row of spreadData.cashFlow) {

@@ -59,16 +59,12 @@ const BS_REQUIRED: Array<{ key: string; label: string; impact: "HIGH" | "MEDIUM"
 ];
 
 const IS_REQUIRED: Array<{ key: string; label: string; impact: "HIGH" | "MEDIUM" | "LOW" }> = [
-  { key: "Gross Receipts / Sales", label: "Revenue / Gross Receipts", impact: "HIGH" },
+  { key: "Sales / Revenues", label: "Revenue / Gross Receipts", impact: "HIGH" },
   { key: "Cost of Goods Sold", label: "Cost of Goods Sold", impact: "HIGH" },
-  { key: "Gross Profit", label: "Gross Profit", impact: "HIGH" },
-  { key: "Total Operating Expenses", label: "Total Operating Expenses", impact: "HIGH" },
-  { key: "Operating Income", label: "Operating Income", impact: "HIGH" },
-  { key: "Net Income", label: "Net Income", impact: "HIGH" },
-  { key: "Depreciation & Amortization", label: "Depreciation & Amortization", impact: "MEDIUM" },
-  { key: "Interest Expense", label: "Interest Expense", impact: "MEDIUM" },
+  { key: "GROSS PROFIT", label: "Gross Profit", impact: "HIGH" },
+  { key: "TOTAL OPERATING EXPENSE", label: "Total Operating Expenses", impact: "HIGH" },
+  { key: "NET PROFIT", label: "Net Income", impact: "HIGH" },
   { key: "EBITDA", label: "EBITDA", impact: "HIGH" },
-  { key: "Officers' Compensation", label: "Officers' Compensation", impact: "MEDIUM" },
 ];
 
 const CF_REQUIRED: Array<{ key: string; label: string; impact: "HIGH" | "MEDIUM" | "LOW" }> = [

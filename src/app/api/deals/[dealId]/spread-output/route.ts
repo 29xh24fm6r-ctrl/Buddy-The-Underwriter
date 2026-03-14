@@ -291,6 +291,41 @@ async function loadCanonicalFacts(
       }
     }
 
+    // TOTAL_OPERATING_EXPENSES derivation for BTR-only years.
+    // For partnership/S-corp returns without a standalone IS:
+    //   TOTAL_DEDUCTIONS (IRS line 22) = total operating expenses
+    //   Fallback: GROSS_PROFIT - ORDINARY_BUSINESS_INCOME when TOTAL_DEDUCTIONS absent
+    for (const year of Array.from(yearsSet)) {
+      const totalOpExKey = `TOTAL_OPERATING_EXPENSES_${year}`;
+      if (facts[totalOpExKey] == null) {
+        const totalDeductions = toNum(facts[`TOTAL_DEDUCTIONS_${year}`]);
+        if (totalDeductions !== null) {
+          facts[totalOpExKey] = totalDeductions;
+        } else {
+          const gp = toNum(facts[`GROSS_PROFIT_${year}`]);
+          const obi =
+            toNum(facts[`ORDINARY_BUSINESS_INCOME_${year}`]) ??
+            toNum(facts[`NET_INCOME_${year}`]);
+          if (gp !== null && obi !== null) {
+            facts[totalOpExKey] = gp - obi;
+          }
+        }
+      }
+    }
+
+    // OPERATING_INCOME derivation: alias ORDINARY_BUSINESS_INCOME for BTR years.
+    // OPERATING_INCOME is a completeness-checked key. For BTR-only deals it is never
+    // extracted as a standalone fact — OBI is the nearest equivalent.
+    for (const year of Array.from(yearsSet)) {
+      const opIncomeKey = `OPERATING_INCOME_${year}`;
+      if (facts[opIncomeKey] == null) {
+        const obi =
+          toNum(facts[`ORDINARY_BUSINESS_INCOME_${year}`]) ??
+          toNum(facts[`NET_INCOME_${year}`]);
+        if (obi !== null) facts[opIncomeKey] = obi;
+      }
+    }
+
     // Net Operating Profit derivation: GP - Total OpEx
     for (const year of Array.from(yearsSet)) {
       const nopKey = `NET_OPERATING_PROFIT_${year}`;

@@ -1101,6 +1101,49 @@ async function buildGlobalCashFlowSection(
     findFact("ANNUAL_DEBT_SERVICE_PROPOSED") ??
     findFact("ANNUAL_DEBT_SERVICE");
 
+  // Fallback: if no TOTAL_PERSONAL_INCOME facts exist (backfill hasn't run),
+  // compute from raw PERSONAL_INCOME-type facts (AGI + depreciation add-backs).
+  const hasMaterializedPI = facts.some(
+    (f) => f.fact_key === "TOTAL_PERSONAL_INCOME" && f.owner_type === "PERSONAL",
+  );
+  if (!hasMaterializedPI) {
+    const { data: rawPiFacts } = await (sb as any)
+      .from("deal_financial_facts")
+      .select("fact_key, fact_value_num, owner_type, owner_entity_id, fact_period_end")
+      .eq("deal_id", dealId)
+      .eq("fact_type", "PERSONAL_INCOME")
+      .not("fact_value_num", "is", null);
+
+    if (rawPiFacts && rawPiFacts.length > 0) {
+      // Group by owner_entity_id, pick latest period per owner, sum income components
+      const byOwner = new Map<string, Map<string, number>>();
+      for (const f of rawPiFacts as Array<{ fact_key: string; fact_value_num: number; owner_entity_id: string | null; fact_period_end: string | null }>) {
+        const oid = f.owner_entity_id ?? "default";
+        if (!byOwner.has(oid)) byOwner.set(oid, new Map());
+        const m = byOwner.get(oid)!;
+        // Keep latest value per key (facts are not ordered, so overwrite is OK)
+        m.set(f.fact_key, f.fact_value_num);
+      }
+
+      for (const [oid, m] of byOwner) {
+        // Personal income for GCF = AGI + depreciation add-backs
+        const agi = m.get("ADJUSTED_GROSS_INCOME") ?? null;
+        const schEDep = m.get("SCH_E_DEPRECIATION") ?? 0;
+        const qbi = m.get("QBI_DEDUCTION") ?? 0;
+        if (agi !== null) {
+          const totalPI = agi + schEDep + Math.abs(qbi);
+          facts.push({
+            fact_key: "TOTAL_PERSONAL_INCOME",
+            fact_value_num: totalPI,
+            owner_type: "PERSONAL",
+            owner_entity_id: oid === "default" ? null : oid,
+            fact_period_end: rawPiFacts.find((f: any) => (f.owner_entity_id ?? "default") === oid)?.fact_period_end ?? null,
+          });
+        }
+      }
+    }
+  }
+
   // If we have no GCF data at all, skip the page
   const hasAnyData =
     globalCashFlow != null ||

@@ -10,10 +10,13 @@ import {
   type CommitteeAnswerT,
 } from "./schemas";
 
-function jsonSchemaFor(name: string, schema: any) {
-  // zod-to-json-schema returns a full JSON schema doc; OpenAI wants the schema object itself
-  const js = zodToJsonSchema(schema, name);
-  return js;
+function jsonSchemaFor(_name: string, schema: any) {
+  // Pass $refStrategy: "none" to inline all definitions — avoids $ref wrapping
+  // at the top level which causes OpenAI structured outputs to see type: undefined.
+  const js = zodToJsonSchema(schema, { $refStrategy: "none" });
+  // Strip $schema metadata field — OpenAI doesn't need it and may reject extra fields
+  const { $schema: _unused, ...clean } = js as any;
+  return clean;
 }
 
 function evidenceRulesBlock() {
