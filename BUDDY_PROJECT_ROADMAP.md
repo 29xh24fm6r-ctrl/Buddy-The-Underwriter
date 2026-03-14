@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 30 active — deal flow to approval | AAR 33 complete (research-grounded)**
+**Status: Phase 30 active — AI Risk Assessment LIVE ✅ | AAR 34 complete**
 
 ---
 
@@ -70,67 +70,56 @@ Documents (tax returns, financials, statements)
 
 ### AAR 20–22b ✅ — fb811545, 6e449800, PR #231, PR #232
 ### Phase 25–29 ✅ — PR #233, bbee0903, 712961c5
-### AAR 23 ✅ — `document_extracts` persistence fix
+### AAR 23–24 ✅ — `document_extracts` persistence, OpenAI schema wrapping
 ### Gemini 3 Flash Orchestrator Cutover ✅ — ORCHESTRATOR_USE_GEMINI3_FLASH=true
-### AAR 24 ✅ — OpenAI zodToJsonSchema schema wrapping
 
 ---
 
 ## Phase 30 — Deal Flow to Approval (Active)
 
-### AAR 25–32 ✅ — See prior roadmap entries for details
+### AAR 25–33 ✅ — See prior roadmap entries for full details
 
-### AAR 33 — Research-grounded fix: three root causes identified from official API docs ✅ COMPLETE
+### AAR 34 — Hand-written `structureHint` in prompt — AI Risk Assessment LIVE ✅ COMPLETE
 
-After 8 iterations of guessing, paused to research the Gemini API docs directly.
-Three distinct root causes were confirmed, each contradicted by prior code:
+**Root cause of AAR 34:** Even with `responseJsonSchema` (correct field from AAR 33
+research), the `zodToJsonSchema` output includes strict constraints — `additionalProperties: false`,
+`minimum`/`maximum` on numbers, enum constraints — that cause Gemini 3 Flash to
+serialize array items as plain text strings when it cannot satisfy all constraints
+simultaneously. These plain strings don't start/end with `{}` so `unwrapJsonStrings`
+cannot recover them.
 
-**Root cause 1 — Wrong field name: `responseSchema` vs `responseJsonSchema`**
+**Fix:** Removed `responseJsonSchema` entirely and `zodToJsonSchema` import.
+Replaced with a clean `structureHint` string passed alongside the prompt — a
+hand-written JSON structure example showing field names and types without any
+constraints. `responseMimeType: "application/json"` alone ensures valid JSON output.
+Zod validates the result against the full schema for type safety downstream.
 
-The official Gemini API docs JavaScript example for `gemini-3-flash-preview` explicitly
-uses `responseJsonSchema` (standard JSON Schema, output of `zodToJsonSchema`) — not
-`responseSchema` (Gemini-native schema format). Code had been using `responseSchema`
-throughout AARs 29–32, which caused serialization corruption throughout.
+This is exactly how Gemini 2.0 Flash works throughout the rest of the extraction
+pipeline — and it has always worked reliably.
 
-**Root cause 2 — Schema duplicated in prompt (explicitly warned against by docs)**
+**Result: BB+ grade, 975 bps total pricing, 4 risk factors, 3 pricing adders,
+rendered live on deal ffcc9733. 34 AARs to get here.**
 
-Official docs state: *"Don't duplicate the schema in your input prompt. If you do,
-the generated output might be lower in quality."* Since AAR 28, schema was in both
-the prompt AND `generationConfig`. This was actively degrading output quality.
-
-**Root cause 3 — Gemini 3 Flash always thinks; `"minimal"` is the lowest valid level**
-
-Gemini 3 Flash always uses thinking. When `thinkingConfig` is omitted, the default
-injected level is `"low"`. `"none"` is not a valid enum value (causes 400 error).
-For Gemini 3 Flash, `"minimal"` is the lowest valid level per official docs. The
-`thinkingBudget: 0` pattern is Gemini 2.5-series only.
-
-**Fix — three changes applied together:**
-
-1. **`gemini3FlashProvider.ts`:** `responseJsonSchema: cleanSchema` (not `responseSchema`),
-   prompt cleaned of schema block (docs say don't duplicate), `thinkingLevel: "minimal"`
-   as default and explicit in both `generateRisk` and `generateMemo`, type signature
-   updated to remove `"none"`.
-
-2. **`schemas.ts`:** Reverted AAR 32 `z.record` regression — evidence arrays restored
-   to `z.array(EvidenceRefSchema).optional().default([])` in both `pricingExplain` and
-   `factors`. The `z.record` change was a workaround for a symptom, not the root cause.
-
-3. **`provider.ts`:** Reverted `RiskOutput` evidence type back to `EvidenceRef[]`.
-
-**Build principle — definitive Gemini 3 Flash structured output pattern:**
+**Final working pattern for Gemini 3 Flash structured output:**
 ```typescript
+// generationConfig — NO responseJsonSchema, NO responseSchema
 generationConfig: {
-  responseMimeType: "application/json",
-  responseJsonSchema: cleanSchema,           // standard JSON Schema — NOT responseSchema
+  responseMimeType: "application/json",   // JSON mode only
   maxOutputTokens: 8192,
-  thinkingConfig: { thinkingLevel: "minimal" }, // "minimal" is lowest valid for Gemini 3 Flash
-},
+  thinkingConfig: { thinkingLevel: "minimal" },
+}
+
+// Prompt includes a clean hand-written structure hint — no constraints, no $schema keywords
+const prompt = `${system}\n\nReturn ONLY a valid JSON object with this structure:\n${structureHint}\n\nINPUT:\n${payload}`;
 ```
-- Do NOT put schema in the prompt when using `responseJsonSchema` — docs explicitly warn this degrades output
-- Do NOT use `responseSchema` with `zodToJsonSchema` output — that's the wrong field
-- Do NOT use `thinkingBudget` with Gemini 3 models — that's Gemini 2.5-series only
-- Do NOT pass `thinkingLevel: "none"` — not a valid enum, causes 400
+
+**Build principle:** When Gemini structured output schema enforcement produces
+serialization failures, fall back to `responseMimeType: "application/json"` only
+with a clean hand-written structure hint in the prompt. Zod validates downstream.
+`zodToJsonSchema` output contains strict keywords (`additionalProperties: false`,
+numeric bounds) that Gemini cannot always satisfy for deeply nested objects — this
+causes it to serialize the entire parent as a plain text string. A simple structural
+example in the prompt avoids all constraint pressure while still guiding field names.
 
 ---
 
@@ -139,7 +128,8 @@ generationConfig: {
 **Deal ffcc9733** — Samaritus Management LLC (primary active)
 9/9 docs extracted. Revenue: $798K → $1.2M → $1.5M → $1.4M.
 EBITDA: $326K → $475K → $557K → $368K. ADS=$67,368. DSCR=5.47x.
-All three root causes fixed. AI Assessment should now succeed.
+**✅ AI Risk Assessment LIVE: BB+ grade, 975 bps (Base: 525 + Premium: 450)**
+Next: Generate Narratives → Regenerate Classic Spread → Reconciliation → Committee.
 
 ---
 
@@ -147,7 +137,7 @@ All three root causes fixed. AI Assessment should now succeed.
 
 ### P1 — Immediate: Complete deal ffcc9733 approval flow
 
-1. **Risk tab → "Run AI Assessment"** — AAR 33 research-grounded fix deployed.
+1. **✅ Risk tab → AI Risk Assessment** — COMPLETE. BB+ grade live.
 2. **Credit Memo → "Generate Narratives"** — Writes to `canonical_memo_narratives`.
 3. **Classic Spreads → "Regenerate"** — Picks up all Phase 29/30 fixes.
 4. **Reconciliation** — `recon_status` NULL. Blocks Committee "Reconciliation Complete".
@@ -197,7 +187,7 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 | Credit memo generation | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ |
 | Document classification | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active (Phase 24) |
 | Voice interview sessions | gpt-4o-realtime-preview | OpenAI API key | ✅ Retained on OpenAI |
-| Risk + Memo orchestrator | Gemini 3 Flash | GEMINI_API_KEY (Dev API) | ✅ **Cutover complete** |
+| Risk + Memo orchestrator | Gemini 3 Flash | GEMINI_API_KEY (Dev API) | ✅ **LIVE — BB+ grade on ffcc9733** |
 | chatAboutDeal | OpenAI gpt-4o-2024-08-06 | OpenAI API key | 🔴 Gemini migration queued (P3) |
 
 ---
@@ -208,11 +198,14 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 33. ✅ Gemini 3 Flash orchestrator cutover complete
 34. ✅ OpenAI zodToJsonSchema schema wrapping fixed (AAR 24)
 35–37. ✅ Spread fixes — hasMaterializedPI, Current Ratio, GEMINI_API_KEY (AARs 25–27)
-38–42. ✅ Gemini structured output chain — schema in prompt, responseSchema, unwrapJsonStrings, thinkingConfig, evidence optional (AARs 28–32)
-43. ✅ **Research-grounded fix: `responseJsonSchema` (not `responseSchema`), no schema in prompt, `thinkingLevel: "minimal"` (AAR 33)**
-44. 🔴 Deal `ffcc9733` through full approval flow — AI risk run, narratives, reconciliation, committee
-45. 🔴 Spread completeness ≥80%
-46. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+38–42. ✅ Gemini structured output chain (AARs 28–32)
+43. ✅ Research-grounded: `responseJsonSchema`, no schema in prompt, `thinkingLevel: "minimal"` (AAR 33)
+44. ✅ **AI Risk Assessment LIVE — BB+ grade, 975 bps, rendered on deal ffcc9733 (AAR 34)**
+45. 🔴 Credit Memo narratives generated
+46. 🔴 Classic Spreads regenerated with all Phase 29/30 fixes
+47. 🔴 Reconciliation complete — Committee Approve signal unlocked
+48. 🔴 Spread completeness ≥80%
+49. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -250,14 +243,16 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 - **The Gemini extraction stack (Vertex AI, GCP ADC) and the Gemini 3 Flash
   orchestrator (Developer API, `GEMINI_API_KEY`) are separate Google auth systems.
   Both must be present in Vercel.**
-- **Gemini 3 Flash structured output — definitive pattern (from official API docs):**
-  - Use `responseJsonSchema` (standard JSON Schema) — NOT `responseSchema` (Gemini-native format)
-  - Do NOT duplicate schema in the prompt — official docs warn this degrades output quality
+- **Gemini 3 Flash structured output — final working pattern:**
+  - `responseMimeType: "application/json"` only — no `responseJsonSchema`, no `responseSchema`
+  - Clean `structureHint` string in prompt showing field names/types without constraints
+  - `zodToJsonSchema` output contains `additionalProperties: false` + numeric bounds that
+    cause Gemini to serialize entire nested objects as plain strings — avoid entirely
   - `thinkingLevel: "minimal"` is the lowest valid level for Gemini 3 Flash
-  - `thinkingBudget` is Gemini 2.5-series only — do not use with Gemini 3 models
-  - `"none"` is not a valid `thinkingLevel` enum value — causes 400 INVALID_ARGUMENT
-  - Evidence arrays must be `.optional().default([])` — complex nested schemas cause parent object serialization failure
-  - `unwrapJsonStrings()` pre-processor before Zod validation handles any residual string-encoded objects
+  - `thinkingBudget` is Gemini 2.5-series only
+  - `"none"` is not a valid `thinkingLevel` — causes 400 INVALID_ARGUMENT
+  - Evidence arrays must be `.optional().default([])` in Zod schemas
+  - `unwrapJsonStrings()` pre-processor before Zod validation handles residual cases
 
 ---
 
@@ -274,8 +269,9 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 | Orchestrator Cutover | ORCHESTRATOR_USE_GEMINI3_FLASH=true | ✅ Complete | Vercel env var |
 | AAR 25–27 | hasMaterializedPI, Current Ratio, GEMINI_API_KEY | ✅ Complete | — |
 | AAR 28–32 | Gemini structured output chain (5 iterations) | ✅ Complete | — |
-| **AAR 33** | **Research-grounded: `responseJsonSchema`, no schema in prompt, `thinkingLevel: "minimal"`** | **✅ Complete** | **—** |
-| Phase 30 | Deal flow to approval — AI risk, narratives, reconciliation, committee | 🔴 Active | — |
+| AAR 33 | Research-grounded: responseJsonSchema, minimal thinking | ✅ Complete | — |
+| **AAR 34** | **structureHint in prompt — AI Risk Assessment LIVE (BB+, 975 bps)** | **✅ Complete** | **—** |
+| Phase 30 | Deal flow to approval — narratives, reconciliation, committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔴 Queued | — |
