@@ -48,12 +48,12 @@ async function gemini3Structured<T>(args: {
   payload: unknown;
   schema: z.ZodType<T>;
   schemaName: string;
-  thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  thinkingLevel?: "none" | "minimal" | "low" | "medium" | "high";
 }): Promise<T> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY missing");
 
-  const thinkingLevel = args.thinkingLevel ?? "medium";
+  const thinkingLevel = args.thinkingLevel ?? "none";
 
   // Generate the JSON schema so Gemini knows exact field names and types.
   // $refStrategy: "none" inlines all definitions — no $ref wrapping.
@@ -154,7 +154,7 @@ export class Gemini3FlashProvider implements AIProvider {
     return gemini3Structured({
       schemaName: "RiskOutput",
       schema: RiskOutputSchema,
-      thinkingLevel: "medium",
+      thinkingLevel: "none",
       system: [
         "You are Buddy, an underwriting copilot that produces explainable risk and pricing.",
         "Return ONLY valid JSON that matches the RiskOutput schema.",
@@ -179,7 +179,7 @@ export class Gemini3FlashProvider implements AIProvider {
     return gemini3Structured({
       schemaName: "MemoOutput",
       schema: MemoOutputSchema,
-      thinkingLevel: "medium",
+      thinkingLevel: "none",
       system: [
         "You are Buddy, generating a credit memo from deal facts and an explainable risk run.",
         "Return ONLY valid JSON that matches the MemoOutput schema.",
