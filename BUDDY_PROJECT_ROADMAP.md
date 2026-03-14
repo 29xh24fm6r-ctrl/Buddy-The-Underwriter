@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 30 active — deal flow to approval | AAR 31 complete**
+**Status: Phase 30 active — deal flow to approval | AAR 31 patch complete**
 
 ---
 
@@ -93,52 +93,47 @@ Documents (tax returns, financials, statements)
 ### AAR 29 ✅ — Gemini `responseSchema` in `generationConfig` — API-level enforcement
 ### AAR 30 ✅ — Gemini array items unwrapped from JSON strings — `unwrapJsonStrings()` pre-processor
 
-### AAR 31 — `thinkingLevel: "none"` — responseSchema reliable at all nesting depths ✅ COMPLETE
+### AAR 31 — thinkingLevel "none" + omit thinkingConfig entirely ✅ COMPLETE
 
-**Root cause:** After AAR 30 (`unwrapJsonStrings` worked — objects ARE objects now),
-still getting `"expected string, received undefined"` at `grade`, `pricingExplain[0].label`,
-`factors[0].category`, `factors[0].direction`, `factors[0].rationale`.
-`thinkingLevel: "medium"` causes Gemini to reason independently about output structure,
-overriding `responseSchema` enforcement on deeply nested fields. With thinking enabled,
-the model first reasons about what the output should contain, then formats it — and the
-formatting step can deviate from the schema on deeply nested objects even when the
-top-level is constrained.
+**Root cause (AAR 31 original):** After AAR 30, still getting `"expected string,
+received undefined"` at `grade`, `pricingExplain[0].label`, `factors[0].category`
+etc. `thinkingLevel: "medium"` causes Gemini to reason independently about output
+structure, overriding `responseSchema` enforcement on deeply nested fields.
 
-**Fix — `src/lib/ai/gemini3FlashProvider.ts`:**
+**Fix (AAR 31 original):** Changed default `thinkingLevel` to `"none"` and both
+`generateRisk` and `generateMemo` explicitly pass `thinkingLevel: "none"`.
 
-1. Changed default `thinkingLevel` in `gemini3Structured` from `"medium"` to `"none"`:
+**Root cause (AAR 31 patch):** `"none"` is not a valid Gemini API enum value for
+`thinkingConfig.thinkingLevel`. The API returned `400 INVALID_ARGUMENT:
+"Invalid value at 'generation_config.thinking_config.thinking_level'
+(type.googleapis.com/google.ai.generativelanguage.v1beta.ThinkingConfig.ThinkingLevel),
+\"none\""`. Valid values are `"minimal"`, `"low"`, `"medium"`, `"high"` only.
+
+**Fix (AAR 31 patch) — `src/lib/ai/gemini3FlashProvider.ts`:**
+
+`thinkingConfig` is now conditionally omitted entirely when `thinkingLevel` is
+`"none"`, which is the correct Gemini API pattern for disabling thinking:
 ```typescript
-const thinkingLevel = args.thinkingLevel ?? "none";
+generationConfig: {
+  responseMimeType: "application/json",
+  responseSchema: cleanSchema,
+  maxOutputTokens: 8192,
+  ...(thinkingLevel !== "none" ? { thinkingConfig: { thinkingLevel } } : {}),
+},
 ```
 
-2. Both `generateRisk` and `generateMemo` calls now explicitly pass `thinkingLevel: "none"`:
-```typescript
-return gemini3Structured({
-  schemaName: "RiskOutput",
-  schema: RiskOutputSchema,
-  thinkingLevel: "none",
-  ...
-```
-
-**Why this works:** With `thinkingLevel: "none"`, the model generates output
-constrained directly by `responseSchema` at the token-sampling level, without
-a prior reasoning pass that can override schema enforcement on nested fields.
-Credit analysis quality is not materially degraded — the financial data in the
-prompt provides full context; deep reasoning is not needed to format a structured
-risk output.
-
-**Build principle:** `responseSchema` is most reliable when `thinkingLevel` is
-`"none"`. Medium/high thinking causes Gemini to reason about structure before
-generating output — this reasoning step can override `responseSchema` enforcement
-on deeply nested object fields. For schema-constrained JSON generation, always
-default to `thinkingLevel: "none"` unless reasoning depth is explicitly required
-and schema compliance can be verified independently.
+**Build principle:** To disable Gemini thinking, omit `thinkingConfig` entirely
+from `generationConfig`. Do NOT pass `thinkingLevel: "none"` — `"none"` is not
+a valid enum value and causes a 400 INVALID_ARGUMENT error. The valid levels are
+`"minimal"`, `"low"`, `"medium"`, `"high"`. For schema-constrained JSON
+generation, omit `thinkingConfig` entirely (equivalent to no-thinking mode) to
+ensure `responseSchema` is reliably enforced at all nesting depths.
 
 **Full Gemini 3 Flash structured output defense stack (all four layers now in place):**
 1. `responseSchema` in `generationConfig` — enforces field names at token-sampling level
 2. Full JSON schema embedded in prompt via `zodToJsonSchema` — advisory backup
 3. `unwrapJsonStrings()` recursive pre-processor — unwraps JSON-stringified nested items
-4. `thinkingLevel: "none"` — prevents thinking-mode reasoning from overriding schema enforcement
+4. `thinkingConfig` omitted entirely — prevents thinking-mode reasoning from overriding schema enforcement
 
 ---
 
@@ -147,7 +142,7 @@ and schema compliance can be verified independently.
 **Deal ffcc9733** — Samaritus Management LLC (primary active)
 9/9 docs extracted. Revenue: $798K → $1.2M → $1.5M → $1.4M.
 EBITDA: $326K → $475K → $557K → $368K. ADS=$67,368. DSCR=5.47x.
-AI Assessment should now succeed after AAR 31 (thinkingLevel: "none").
+AI Assessment should now succeed — `thinkingConfig` omitted entirely.
 
 **Deal 07541fce** — "CLAUDE FIX 21" / Samaritus Management LLC
 Primary regression test deal. Run 21. 9/9 docs extracted.
@@ -158,7 +153,7 @@ Primary regression test deal. Run 21. 9/9 docs extracted.
 
 ### P1 — Immediate: Complete deal ffcc9733 approval flow
 
-1. **Risk tab → "Run AI Assessment"** — AAR 31 fix deployed. Should now succeed.
+1. **Risk tab → "Run AI Assessment"** — AAR 31 patch deployed. Should now succeed.
 2. **Credit Memo → "Generate Narratives"** — Writes to `canonical_memo_narratives`.
 3. **Classic Spreads → "Regenerate"** — Picks up all Phase 29/30 fixes.
 4. **Reconciliation** — `recon_status` NULL. Blocks Committee "Reconciliation Complete".
@@ -224,7 +219,7 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 38. ✅ Gemini 3 Flash prompt embeds full JSON schema (AAR 28)
 39. ✅ Gemini `responseSchema` in `generationConfig` — API-level enforcement (AAR 29)
 40. ✅ Gemini array items unwrapped from JSON strings — `unwrapJsonStrings()` (AAR 30)
-41. ✅ **`thinkingLevel: "none"` — responseSchema reliable at all nesting depths (AAR 31)**
+41. ✅ `thinkingLevel: "none"` default set; `thinkingConfig` omitted entirely when "none" (AAR 31 + patch)
 42. 🔴 Deal `ffcc9733` through full approval flow — AI risk run, narratives, reconciliation, committee
 43. 🔴 Spread completeness ≥80%
 44. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
@@ -271,9 +266,10 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 - **Gemini's `responseSchema` can JSON-encode nested array items as strings even
   when the outer structure is correct. Always run `unwrapJsonStrings()` recursively
   before Zod validation. The unwrapper is idempotent.**
-- **`responseSchema` is most reliable when `thinkingLevel` is `"none"`. Thinking
-  mode reasoning can override schema enforcement on deeply nested object fields.
-  For schema-constrained JSON generation, default to `thinkingLevel: "none"`.**
+- **To disable Gemini thinking, omit `thinkingConfig` entirely from `generationConfig`.
+  Do NOT pass `thinkingLevel: "none"` — `"none"` is not a valid enum value and
+  causes 400 INVALID_ARGUMENT. Valid levels: `"minimal"`, `"low"`, `"medium"`,
+  `"high"`. For schema-constrained JSON generation, omit `thinkingConfig` entirely.**
 
 ---
 
@@ -299,7 +295,7 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 | AAR 28 | Gemini 3 Flash prompt embeds full JSON schema | ✅ Complete | — |
 | AAR 29 | Gemini `responseSchema` in `generationConfig` | ✅ Complete | — |
 | AAR 30 | Gemini array items JSON-string unwrapper | ✅ Complete | — |
-| **AAR 31** | **`thinkingLevel: "none"` — responseSchema reliable at all nesting depths** | **✅ Complete** | **—** |
+| AAR 31 | thinkingLevel "none" default; thinkingConfig omitted entirely when "none" | ✅ Complete | — |
 | Phase 30 | Deal flow to approval — AI risk, narratives, reconciliation, committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
