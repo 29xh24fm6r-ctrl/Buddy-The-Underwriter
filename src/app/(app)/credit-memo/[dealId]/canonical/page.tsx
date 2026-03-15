@@ -9,6 +9,7 @@ import CanonicalMemoTemplate from "@/components/creditMemo/CanonicalMemoTemplate
 import SpreadsAppendix from "@/components/creditMemo/SpreadsAppendix";
 import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonicalMemoPdfButton";
 import GenerateNarrativesButton from "@/components/creditMemo/GenerateNarrativesButton";
+import RunResearchButton from "@/components/creditMemo/RunResearchButton";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildSbaForm1919 } from "@/lib/sba/forms/build1919";
 import { buildSbaForm1920 } from "@/lib/sba/forms/build1920";
@@ -122,8 +123,15 @@ export default async function CanonicalCreditMemoPage(props: {
   if (!res.ok) {
     return (
       <div className="p-6">
-        <h1 className="text-xl font-semibold text-white">Credit Memo (Canonical)</h1>
-        <p className="mt-2 text-sm text-white/70">Unable to build memo: {res.error}</p>
+        <h1 className="text-xl font-semibold text-[#111418]">Credit Memo (Canonical)</h1>
+        <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-4">
+          <p className="text-sm font-medium text-rose-800">Unable to build memo</p>
+          <p className="mt-1 text-sm text-rose-700">{res.error}</p>
+          <div className="mt-3 flex items-center gap-2">
+            <RunResearchButton dealId={dealId} />
+            <GenerateNarrativesButton dealId={dealId} />
+          </div>
+        </div>
       </div>
     );
   }
@@ -143,6 +151,7 @@ export default async function CanonicalCreditMemoPage(props: {
             >
               Print View
             </Link>
+            <RunResearchButton dealId={dealId} />
             <GenerateNarrativesButton dealId={dealId} />
             <ExportCanonicalMemoPdfButton dealId={dealId} />
           </div>
