@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 31 complete — Research Engine LIVE | AAR 35 complete**
+**Status: Phase 31 complete | AAR 36 complete — two fixes, deploy and retry**
 
 ---
 
@@ -94,32 +94,41 @@ Required sequence enforced in code: AI Risk → Research → Generate Memo.
 
 ## AAR 35 — Canonical memo page: error visibility + RunResearchButton ✅ COMPLETE
 
-**Root cause:** The canonical credit memo page at `/credit-memo/[dealId]/canonical`
-was rendering a blank white page because the error path used `text-white` on no
-background — the error from `buildCanonicalCreditMemo` was completely invisible.
-Additionally, there was no "Run Research" button on the page at all — only
-`GenerateNarrativesButton` existed.
+Error path made visible (red card). `RunResearchButton` component created and added
+to both error and success paths. See prior roadmap entry for full details.
 
-**Fixes:**
+---
 
-1. **Error path made visible** — replaced invisible white-on-white error with a
-   red error card showing the actual error message. Both `RunResearchButton` and
-   `GenerateNarrativesButton` now appear in the error state so the user can act
-   even when the memo builder fails.
+## AAR 36 — `deals.amount` → `loan_amount` + research route sequential borrower query ✅ COMPLETE
 
-2. **`RunResearchButton` component created** —
-   `src/components/creditMemo/RunResearchButton.tsx` — `"use client"` button that
-   POSTs to `/api/deals/${dealId}/research/run`, shows running/success/error states,
-   and reloads the page on success so research results are visible.
+Two root causes identified from the visible error card (AAR 35 made this possible):
 
-3. **`RunResearchButton` added to success path toolbar** — appears before
-   `GenerateNarrativesButton` and `ExportCanonicalMemoPdfButton`.
+**Root cause 1 — `deals.amount` column does not exist:**
+`buildCanonicalCreditMemo.ts` selected `amount` from the `deals` table and used
+`deal.amount` to derive `dealAmount`. The correct column name is `loan_amount`.
+Error message: `deal_select_failed:column deals.amount does not exist`
 
-**The correct flow is now:**
-1. Navigate to `/credit-memo/[dealId]/canonical`
-2. Click **"Run Research"** — up to 60 seconds, shows progress inline
-3. Page reloads on success
-4. Click **"Generate Narratives"** — Gemini 3 Flash writes research-grounded memo
+**Fix — `src/lib/creditMemo/canonical/buildCanonicalCreditMemo.ts`:**
+- Select `loan_amount` instead of `amount` in the deals query
+- Derive `dealAmount` from `deal.loan_amount` instead of `deal.amount`
+
+**Root cause 2 — Research route Supabase join `borrowers(...)` failed:**
+The join syntax `borrowers(naics_code, ...)` in the deals select requires a
+declared foreign key relationship in Supabase's schema cache. If the FK isn't
+registered, the join fails with a 500 before any mission is created (confirmed:
+zero rows in `buddy_research_missions`).
+
+**Fix — `src/app/api/deals/[dealId]/research/run/route.ts`:**
+Replaced the single joined query with two sequential queries:
+1. Load deal: `SELECT id, borrower_id, state FROM deals WHERE id = dealId`
+2. Load borrower: `SELECT naics_code, naics_description, legal_name, city, state FROM borrowers WHERE id = deal.borrower_id`
+
+`naicsCode`, `legalName`, `borrowerState` declared inline from borrower query results,
+with fallback to `"999999"` if NAICS missing. Never blocks mission creation.
+
+**Build principle:** Never use Supabase join syntax `related_table(columns)` without
+confirming the FK relationship is declared in the schema. Use sequential queries as
+the safe default for cross-table lookups.
 
 ---
 
@@ -138,7 +147,7 @@ EBITDA: $326K → $475K → $557K → $368K. ADS=$67,368. DSCR=5.47x.
 ### P1 — Immediate: Complete deal ffcc9733 approval flow
 
 1. **✅ Risk tab → AI Risk Assessment** — COMPLETE. BB+ grade live.
-2. **Credit Memo tab → "Run Research"** — button now visible on canonical memo page.
+2. **Credit Memo tab → "Run Research"** — button on canonical memo page. Deploy AAR 36 first.
 3. **Credit Memo tab → "Generate Narratives"** — gated on research.
 4. **Classic Spreads → "Regenerate"** — picks up all Phase 29/30 fixes.
 5. **Reconciliation** — `recon_status` NULL. Blocks Committee.
@@ -200,14 +209,15 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 43. ✅ Research-grounded: `responseJsonSchema`, no schema in prompt, `thinkingLevel: "minimal"` (AAR 33)
 44. ✅ AI Risk Assessment LIVE — BB+ grade, 975 bps (AAR 34)
 45. ✅ Research Engine activated — `/research/run` wired (Phase 31)
-46. ✅ Credit Memo gated on research — `generateMemo()` with research context (Phase 31)
-47. ✅ **Canonical memo error visible + RunResearchButton component (AAR 35)**
-48. 🔴 Run Research on ffcc9733 — first live mission
-49. 🔴 Generate Credit Memo — first research-grounded memo
-50. 🔴 Classic Spreads regenerated
-51. 🔴 Reconciliation complete — Committee Approve signal unlocked
-52. 🔴 Spread completeness ≥80%
-53. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+46. ✅ Credit Memo gated on research (Phase 31)
+47. ✅ Canonical memo error visible + RunResearchButton (AAR 35)
+48. ✅ **`deals.amount` → `loan_amount` + sequential borrower query (AAR 36)**
+49. 🔴 Run Research on ffcc9733 — first live mission
+50. 🔴 Generate Credit Memo — first research-grounded memo
+51. 🔴 Classic Spreads regenerated
+52. 🔴 Reconciliation complete — Committee Approve signal unlocked
+53. 🔴 Spread completeness ≥80%
+54. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -247,19 +257,18 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
   Both must be present in Vercel.**
 - **Gemini 3 Flash structured output — final working pattern:**
   - `responseMimeType: "application/json"` only — no `responseJsonSchema`, no `responseSchema`
-  - Clean `structureHint` string in prompt showing field names/types without constraints
-  - `zodToJsonSchema` output causes plain-string serialization of nested objects — avoid entirely
+  - Clean `structureHint` string in prompt; `zodToJsonSchema` output causes serialization failure
   - `thinkingLevel: "minimal"` is the lowest valid level; `thinkingBudget` is Gemini 2.5-series only
   - Evidence arrays must be `.optional().default([])` in Zod schemas
-  - `unwrapJsonStrings()` pre-processor before Zod validation handles residual cases
-- **Research must complete before credit memo generation.** The memo prompt includes
-  research narrative as context. A memo without research is a formatted summary —
-  not institutional-grade credit analysis.
-- **`runMission()` is imported from `"@/lib/research/runMission"` directly — server-only,
-  not re-exported from the index.**
-- **Error paths on server-rendered pages must use dark backgrounds (`bg-[#0f1117]`) with
-  explicitly colored text. White text on no background is invisible. Always test error
-  states render visibly.**
+- **Research must complete before credit memo generation.** A memo without research
+  is a formatted summary — not institutional-grade credit analysis.
+- **`runMission()` is imported from `"@/lib/research/runMission"` directly — server-only.**
+- **Error paths on server-rendered pages must use dark backgrounds with explicitly
+  colored text. White text on no background is invisible.**
+- **Never use Supabase join syntax `related_table(columns)` without confirming the FK
+  relationship is declared in the schema. Use sequential queries as the safe default
+  for cross-table lookups.**
+- **`deals.loan_amount` is the correct column — not `deals.amount`.**
 
 ---
 
@@ -272,14 +281,12 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 | Phase 10–24 | COS UI + AI Provider Migration | ✅ Complete | #216–#229, dfdfc066 |
 | AAR 20–22b | Intelligence tab, Classic Spreads, async extraction | ✅ Complete | fb811545, 6e449800, #231, #232 |
 | Phase 25–29 | Orchestrator + Personal Income + Intelligence fixes | ✅ Complete | PR #233, bbee0903, 712961c5 |
-| AAR 23–24 | document_extracts persistence, OpenAI schema wrapping | ✅ Complete | — |
-| Orchestrator Cutover | ORCHESTRATOR_USE_GEMINI3_FLASH=true | ✅ Complete | Vercel env var |
-| AAR 25–27 | hasMaterializedPI, Current Ratio, GEMINI_API_KEY | ✅ Complete | — |
+| AAR 23–27 | Various fixes | ✅ Complete | — |
 | AAR 28–32 | Gemini structured output chain | ✅ Complete | — |
-| AAR 33 | Research-grounded: responseJsonSchema, minimal thinking | ✅ Complete | — |
-| AAR 34 | structureHint in prompt — AI Risk Assessment LIVE (BB+, 975 bps) | ✅ Complete | — |
-| Phase 31 | Research Engine activated + Credit Memo gated on research | ✅ Complete | — |
-| **AAR 35** | **Canonical memo error visible + RunResearchButton component** | **✅ Complete** | **—** |
+| AAR 33–34 | Research-grounded + AI Risk Assessment LIVE | ✅ Complete | — |
+| Phase 31 | Research Engine activated + Credit Memo gated | ✅ Complete | — |
+| AAR 35 | Canonical memo error visible + RunResearchButton | ✅ Complete | — |
+| **AAR 36** | **`deals.loan_amount` fix + sequential borrower query** | **✅ Complete** | **—** |
 | Phase 30 remaining | Narratives, Classic Spreads, Reconciliation, Committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
