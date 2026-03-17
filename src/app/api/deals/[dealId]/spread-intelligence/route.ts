@@ -134,6 +134,61 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
     const completeness = computeSpreadCompleteness(spreadData);
 
+    // Bridge: persist computed debt service metrics to deal_financial_facts
+    // so buildDealFinancialSnapshotForBank can read them.
+    // Non-fatal — never blocks the response.
+    try {
+      const { upsertDealFinancialFact, SENTINEL_UUID } = await import("@/lib/financialFacts/writeFact");
+      const bankId = (access as any).bankId as string;
+      const persistDate = new Date().toISOString().slice(0, 10);
+
+      // Best available numeric DSCR from the reconciliation triangle
+      const dscrValue = dscr.dscrTriangle.global ?? dscr.dscrTriangle.entity ?? dscr.dscrTriangle.uca;
+
+      const factsToWrite: Array<{ key: string; value: number | null }> = [
+        { key: "ANNUAL_DEBT_SERVICE", value: proposedAds ?? null },
+        { key: "DSCR",               value: dscrValue ?? null },
+      ];
+
+      if (typeof entityCashFlowAvailable === "number" && entityCashFlowAvailable > 0) {
+        factsToWrite.push({ key: "CASH_FLOW_AVAILABLE", value: entityCashFlowAvailable });
+      }
+
+      if (proposedAds && typeof entityCashFlowAvailable === "number") {
+        factsToWrite.push({ key: "EXCESS_CASH_FLOW", value: entityCashFlowAvailable - proposedAds });
+      }
+
+      for (const f of factsToWrite) {
+        if (f.value === null || !Number.isFinite(f.value)) continue;
+        await upsertDealFinancialFact({
+          dealId,
+          bankId,
+          sourceDocumentId: SENTINEL_UUID,
+          factType: "FINANCIAL_ANALYSIS",
+          factKey: f.key,
+          factValueNum: f.value,
+          confidence: 0.95,
+          provenance: {
+            source_type: "STRUCTURAL",
+            source_ref: "computed:spread_intelligence:v1",
+            as_of_date: persistDate,
+            extractor: "spreadIntelligence:debtService:v1",
+          },
+          ownerType: "DEAL",
+          ownerEntityId: SENTINEL_UUID,
+        });
+      }
+
+      // Also rebuild and persist the snapshot now that facts are current
+      const { buildDealFinancialSnapshotForBank } = await import("@/lib/deals/financialSnapshot");
+      const { persistFinancialSnapshot } = await import("@/lib/deals/financialSnapshotPersistence");
+      const freshSnapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
+      await persistFinancialSnapshot({ dealId, bankId, snapshot: freshSnapshot });
+
+    } catch (bridgeErr: any) {
+      console.warn("[spread-intelligence] bridge persist failed (non-fatal):", bridgeErr?.message);
+    }
+
     return NextResponse.json({
       ok: true,
       dscr,
