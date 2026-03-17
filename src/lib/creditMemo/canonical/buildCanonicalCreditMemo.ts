@@ -95,7 +95,7 @@ export async function buildCanonicalCreditMemo(args: {
     const dealRes = await (sb as any)
       .from("deals")
       .select(
-        "id, bank_id, display_name, nickname, borrower_name, name, stage, amount",
+        "id, bank_id, display_name, nickname, borrower_name, name, stage, loan_amount",
       )
       .eq("id", args.dealId)
       .eq("bank_id", bankId)
@@ -116,7 +116,7 @@ export async function buildCanonicalCreditMemo(args: {
 
     const spreads = spreadsRes.error ? [] : (spreadsRes.data ?? []);
 
-    const dealAmount = typeof deal.amount === "number" ? deal.amount : deal.amount ? Number(deal.amount) : null;
+    const dealAmount = typeof deal.loan_amount === "number" ? deal.loan_amount : deal.loan_amount ? Number(deal.loan_amount) : null;
 
     const [snapshot, collateralVals, bindings] = await Promise.all([
       buildDealFinancialSnapshotForBank({ dealId: args.dealId, bankId }),

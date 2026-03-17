@@ -55,12 +55,10 @@ export async function POST(
 
     const sb = supabaseAdmin();
 
-    // Load deal + borrower
+    // Load deal
     const { data: deal, error: dealErr } = await sb
       .from("deals")
-      .select(
-        "id, borrower_id, state, borrowers(naics_code, naics_description, legal_name, city, state)",
-      )
+      .select("id, borrower_id, state")
       .eq("id", dealId)
       .maybeSingle();
 
@@ -72,18 +70,28 @@ export async function POST(
       );
     }
 
-    // Resolve NAICS
-    const borrower = deal.borrowers as any;
-    let naicsCode = borrower?.naics_code ?? "";
-    if (!naicsCode) {
-      console.warn(
-        `[research/run] Deal ${dealId}: borrower has no NAICS code, falling back to 999999`,
-      );
-      naicsCode = "999999";
-    }
+    // Load borrower separately (avoids FK join dependency)
+    let naicsCode = "999999";
+    let legalName = "";
+    let borrowerState: string | null = deal.state ?? null;
 
-    const legalName = borrower?.legal_name ?? "";
-    const borrowerState = borrower?.state ?? null;
+    if (deal.borrower_id) {
+      const { data: borrower } = await sb
+        .from("borrowers")
+        .select("naics_code, naics_description, legal_name, city, state")
+        .eq("id", deal.borrower_id)
+        .maybeSingle();
+
+      if (borrower?.naics_code) {
+        naicsCode = borrower.naics_code;
+      } else {
+        console.warn(
+          `[research/run] Deal ${dealId}: borrower has no NAICS code, falling back to 999999`,
+        );
+      }
+      legalName = borrower?.legal_name ?? "";
+      borrowerState = borrower?.state ?? deal.state ?? null;
+    }
 
     const bankId = await getCurrentBankId();
     const { userId } = await auth();
