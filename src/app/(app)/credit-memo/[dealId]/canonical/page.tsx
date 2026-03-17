@@ -29,14 +29,6 @@ export default async function CanonicalCreditMemoPage(props: {
   const bankId = bankPick.bankId;
 
   const sb = supabaseAdmin();
-  const { data: decision } = await sb
-    .from("financial_snapshot_decisions")
-    .select("narrative_json, sba_json, created_at")
-    .eq("deal_id", dealId)
-    .eq("bank_id", bankId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
 
   const [{ data: snapshotRow }, { data: deal }, { data: loanRequest }] = await Promise.all([
     sb
@@ -64,17 +56,15 @@ export default async function CanonicalCreditMemoPage(props: {
 
   const snapshot = snapshotRow?.snapshot_json as DealFinancialSnapshotV1 | undefined;
   const eligibility = snapshot
-    ? (decision?.sba_json
-        ? (decision.sba_json as any)
-        : evaluateSbaEligibility({
-            snapshot,
-            borrowerEntityType: (deal as any)?.entity_type ?? null,
-            useOfProceeds: Array.isArray((loanRequest as any)?.use_of_proceeds)
-              ? (loanRequest as any).use_of_proceeds
-              : null,
-            dealType: (deal as any)?.deal_type ?? null,
-            loanProductType: (loanRequest as any)?.product_type ?? null,
-          }))
+    ? evaluateSbaEligibility({
+        snapshot,
+        borrowerEntityType: (deal as any)?.entity_type ?? null,
+        useOfProceeds: Array.isArray((loanRequest as any)?.use_of_proceeds)
+          ? (loanRequest as any).use_of_proceeds
+          : null,
+        dealType: (deal as any)?.deal_type ?? null,
+        loanProductType: (loanRequest as any)?.product_type ?? null,
+      })
     : null;
 
   const sba1919 = snapshot
@@ -157,94 +147,59 @@ export default async function CanonicalCreditMemoPage(props: {
           </div>
         </div>
 
-        {decision?.narrative_json ? (
-          <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Underwriting Narrative</div>
-            <div className="mt-2 text-sm text-gray-800 whitespace-pre-line">
-              {decision.narrative_json.executiveSummary ?? "Narrative unavailable."}
-            </div>
-            {decision.narrative_json.cashFlowAnalysis ? (
-              <div className="mt-3 text-sm text-gray-700 whitespace-pre-line">
-                {decision.narrative_json.cashFlowAnalysis}
-              </div>
-            ) : null}
-            {Array.isArray(decision.narrative_json.risks) && decision.narrative_json.risks.length ? (
-              <div className="mt-3">
-                <div className="text-xs text-gray-500">Risks</div>
-                <ul className="mt-1 list-disc pl-5 text-sm text-gray-700">
-                  {decision.narrative_json.risks.map((r: string, idx: number) => (
-                    <li key={`risk-${idx}`}>{r}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {Array.isArray(decision.narrative_json.mitigants) && decision.narrative_json.mitigants.length ? (
-              <div className="mt-3">
-                <div className="text-xs text-gray-500">Mitigants</div>
-                <ul className="mt-1 list-disc pl-5 text-sm text-gray-700">
-                  {decision.narrative_json.mitigants.map((m: string, idx: number) => (
-                    <li key={`mitigant-${idx}`}>{m}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {decision.narrative_json.recommendation ? (
-              <div className="mt-3 text-sm font-semibold text-gray-800">
-                Recommendation: {decision.narrative_json.recommendation}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
-        {sba1919 || sba1920 ? (
-          <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">SBA Forms</div>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              {sba1919 ? (
-                <div className="rounded-lg border border-gray-200 p-3">
-                  <div className="text-sm font-semibold text-gray-800">Form 1919</div>
-                  <div className="mt-1 text-xs text-gray-500">Missing fields: {sba1919.missing.length}</div>
-                  {sba1919.missing.length ? (
-                    <div className="mt-2 text-xs text-gray-500">
-                      {sba1919.missing.join(", ")}
-                    </div>
-                  ) : null}
-                  <div className="mt-3 flex items-center gap-2">
-                    <Link
-                      href={`/api/deals/${dealId}/sba/forms/1919`}
-                      className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50"
-                    >
-                      Export JSON
-                    </Link>
-                  </div>
-                </div>
-              ) : null}
-              {sba1920 ? (
-                <div className="rounded-lg border border-gray-200 p-3">
-                  <div className="text-sm font-semibold text-gray-800">Form 1920</div>
-                  <div className="mt-1 text-xs text-gray-500">Missing fields: {sba1920.missing.length}</div>
-                  {sba1920.missing.length ? (
-                    <div className="mt-2 text-xs text-gray-500">
-                      {sba1920.missing.join(", ")}
-                    </div>
-                  ) : null}
-                  <div className="mt-3 flex items-center gap-2">
-                    <Link
-                      href={`/api/deals/${dealId}/sba/forms/1920`}
-                      className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50"
-                    >
-                      Export JSON
-                    </Link>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-
         <CanonicalMemoTemplate memo={res.memo} />
 
         <SpreadsAppendix dealId={dealId} bankId={bankId} />
+
+        {sba1919 || sba1920 ? (
+          <details className="mt-6">
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-800">
+              SBA Forms (1919 / 1920)
+            </summary>
+            <div className="mt-3 rounded-lg border border-gray-200 bg-white p-4">
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                {sba1919 ? (
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <div className="text-sm font-semibold text-gray-800">Form 1919</div>
+                    <div className="mt-1 text-xs text-gray-500">Missing fields: {sba1919.missing.length}</div>
+                    {sba1919.missing.length ? (
+                      <div className="mt-2 text-xs text-gray-500">
+                        {sba1919.missing.join(", ")}
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex items-center gap-2">
+                      <Link
+                        href={`/api/deals/${dealId}/sba/forms/1919`}
+                        className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50"
+                      >
+                        Export JSON
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
+                {sba1920 ? (
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <div className="text-sm font-semibold text-gray-800">Form 1920</div>
+                    <div className="mt-1 text-xs text-gray-500">Missing fields: {sba1920.missing.length}</div>
+                    {sba1920.missing.length ? (
+                      <div className="mt-2 text-xs text-gray-500">
+                        {sba1920.missing.join(", ")}
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex items-center gap-2">
+                      <Link
+                        href={`/api/deals/${dealId}/sba/forms/1920`}
+                        className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50"
+                      >
+                        Export JSON
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </details>
+        ) : null}
       </div>
     </div>
   );
