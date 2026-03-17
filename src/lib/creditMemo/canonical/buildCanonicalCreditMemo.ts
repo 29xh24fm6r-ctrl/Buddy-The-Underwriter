@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { dealLabel } from "@/lib/deals/dealLabel";
 import type { CanonicalCreditMemoV1 } from "@/lib/creditMemo/canonical/types";
+import type { DebtCoverageRow, IncomeStatementRow, GuarantorBudget } from "@/lib/creditMemo/canonical/types";
 import {
   computeCollateralValues,
   computeDiscountedCoverageRatio,
@@ -51,8 +52,13 @@ function bindingToMetric(
 }
 
 function isoDateOnly(d: Date) {
-  // YYYY-MM-DD (stable across locales)
   return d.toISOString().slice(0, 10);
+}
+
+function formatCurrencySimple(val: number): string {
+  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
+  if (val >= 1_000) return `$${Math.round(val / 1_000)}K`;
+  return `$${val.toFixed(0)}`;
 }
 
 function toConditionsProduct(p: string | null | undefined): ConditionsProductType {
@@ -67,8 +73,6 @@ function toConditionsProduct(p: string | null | undefined): ConditionsProductTyp
 
 export async function buildCanonicalCreditMemo(args: {
   dealId: string;
-  // When provided, enforces tenant via current user -> bank membership.
-  // When omitted, builder will resolve bank_id from the deal row (meant for token-gated print/PDF flows).
   bankId?: string;
   preparedBy?: string;
 }): Promise<{ ok: true; memo: CanonicalCreditMemoV1 } | { ok: false; error: string }> {
@@ -95,7 +99,7 @@ export async function buildCanonicalCreditMemo(args: {
     const dealRes = await (sb as any)
       .from("deals")
       .select(
-        "id, bank_id, display_name, nickname, borrower_name, name, stage, loan_amount",
+        "id, bank_id, display_name, nickname, borrower_name, name, stage, loan_amount, borrower_id",
       )
       .eq("id", args.dealId)
       .eq("bank_id", bankId)
@@ -120,7 +124,6 @@ export async function buildCanonicalCreditMemo(args: {
 
     const [snapshot, collateralVals, bindings] = await Promise.all([
       buildDealFinancialSnapshotForBank({ dealId: args.dealId, bankId }),
-      // Keep legacy collateral value accessors for AS-IS / stabilized fields not (yet) in snapshot.
       computeCollateralValues({ dealId: args.dealId, bankId }),
       buildCreditMemoBindings({ dealId: args.dealId, bankId }),
     ]);
@@ -148,7 +151,6 @@ export async function buildCanonicalCreditMemo(args: {
         .eq("bank_id", bankId)
         .not("checklist_key", "is", null),
       loadResearchForMemo({ dealId: args.dealId, bankId }),
-      // Institutional pricing decision system
       (sb as any)
         .from("pricing_decisions")
         .select("*, pricing_scenarios(*), pricing_terms(*)")
@@ -165,6 +167,39 @@ export async function buildCanonicalCreditMemo(args: {
     const presentDocKeys = ((checklistResult.data ?? []) as any[])
       .map((r: any) => r.checklist_key)
       .filter(Boolean) as string[];
+
+    // Phase 33: New parallel queries — borrower, owners, AI risk, structural pricing, period facts
+    const [borrowerResult, ownersResult, aiRiskResult, structuralPricingResult, periodFactsResult] = await Promise.all([
+      deal.borrower_id
+        ? (sb as any).from("borrowers").select("naics_code, naics_description, legal_name, ein, city, state, entity_type").eq("id", deal.borrower_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+      (sb as any).from("ownership_entities").select("*").eq("deal_id", args.dealId).limit(10),
+      (sb as any).from("ai_risk_runs").select("grade, base_rate_bps, risk_premium_bps, factors, pricing_explain, created_at").eq("deal_id", args.dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      (sb as any).from("deal_structural_pricing").select("*").eq("deal_id", args.dealId).order("computed_at", { ascending: false }).limit(1).maybeSingle(),
+      (sb as any)
+        .from("deal_financial_facts")
+        .select("fact_key, fact_value_num, fact_period_end")
+        .eq("deal_id", args.dealId)
+        .in("fact_key", [
+          "TOTAL_REVENUE", "NET_INCOME", "DEPRECIATION", "INTEREST_EXPENSE", "RENT_EXPENSE",
+          "COST_OF_GOODS_SOLD", "GROSS_PROFIT", "TOTAL_OPERATING_EXPENSES", "OPERATING_INCOME", "EBITDA",
+        ])
+        .not("fact_value_num", "is", null)
+        .order("fact_period_end", { ascending: false })
+        .limit(60),
+    ]);
+
+    const borrower = borrowerResult.data as any | null;
+    const ownerEntities = (ownersResult.data ?? []) as any[];
+    const aiRisk = aiRiskResult.data as any | null;
+    const pricingRow = structuralPricingResult.data as any | null;
+
+    // Group period facts by period_end
+    const factsByPeriod: Record<string, Record<string, number>> = {};
+    for (const f of ((periodFactsResult.data ?? []) as any[])) {
+      if (!factsByPeriod[f.fact_period_end]) factsByPeriod[f.fact_period_end] = {};
+      factsByPeriod[f.fact_period_end][f.fact_key] = Number(f.fact_value_num);
+    }
 
     const financial = {
       cashFlowAvailable: metricValueFromSnapshot({ snapshot, metric: "cash_flow_available", label: "Cash Flow Available" }),
@@ -233,7 +268,7 @@ export async function buildCanonicalCreditMemo(args: {
       ? sourcesUses.bankLoanTotal
       : dealAmount === null
         ? pendingMetric()
-        : { value: dealAmount, source: "Deal:amount", updated_at: null };
+        : { value: dealAmount, source: "Deal:loan_amount", updated_at: null };
 
     // ===== Phase 1A: debt_yield and cap_rate =====
     const noiForRatios = metricValueFromSnapshot({ snapshot, metric: "noi_ttm", label: "NOI TTM" });
@@ -289,15 +324,23 @@ export async function buildCanonicalCreditMemo(args: {
       "Compliance with all environmental laws and regulations",
     ];
 
+    // Insurance conditions
+    const insuranceConditions = [
+      "Hazard insurance covering all business personal property at replacement value",
+      "General liability insurance of not less than $1,000,000 with Lender as additional insured",
+      "Workers' Compensation insurance as required by law",
+    ];
+    if (loanAmount.value !== null && loanAmount.value > 150_000) {
+      insuranceConditions.push(`Life insurance assignment on principal guarantor in amount of ${formatCurrencySimple(Math.min(loanAmount.value, 500_000))}`);
+    }
+
     // ===== Phase 1G: Proposed terms from pricing =====
-    // Prefer institutional pricing decision over legacy locked quote
     const scenarioStructure = pricingScenario?.structure as any | null;
     let proposedProduct: string;
     let proposedRate: { all_in_rate: number | null; index: string; margin_bps: number | null };
     let proposedRationale: string;
 
     if (pricingDecision && scenarioStructure) {
-      // Authoritative pricing from decision system
       proposedProduct = `${pricingScenario.product_type ?? "Term Loan"} — ${scenarioStructure.index_code ?? ""}`;
       proposedRate = {
         all_in_rate: scenarioStructure.all_in_rate_pct ?? null,
@@ -306,7 +349,6 @@ export async function buildCanonicalCreditMemo(args: {
       };
       proposedRationale = `${pricingDecision.decision}: ${pricingDecision.rationale}`;
     } else if (pricingQuote) {
-      // Fallback to legacy locked quote
       proposedProduct = `${loanReq?.product_type ?? "Term Loan"} — ${pricingQuote.index_code}`;
       proposedRate = {
         all_in_rate: pricingQuote.all_in_rate_pct != null ? Number(pricingQuote.all_in_rate_pct) : null,
@@ -332,17 +374,12 @@ export async function buildCanonicalCreditMemo(args: {
     if (pricingDecision?.risks && Array.isArray(pricingDecision.risks)) {
       for (const r of pricingDecision.risks) {
         if (r.risk && !riskFactors.some((existing: any) => existing.risk === r.risk)) {
-          riskFactors.push({
-            risk: r.risk,
-            severity: r.severity ?? "medium",
-            mitigants: [],
-          });
+          riskFactors.push({ risk: r.risk, severity: r.severity ?? "medium", mitigants: [] });
         }
       }
     }
     if (pricingDecision?.mitigants && Array.isArray(pricingDecision.mitigants)) {
       for (const m of pricingDecision.mitigants) {
-        // Attach mitigants to the last risk factor or create a catch-all
         if (riskFactors.length > 0) {
           riskFactors[riskFactors.length - 1].mitigants.push(m.mitigant ?? String(m));
         }
@@ -353,10 +390,7 @@ export async function buildCanonicalCreditMemo(args: {
     if (pricingScenario?.policy_overlays && Array.isArray(pricingScenario.policy_overlays)) {
       for (const overlay of pricingScenario.policy_overlays) {
         if (overlay.impact && !policyExceptions.some((e: any) => e.exception === overlay.rule)) {
-          policyExceptions.push({
-            exception: overlay.rule,
-            rationale: overlay.impact,
-          });
+          policyExceptions.push({ exception: overlay.rule, rationale: overlay.impact });
         }
       }
     }
@@ -372,7 +406,7 @@ export async function buildCanonicalCreditMemo(args: {
       : "Pending";
 
     // ===== Phase 1C: Loan request derived fields =====
-    const loanReqPurpose = loanReq?.purpose ?? "Pending";
+    const loanReqPurpose = loanReq?.purpose ?? loanReq?.use_of_proceeds ?? "Pending";
     const loanReqProduct = loanReq?.product_type ?? "—";
     const loanReqTermMonths = loanReq?.requested_term_months ?? null;
     const rateSummary = scenarioStructure
@@ -383,6 +417,23 @@ export async function buildCanonicalCreditMemo(args: {
           ? `${loanReq.requested_rate_type}${loanReq.requested_rate_index ? ` (${loanReq.requested_rate_index})` : ""}${loanReq.requested_spread_bps ? ` + ${loanReq.requested_spread_bps}bps` : ""}`
           : "—";
 
+    // Key metrics rate fields
+    const rateIndex = proposedRate.index;
+    const rateSpreadPct = proposedRate.margin_bps !== null ? proposedRate.margin_bps / 100 : null;
+    const rateInitialPct = proposedRate.all_in_rate;
+    const rateType: "Fixed" | "Variable" | null =
+      loanReq?.requested_rate_type === "FIXED" ? "Fixed" :
+      loanReq?.requested_rate_type === "VARIABLE" ? "Variable" :
+      null;
+    const amortMonths = pricingRow?.amort_months ?? loanReq?.requested_amort_months ?? null;
+    const monthlyPayment = pricingRow?.monthly_payment_est
+      ? Number(pricingRow.monthly_payment_est)
+      : (financial.annualDebtService.value !== null ? Math.round(financial.annualDebtService.value / 12) : null);
+    const guarantyPct = condIsSba
+      ? (loanAmount.value !== null && loanAmount.value <= 150_000 ? 85 : 75)
+      : null;
+    const sbaSop = condIsSba ? "SBA SOP 50 10 7" : null;
+
     // ===== Phase 2: Recommendation & Verdict =====
     const adsVal = financial.annualDebtService.value;
     const hasMinimalData = financial.dscrGlobal.value !== null || adsVal !== null;
@@ -392,15 +443,15 @@ export async function buildCanonicalCreditMemo(args: {
       recommendation = {
         verdict: "pending",
         headline: "Recommendation pending — insufficient financial data.",
-        risk_grade: "pending",
+        risk_grade: aiRisk?.grade ?? "pending",
         risk_score: null,
         confidence: null,
         rationale: ["Upload financial documents to generate underwriting recommendation."],
         key_drivers: [],
         mitigants: [],
+        exceptions: policyExceptions.map(e => e.exception),
       };
     } else {
-      // Build UnderwritingResults from snapshot
       const uwResults: UnderwritingResults = {
         policy_min_dscr: 1.25,
         annual_debt_service: adsVal,
@@ -421,14 +472,189 @@ export async function buildCanonicalCreditMemo(args: {
       recommendation = {
         verdict: verdict.level,
         headline: verdict.headline,
-        risk_grade: scoreResult.grade,
+        risk_grade: aiRisk?.grade ?? scoreResult.grade,
         risk_score: scoreResult.score,
         confidence: scoreResult.confidence,
         rationale: verdict.rationale,
         key_drivers: verdict.key_drivers,
         mitigants: verdict.mitigants,
+        exceptions: policyExceptions.map(e => e.exception),
       };
     }
+
+    // ===== Phase 33: Build debt_coverage_table =====
+    const debtCoverageTable: DebtCoverageRow[] = [];
+    const structuralAds = pricingRow?.annual_debt_service_est
+      ? Number(pricingRow.annual_debt_service_est)
+      : (financial.annualDebtService.value ?? null);
+
+    for (const [period, facts] of Object.entries(factsByPeriod).slice(0, 3)) {
+      const rev = facts["TOTAL_REVENUE"] ?? null;
+      const ni = facts["NET_INCOME"] ?? null;
+      const dep = facts["DEPRECIATION"] ?? null;
+      const interest = facts["INTEREST_EXPENSE"] ?? null;
+      const cfa = ni !== null ? (dep !== null ? ni + dep : ni) : null;
+      const dscrVal = (cfa !== null && structuralAds !== null && structuralAds > 0) ? Math.round((cfa / structuralAds) * 100) / 100 : null;
+
+      debtCoverageTable.push({
+        label: period.slice(0, 10),
+        period_end: period.slice(0, 10),
+        months: 12,
+        revenue: rev,
+        net_income: ni,
+        addback_rent: null,
+        addback_interest: interest,
+        addback_depreciation: dep,
+        addback_officer_salary: null,
+        deduct_payroll: null,
+        deduct_officer_draw: null,
+        cash_flow_available: cfa,
+        debt_service: structuralAds,
+        excess_cash_flow: cfa !== null && structuralAds !== null ? cfa - structuralAds : null,
+        dscr: dscrVal,
+        debt_service_stressed: structuralAds !== null ? Math.round(structuralAds * 1.03) : null,
+        dscr_stressed: (cfa !== null && structuralAds !== null && structuralAds > 0) ? Math.round((cfa / (structuralAds * 1.03)) * 100) / 100 : null,
+        is_projection: false,
+      });
+    }
+
+    // ===== Phase 33: Build income_statement_table =====
+    const incomeStatementTable: IncomeStatementRow[] = [];
+    for (const [period, facts] of Object.entries(factsByPeriod).slice(0, 3)) {
+      const rev = facts["TOTAL_REVENUE"] ?? null;
+      const cogs = facts["COST_OF_GOODS_SOLD"] ?? null;
+      const gp = facts["GROSS_PROFIT"] ?? (rev !== null && cogs !== null ? rev - cogs : null);
+      const opex = facts["TOTAL_OPERATING_EXPENSES"] ?? null;
+      const opinc = facts["OPERATING_INCOME"] ?? (gp !== null && opex !== null ? gp - opex : null);
+      const ni = facts["NET_INCOME"] ?? null;
+      const ebitda = facts["EBITDA"] ?? null;
+      const dep = facts["DEPRECIATION"] ?? null;
+      const interest = facts["INTEREST_EXPENSE"] ?? null;
+
+      incomeStatementTable.push({
+        label: period.slice(0, 10),
+        period_end: period.slice(0, 10),
+        months: 12,
+        revenue: rev,
+        revenue_pct: null,
+        cogs: cogs,
+        cogs_pct: rev && cogs ? Math.round((cogs / rev) * 10000) / 100 : null,
+        gross_profit: gp,
+        gross_margin: rev && gp ? Math.round((gp / rev) * 10000) / 100 : null,
+        operating_expenses: opex,
+        opex_pct: rev && opex ? Math.round((opex / rev) * 10000) / 100 : null,
+        operating_income: opinc,
+        operating_margin: rev && opinc ? Math.round((opinc / rev) * 10000) / 100 : null,
+        net_income: ni,
+        net_margin: rev && ni ? Math.round((ni / rev) * 10000) / 100 : null,
+        ebitda: ebitda,
+        depreciation: dep,
+        interest_expense: interest,
+        is_projection: false,
+      });
+    }
+
+    // ===== Phase 33: Build strengths & weaknesses =====
+    const strengths: Array<{ point: string; detail: string | null }> = [];
+    const weaknesses: Array<{ point: string; mitigant: string | null }> = [];
+
+    if (aiRisk?.factors) {
+      for (const f of (aiRisk.factors as any[])) {
+        if (f.direction === "positive") {
+          strengths.push({ point: f.label, detail: f.rationale ?? null });
+        } else if (f.direction === "negative") {
+          weaknesses.push({ point: f.label, mitigant: null });
+        }
+      }
+    }
+
+    if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= 1.25) {
+      strengths.push({ point: `Adequate debt service coverage (${financial.dscrGlobal.value.toFixed(2)}x)`, detail: null });
+    } else if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value < 1.25) {
+      weaknesses.push({ point: `DSCR below policy minimum (${financial.dscrGlobal.value.toFixed(2)}x < 1.25x)`, mitigant: "Enhanced monitoring required" });
+    }
+
+    // ===== Phase 33: Build eligibility =====
+    const eligibility: CanonicalCreditMemoV1["eligibility"] = {
+      naics_code: borrower?.naics_code ?? null,
+      naics_description: borrower?.naics_description ?? null,
+      sba_size_standard_revenue: null,
+      applicant_revenue: metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Revenue" }).value,
+      employee_count: null,
+      is_exporter: null,
+      franchise_name: null,
+      naics_sba_stats: null,
+      credit_available_elsewhere: "Credit is not available elsewhere at equivalent terms without SBA guaranty assistance.",
+      benefit_to_small_business: loanReqPurpose,
+    };
+
+    // ===== Phase 33: Build management qualifications =====
+    const managementQualifications: CanonicalCreditMemoV1["management_qualifications"] = {
+      principals: ownerEntities.map((o: any) => ({
+        name: o.name ?? o.legal_name ?? "Unknown",
+        ownership_pct: o.ownership_pct ?? null,
+        title: o.title ?? null,
+        bio: "Pending — complete borrower interview to populate management qualifications.",
+        years_experience: null,
+        prior_roles: [],
+        other_income_sources: null,
+      })),
+    };
+
+    // ===== Phase 33: Build personal financial statements =====
+    const personalFinancialStatements: GuarantorBudget[] = bindings.sponsors.map((s: any) => ({
+      owner_entity_id: s.ownerEntityId,
+      name: s.name ?? null,
+      pfs_date: null,
+      credit_score: null,
+      post_closing_liquidity: null,
+      cash_equivalents: null,
+      stocks_bonds: null,
+      primary_residence_value: null,
+      autos: null,
+      retirement: null,
+      total_assets: s.totalAssets ?? null,
+      revolving_debt: null,
+      installment_debt: null,
+      real_estate_debt: null,
+      total_liabilities: s.totalLiabilities ?? null,
+      net_worth: s.netWorth ?? null,
+      monthly_gross_salary: s.totalPersonalIncome !== null && s.totalPersonalIncome !== undefined ? s.totalPersonalIncome / 12 : null,
+      monthly_rental_income: null,
+      monthly_other_income: null,
+      total_monthly_income: s.totalPersonalIncome !== null && s.totalPersonalIncome !== undefined ? s.totalPersonalIncome / 12 : null,
+      annual_income: s.totalPersonalIncome ?? null,
+      monthly_mortgage: null,
+      monthly_heloc: null,
+      monthly_auto_installment: null,
+      monthly_revolving: null,
+      monthly_living: null,
+      monthly_taxes: null,
+      monthly_misc: null,
+      total_monthly_expenses: s.totalObligations !== null && s.totalObligations !== undefined ? s.totalObligations / 12 : null,
+      annual_expenses: s.totalObligations ?? null,
+      net_discretionary_income: (s.totalPersonalIncome != null && s.totalObligations != null) ? s.totalPersonalIncome - s.totalObligations : null,
+    }));
+
+    // ===== Phase 33: Collateral line items =====
+    const collateralLineItems = [
+      {
+        description: collateralFromSnapshot.grossValue.value !== null ? "Real Property / Business Assets (Combined)" : "Pending — collateral appraisal required",
+        address: "",
+        gross_value: collateralFromSnapshot.grossValue.value,
+        advance_rate_pct: 0.80,
+        net_value: collateralFromSnapshot.netValue.value,
+        prior_liens: null as number | null,
+        net_equity: null as number | null,
+        lien_position: "1st",
+        is_existing: true,
+      },
+    ];
+
+    const lifeInsuranceRequired = loanAmount.value !== null && loanAmount.value > 150_000;
+    const lifeInsuranceAmount = lifeInsuranceRequired && loanAmount.value !== null
+      ? Math.min(loanAmount.value, 500_000)
+      : null;
 
     const memo: CanonicalCreditMemoV1 = {
       version: "canonical_v1",
@@ -444,24 +670,142 @@ export async function buildCanonicalCreditMemo(args: {
           borrower_name: deal.borrower_name ?? null,
           name: deal.name ?? null,
         }),
-        borrower_name: String(deal.borrower_name ?? "—"),
+        borrower_name: String(deal.borrower_name ?? borrower?.legal_name ?? "—"),
+        guarantors: ownerEntities.map((o: any) => o.name ?? o.legal_name ?? "Unknown").filter(Boolean),
+        lender_name: "Buddy – The Underwriter",
         prepared_by: args.preparedBy ?? "Buddy",
+        underwriting_assistance: aiRisk ? `Buddy AI Risk Assessment (${aiRisk.grade ?? "—"})` : null,
         date: isoDateOnly(new Date()),
         request_summary: loanReqPurpose,
+        action_type: "Original Action",
       },
 
       key_metrics: {
         loan_amount: loanAmount,
         product: loanReqProduct,
         rate_summary: rateSummary,
+        rate_index: rateIndex,
+        rate_base_pct: null,
+        rate_spread_pct: rateSpreadPct,
+        rate_initial_pct: rateInitialPct,
+        rate_type: rateType,
+        term_months: loanReqTermMonths,
+        amort_months: amortMonths !== null ? Number(amortMonths) : null,
+        monthly_payment: monthlyPayment,
+        guaranty_pct: guarantyPct,
+        prepayment_penalty: "None",
         dscr_uw: financial.dscrGlobal,
         dscr_stressed: financial.dscrStressed300bps,
         ltv_gross: ltvGross,
         ltv_net: ltvNet,
+        discounted_coverage: discountedCoverage,
         debt_yield: debtYield,
         cap_rate: capRate,
         stabilization_status: stabilizationStatus,
+        sba_sop: sbaSop,
       },
+
+      sources_uses: {
+        total_project_cost: sourcesUses.totalProjectCost,
+        borrower_equity: sourcesUses.borrowerEquity,
+        borrower_equity_pct: sourcesUses.borrowerEquityPct,
+        bank_loan_total: sourcesUses.bankLoanTotal,
+        sources: [
+          { description: "Bank Loan", amount: sourcesUses.bankLoanTotal },
+          { description: "Borrower Equity", amount: sourcesUses.borrowerEquity },
+        ],
+        uses: [
+          { description: "Total Project Cost", amount: sourcesUses.totalProjectCost },
+        ],
+        equity_source_description: "Borrower cash equity",
+      },
+
+      eligibility,
+
+      collateral: {
+        property_description: "Pending",
+        property_address: "",
+        line_items: collateralLineItems,
+        total_gross: collateralFromSnapshot.grossValue.value,
+        total_net: collateralFromSnapshot.netValue.value,
+        total_net_equity: null,
+        loan_amount: loanAmount.value,
+        discounted_coverage: discountedCoverage,
+        ltv_gross: ltvGross,
+        ltv_net: ltvNet,
+        gross_value: collateralFromSnapshot.grossValue,
+        net_value: collateralFromSnapshot.netValue,
+        discounted_value: collateralFromSnapshot.discountedValue,
+        valuation: {
+          as_is: collateralVals.asIsValue,
+          stabilized: collateralVals.stabilizedValue,
+        },
+        collateral_coverage: discountedCoverage,
+        stabilization_status: stabilizationStatus,
+        is_adequate: null,
+        life_insurance_required: lifeInsuranceRequired,
+        life_insurance_amount: lifeInsuranceAmount,
+        life_insurance_insured: ownerEntities[0]?.name ?? ownerEntities[0]?.legal_name ?? null,
+      },
+
+      business_summary: {
+        business_description: "Pending — complete borrower intake to populate business description.",
+        date_established: null,
+        years_in_operation: null,
+        revenue_mix: "Pending",
+        seasonality: "Pending",
+        geography: borrower?.city && borrower?.state ? `${borrower.city}, ${borrower.state}` : "Pending",
+        marketing_channels: [],
+        competitive_advantages: "Pending",
+        vision: "Pending",
+      },
+
+      business_industry_analysis: researchData,
+
+      management_qualifications: managementQualifications,
+
+      financial_analysis: {
+        income_analysis: "Pending",
+        noi: metricValueFromSnapshot({ snapshot, metric: "noi_ttm", label: "NOI TTM" }),
+        debt_service: financial.annualDebtService,
+        cash_flow_available: financial.cashFlowAvailable,
+        excess_cash_flow: financial.excessCashFlow,
+        dscr: financial.dscrGlobal,
+        dscr_stressed: financial.dscrStressed300bps,
+        debt_yield: debtYield,
+        cap_rate: capRate,
+        revenue: metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Revenue" }),
+        ebitda: metricValueFromSnapshot({ snapshot, metric: "ebitda", label: "EBITDA" }),
+        net_income: metricValueFromSnapshot({ snapshot, metric: "net_income", label: "Net Income" }),
+        working_capital: metricValueFromSnapshot({ snapshot, metric: "working_capital", label: "Working Capital" }),
+        current_ratio: metricValueFromSnapshot({ snapshot, metric: "current_ratio", label: "Current Ratio" }),
+        debt_to_equity: metricValueFromSnapshot({ snapshot, metric: "debt_to_equity", label: "Debt-to-Equity" }),
+        debt_coverage_table: debtCoverageTable,
+        income_statement_table: incomeStatementTable,
+        ratio_analysis: [],
+        breakeven: {
+          required_revenue: null,
+          required_cogs: null,
+          fixed_expenses: null,
+          ebitda_at_breakeven: null,
+          revenue_cushion_pct: null,
+          narrative: "Pending — financial data required to compute breakeven analysis.",
+        },
+        repayment_notes: [],
+        projection_feasibility: "Pending",
+      },
+
+      global_cash_flow: {
+        global_cash_flow: bindingToMetric(bindings.global.globalCashFlow, "Facts:FINANCIAL_ANALYSIS.GCF_GLOBAL_CASH_FLOW"),
+        global_dscr: bindingToMetric(bindings.global.globalDscr, "Facts:FINANCIAL_ANALYSIS.GCF_DSCR"),
+        cash_available: bindingToMetric(bindings.global.cashAvailable, "Computed:PERSONAL_INCOME + PROPERTY_CASH_FLOW"),
+        personal_debt_service: bindingToMetric(bindings.global.personalDebtService, "Computed:SUM(PFS_ANNUAL_DEBT_SERVICE)"),
+        living_expenses: bindingToMetric(bindings.global.livingExpenses, "Computed:SUM(PFS_LIVING_EXPENSES)"),
+        total_obligations: bindingToMetric(bindings.global.totalObligations, "Computed:PERSONAL_DS + LIVING_EXPENSES"),
+        global_cf_table: [],
+      },
+
+      personal_financial_statements: personalFinancialStatements,
 
       executive_summary: {
         narrative:
@@ -494,65 +838,13 @@ export async function buildCanonicalCreditMemo(args: {
         })),
       },
 
-      global_cash_flow: {
-        global_cash_flow: bindingToMetric(bindings.global.globalCashFlow, "Facts:FINANCIAL_ANALYSIS.GCF_GLOBAL_CASH_FLOW"),
-        global_dscr: bindingToMetric(bindings.global.globalDscr, "Facts:FINANCIAL_ANALYSIS.GCF_DSCR"),
-        cash_available: bindingToMetric(bindings.global.cashAvailable, "Computed:PERSONAL_INCOME + PROPERTY_CASH_FLOW"),
-        personal_debt_service: bindingToMetric(bindings.global.personalDebtService, "Computed:SUM(PFS_ANNUAL_DEBT_SERVICE)"),
-        living_expenses: bindingToMetric(bindings.global.livingExpenses, "Computed:SUM(PFS_LIVING_EXPENSES)"),
-        total_obligations: bindingToMetric(bindings.global.totalObligations, "Computed:PERSONAL_DS + LIVING_EXPENSES"),
-      },
-
-      business_industry_analysis: researchData,
-
-      collateral: {
-        property_description: "Pending",
-        property_address: "",
-        gross_value: collateralFromSnapshot.grossValue,
-        net_value: collateralFromSnapshot.netValue,
-        discounted_value: collateralFromSnapshot.discountedValue,
-        discounted_coverage: discountedCoverage,
-        valuation: {
-          as_is: collateralVals.asIsValue,
-          stabilized: collateralVals.stabilizedValue,
-        },
-        collateral_coverage: discountedCoverage,
-        stabilization_status: stabilizationStatus,
-      },
-
-      financial_analysis: {
-        income_analysis: "Pending",
-        noi: metricValueFromSnapshot({ snapshot, metric: "noi_ttm", label: "NOI TTM" }),
-        debt_service: financial.annualDebtService,
-        cash_flow_available: financial.cashFlowAvailable,
-        excess_cash_flow: financial.excessCashFlow,
-        dscr: financial.dscrGlobal,
-        dscr_stressed: financial.dscrStressed300bps,
-        debt_yield: debtYield,
-        cap_rate: capRate,
-        revenue: metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Revenue" }),
-        ebitda: metricValueFromSnapshot({ snapshot, metric: "ebitda", label: "EBITDA" }),
-        net_income: metricValueFromSnapshot({ snapshot, metric: "net_income", label: "Net Income" }),
-        working_capital: metricValueFromSnapshot({ snapshot, metric: "working_capital", label: "Working Capital" }),
-        current_ratio: metricValueFromSnapshot({ snapshot, metric: "current_ratio", label: "Current Ratio" }),
-        debt_to_equity: metricValueFromSnapshot({ snapshot, metric: "debt_to_equity", label: "Debt-to-Equity" }),
-      },
-
-      sources_uses: {
-        total_project_cost: sourcesUses.totalProjectCost,
-        borrower_equity: sourcesUses.borrowerEquity,
-        borrower_equity_pct: sourcesUses.borrowerEquityPct,
-        bank_loan_total: sourcesUses.bankLoanTotal,
-        sources: [
-          { description: "Bank Loan", amount: sourcesUses.bankLoanTotal },
-          { description: "Borrower Equity", amount: sourcesUses.borrowerEquity },
-        ],
-        uses: [
-          { description: "Total Project Cost", amount: sourcesUses.totalProjectCost },
-        ],
-      },
-
       risk_factors: riskFactors,
+
+      strengths_weaknesses: {
+        strengths,
+        weaknesses,
+      },
+
       policy_exceptions: policyExceptions,
 
       proposed_terms: {
@@ -564,15 +856,13 @@ export async function buildCanonicalCreditMemo(args: {
       conditions: {
         precedent: conditionsPrecedent,
         ongoing: conditionsOngoing,
+        insurance: insuranceConditions,
       },
 
       recommendation,
 
       meta: {
-        notes: [
-          "This is the canonical memo shell; formulas + exact standard layout come next.",
-          "Sections are locked; fields never disappear (Pending instead).",
-        ],
+        notes: [],
         readiness,
         data_completeness: bindings.completeness,
         spreads: spreads.map((s: any) => ({
