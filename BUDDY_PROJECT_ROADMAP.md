@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 31 complete | AAR 36 complete — two fixes, deploy and retry**
+**Status: Phase 33 complete — Institutional-grade credit memo (Florida Armory standard)**
 
 ---
 
@@ -48,7 +48,7 @@ Documents (tax returns, financials, statements)
         ↓ AUTO-VERIFIED → Banker reviews for credit judgment only
         ↓ AI Risk Assessment (Gemini 3 Flash)       ✅ BB+ LIVE
         ↓ Institutional Research Engine (BRE)       ✅ Phase 31
-        ↓ Credit Memo (research-grounded)           ✅ Phase 31
+        ↓ Credit Memo (Florida Armory standard)     ✅ Phase 33
         ↓ Committee Package
         ↓ Deposit Profile + Treasury Proposals surfaced automatically
 ```
@@ -75,92 +75,142 @@ Documents (tax returns, financials, statements)
 ### Phase 25–29 ✅ — PR #233, bbee0903, 712961c5
 ### AAR 23–24 ✅ — `document_extracts` persistence, OpenAI schema wrapping
 ### Gemini 3 Flash Orchestrator Cutover ✅ — ORCHESTRATOR_USE_GEMINI3_FLASH=true
-
----
-
-## Phase 30 — Deal Flow to Approval
-
 ### AAR 25–34 ✅ — Full Gemini structured output chain + AI Risk Assessment LIVE (BB+, 975 bps)
+### Phase 31 ✅ — Research Engine activated + Credit Memo gated on research
+### AAR 35 ✅ — Canonical memo error visible + RunResearchButton component
+### AAR 36 ✅ — `deals.loan_amount` fix + sequential borrower query in research route
 
 ---
 
-## Phase 31 — Research Engine Activation + Credit Memo Integration ✅ COMPLETE
+## Phase 32 — Snapshot Bridge: Structural Pricing → Facts → Snapshot ✅ COMPLETE
 
-Research engine wired — `/research/run` triggers `runIndustryLandscapeMission()`.
-Credit memo gated on research — `generateMemo()` receives research narrative context.
-Required sequence enforced in code: AI Risk → Research → Generate Memo.
+**Root cause of all "Pending" metrics on canonical memo:**
+DSCR, ADS, CFA, and Excess CF were computed live in `spread-intelligence/route.ts`
+from `deal_structural_pricing` but never persisted to `deal_financial_facts`. The
+snapshot engine (`buildDealFinancialSnapshotForBank`) reads only from facts — so
+DSCR was null in every snapshot across the entire platform (confirmed: 0 rows with
+DSCR populated in `financial_snapshots`).
+
+**Fix — `src/app/api/deals/[dealId]/spread-intelligence/route.ts`:**
+After computing DSCR and ADS from the reconciliation triangle and `deal_structural_pricing`,
+write back to `deal_financial_facts` as FINANCIAL_ANALYSIS facts:
+- `ANNUAL_DEBT_SERVICE` — from `deal_structural_pricing.annual_debt_service_est`
+- `DSCR` — from reconciliation triangle (global → entity → uca priority)
+- `CASH_FLOW_AVAILABLE` — from `entityCashFlowAvailable`
+- `EXCESS_CASH_FLOW` — CFA - ADS
+
+Then immediately rebuild and persist the snapshot via `buildDealFinancialSnapshotForBank`
++ `persistFinancialSnapshot`. Non-fatal — wrapped in try/catch, never blocks response.
+
+**Trigger:** Hitting "Regenerate" on Classic Spreads calls `spread-intelligence/GET`,
+which now bridges the computed metrics through to the snapshot and credit memo.
 
 ---
 
-## AAR 35 — Canonical memo page: error visibility + RunResearchButton ✅ COMPLETE
+## Phase 33 — Institutional-Grade Credit Memo (Florida Armory Standard) ✅ COMPLETE
 
-Error path made visible (red card). `RunResearchButton` component created and added
-to both error and success paths. See prior roadmap entry for full details.
+**Reference standard:** Florida Armory LLC SBA 7(a) write-up — 18-page institutional
+credit memo used as the exact layout and content target.
 
----
+**What shipped (commit b1233493):**
 
-## AAR 36 — `deals.amount` → `loan_amount` + research route sequential borrower query ✅ COMPLETE
+**FILE 1 — `src/lib/creditMemo/canonical/types.ts`:**
+Expanded `CanonicalCreditMemoV1` with 6 new row types and ~10 new top-level sections:
+- `DebtCoverageRow` — multi-period debt coverage table (Interim/Year 1/Year 2)
+- `IncomeStatementRow` — multi-period P&L with % columns
+- `RatioAnalysisRow` — ratios vs IBISWorld 10yr averages
+- `CollateralLineItem` — itemized collateral with advance rates and lien positions
+- `GlobalCFRow` — combined business + personal CF by period
+- `GuarantorBudget` — per-guarantor PFS assets/liabilities + monthly budget analysis
+New sections: `eligibility`, `business_summary`, `management_qualifications`,
+`personal_financial_statements`, `strengths_weaknesses`, extended `collateral`
+(line_items, life_insurance), extended `header` (guarantors, lender_name, action_type,
+sba_sop), extended `key_metrics` (rate details, monthly_payment, guaranty_pct),
+extended `financial_analysis` (debt_coverage_table, income_statement_table,
+ratio_analysis, breakeven), extended `global_cash_flow` (global_cf_table),
+extended `conditions` (insurance[]), extended `recommendation` (exceptions[]).
 
-Two root causes identified from the visible error card (AAR 35 made this possible):
+**FILE 2 — `src/lib/creditMemo/canonical/buildCanonicalCreditMemo.ts`:**
+Parallel DB queries for borrower, ownership entities, AI risk run, structural pricing,
+and multi-period facts. Builds debt_coverage_table, income_statement_table,
+strengths_weaknesses (from AI risk factors + computed metrics), eligibility (from
+NAICS), management_qualifications (from ownership_entities), personal_financial_statements
+(from sponsor bindings), collateral line items, rate fields, and insurance conditions.
 
-**Root cause 1 — `deals.amount` column does not exist:**
-`buildCanonicalCreditMemo.ts` selected `amount` from the `deals` table and used
-`deal.amount` to derive `dealAmount`. The correct column name is `loan_amount`.
-Error message: `deal_select_failed:column deals.amount does not exist`
+**FILE 3 — `src/components/creditMemo/CanonicalMemoTemplate.tsx`:**
+Full institutional layout matching Florida Armory format exactly: 15+ sections,
+inline table helper components, pivot tables for debt coverage / income statement /
+global CF, PFS per-guarantor layout, approval signature block, gray-italic "Pending"
+placeholders. Typography: `text-sm` body, `text-xs` tables, right-aligned numbers,
+`bg-gray-100` section headers.
 
-**Fix — `src/lib/creditMemo/canonical/buildCanonicalCreditMemo.ts`:**
-- Select `loan_amount` instead of `amount` in the deals query
-- Derive `dealAmount` from `deal.loan_amount` instead of `deal.amount`
-
-**Root cause 2 — Research route Supabase join `borrowers(...)` failed:**
-The join syntax `borrowers(naics_code, ...)` in the deals select requires a
-declared foreign key relationship in Supabase's schema cache. If the FK isn't
-registered, the join fails with a 500 before any mission is created (confirmed:
-zero rows in `buddy_research_missions`).
-
-**Fix — `src/app/api/deals/[dealId]/research/run/route.ts`:**
-Replaced the single joined query with two sequential queries:
-1. Load deal: `SELECT id, borrower_id, state FROM deals WHERE id = dealId`
-2. Load borrower: `SELECT naics_code, naics_description, legal_name, city, state FROM borrowers WHERE id = deal.borrower_id`
-
-`naicsCode`, `legalName`, `borrowerState` declared inline from borrower query results,
-with fallback to `"999999"` if NAICS missing. Never blocks mission creation.
-
-**Build principle:** Never use Supabase join syntax `related_table(columns)` without
-confirming the FK relationship is declared in the schema. Use sequential queries as
-the safe default for cross-table lookups.
+**Sections now rendered:**
+1. Readiness bar + data coverage
+2. Header box (bank, date, borrower, action type)
+3. Financing Request box (loan #, amount, rate, term, SBA program, monthly payment, guaranty %)
+4. Deal Summary / Purpose
+5. Sources & Uses table (Use | Bank Loan | Equity | Total)
+6. Collateral Analysis table (itemized, advance rates, lien positions, discounted coverage)
+7. Eligibility (NAICS, SBA size standard, historical NAICS SBA stats when available)
+8. Business & Industry Analysis (from BRE research)
+9. Management Qualifications (principals table + bio)
+10. Financial Analysis — Debt Coverage Table (multi-period, stressed DSCR)
+11. New Debt table
+12. Global Cash Flow table (combined business + personal, multi-period)
+13. Income Statement table (multi-period, % columns, IBISWorld benchmarks)
+14. Repayment ability + projection feasibility + breakeven
+15. Personal Financial Statement per guarantor (assets/liabilities + monthly budget)
+16. Strengths & Weaknesses
+17. Policy Exceptions
+18. Proposed Terms
+19. Conditions (precedent, ongoing, insurance)
+20. Recommendation + Approval signature block
 
 ---
 
 ## Current State — Active Deals
 
 **Deal ffcc9733** — Samaritus Management LLC (primary active)
-9/9 docs extracted. Revenue: $798K → $1.2M → $1.5M → $1.4M.
-EBITDA: $326K → $475K → $557K → $368K. ADS=$67,368. DSCR=5.47x.
+`borrower_id = null`, `loan_amount = null` — foundational data gaps.
+9/9 docs extracted. Revenue: $1.36M (latest). ADS=$67,368 (structural pricing).
 ✅ AI Risk Assessment LIVE: BB+ grade, 975 bps
-**Next: Deploy → Credit Memo page → Run Research → Generate Narratives**
+✅ Snapshot bridge: DSCR/ADS will populate after "Regenerate" on Classic Spreads
+
+**Immediate sequence:**
+1. Classic Spreads → Regenerate (triggers Phase 32 bridge → DSCR/ADS into facts → snapshot)
+2. Credit Memo → Run Research (first live BRE mission)
+3. Credit Memo → Generate Narratives (Gemini 3 Flash with research context)
+4. Review Phase 33 institutional memo layout
+
+**Remaining blockers for Committee Approve:**
+- `borrower_id = null` — links deal to borrower for NAICS, eligibility section
+- `loan_amount = null` on deal record — needed for LTV, equity %, financing request box
+- Reconciliation CLEAN/FLAGS ❌
+- Extraction confidence ≥ 85% ❌
 
 ---
 
 ## Known Gaps — Priority Order
 
-### P1 — Immediate: Complete deal ffcc9733 approval flow
+### P1 — Immediate
 
-1. **✅ Risk tab → AI Risk Assessment** — COMPLETE. BB+ grade live.
-2. **Credit Memo tab → "Run Research"** — button on canonical memo page. Deploy AAR 36 first.
-3. **Credit Memo tab → "Generate Narratives"** — gated on research.
-4. **Classic Spreads → "Regenerate"** — picks up all Phase 29/30 fixes.
-5. **Reconciliation** — `recon_status` NULL. Blocks Committee.
-6. **Audit certificates** — 0 certs.
-
-**Committee "Approve" signal requires:** DSCR ≥ 1.25x ✅, 0 critical flags ✅,
-Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial data ✅, Pricing ✅.
+1. **✅ AI Risk Assessment** — BB+ grade live
+2. **✅ Phase 32** — Snapshot bridge deployed
+3. **✅ Phase 33** — Institutional memo layout deployed
+4. **Classic Spreads → Regenerate** — activates Phase 32 bridge for ffcc9733
+5. **Link deal to borrower** — set `borrower_id` and `loan_amount` on deal ffcc9733
+6. **Run Research** — first live BRE mission
+7. **Generate Narratives** — first research-grounded memo
+8. **Reconciliation** — `recon_status` NULL. Blocks Committee.
 
 ### P2 — Near Term
 
-- **Model Engine V2 activation** — feature flag disabled, DB tables empty.
-- **Observability pipeline** — missing env vars.
-- **Corpus expansion** — 2 Samaritus docs. Need 10+ across industries.
+- **Model Engine V2 activation** — feature flag disabled, DB tables empty
+- **Observability pipeline** — missing env vars
+- **Corpus expansion** — 2 Samaritus docs. Need 10+ across industries
+- **NAICS SBA historical stats** — Lumos data integration for eligibility section
+- **Management qualifications** — requires intake interview data capture
+- **Projection years** — Year 1/Year 2 rows in debt coverage and income statement tables
 
 ### P3 — Future
 
@@ -206,18 +256,21 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 1–32. ✅ All foundation phases and MMAS sprint items complete.
 33. ✅ Gemini 3 Flash orchestrator cutover complete
 34–42. ✅ Gemini structured output chain (AARs 24–32)
-43. ✅ Research-grounded: `responseJsonSchema`, no schema in prompt, `thinkingLevel: "minimal"` (AAR 33)
+43. ✅ Research-grounded: `responseJsonSchema`, minimal thinking (AAR 33)
 44. ✅ AI Risk Assessment LIVE — BB+ grade, 975 bps (AAR 34)
-45. ✅ Research Engine activated — `/research/run` wired (Phase 31)
+45. ✅ Research Engine activated (Phase 31)
 46. ✅ Credit Memo gated on research (Phase 31)
 47. ✅ Canonical memo error visible + RunResearchButton (AAR 35)
-48. ✅ **`deals.amount` → `loan_amount` + sequential borrower query (AAR 36)**
-49. 🔴 Run Research on ffcc9733 — first live mission
-50. 🔴 Generate Credit Memo — first research-grounded memo
-51. 🔴 Classic Spreads regenerated
-52. 🔴 Reconciliation complete — Committee Approve signal unlocked
-53. 🔴 Spread completeness ≥80%
-54. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+48. ✅ `deals.loan_amount` fix + sequential borrower query (AAR 36)
+49. ✅ **Snapshot bridge: ADS/DSCR → facts → snapshot (Phase 32)**
+50. ✅ **Institutional memo layout — Florida Armory standard (Phase 33)**
+51. 🔴 Classic Spreads regenerated — activates Phase 32 bridge for ffcc9733
+52. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
+53. 🔴 Run Research on ffcc9733 — first live mission
+54. 🔴 Generate Credit Memo — first research-grounded memo at institutional standard
+55. 🔴 Reconciliation complete — Committee Approve signal unlocked
+56. 🔴 Spread completeness ≥80%
+57. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -238,8 +291,8 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 - reextract-all bypasses gatekeeper entirely — shadow never fires.
 - Gemini extraction is duration-unpredictable. Always queue as outbox events.
 - Shadow mode for model migrations: gate with shadow flag, flip cutover after
-  ≥20 rows at ≥95% agree. **Exception: if primary is broken and gate cannot
-  fill, bypass it directly.**
+  ≥20 rows at ≥95% agree. **Exception: if primary is broken and gate cannot fill,
+  bypass it directly.**
 - **`zodToJsonSchema(schema, name)` with string name = `$ref`-wrapped document.
   Always use `{ $refStrategy: "none" }` + strip `$schema` key for OpenAI.**
 - **OpenAI strict mode requires `additionalProperties: false` recursively on all
@@ -257,7 +310,7 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
   Both must be present in Vercel.**
 - **Gemini 3 Flash structured output — final working pattern:**
   - `responseMimeType: "application/json"` only — no `responseJsonSchema`, no `responseSchema`
-  - Clean `structureHint` string in prompt; `zodToJsonSchema` output causes serialization failure
+  - Clean `structureHint` string in prompt; `zodToJsonSchema` causes serialization failure
   - `thinkingLevel: "minimal"` is the lowest valid level; `thinkingBudget` is Gemini 2.5-series only
   - Evidence arrays must be `.optional().default([])` in Zod schemas
 - **Research must complete before credit memo generation.** A memo without research
@@ -266,9 +319,14 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 - **Error paths on server-rendered pages must use dark backgrounds with explicitly
   colored text. White text on no background is invisible.**
 - **Never use Supabase join syntax `related_table(columns)` without confirming the FK
-  relationship is declared in the schema. Use sequential queries as the safe default
-  for cross-table lookups.**
+  relationship is declared in the schema. Use sequential queries as the safe default.**
 - **`deals.loan_amount` is the correct column — not `deals.amount`.**
+- **DSCR and ADS must be persisted to `deal_financial_facts` after every
+  spread-intelligence computation — the snapshot engine reads only from facts.**
+- **The canonical credit memo target standard is the Florida Armory SBA 7(a) write-up:
+  18 sections, multi-period pivot tables, PFS per guarantor, collateral itemized with
+  advance rates, eligibility with NAICS SBA stats, strengths/weaknesses, approval
+  signature block.**
 
 ---
 
@@ -286,7 +344,9 @@ Reconciliation CLEAN/FLAGS ❌, Extraction confidence ≥ 85% ❌, Financial dat
 | AAR 33–34 | Research-grounded + AI Risk Assessment LIVE | ✅ Complete | — |
 | Phase 31 | Research Engine activated + Credit Memo gated | ✅ Complete | — |
 | AAR 35 | Canonical memo error visible + RunResearchButton | ✅ Complete | — |
-| **AAR 36** | **`deals.loan_amount` fix + sequential borrower query** | **✅ Complete** | **—** |
+| AAR 36 | `deals.loan_amount` fix + sequential borrower query | ✅ Complete | — |
+| **Phase 32** | **Snapshot bridge: ADS/DSCR → facts → snapshot** | **✅ Complete** | **—** |
+| **Phase 33** | **Institutional memo — Florida Armory standard** | **✅ Complete** | **b1233493** |
 | Phase 30 remaining | Narratives, Classic Spreads, Reconciliation, Committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
