@@ -27,11 +27,16 @@ export type MemoResearchData = {
 };
 
 const SECTION_MAP: Record<string, keyof Pick<MemoResearchData, "industry_overview" | "market_dynamics" | "competitive_positioning" | "regulatory_environment">> = {
+  "Industry Overview": "industry_overview",
   "Industry Landscape": "industry_overview",
   "Market Demand": "market_dynamics",
+  "Market Dynamics": "market_dynamics",
   "Demographics": "market_dynamics",
+  "Competitive Landscape": "competitive_positioning",
   "Competitive Analysis": "competitive_positioning",
   "Regulatory Environment": "regulatory_environment",
+  "Summary": "industry_overview",
+  "Institutional Insights": "market_dynamics",
 };
 
 function sectionsToText(pack: CreditCommitteePack, ...titles: string[]): string {
@@ -109,9 +114,9 @@ export async function loadResearchForMemo(args: {
   const pack = result.pack;
 
   return {
-    industry_overview: sectionsToText(pack, "Industry Landscape"),
-    market_dynamics: sectionsToText(pack, "Market Demand", "Demographics"),
-    competitive_positioning: sectionsToText(pack, "Competitive Analysis"),
+    industry_overview: sectionsToText(pack, "Industry Overview", "Industry Landscape", "Summary"),
+    market_dynamics: sectionsToText(pack, "Market Demand", "Market Dynamics", "Demographics", "Institutional Insights"),
+    competitive_positioning: sectionsToText(pack, "Competitive Landscape", "Competitive Analysis"),
     regulatory_environment: sectionsToText(pack, "Regulatory Environment"),
     risk_indicators: pack.risk_indicators.map((ri) => ({
       category: ri.category,
