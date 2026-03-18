@@ -23,6 +23,15 @@ const NARRATIVES_SCHEMA = `{
   "guarantor_strength": "1 paragraph: guarantor net worth, liquidity, income adequacy"
 }`;
 
+const FALLBACK_NARRATIVES: MemoNarratives = {
+  executive_summary: "Narrative generation unavailable.",
+  income_analysis: "Narrative generation unavailable.",
+  property_description: "Narrative generation unavailable.",
+  borrower_background: "Narrative generation unavailable.",
+  borrower_experience: "Narrative generation unavailable.",
+  guarantor_strength: "Narrative generation unavailable.",
+};
+
 function buildNarrativeInput(memo: CanonicalCreditMemoV1): Record<string, any> {
   return {
     deal_name: memo.header.deal_name,
@@ -83,19 +92,23 @@ export async function assembleNarratives(args: {
   const input = buildNarrativeInput(memo);
   const inputHash = computeInputHash(input);
 
-  // Check cache
+  // Check cache — wrapped defensively in case table schema differs
   if (!args.forceRegenerate) {
-    const { data: cached } = await (sb as any)
-      .from("canonical_memo_narratives")
-      .select("narratives")
-      .eq("deal_id", memo.deal_id)
-      .eq("bank_id", memo.bank_id)
-      .eq("input_hash", inputHash)
-      .limit(1)
-      .maybeSingle();
+    try {
+      const { data: cached, error: cacheErr } = await (sb as any)
+        .from("canonical_memo_narratives")
+        .select("narratives")
+        .eq("deal_id", memo.deal_id)
+        .eq("bank_id", memo.bank_id)
+        .eq("input_hash", inputHash)
+        .limit(1)
+        .maybeSingle();
 
-    if (cached?.narratives) {
-      return cached.narratives as MemoNarratives;
+      if (!cacheErr && cached?.narratives) {
+        return cached.narratives as MemoNarratives;
+      }
+    } catch {
+      // table may not have input_hash column — fall through to generation
     }
   }
 
@@ -111,40 +124,40 @@ export async function assembleNarratives(args: {
     "Generate credit memo narrative sections from this structured deal data:\n\n" +
     JSON.stringify(input, null, 2);
 
-  const res = await aiJson<MemoNarratives>({
-    scope: "credit_memo_narratives",
-    action: "assemble",
-    system,
-    user,
-    jsonSchemaHint: NARRATIVES_SCHEMA,
-  });
+  // Wrap aiJson in try/catch — if it throws (network, auth, quota), return
+  // the fallback narratives rather than propagating a 500 to the route.
+  let narratives: MemoNarratives;
+  try {
+    const res = await aiJson<MemoNarratives>({
+      scope: "credit_memo_narratives",
+      action: "assemble",
+      system,
+      user,
+      jsonSchemaHint: NARRATIVES_SCHEMA,
+    });
+    narratives = res.ok ? res.result : FALLBACK_NARRATIVES;
+  } catch (e) {
+    console.error("[assembleNarratives] aiJson threw:", e);
+    narratives = FALLBACK_NARRATIVES;
+  }
 
-  const narratives: MemoNarratives = res.ok
-    ? res.result
-    : {
-        executive_summary: "Narrative generation unavailable.",
-        income_analysis: "Narrative generation unavailable.",
-        property_description: "Narrative generation unavailable.",
-        borrower_background: "Narrative generation unavailable.",
-        borrower_experience: "Narrative generation unavailable.",
-        guarantor_strength: "Narrative generation unavailable.",
-      };
-
-  // Cache result
-  await (sb as any)
-    .from("canonical_memo_narratives")
-    .upsert(
-      {
-        deal_id: memo.deal_id,
-        bank_id: memo.bank_id,
-        input_hash: inputHash,
-        narratives,
-        model: res.ok ? (res as any).model ?? "unknown" : "failed",
-        generated_at: new Date().toISOString(),
-      },
-      { onConflict: "deal_id,bank_id,input_hash" },
-    )
-    .then(() => {});
+  // Cache result — fire-and-forget, failure is non-fatal
+  try {
+    await (sb as any)
+      .from("canonical_memo_narratives")
+      .upsert(
+        {
+          deal_id: memo.deal_id,
+          bank_id: memo.bank_id,
+          input_hash: inputHash,
+          narratives,
+          generated_at: new Date().toISOString(),
+        },
+        { onConflict: "deal_id,bank_id" },
+      );
+  } catch {
+    // non-fatal
+  }
 
   return narratives;
 }
