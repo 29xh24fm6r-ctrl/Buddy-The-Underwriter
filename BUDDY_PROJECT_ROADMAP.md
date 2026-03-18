@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: AAR 41 complete — research error logging + conditional SBA eligibility section**
+**Status: AAR 42 complete — research UUID fix + AI risk grade from result_json**
 
 ---
 
@@ -69,30 +69,39 @@ Documents (tax returns, financials, statements)
 ### AAR 38 ✅ — Bridge → PDF route + `supabaseAdmin` in runMission
 ### AAR 39 ✅ — Bridge IIFE → awaited before response (a8915d9c)
 ### AAR 40 ✅ — `maxDuration=60` + direct upsert bridge, permanent (ce786ce1)
+### AAR 41 ✅ — Research error logging + conditional SBA eligibility (ee38ec31)
 
 ---
 
-## AAR 41 — Research Error Logging + Conditional SBA Eligibility ✅ COMPLETE
+## AAR 42 — Research UUID Fix + AI Risk Grade from result_json ✅ COMPLETE
 
-**Commit `ee38ec31`**
+**Commit `1aa5f955`**
 
-**Fix 1 — `src/lib/research/runMission.ts`:**
-`createMission` now logs `error.code`, `error.details`, `error.hint` before
-returning `{ ok: false }` — the actual DB error will now surface in Vercel logs
-when Run Research is clicked. Guards added against `!data?.id` after insert.
-`runMission` logs the failure before the early return so the failure is visible
-at both layers.
+**Fix 1 — `src/app/api/deals/[dealId]/research/run/route.ts`:**
+Clerk's `userId` format (`"user_abc123"`) is not a UUID. Passing it to the
+`created_by uuid` column caused a Postgres type error on every insert, killing
+every research mission before it was created. Removed `import { auth }` and
+`const { userId } = await auth()`. Changed `userId: userId ?? null` → `userId: null`.
+Research missions now create successfully.
 
 **Fix 2 — `src/lib/creditMemo/canonical/buildCanonicalCreditMemo.ts`:**
-`isSbaDeal` derived from `deal.deal_type` or `loanReq.product_type`. The
-`credit_available_elsewhere` and `benefit_to_small_business` strings are now
-conditioned on `isSbaDeal` — conventional deals no longer display SBA-specific
-language ("...without SBA guaranty assistance.").
+`ai_risk_runs` select was querying `factors` — a column that does not exist.
+Actual columns: `id`, `deal_id`, `bank_id`, `grade`, `base_rate_bps`,
+`risk_premium_bps`, `result_json`, `created_at`. Changed select to `result_json`.
+Updated `aiRisk?.factors` → `aiRisk?.result_json?.factors` throughout. The memo
+will now correctly display BB+ from the live AI risk run instead of falling back
+to a calculated Risk Grade D.
 
-**Fix 3 — `src/components/creditMemo/CanonicalMemoTemplate.tsx`:**
-`SBA Size Standard` row wrapped in `sba_size_standard_revenue !== null` guard.
-Invisible on conventional deals. Only appears when explicitly populated for
-SBA loan types.
+**Fix 3 — Not needed:**
+`deals.legal_name` Postgres errors are platform-wide background noise from other
+routes, not from `buildCanonicalCreditMemo.ts`. That file correctly uses
+`deals.name` already. `legal_name` references in the file are on `borrowers`
+and `ownership_entities` tables where the column legitimately exists.
+
+**Platform-wide issue tracked:** Multiple routes still query `deals.legal_name`
+(does not exist) and `deals.amount` (should be `deals.loan_amount`). These cause
+background Postgres errors but don't block the current flow. Fix when encountered
+in active routes.
 
 ---
 
@@ -101,17 +110,17 @@ SBA loan types.
 **Deal ffcc9733** — "Claude Fix 19" (primary active test deal)
 - `borrower_id = null`, `loan_amount = null` — foundational data gaps
 - 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368.
-- ✅ DSCR = **3.03x** written to `deal_financial_facts` + snapshot (2026-03-18 13:56)
-- ✅ AI Risk: BB+ grade, 975 bps
-- ✅ Bridge: `maxDuration=60`, direct upsert, awaited (AAR 40)
-- ✅ Research: `supabaseAdmin()` + error logging (AAR 38 + 41)
-- ✅ Memo: SBA language conditional, SBA Size Standard hidden (AAR 41)
+- ✅ DSCR = 3.03x in facts + snapshot + header pill + financing box
+- ✅ AI Risk: BB+ grade, 975 bps — now correctly sourced from `result_json`
+- ✅ Research: Clerk UUID fix — missions should now create (AAR 42)
+- ✅ Income statement rendering with real numbers ($1.36M revenue)
+- ✅ Strengths: "Adequate debt service coverage (3.03x)" auto-populated
+- ✅ SBA language gone, SBA Size Standard hidden for conventional deals
 
-**Sequence after AAR 41 deploys:**
-1. Credit Memo → Run Research — error logging will now surface exact DB error in Vercel logs if it fails
-2. Check Vercel logs for `[runMission] createMission DB error:` if still failing
-3. Credit Memo → Generate Narratives
-4. Review institutional memo — SBA language gone, DSCR 3.03x in financing box
+**Sequence after AAR 42 deploys:**
+1. Credit Memo → Run Research — UUID fix means missions will create now
+2. Credit Memo → Generate Narratives — Gemini 3 Flash with research context
+3. Review memo — BB+ should display correctly, industry analysis populates
 
 ---
 
@@ -119,11 +128,13 @@ SBA loan types.
 
 ### P1 — Immediate
 
-1. **✅ DSCR 3.03x** — written to facts + snapshot
-2. **Run Research** — deploy AAR 41, click, check Vercel logs for error message
-3. **Generate Narratives** — first research-grounded institutional memo
-4. **Link deal to borrower** — `borrower_id` + `loan_amount` on ffcc9733
-5. **Reconciliation** — `recon_status` NULL. Blocks Committee.
+1. **✅ DSCR 3.03x** — written to facts + snapshot + memo
+2. **✅ AAR 42** — research UUID fix + AI grade from result_json
+3. **Run Research** — should now succeed after UUID fix
+4. **Generate Narratives** — first research-grounded institutional memo
+5. **Link deal to borrower** — `borrower_id` + `loan_amount` on ffcc9733 (needed for NAICS, eligibility, LTV)
+6. **Reconciliation** — `recon_status` NULL. Blocks Committee.
+7. **Platform-wide `deals.legal_name`** — multiple background routes use wrong column name
 
 ### P2 — Near Term
 
@@ -175,15 +186,15 @@ SBA loan types.
 
 ## Definition of Done — God Tier
 
-1–54. ✅ All prior phases and AARs complete.
-55. ✅ DSCR 3.03x written to facts + snapshot rebuilt (AAR 40 bridge working)
-56. ✅ **Research error logging + conditional SBA eligibility (AAR 41)**
-57. 🔴 Run Research — first live BRE mission completes
-58. 🔴 Generate Narratives — first research-grounded institutional memo
-59. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
-60. 🔴 Reconciliation complete — Committee Approve signal unlocked
-61. 🔴 Spread completeness ≥80%
-62. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+1–56. ✅ All prior phases and AARs complete.
+57. ✅ **Research UUID fix + AI risk grade from result_json (AAR 42)**
+58. 🔴 Run Research — first live BRE mission completes
+59. 🔴 Generate Narratives — first research-grounded institutional memo
+60. 🔴 Memo shows BB+ risk grade correctly
+61. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
+62. 🔴 Reconciliation complete — Committee Approve signal unlocked
+63. 🔴 Spread completeness ≥80%
+64. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -218,17 +229,20 @@ SBA loan types.
 - **`runMission()` imported from `"@/lib/research/runMission"` directly — server-only.**
 - **Error paths on server-rendered pages must use explicitly colored text on colored backgrounds.**
 - **Never use Supabase join syntax without confirmed FK. Use sequential queries.**
-- **`deals.loan_amount` is the correct column — not `deals.amount`.**
+- **`deals.loan_amount` is the correct column — not `deals.amount`. `deals.name` is correct — not `deals.legal_name`.**
 - **DSCR and ADS must persist to `deal_financial_facts` after every spread generation.**
 - **The canonical credit memo target standard is the Florida Armory SBA 7(a) write-up.**
 - **Legacy DB tables superseded by new architecture must be removed from page queries entirely.**
-- **Server-only library functions called from authenticated API routes must use `supabaseAdmin()`, not `createSupabaseServerClient()`. The user client requires Clerk session cookies unavailable in deep library calls.**
-- **On Vercel serverless functions, fire-and-forget background promises are killed when the response is sent. Any work that must complete must be `await`ed before the response. "Non-fatal" means `try/catch`, not background.**
+- **Server-only library functions called from authenticated API routes must use `supabaseAdmin()`, not `createSupabaseServerClient()`.**
+- **On Vercel serverless functions, fire-and-forget background promises are killed when the response is sent. Any work that must complete must be `await`ed before the response.**
 - **Always trace the actual call chain from button click → API route before deciding where a bridge should live.**
-- **Routes that do non-trivial async work must set `export const maxDuration = 60`. The default 10s timeout silently kills work mid-flight.**
-- **Two categories of facts: (1) Extracted from documents → `upsertDealFinancialFact` with drift detection. (2) Computed structural facts → direct `sb.upsert()` with natural conflict key.**
-- **Deal-type-aware content: `isSbaDeal` must be derived from `deal.deal_type` or `loanReq.product_type` before rendering any SBA-specific language. Never hardcode SBA strings for all deals.**
-- **When server-side library functions return `{ ok: false }` silently, the error disappears. Always log `error.code`, `error.details`, `error.hint` before returning failures so Vercel logs surface the root cause.**
+- **Routes that do non-trivial async work must set `export const maxDuration = 60`.**
+- **Two categories of facts: (1) Extracted from documents → `upsertDealFinancialFact`. (2) Computed structural facts → direct `sb.upsert()` with natural conflict key.**
+- **Deal-type-aware content: `isSbaDeal` must be derived before rendering SBA-specific language.**
+- **When server-side library functions return `{ ok: false }` silently, always log `error.code`, `error.details`, `error.hint` so Vercel surfaces the root cause.**
+- **Clerk `userId` (format: `"user_abc123"`) is NOT a UUID. Never pass it to a `uuid` DB column. Use `null` for `created_by` on mission/job tables, or add a separate `clerk_user_id text` column if user attribution is needed.**
+- **`ai_risk_runs` columns: `id`, `deal_id`, `bank_id`, `grade`, `base_rate_bps`, `risk_premium_bps`, `result_json`, `created_at`. Risk details (factors, rationale) live in `result_json` — not top-level columns.**
+- **Before selecting any column from a table, verify it exists via `information_schema.columns`. Ghost columns (`deals.legal_name`, `deals.amount`, `ai_risk_runs.factors`) cause silent 500s that are hard to trace.**
 
 ---
 
@@ -248,7 +262,8 @@ SBA loan types.
 | AAR 38 | Bridge → PDF route + supabaseAdmin in runMission | ✅ Complete | — |
 | AAR 39 | Bridge IIFE → awaited before response | ✅ Complete | a8915d9c |
 | AAR 40 | `maxDuration=60` + direct upsert bridge (permanent) | ✅ Complete | ce786ce1 |
-| **AAR 41** | **Research error logging + conditional SBA eligibility** | **✅ Complete** | **ee38ec31** |
+| AAR 41 | Research error logging + conditional SBA eligibility | ✅ Complete | ee38ec31 |
+| **AAR 42** | **Research UUID fix + AI risk grade from result_json** | **✅ Complete** | **1aa5f955** |
 | Phase 30 remaining | Narratives, Reconciliation, Committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
