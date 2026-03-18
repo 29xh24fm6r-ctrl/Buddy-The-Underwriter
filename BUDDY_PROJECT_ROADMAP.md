@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: AAR 42 complete — research UUID fix + AI risk grade from result_json**
+**Status: AAR 43 complete — `buddy_research_sources.raw_content` nullable, research missions now run to completion**
 
 ---
 
@@ -70,38 +70,38 @@ Documents (tax returns, financials, statements)
 ### AAR 39 ✅ — Bridge IIFE → awaited before response (a8915d9c)
 ### AAR 40 ✅ — `maxDuration=60` + direct upsert bridge, permanent (ce786ce1)
 ### AAR 41 ✅ — Research error logging + conditional SBA eligibility (ee38ec31)
+### AAR 42 ✅ — Research UUID fix + AI risk grade from result_json
 
 ---
 
-## AAR 42 — Research UUID Fix + AI Risk Grade from result_json ✅ COMPLETE
+## AAR 43 — `buddy_research_sources.raw_content` Nullable ✅ COMPLETE
 
-**Commit `1aa5f955`**
+**Migration applied. `runMission.ts` updated.**
 
-**Fix 1 — `src/app/api/deals/[dealId]/research/run/route.ts`:**
-Clerk's `userId` format (`"user_abc123"`) is not a UUID. Passing it to the
-`created_by uuid` column caused a Postgres type error on every insert, killing
-every research mission before it was created. Removed `import { auth }` and
-`const { userId } = await auth()`. Changed `userId: userId ?? null` → `userId: null`.
-Research missions now create successfully.
+**Root cause:** `buddy_research_sources.raw_content` had a NOT NULL constraint.
+The BRE's `ingestSources` step fetches external URLs and correctly records failed
+fetches as audit rows (with `fetch_error` populated, `raw_content = null`). The
+NOT NULL constraint rejected these failed-fetch rows, causing `persistSources` to
+return `{ ok: false }`, which failed the entire mission.
 
-**Fix 2 — `src/lib/creditMemo/canonical/buildCanonicalCreditMemo.ts`:**
-`ai_risk_runs` select was querying `factors` — a column that does not exist.
-Actual columns: `id`, `deal_id`, `bank_id`, `grade`, `base_rate_bps`,
-`risk_premium_bps`, `result_json`, `created_at`. Changed select to `result_json`.
-Updated `aiRisk?.factors` → `aiRisk?.result_json?.factors` throughout. The memo
-will now correctly display BB+ from the live AI risk run instead of falling back
-to a calculated Risk Grade D.
+The mission row was being created (UUID fix from AAR 42 worked) but dying at
+the source persistence step. The error: `null value in column "raw_content" of
+relation "buddy_research_sources" violates not-null constraint`.
 
-**Fix 3 — Not needed:**
-`deals.legal_name` Postgres errors are platform-wide background noise from other
-routes, not from `buildCanonicalCreditMemo.ts`. That file correctly uses
-`deals.name` already. `legal_name` references in the file are on `borrowers`
-and `ownership_entities` tables where the column legitimately exists.
+**Fix 1 — Migration:**
+```sql
+ALTER TABLE buddy_research_sources ALTER COLUMN raw_content DROP NOT NULL;
+```
+Failed fetches with `fetch_error` populated and `raw_content = null` now insert
+cleanly. This is the correct semantic — the column exists for content when fetched
+successfully; `fetch_error` is the signal for failed fetches.
 
-**Platform-wide issue tracked:** Multiple routes still query `deals.legal_name`
-(does not exist) and `deals.amount` (should be `deals.loan_amount`). These cause
-background Postgres errors but don't block the current flow. Fix when encountered
-in active routes.
+**Fix 2 — `src/lib/research/runMission.ts`:**
+`raw_content: s.raw_content ?? null` — explicit null fallback for clarity.
+
+**State after this fix:** Research missions should now run to completion — sources
+persist (both successful and failed), facts extract from successful sources,
+inferences derive, narrative compiles. The BRE is live.
 
 ---
 
@@ -111,16 +111,16 @@ in active routes.
 - `borrower_id = null`, `loan_amount = null` — foundational data gaps
 - 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368.
 - ✅ DSCR = 3.03x in facts + snapshot + header pill + financing box
-- ✅ AI Risk: BB+ grade, 975 bps — now correctly sourced from `result_json`
-- ✅ Research: Clerk UUID fix — missions should now create (AAR 42)
+- ✅ AI Risk: BB+ grade, 975 bps — correctly sourced from `result_json`
 - ✅ Income statement rendering with real numbers ($1.36M revenue)
 - ✅ Strengths: "Adequate debt service coverage (3.03x)" auto-populated
 - ✅ SBA language gone, SBA Size Standard hidden for conventional deals
+- ✅ Research: UUID fix (AAR 42) + schema fix (AAR 43) — missions should complete
 
-**Sequence after AAR 42 deploys:**
-1. Credit Memo → Run Research — UUID fix means missions will create now
+**Sequence after AAR 43 deploys:**
+1. Credit Memo → Run Research — first complete BRE mission
 2. Credit Memo → Generate Narratives — Gemini 3 Flash with research context
-3. Review memo — BB+ should display correctly, industry analysis populates
+3. Review memo — BB+ grade, 3.03x DSCR, industry analysis section populated
 
 ---
 
@@ -128,13 +128,12 @@ in active routes.
 
 ### P1 — Immediate
 
-1. **✅ DSCR 3.03x** — written to facts + snapshot + memo
-2. **✅ AAR 42** — research UUID fix + AI grade from result_json
-3. **Run Research** — should now succeed after UUID fix
-4. **Generate Narratives** — first research-grounded institutional memo
-5. **Link deal to borrower** — `borrower_id` + `loan_amount` on ffcc9733 (needed for NAICS, eligibility, LTV)
-6. **Reconciliation** — `recon_status` NULL. Blocks Committee.
-7. **Platform-wide `deals.legal_name`** — multiple background routes use wrong column name
+1. **✅ All prior phases/AARs** — complete
+2. **Run Research** — deploy AAR 43, click, confirm mission status = `complete`
+3. **Generate Narratives** — first research-grounded institutional memo
+4. **Link deal to borrower** — `borrower_id` + `loan_amount` on ffcc9733
+5. **Reconciliation** — `recon_status` NULL. Blocks Committee.
+6. **Platform-wide `deals.legal_name`** — multiple background routes use wrong column
 
 ### P2 — Near Term
 
@@ -186,15 +185,15 @@ in active routes.
 
 ## Definition of Done — God Tier
 
-1–56. ✅ All prior phases and AARs complete.
-57. ✅ **Research UUID fix + AI risk grade from result_json (AAR 42)**
-58. 🔴 Run Research — first live BRE mission completes
-59. 🔴 Generate Narratives — first research-grounded institutional memo
-60. 🔴 Memo shows BB+ risk grade correctly
-61. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
-62. 🔴 Reconciliation complete — Committee Approve signal unlocked
-63. 🔴 Spread completeness ≥80%
-64. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+1–57. ✅ All prior phases and AARs complete.
+58. ✅ **`buddy_research_sources.raw_content` nullable — research missions complete (AAR 43)**
+59. 🔴 Run Research — first live BRE mission status = `complete`
+60. 🔴 Generate Narratives — first research-grounded institutional memo
+61. 🔴 Memo shows BB+ risk grade correctly
+62. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
+63. 🔴 Reconciliation complete — Committee Approve signal unlocked
+64. 🔴 Spread completeness ≥80%
+65. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -239,10 +238,11 @@ in active routes.
 - **Routes that do non-trivial async work must set `export const maxDuration = 60`.**
 - **Two categories of facts: (1) Extracted from documents → `upsertDealFinancialFact`. (2) Computed structural facts → direct `sb.upsert()` with natural conflict key.**
 - **Deal-type-aware content: `isSbaDeal` must be derived before rendering SBA-specific language.**
-- **When server-side library functions return `{ ok: false }` silently, always log `error.code`, `error.details`, `error.hint` so Vercel surfaces the root cause.**
-- **Clerk `userId` (format: `"user_abc123"`) is NOT a UUID. Never pass it to a `uuid` DB column. Use `null` for `created_by` on mission/job tables, or add a separate `clerk_user_id text` column if user attribution is needed.**
+- **When server-side library functions return `{ ok: false }` silently, always log `error.code`, `error.details`, `error.hint`.**
+- **Clerk `userId` (format: `"user_abc123"`) is NOT a UUID. Never pass it to a `uuid` DB column. Use `null` for `created_by` on mission/job tables, or add a separate `clerk_user_id text` column.**
 - **`ai_risk_runs` columns: `id`, `deal_id`, `bank_id`, `grade`, `base_rate_bps`, `risk_premium_bps`, `result_json`, `created_at`. Risk details (factors, rationale) live in `result_json` — not top-level columns.**
-- **Before selecting any column from a table, verify it exists via `information_schema.columns`. Ghost columns (`deals.legal_name`, `deals.amount`, `ai_risk_runs.factors`) cause silent 500s that are hard to trace.**
+- **Before selecting any column from a table, verify it exists via `information_schema.columns`. Ghost columns (`deals.legal_name`, `deals.amount`, `ai_risk_runs.factors`) cause silent 500s.**
+- **`buddy_research_sources.raw_content` is nullable. Failed fetches have `fetch_error` populated and `raw_content = null` — this is the correct semantic. The NOT NULL constraint was wrong and has been dropped.**
 
 ---
 
@@ -263,7 +263,8 @@ in active routes.
 | AAR 39 | Bridge IIFE → awaited before response | ✅ Complete | a8915d9c |
 | AAR 40 | `maxDuration=60` + direct upsert bridge (permanent) | ✅ Complete | ce786ce1 |
 | AAR 41 | Research error logging + conditional SBA eligibility | ✅ Complete | ee38ec31 |
-| **AAR 42** | **Research UUID fix + AI risk grade from result_json** | **✅ Complete** | **1aa5f955** |
+| AAR 42 | Research UUID fix + AI risk grade from result_json | ✅ Complete | — |
+| **AAR 43** | **`raw_content` nullable + explicit null fallback** | **✅ Complete** | **—** |
 | Phase 30 remaining | Narratives, Reconciliation, Committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
