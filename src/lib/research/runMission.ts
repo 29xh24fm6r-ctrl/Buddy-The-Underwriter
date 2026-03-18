@@ -380,6 +380,55 @@ export async function runMission(
     // 12. Mark mission as complete
     await updateMissionStatus(missionId, "complete");
 
+    // 12b. Buddy Intelligence Engine — runs after mission is marked complete (non-fatal)
+    try {
+      const hasCompany = !!(subject.company_name && subject.company_name.trim().length > 2);
+      const hasNaics = !!(subject.naics_code && subject.naics_code !== "999999");
+
+      if (hasCompany || hasNaics) {
+        const { runBuddyIntelligenceEngine, buildBIENarrativeSections } = await import(
+          "./buddyIntelligenceEngine"
+        );
+
+        const bieInput = {
+          company_name: subject.company_name ?? null,
+          naics_code: subject.naics_code ?? null,
+          naics_description: (subject as any).naics_description ?? null,
+          city: (subject as any).city ?? null,
+          state: (subject as any).state ?? null,
+          geography: subject.geography ?? null,
+          principals: (subject as any).principals ?? [],
+          annual_revenue: (subject as any).annual_revenue ?? null,
+          loan_amount: (subject as any).loan_amount ?? null,
+          loan_purpose: (subject as any).loan_purpose ?? null,
+        };
+
+        const bieResult = await runBuddyIntelligenceEngine(bieInput);
+
+        if (bieResult.research_quality !== "minimal") {
+          const bieSections = buildBIENarrativeSections(bieResult);
+          const sb2 = supabaseAdmin();
+          const { error: bieUpsertErr } = await (sb2 as any)
+            .from("buddy_research_narratives")
+            .upsert(
+              { mission_id: missionId, sections: bieSections, version: 3 },
+              { onConflict: "mission_id" },
+            );
+          if (bieUpsertErr) {
+            console.warn("[runMission] BIE narrative upsert failed:", bieUpsertErr.message);
+          } else {
+            console.log(
+              `[runMission] BIE complete: quality=${bieResult.research_quality}, sources=${bieResult.sources_used.length}`,
+            );
+          }
+        } else {
+          console.log("[runMission] BIE skipped: minimal quality (no usable company name or NAICS)");
+        }
+      }
+    } catch (bieErr: any) {
+      console.warn("[runMission] BIE step failed (non-fatal):", bieErr?.message);
+    }
+
     // 13. Bridge: persist risk-indicator inferences as flags (non-fatal)
     try {
       if (persistedInferences.length > 0) {

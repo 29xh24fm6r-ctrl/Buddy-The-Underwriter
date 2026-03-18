@@ -503,6 +503,129 @@ export default function CanonicalMemoTemplate({ memo }: { memo: CanonicalCreditM
               ))}
             </div>
           )}
+
+          {/* ── BIE v3 Sections (rendered when version 3 narrative exists) ── */}
+
+          {/* Credit Thesis */}
+          {memo.business_industry_analysis.credit_thesis && (
+            <div className="mt-4 border-l-4 border-sky-400 pl-3 py-1">
+              <div className="text-xs font-semibold text-sky-700 mb-1 uppercase tracking-wide">Credit Thesis</div>
+              <div className="text-sm text-gray-800 leading-5 whitespace-pre-wrap">
+                {memo.business_industry_analysis.credit_thesis}
+              </div>
+            </div>
+          )}
+
+          {/* Transaction Analysis */}
+          {memo.business_industry_analysis.transaction_analysis && (
+            <div className="mt-3">
+              <div className="text-xs font-semibold text-gray-600 mb-1">Transaction &amp; Repayment Analysis</div>
+              <div className="text-sm text-gray-700 whitespace-pre-wrap leading-5">
+                {memo.business_industry_analysis.transaction_analysis}
+              </div>
+            </div>
+          )}
+
+          {/* Structure Implications */}
+          {(memo.business_industry_analysis.structure_implications?.length ?? 0) > 0 && (
+            <div className="mt-3 border border-amber-200 rounded p-3 bg-amber-50">
+              <div className="text-xs font-semibold text-amber-800 mb-2 uppercase tracking-wide">Structure Implications</div>
+              <ul className="space-y-1">
+                {memo.business_industry_analysis.structure_implications!.map((item, i) => (
+                  <li key={`si-${i}`} className="text-sm text-amber-900 flex items-start gap-2">
+                    <span className="text-amber-500 flex-shrink-0 mt-0.5">→</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Underwriting Questions */}
+          {(memo.business_industry_analysis.underwriting_questions?.length ?? 0) > 0 && (
+            <div className="mt-3 border border-rose-200 rounded p-3 bg-rose-50">
+              <div className="text-xs font-semibold text-rose-800 mb-2 uppercase tracking-wide">Key Underwriting Questions</div>
+              <ul className="space-y-1">
+                {memo.business_industry_analysis.underwriting_questions!.map((q, i) => (
+                  <li key={`uq-${i}`} className="text-sm text-rose-900 flex items-start gap-2">
+                    <span className="text-rose-500 flex-shrink-0 mt-0.5 font-bold">{i + 1}.</span>
+                    <span>{q}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Monitoring Triggers */}
+          {(memo.business_industry_analysis.monitoring_triggers?.length ?? 0) > 0 && (
+            <div className="mt-3 border border-violet-200 rounded p-3 bg-violet-50">
+              <div className="text-xs font-semibold text-violet-800 mb-2 uppercase tracking-wide">Post-Close Monitoring Triggers</div>
+              <ul className="space-y-1">
+                {memo.business_industry_analysis.monitoring_triggers!.map((t, i) => (
+                  <li key={`mt-${i}`} className="text-sm text-violet-900 flex items-start gap-2">
+                    <span className="text-violet-500 flex-shrink-0 mt-0.5">◉</span>
+                    <span>{t}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Contradictions & Uncertainties */}
+          {(memo.business_industry_analysis.contradictions?.length ?? 0) > 0 && (
+            <div className="mt-3 border border-orange-300 rounded p-3 bg-orange-50">
+              <div className="text-xs font-semibold text-orange-800 mb-2 uppercase tracking-wide">Contradictions &amp; Open Uncertainties</div>
+              <ul className="space-y-1">
+                {memo.business_industry_analysis.contradictions!.map((c, i) => (
+                  <li key={`co-${i}`} className="text-sm text-orange-900 flex items-start gap-2">
+                    <span className="text-orange-500 flex-shrink-0 mt-0.5">⚠</span>
+                    <span>{c}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* 3-Year and 5-Year Outlook */}
+          {memo.business_industry_analysis.three_five_year_outlook && (
+            <div className="mt-3">
+              <div className="text-xs font-semibold text-gray-600 mb-1">3-Year and 5-Year Outlook</div>
+              <div className="text-sm text-gray-700 whitespace-pre-wrap leading-5">
+                {memo.business_industry_analysis.three_five_year_outlook}
+              </div>
+            </div>
+          )}
+
+          {/* Management Intelligence */}
+          {memo.business_industry_analysis.management_intelligence && (
+            <div className="mt-3">
+              <div className="text-xs font-semibold text-gray-600 mb-1">Management Intelligence</div>
+              <div className="text-sm text-gray-700 whitespace-pre-wrap leading-5">
+                {memo.business_industry_analysis.management_intelligence}
+              </div>
+            </div>
+          )}
+
+          {/* Litigation & Adverse Events */}
+          {memo.business_industry_analysis.litigation_and_risk && (
+            <div className="mt-3">
+              <div className="text-xs font-semibold text-gray-600 mb-1">Litigation &amp; Adverse Events</div>
+              <div className="text-sm text-gray-700 whitespace-pre-wrap leading-5">
+                {memo.business_industry_analysis.litigation_and_risk}
+              </div>
+            </div>
+          )}
+
+          {/* BIE Research Quality Footer */}
+          {memo.business_industry_analysis.research_quality_score && (
+            <div className="mt-3 text-[10px] text-gray-400 border-t border-gray-100 pt-2">
+              BIE Research Quality: {memo.business_industry_analysis.research_quality_score}
+              {memo.business_industry_analysis.sources_count_bie !== undefined && (
+                <> · {memo.business_industry_analysis.sources_count_bie} web sources</>
+              )}
+            </div>
+          )}
+
           <div className="text-[10px] text-gray-400">
             Research: {memo.business_industry_analysis.research_coverage.missions_count} missions,{" "}
             {memo.business_industry_analysis.research_coverage.facts_count} facts,{" "}

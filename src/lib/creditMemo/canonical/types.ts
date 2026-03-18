@@ -268,6 +268,18 @@ export type CanonicalCreditMemoV1 = {
       sources_count: number;
       compiled_at: string | null;
     };
+    // BIE v3 fields — populated when version 3 narrative exists
+    credit_thesis?: string;
+    structure_implications?: string[];
+    underwriting_questions?: string[];
+    monitoring_triggers?: string[];
+    contradictions?: string[];
+    management_intelligence?: string;
+    litigation_and_risk?: string;
+    transaction_analysis?: string;
+    three_five_year_outlook?: string;
+    research_quality_score?: "Strong" | "Moderate" | "Limited";
+    sources_count_bie?: number;
   } | null;
 
   // ── MANAGEMENT QUALIFICATIONS ─────────────────────────────────────────────

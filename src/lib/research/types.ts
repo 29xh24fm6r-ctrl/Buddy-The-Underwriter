@@ -29,6 +29,14 @@ export type MissionSubject = {
   geography?: string;
   company_name?: string;
   keywords?: string[];
+  // BIE enrichment fields
+  naics_description?: string;
+  city?: string;
+  state?: string;
+  principals?: Array<{ name: string; title?: string | null }>;
+  annual_revenue?: number | null;
+  loan_amount?: number | null;
+  loan_purpose?: string | null;
 };
 
 export type ResearchMission = {

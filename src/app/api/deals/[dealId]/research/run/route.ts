@@ -22,7 +22,7 @@ import type { MissionType, MissionDepth } from "@/lib/research/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300; // BIE runs 7 Gemini calls — needs up to 5 minutes
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -71,7 +71,9 @@ export async function POST(
 
     // Load borrower separately (avoids FK join dependency)
     let naicsCode = "999999";
+    let naicsDescription: string | undefined;
     let legalName = "";
+    let borrowerCity: string | undefined;
     let borrowerState: string | null = deal.state ?? null;
 
     if (deal.borrower_id) {
@@ -89,8 +91,46 @@ export async function POST(
         );
       }
       legalName = borrower?.legal_name ?? "";
+      naicsDescription = borrower?.naics_description ?? undefined;
+      borrowerCity = (borrower as any)?.city ?? undefined;
       borrowerState = borrower?.state ?? deal.state ?? null;
     }
+
+    // Load loan request for financial context
+    const { data: loanReq } = await (sb as any)
+      .from("deal_loan_requests")
+      .select("purpose, loan_amount, product_type")
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // Load ownership entities for principal names
+    const { data: ownersData } = await (sb as any)
+      .from("ownership_entities")
+      .select("entity_name, title, ownership_pct")
+      .eq("deal_id", dealId)
+      .limit(10);
+
+    const principals = ((ownersData ?? []) as any[])
+      .map((o: any) => ({
+        name: (o.entity_name ?? o.name ?? "") as string,
+        title: (o.title ?? null) as string | null,
+      }))
+      .filter((p) => p.name.trim().length > 1);
+
+    // Load annual revenue from financial facts
+    const { data: revFact } = await (sb as any)
+      .from("deal_financial_facts")
+      .select("fact_value_num")
+      .eq("deal_id", dealId)
+      .eq("fact_key", "TOTAL_REVENUE")
+      .not("fact_value_num", "is", null)
+      .order("fact_period_end", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const annualRevenue = revFact?.fact_value_num ? Number(revFact.fact_value_num) : null;
 
     const bankId = await getCurrentBankId();
 
@@ -111,11 +151,18 @@ export async function POST(
       });
     }
 
-    // Run the mission
+    // Run the mission (enriched subject for BIE)
     const result = await runMission(dealId, missionType, {
       naics_code: naicsCode,
+      naics_description: naicsDescription,
       geography: borrowerState ?? "US",
-      company_name: legalName,
+      city: borrowerCity,
+      state: borrowerState ?? undefined,
+      company_name: legalName || undefined,
+      principals,
+      annual_revenue: annualRevenue,
+      loan_amount: loanReq?.loan_amount ? Number(loanReq.loan_amount) : undefined,
+      loan_purpose: loanReq?.purpose ?? undefined,
     }, {
       depth,
       bankId,
