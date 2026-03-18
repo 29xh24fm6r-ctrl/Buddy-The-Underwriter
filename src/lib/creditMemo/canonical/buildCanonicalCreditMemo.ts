@@ -168,8 +168,8 @@ export async function buildCanonicalCreditMemo(args: {
       .map((r: any) => r.checklist_key)
       .filter(Boolean) as string[];
 
-    // Phase 33: New parallel queries — borrower, owners, AI risk, structural pricing, period facts
-    const [borrowerResult, ownersResult, aiRiskResult, structuralPricingResult, periodFactsResult] = await Promise.all([
+    // Phase 33: New parallel queries — borrower, owners, AI risk, structural pricing, period facts, overrides
+    const [borrowerResult, ownersResult, aiRiskResult, structuralPricingResult, periodFactsResult, overridesResult] = await Promise.all([
       deal.borrower_id
         ? (sb as any).from("borrowers").select("naics_code, naics_description, legal_name, ein, city, state, entity_type").eq("id", deal.borrower_id).maybeSingle()
         : Promise.resolve({ data: null }),
@@ -187,8 +187,15 @@ export async function buildCanonicalCreditMemo(args: {
         .not("fact_value_num", "is", null)
         .order("fact_period_end", { ascending: false })
         .limit(60),
+      (sb as any)
+        .from("deal_memo_overrides")
+        .select("overrides")
+        .eq("deal_id", args.dealId)
+        .eq("bank_id", bankId)
+        .maybeSingle(),
     ]);
 
+    const overrides = (overridesResult?.data?.overrides ?? {}) as Record<string, any>;
     const borrower = borrowerResult.data as any | null;
     const ownerEntities = (ownersResult.data ?? []) as any[];
     const aiRisk = aiRiskResult.data as any | null;
@@ -597,15 +604,19 @@ export async function buildCanonicalCreditMemo(args: {
 
     // ===== Phase 33: Build management qualifications =====
     const managementQualifications: CanonicalCreditMemoV1["management_qualifications"] = {
-      principals: ownerEntities.map((o: any) => ({
-        name: o.name ?? o.legal_name ?? "Unknown",
-        ownership_pct: o.ownership_pct ?? null,
-        title: o.title ?? null,
-        bio: "Pending — complete borrower interview to populate management qualifications.",
-        years_experience: null,
-        prior_roles: [],
-        other_income_sources: null,
-      })),
+      principals: ownerEntities.map((o: any) => {
+        const nameKey = (o.name ?? o.legal_name ?? "").replace(/\s+/g, "_").toLowerCase();
+        const bioKey = `principal_bio_${nameKey}`;
+        return {
+          name: o.name ?? o.legal_name ?? "Unknown",
+          ownership_pct: o.ownership_pct ?? null,
+          title: o.title ?? null,
+          bio: overrides[bioKey] || "Pending — complete borrower interview to populate management qualifications.",
+          years_experience: null,
+          prior_roles: [],
+          other_income_sources: null,
+        };
+      }),
     };
 
     // ===== Phase 33: Build personal financial statements =====
@@ -730,7 +741,7 @@ export async function buildCanonicalCreditMemo(args: {
       eligibility,
 
       collateral: {
-        property_description: "Pending",
+        property_description: overrides.collateral_description || "Pending",
         property_address: "",
         line_items: collateralLineItems,
         total_gross: collateralFromSnapshot.grossValue.value,
@@ -756,11 +767,11 @@ export async function buildCanonicalCreditMemo(args: {
       },
 
       business_summary: {
-        business_description: "Pending — complete borrower intake to populate business description.",
+        business_description: overrides.business_description || "Pending — complete borrower intake to populate business description.",
         date_established: null,
         years_in_operation: null,
-        revenue_mix: "Pending",
-        seasonality: "Pending",
+        revenue_mix: overrides.revenue_mix || "Pending",
+        seasonality: overrides.seasonality || "Pending",
         geography: borrower?.city && borrower?.state ? `${borrower.city}, ${borrower.state}` : "Pending",
         marketing_channels: [],
         competitive_advantages: "Pending",

@@ -10,6 +10,7 @@ import SpreadsAppendix from "@/components/creditMemo/SpreadsAppendix";
 import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonicalMemoPdfButton";
 import GenerateNarrativesButton from "@/components/creditMemo/GenerateNarrativesButton";
 import RunResearchButton from "@/components/creditMemo/RunResearchButton";
+import MemoCompletionWizard from "@/components/creditMemo/MemoCompletionWizard";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildSbaForm1919 } from "@/lib/sba/forms/build1919";
 import { buildSbaForm1920 } from "@/lib/sba/forms/build1920";
@@ -141,6 +142,14 @@ export default async function CanonicalCreditMemoPage(props: {
             >
               Print View
             </Link>
+            <MemoCompletionWizard
+              dealId={dealId}
+              principals={res.memo.management_qualifications.principals.map(p => ({
+                id: p.name.replace(/\s+/g, "_").toLowerCase(),
+                name: p.name,
+              }))}
+              missingMetrics={res.memo.meta.readiness.missing_metrics}
+            />
             <RunResearchButton dealId={dealId} />
             <GenerateNarrativesButton dealId={dealId} />
             <ExportCanonicalMemoPdfButton dealId={dealId} />
