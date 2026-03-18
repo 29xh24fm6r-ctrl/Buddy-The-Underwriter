@@ -756,18 +756,19 @@ export function buildBIENarrativeSections(result: BIEResult): NarrativeSection[]
     addSection("Litigation and Risk", borrower.litigation_and_risk);
   }
 
-  // Management
+  // Management — per-sentence construction preserves field separation
   if (management) {
-    const mgmtProse =
-      management.principal_profiles
-        .map((p) => `${p.name}: ${p.background} ${p.track_record} ${p.red_flags}`)
-        .join("\n\n") || undefined;
-    addSection(
-      "Management Intelligence",
-      mgmtProse ?? management.management_depth,
-      management.key_person_risk,
-      management.ownership_and_governance,
-    );
+    const mgmtSentences: { text: string; citations: never[] }[] = [];
+    for (const p of management.principal_profiles.slice(0, 5)) {
+      if (p.name && p.background) mgmtSentences.push({ text: `${p.name}: ${p.background}`, citations: [] });
+      if (p.other_ventures) mgmtSentences.push({ text: p.other_ventures, citations: [] });
+      if (p.track_record) mgmtSentences.push({ text: p.track_record, citations: [] });
+      if (p.red_flags) mgmtSentences.push({ text: p.red_flags, citations: [] });
+    }
+    if (management.management_depth) mgmtSentences.push({ text: management.management_depth, citations: [] });
+    if (management.key_person_risk) mgmtSentences.push({ text: management.key_person_risk, citations: [] });
+    if (management.ownership_and_governance) mgmtSentences.push({ text: management.ownership_and_governance, citations: [] });
+    if (mgmtSentences.length > 0) sections.push({ title: "Management Intelligence", sentences: mgmtSentences });
   }
 
   // Transaction

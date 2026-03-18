@@ -133,6 +133,25 @@ export async function loadResearchForMemo(args: {
 
   if (allFacts.length === 0) return null;
 
+  // Direct BIE section extractor — bypasses BRE pack, skips metadata lines
+  function extractBIESection(...titles: string[]): string {
+    if (!bieNarrative?.sections) return "";
+    const parts: string[] = [];
+    for (const title of titles) {
+      const sec = bieNarrative.sections.find((s: any) => s.title === title);
+      if (sec) {
+        const text = (sec.sentences ?? [])
+          .map((s: any) => s.text ?? "")
+          .filter((t: string) => t.length > 0 && !t.startsWith("BIE_META:"))
+          .join(" ")
+          .trim();
+        if (text) parts.push(text);
+      }
+    }
+    return parts.join("\n\n") || "";
+  }
+  const hasBIE = !!(bieNarrative?.sections?.length);
+
   // Group by mission
   const missionData = missions.map((m: any) => ({
     mission: m,
@@ -193,23 +212,26 @@ export async function loadResearchForMemo(args: {
   }
 
   const memoData: MemoResearchData = {
-    // Core BRE/BIE fields
-    industry_overview: sectionsToText(
-      pack,
-      "Industry Overview",
-      "Industry Landscape",
-      "Industry Outlook",
-    ),
-    market_dynamics: sectionsToText(
-      pack,
-      "Market Intelligence",
-      "Market Demand",
-      "Market Dynamics",
-      "Demographics",
-      "Institutional Insights",
-    ),
-    competitive_positioning: sectionsToText(pack, "Competitive Landscape", "Competitive Analysis"),
-    regulatory_environment: sectionsToText(pack, "Regulatory Environment"),
+    // Core BRE/BIE fields — BIE takes priority when version 3 narrative exists
+    industry_overview: hasBIE
+      ? extractBIESection("Industry Overview", "Industry Outlook") || "Pending"
+      : sectionsToText(pack, "Industry Overview", "Industry Landscape", "Industry Outlook"),
+    market_dynamics: hasBIE
+      ? extractBIESection("Market Intelligence") || "Pending"
+      : sectionsToText(
+          pack,
+          "Market Intelligence",
+          "Market Demand",
+          "Market Dynamics",
+          "Demographics",
+          "Institutional Insights",
+        ),
+    competitive_positioning: hasBIE
+      ? extractBIESection("Competitive Landscape") || "Pending"
+      : sectionsToText(pack, "Competitive Landscape", "Competitive Analysis"),
+    regulatory_environment: hasBIE
+      ? extractBIESection("Regulatory Environment") || "Pending"
+      : sectionsToText(pack, "Regulatory Environment"),
     risk_indicators: pack.risk_indicators.map((ri: RiskIndicator) => ({
       category: ri.category,
       level: ri.level,
