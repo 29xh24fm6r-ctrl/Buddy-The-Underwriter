@@ -162,7 +162,7 @@ function IncomeStatementTable({ rows }: { rows: IncomeStatementRow[] }) {
                   return (
                     <Td key={r.period_end} right bold={m.key === "gross_profit" || m.key === "net_income" || m.key === "ebitda"}>
                       {fmt$(val)}
-                      {pct !== null && <div className="text-[10px] text-gray-400">{fmtPct(pct)}%</div>}
+                      {pct !== null && <div className="text-[10px] text-gray-400">{fmtPct(pct)}</div>}
                     </Td>
                   );
                 })}
@@ -666,7 +666,7 @@ export default function CanonicalMemoTemplate({ memo }: { memo: CanonicalCreditM
           {memo.management_qualifications.principals.map((p, i) => (
             <div key={`bio-${i}`} className="mb-2 text-sm text-gray-700">
               <span className="font-semibold">{p.name}: </span>
-              <span className="text-gray-400 italic">{p.bio}</span>
+              <span className="text-gray-700">{p.bio}</span>
             </div>
           ))}
         </>
