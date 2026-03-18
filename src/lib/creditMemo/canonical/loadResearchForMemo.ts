@@ -102,11 +102,11 @@ export async function loadResearchForMemo(args: {
     .eq("deal_id", args.dealId)
     .eq("status", "complete")
     .order("completed_at", { ascending: false })
-    .limit(20);
+    .limit(1);
 
   if (missionsErr || !missions?.length) return null;
 
-  const missionIds = missions.map((m: any) => m.id);
+  const missionIds = [missions[0].id];
 
   // Load facts, inferences, sources, and BIE narrative in parallel
   const [factsRes, inferencesRes, sourcesRes, narrativeRes] = await Promise.all([
@@ -199,7 +199,6 @@ export async function loadResearchForMemo(args: {
       "Industry Overview",
       "Industry Landscape",
       "Industry Outlook",
-      "Summary",
     ),
     market_dynamics: sectionsToText(
       pack,
