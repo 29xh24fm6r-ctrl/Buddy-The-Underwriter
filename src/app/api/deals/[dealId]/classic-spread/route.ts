@@ -10,6 +10,7 @@ import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ dealId: string }> };
 
@@ -75,37 +76,52 @@ export async function GET(_req: Request, ctx: Ctx) {
             ? Math.round((Number(ncads) / proposedAds) * 100) / 100
             : null;
 
-        const { upsertDealFinancialFact, SENTINEL_UUID } = await import("@/lib/financialFacts/writeFact");
+        const SENTINEL_UUID = "00000000-0000-0000-0000-000000000000";
+        const SENTINEL_DATE = "1900-01-01";
         const persistDate = new Date().toISOString().slice(0, 10);
 
-        const factsToWrite: Array<{ key: string; value: number | null }> = [
+        const factsToWrite = [
           { key: "ANNUAL_DEBT_SERVICE", value: proposedAds },
           { key: "DSCR", value: dscrValue },
-        ];
-        if (ncads !== null && Number(ncads) > 0) {
-          factsToWrite.push({ key: "CASH_FLOW_AVAILABLE", value: Number(ncads) });
-          factsToWrite.push({ key: "EXCESS_CASH_FLOW", value: Number(ncads) - proposedAds });
-        }
+          ...(ncads !== null && Number(ncads) > 0 ? [
+            { key: "CASH_FLOW_AVAILABLE", value: Number(ncads) },
+            { key: "EXCESS_CASH_FLOW", value: Number(ncads) - proposedAds },
+          ] : []),
+        ].filter((f): f is { key: string; value: number } =>
+          f.value !== null && Number.isFinite(f.value)
+        );
 
         for (const f of factsToWrite) {
-          if (f.value === null || !Number.isFinite(f.value)) continue;
-          await upsertDealFinancialFact({
-            dealId,
-            bankId,
-            sourceDocumentId: SENTINEL_UUID,
-            factType: "FINANCIAL_ANALYSIS",
-            factKey: f.key,
-            factValueNum: f.value,
-            confidence: 0.95,
-            provenance: {
-              source_type: "STRUCTURAL",
-              source_ref: "computed:classic_spread:v1",
-              as_of_date: persistDate,
-              extractor: "classicSpread:debtService:v1",
-            },
-            ownerType: "DEAL",
-            ownerEntityId: SENTINEL_UUID,
-          });
+          const { error: upsertErr } = await (sb as any)
+            .from("deal_financial_facts")
+            .upsert({
+              deal_id: dealId,
+              bank_id: bankId,
+              source_document_id: SENTINEL_UUID,
+              fact_type: "FINANCIAL_ANALYSIS",
+              fact_key: f.key,
+              fact_period_start: SENTINEL_DATE,
+              fact_period_end: persistDate,
+              fact_value_num: f.value,
+              fact_value_text: null,
+              currency: "USD",
+              confidence: 0.95,
+              provenance: {
+                source_type: "STRUCTURAL",
+                source_ref: "computed:classic_spread:v1",
+                as_of_date: persistDate,
+                extractor: "classicSpread:debtService:v1",
+              },
+              owner_type: "DEAL",
+              owner_entity_id: SENTINEL_UUID,
+              is_superseded: false,
+            }, {
+              onConflict: "deal_id,bank_id,source_document_id,fact_type,fact_key,fact_period_start,fact_period_end,owner_type,owner_entity_id",
+            } as any);
+
+          if (upsertErr) {
+            console.warn(`[classic-spread] upsert failed for ${f.key}:`, upsertErr.message);
+          }
         }
 
         const { buildDealFinancialSnapshotForBank } = await import("@/lib/deals/financialSnapshot");
