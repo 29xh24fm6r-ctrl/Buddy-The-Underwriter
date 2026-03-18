@@ -174,7 +174,7 @@ export async function buildCanonicalCreditMemo(args: {
         ? (sb as any).from("borrowers").select("naics_code, naics_description, legal_name, ein, city, state, entity_type").eq("id", deal.borrower_id).maybeSingle()
         : Promise.resolve({ data: null }),
       (sb as any).from("ownership_entities").select("*").eq("deal_id", args.dealId).limit(10),
-      (sb as any).from("ai_risk_runs").select("grade, base_rate_bps, risk_premium_bps, factors, pricing_explain, created_at").eq("deal_id", args.dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      (sb as any).from("ai_risk_runs").select("grade, base_rate_bps, risk_premium_bps, result_json, created_at").eq("deal_id", args.dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       (sb as any).from("deal_structural_pricing").select("*").eq("deal_id", args.dealId).order("computed_at", { ascending: false }).limit(1).maybeSingle(),
       (sb as any)
         .from("deal_financial_facts")
@@ -558,8 +558,8 @@ export async function buildCanonicalCreditMemo(args: {
     const strengths: Array<{ point: string; detail: string | null }> = [];
     const weaknesses: Array<{ point: string; mitigant: string | null }> = [];
 
-    if (aiRisk?.factors) {
-      for (const f of (aiRisk.factors as any[])) {
+    if (aiRisk?.result_json?.factors) {
+      for (const f of ((aiRisk.result_json as any).factors as any[])) {
         if (f.direction === "positive") {
           strengths.push({ point: f.label, detail: f.rationale ?? null });
         } else if (f.direction === "negative") {

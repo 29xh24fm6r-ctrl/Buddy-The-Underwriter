@@ -13,7 +13,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { runMission } from "@/lib/research/runMission";
@@ -94,7 +93,6 @@ export async function POST(
     }
 
     const bankId = await getCurrentBankId();
-    const { userId } = await auth();
 
     // Check for existing running/queued mission
     const { data: existing } = await sb
@@ -121,7 +119,7 @@ export async function POST(
     }, {
       depth,
       bankId,
-      userId: userId ?? null,
+      userId: null,
     });
 
     return NextResponse.json(result, { status: result.ok ? 200 : 500 });
