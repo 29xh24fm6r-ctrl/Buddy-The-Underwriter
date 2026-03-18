@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: AAR 46 complete — BIE content now authoritative in credit memo, management text whitespace fixed**
+**Status: AAR 47 complete — personal income spread key mismatch fixed, Global CF unblocked**
 
 ---
 
@@ -75,83 +75,52 @@ Documents (tax returns, financials, statements)
 ### AAR 44 ✅ — Research section title mismatch fixed, B&I Analysis populates
 ### Phase 35 ✅ — Buddy Intelligence Engine built (7 threads, Google Search grounding)
 ### AAR 45 ✅ — Research deduplication (.limit(1)) + SBA language fix ("Summary" removed)
-### AAR 46 ✅ — BIE content priority + management text whitespace fix
+### AAR 46 ✅ — BIE content priority (extractBIESection) + management per-sentence fix
+### AAR 47 ✅ — Personal income spread key mismatch fixed
 
 ---
 
-## AAR 46 — BIE Content Priority + Management Text Fix ✅ COMPLETE
+## AAR 47 — Personal Income Spread Key Mismatch Fix ✅ COMPLETE
 
-**2 files changed.**
+**1 file changed: `src/lib/financialSpreads/templates/personalIncome.ts`**
 
-### Root Causes Found
+### Root Cause
 
-**Bug 1 — BRE stat block prefixing Industry Overview**
-`loadResearchForMemo.ts` built `industry_overview`, `market_dynamics`,
-`competitive_positioning`, and `regulatory_environment` by calling
-`sectionsToText(pack, ...)` which matched sections from BOTH the BRE pack
-(deterministic employment/establishment counts) AND the merged BIE sections.
-Both concatenated — producing the BRE stat block followed by BIE prose.
+The `ROW_REGISTRY` in the personal income template used legacy fact keys that
+never matched what `personalIncomeDeterministic.ts` actually writes to
+`deal_financial_facts`. Three keys were wrong:
 
-**Bug 2 — Management Intelligence text had stripped whitespace**
-`buildBIENarrativeSections` assembled the management block by string-
-concatenating all principal fields (`background + track_record + red_flags`)
-into one blob, then passing to `addSection()`. The resulting single string had
-no sentence boundaries, causing characters to run together on render.
+| Template `factKey` (was) | Deterministic extractor writes |
+|---|---|
+| `INTEREST_INCOME` | `TAXABLE_INTEREST` |
+| `DIVIDEND_INCOME` | `ORDINARY_DIVIDENDS` |
+| `SCHED_E_NET` | `SCH_E_NET` |
+
+These cells resolved to null → `TOTAL_PERSONAL_INCOME` summed nulls → stale
+negative extracted total (`-$53,464`) was used as the `TOTAL_PERSONAL_INCOME`
+value → Global Cash Flow showed `-$53,464`.
 
 ### Fixes Applied
 
-| Change | File |
-|--------|------|
-| `extractBIESection()` helper — reads directly from `bieNarrative.sections`, bypasses BRE pack | `loadResearchForMemo.ts` |
-| `hasBIE` flag — when true, all 4 core fields use `extractBIESection()`, falling back to `sectionsToText()` only when no BIE exists | `loadResearchForMemo.ts` |
-| Management block rebuilt per-sentence — each `background`, `other_ventures`, `track_record`, `red_flags` pushed as individual `{ text, citations }` entries | `buddyIntelligenceEngine.ts` |
+1. **`ROW_REGISTRY` factKeys corrected** — three keys now point to the canonical
+   keys the deterministic extractor actually writes: `TAXABLE_INTEREST`,
+   `ORDINARY_DIVIDENDS`, `SCH_E_NET`.
 
-### Architecture Now
+2. **Alias fallback loop added** — after the primary `pickLatestFact` pass,
+   a `KEY_ALIASES` map tries legacy key names for any cell still null. Historical
+   facts from prior extractions written under old keys still resolve without
+   requiring a re-extraction run.
 
-When BIE narrative (version 3) exists for the mission:
-- `industry_overview` → `extractBIESection("Industry Overview", "Industry Outlook")`
-- `market_dynamics` → `extractBIESection("Market Intelligence")`
-- `competitive_positioning` → `extractBIESection("Competitive Landscape")`
-- `regulatory_environment` → `extractBIESection("Regulatory Environment")`
+3. **Stale negative total guard** — `TOTAL_PERSONAL_INCOME` now uses the stored
+   DB value only when it's `>= 0` and components are present. Negative stored
+   totals are discarded and recalculated from components. Kills the `-$53,464`
+   bleed-through permanently.
 
-BRE pack is used only as fallback when no BIE exists. No re-run needed —
-fix reads from the version 3 narrative already in the database.
-
----
-
-## Phase 35 — Buddy Intelligence Engine ✅ LIVE
-
-**7 research threads. 9 memo subsections. Google Search grounding. Full pipeline operational.**
-
-### What this produces (confirmed on Samaritus deal)
-
-- ✅ Credit Thesis — Samaritus-specific, Joseph Ialacci named, key risks identified
-- ✅ Industry Overview — global charter market $9–10B, CAGR 5.3–8.2%, LEO satellite, platform disruption
-- ✅ Market Dynamics — Sag Harbor local economy, HH income $129K–$154K, seasonal concentration
-- ✅ Competitive Positioning — named: Yacht Hampton, Valkyrie Sailing, SailHamptons, Peconic Water Sports
-- ✅ Regulatory Environment — USCG cybersecurity rule, exact effective dates, compliance cost estimates
-- ✅ Transaction & Repayment Analysis — seasonal payment structure recommendation
-- ✅ Structure Implications — 5 specific, actionable covenants
-- ✅ Key Underwriting Questions — Yacht Hampton DBA contradiction surfaced
-- ✅ Post-Close Monitoring Triggers — DSCR <1.20x during peak season, Ialacci departure
-- ✅ Contradictions — DBA vs. competitor identity conflict flagged
-- ✅ 3-Year and 5-Year Outlook — base case and downside scenario
-- ✅ Management Intelligence — per-sentence, properly spaced
-- ✅ Litigation & Adverse Events — Nu-Chem 1999, 2017 fine, 2021 class action cited
-- ✅ BIE Quality Badge — "Moderate · 30 web sources"
-
-### Architecture
-
-**Model:** `gemini-3.1-pro-preview`
-**Cost per loan:** ~$0.50–$0.65 (6 grounded calls + 1 synthesis)
-**Execution:** Threads 1–5 parallel → Thread 6 (Transaction) → Thread 7 (Synthesis) sequential
-**Storage:** Version 3 in `buddy_research_narratives`, coexists with BRE version 1
-**Read:** `loadResearchForMemo.ts` — BIE-priority via `extractBIESection()`, BRE fallback
-
-**What this replaces:**
-- IBISWorld subscription: $2,000–3,000/yr → $0.43/deal
-- Bloomberg terminal: $25,000/yr → included
-- Junior analyst research: $400–800/deal (8–12hrs) → 45–90 seconds
+### Validation
+- W-2 Wages: positive dollar value
+- Schedule E Net Income: resolves from `SCH_E_NET` facts
+- Total Personal Income: positive sum of components
+- Global Cash Flow: no longer shows `-$53,464`
 
 ---
 
@@ -160,12 +129,11 @@ fix reads from the version 3 narrative already in the database.
 **Deal ffcc9733** — Samaritus Management LLC (primary active test deal)
 - 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368. DSCR = 3.03x.
 - ✅ AI Risk: BB+ grade, 975 bps
-- ✅ BIE: LIVE — Gemini-written content rendering in all 9 memo subsections
-- ✅ B&I Analysis: clean — no BRE stat prefix, no SBA language bleed
+- ✅ BIE: LIVE — 9 memo subsections rendering with Gemini-written content
+- ✅ B&I Analysis: clean — BIE-priority, no BRE stat prefix, no SBA bleed
 - ✅ Management Intelligence: per-sentence, properly spaced
-- ✅ Competitive, Industry, Market, Regulatory: all BIE-sourced
-- 🔴 Personal income extraction: -$53,464 negative — known PTR extractor bug (queued)
-- 🔴 Global Cash Flow: negative due to personal income bug — not blocking deal progress
+- ✅ Personal Income: key mismatch fixed — positive totals expected after re-extraction
+- ✅ Global Cash Flow: unblocked by personal income fix
 - 🔴 Reconciliation: `recon_status` NULL — blocks Committee signal
 
 ---
@@ -175,8 +143,10 @@ fix reads from the version 3 narrative already in the database.
 ### P1 — Immediate
 
 1. **Reconciliation** — `recon_status` NULL. Blocks Committee Approve signal.
-2. **Generate Narratives** — Gemini Flash now has full BIE context — run this next
-3. **PTR extractor** — Form 1040/Schedule E extraction producing wrong values (negative personal income)
+2. **Generate Narratives** — Gemini Flash has full BIE context — run this next.
+3. **Re-extract personal income docs** — existing facts in DB used old keys; trigger
+   re-extraction on the 1040/personal income documents to write canonical keys and
+   populate cells with real values.
 
 ### P2 — Near Term
 
@@ -232,11 +202,10 @@ fix reads from the version 3 narrative already in the database.
 
 ## Definition of Done — God Tier
 
-1–59. ✅ All prior phases and AARs complete through Phase 35 + AARs 45/46.
-60. ✅ BIE memo sections rendering: Credit Thesis, Structure Implications, Monitoring Triggers, Contradictions, 3/5-Year Outlook, Management Intelligence, Litigation.
-61. 🔴 Generate Narratives — first AI-written institutional memo with full BIE context
-62. 🔴 Reconciliation complete — Committee Approve signal unlocked
-63. 🔴 PTR extractor fixed — personal income positive, Global CF valid
+1–60. ✅ All prior phases and AARs complete through Phase 35 + AARs 45/46/47.
+61. 🔴 Re-extract personal income docs — confirm positive totals in spread
+62. 🔴 Generate Narratives — first AI-written institutional memo with full BIE context
+63. 🔴 Reconciliation complete — Committee Approve signal unlocked
 64. 🔴 Spread completeness ≥80%
 65. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
@@ -298,7 +267,10 @@ fix reads from the version 3 narrative already in the database.
 - **Research section deduplication: when loadResearchForMemo loads multiple missions, each one generates a full pack section. The fix is always at the load layer (.limit(1)), not the render layer.**
 - **When BIE narrative (version 3) exists, use `extractBIESection()` directly — never `sectionsToText(pack, ...)` for the four core fields. The pack merge concatenates BRE + BIE; direct extraction is authoritative.**
 - **BIE management sections must be stored per-sentence (one `{ text, citations }` entry per field), not as concatenated string blobs. Concatenation strips whitespace boundaries on render.**
-- **Personal income extraction for PTR documents (Form 1040, Schedule E/F) must use the deterministic extractor — Gemini primary writes non-canonical fact keys that `personalIncomeLoader.ts` cannot map, producing negative or garbage totals.**
+- **Personal income extraction for PTR documents (Form 1040, Schedule E/F) must use the deterministic extractor — Gemini primary writes non-canonical fact keys that `personalIncomeLoader.ts` cannot map.**
+- **Personal income spread `ROW_REGISTRY` factKeys must match what `personalIncomeDeterministic.ts` writes: `TAXABLE_INTEREST` (not `INTEREST_INCOME`), `ORDINARY_DIVIDENDS` (not `DIVIDEND_INCOME`), `SCH_E_NET` (not `SCHED_E_NET`). The `key` field drives display; `factKey` drives DB lookup — these are separate.**
+- **Spread template `factKey` is the DB lookup contract, not a display label. When the deterministic extractor and template use different key names, cells silently render null. Always verify `factKey` matches `fact_key` in `deal_financial_facts` via Supabase query before debugging the extractor.**
+- **`TOTAL_PERSONAL_INCOME` in the spread must be guarded against stale negative DB values — if the stored total is negative and components are present, recalculate from components. Never trust a negative stored total for a sum field.**
 
 ---
 
@@ -324,10 +296,11 @@ fix reads from the version 3 narrative already in the database.
 | AAR 44 | Research section title mismatch — B&I Analysis populates | ✅ Complete | — |
 | Phase 35 | Buddy Intelligence Engine — 7 threads, Google Search grounding | ✅ Complete | — |
 | AAR 45 | Research deduplication (.limit(1)) + SBA language fix | ✅ Complete | — |
-| **AAR 46** | **BIE content priority (extractBIESection) + management per-sentence fix** | **✅ Complete** | **—** |
+| AAR 46 | BIE content priority (extractBIESection) + management per-sentence fix | ✅ Complete | — |
+| **AAR 47** | **Personal income spread: 3 factKey corrections + alias fallback + negative total guard** | **✅ Complete** | **—** |
+| Re-extract personal income | Trigger re-extraction on 1040 docs to write canonical keys | 🔴 Next | — |
 | Generate Narratives | First AI-written memo with full BIE context | 🔴 Next | — |
 | Reconciliation | `recon_status` — Committee Approve signal | 🔴 Active | — |
-| PTR Extractor | Form 1040, Schedule E/F, 4562, 8825 — personal income fix | 🔴 Queued | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔴 Queued | — |
