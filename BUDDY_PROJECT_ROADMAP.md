@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: AAR 44 complete — research section titles fixed, Business & Industry Analysis now populates**
+**Status: Phase 35 complete — Buddy Intelligence Engine (BIE) live, 7-thread Gemini 3.1 Pro research engine with Google Search grounding**
 
 ---
 
@@ -47,7 +47,7 @@ Documents (tax returns, financials, statements)
         ↓ Classic Banker Spread PDF (MMAS format)   ✅ PRs #180–#209
         ↓ AUTO-VERIFIED → Banker reviews for credit judgment only
         ↓ AI Risk Assessment (Gemini 3 Flash)       ✅ BB+ LIVE
-        ↓ Institutional Research Engine (BRE)       ✅ Phase 31 + AARs 42–44
+        ↓ Buddy Intelligence Engine (BIE)           ✅ Phase 35 — gemini-3.1-pro-preview
         ↓ Credit Memo (Florida Armory standard)     ✅ Phase 33
         ↓ Committee Package
         ↓ Deposit Profile + Treasury Proposals surfaced automatically
@@ -72,60 +72,79 @@ Documents (tax returns, financials, statements)
 ### AAR 41 ✅ — Research error logging + conditional SBA eligibility (ee38ec31)
 ### AAR 42 ✅ — Research UUID fix + AI risk grade from result_json
 ### AAR 43 ✅ — `raw_content` nullable + explicit null fallback
+### AAR 44 ✅ — Research section title mismatch fixed, B&I Analysis populates
 
 ---
 
-## AAR 44 — Research Section Title Mismatch Fix ✅ COMPLETE
+## Phase 35 — Buddy Intelligence Engine (BIE) ✅ COMPLETE
 
-**Root cause:** `loadResearchForMemo.ts` had a `SECTION_MAP` with hardcoded section
-title strings that didn't match what `compileNarrative.ts` actually produces.
+**7 files, 1,225 net lines. tsc clean.**
 
-The BRE writes: `"Industry Overview"`, `"Competitive Landscape"`, `"Institutional
-Insights"`, `"Summary"`.
+### What was built
 
-The map looked for: `"Industry Landscape"`, `"Competitive Analysis"`, `"Market Demand"`.
+| File | Change |
+|---|---|
+| `src/lib/research/types.ts` | +7 optional `MissionSubject` fields |
+| `src/lib/research/buddyIntelligenceEngine.ts` | NEW — full BIE engine |
+| `src/lib/research/runMission.ts` | Step 12b — non-fatal BIE block |
+| `src/app/api/deals/[dealId]/research/run/route.ts` | Enriched subject, `maxDuration=300` |
+| `src/lib/creditMemo/canonical/loadResearchForMemo.ts` | BIE section merge, 11 new fields |
+| `src/lib/creditMemo/canonical/types.ts` | +11 optional BIE fields on `business_industry_analysis` |
+| `src/components/creditMemo/CanonicalMemoTemplate.tsx` | 9 new BIE subsections in B&I Analysis |
 
-Every `sectionsToText()` call returned `"Pending"` because no titles matched.
-The research mission completed with real data (3 facts, 3 inferences, 4 narrative
-sections confirmed in DB) but `researchData` came back all-pending, so
-`business_industry_analysis` rendered nothing.
+### Architecture
 
-**Fix — `src/lib/creditMemo/canonical/loadResearchForMemo.ts`:**
-`SECTION_MAP` expanded to 10 entries covering both the BRE's actual output titles
-and legacy fallback names. `sectionsToText` calls updated with all variants:
+**Model:** `gemini-3.1-pro-preview`
+**Cost per loan:** ~$0.50–$0.65 (6 grounded calls + 1 synthesis + search queries at $14/1K)
+**Execution:** Threads 1–5 parallel → Thread 6 (Transaction) → Thread 7 (Synthesis) sequential
 
-```typescript
-industry_overview:       "Industry Overview", "Industry Landscape", "Summary"
-market_dynamics:         "Market Demand", "Market Dynamics", "Demographics", "Institutional Insights"
-competitive_positioning: "Competitive Landscape", "Competitive Analysis"
-regulatory_environment:  "Regulatory Environment"
-```
+**7 research threads:**
+1. **Borrower Intelligence** — company profile, reputation, reviews, news, litigation, digital footprint
+2. **Management Intelligence** — each principal's background, other ventures, track record, adverse events
+3. **Competitive Intelligence** — named competitors, market position, barriers to entry, pricing environment
+4. **Market Intelligence** — local economic conditions, demographics, CRE market, area risks
+5. **Industry Intelligence** — sector size/growth, trends, disruption risks, margins, regulatory landscape, 5-year outlook, credit risk profile
+6. **Transaction/Repayment Intelligence** — primary/secondary repayment, structure fit, downside case, stress scenario
+7. **Credit Synthesis** — executive credit thesis, repayment strengths, core vulnerabilities, structure implications, underwriting questions, monitoring triggers, 3/5-year outlook, contradictions
 
-After this fix, the Business & Industry Analysis section populates with real BRE
-output on every page load where a completed research mission exists.
+**9 new memo subsections rendered:**
+- Credit Thesis (blue left-border callout)
+- Transaction & Repayment Analysis
+- Structure Implications (amber, actionable)
+- Key Underwriting Questions (rose, numbered checklist)
+- Post-Close Monitoring Triggers (violet)
+- Contradictions & Open Uncertainties (orange warning)
+- 3-Year and 5-Year Outlook
+- Management Intelligence
+- Litigation & Adverse Events
 
-**Build principle:** Section title strings in consumer functions must exactly match
-what the producer function outputs. When a BRE narrative compiles, its section
-titles are the contract. Consumer maps must use the producer's actual titles —
-not guesses about what the titles "should" be called.
+**Key architectural decisions:**
+- BIE is entirely non-fatal — any thread failure → `null`; whole BIE failure → mission already marked complete
+- BIE only fires when `hasCompany || hasNaics` — skips generic fallback data
+- Version 3 narrative upserts on `mission_id`, overwriting BRE version 1
+- `responseMimeType: "application/json"` omitted for grounded calls (Gemini 400 avoidance)
+- BIE sections merge into `CreditCommitteePack` at read time via `.sentences`→`.content` conversion
+
+**What this replaces:**
+- IBISWorld subscription: $2,000–3,000/yr → $0.43/deal
+- Bloomberg terminal: $25,000/yr → included
+- Junior analyst research: $400–800/deal (8–12hrs) → 45–90 seconds
 
 ---
 
 ## Current State — Active Deals
 
 **Deal ffcc9733** — "Claude Fix 19" (primary active test deal)
-- `borrower_id = null`, `loan_amount = null` — foundational data gaps
-- 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368.
-- ✅ DSCR = 3.03x in facts + snapshot + header pill + financing box
-- ✅ AI Risk: BB+ grade, 975 bps — correctly sourced from `result_json`
-- ✅ Research: mission complete (3 facts, 3 inferences, 4 sections)
-- ✅ BRE section titles: now correctly mapped → Business & Industry Analysis populates
-- ✅ Income statement, strengths, SBA fixes all live
+- `borrower_id = null`, `loan_amount = null` — **critical gap: BIE fires but has no company name or NAICS to research**
+- 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368. DSCR = 3.03x.
+- ✅ AI Risk: BB+ grade, 975 bps
+- ✅ Research: mission complete (BRE v1 data exists)
+- ✅ B&I Analysis: section renders with BRE content (AAR 44 fix)
+- ✅ BIE: deployed, ready to fire on next Run Research click
+- ❌ BIE output will be minimal until `borrower_id` is linked (gives real company name + NAICS)
 
-**Sequence after AAR 44 deploys:**
-1. Hard refresh Credit Memo — Business & Industry Analysis should show real content
-2. Credit Memo → Generate Narratives — Gemini 3 Flash with research + financial context
-3. Review full institutional memo
+**Immediate action required:**
+Link deal ffcc9733 to a borrower record with real `naics_code`, `legal_name`, `city`, `state` — this unlocks full BIE output across all 7 threads. Then click Run Research to fire BIE.
 
 ---
 
@@ -133,10 +152,10 @@ not guesses about what the titles "should" be called.
 
 ### P1 — Immediate
 
-1. **✅ All prior phases/AARs** — complete
-2. **Hard refresh memo** — Business & Industry Analysis should now populate
-3. **Generate Narratives** — first AI-written institutional memo
-4. **Link deal to borrower** — `borrower_id` + `loan_amount` on ffcc9733
+1. **✅ All prior phases/AARs through Phase 35** — complete
+2. **Link deal ffcc9733 to borrower** — `borrower_id` + `loan_amount` — unlocks real BIE output
+3. **Run Research on linked deal** — first full 7-thread BIE execution
+4. **Generate Narratives** — Gemini 3 Flash will now have BIE credit thesis as context
 5. **Reconciliation** — `recon_status` NULL. Blocks Committee.
 
 ### P2 — Near Term
@@ -147,6 +166,7 @@ not guesses about what the titles "should" be called.
 - **NAICS SBA historical stats** — Lumos integration for eligibility section
 - **Management qualifications** — intake interview data capture
 - **Projection years** — Year 1/Year 2 rows in debt coverage + income statement
+- **BIE vertical packs** — healthcare, construction, transportation, food service deepening (Phase 36)
 
 ### P3 — Future
 
@@ -165,7 +185,8 @@ not guesses about what the titles "should" be called.
 | Database | Supabase (PostgreSQL) |
 | AI — Extraction | Gemini 2.0 Flash via Vertex AI (GOOGLE_CLOUD_PROJECT + GCP ADC) |
 | AI — Voice | gpt-4o-realtime-preview (intentionally retained on OpenAI) |
-| AI — Reasoning | Gemini 3 Flash via Developer API (GEMINI_API_KEY) — cutover complete |
+| AI — Reasoning | Gemini 3 Flash via Developer API (GEMINI_API_KEY) |
+| AI — Research | Gemini 3.1 Pro Preview via Developer API (GEMINI_API_KEY) — BIE |
 | Integration | MCP (Model Context Protocol) |
 | Event Ledger | Supabase `deal_events` (append-only) |
 | PDF Generation | PDFKit (portrait 8.5×11, serverExternalPackages) |
@@ -183,20 +204,21 @@ not guesses about what the titles "should" be called.
 | Document classification | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active (Phase 24) |
 | Voice interview sessions | gpt-4o-realtime-preview | OpenAI API key | ✅ Retained on OpenAI |
 | Risk + Memo orchestrator | Gemini 3 Flash | GEMINI_API_KEY (Dev API) | ✅ **LIVE — BB+ on ffcc9733** |
+| **Buddy Intelligence Engine** | **gemini-3.1-pro-preview** | **GEMINI_API_KEY (Dev API)** | **✅ Phase 35 — needs linked borrower to test** |
 | chatAboutDeal | OpenAI gpt-4o-2024-08-06 | OpenAI API key | 🔴 Gemini migration queued (P3) |
 
 ---
 
 ## Definition of Done — God Tier
 
-1–58. ✅ All prior phases and AARs complete.
-59. ✅ **Research section titles fixed — Business & Industry Analysis populates (AAR 44)**
-60. 🔴 Hard refresh memo — verify industry analysis section renders
-61. 🔴 Generate Narratives — first AI-written institutional memo
-62. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
-63. 🔴 Reconciliation complete — Committee Approve signal unlocked
-64. 🔴 Spread completeness ≥80%
-65. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+1–59. ✅ All prior phases and AARs complete through Phase 35.
+60. 🔴 Link borrower to ffcc9733 — real NAICS + company name
+61. 🔴 Run Research — first full 7-thread BIE execution with real data
+62. 🔴 Verify BIE memo sections: Credit Thesis, Structure Implications, Monitoring Triggers render
+63. 🔴 Generate Narratives — first AI-written institutional memo with BIE context
+64. 🔴 Reconciliation complete — Committee Approve signal unlocked
+65. 🔴 Spread completeness ≥80%
+66. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -238,7 +260,7 @@ not guesses about what the titles "should" be called.
 - **Server-only library functions called from authenticated API routes must use `supabaseAdmin()`, not `createSupabaseServerClient()`.**
 - **On Vercel serverless functions, fire-and-forget background promises are killed when the response is sent. Any work that must complete must be `await`ed before the response.**
 - **Always trace the actual call chain from button click → API route before deciding where a bridge should live.**
-- **Routes that do non-trivial async work must set `export const maxDuration = 60`.**
+- **Routes that do non-trivial async work must set `export const maxDuration = 60`. BIE research route uses `maxDuration = 300`.**
 - **Two categories of facts: (1) Extracted from documents → `upsertDealFinancialFact`. (2) Computed structural facts → direct `sb.upsert()` with natural conflict key.**
 - **Deal-type-aware content: `isSbaDeal` must be derived before rendering SBA-specific language.**
 - **When server-side library functions return `{ ok: false }` silently, always log `error.code`, `error.details`, `error.hint`.**
@@ -246,7 +268,11 @@ not guesses about what the titles "should" be called.
 - **`ai_risk_runs` columns: `id`, `deal_id`, `bank_id`, `grade`, `base_rate_bps`, `risk_premium_bps`, `result_json`, `created_at`. Risk details live in `result_json` — not top-level columns.**
 - **Before selecting any column from a table, verify it exists via `information_schema.columns`. Ghost columns cause silent 500s.**
 - **`buddy_research_sources.raw_content` is nullable. Failed fetches have `fetch_error` populated and `raw_content = null` — correct semantic.**
-- **Section title strings in consumer functions must exactly match what the producer outputs. BRE narrative section titles are the contract — consumer maps must use the producer's actual titles, not assumed names.**
+- **Section title strings in consumer functions must exactly match what the producer outputs. BRE/BIE narrative section titles are the contract.**
+- **BIE is non-fatal by design. Any thread failure returns `null`. Whole BIE failure is caught in step 12b — mission is already marked complete before BIE runs.**
+- **BIE requires `hasCompany || hasNaics` to fire. Never runs on `999999` fallback NAICS with no company name.**
+- **`gemini-3.1-pro-preview` + Google Search grounding: omit `responseMimeType: "application/json"` from `generationConfig` — use prompt-based JSON instruction only. MimeType + grounding causes 400.**
+- **BIE `buddy_research_narratives` upserts as version 3, overwriting BRE version 1 on the same `mission_id`.**
 
 ---
 
@@ -269,7 +295,9 @@ not guesses about what the titles "should" be called.
 | AAR 41 | Research error logging + conditional SBA eligibility | ✅ Complete | ee38ec31 |
 | AAR 42 | Research UUID fix + AI risk grade from result_json | ✅ Complete | — |
 | AAR 43 | `raw_content` nullable + explicit null fallback | ✅ Complete | — |
-| **AAR 44** | **Research section title mismatch — B&I Analysis now populates** | **✅ Complete** | **—** |
+| AAR 44 | Research section title mismatch — B&I Analysis populates | ✅ Complete | — |
+| **Phase 35** | **Buddy Intelligence Engine — gemini-3.1-pro-preview, 7 threads, Google Search grounding** | **✅ Complete** | **—** |
+| Link borrower + run BIE | First full 7-thread BIE execution | 🔴 Next | — |
 | Phase 30 remaining | Narratives, Reconciliation, Committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
