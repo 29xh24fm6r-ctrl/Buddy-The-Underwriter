@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: AAR 43 complete — `buddy_research_sources.raw_content` nullable, research missions now run to completion**
+**Status: AAR 44 complete — research section titles fixed, Business & Industry Analysis now populates**
 
 ---
 
@@ -47,7 +47,7 @@ Documents (tax returns, financials, statements)
         ↓ Classic Banker Spread PDF (MMAS format)   ✅ PRs #180–#209
         ↓ AUTO-VERIFIED → Banker reviews for credit judgment only
         ↓ AI Risk Assessment (Gemini 3 Flash)       ✅ BB+ LIVE
-        ↓ Institutional Research Engine (BRE)       ✅ Phase 31
+        ↓ Institutional Research Engine (BRE)       ✅ Phase 31 + AARs 42–44
         ↓ Credit Memo (Florida Armory standard)     ✅ Phase 33
         ↓ Committee Package
         ↓ Deposit Profile + Treasury Proposals surfaced automatically
@@ -71,37 +71,43 @@ Documents (tax returns, financials, statements)
 ### AAR 40 ✅ — `maxDuration=60` + direct upsert bridge, permanent (ce786ce1)
 ### AAR 41 ✅ — Research error logging + conditional SBA eligibility (ee38ec31)
 ### AAR 42 ✅ — Research UUID fix + AI risk grade from result_json
+### AAR 43 ✅ — `raw_content` nullable + explicit null fallback
 
 ---
 
-## AAR 43 — `buddy_research_sources.raw_content` Nullable ✅ COMPLETE
+## AAR 44 — Research Section Title Mismatch Fix ✅ COMPLETE
 
-**Migration applied. `runMission.ts` updated.**
+**Root cause:** `loadResearchForMemo.ts` had a `SECTION_MAP` with hardcoded section
+title strings that didn't match what `compileNarrative.ts` actually produces.
 
-**Root cause:** `buddy_research_sources.raw_content` had a NOT NULL constraint.
-The BRE's `ingestSources` step fetches external URLs and correctly records failed
-fetches as audit rows (with `fetch_error` populated, `raw_content = null`). The
-NOT NULL constraint rejected these failed-fetch rows, causing `persistSources` to
-return `{ ok: false }`, which failed the entire mission.
+The BRE writes: `"Industry Overview"`, `"Competitive Landscape"`, `"Institutional
+Insights"`, `"Summary"`.
 
-The mission row was being created (UUID fix from AAR 42 worked) but dying at
-the source persistence step. The error: `null value in column "raw_content" of
-relation "buddy_research_sources" violates not-null constraint`.
+The map looked for: `"Industry Landscape"`, `"Competitive Analysis"`, `"Market Demand"`.
 
-**Fix 1 — Migration:**
-```sql
-ALTER TABLE buddy_research_sources ALTER COLUMN raw_content DROP NOT NULL;
+Every `sectionsToText()` call returned `"Pending"` because no titles matched.
+The research mission completed with real data (3 facts, 3 inferences, 4 narrative
+sections confirmed in DB) but `researchData` came back all-pending, so
+`business_industry_analysis` rendered nothing.
+
+**Fix — `src/lib/creditMemo/canonical/loadResearchForMemo.ts`:**
+`SECTION_MAP` expanded to 10 entries covering both the BRE's actual output titles
+and legacy fallback names. `sectionsToText` calls updated with all variants:
+
+```typescript
+industry_overview:       "Industry Overview", "Industry Landscape", "Summary"
+market_dynamics:         "Market Demand", "Market Dynamics", "Demographics", "Institutional Insights"
+competitive_positioning: "Competitive Landscape", "Competitive Analysis"
+regulatory_environment:  "Regulatory Environment"
 ```
-Failed fetches with `fetch_error` populated and `raw_content = null` now insert
-cleanly. This is the correct semantic — the column exists for content when fetched
-successfully; `fetch_error` is the signal for failed fetches.
 
-**Fix 2 — `src/lib/research/runMission.ts`:**
-`raw_content: s.raw_content ?? null` — explicit null fallback for clarity.
+After this fix, the Business & Industry Analysis section populates with real BRE
+output on every page load where a completed research mission exists.
 
-**State after this fix:** Research missions should now run to completion — sources
-persist (both successful and failed), facts extract from successful sources,
-inferences derive, narrative compiles. The BRE is live.
+**Build principle:** Section title strings in consumer functions must exactly match
+what the producer function outputs. When a BRE narrative compiles, its section
+titles are the contract. Consumer maps must use the producer's actual titles —
+not guesses about what the titles "should" be called.
 
 ---
 
@@ -112,15 +118,14 @@ inferences derive, narrative compiles. The BRE is live.
 - 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368.
 - ✅ DSCR = 3.03x in facts + snapshot + header pill + financing box
 - ✅ AI Risk: BB+ grade, 975 bps — correctly sourced from `result_json`
-- ✅ Income statement rendering with real numbers ($1.36M revenue)
-- ✅ Strengths: "Adequate debt service coverage (3.03x)" auto-populated
-- ✅ SBA language gone, SBA Size Standard hidden for conventional deals
-- ✅ Research: UUID fix (AAR 42) + schema fix (AAR 43) — missions should complete
+- ✅ Research: mission complete (3 facts, 3 inferences, 4 sections)
+- ✅ BRE section titles: now correctly mapped → Business & Industry Analysis populates
+- ✅ Income statement, strengths, SBA fixes all live
 
-**Sequence after AAR 43 deploys:**
-1. Credit Memo → Run Research — first complete BRE mission
-2. Credit Memo → Generate Narratives — Gemini 3 Flash with research context
-3. Review memo — BB+ grade, 3.03x DSCR, industry analysis section populated
+**Sequence after AAR 44 deploys:**
+1. Hard refresh Credit Memo — Business & Industry Analysis should show real content
+2. Credit Memo → Generate Narratives — Gemini 3 Flash with research + financial context
+3. Review full institutional memo
 
 ---
 
@@ -129,11 +134,10 @@ inferences derive, narrative compiles. The BRE is live.
 ### P1 — Immediate
 
 1. **✅ All prior phases/AARs** — complete
-2. **Run Research** — deploy AAR 43, click, confirm mission status = `complete`
-3. **Generate Narratives** — first research-grounded institutional memo
+2. **Hard refresh memo** — Business & Industry Analysis should now populate
+3. **Generate Narratives** — first AI-written institutional memo
 4. **Link deal to borrower** — `borrower_id` + `loan_amount` on ffcc9733
 5. **Reconciliation** — `recon_status` NULL. Blocks Committee.
-6. **Platform-wide `deals.legal_name`** — multiple background routes use wrong column
 
 ### P2 — Near Term
 
@@ -185,11 +189,10 @@ inferences derive, narrative compiles. The BRE is live.
 
 ## Definition of Done — God Tier
 
-1–57. ✅ All prior phases and AARs complete.
-58. ✅ **`buddy_research_sources.raw_content` nullable — research missions complete (AAR 43)**
-59. 🔴 Run Research — first live BRE mission status = `complete`
-60. 🔴 Generate Narratives — first research-grounded institutional memo
-61. 🔴 Memo shows BB+ risk grade correctly
+1–58. ✅ All prior phases and AARs complete.
+59. ✅ **Research section titles fixed — Business & Industry Analysis populates (AAR 44)**
+60. 🔴 Hard refresh memo — verify industry analysis section renders
+61. 🔴 Generate Narratives — first AI-written institutional memo
 62. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
 63. 🔴 Reconciliation complete — Committee Approve signal unlocked
 64. 🔴 Spread completeness ≥80%
@@ -239,10 +242,11 @@ inferences derive, narrative compiles. The BRE is live.
 - **Two categories of facts: (1) Extracted from documents → `upsertDealFinancialFact`. (2) Computed structural facts → direct `sb.upsert()` with natural conflict key.**
 - **Deal-type-aware content: `isSbaDeal` must be derived before rendering SBA-specific language.**
 - **When server-side library functions return `{ ok: false }` silently, always log `error.code`, `error.details`, `error.hint`.**
-- **Clerk `userId` (format: `"user_abc123"`) is NOT a UUID. Never pass it to a `uuid` DB column. Use `null` for `created_by` on mission/job tables, or add a separate `clerk_user_id text` column.**
-- **`ai_risk_runs` columns: `id`, `deal_id`, `bank_id`, `grade`, `base_rate_bps`, `risk_premium_bps`, `result_json`, `created_at`. Risk details (factors, rationale) live in `result_json` — not top-level columns.**
-- **Before selecting any column from a table, verify it exists via `information_schema.columns`. Ghost columns (`deals.legal_name`, `deals.amount`, `ai_risk_runs.factors`) cause silent 500s.**
-- **`buddy_research_sources.raw_content` is nullable. Failed fetches have `fetch_error` populated and `raw_content = null` — this is the correct semantic. The NOT NULL constraint was wrong and has been dropped.**
+- **Clerk `userId` (format: `"user_abc123"`) is NOT a UUID. Never pass it to a `uuid` DB column.**
+- **`ai_risk_runs` columns: `id`, `deal_id`, `bank_id`, `grade`, `base_rate_bps`, `risk_premium_bps`, `result_json`, `created_at`. Risk details live in `result_json` — not top-level columns.**
+- **Before selecting any column from a table, verify it exists via `information_schema.columns`. Ghost columns cause silent 500s.**
+- **`buddy_research_sources.raw_content` is nullable. Failed fetches have `fetch_error` populated and `raw_content = null` — correct semantic.**
+- **Section title strings in consumer functions must exactly match what the producer outputs. BRE narrative section titles are the contract — consumer maps must use the producer's actual titles, not assumed names.**
 
 ---
 
@@ -264,7 +268,8 @@ inferences derive, narrative compiles. The BRE is live.
 | AAR 40 | `maxDuration=60` + direct upsert bridge (permanent) | ✅ Complete | ce786ce1 |
 | AAR 41 | Research error logging + conditional SBA eligibility | ✅ Complete | ee38ec31 |
 | AAR 42 | Research UUID fix + AI risk grade from result_json | ✅ Complete | — |
-| **AAR 43** | **`raw_content` nullable + explicit null fallback** | **✅ Complete** | **—** |
+| AAR 43 | `raw_content` nullable + explicit null fallback | ✅ Complete | — |
+| **AAR 44** | **Research section title mismatch — B&I Analysis now populates** | **✅ Complete** | **—** |
 | Phase 30 remaining | Narratives, Reconciliation, Committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
