@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: AAR 38 complete — Phase 32 bridge wired to PDF route + research client fixed**
+**Status: AAR 39 complete — bridge awaited before response, Vercel fire-and-forget eliminated**
 
 ---
 
@@ -64,88 +64,54 @@ Documents (tax returns, financials, statements)
 ### Phase 31 ✅ — Research Engine activated + Credit Memo gated on research
 ### AAR 35 ✅ — Canonical memo error visible + RunResearchButton
 ### AAR 36 ✅ — `deals.loan_amount` fix + sequential borrower query
+### Phase 32 ✅ — Snapshot bridge: ADS/DSCR → facts → snapshot
+### Phase 33 ✅ — Institutional memo — Florida Armory standard (b1233493)
+### AAR 37 ✅ — Legacy sections removed — Phase 33 memo primary (70d161bc)
+### AAR 38 ✅ — Bridge wired to PDF route + `supabaseAdmin` in runMission
 
 ---
 
-## Phase 32 — Snapshot Bridge ✅ COMPLETE
+## AAR 39 — Bridge Fire-and-Forget → Awaited ✅ COMPLETE
 
-DSCR/ADS/CFA/Excess CF computed and written back to `deal_financial_facts` as
-FINANCIAL_ANALYSIS facts. Snapshot immediately rebuilt and persisted. Initially
-wired to `spread-intelligence/GET` — see AAR 38 for the correct trigger.
+**Commit `a8915d9c`**
 
----
-
-## Phase 33 — Institutional-Grade Credit Memo (Florida Armory Standard) ✅ COMPLETE
-
-Commit `b1233493`. 20 sections rendered matching the 18-section Florida Armory
-SBA 7(a) write-up exactly. See prior roadmap entries for full section list.
-
----
-
-## AAR 37 — Canonical Memo Page Cleanup ✅ COMPLETE
-
-Commit `70d161bc`. Removed legacy `financial_snapshot_decisions` query and
-"Underwriting Narrative" block. SBA Forms moved to collapsed `<details>` at bottom.
-Phase 33 institutional memo is now the primary content of the page.
-
----
-
-## AAR 38 — Phase 32 Bridge Trigger Fix + Research Supabase Client Fix ✅ COMPLETE
-
-**Two root causes diagnosed and fixed.**
-
-**Root cause 1 — Phase 32 bridge never fired:**
-"Regenerate" on Classic Spreads calls `/api/deals/[dealId]/classic-spread` (the PDF
-route), NOT `/api/deals/[dealId]/spread-intelligence`. The bridge lived entirely in
-`spread-intelligence` which is never called by the Regenerate button. Zero writes
-to `deal_financial_facts` after every Regenerate click.
+**Root cause:** The AAR 38 bridge used an immediately-invoked async arrow function
+(IIFE / fire-and-forget pattern): `(async () => { ... })()`. On Vercel serverless
+functions, execution terminates the instant the response is sent. The background
+promise is killed before any `await`ed DB writes complete. Result: zero facts written
+despite the bridge code being syntactically correct.
 
 **Fix — `src/app/api/deals/[dealId]/classic-spread/route.ts`:**
-Added the same bridge block (fire-and-forget, wrapped in try/catch) after
-`renderClassicSpread()` but before returning the PDF response:
-- Queries `deal_structural_pricing` for `annual_debt_service_est` (ADS)
-- Queries `deal_financial_facts` for `EBITDA` / `ORDINARY_BUSINESS_INCOME` / `NET_INCOME`
-  at the latest period (NCADS)
-- Computes `dscrValue = ncads / ads` if both available
-- Writes `ANNUAL_DEBT_SERVICE`, `DSCR`, `CASH_FLOW_AVAILABLE`, `EXCESS_CASH_FLOW`
-  to `deal_financial_facts` via `upsertDealFinancialFact`
-- Rebuilds and persists snapshot via `buildDealFinancialSnapshotForBank` +
-  `persistFinancialSnapshot`
-- Full try/catch — PDF always returns regardless of bridge outcome
+Removed the IIFE entirely. Bridge is now a top-level `try/catch` block that `await`s
+all DB operations (structural pricing query, facts query, `upsertDealFinancialFact`
+× 4, `buildDealFinancialSnapshotForBank`, `persistFinancialSnapshot`) synchronously
+before `return new NextResponse(...)`. The PDF response is returned after the bridge
+completes. Non-fatal: the `try/catch` ensures the PDF always returns regardless.
 
-**Root cause 2 — Research route returned 500, zero missions created:**
-`runMission.ts` used `createSupabaseServerClient()` (the RLS-limited user client)
-internally. In a server-only library function called from an API route, Clerk session
-cookies are not available to the user client — the RLS `INSERT` policy blocks the
-insert and `createMission()` returns `{ ok: false }`, causing the route to 500 before
-a mission row is ever written to `buddy_research_missions`.
-
-**Fix — `src/lib/research/runMission.ts`:**
-Replaced all 6 calls to `await createSupabaseServerClient()` with synchronous
-`supabaseAdmin()`. Auth is already verified by `requireRoleApi` in the route before
-`runMission` is called, so the admin client is appropriate here.
-
-**Build principle:** Server-only library functions called from authenticated API routes
-must use `supabaseAdmin()`, not `createSupabaseServerClient()`. The user client
-requires an active Clerk session cookie which is not available in deeply nested
-server-side library calls.
+**Build principle:** On Vercel serverless functions, fire-and-forget background
+promises (`Promise`, IIFE, `.then()` without `await`, `setImmediate`, `setTimeout`)
+are killed when the response is sent. Any work that must complete — DB writes,
+telemetry, cache invalidation — must be `await`ed before the response. "Non-fatal"
+means wrap in `try/catch`, not run in the background.
 
 ---
 
 ## Current State — Active Deals
 
 **Deal ffcc9733** — "Claude Fix 19" (primary active test deal)
-- `borrower_id = null`, `loan_amount = null` — foundational data gaps on this deal
-- 9/9 docs extracted. Revenue: $1.36M. ADS=$67,368. NET_INCOME=$204K (2025).
+- `borrower_id = null`, `loan_amount = null` — foundational data gaps
+- 9/9 docs extracted. NET_INCOME = $204,096 (2025). ADS = $67,368 (structural pricing).
 - ✅ AI Risk Assessment: BB+ grade, 975 bps
-- ✅ Phase 32 bridge now wired to PDF route (fires on every Regenerate)
-- ✅ Research client fixed — `supabaseAdmin()` now used throughout `runMission`
+- ✅ Phase 32 bridge: now awaited synchronously in PDF route (AAR 39)
+- ✅ Research client: `supabaseAdmin()` throughout `runMission` (AAR 38)
 
-**Sequence after AAR 38 deploys:**
-1. Classic Spreads → Regenerate — bridge fires, writes DSCR/ADS to facts, rebuilds snapshot
-2. Credit Memo → Run Research — should now create mission row and execute
+**Sequence after AAR 39 deploys:**
+1. Classic Spreads → Regenerate — bridge now awaits before response, DSCR/ADS write confirmed
+2. Credit Memo → Run Research — first live BRE mission
 3. Credit Memo → Generate Narratives
-4. Review institutional memo with real DSCR and research narrative
+4. Review institutional memo with real numbers
+
+**Expected DSCR:** NET_INCOME $204,096 / ADS $67,368 = **~3.03x**
 
 ---
 
@@ -153,14 +119,12 @@ server-side library calls.
 
 ### P1 — Immediate
 
-1. **✅ AI Risk Assessment** — BB+ grade live
-2. **✅ Phase 32 + 33 + AAR 35/36/37** — all complete
-3. **✅ AAR 38** — bridge trigger + research client both fixed
-4. **Classic Spreads → Regenerate** — now actually fires bridge
-5. **Run Research** — now uses admin client, should succeed
-6. **Link deal to borrower** — `borrower_id` + `loan_amount` on ffcc9733 needed
-   for NAICS, eligibility section, LTV, financing request box
-7. **Reconciliation** — `recon_status` NULL. Blocks Committee.
+1. **✅ All prior phases and AARs** — complete
+2. **Classic Spreads → Regenerate** — deploy AAR 39 then click to write DSCR/ADS
+3. **Run Research** — first live BRE mission
+4. **Generate Narratives** — first research-grounded institutional memo
+5. **Link deal to borrower** — `borrower_id` + `loan_amount` on ffcc9733
+6. **Reconciliation** — `recon_status` NULL. Blocks Committee.
 
 ### P2 — Near Term
 
@@ -212,26 +176,16 @@ server-side library calls.
 
 ## Definition of Done — God Tier
 
-1–32. ✅ All foundation phases and MMAS sprint items complete.
-33. ✅ Gemini 3 Flash orchestrator cutover complete
-34–42. ✅ Gemini structured output chain
-43. ✅ Research-grounded: minimal thinking
-44. ✅ AI Risk Assessment LIVE — BB+ grade, 975 bps
-45. ✅ Research Engine activated (Phase 31)
-46. ✅ Credit Memo gated on research (Phase 31)
-47. ✅ Canonical memo error visible + RunResearchButton (AAR 35)
-48. ✅ `deals.loan_amount` fix + sequential borrower query (AAR 36)
-49. ✅ Snapshot bridge: ADS/DSCR → facts → snapshot (Phase 32)
-50. ✅ Institutional memo layout — Florida Armory standard (Phase 33)
-51. ✅ Legacy sections removed — Phase 33 memo primary (AAR 37)
-52. ✅ **Phase 32 bridge wired to PDF route + research uses `supabaseAdmin` (AAR 38)**
-53. 🔴 Classic Spreads regenerated — bridge fires, DSCR/ADS populate
-54. 🔴 Run Research — first live BRE mission completes
-55. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
-56. 🔴 Generate Credit Memo — first research-grounded institutional memo
-57. 🔴 Reconciliation complete — Committee Approve signal unlocked
-58. 🔴 Spread completeness ≥80%
-59. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+1–51. ✅ All prior phases and AARs complete.
+52. ✅ Phase 32 bridge wired to PDF route + `supabaseAdmin` in runMission (AAR 38)
+53. ✅ **Bridge fire-and-forget eliminated — awaited before response (AAR 39)**
+54. 🔴 Classic Spreads regenerated — DSCR/ADS written to facts + snapshot
+55. 🔴 Run Research — first live BRE mission completes
+56. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
+57. 🔴 Generate Credit Memo — first research-grounded institutional memo
+58. 🔴 Reconciliation complete — Committee Approve signal unlocked
+59. 🔴 Spread completeness ≥80%
+60. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -272,11 +226,13 @@ server-side library calls.
 - **Legacy DB tables superseded by new architecture must be removed from page queries entirely.**
 - **Server-only library functions called from authenticated API routes must use `supabaseAdmin()`,
   not `createSupabaseServerClient()`. The user client requires an active Clerk session cookie
-  which is unavailable in deeply nested server-side library calls. Auth is verified by
-  `requireRoleApi` in the route — the admin client is correct for all downstream library calls.**
-- **The Phase 32 snapshot bridge must fire from the PDF generation route (`classic-spread/route.ts`),
-  not from `spread-intelligence`. The "Regenerate" button calls the PDF route. Always trace the
-  actual call chain from button click to API route before assuming where a bridge should live.**
+  unavailable in deeply nested server-side library calls.**
+- **On Vercel serverless functions, fire-and-forget background promises (IIFE, `.then()` without
+  `await`, `setTimeout`, `setImmediate`) are killed when the response is sent. Any work that must
+  complete — DB writes, cache invalidation, telemetry — must be `await`ed before the response.
+  "Non-fatal" means wrap in `try/catch`, not run in the background.**
+- **Always trace the actual call chain from button click → API route before deciding where a
+  bridge or side-effect should live.**
 
 ---
 
@@ -289,12 +245,12 @@ server-side library calls.
 | Phase 10–24 | COS UI + AI Provider Migration | ✅ Complete | #216–#229, dfdfc066 |
 | AAR 20–34 | Gemini chain + AI Risk LIVE | ✅ Complete | various |
 | Phase 31 | Research Engine + Credit Memo gated | ✅ Complete | — |
-| AAR 35 | Memo error visible + RunResearchButton | ✅ Complete | — |
-| AAR 36 | `loan_amount` fix + sequential borrower query | ✅ Complete | — |
-| Phase 32 | Snapshot bridge: ADS/DSCR → facts → snapshot | ✅ Complete | — |
+| AAR 35–36 | Memo fixes | ✅ Complete | — |
+| Phase 32 | Snapshot bridge | ✅ Complete | — |
 | Phase 33 | Institutional memo — Florida Armory standard | ✅ Complete | b1233493 |
-| AAR 37 | Legacy sections removed — Phase 33 memo primary | ✅ Complete | 70d161bc |
-| **AAR 38** | **Phase 32 bridge → PDF route + `supabaseAdmin` in runMission** | **✅ Complete** | **—** |
+| AAR 37 | Legacy sections removed | ✅ Complete | 70d161bc |
+| AAR 38 | Bridge → PDF route + supabaseAdmin in runMission | ✅ Complete | — |
+| **AAR 39** | **Bridge fire-and-forget → awaited before response** | **✅ Complete** | **a8915d9c** |
 | Phase 30 remaining | Narratives, Reconciliation, Committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
