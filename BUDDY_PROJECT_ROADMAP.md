@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: AAR 45 complete — research deduplication fixed, BIE content pipeline unblocked**
+**Status: AAR 46 complete — BIE content now authoritative in credit memo, management text whitespace fixed**
 
 ---
 
@@ -47,7 +47,7 @@ Documents (tax returns, financials, statements)
         ↓ Classic Banker Spread PDF (MMAS format)   ✅ PRs #180–#209
         ↓ AUTO-VERIFIED → Banker reviews for credit judgment only
         ↓ AI Risk Assessment (Gemini Flash)         ✅ BB+ LIVE
-        ↓ Buddy Intelligence Engine (BIE)           ✅ Phase 35 + AAR 45
+        ↓ Buddy Intelligence Engine (BIE)           ✅ Phase 35 + AARs 45/46 — LIVE
         ↓ Credit Memo (Florida Armory standard)     ✅ Phase 33
         ↓ Committee Package
         ↓ Deposit Profile + Treasury Proposals surfaced automatically
@@ -74,83 +74,79 @@ Documents (tax returns, financials, statements)
 ### AAR 43 ✅ — `raw_content` nullable + explicit null fallback
 ### AAR 44 ✅ — Research section title mismatch fixed, B&I Analysis populates
 ### Phase 35 ✅ — Buddy Intelligence Engine built (7 threads, Google Search grounding)
-### AAR 45 ✅ — Research deduplication + SBA language fix
+### AAR 45 ✅ — Research deduplication (.limit(1)) + SBA language fix ("Summary" removed)
+### AAR 46 ✅ — BIE content priority + management text whitespace fix
 
 ---
 
-## AAR 45 — Research Deduplication + SBA Language Fix ✅ COMPLETE
+## AAR 46 — BIE Content Priority + Management Text Fix ✅ COMPLETE
 
-**3 changes to `src/lib/creditMemo/canonical/loadResearchForMemo.ts` only.**
-`runMission.ts` confirmed correct — BIE wired at step 12b with proper persistence.
+**2 files changed.**
 
 ### Root Causes Found
 
-**Bug 1 — Triple Industry Overview duplication**
-`loadResearchForMemo.ts` loaded `.limit(20)` missions. This deal had 3 prior
-`industry_landscape` missions → 3 "Industry Landscape" pack sections →
-`sectionsToText()` concatenated all 3, producing identical paragraphs 3×.
+**Bug 1 — BRE stat block prefixing Industry Overview**
+`loadResearchForMemo.ts` built `industry_overview`, `market_dynamics`,
+`competitive_positioning`, and `regulatory_environment` by calling
+`sectionsToText(pack, ...)` which matched sections from BOTH the BRE pack
+(deterministic employment/establishment counts) AND the merged BIE sections.
+Both concatenated — producing the BRE stat block followed by BIE prose.
 
-**Bug 2 — SBA language bleeding into B&I Analysis**
-`sectionsToText()` included `"Summary"` in the `industry_overview` bucket.
-The BRE Summary section draws from all inferences including `lender_fit_analysis`,
-which contains SBA program language. Summary content was never meant to map to
-industry overview.
+**Bug 2 — Management Intelligence text had stripped whitespace**
+`buildBIENarrativeSections` assembled the management block by string-
+concatenating all principal fields (`background + track_record + red_flags`)
+into one blob, then passing to `addSection()`. The resulting single string had
+no sentence boundaries, causing characters to run together on render.
 
 ### Fixes Applied
 
-| Change | File | Before | After |
-|--------|------|--------|-------|
-| Mission load limit | `loadResearchForMemo.ts` | `.limit(20)` | `.limit(1)` |
-| missionIds array | `loadResearchForMemo.ts` | `missions.map(m => m.id)` | `[missions[0].id]` |
-| industry_overview bucket | `loadResearchForMemo.ts` | includes `"Summary"` | `"Summary"` removed |
+| Change | File |
+|--------|------|
+| `extractBIESection()` helper — reads directly from `bieNarrative.sections`, bypasses BRE pack | `loadResearchForMemo.ts` |
+| `hasBIE` flag — when true, all 4 core fields use `extractBIESection()`, falling back to `sectionsToText()` only when no BIE exists | `loadResearchForMemo.ts` |
+| Management block rebuilt per-sentence — each `background`, `other_ventures`, `track_record`, `red_flags` pushed as individual `{ text, citations }` entries | `buddyIntelligenceEngine.ts` |
 
-### Post-Fix Test Sequence
+### Architecture Now
 
-After deploying, run Research on the Samaritus deal (creates a fresh mission — only
-this most recent one will be read). Check Vercel logs for:
-`[runMission] BIE complete: quality=deep, sources=N`
-Reload Credit Memo — Industry Analysis should show Gemini-written content, not
-triplicated BRE stat blocks. No SBA language in B&I Analysis.
+When BIE narrative (version 3) exists for the mission:
+- `industry_overview` → `extractBIESection("Industry Overview", "Industry Outlook")`
+- `market_dynamics` → `extractBIESection("Market Intelligence")`
+- `competitive_positioning` → `extractBIESection("Competitive Landscape")`
+- `regulatory_environment` → `extractBIESection("Regulatory Environment")`
+
+BRE pack is used only as fallback when no BIE exists. No re-run needed —
+fix reads from the version 3 narrative already in the database.
 
 ---
 
-## Phase 35 — Buddy Intelligence Engine ✅ COMPLETE
+## Phase 35 — Buddy Intelligence Engine ✅ LIVE
 
-**7 files, 1,225 net lines. tsc clean. Pipeline unblocked by AAR 45.**
+**7 research threads. 9 memo subsections. Google Search grounding. Full pipeline operational.**
+
+### What this produces (confirmed on Samaritus deal)
+
+- ✅ Credit Thesis — Samaritus-specific, Joseph Ialacci named, key risks identified
+- ✅ Industry Overview — global charter market $9–10B, CAGR 5.3–8.2%, LEO satellite, platform disruption
+- ✅ Market Dynamics — Sag Harbor local economy, HH income $129K–$154K, seasonal concentration
+- ✅ Competitive Positioning — named: Yacht Hampton, Valkyrie Sailing, SailHamptons, Peconic Water Sports
+- ✅ Regulatory Environment — USCG cybersecurity rule, exact effective dates, compliance cost estimates
+- ✅ Transaction & Repayment Analysis — seasonal payment structure recommendation
+- ✅ Structure Implications — 5 specific, actionable covenants
+- ✅ Key Underwriting Questions — Yacht Hampton DBA contradiction surfaced
+- ✅ Post-Close Monitoring Triggers — DSCR <1.20x during peak season, Ialacci departure
+- ✅ Contradictions — DBA vs. competitor identity conflict flagged
+- ✅ 3-Year and 5-Year Outlook — base case and downside scenario
+- ✅ Management Intelligence — per-sentence, properly spaced
+- ✅ Litigation & Adverse Events — Nu-Chem 1999, 2017 fine, 2021 class action cited
+- ✅ BIE Quality Badge — "Moderate · 30 web sources"
 
 ### Architecture
 
 **Model:** `gemini-3.1-pro-preview`
 **Cost per loan:** ~$0.50–$0.65 (6 grounded calls + 1 synthesis)
 **Execution:** Threads 1–5 parallel → Thread 6 (Transaction) → Thread 7 (Synthesis) sequential
-
-**7 research threads:**
-1. **Borrower Intelligence** — company profile, reputation, reviews, news, litigation, digital footprint
-2. **Management Intelligence** — each principal's background, other ventures, track record, adverse events
-3. **Competitive Intelligence** — named competitors, market position, barriers to entry, pricing environment
-4. **Market Intelligence** — local economic conditions, demographics, CRE market, area risks
-5. **Industry Intelligence** — sector size/growth, trends, disruption risks, margins, regulatory landscape, 5-year outlook, credit risk profile
-6. **Transaction/Repayment Intelligence** — primary/secondary repayment, structure fit, downside case, stress scenario
-7. **Credit Synthesis** — executive credit thesis, repayment strengths, core vulnerabilities, structure implications, underwriting questions, monitoring triggers, 3/5-year outlook, contradictions
-
-**9 new memo subsections rendered:**
-- Credit Thesis (blue left-border callout)
-- Transaction & Repayment Analysis
-- Structure Implications (amber, actionable)
-- Key Underwriting Questions (rose, numbered checklist)
-- Post-Close Monitoring Triggers (violet)
-- Contradictions & Open Uncertainties (orange warning)
-- 3-Year and 5-Year Outlook
-- Management Intelligence
-- Litigation & Adverse Events
-
-**Key architectural decisions:**
-- BIE is entirely non-fatal — any thread failure → `null`; whole BIE failure → mission already marked complete
-- BIE only fires when `hasCompany || hasNaics` — skips generic fallback data
-- Version 3 narrative upserts on `mission_id,version`, coexisting with BRE version 1
-- `responseMimeType: "application/json"` omitted for grounded calls (Gemini 400 avoidance)
-- BIE sections merge into `CreditCommitteePack` at read time via `.sentences`→`.content` conversion
-- `loadResearchForMemo.ts` reads only most recent complete mission (AAR 45 fix)
+**Storage:** Version 3 in `buddy_research_narratives`, coexists with BRE version 1
+**Read:** `loadResearchForMemo.ts` — BIE-priority via `extractBIESection()`, BRE fallback
 
 **What this replaces:**
 - IBISWorld subscription: $2,000–3,000/yr → $0.43/deal
@@ -164,14 +160,13 @@ triplicated BRE stat blocks. No SBA language in B&I Analysis.
 **Deal ffcc9733** — Samaritus Management LLC (primary active test deal)
 - 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368. DSCR = 3.03x.
 - ✅ AI Risk: BB+ grade, 975 bps
-- ✅ Research: deduplication fixed (AAR 45) — next Run Research will produce clean output
-- ✅ BIE: wired and confirmed correct in runMission.ts step 12b
-- ✅ B&I Analysis: SBA language bleed fixed (AAR 45)
-- 🔴 First clean BIE run still needed — click Run Research to fire
-
-**Immediate action:**
-Click Run Research on Samaritus deal. Check Vercel logs for BIE completion.
-Verify Credit Memo B&I Analysis shows Gemini-written content — not BRE stat blocks.
+- ✅ BIE: LIVE — Gemini-written content rendering in all 9 memo subsections
+- ✅ B&I Analysis: clean — no BRE stat prefix, no SBA language bleed
+- ✅ Management Intelligence: per-sentence, properly spaced
+- ✅ Competitive, Industry, Market, Regulatory: all BIE-sourced
+- 🔴 Personal income extraction: -$53,464 negative — known PTR extractor bug (queued)
+- 🔴 Global Cash Flow: negative due to personal income bug — not blocking deal progress
+- 🔴 Reconciliation: `recon_status` NULL — blocks Committee signal
 
 ---
 
@@ -179,10 +174,9 @@ Verify Credit Memo B&I Analysis shows Gemini-written content — not BRE stat bl
 
 ### P1 — Immediate
 
-1. **Run Research on Samaritus** — first clean post-AAR-45 BIE execution
-2. **Verify BIE memo sections render** — Credit Thesis, Structure Implications, Monitoring Triggers
-3. **Generate Narratives** — Gemini Flash will now have BIE credit thesis as context
-4. **Reconciliation** — `recon_status` NULL. Blocks Committee.
+1. **Reconciliation** — `recon_status` NULL. Blocks Committee Approve signal.
+2. **Generate Narratives** — Gemini Flash now has full BIE context — run this next
+3. **PTR extractor** — Form 1040/Schedule E extraction producing wrong values (negative personal income)
 
 ### P2 — Near Term
 
@@ -191,8 +185,7 @@ Verify Credit Memo B&I Analysis shows Gemini-written content — not BRE stat bl
 - **Corpus expansion** — 2 docs. Need 10+ for bank confidence
 - **Management qualifications** — intake interview data capture
 - **Projection years** — Year 1/Year 2 rows in debt coverage + income statement
-- **PTR extractor** — Form 1040, Schedule E, Schedule F, Form 4562, Form 8825 not yet built
-- **BIE vertical packs** — healthcare, construction, transportation, food service deepening (Phase 36)
+- **BIE vertical packs** — healthcare, construction, transportation, food service (Phase 36)
 - **NAICS SBA historical stats** — Lumos integration for eligibility section
 
 ### P3 — Future
@@ -232,18 +225,18 @@ Verify Credit Memo B&I Analysis shows Gemini-written content — not BRE stat bl
 | Document classification | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active |
 | Voice interview sessions | gpt-4o-realtime-preview | OpenAI API key | ✅ Retained on OpenAI |
 | Risk + Memo orchestrator | Gemini Flash | GEMINI_API_KEY (Dev API) | ✅ **LIVE — BB+ on Samaritus** |
-| **Buddy Intelligence Engine** | **gemini-3.1-pro-preview** | **GEMINI_API_KEY (Dev API)** | **✅ Wired — first clean run pending** |
+| **Buddy Intelligence Engine** | **gemini-3.1-pro-preview** | **GEMINI_API_KEY (Dev API)** | **✅ LIVE — 9 sections rendering** |
 | chatAboutDeal | OpenAI gpt-4o-2024-08-06 | OpenAI API key | 🔴 Gemini migration queued (P3) |
 
 ---
 
 ## Definition of Done — God Tier
 
-1–59. ✅ All prior phases and AARs complete through Phase 35 + AAR 45.
-60. 🔴 Run Research on Samaritus — first clean 7-thread BIE execution post-deduplication fix
-61. 🔴 Verify BIE memo sections: Credit Thesis, Structure Implications, Monitoring Triggers render
-62. 🔴 Generate Narratives — first AI-written institutional memo with BIE context
-63. 🔴 Reconciliation complete — Committee Approve signal unlocked
+1–59. ✅ All prior phases and AARs complete through Phase 35 + AARs 45/46.
+60. ✅ BIE memo sections rendering: Credit Thesis, Structure Implications, Monitoring Triggers, Contradictions, 3/5-Year Outlook, Management Intelligence, Litigation.
+61. 🔴 Generate Narratives — first AI-written institutional memo with full BIE context
+62. 🔴 Reconciliation complete — Committee Approve signal unlocked
+63. 🔴 PTR extractor fixed — personal income positive, Global CF valid
 64. 🔴 Spread completeness ≥80%
 65. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
@@ -303,6 +296,9 @@ Verify Credit Memo B&I Analysis shows Gemini-written content — not BRE stat bl
 - **`loadResearchForMemo.ts` uses `.limit(1)` — only the most recent complete mission. Never accumulate multiple missions — produces duplicate section content.**
 - **`"Summary"` must not be included in the `industry_overview` sectionsToText bucket — BRE Summary section draws from all inferences including lender_fit, which contains SBA program language.**
 - **Research section deduplication: when loadResearchForMemo loads multiple missions, each one generates a full pack section. The fix is always at the load layer (.limit(1)), not the render layer.**
+- **When BIE narrative (version 3) exists, use `extractBIESection()` directly — never `sectionsToText(pack, ...)` for the four core fields. The pack merge concatenates BRE + BIE; direct extraction is authoritative.**
+- **BIE management sections must be stored per-sentence (one `{ text, citations }` entry per field), not as concatenated string blobs. Concatenation strips whitespace boundaries on render.**
+- **Personal income extraction for PTR documents (Form 1040, Schedule E/F) must use the deterministic extractor — Gemini primary writes non-canonical fact keys that `personalIncomeLoader.ts` cannot map, producing negative or garbage totals.**
 
 ---
 
@@ -327,12 +323,13 @@ Verify Credit Memo B&I Analysis shows Gemini-written content — not BRE stat bl
 | AAR 43 | `raw_content` nullable + explicit null fallback | ✅ Complete | — |
 | AAR 44 | Research section title mismatch — B&I Analysis populates | ✅ Complete | — |
 | Phase 35 | Buddy Intelligence Engine — 7 threads, Google Search grounding | ✅ Complete | — |
-| **AAR 45** | **Research deduplication (.limit(1)) + SBA language fix ("Summary" removed)** | **✅ Complete** | **—** |
-| First clean BIE run | Run Research post-fix, verify Gemini content in memo | 🔴 Next | — |
+| AAR 45 | Research deduplication (.limit(1)) + SBA language fix | ✅ Complete | — |
+| **AAR 46** | **BIE content priority (extractBIESection) + management per-sentence fix** | **✅ Complete** | **—** |
+| Generate Narratives | First AI-written memo with full BIE context | 🔴 Next | — |
 | Reconciliation | `recon_status` — Committee Approve signal | 🔴 Active | — |
+| PTR Extractor | Form 1040, Schedule E/F, 4562, 8825 — personal income fix | 🔴 Queued | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
-| PTR Extractor | Form 1040, Schedule E/F, 4562, 8825 | 🔴 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔴 Queued | — |
 
 ---
