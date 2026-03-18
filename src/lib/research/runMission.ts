@@ -60,7 +60,13 @@ async function createMission(
     .single();
 
   if (error) {
+    console.error("[runMission] createMission DB error:", error.message, error.code, error.details, error.hint);
     return { ok: false, error: error.message };
+  }
+
+  if (!data?.id) {
+    console.error("[runMission] createMission: insert succeeded but no id returned");
+    return { ok: false, error: "mission_insert_no_id" };
   }
 
   return { ok: true, missionId: data.id };
@@ -255,6 +261,7 @@ export async function runMission(
   );
 
   if (!createResult.ok || !createResult.missionId) {
+    console.error("[runMission] createMission failed:", createResult.error);
     return {
       ok: false,
       mission_id: "",

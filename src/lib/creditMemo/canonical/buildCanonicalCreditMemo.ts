@@ -575,6 +575,10 @@ export async function buildCanonicalCreditMemo(args: {
     }
 
     // ===== Phase 33: Build eligibility =====
+    const isSbaDeal = (deal as any)?.deal_type === "SBA" ||
+      (loanReq as any)?.product_type?.toUpperCase?.()?.includes("SBA") ||
+      false;
+
     const eligibility: CanonicalCreditMemoV1["eligibility"] = {
       naics_code: borrower?.naics_code ?? null,
       naics_description: borrower?.naics_description ?? null,
@@ -584,8 +588,11 @@ export async function buildCanonicalCreditMemo(args: {
       is_exporter: null,
       franchise_name: null,
       naics_sba_stats: null,
-      credit_available_elsewhere: "Credit is not available elsewhere at equivalent terms without SBA guaranty assistance.",
-      benefit_to_small_business: loanReqPurpose,
+      credit_available_elsewhere: isSbaDeal
+        ? "Credit is not available elsewhere at equivalent terms without SBA guaranty assistance."
+        : "Credit is not available from conventional sources at equivalent terms.",
+      benefit_to_small_business: loanReqPurpose ||
+        (isSbaDeal ? "Loan proceeds will provide capital needed for business growth." : ""),
     };
 
     // ===== Phase 33: Build management qualifications =====

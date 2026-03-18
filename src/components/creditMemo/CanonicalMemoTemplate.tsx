@@ -426,7 +426,9 @@ export default function CanonicalMemoTemplate({ memo }: { memo: CanonicalCreditM
         <MetricRow label="NAICS Code" value={pen(memo.eligibility.naics_code)} />
         <MetricRow label="Industry" value={pen(memo.eligibility.naics_description)} />
         <MetricRow label="Applicant Revenue" value={penNum(memo.eligibility.applicant_revenue, fmt$)} />
-        <MetricRow label="SBA Size Standard" value={penNum(memo.eligibility.sba_size_standard_revenue, fmt$)} />
+        {memo.eligibility.sba_size_standard_revenue !== null && (
+          <MetricRow label="SBA Size Standard" value={fmt$(memo.eligibility.sba_size_standard_revenue)} />
+        )}
         {memo.eligibility.employee_count !== null && (
           <MetricRow label="Employee Count" value={`${memo.eligibility.employee_count}`} />
         )}
