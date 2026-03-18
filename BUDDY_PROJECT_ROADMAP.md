@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: AAR 37 complete — canonical memo page cleaned up, Phase 33 layout now primary**
+**Status: AAR 38 complete — Phase 32 bridge wired to PDF route + research client fixed**
 
 ---
 
@@ -69,53 +69,66 @@ Documents (tax returns, financials, statements)
 
 ## Phase 32 — Snapshot Bridge ✅ COMPLETE
 
-DSCR/ADS/CFA/Excess CF computed in `spread-intelligence/route.ts` and written back
-to `deal_financial_facts` as FINANCIAL_ANALYSIS facts after every GET. Snapshot
-immediately rebuilt and persisted. Triggered by "Regenerate" on Classic Spreads.
-Zero deals had DSCR in snapshot before this fix — platform-wide gap now closed.
+DSCR/ADS/CFA/Excess CF computed and written back to `deal_financial_facts` as
+FINANCIAL_ANALYSIS facts. Snapshot immediately rebuilt and persisted. Initially
+wired to `spread-intelligence/GET` — see AAR 38 for the correct trigger.
 
 ---
 
 ## Phase 33 — Institutional-Grade Credit Memo (Florida Armory Standard) ✅ COMPLETE
 
-Commit `b1233493`. Full rebuild of types, builder, and template to match the
-18-section Florida Armory SBA 7(a) write-up exactly. 20 sections rendered:
-Readiness → Header → Financing Request → Deal Summary → Sources & Uses →
-Collateral (itemized, advance rates, lien positions) → Eligibility (NAICS, SBA stats) →
-Business & Industry Analysis → Management Qualifications → Debt Coverage Table →
-New Debt → Global CF Table → Income Statement Table → Repayment/Breakeven →
-PFS per guarantor → Strengths & Weaknesses → Policy Exceptions → Proposed Terms →
-Conditions (precedent, ongoing, insurance) → Recommendation + Approval signature block.
+Commit `b1233493`. 20 sections rendered matching the 18-section Florida Armory
+SBA 7(a) write-up exactly. See prior roadmap entries for full section list.
 
 ---
 
 ## AAR 37 — Canonical Memo Page Cleanup ✅ COMPLETE
 
-**Commit `70d161bc`**
+Commit `70d161bc`. Removed legacy `financial_snapshot_decisions` query and
+"Underwriting Narrative" block. SBA Forms moved to collapsed `<details>` at bottom.
+Phase 33 institutional memo is now the primary content of the page.
 
-**Root cause:** The canonical memo page was rendering three stacked sections above
-`CanonicalMemoTemplate`: (1) a legacy "Underwriting Narrative" block from
-`financial_snapshot_decisions.narrative_json` — a dead legacy table hit; (2) SBA
-Forms 1919/1920 — dominating the top of the page. The Phase 33 institutional memo
-was rendering correctly below these but was being obscured.
+---
 
-**Fixes:**
-- Removed `financial_snapshot_decisions` DB query entirely (was a legacy hit with no
-  current value — that table is superseded by `canonical_memo_narratives`)
-- Deleted the "Underwriting Narrative" block (narratives now live in `CanonicalMemoTemplate`)
-- `eligibility` now calls `evaluateSbaEligibility()` directly — no `sba_json` branch
-- SBA Forms moved to bottom of page inside a collapsed `<details>` element
-- Net: −45 lines, tsc clean
+## AAR 38 — Phase 32 Bridge Trigger Fix + Research Supabase Client Fix ✅ COMPLETE
 
-**Final page order:**
-1. Toolbar (Print View | Run Research | Generate Narratives | Export PDF)
-2. `CanonicalMemoTemplate` — the full institutional memo
-3. `SpreadsAppendix` — observed spreads
-4. SBA Forms 1919/1920 — collapsed `<details>`, not primary
+**Two root causes diagnosed and fixed.**
 
-**Build principle:** Legacy DB tables that are superseded by new architecture must
-be removed from page queries, not just hidden. Dead table hits add latency and
-confusion. `financial_snapshot_decisions` is now fully retired from this page.
+**Root cause 1 — Phase 32 bridge never fired:**
+"Regenerate" on Classic Spreads calls `/api/deals/[dealId]/classic-spread` (the PDF
+route), NOT `/api/deals/[dealId]/spread-intelligence`. The bridge lived entirely in
+`spread-intelligence` which is never called by the Regenerate button. Zero writes
+to `deal_financial_facts` after every Regenerate click.
+
+**Fix — `src/app/api/deals/[dealId]/classic-spread/route.ts`:**
+Added the same bridge block (fire-and-forget, wrapped in try/catch) after
+`renderClassicSpread()` but before returning the PDF response:
+- Queries `deal_structural_pricing` for `annual_debt_service_est` (ADS)
+- Queries `deal_financial_facts` for `EBITDA` / `ORDINARY_BUSINESS_INCOME` / `NET_INCOME`
+  at the latest period (NCADS)
+- Computes `dscrValue = ncads / ads` if both available
+- Writes `ANNUAL_DEBT_SERVICE`, `DSCR`, `CASH_FLOW_AVAILABLE`, `EXCESS_CASH_FLOW`
+  to `deal_financial_facts` via `upsertDealFinancialFact`
+- Rebuilds and persists snapshot via `buildDealFinancialSnapshotForBank` +
+  `persistFinancialSnapshot`
+- Full try/catch — PDF always returns regardless of bridge outcome
+
+**Root cause 2 — Research route returned 500, zero missions created:**
+`runMission.ts` used `createSupabaseServerClient()` (the RLS-limited user client)
+internally. In a server-only library function called from an API route, Clerk session
+cookies are not available to the user client — the RLS `INSERT` policy blocks the
+insert and `createMission()` returns `{ ok: false }`, causing the route to 500 before
+a mission row is ever written to `buddy_research_missions`.
+
+**Fix — `src/lib/research/runMission.ts`:**
+Replaced all 6 calls to `await createSupabaseServerClient()` with synchronous
+`supabaseAdmin()`. Auth is already verified by `requireRoleApi` in the route before
+`runMission` is called, so the admin client is appropriate here.
+
+**Build principle:** Server-only library functions called from authenticated API routes
+must use `supabaseAdmin()`, not `createSupabaseServerClient()`. The user client
+requires an active Clerk session cookie which is not available in deeply nested
+server-side library calls.
 
 ---
 
@@ -123,21 +136,16 @@ confusion. `financial_snapshot_decisions` is now fully retired from this page.
 
 **Deal ffcc9733** — "Claude Fix 19" (primary active test deal)
 - `borrower_id = null`, `loan_amount = null` — foundational data gaps on this deal
-- 9/9 docs extracted. Revenue: $1.36M (latest). ADS=$67,368 (structural pricing).
+- 9/9 docs extracted. Revenue: $1.36M. ADS=$67,368. NET_INCOME=$204K (2025).
 - ✅ AI Risk Assessment: BB+ grade, 975 bps
-- ✅ Phase 32 bridge deployed — DSCR/ADS populate after Classic Spreads → Regenerate
-- ✅ Phase 33 institutional memo deployed — renders cleanly after AAR 37
+- ✅ Phase 32 bridge now wired to PDF route (fires on every Regenerate)
+- ✅ Research client fixed — `supabaseAdmin()` now used throughout `runMission`
 
-**Immediate sequence to get real numbers:**
-1. Classic Spreads → Regenerate (fires Phase 32 bridge → DSCR/ADS into facts → snapshot)
-2. Credit Memo → Run Research (first live BRE mission — diagnosing 500 error)
+**Sequence after AAR 38 deploys:**
+1. Classic Spreads → Regenerate — bridge fires, writes DSCR/ADS to facts, rebuilds snapshot
+2. Credit Memo → Run Research — should now create mission row and execute
 3. Credit Memo → Generate Narratives
-4. Review Phase 33 memo with real data
-
-**Research 500 error — needs Vercel logs to diagnose:**
-Go to Vercel dashboard → Functions → `/api/deals/[dealId]/research/run` → recent
-invocations → paste the actual error message. The route reaches `runMission()` and
-throws somewhere inside. Cannot diagnose without the server-side stack trace.
+4. Review institutional memo with real DSCR and research narrative
 
 ---
 
@@ -146,13 +154,13 @@ throws somewhere inside. Cannot diagnose without the server-side stack trace.
 ### P1 — Immediate
 
 1. **✅ AI Risk Assessment** — BB+ grade live
-2. **✅ Phase 32** — Snapshot bridge deployed
-3. **✅ Phase 33** — Institutional memo deployed
-4. **✅ AAR 37** — Page cleaned up, memo now primary
-5. **Classic Spreads → Regenerate** — fires Phase 32, populates DSCR/ADS
-6. **Research 500** — get Vercel function logs, find root cause, fix
-7. **Link deal to borrower** — set `borrower_id` + `loan_amount` on ffcc9733
-8. **Reconciliation** — `recon_status` NULL. Blocks Committee.
+2. **✅ Phase 32 + 33 + AAR 35/36/37** — all complete
+3. **✅ AAR 38** — bridge trigger + research client both fixed
+4. **Classic Spreads → Regenerate** — now actually fires bridge
+5. **Run Research** — now uses admin client, should succeed
+6. **Link deal to borrower** — `borrower_id` + `loan_amount` on ffcc9733 needed
+   for NAICS, eligibility section, LTV, financing request box
+7. **Reconciliation** — `recon_status` NULL. Blocks Committee.
 
 ### P2 — Near Term
 
@@ -161,7 +169,7 @@ throws somewhere inside. Cannot diagnose without the server-side stack trace.
 - **Corpus expansion** — 2 Samaritus docs. Need 10+
 - **NAICS SBA historical stats** — Lumos integration for eligibility section
 - **Management qualifications** — intake interview data capture
-- **Projection years** — Year 1/Year 2 rows in debt coverage + income statement tables
+- **Projection years** — Year 1/Year 2 rows in tables
 
 ### P3 — Future
 
@@ -206,23 +214,24 @@ throws somewhere inside. Cannot diagnose without the server-side stack trace.
 
 1–32. ✅ All foundation phases and MMAS sprint items complete.
 33. ✅ Gemini 3 Flash orchestrator cutover complete
-34–42. ✅ Gemini structured output chain (AARs 24–32)
-43. ✅ Research-grounded: minimal thinking (AAR 33)
-44. ✅ AI Risk Assessment LIVE — BB+ grade, 975 bps (AAR 34)
+34–42. ✅ Gemini structured output chain
+43. ✅ Research-grounded: minimal thinking
+44. ✅ AI Risk Assessment LIVE — BB+ grade, 975 bps
 45. ✅ Research Engine activated (Phase 31)
 46. ✅ Credit Memo gated on research (Phase 31)
 47. ✅ Canonical memo error visible + RunResearchButton (AAR 35)
 48. ✅ `deals.loan_amount` fix + sequential borrower query (AAR 36)
 49. ✅ Snapshot bridge: ADS/DSCR → facts → snapshot (Phase 32)
 50. ✅ Institutional memo layout — Florida Armory standard (Phase 33)
-51. ✅ **Legacy sections removed — Phase 33 memo is now primary (AAR 37)**
-52. 🔴 Classic Spreads regenerated — activates Phase 32 bridge
-53. 🔴 Research 500 fixed — first live BRE mission
-54. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
-55. 🔴 Generate Credit Memo — first research-grounded institutional memo
-56. 🔴 Reconciliation complete — Committee Approve signal unlocked
-57. 🔴 Spread completeness ≥80%
-58. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+51. ✅ Legacy sections removed — Phase 33 memo primary (AAR 37)
+52. ✅ **Phase 32 bridge wired to PDF route + research uses `supabaseAdmin` (AAR 38)**
+53. 🔴 Classic Spreads regenerated — bridge fires, DSCR/ADS populate
+54. 🔴 Run Research — first live BRE mission completes
+55. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
+56. 🔴 Generate Credit Memo — first research-grounded institutional memo
+57. 🔴 Reconciliation complete — Committee Approve signal unlocked
+58. 🔴 Spread completeness ≥80%
+59. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -258,9 +267,16 @@ throws somewhere inside. Cannot diagnose without the server-side stack trace.
 - **Error paths on server-rendered pages must use explicitly colored text on colored backgrounds.**
 - **Never use Supabase join syntax without confirmed FK. Use sequential queries.**
 - **`deals.loan_amount` is the correct column — not `deals.amount`.**
-- **DSCR and ADS must persist to `deal_financial_facts` after every spread-intelligence call.**
+- **DSCR and ADS must persist to `deal_financial_facts` after every spread generation.**
 - **The canonical credit memo target standard is the Florida Armory SBA 7(a) write-up.**
-- **Legacy DB tables superseded by new architecture must be removed from page queries entirely — not just hidden. Dead table hits add latency and confusion.**
+- **Legacy DB tables superseded by new architecture must be removed from page queries entirely.**
+- **Server-only library functions called from authenticated API routes must use `supabaseAdmin()`,
+  not `createSupabaseServerClient()`. The user client requires an active Clerk session cookie
+  which is unavailable in deeply nested server-side library calls. Auth is verified by
+  `requireRoleApi` in the route — the admin client is correct for all downstream library calls.**
+- **The Phase 32 snapshot bridge must fire from the PDF generation route (`classic-spread/route.ts`),
+  not from `spread-intelligence`. The "Regenerate" button calls the PDF route. Always trace the
+  actual call chain from button click to API route before assuming where a bridge should live.**
 
 ---
 
@@ -277,8 +293,8 @@ throws somewhere inside. Cannot diagnose without the server-side stack trace.
 | AAR 36 | `loan_amount` fix + sequential borrower query | ✅ Complete | — |
 | Phase 32 | Snapshot bridge: ADS/DSCR → facts → snapshot | ✅ Complete | — |
 | Phase 33 | Institutional memo — Florida Armory standard | ✅ Complete | b1233493 |
-| **AAR 37** | **Legacy sections removed — Phase 33 memo primary** | **✅ Complete** | **70d161bc** |
-| Research 500 | Fix runMission failure | 🔴 Active | — |
+| AAR 37 | Legacy sections removed — Phase 33 memo primary | ✅ Complete | 70d161bc |
+| **AAR 38** | **Phase 32 bridge → PDF route + `supabaseAdmin` in runMission** | **✅ Complete** | **—** |
 | Phase 30 remaining | Narratives, Reconciliation, Committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
