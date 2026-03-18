@@ -14,7 +14,7 @@
 
 import "server-only";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
   ResearchMission,
   ResearchSource,
@@ -43,7 +43,7 @@ async function createMission(
   bankId?: string | null,
   userId?: string | null
 ): Promise<{ ok: boolean; missionId?: string; error?: string }> {
-  const supabase = await createSupabaseServerClient();
+  const supabase = supabaseAdmin();
 
   const { data, error } = await supabase
     .from("buddy_research_missions")
@@ -74,7 +74,7 @@ async function updateMissionStatus(
   status: "running" | "complete" | "failed" | "cancelled",
   errorMessage?: string
 ): Promise<void> {
-  const supabase = await createSupabaseServerClient();
+  const supabase = supabaseAdmin();
 
   const updates: Record<string, unknown> = { status };
 
@@ -104,7 +104,7 @@ async function persistSources(
     return { ok: true, sources: [] };
   }
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = supabaseAdmin();
 
   const { data, error } = await supabase
     .from("buddy_research_sources")
@@ -143,7 +143,7 @@ async function persistFacts(
     return { ok: true, facts: [] };
   }
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = supabaseAdmin();
 
   const { data, error } = await supabase
     .from("buddy_research_facts")
@@ -179,7 +179,7 @@ async function persistInferences(
     return { ok: true, inferences: [] };
   }
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = supabaseAdmin();
 
   const { data, error } = await supabase
     .from("buddy_research_inferences")
@@ -209,7 +209,7 @@ async function persistNarrative(
   missionId: string,
   sections: NarrativeSection[]
 ): Promise<{ ok: boolean; error?: string }> {
-  const supabase = await createSupabaseServerClient();
+  const supabase = supabaseAdmin();
 
   const { error } = await supabase
     .from("buddy_research_narratives")
