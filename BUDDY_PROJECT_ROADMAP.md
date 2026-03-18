@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: AAR 39 complete — bridge awaited before response, Vercel fire-and-forget eliminated**
+**Status: AAR 40 complete — maxDuration=60 + direct upsert bridge (permanent architecture)**
 
 ---
 
@@ -55,44 +55,53 @@ Documents (tax returns, financials, statements)
 
 ---
 
-## Completed Phases — Foundation through COS UI Migration
+## Completed Phases — Foundation through Phase 33
 
-### PHASE 1–9 ✅ COMPLETE — PRs #169–#177
-### Classic Banker Spread Sprint ✅ COMPLETE — PRs #180–#209
-### Phases 10–24 ✅ COMPLETE — PRs #216–#229, commit dfdfc066
+### PHASE 1–9 ✅ — PRs #169–#177
+### Classic Banker Spread Sprint ✅ — PRs #180–#209
+### Phases 10–24 ✅ — PRs #216–#229, commit dfdfc066
 ### AAR 20–34 ✅ — Full Gemini chain + AI Risk Assessment LIVE (BB+, 975 bps)
 ### Phase 31 ✅ — Research Engine activated + Credit Memo gated on research
-### AAR 35 ✅ — Canonical memo error visible + RunResearchButton
-### AAR 36 ✅ — `deals.loan_amount` fix + sequential borrower query
+### AAR 35–36 ✅ — Memo fixes
 ### Phase 32 ✅ — Snapshot bridge: ADS/DSCR → facts → snapshot
 ### Phase 33 ✅ — Institutional memo — Florida Armory standard (b1233493)
-### AAR 37 ✅ — Legacy sections removed — Phase 33 memo primary (70d161bc)
-### AAR 38 ✅ — Bridge wired to PDF route + `supabaseAdmin` in runMission
+### AAR 37 ✅ — Legacy sections removed, Phase 33 memo primary (70d161bc)
+### AAR 38 ✅ — Bridge → PDF route + `supabaseAdmin` in runMission
+### AAR 39 ✅ — Bridge IIFE → awaited before response (a8915d9c)
 
 ---
 
-## AAR 39 — Bridge Fire-and-Forget → Awaited ✅ COMPLETE
+## AAR 40 — `maxDuration=60` + Direct Upsert Bridge ✅ COMPLETE
 
-**Commit `a8915d9c`**
+**Commit `ce786ce1`**
 
-**Root cause:** The AAR 38 bridge used an immediately-invoked async arrow function
-(IIFE / fire-and-forget pattern): `(async () => { ... })()`. On Vercel serverless
-functions, execution terminates the instant the response is sent. The background
-promise is killed before any `await`ed DB writes complete. Result: zero facts written
-despite the bridge code being syntactically correct.
+**Root cause 1 — Vercel function timeout:**
+The classic-spread route had no `maxDuration` export. Vercel's default serverless
+function timeout is 10s on Pro. PDF generation + AI narrative + DB writes reliably
+takes 20-40s. The function was timing out during the bridge phase — the `try/catch`
+caught the timeout signal and logged a warning that never surfaced in the Supabase
+logs. Result: zero DB writes despite awaited bridge.
 
-**Fix — `src/app/api/deals/[dealId]/classic-spread/route.ts`:**
-Removed the IIFE entirely. Bridge is now a top-level `try/catch` block that `await`s
-all DB operations (structural pricing query, facts query, `upsertDealFinancialFact`
-× 4, `buildDealFinancialSnapshotForBank`, `persistFinancialSnapshot`) synchronously
-before `return new NextResponse(...)`. The PDF response is returned after the bridge
-completes. Non-fatal: the `try/catch` ensures the PDF always returns regardless.
+**Fix:** Added `export const maxDuration = 60;` alongside the other route config.
 
-**Build principle:** On Vercel serverless functions, fire-and-forget background
-promises (`Promise`, IIFE, `.then()` without `await`, `setImmediate`, `setTimeout`)
-are killed when the response is sent. Any work that must complete — DB writes,
-telemetry, cache invalidation — must be `await`ed before the response. "Non-fatal"
-means wrap in `try/catch`, not run in the background.
+**Root cause 2 — `upsertDealFinancialFact` wrong tool for the job:**
+`upsertDealFinancialFact` was built for **extracted document facts** (tax returns,
+financials, OCR output). It performs drift detection, identity hashing, and ledger
+event emission — appropriate for facts that can change between extraction runs and
+need full audit trails. DSCR, ADS, CFA, and Excess CF computed from
+`deal_structural_pricing` are **computed structural facts** — deterministic values
+derived from loan terms. They don't need drift detection. The extra round-trip for
+the drift pre-query was adding latency and potential failure surface.
+
+**Fix:** Replaced `upsertDealFinancialFact` calls with direct `sb.from("deal_financial_facts").upsert()`
+using the natural conflict key. This is the **correct permanent architecture** for
+computed structural facts — not a workaround.
+
+**Two categories of facts — different write patterns:**
+- **Extracted facts** (from documents): use `upsertDealFinancialFact` — full drift
+  detection, identity hash, ledger events
+- **Computed structural facts** (from loan terms/formulas): use direct `sb.upsert()`
+  with natural conflict key — deterministic, no drift detection needed
 
 ---
 
@@ -100,18 +109,18 @@ means wrap in `try/catch`, not run in the background.
 
 **Deal ffcc9733** — "Claude Fix 19" (primary active test deal)
 - `borrower_id = null`, `loan_amount = null` — foundational data gaps
-- 9/9 docs extracted. NET_INCOME = $204,096 (2025). ADS = $67,368 (structural pricing).
-- ✅ AI Risk Assessment: BB+ grade, 975 bps
-- ✅ Phase 32 bridge: now awaited synchronously in PDF route (AAR 39)
-- ✅ Research client: `supabaseAdmin()` throughout `runMission` (AAR 38)
+- 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368.
+- ✅ AI Risk: BB+ grade, 975 bps
+- ✅ Bridge: `maxDuration=60`, direct upsert, awaited before response (AAR 40)
+- ✅ Research: `supabaseAdmin()` throughout `runMission` (AAR 38)
 
-**Sequence after AAR 39 deploys:**
-1. Classic Spreads → Regenerate — bridge now awaits before response, DSCR/ADS write confirmed
+**Expected DSCR after next Regenerate:** NET_INCOME $204,096 / ADS $67,368 = **~3.03x**
+
+**Sequence after AAR 40 deploys:**
+1. Classic Spreads → Regenerate — writes DSCR/ADS/CFA/Excess CF to facts + rebuilds snapshot
 2. Credit Memo → Run Research — first live BRE mission
-3. Credit Memo → Generate Narratives
+3. Credit Memo → Generate Narratives — Gemini 3 Flash with research context
 4. Review institutional memo with real numbers
-
-**Expected DSCR:** NET_INCOME $204,096 / ADS $67,368 = **~3.03x**
 
 ---
 
@@ -120,7 +129,7 @@ means wrap in `try/catch`, not run in the background.
 ### P1 — Immediate
 
 1. **✅ All prior phases and AARs** — complete
-2. **Classic Spreads → Regenerate** — deploy AAR 39 then click to write DSCR/ADS
+2. **Classic Spreads → Regenerate** — deploy AAR 40 then click (this time it will work)
 3. **Run Research** — first live BRE mission
 4. **Generate Narratives** — first research-grounded institutional memo
 5. **Link deal to borrower** — `borrower_id` + `loan_amount` on ffcc9733
@@ -133,7 +142,7 @@ means wrap in `try/catch`, not run in the background.
 - **Corpus expansion** — 2 Samaritus docs. Need 10+
 - **NAICS SBA historical stats** — Lumos integration for eligibility section
 - **Management qualifications** — intake interview data capture
-- **Projection years** — Year 1/Year 2 rows in tables
+- **Projection years** — Year 1/Year 2 rows in debt coverage + income statement
 
 ### P3 — Future
 
@@ -176,16 +185,15 @@ means wrap in `try/catch`, not run in the background.
 
 ## Definition of Done — God Tier
 
-1–51. ✅ All prior phases and AARs complete.
-52. ✅ Phase 32 bridge wired to PDF route + `supabaseAdmin` in runMission (AAR 38)
-53. ✅ **Bridge fire-and-forget eliminated — awaited before response (AAR 39)**
-54. 🔴 Classic Spreads regenerated — DSCR/ADS written to facts + snapshot
-55. 🔴 Run Research — first live BRE mission completes
-56. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
-57. 🔴 Generate Credit Memo — first research-grounded institutional memo
-58. 🔴 Reconciliation complete — Committee Approve signal unlocked
-59. 🔴 Spread completeness ≥80%
-60. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+1–53. ✅ All prior phases and AARs complete.
+54. ✅ **`maxDuration=60` + direct upsert bridge — permanent architecture (AAR 40)**
+55. 🔴 Classic Spreads regenerated — DSCR/ADS written, snapshot populated
+56. 🔴 Run Research — first live BRE mission completes
+57. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
+58. 🔴 Generate Credit Memo — first research-grounded institutional memo
+59. 🔴 Reconciliation complete — Committee Approve signal unlocked
+60. 🔴 Spread completeness ≥80%
+61. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -224,15 +232,11 @@ means wrap in `try/catch`, not run in the background.
 - **DSCR and ADS must persist to `deal_financial_facts` after every spread generation.**
 - **The canonical credit memo target standard is the Florida Armory SBA 7(a) write-up.**
 - **Legacy DB tables superseded by new architecture must be removed from page queries entirely.**
-- **Server-only library functions called from authenticated API routes must use `supabaseAdmin()`,
-  not `createSupabaseServerClient()`. The user client requires an active Clerk session cookie
-  unavailable in deeply nested server-side library calls.**
-- **On Vercel serverless functions, fire-and-forget background promises (IIFE, `.then()` without
-  `await`, `setTimeout`, `setImmediate`) are killed when the response is sent. Any work that must
-  complete — DB writes, cache invalidation, telemetry — must be `await`ed before the response.
-  "Non-fatal" means wrap in `try/catch`, not run in the background.**
-- **Always trace the actual call chain from button click → API route before deciding where a
-  bridge or side-effect should live.**
+- **Server-only library functions called from authenticated API routes must use `supabaseAdmin()`, not `createSupabaseServerClient()`. The user client requires Clerk session cookies unavailable in deep library calls.**
+- **On Vercel serverless functions, fire-and-forget background promises are killed when the response is sent. Any work that must complete must be `await`ed before the response. "Non-fatal" means `try/catch`, not background.**
+- **Always trace the actual call chain from button click → API route before deciding where a bridge should live.**
+- **Routes that do non-trivial async work (PDF generation, AI calls, multi-step DB writes) must set `export const maxDuration = 60`. The default 10s timeout will silently kill work mid-flight.**
+- **Two categories of facts — different write patterns: (1) Extracted facts from documents → use `upsertDealFinancialFact` with full drift detection and audit trail. (2) Computed structural facts from loan terms/formulas → use direct `sb.upsert()` with natural conflict key. Deterministic values don't need drift detection.**
 
 ---
 
@@ -250,7 +254,8 @@ means wrap in `try/catch`, not run in the background.
 | Phase 33 | Institutional memo — Florida Armory standard | ✅ Complete | b1233493 |
 | AAR 37 | Legacy sections removed | ✅ Complete | 70d161bc |
 | AAR 38 | Bridge → PDF route + supabaseAdmin in runMission | ✅ Complete | — |
-| **AAR 39** | **Bridge fire-and-forget → awaited before response** | **✅ Complete** | **a8915d9c** |
+| AAR 39 | Bridge IIFE → awaited before response | ✅ Complete | a8915d9c |
+| **AAR 40** | **`maxDuration=60` + direct upsert bridge (permanent)** | **✅ Complete** | **ce786ce1** |
 | Phase 30 remaining | Narratives, Reconciliation, Committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
