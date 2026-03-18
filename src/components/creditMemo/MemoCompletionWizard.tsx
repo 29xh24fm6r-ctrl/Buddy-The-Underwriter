@@ -16,11 +16,17 @@ type Overrides = {
   [key: string]: string | undefined;
 };
 
-// Explicit text-gray-900 + bg-white required — app CSS context otherwise
-// renders typed text invisible (white on white).
-const inputCls =
-  "w-full text-sm text-gray-900 bg-white border border-gray-300 rounded-md px-3 py-2 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-400";
-const textareaCls = inputCls + " resize-none";
+// Tailwind text/bg classes are overridden by the app's global CSS in this
+// context. Use inline styles on every input/textarea — these cannot be
+// overridden by stylesheets.
+const fieldStyle: React.CSSProperties = {
+  color: "#111827",
+  backgroundColor: "#ffffff",
+};
+
+const baseCls =
+  "w-full text-sm border border-gray-300 rounded-md px-3 py-2 " +
+  "placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-400 resize-none";
 
 export default function MemoCompletionWizard({ dealId, principals, missingMetrics }: WizardProps) {
   const [open, setOpen] = useState(false);
@@ -28,6 +34,13 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [docGapsOpen, setDocGapsOpen] = useState(false);
+
+  // Always show at least one management bio entry.
+  // If no owner entities exist in DB, show a generic "Management Team" field.
+  const mgmtEntries =
+    principals.length > 0
+      ? principals
+      : [{ id: "general", name: "Management Team" }];
 
   useEffect(() => {
     if (!open) return;
@@ -95,7 +108,7 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
             {/* Scrollable body */}
             <div className="overflow-y-auto px-6 py-5 flex-1 space-y-5">
 
-              {/* Document gaps — collapsible so they don't eat the viewport */}
+              {/* Document gaps — collapsible */}
               {missingMetrics.length > 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50">
                   <button
@@ -122,7 +135,7 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
                 </div>
               )}
 
-              {/* ── Business Profile ─────────────────────────────── */}
+              {/* ── Business Profile ─────────────────────────── */}
               <div>
                 <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">
                   Business Profile
@@ -136,11 +149,12 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
                       Who is the borrower, what do they do, how long have they been operating?
                     </p>
                     <textarea
-                      rows={4}
+                      rows={5}
                       value={overrides.business_description ?? ""}
                       onChange={e => set("business_description", e.target.value)}
                       placeholder="e.g. Samaritus Management LLC operates Yacht Hampton, a luxury boat charter and rental business founded in 2017 in Sag Harbor, NY. The company operates a modern fleet of 25–30 vessels including electric yachts, serving affluent leisure and corporate event customers in the Hamptons market..."
-                      className={textareaCls}
+                      className={baseCls}
+                      style={fieldStyle}
                     />
                   </div>
 
@@ -151,11 +165,12 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
                       </label>
                       <p className="text-xs text-gray-400 mb-1.5">Breakdown of revenue streams</p>
                       <textarea
-                        rows={2}
+                        rows={3}
                         value={overrides.revenue_mix ?? ""}
                         onChange={e => set("revenue_mix", e.target.value)}
-                        placeholder="e.g. 60% boat rentals, 30% corporate events, 10% lessons"
-                        className={textareaCls}
+                        placeholder="e.g. 60% boat rentals, 30% corporate events, 10% sailing lessons"
+                        className={baseCls}
+                        style={fieldStyle}
                       />
                     </div>
                     <div>
@@ -164,18 +179,19 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
                       </label>
                       <p className="text-xs text-gray-400 mb-1.5">Peak and off-peak periods</p>
                       <textarea
-                        rows={2}
+                        rows={3}
                         value={overrides.seasonality ?? ""}
                         onChange={e => set("seasonality", e.target.value)}
                         placeholder="e.g. Peak May–Sep (85% of revenue), minimal Oct–Apr"
-                        className={textareaCls}
+                        className={baseCls}
+                        style={fieldStyle}
                       />
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* ── Collateral Description ────────────────────────── */}
+              {/* ── Collateral Description ────────────────────── */}
               <div>
                 <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1">
                   Collateral Description
@@ -188,37 +204,41 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
                   value={overrides.collateral_description ?? ""}
                   onChange={e => set("collateral_description", e.target.value)}
                   placeholder="e.g. Modern marine vessel fleet including 2023 Aquila 36 catamaran, 640 Galeon motor yacht, and Lilybaeum 27 electric vessel. Fleet maintained at Sag Harbor Marina."
-                  className={textareaCls}
+                  className={baseCls}
+                  style={fieldStyle}
                 />
               </div>
 
-              {/* ── Management Qualifications ─────────────────────── */}
-              {principals.length > 0 && (
-                <div>
-                  <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1">
-                    Management Qualifications
-                  </div>
-                  <p className="text-xs text-gray-400 mb-3">
-                    Career background, industry experience, track record for each principal
-                  </p>
-                  <div className="space-y-4">
-                    {principals.map(p => (
-                      <div key={p.id}>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          {p.name}
-                        </label>
-                        <textarea
-                          rows={3}
-                          value={overrides[`principal_bio_${p.id}`] ?? ""}
-                          onChange={e => set(`principal_bio_${p.id}`, e.target.value)}
-                          placeholder={`Career background, industry experience, other ventures, and track record for ${p.name}...`}
-                          className={textareaCls}
-                        />
-                      </div>
-                    ))}
-                  </div>
+              {/* ── Management Qualifications ─────────────────── */}
+              <div>
+                <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1">
+                  Management Qualifications
                 </div>
-              )}
+                <p className="text-xs text-gray-400 mb-3">
+                  Career background, industry experience, and track record for each principal
+                </p>
+                <div className="space-y-4">
+                  {mgmtEntries.map(p => (
+                    <div key={p.id}>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        {p.name}
+                      </label>
+                      <textarea
+                        rows={4}
+                        value={overrides[`principal_bio_${p.id}`] ?? ""}
+                        onChange={e => set(`principal_bio_${p.id}`, e.target.value)}
+                        placeholder={
+                          p.id === "general"
+                            ? "Career background, industry experience, other ventures, and track record for the management team..."
+                            : `Career background, industry experience, other ventures, and track record for ${p.name}...`
+                        }
+                        className={baseCls}
+                        style={fieldStyle}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* Footer */}
