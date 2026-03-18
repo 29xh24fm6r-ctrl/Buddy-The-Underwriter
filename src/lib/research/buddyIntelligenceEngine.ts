@@ -141,7 +141,7 @@ export type BIEResult = {
 // Core Gemini Caller
 // ============================================================================
 
-const GEMINI_MODEL = "gemini-2.5-pro-preview-03-25";
+const GEMINI_MODEL = "gemini-3.1-pro-preview";
 
 async function callGeminiGrounded<T>(args: {
   prompt: string;
