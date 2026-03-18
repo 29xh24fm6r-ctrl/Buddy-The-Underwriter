@@ -16,10 +16,10 @@ type RowSpec = {
 const ROW_REGISTRY: RowSpec[] = [
   { key: "WAGES_W2", label: "W-2 Wages", section: "INCOME", factType: "PERSONAL_INCOME", factKey: "WAGES_W2" },
   { key: "SCHED_C_NET", label: "Schedule C Net Income", section: "INCOME", factType: "PERSONAL_INCOME", factKey: "SCHED_C_NET" },
-  { key: "SCHED_E_NET", label: "Schedule E Net Income", section: "INCOME", factType: "PERSONAL_INCOME", factKey: "SCHED_E_NET" },
+  { key: "SCHED_E_NET", label: "Schedule E Net Income", section: "INCOME", factType: "PERSONAL_INCOME", factKey: "SCH_E_NET" },
   { key: "K1_ORDINARY_INCOME", label: "K-1 Ordinary Income", section: "INCOME", factType: "PERSONAL_INCOME", factKey: "K1_ORDINARY_INCOME" },
-  { key: "INTEREST_INCOME", label: "Interest Income", section: "INCOME", factType: "PERSONAL_INCOME", factKey: "INTEREST_INCOME" },
-  { key: "DIVIDEND_INCOME", label: "Dividend Income", section: "INCOME", factType: "PERSONAL_INCOME", factKey: "DIVIDEND_INCOME" },
+  { key: "INTEREST_INCOME", label: "Interest Income", section: "INCOME", factType: "PERSONAL_INCOME", factKey: "TAXABLE_INTEREST" },
+  { key: "DIVIDEND_INCOME", label: "Dividend Income", section: "INCOME", factType: "PERSONAL_INCOME", factKey: "ORDINARY_DIVIDENDS" },
   { key: "CAPITAL_GAINS", label: "Capital Gains", section: "INCOME", factType: "PERSONAL_INCOME", factKey: "CAPITAL_GAINS" },
   { key: "SOCIAL_SECURITY", label: "Social Security", section: "INCOME", factType: "PERSONAL_INCOME", factKey: "SOCIAL_SECURITY" },
   { key: "OTHER_INCOME", label: "Other Income", section: "INCOME", factType: "PERSONAL_INCOME", factKey: "OTHER_INCOME" },
@@ -31,6 +31,14 @@ const INCOME_KEYS = [
   "WAGES_W2", "SCHED_C_NET", "SCHED_E_NET", "K1_ORDINARY_INCOME",
   "INTEREST_INCOME", "DIVIDEND_INCOME", "CAPITAL_GAINS", "SOCIAL_SECURITY", "OTHER_INCOME",
 ];
+
+// Alias fallbacks: resolve old key names → new canonical DB keys.
+// Ensures historical facts written under legacy keys still resolve.
+const KEY_ALIASES: Record<string, string[]> = {
+  INTEREST_INCOME: ["TAXABLE_INTEREST", "INTEREST_INCOME"],
+  DIVIDEND_INCOME: ["ORDINARY_DIVIDENDS", "DIVIDEND_INCOME"],
+  SCHED_E_NET: ["SCH_E_NET", "SCHED_E_NET"],
+};
 
 function formatCurrency(v: number | null): string {
   if (v === null) return "";
@@ -66,6 +74,7 @@ export function personalIncomeTemplate(): SpreadTemplate {
 
       const cellByKey: Record<string, RenderedSpreadCellV2> = {};
 
+      // Primary lookup — uses the canonical factKey from ROW_REGISTRY
       for (const spec of ROW_REGISTRY) {
         if (spec.isFormula) continue;
         const fact = pickLatestFact({
@@ -76,30 +85,47 @@ export function personalIncomeTemplate(): SpreadTemplate {
         cellByKey[spec.key] = factToCell(fact);
       }
 
-      // Compute TOTAL_PERSONAL_INCOME as sum of income components
+      // Alias fallbacks — resolve historical facts written under old key names
+      for (const [specKey, aliases] of Object.entries(KEY_ALIASES)) {
+        if (cellByKey[specKey]?.value != null) continue; // already resolved
+        for (const alias of aliases) {
+          const fact = pickLatestFact({
+            facts: allPersonalFacts,
+            factType: "PERSONAL_INCOME",
+            factKey: alias,
+          });
+          if (fact) {
+            cellByKey[specKey] = factToCell(fact);
+            break;
+          }
+        }
+      }
+
+      // Compute TOTAL_PERSONAL_INCOME — guard against stale negative stored totals
       const existingTotal = pickLatestFact({
         facts: allPersonalFacts,
         factType: "PERSONAL_INCOME",
         factKey: "TOTAL_PERSONAL_INCOME",
       });
 
-      if (existingTotal) {
-        cellByKey["TOTAL_PERSONAL_INCOME"] = factToCell(existingTotal);
-      } else {
-        let sum = 0;
-        let anyPresent = false;
-        for (const k of INCOME_KEYS) {
-          const v = cellByKey[k]?.value;
-          if (typeof v === "number" && Number.isFinite(v)) {
-            sum += v;
-            anyPresent = true;
-          }
+      let componentSum = 0;
+      let anyPresent = false;
+      for (const k of INCOME_KEYS) {
+        const v = cellByKey[k]?.value;
+        if (typeof v === "number" && Number.isFinite(v)) {
+          componentSum += v;
+          anyPresent = true;
         }
-        cellByKey["TOTAL_PERSONAL_INCOME"] = {
-          value: anyPresent ? sum : null,
-          formula_ref: "SUM(income_components)",
-        };
       }
+
+      // Use stored total only if it's plausibly correct (non-negative, and components exist)
+      const storedTotal = existingTotal ? (existingTotal.fact_value_num ?? null) : null;
+      const useStoredTotal = storedTotal !== null && storedTotal >= 0 && anyPresent;
+
+      cellByKey["TOTAL_PERSONAL_INCOME"] = {
+        value: useStoredTotal ? storedTotal : (anyPresent ? componentSum : null),
+        formula_ref: useStoredTotal ? undefined : "SUM(income_components)",
+      };
 
       let asOf: string | null = null;
       for (const cell of Object.values(cellByKey)) {
