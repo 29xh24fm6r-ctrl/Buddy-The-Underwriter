@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: AAR 40 complete — maxDuration=60 + direct upsert bridge (permanent architecture)**
+**Status: AAR 41 complete — research error logging + conditional SBA eligibility section**
 
 ---
 
@@ -55,7 +55,7 @@ Documents (tax returns, financials, statements)
 
 ---
 
-## Completed Phases — Foundation through Phase 33
+## Completed Phases
 
 ### PHASE 1–9 ✅ — PRs #169–#177
 ### Classic Banker Spread Sprint ✅ — PRs #180–#209
@@ -68,40 +68,31 @@ Documents (tax returns, financials, statements)
 ### AAR 37 ✅ — Legacy sections removed, Phase 33 memo primary (70d161bc)
 ### AAR 38 ✅ — Bridge → PDF route + `supabaseAdmin` in runMission
 ### AAR 39 ✅ — Bridge IIFE → awaited before response (a8915d9c)
+### AAR 40 ✅ — `maxDuration=60` + direct upsert bridge, permanent (ce786ce1)
 
 ---
 
-## AAR 40 — `maxDuration=60` + Direct Upsert Bridge ✅ COMPLETE
+## AAR 41 — Research Error Logging + Conditional SBA Eligibility ✅ COMPLETE
 
-**Commit `ce786ce1`**
+**Commit `ee38ec31`**
 
-**Root cause 1 — Vercel function timeout:**
-The classic-spread route had no `maxDuration` export. Vercel's default serverless
-function timeout is 10s on Pro. PDF generation + AI narrative + DB writes reliably
-takes 20-40s. The function was timing out during the bridge phase — the `try/catch`
-caught the timeout signal and logged a warning that never surfaced in the Supabase
-logs. Result: zero DB writes despite awaited bridge.
+**Fix 1 — `src/lib/research/runMission.ts`:**
+`createMission` now logs `error.code`, `error.details`, `error.hint` before
+returning `{ ok: false }` — the actual DB error will now surface in Vercel logs
+when Run Research is clicked. Guards added against `!data?.id` after insert.
+`runMission` logs the failure before the early return so the failure is visible
+at both layers.
 
-**Fix:** Added `export const maxDuration = 60;` alongside the other route config.
+**Fix 2 — `src/lib/creditMemo/canonical/buildCanonicalCreditMemo.ts`:**
+`isSbaDeal` derived from `deal.deal_type` or `loanReq.product_type`. The
+`credit_available_elsewhere` and `benefit_to_small_business` strings are now
+conditioned on `isSbaDeal` — conventional deals no longer display SBA-specific
+language ("...without SBA guaranty assistance.").
 
-**Root cause 2 — `upsertDealFinancialFact` wrong tool for the job:**
-`upsertDealFinancialFact` was built for **extracted document facts** (tax returns,
-financials, OCR output). It performs drift detection, identity hashing, and ledger
-event emission — appropriate for facts that can change between extraction runs and
-need full audit trails. DSCR, ADS, CFA, and Excess CF computed from
-`deal_structural_pricing` are **computed structural facts** — deterministic values
-derived from loan terms. They don't need drift detection. The extra round-trip for
-the drift pre-query was adding latency and potential failure surface.
-
-**Fix:** Replaced `upsertDealFinancialFact` calls with direct `sb.from("deal_financial_facts").upsert()`
-using the natural conflict key. This is the **correct permanent architecture** for
-computed structural facts — not a workaround.
-
-**Two categories of facts — different write patterns:**
-- **Extracted facts** (from documents): use `upsertDealFinancialFact` — full drift
-  detection, identity hash, ledger events
-- **Computed structural facts** (from loan terms/formulas): use direct `sb.upsert()`
-  with natural conflict key — deterministic, no drift detection needed
+**Fix 3 — `src/components/creditMemo/CanonicalMemoTemplate.tsx`:**
+`SBA Size Standard` row wrapped in `sba_size_standard_revenue !== null` guard.
+Invisible on conventional deals. Only appears when explicitly populated for
+SBA loan types.
 
 ---
 
@@ -110,17 +101,17 @@ computed structural facts — not a workaround.
 **Deal ffcc9733** — "Claude Fix 19" (primary active test deal)
 - `borrower_id = null`, `loan_amount = null` — foundational data gaps
 - 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368.
+- ✅ DSCR = **3.03x** written to `deal_financial_facts` + snapshot (2026-03-18 13:56)
 - ✅ AI Risk: BB+ grade, 975 bps
-- ✅ Bridge: `maxDuration=60`, direct upsert, awaited before response (AAR 40)
-- ✅ Research: `supabaseAdmin()` throughout `runMission` (AAR 38)
+- ✅ Bridge: `maxDuration=60`, direct upsert, awaited (AAR 40)
+- ✅ Research: `supabaseAdmin()` + error logging (AAR 38 + 41)
+- ✅ Memo: SBA language conditional, SBA Size Standard hidden (AAR 41)
 
-**Expected DSCR after next Regenerate:** NET_INCOME $204,096 / ADS $67,368 = **~3.03x**
-
-**Sequence after AAR 40 deploys:**
-1. Classic Spreads → Regenerate — writes DSCR/ADS/CFA/Excess CF to facts + rebuilds snapshot
-2. Credit Memo → Run Research — first live BRE mission
-3. Credit Memo → Generate Narratives — Gemini 3 Flash with research context
-4. Review institutional memo with real numbers
+**Sequence after AAR 41 deploys:**
+1. Credit Memo → Run Research — error logging will now surface exact DB error in Vercel logs if it fails
+2. Check Vercel logs for `[runMission] createMission DB error:` if still failing
+3. Credit Memo → Generate Narratives
+4. Review institutional memo — SBA language gone, DSCR 3.03x in financing box
 
 ---
 
@@ -128,12 +119,11 @@ computed structural facts — not a workaround.
 
 ### P1 — Immediate
 
-1. **✅ All prior phases and AARs** — complete
-2. **Classic Spreads → Regenerate** — deploy AAR 40 then click (this time it will work)
-3. **Run Research** — first live BRE mission
-4. **Generate Narratives** — first research-grounded institutional memo
-5. **Link deal to borrower** — `borrower_id` + `loan_amount` on ffcc9733
-6. **Reconciliation** — `recon_status` NULL. Blocks Committee.
+1. **✅ DSCR 3.03x** — written to facts + snapshot
+2. **Run Research** — deploy AAR 41, click, check Vercel logs for error message
+3. **Generate Narratives** — first research-grounded institutional memo
+4. **Link deal to borrower** — `borrower_id` + `loan_amount` on ffcc9733
+5. **Reconciliation** — `recon_status` NULL. Blocks Committee.
 
 ### P2 — Near Term
 
@@ -185,15 +175,15 @@ computed structural facts — not a workaround.
 
 ## Definition of Done — God Tier
 
-1–53. ✅ All prior phases and AARs complete.
-54. ✅ **`maxDuration=60` + direct upsert bridge — permanent architecture (AAR 40)**
-55. 🔴 Classic Spreads regenerated — DSCR/ADS written, snapshot populated
-56. 🔴 Run Research — first live BRE mission completes
-57. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
-58. 🔴 Generate Credit Memo — first research-grounded institutional memo
-59. 🔴 Reconciliation complete — Committee Approve signal unlocked
-60. 🔴 Spread completeness ≥80%
-61. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+1–54. ✅ All prior phases and AARs complete.
+55. ✅ DSCR 3.03x written to facts + snapshot rebuilt (AAR 40 bridge working)
+56. ✅ **Research error logging + conditional SBA eligibility (AAR 41)**
+57. 🔴 Run Research — first live BRE mission completes
+58. 🔴 Generate Narratives — first research-grounded institutional memo
+59. 🔴 Deal ffcc9733: `borrower_id` and `loan_amount` set
+60. 🔴 Reconciliation complete — Committee Approve signal unlocked
+61. 🔴 Spread completeness ≥80%
+62. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
 
 ---
 
@@ -235,8 +225,10 @@ computed structural facts — not a workaround.
 - **Server-only library functions called from authenticated API routes must use `supabaseAdmin()`, not `createSupabaseServerClient()`. The user client requires Clerk session cookies unavailable in deep library calls.**
 - **On Vercel serverless functions, fire-and-forget background promises are killed when the response is sent. Any work that must complete must be `await`ed before the response. "Non-fatal" means `try/catch`, not background.**
 - **Always trace the actual call chain from button click → API route before deciding where a bridge should live.**
-- **Routes that do non-trivial async work (PDF generation, AI calls, multi-step DB writes) must set `export const maxDuration = 60`. The default 10s timeout will silently kill work mid-flight.**
-- **Two categories of facts — different write patterns: (1) Extracted facts from documents → use `upsertDealFinancialFact` with full drift detection and audit trail. (2) Computed structural facts from loan terms/formulas → use direct `sb.upsert()` with natural conflict key. Deterministic values don't need drift detection.**
+- **Routes that do non-trivial async work must set `export const maxDuration = 60`. The default 10s timeout silently kills work mid-flight.**
+- **Two categories of facts: (1) Extracted from documents → `upsertDealFinancialFact` with drift detection. (2) Computed structural facts → direct `sb.upsert()` with natural conflict key.**
+- **Deal-type-aware content: `isSbaDeal` must be derived from `deal.deal_type` or `loanReq.product_type` before rendering any SBA-specific language. Never hardcode SBA strings for all deals.**
+- **When server-side library functions return `{ ok: false }` silently, the error disappears. Always log `error.code`, `error.details`, `error.hint` before returning failures so Vercel logs surface the root cause.**
 
 ---
 
@@ -255,7 +247,8 @@ computed structural facts — not a workaround.
 | AAR 37 | Legacy sections removed | ✅ Complete | 70d161bc |
 | AAR 38 | Bridge → PDF route + supabaseAdmin in runMission | ✅ Complete | — |
 | AAR 39 | Bridge IIFE → awaited before response | ✅ Complete | a8915d9c |
-| **AAR 40** | **`maxDuration=60` + direct upsert bridge (permanent)** | **✅ Complete** | **ce786ce1** |
+| AAR 40 | `maxDuration=60` + direct upsert bridge (permanent) | ✅ Complete | ce786ce1 |
+| **AAR 41** | **Research error logging + conditional SBA eligibility** | **✅ Complete** | **ee38ec31** |
 | Phase 30 remaining | Narratives, Reconciliation, Committee | 🔴 Active | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
