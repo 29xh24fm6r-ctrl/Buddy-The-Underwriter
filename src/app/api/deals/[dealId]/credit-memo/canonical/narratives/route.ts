@@ -5,6 +5,9 @@ import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
 import { assembleNarratives, overlayNarratives } from "@/lib/creditMemo/canonical/narrativeAssembly";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export async function POST(
   req: NextRequest,
   props: { params: Promise<{ dealId: string }> },
