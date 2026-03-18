@@ -120,7 +120,7 @@ async function persistSources(
         source_class: s.source_class,
         source_name: s.source_name,
         source_url: s.source_url,
-        raw_content: s.raw_content,
+        raw_content: s.raw_content ?? null,
         content_type: s.content_type,
         checksum: s.checksum,
         retrieved_at: s.retrieved_at,
