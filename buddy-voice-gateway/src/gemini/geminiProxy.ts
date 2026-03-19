@@ -1,17 +1,5 @@
 /**
  * geminiProxy.ts — Gemini Live WebSocket proxy for Buddy credit interviews.
- *
- * Architecture:
- *   Browser ──ws──▷ Fly.io Gateway ──ws──▷ Vertex AI Gemini Live
- *              ◁── relay ◁──                │
- *                               tool call interception
- *                                           │
- *                              buddyDispatch → Buddy Next.js API
- *                                           │
- *                              Writes confirmed facts to deal_financial_facts
- *
- * Auth: short-lived proxy token stored in deal_voice_sessions.metadata
- * by POST /api/deals/[dealId]/banker-session/gemini-token
  */
 
 import { WebSocket as WsClient, WebSocketServer } from "ws";
@@ -23,10 +11,6 @@ import { supabase } from "../lib/supabase.js";
 import { env, envOptional } from "../lib/env.js";
 import { routeBuddyIntent } from "../dispatch/buddyDispatch.js";
 
-// ---------------------------------------------------------------------------
-// Vertex AI config — same auth pattern as Pulse
-// ---------------------------------------------------------------------------
-
 const GCP_PROJECT_ID = env("GCP_PROJECT_ID");
 const GCP_LOCATION = envOptional("GCP_LOCATION") ?? "us-central1";
 const VERTEX_AI_HOST = `${GCP_LOCATION}-aiplatform.googleapis.com`;
@@ -34,10 +18,6 @@ const VERTEX_WS_URL =
   `wss://${VERTEX_AI_HOST}/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent`;
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
-
-// ---------------------------------------------------------------------------
-// Single tool declaration — "buddy_query" routes to gap resolution engine
-// ---------------------------------------------------------------------------
 
 const BUDDY_QUERY_TOOL = {
   function_declarations: [
@@ -72,10 +52,6 @@ const BUDDY_QUERY_TOOL = {
   ],
 };
 
-// ---------------------------------------------------------------------------
-// GCP Auth — service account OAuth2 (same pattern as extraction pipeline)
-// ---------------------------------------------------------------------------
-
 let authClient: GoogleAuth | null = null;
 
 function getAuthClient(): GoogleAuth {
@@ -103,16 +79,12 @@ async function getAccessToken(): Promise<string> {
   return tokenResponse.token;
 }
 
-// ---------------------------------------------------------------------------
-// Session metadata shape (matches what gemini-token route writes)
-// ---------------------------------------------------------------------------
-
 interface SessionMetadata {
   proxyToken?: string;
   proxyTokenExpiresAt?: string;
-  proxyUserId?: string;        // Clerk userId
+  proxyUserId?: string;
   proxyTraceId?: string;
-  proxyDealId?: string;        // deal UUID
+  proxyDealId?: string;
   proxyBankId?: string;
   proxyModel?: string;
   proxyVoice?: string;
@@ -121,10 +93,6 @@ interface SessionMetadata {
   proxyProactiveAudio?: boolean;
   [key: string]: unknown;
 }
-
-// ---------------------------------------------------------------------------
-// Main handler
-// ---------------------------------------------------------------------------
 
 export async function handleGeminiProxy(
   req: IncomingMessage,
@@ -147,7 +115,6 @@ export async function handleGeminiProxy(
     return;
   }
 
-  // Validate token against Supabase
   let metadata: SessionMetadata;
   try {
     const { data, error } = await supabase
@@ -191,7 +158,6 @@ export async function handleGeminiProxy(
 
   console.log("[BUDDY_PROXY] CONNECT", { userId, dealId, sessionId, traceId });
 
-  // Open upstream Vertex AI WebSocket
   let upstreamWs: WsClient;
   try {
     const accessToken = await getAccessToken();
@@ -209,8 +175,6 @@ export async function handleGeminiProxy(
   let pingInterval: ReturnType<typeof setInterval> | null = null;
 
   const setupMessage = buildSetupMessage(metadata);
-
-  // ---- Upstream events ----
 
   upstreamWs.on("open", () => {
     upstreamReady = true;
@@ -232,7 +196,6 @@ export async function handleGeminiProxy(
   });
 
   upstreamWs.on("message", (data: RawData, isBinary: boolean) => {
-    // Binary passes through immediately (audio chunks)
     if (isBinary) {
       if (clientWs.readyState === clientWs.OPEN) clientWs.send(data, { binary: true });
       return;
@@ -246,7 +209,6 @@ export async function handleGeminiProxy(
       return;
     }
 
-    // Tool call interception — handle server-side, never relay to client
     if (parsed?.toolCall) {
       const toolCall = parsed.toolCall as {
         functionCalls?: Array<{ name: string; args?: Record<string, unknown>; id?: string }>;
@@ -281,7 +243,6 @@ export async function handleGeminiProxy(
       }
     }
 
-    // Normal relay: Gemini → Client
     if (clientWs.readyState === clientWs.OPEN) clientWs.send(data, { binary: false });
   });
 
@@ -300,8 +261,6 @@ export async function handleGeminiProxy(
       clientWs.close(4002, "upstream_error");
     }
   });
-
-  // ---- Client events ----
 
   clientWs.on("message", (data: RawData, isBinary: boolean) => {
     if (upstreamReady && upstreamWs.readyState === WsClient.OPEN) {
@@ -322,10 +281,6 @@ export async function handleGeminiProxy(
     console.error("[BUDDY_PROXY] Client error", { sessionId, error: err.message });
   });
 }
-
-// ---------------------------------------------------------------------------
-// Tool call handler — routes to Buddy dispatch → writes confirmed facts
-// ---------------------------------------------------------------------------
 
 async function handleToolCall(
   callId: string,
@@ -384,21 +339,20 @@ async function handleToolCall(
 
 // ---------------------------------------------------------------------------
 // Build Gemini Live setup message
+// IMPORTANT: input_audio_transcription and output_audio_transcription must be
+// top-level fields in setup, NOT inside generation_config.
 // ---------------------------------------------------------------------------
 
 function buildSetupMessage(meta: SessionMetadata): Record<string, unknown> {
   const model = meta.proxyModel ?? "gemini-live-2.5-flash-native-audio";
 
-  const config: Record<string, unknown> = {
+  const generationConfig: Record<string, unknown> = {
     response_modalities: ["AUDIO"],
     thinking_config: { thinking_budget: meta.proxyThinkingBudget ?? 0 },
-    // Request text transcript as side channel — used for gap confirmation audit trail
-    input_audio_transcription: {},
-    output_audio_transcription: {},
   };
 
   if (meta.proxyVoice) {
-    config.speech_config = {
+    generationConfig.speech_config = {
       voice_config: {
         prebuilt_voice_config: { voice_name: meta.proxyVoice },
       },
@@ -407,7 +361,10 @@ function buildSetupMessage(meta: SessionMetadata): Record<string, unknown> {
 
   const setup: Record<string, unknown> = {
     model: `projects/${GCP_PROJECT_ID}/locations/${GCP_LOCATION}/publishers/google/models/${model}`,
-    generation_config: config,
+    generation_config: generationConfig,
+    // Transcription fields are TOP-LEVEL in setup, not inside generation_config
+    input_audio_transcription: {},
+    output_audio_transcription: {},
   };
 
   if (meta.proxySystemInstruction) {
