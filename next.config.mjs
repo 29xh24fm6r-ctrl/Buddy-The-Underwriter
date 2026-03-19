@@ -40,6 +40,7 @@ const nextConfig = {
   async headers() {
     return [
       {
+        // Global security headers — microphone blocked by default
         source: "/(.*)",
         headers: [
           { key: "X-Frame-Options", value: "DENY" },
@@ -47,6 +48,20 @@ const nextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+        ],
+      },
+      {
+        // Credit memo pages — microphone allowed for Gemini Live banker interview
+        source: "/credit-memo/(.*)",
+        headers: [
+          { key: "Permissions-Policy", value: "camera=(), microphone=self, geolocation=()" },
+        ],
+      },
+      {
+        // Deal cockpit pages — microphone allowed for Gemini Live banker interview
+        source: "/deals/(.*)",
+        headers: [
+          { key: "Permissions-Policy", value: "camera=(), microphone=self, geolocation=()" },
         ],
       },
     ];
