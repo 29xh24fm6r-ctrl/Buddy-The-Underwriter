@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 50 complete — Deal Truth Graph + Gap Resolution Engine live**
+**Status: Phase 51 complete — Gemini Live voice gateway on Fly.io, zero OpenAI**
 
 ---
 
@@ -28,6 +28,17 @@ guidance require human oversight. Non-negotiable.
 
 ---
 
+## Spec Governance — How We Build
+
+**ChatGPT:** Architecture, UX concepts, business logic, spec drafting.
+**Claude:** Schema reconciliation, codebase alignment, build-ready spec production.
+**Antigravity:** Implementation against Claude-reconciled spec only.
+
+Antigravity never receives a raw ChatGPT spec. Claude inspects every spec against
+the live codebase before it touches code. This prevents parallel system duplication.
+
+---
+
 ## Core Architecture
 
 ### The Intelligence Stack
@@ -50,10 +61,10 @@ Documents (tax returns, financials, statements)
         ↓ Buddy Intelligence Engine (BIE)           ✅ Phase 35 — LIVE
         ↓ Memo Completion Wizard (stopgap)          ✅ Phase 48 — LIVE
         ↓ Ownership Entity auto-creation            ✅ Phase 49 — from 1040 OCR
-        ↓ Deal Truth Graph + Gap Resolution         ✅ Phase 50 — LIVE
+        ↓ Deal Truth Graph + Gap Resolution Engine  ✅ Phase 50 — LIVE
+        ↓ Banker Credit Interview (Gemini Live)     ✅ Phase 51 — LIVE (pending Fly deploy)
         ↓ Credit Memo (Florida Armory standard)     ✅ Phase 33
         ↓ Borrower Intake → auto-populates memo     🔴 Future (replaces wizard)
-        ↓ Phase 51 — Full interactive credit session (voice/chat + gap drive)
         ↓ Committee Package
         ↓ Deposit Profile + Treasury Proposals surfaced automatically
 ```
@@ -73,55 +84,61 @@ Documents (tax returns, financials, statements)
 ### AAR 37 ✅ — Legacy sections removed, Phase 33 memo primary (70d161bc)
 ### AAR 38–40 ✅ — Bridge fixes, maxDuration, supabaseAdmin
 ### AAR 41–44 ✅ — Research fixes, B&I Analysis populates
-### Phase 35 ✅ — Buddy Intelligence Engine (7 threads, Google Search grounding)
+### Phase 35 ✅ — Buddy Intelligence Engine built (7 threads, Google Search grounding)
 ### AAR 45 ✅ — Research deduplication + SBA language fix
 ### AAR 46 ✅ — BIE content priority + management per-sentence fix
 ### AAR 47 ✅ — Personal income spread key mismatch fixed
 ### Phase 48 ✅ — Generate Narratives unblocked + Memo Completion Wizard
-### Phase 49 ✅ — Ownership entities permanent fix (column mismatch, UUID bio keys, auto-create from 1040 OCR)
+### Phase 49 ✅ — Ownership entities permanent fix
 ### Phase 50 ✅ — Deal Truth Graph + Gap Resolution Engine
+### Phase 51 ✅ — Buddy Voice Gateway (Gemini Live, Fly.io)
 
 ---
 
-## Phase 50 — Deal Truth Graph + Gap Resolution Engine ✅ COMPLETE
+## Phase 51 — Buddy Voice Gateway (Gemini Live) ✅ COMPLETE
 
-### What was built (8 steps)
+### What was built (4 parts, tsc clean)
 
-| Step | What | Status |
+| Part | What | Status |
 |---|---|---|
-| 1 | 4 DB migrations: `resolution_status` on `deal_financial_facts`, `deal_gap_queue`, `deal_fact_conflicts`, `deal_transcript_uploads` | ✅ |
-| 2 | 3 server functions in `src/lib/gapEngine/`: `computeDealGaps()`, `extractFactsFromTranscript()`, `resolveDealGap()` | ✅ |
-| 3 | 4 API routes: `gap-queue` (GET+POST), `gap-queue/resolve`, `transcript-ingest`, `banker-session/start` | ✅ |
-| 4 | `DealHealthPanel` — completeness %, gap list, confirm buttons | ✅ |
-| 5 | `TranscriptUploadPanel` — source selector, extract + confirm workflow | ✅ |
-| 6 | Pipeline wiring: `extractFactsFromDocument` + `runMission` trigger `computeDealGaps()` | ✅ |
-| 7 | Page wiring: cockpit + credit memo | ✅ |
-| 8 | Validation: `tsc` clean, all tables verified | ✅ |
+| A | `buddy-voice-gateway/` — 9-file standalone Node.js WS server | ✅ |
+| B | DB migration (`deal_voice_sessions`) + 6 Next.js files | ✅ |
+| D | Deleted 3 OpenAI voice routes (realtime/session, realtime/sdp, banker-session/start) | ✅ |
+| E | BankerVoicePanel wired into cockpit + credit memo pages | ✅ |
 
-### Type fixes applied during build (spec adaptations)
+### Architecture
 
-- `source_type: "MANUAL"` instead of `"BANKER_INPUT"` — not in `FinancialFactSourceType` union
-- Removed `extraction_path` from banker-provided provenance — not in `FinancialFactProvenance` type
-- `bankId` null-guard in `runMission` — function requires `string`, not `string | null`
+```
+Browser
+  → POST /api/deals/[dealId]/banker-session/gemini-token (Vercel)
+      ← { proxyToken, sessionId } stored in deal_voice_sessions
+  → WebSocket wss://buddy-voice-gateway.fly.dev/gemini-live?token=X&sessionId=Y
+      gateway validates token against Supabase
+      gateway opens upstream WebSocket to Vertex AI Gemini Live
+      BIDIRECTIONAL RELAY: browser audio ↔ Gemini audio (API key never touches browser)
+      tool calls intercepted server-side → POST /api/deals/[dealId]/banker-session/dispatch
+          dispatch → resolveDealGap() → deal_financial_facts (resolution_status=confirmed)
+          dispatch → deal_events ledger entry (voice.fact_confirmed)
+```
 
-These are expected — the spec cannot know runtime type constraints without running `tsc`.
-This confirms the review workflow (spec → Claude inspection → Antigravity build) is working correctly.
+### Key properties
+- **Zero OpenAI** — Gemini handles STT + LLM + TTS natively in a single WebSocket
+- **Model:** `gemini-live-2.5-flash-native-audio` via Vertex AI (same GCP project as extraction)
+- **Auth:** GCP service account OAuth2 — same credential chain as document extraction
+- **Proxy token:** 180s TTL UUID, stored in `deal_voice_sessions.metadata`
+- **Gateway secret:** `BUDDY_GATEWAY_SECRET` shared between Fly.io and Vercel
+- **Audio:** 16kHz PCM input (AudioWorklet `buddy-mic-processor.js`), 24kHz PCM output
+- **Fly.io:** `buddy-voice-gateway`, `shared-cpu-1x`, 512mb, `min_machines_running = 1`
+- **Compliance:** system instruction explicitly prohibits subjective content — fair lending enforced at prompt level
 
-### Architectural decisions (preserved from ChatGPT concept spec)
-
-- **"Resolve uncertainty" not "ask questions"** — the gap queue drives all human interaction
-- **"Deal Health / Resolve N Open Items"** — the UI metaphor, never "Start Intake"
-- **No subjective data ever stored** — `extractFactsFromTranscript()` prompt explicitly
-  instructs the model to skip qualitative assessments; only verifiable facts are extracted
-- **Single ledger** — every resolution emits a `deal_events` ledger event
-- **Confidence thresholds** — ADE 0.85, BIE 0.65, transcript 0.60, banker confirmed 1.00
-
-### What Phase 50 does NOT do (Phase 51)
-
-- Does NOT deprecate `deal_memo_overrides` — wizard remains as fallback
-- Does NOT wire voice/chat session transcript → auto-confirm facts in real time
-- Does NOT build the full interactive credit interview UI
-- Does NOT wire `buildCanonicalCreditMemo` to read confirmed facts instead of overrides
+### Pending manual step
+`fly deploy` from `buddy-voice-gateway/` — requires Fly.io CLI + secrets set:
+```
+SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GCP_PROJECT_ID,
+GOOGLE_SERVICE_ACCOUNT_KEY, BUDDY_APP_URL, BUDDY_GATEWAY_SECRET, PORT=8080
+```
+Vercel env vars needed: `NEXT_PUBLIC_BUDDY_VOICE_GATEWAY_URL`, `BUDDY_GATEWAY_SECRET`,
+`GEMINI_LIVE_MODEL`, `GEMINI_LIVE_VOICE`
 
 ---
 
@@ -135,9 +152,11 @@ This confirms the review workflow (spec → Claude inspection → Antigravity bu
 - ✅ Wizard: qualitative fields saved
 - ✅ Ownership entities: column mismatch fixed, auto-create wired
 - ✅ Deal Health Panel: live — shows completeness % and open gaps
-- ✅ Transcript Upload: live — paste Otter/Fireflies → extract + confirm
-- 🔴 Management bio: retype Ialacci bio in wizard (old key stale)
+- ✅ Transcript Upload: live
+- ✅ BankerVoicePanel: wired (pending Fly deploy to go live)
+- 🔴 Ialacci bio: retype in wizard under UUID key (one-time)
 - 🔴 Reconciliation: `recon_status` NULL — blocks Committee signal
+- 🔴 Fly deploy: `fly deploy` from `buddy-voice-gateway/` + set secrets
 
 ---
 
@@ -145,20 +164,18 @@ This confirms the review workflow (spec → Claude inspection → Antigravity bu
 
 ### P1 — Immediate
 
-1. **Retype Ialacci bio** — re-open wizard, one-time retype under UUID key
-2. **Generate Narratives** — confirm Executive Summary shows Gemini prose
-3. **Reconciliation** — `recon_status` NULL blocks Committee Approve signal
+1. **Fly deploy** — `cd buddy-voice-gateway && fly deploy` + set all secrets
+2. **Set Vercel env vars** — `NEXT_PUBLIC_BUDDY_VOICE_GATEWAY_URL`, `BUDDY_GATEWAY_SECRET`
+3. **Retype Ialacci bio** — re-open wizard, one-time retype under UUID key
+4. **Reconciliation** — `recon_status` NULL blocks Committee Approve signal
 
-### P2 — Near Term (Phase 51 + Borrower Intake)
+### P2 — Near Term
 
-- **Phase 51 — Full Credit Interview Session** — voice/chat layer as gap-queue driver;
-  session transcript → auto-confirm facts in real time; wire `buildCanonicalCreditMemo`
-  to read confirmed facts; deprecate `deal_memo_overrides`
-- **Borrower Intake pipeline** — voice interview + intake forms → auto-populate
-  `business_summary` and `management_qualifications` (replaces wizard permanently)
+- **Borrower Intake pipeline** — voice interview + intake forms → auto-populate memo
+- **`buildCanonicalCreditMemo` reads confirmed facts** — replace `deal_memo_overrides` with confirmed `deal_financial_facts`
 - **Model Engine V2 activation** — feature flag disabled, DB tables empty
 - **Observability pipeline** — missing env vars, Pulse events not flowing
-- **Corpus expansion** — 2 docs. Need 10+ for bank confidence
+- **Corpus expansion** — 2 docs, need 10+ for bank confidence
 - **Projection years** — Year 1/Year 2 rows in debt coverage + income statement
 - **BIE vertical packs** — healthcare, construction, transportation, food service (Phase 36)
 - **NAICS SBA historical stats** — Lumos integration for eligibility section
@@ -169,20 +186,6 @@ This confirms the review workflow (spec → Claude inspection → Antigravity bu
 - Crypto lending module (6-layer architecture designed, not built)
 - Treasury product auto-proposal engine
 - RMA peer/industry comparison
-- Voice system guardrails (voice_profiles.ts exists but not injected into OpenAI realtime)
-
----
-
-## Workflow — How Specs Are Built
-
-**Architecture review process (established after Phase 50 near-miss):**
-1. ChatGPT produces architecture concept + spec draft
-2. Claude inspects spec against live codebase (schema, types, existing functions)
-3. Claude produces corrected build-ready spec (saved as `PHASE_XX_SPEC.md` in repo root)
-4. Antigravity implements from the corrected spec only
-5. AAR documents type fixes applied during build (expected — spec can't run `tsc`)
-
-This prevents parallel system construction (the Pulse problem) and schema drift.
 
 ---
 
@@ -193,14 +196,16 @@ This prevents parallel system construction (the Pulse problem) and schema drift.
 | Frontend | Next.js, Tailwind, Vercel |
 | Database | Supabase (PostgreSQL) |
 | AI — Extraction | Gemini 2.0 Flash via Vertex AI (GOOGLE_CLOUD_PROJECT + GCP ADC) |
-| AI — Voice | gpt-4o-realtime-preview (intentionally retained on OpenAI) |
+| AI — Voice | `gemini-live-2.5-flash-native-audio` via Vertex AI — Fly.io gateway |
 | AI — Reasoning | Gemini Flash via Developer API (GEMINI_API_KEY) |
 | AI — Research | gemini-3.1-pro-preview via Developer API (GEMINI_API_KEY) — BIE |
+| AI — Transcript | Gemini Flash via Developer API (GEMINI_API_KEY) |
+| Voice Gateway | Node.js 20 ESM, `ws` library, `google-auth-library`, Fly.io |
 | Integration | MCP (Model Context Protocol) |
 | Event Ledger | Supabase `deal_events` (append-only) |
 | Gap Engine | `src/lib/gapEngine/` — computeDealGaps, extractFactsFromTranscript, resolveDealGap |
 | PDF Generation | PDFKit (portrait 8.5×11, serverExternalPackages) |
-| Deployment | Vercel (frontend), Cloud Run (workers) |
+| Deployment | Vercel (frontend) + Fly.io (voice gateway) |
 | Testing | Vitest, Playwright |
 
 ---
@@ -212,25 +217,26 @@ This prevents parallel system construction (the Pulse problem) and schema drift.
 | Document extraction | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active |
 | Classic Spread narrative | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active |
 | Document classification | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active |
-| Voice interview sessions | gpt-4o-realtime-preview | OpenAI API key | ✅ Retained on OpenAI |
+| **Voice interview** | **gemini-live-2.5-flash-native-audio** | **Vertex AI / GCP service account** | **✅ Built — pending Fly deploy** |
 | Risk + Memo orchestrator | Gemini Flash | GEMINI_API_KEY (Dev API) | ✅ **LIVE — BB+ on Samaritus** |
 | **Buddy Intelligence Engine** | **gemini-3.1-pro-preview** | **GEMINI_API_KEY (Dev API)** | **✅ LIVE — 9 sections rendering** |
 | **Generate Narratives** | **Gemini Flash** | **GEMINI_API_KEY (Dev API)** | **✅ LIVE** |
 | **Transcript extraction** | **Gemini Flash** | **GEMINI_API_KEY (Dev API)** | **✅ LIVE — Phase 50** |
 | chatAboutDeal | OpenAI gpt-4o-2024-08-06 | OpenAI API key | 🔴 Gemini migration queued (P3) |
 
+**OpenAI is now used for one workload only: chatAboutDeal.** All voice is Gemini.
+
 ---
 
 ## Definition of Done — God Tier
 
-1–61. ✅ All prior phases and AARs complete through Phase 35 + AARs 45/46/47 + Phases 48/49/50.
-62. 🔴 Ialacci bio retyped — Management Qualifications complete
-63. 🔴 Generate Narratives confirmed — Executive Summary shows Gemini prose
+1–61. ✅ All prior phases and AARs complete through Phase 35 + AARs 45/46/47 + Phases 48/49/50/51.
+62. 🔴 Fly deploy complete — `curl https://buddy-voice-gateway.fly.dev/health` returns ok
+63. 🔴 Ialacci bio retyped — Management Qualifications complete
 64. 🔴 Reconciliation complete — Committee Approve signal unlocked
-65. 🔴 Phase 51 — Full credit interview session live (voice/chat drives gap queue)
-66. 🔴 Borrower Intake wired — wizard deprecated, qualitative fields auto-populate
-67. 🔴 Spread completeness ≥80%
-68. 🔴 Banker opens a deal, 10-minute voice session resolves all gaps, memo auto-completes
+65. 🔴 Borrower Intake wired — wizard deprecated, qualitative fields auto-populate
+66. 🔴 Spread completeness ≥80%
+67. 🔴 Banker opens a deal, 10-minute voice session resolves all gaps, memo auto-completes
 
 ---
 
@@ -293,19 +299,27 @@ This prevents parallel system construction (the Pulse problem) and schema drift.
 - **Personal income spread `ROW_REGISTRY` factKeys: `TAXABLE_INTEREST` (not `INTEREST_INCOME`), `ORDINARY_DIVIDENDS` (not `DIVIDEND_INCOME`), `SCH_E_NET` (not `SCHED_E_NET`).**
 - **Spread template `factKey` is the DB lookup contract. When extractor and template use different key names, cells silently render null.**
 - **`TOTAL_PERSONAL_INCOME` must be guarded against stale negative DB values — recalculate from components if stored total is negative.**
-- **`deal_memo_overrides` is a stopgap for qualitative memo fields. Deprecated when borrower intake auto-populates these fields. Never use for numeric/computed fields.**
+- **`deal_memo_overrides` is a stopgap for qualitative memo fields. Never use for numeric/computed fields.**
 - **The wizard must never ask bankers to manually enter numbers. The wizard is strictly for narrative qualitative fields.**
 - **`ownership_entities` correct columns: `id`, `deal_id`, `entity_type`, `display_name`, `tax_id_last4`, `meta_json`, `confidence`, `evidence_json`, `created_at`, `ownership_pct`, `title`. Never reference `name`, `legal_name` — those don't exist.**
 - **Principal bio keys in `deal_memo_overrides` use UUID format: `principal_bio_<ownership_entity_uuid>`. Name-derived slugs are fragile — UUIDs are the contract.**
 - **`ownership_entities` rows must be auto-created during personal doc extraction (1040, PFS) using `ensureOwnerEntity()`. Always upsert idempotently by `(deal_id, display_name)`.**
 - **When a CSS context inherits a non-black text color, always set `text-gray-900 bg-white` and `placeholder-gray-400` explicitly on every `<input>` and `<textarea>`. Omitting causes white-on-white invisible text.**
-- **`deal_financial_facts` is the canonical fact store. Never build a parallel `deal_facts` table. The Gap Resolution Engine extends `deal_financial_facts` via `resolution_status` — it does not replace it.**
-- **`deal_gap_queue` unique constraint is `(deal_id, fact_type, fact_key, gap_type, status)` — prevents duplicate open gaps for the same fact.**
-- **`computeDealGaps()` must be called after every extraction run and every BIE mission. Wire as non-fatal fire-and-forget at the end of both pipelines.**
-- **`extractFactsFromTranscript()` prompt must explicitly instruct the model to skip subjective assessments. Only verifiable, documentable facts are stored. This is a fair lending compliance requirement.**
-- **Banker-provided facts (from voice/chat/transcript confirmation) use `source_type: "MANUAL"` and `confidence: 1.00`. They set `resolution_status = "confirmed"` on the fact.**
+- **`deal_financial_facts` is the canonical fact store. Never build a parallel `deal_facts` table.**
+- **`deal_gap_queue` unique constraint is `(deal_id, fact_type, fact_key, gap_type, status)` — prevents duplicate open gaps.**
+- **`computeDealGaps()` must be called after every extraction run and every BIE mission. Wire as non-fatal fire-and-forget.**
+- **`extractFactsFromTranscript()` prompt must explicitly prohibit subjective assessments. Fair lending compliance requirement.**
+- **Banker-provided facts use `source_type: "MANUAL"` and `confidence: 1.00`. They set `resolution_status = "confirmed"`.**
 - **`FinancialFactProvenance` does not have an `extraction_path` field. Do not add it to banker-provided provenance objects.**
-- **Architecture review workflow: ChatGPT drafts spec → Claude inspects against live schema + types → Claude produces corrected spec in `PHASE_XX_SPEC.md` → Antigravity builds from corrected spec only. This prevents parallel system construction (the Pulse/deal_facts problem).**
+- **Architecture review workflow: ChatGPT drafts spec → Claude inspects against live schema + types → Claude produces corrected spec in `PHASE_XX_SPEC.md` → Antigravity builds from corrected spec only.**
+- **Voice gateway is a standalone Fly.io Node.js service (`buddy-voice-gateway/`). It is NOT a Vercel serverless function. Vercel cannot hold persistent WebSockets.**
+- **Gemini Live auth uses GCP service account OAuth2 (`google-auth-library`) — same credential chain as Vertex AI document extraction. Store as base64 JSON in `GOOGLE_SERVICE_ACCOUNT_KEY`.**
+- **`deal_voice_sessions` stores the proxy token + all session config in `metadata jsonb`. Gateway reads this once on WS connect — never re-fetches during session.**
+- **`BUDDY_GATEWAY_SECRET` is a shared secret between Fly.io gateway and Vercel. The `/banker-session/dispatch` route validates it via `x-gateway-secret` header before any DB write.**
+- **Voice tool calls are intercepted by the gateway server-side and never relayed to the browser. The browser only receives audio + transcript events.**
+- **`buddy-mic-processor.js` must be placed in `/public/audio/` so Next.js serves it as a static file. AudioWorklet `addModule()` requires a URL, not an import.**
+- **Gemini Live audio: input 16kHz PCM mono (AudioWorklet), output 24kHz PCM (AudioContext). No third-party audio SDK needed.**
+- **Single tool declaration pattern (from Pulse): one `buddy_query` / `pulse_query` tool handles all intents. Reduces token overhead (~80 tokens vs ~1500 for multiple tools).**
 
 ---
 
@@ -329,13 +343,13 @@ This prevents parallel system construction (the Pulse problem) and schema drift.
 | AAR 46 | BIE content priority + management per-sentence fix | ✅ Complete | — |
 | AAR 47 | Personal income spread factKey fix + alias fallback + negative total guard | ✅ Complete | — |
 | Phase 48A | Narratives route `maxDuration=60` | ✅ Complete | — |
-| Phase 48B | Memo Completion Wizard — `deal_memo_overrides`, qualitative stopgap | ✅ Complete | — |
+| Phase 48B | Memo Completion Wizard — `deal_memo_overrides` | ✅ Complete | — |
 | Phase 49 | Ownership entities permanent fix — column mismatch, UUID bio keys, auto-create from 1040 OCR | ✅ Complete | — |
-| **Phase 50** | **Deal Truth Graph + Gap Resolution Engine — gap queue, conflict detection, transcript ingestion, Deal Health Panel, banker session start** | **✅ Complete** | **—** |
-| Retype Ialacci bio | Re-open wizard, retype bio under UUID key (one-time) | 🔴 Next | — |
-| Generate Narratives | Confirm Gemini prose in Executive Summary + Borrower sections | 🔴 Next | — |
+| Phase 50 | Deal Truth Graph + Gap Resolution Engine — 4 tables, gap engine, transcript upload, Deal Health Panel | ✅ Complete | — |
+| **Phase 51** | **Buddy Voice Gateway — Gemini Live native audio, Fly.io, zero OpenAI, `buddy-voice-gateway/`, BankerVoicePanel** | **✅ Complete** | **—** |
+| Fly deploy | `cd buddy-voice-gateway && fly deploy` + set secrets | 🔴 Manual next step | — |
+| Retype Ialacci bio | Re-open wizard, retype bio under UUID key | 🔴 Next | — |
 | Reconciliation | `recon_status` — Committee Approve signal | 🔴 Active | — |
-| **Phase 51** | **Full Credit Interview Session — voice/chat drives gap queue in real time, auto-confirm facts, deprecate `deal_memo_overrides`** | **🔴 Queued** | **—** |
 | Borrower Intake | Voice interview + forms → auto-populate memo (replaces wizard) | 🔴 Queued | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
