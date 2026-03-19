@@ -792,5 +792,13 @@ export async function extractFactsFromDocument(args: {
     console.warn("[extractFactsFromDocument] validation gate failed:", err);
   }
 
+  // Trigger gap recompute after every extraction
+  try {
+    const { computeDealGaps } = await import("@/lib/gapEngine/computeDealGaps");
+    void computeDealGaps({ dealId: args.dealId, bankId: args.bankId }).catch(() => {});
+  } catch {
+    // Non-fatal
+  }
+
   return { ok: true as const, factsWritten: factsWritten + 1 };
 }

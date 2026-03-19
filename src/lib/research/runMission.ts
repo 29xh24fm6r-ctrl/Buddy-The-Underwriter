@@ -429,6 +429,16 @@ export async function runMission(
       console.warn("[runMission] BIE step failed (non-fatal):", bieErr?.message);
     }
 
+    // 12c. Trigger gap recompute after BIE completes (non-fatal)
+    try {
+      const { computeDealGaps } = await import("@/lib/gapEngine/computeDealGaps");
+      if (opts?.bankId) {
+        void computeDealGaps({ dealId, bankId: opts.bankId }).catch(() => {});
+      }
+    } catch {
+      // Non-fatal
+    }
+
     // 13. Bridge: persist risk-indicator inferences as flags (non-fatal)
     try {
       if (persistedInferences.length > 0) {

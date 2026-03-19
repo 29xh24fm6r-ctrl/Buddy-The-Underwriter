@@ -11,6 +11,8 @@ import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonica
 import GenerateNarrativesButton from "@/components/creditMemo/GenerateNarrativesButton";
 import RunResearchButton from "@/components/creditMemo/RunResearchButton";
 import MemoCompletionWizard from "@/components/creditMemo/MemoCompletionWizard";
+import DealHealthPanel from "@/components/deals/DealHealthPanel";
+import TranscriptUploadPanel from "@/components/deals/TranscriptUploadPanel";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildSbaForm1919 } from "@/lib/sba/forms/build1919";
 import { buildSbaForm1920 } from "@/lib/sba/forms/build1920";
@@ -154,6 +156,11 @@ export default async function CanonicalCreditMemoPage(props: {
             <GenerateNarrativesButton dealId={dealId} />
             <ExportCanonicalMemoPdfButton dealId={dealId} />
           </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <DealHealthPanel dealId={dealId} />
+          <TranscriptUploadPanel dealId={dealId} />
         </div>
 
         <CanonicalMemoTemplate memo={res.memo} />
