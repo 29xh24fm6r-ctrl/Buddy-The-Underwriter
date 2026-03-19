@@ -40,11 +40,16 @@ export async function POST(
         .eq("id", dealId)
         .maybeSingle(),
 
+      // Only load missing_fact and conflict gaps for the voice session.
+      // needs_confirmation and low_confidence gaps are NOT surfaced in voice —
+      // the banker cannot verify extracted numbers they don't have in front of them.
+      // Those are handled via the Deal Health Panel UI confirm buttons instead.
       sb.from("deal_gap_queue")
         .select("fact_key, gap_type, description, resolution_prompt, priority")
         .eq("deal_id", dealId)
         .eq("bank_id", bankPick.bankId)
         .eq("status", "open")
+        .in("gap_type", ["missing_fact", "conflict"])
         .order("priority", { ascending: false })
         .limit(10),
 
@@ -66,7 +71,7 @@ export async function POST(
     ]);
 
     const deal = dealRes.data;
-    const openGaps = gapsRes.data ?? [];
+    const voiceGaps = gapsRes.data ?? []; // Only missing_fact and conflict
     const metrics = metricsRes.data ?? [];
     const confirmedKeys = new Set((confirmedRes.data ?? []).map((f: any) => f.fact_key));
 
@@ -74,87 +79,86 @@ export async function POST(
       k => confirmedKeys.has(k)
     );
 
-    // Build metric summary — show extracted value + confirmation status
-    const metricsMap = new Map(metrics.map((m: any) => [m.fact_key, m]));
-
+    // Build metric summary for Buddy's context
     const metricLines = metrics.map((m: any) => {
       const val = Number(m.fact_value_num).toLocaleString("en-US", { maximumFractionDigits: 2 });
-      const status = m.resolution_status === "confirmed" ? "✓ confirmed" : "needs your confirmation";
+      const status = m.resolution_status === "confirmed" ? "✓ confirmed" : "extracted from documents";
       return `  ${m.fact_key}: ${val} (${status})`;
     }).join("\n");
 
-    // Separate gaps by type — drives different Buddy behavior
-    const confirmationGaps = openGaps.filter((g: any) =>
-      g.gap_type === "needs_confirmation" || g.gap_type === "low_confidence"
-    );
-    const missingGaps = openGaps.filter((g: any) => g.gap_type === "missing_fact");
-    const conflictGaps = openGaps.filter((g: any) => g.gap_type === "conflict");
+    // Build the voice agenda — only items Buddy needs to ASK about
+    const missingGaps = voiceGaps.filter((g: any) => g.gap_type === "missing_fact");
+    const conflictGaps = voiceGaps.filter((g: any) => g.gap_type === "conflict");
 
-    // Build confirmation script — Buddy reads each value and asks yes/no
-    const confirmationScript = confirmationGaps.map((g: any) => {
-      const fact = metricsMap.get(g.fact_key);
-      const val = fact
-        ? Number(fact.fact_value_num).toLocaleString("en-US", { maximumFractionDigits: 2 })
-        : "unknown";
-      return `  - ${g.fact_key}: I have this as ${val}. I'll read it to you and ask if it looks right.`;
-    }).join("\n");
+    const buildVoiceAgenda = () => {
+      if (voiceGaps.length === 0) return null;
 
-    const missingScript = missingGaps.map((g: any) =>
-      `  - ${g.fact_key}: Not yet extracted — I'll ask you to provide this.`
-    ).join("\n");
+      const lines: string[] = [];
+
+      if (missingGaps.length > 0) {
+        lines.push("FACTS I NEED FROM YOU (not in any document):");
+        missingGaps.forEach((g: any, i: number) => {
+          lines.push(`  ${i + 1}. ${g.resolution_prompt ?? g.description}`);
+        });
+      }
+
+      if (conflictGaps.length > 0) {
+        lines.push("\nCONFLICTS I NEED YOU TO RESOLVE (different values found across documents):");
+        conflictGaps.forEach((g: any, i: number) => {
+          lines.push(`  ${i + 1}. ${g.description}`);
+        });
+      }
+
+      return lines.join("\n");
+    };
+
+    const voiceAgenda = buildVoiceAgenda();
 
     const openItemsSection = isGenuinelyComplete
-      ? `All ${REQUIRED_FACT_KEYS.length} required facts have been confirmed. The deal record is complete.
-If the banker wants to review or adjust anything, you can assist.`
-      : `OPEN ITEMS (${openGaps.length} total):
+      ? `The financial data is complete — all required facts are confirmed.
+Use this session to discuss the deal, answer the banker's questions, or collect any qualitative context they want to share.`
+      : voiceAgenda
+        ? `YOUR AGENDA FOR THIS SESSION:\n${voiceAgenda}`
+        : `The extracted financial data looks complete. No missing facts or conflicts to resolve.
+The banker may want to discuss the deal or share qualitative context — listen and record any new verifiable facts they volunteer.`;
 
-Items where I have a number and need you to confirm it sounds right:
-${confirmationScript || "  (none)"}
+    const systemInstruction = `You are Buddy, a senior credit analyst AI. You are on a voice call with a banker to discuss a commercial loan file.
 
-Items where the number is missing and I need you to provide it:
-${missingScript || "  (none)"}
-
-${conflictGaps.length > 0 ? `Items with conflicting values that need resolution:\n${conflictGaps.map((g: any) => `  - ${g.fact_key}: ${g.description}`).join("\n")}` : ""}`;
-
-    const systemInstruction = `You are Buddy, a senior credit analyst AI conducting a structured credit interview for a commercial loan.
-
-DEAL CONTEXT:
+DEAL:
 - Borrower: ${deal?.borrower_name ?? "Unknown"}
 - Loan: ${deal?.name ?? dealId} | Amount: $${Number(deal?.loan_amount ?? 0).toLocaleString()} | Type: ${(deal as any)?.loan_type ?? "Commercial"}
 
-KEY METRICS EXTRACTED FROM DOCUMENTS:
+WHAT I ALREADY EXTRACTED FROM THE DOCUMENTS:
 ${metricLines || "  No financial metrics extracted yet."}
 
 ${openItemsSection}
 
-YOUR RULES — READ THESE CAREFULLY:
+HOW TO CONDUCT THIS SESSION:
 
-RULE 1 — TWO COMPLETELY DIFFERENT TYPES OF OPEN ITEMS:
+1. WHAT TO ASK VS WHAT NOT TO ASK:
+   - ASK about things that are genuinely missing from the documents (missing_fact gaps above).
+   - ASK the banker to clarify conflicting values between documents (conflict gaps above).
+   - DO NOT ask the banker to confirm numbers you already extracted. They do not have the documents memorized. If a number is already extracted, it will be confirmed separately via the UI — not in this call.
+   - DO NOT quiz the banker. This is a collaborative conversation, not an interrogation.
 
-  TYPE A — "needs_confirmation" and "low_confidence" gaps:
-  I ALREADY HAVE THE NUMBER. The banker does NOT need to look anything up.
-  Your job is to READ THE NUMBER ALOUD and ask a yes/no question.
-  Example: "Based on the tax returns, I have total revenue at one million, three hundred sixty thousand dollars. Does that match what you're seeing in the file?"
-  The banker just says yes or no. If yes, record it confirmed. If no, ask what the correct number is.
-  NEVER say "what is your revenue?" for a needs_confirmation gap. I have it. Just confirm it.
+2. WHAT THIS CALL IS REALLY FOR:
+   Beyond the specific gaps above, use this session to gather qualitative context that documents cannot provide:
+   - Management background: How long has the owner been in this business? Prior industry experience?
+   - Collateral: Is there real estate collateral? Personal guarantee? Property details?
+   - Business context: What is driving this loan request? How will proceeds be used?
+   - Relationships: Does the borrower have an existing relationship with the bank?
+   Ask about these naturally in conversation — do not treat them as a checklist.
 
-  TYPE B — "missing_fact" gaps:
-  I DON'T have the number at all. Ask the banker to provide it.
-  Example: "I wasn't able to extract the collateral appraised value from the documents. Do you have that figure handy?"
+3. RECORDING FACTS:
+   When the banker shares a specific verifiable fact (a dollar amount, a date, a percentage, a name, an address), use buddy_query to record it immediately.
+   Only objective, documentable facts. No subjective impressions.
 
-RULE 2 — One item at a time. Work through confirmation items first (quick yes/no), then missing items.
+4. TONE:
+   Speak like a colleague on a phone call — efficient, professional, conversational.
+   Open by briefly summarizing the deal and what you know, then ask your first question.
+   Target 8–12 minutes total.
 
-RULE 3 — ONLY collect objective, verifiable facts: dollar amounts, dates, percentages, names, addresses, years, counts. NEVER ask for opinions, impressions, or subjective assessments. If the banker volunteers opinions, acknowledge briefly and redirect.
-
-RULE 4 — When a fact is confirmed, immediately use buddy_query to record it. Don't batch at the end.
-
-RULE 5 — Never ask for something already marked confirmed. Skip it.
-
-RULE 6 — Begin by briefly introducing the deal (borrower name, loan amount, one or two key metrics), then say something like: "I have a few numbers I want to run by you quickly — I'll read each one and you just tell me if it looks right." Then work through them one at a time.
-
-RULE 7 — Keep the tone like a colleague on a phone call, not a form. Efficient, professional, human. Target 5–10 minutes total.
-
-COMPLIANCE: Every confirmed fact becomes part of a regulatory credit file. Subjectivity is a fair lending violation.`;
+COMPLIANCE: Every recorded fact becomes part of a regulatory credit file. Only objective, verifiable facts. Subjectivity is a fair lending violation.`;
 
     const proxyToken = randomUUID();
     const traceId = randomUUID();
@@ -195,7 +199,7 @@ COMPLIANCE: Every confirmed fact becomes part of a regulatory credit file. Subje
         sessionId,
         traceId,
         model: GEMINI_MODEL,
-        openGaps: openGaps.length,
+        openGaps: voiceGaps.length,
         isGenuinelyComplete,
         config: {
           model: GEMINI_MODEL,
