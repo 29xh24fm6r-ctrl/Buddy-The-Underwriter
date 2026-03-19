@@ -31,24 +31,9 @@ export async function POST(
 
     const sb = supabaseAdmin();
 
-    // ── Always recompute gaps before building the session ──────────────────
-    //
-    // This is the single most important invariant in the voice session flow.
-    // Buddy's system instruction must reflect the TRUE state of the deal at
-    // the moment the banker clicks "Start Interview" — not whatever happened
-    // to be in the queue from a previous run (or nothing, if never seeded).
-    //
-    // computeDealGaps() will:
-    //   1. Generate needs_confirmation gaps for all required facts that are
-    //      present + confident but not yet banker-confirmed.
-    //   2. Generate missing_fact gaps for any required facts not yet extracted.
-    //   3. Generate low_confidence and conflict gaps as appropriate.
-    //   4. Resolve any previously open gaps that are now satisfied.
-    //
-    // Only after this runs do we read the queue — guaranteeing accuracy.
+    // Always recompute gaps before building the session — guarantees accuracy
     await computeDealGaps({ dealId, bankId: bankPick.bankId });
 
-    // ── Load deal context + freshly computed gaps + key metrics ────────────
     const [dealRes, gapsRes, metricsRes, confirmedRes] = await Promise.all([
       sb.from("deals")
         .select("name, borrower_name, loan_amount, loan_type")
@@ -85,34 +70,51 @@ export async function POST(
     const metrics = metricsRes.data ?? [];
     const confirmedKeys = new Set((confirmedRes.data ?? []).map((f: any) => f.fact_key));
 
-    // ── Determine true completeness ────────────────────────────────────────
-    // A deal is ONLY complete when ALL required facts have been banker-confirmed.
-    // "No open gaps" alone is not sufficient — the queue could be stale.
     const isGenuinelyComplete = (REQUIRED_FACT_KEYS as readonly string[]).every(
       k => confirmedKeys.has(k)
     );
 
-    // ── Build metric summary for Buddy ─────────────────────────────────────
-    const metricLines = metrics.map((m: any) => {
-      const status = m.resolution_status === "confirmed" ? "✓ confirmed" : "extracted, unconfirmed";
-      return `${m.fact_key}: ${Number(m.fact_value_num).toLocaleString("en-US", { maximumFractionDigits: 2 })} (${status})`;
-    }).join("\n  ");
+    // Build metric summary — show extracted value + confirmation status
+    const metricsMap = new Map(metrics.map((m: any) => [m.fact_key, m]));
 
-    const gapLines = openGaps.slice(0, 6).map((g: any, i: number) =>
-      `${i + 1}. [${g.gap_type}] ${g.resolution_prompt ?? g.description}`
+    const metricLines = metrics.map((m: any) => {
+      const val = Number(m.fact_value_num).toLocaleString("en-US", { maximumFractionDigits: 2 });
+      const status = m.resolution_status === "confirmed" ? "✓ confirmed" : "needs your confirmation";
+      return `  ${m.fact_key}: ${val} (${status})`;
+    }).join("\n");
+
+    // Separate gaps by type — drives different Buddy behavior
+    const confirmationGaps = openGaps.filter((g: any) =>
+      g.gap_type === "needs_confirmation" || g.gap_type === "low_confidence"
+    );
+    const missingGaps = openGaps.filter((g: any) => g.gap_type === "missing_fact");
+    const conflictGaps = openGaps.filter((g: any) => g.gap_type === "conflict");
+
+    // Build confirmation script — Buddy reads each value and asks yes/no
+    const confirmationScript = confirmationGaps.map((g: any) => {
+      const fact = metricsMap.get(g.fact_key);
+      const val = fact
+        ? Number(fact.fact_value_num).toLocaleString("en-US", { maximumFractionDigits: 2 })
+        : "unknown";
+      return `  - ${g.fact_key}: I have this as ${val}. I'll read it to you and ask if it looks right.`;
+    }).join("\n");
+
+    const missingScript = missingGaps.map((g: any) =>
+      `  - ${g.fact_key}: Not yet extracted — I'll ask you to provide this.`
     ).join("\n");
 
-    // ── Build deal-aware system instruction ────────────────────────────────
-    //
-    // The open items section distinguishes three states:
-    //   - Genuinely complete: all required facts confirmed
-    //   - Open items exist: list them for Buddy to work through
-    // There is no third state. "No open items" means genuinely confirmed.
     const openItemsSection = isGenuinelyComplete
-      ? `All ${REQUIRED_FACT_KEYS.length} required facts have been confirmed by a banker. The deal is complete.
-If the banker wants to review or adjust any values, you can assist, but no confirmation is required.`
-      : `OPEN ITEMS (${openGaps.length} — ask these in priority order):
-${gapLines || "Gap computation is in progress — ask the banker to confirm each of the key metrics listed above."}`;
+      ? `All ${REQUIRED_FACT_KEYS.length} required facts have been confirmed. The deal record is complete.
+If the banker wants to review or adjust anything, you can assist.`
+      : `OPEN ITEMS (${openGaps.length} total):
+
+Items where I have a number and need you to confirm it sounds right:
+${confirmationScript || "  (none)"}
+
+Items where the number is missing and I need you to provide it:
+${missingScript || "  (none)"}
+
+${conflictGaps.length > 0 ? `Items with conflicting values that need resolution:\n${conflictGaps.map((g: any) => `  - ${g.fact_key}: ${g.description}`).join("\n")}` : ""}`;
 
     const systemInstruction = `You are Buddy, a senior credit analyst AI conducting a structured credit interview for a commercial loan.
 
@@ -120,23 +122,40 @@ DEAL CONTEXT:
 - Borrower: ${deal?.borrower_name ?? "Unknown"}
 - Loan: ${deal?.name ?? dealId} | Amount: $${Number(deal?.loan_amount ?? 0).toLocaleString()} | Type: ${(deal as any)?.loan_type ?? "Commercial"}
 
-KEY METRICS (as extracted — unconfirmed means not yet verified by a banker):
-  ${metricLines || "No financial metrics have been extracted yet. Ask the banker to provide them."}
+KEY METRICS EXTRACTED FROM DOCUMENTS:
+${metricLines || "  No financial metrics extracted yet."}
 
 ${openItemsSection}
 
-YOUR RULES:
-1. Ask about ONE open item at a time. Be specific — cite the extracted value and ask the banker to confirm or correct it.
-2. ONLY collect objective, verifiable facts: dollar amounts, dates, percentages, names, addresses, years, counts.
-3. NEVER ask for subjective impressions ("does management seem strong", "is the borrower trustworthy"). These cannot appear in a credit file. If the banker volunteers such opinions, acknowledge briefly and redirect to documentable facts.
-4. When you have confirmed a fact, immediately use the buddy_query tool to record it. Do not wait until the end of the session.
-5. Never ask for something already marked as confirmed. Acknowledge it and move on.
-6. Keep a professional but conversational tone. Be efficient. A full session should take 8–12 minutes.
-7. Begin by briefly summarizing what you know about the deal (borrower, loan amount, key metrics), then ask about the highest-priority open item.
+YOUR RULES — READ THESE CAREFULLY:
 
-COMPLIANCE: This session is fully audited. Every fact you record becomes part of a regulatory credit file. Subjectivity is a fair lending violation. You are required by law to stick to objective, documentable facts only.`;
+RULE 1 — TWO COMPLETELY DIFFERENT TYPES OF OPEN ITEMS:
 
-    // ── Create voice session ───────────────────────────────────────────────
+  TYPE A — "needs_confirmation" and "low_confidence" gaps:
+  I ALREADY HAVE THE NUMBER. The banker does NOT need to look anything up.
+  Your job is to READ THE NUMBER ALOUD and ask a yes/no question.
+  Example: "Based on the tax returns, I have total revenue at one million, three hundred sixty thousand dollars. Does that match what you're seeing in the file?"
+  The banker just says yes or no. If yes, record it confirmed. If no, ask what the correct number is.
+  NEVER say "what is your revenue?" for a needs_confirmation gap. I have it. Just confirm it.
+
+  TYPE B — "missing_fact" gaps:
+  I DON'T have the number at all. Ask the banker to provide it.
+  Example: "I wasn't able to extract the collateral appraised value from the documents. Do you have that figure handy?"
+
+RULE 2 — One item at a time. Work through confirmation items first (quick yes/no), then missing items.
+
+RULE 3 — ONLY collect objective, verifiable facts: dollar amounts, dates, percentages, names, addresses, years, counts. NEVER ask for opinions, impressions, or subjective assessments. If the banker volunteers opinions, acknowledge briefly and redirect.
+
+RULE 4 — When a fact is confirmed, immediately use buddy_query to record it. Don't batch at the end.
+
+RULE 5 — Never ask for something already marked confirmed. Skip it.
+
+RULE 6 — Begin by briefly introducing the deal (borrower name, loan amount, one or two key metrics), then say something like: "I have a few numbers I want to run by you quickly — I'll read each one and you just tell me if it looks right." Then work through them one at a time.
+
+RULE 7 — Keep the tone like a colleague on a phone call, not a form. Efficient, professional, human. Target 5–10 minutes total.
+
+COMPLIANCE: Every confirmed fact becomes part of a regulatory credit file. Subjectivity is a fair lending violation.`;
+
     const proxyToken = randomUUID();
     const traceId = randomUUID();
     const expiresAt = new Date(Date.now() + PROXY_TOKEN_TTL_MS).toISOString();
