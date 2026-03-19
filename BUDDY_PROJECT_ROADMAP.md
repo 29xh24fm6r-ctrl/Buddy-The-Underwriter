@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 48 complete — Generate Narratives unblocked, Memo Completion Wizard live**
+**Status: Phase 49 complete — ownership_entities permanent fix, auto-create from 1040 OCR**
 
 ---
 
@@ -50,6 +50,7 @@ Documents (tax returns, financials, statements)
         ↓ Buddy Intelligence Engine (BIE)           ✅ Phase 35 + AARs 45/46 — LIVE
         ↓ Memo Completion Wizard (stopgap)          ✅ Phase 48 — LIVE
         ↓ Credit Memo (Florida Armory standard)     ✅ Phase 33
+        ↓ Ownership Entity auto-creation            ✅ Phase 49 — from 1040 OCR
         ↓ Borrower Intake → auto-populates memo     🔴 Future (replaces wizard)
         ↓ Committee Package
         ↓ Deposit Profile + Treasury Proposals surfaced automatically
@@ -75,59 +76,79 @@ Documents (tax returns, financials, statements)
 ### AAR 46 ✅ — BIE content priority + management per-sentence fix
 ### AAR 47 ✅ — Personal income spread key mismatch fixed
 ### Phase 48 ✅ — Generate Narratives unblocked + Memo Completion Wizard
+### Phase 49 ✅ — Ownership entities permanent fix
 
 ---
 
-## Phase 48 — Memo Completion Wizard + Narratives Route Fix ✅ COMPLETE
+## Phase 49 — Ownership Entities Permanent Fix ✅ COMPLETE
 
-### Part A — Narratives route `maxDuration` fix
+### Root cause chain
 
-**Root cause:** `src/app/api/deals/[dealId]/credit-memo/canonical/narratives/route.ts`
-was missing `export const runtime = "nodejs"` and `export const maxDuration = 60`.
-Vercel killed it at the platform default before `buildCanonicalCreditMemo` +
-Gemini call could complete. Generate Narratives appeared to do nothing.
+Three compounding bugs caused "Pending — ownership entities required" to always show
+in Management Qualifications:
 
-**Fix:** Two lines added before `export async function POST`. Generate Narratives
-now completes and writes Executive Summary, Income Analysis, Borrower Background,
-Experience, and Guarantor Strength prose to `canonical_memo_narratives`.
+1. **Column mismatch:** `buildCanonicalCreditMemo` referenced `o.name`, `o.legal_name`,
+   `o.ownership_pct`, `o.title` — none of which exist in `ownership_entities`.
+   The real column is `display_name`. This caused the query to return data
+   but render every principal as "Unknown."
 
-### Part B — Memo Completion Wizard
+2. **Zero rows:** The extraction pipeline never created `ownership_entities` rows.
+   The table existed and was queried, but no code wrote to it during document processing.
 
-**What it does:** Modal accessible from the Credit Memo page that collects
-qualitative fields the banker knows from conversations — fields that cannot be
-extracted from any document:
+3. **Unstable bio key:** The wizard stored bios under
+   `principal_bio_{name_slug}` (name-derived, collision-prone). The memo
+   builder looked up by `principal_bio_{id}` (UUID). They never matched.
 
-| Field | Source |
-|---|---|
-| Business Operations / History | Banker's intake conversation |
-| Revenue Mix | Banker's intake conversation |
-| Seasonality | Banker's intake conversation |
-| Collateral Description | Banker's description of assets |
-| Principal Bios (per owner) | Management background from banker |
+### Fixes applied (6 steps, tsc clean)
 
-Document-gap fields (collateral values, LTV, DSCR) are shown as action items
-only — never as manual input fields. Numbers must come from documents.
+1. **DB migration** — Added `ownership_pct numeric` and `title text` columns to
+   `ownership_entities` (additive, safe).
 
-**Persistence:** `deal_memo_overrides` table (deal_id, bank_id unique, RLS enabled).
-`buildCanonicalCreditMemo` reads overrides and applies them over the "Pending"
-defaults at build time.
+2. **`types.ts`** — Added `id: string` as first field in `principals` array type,
+   threaded through all consumers.
 
-**Deprecation path:** When borrower intake (voice interview + intake forms) is
-wired, these fields flow automatically from `borrowers` and `ownership_entities`
-tables. Remove the `deal_memo_overrides` query from `buildCanonicalCreditMemo`
-and the wizard button from the page. Zero other changes needed.
+3. **`buildCanonicalCreditMemo.ts`** — Three fixes:
+   - Bio key now UUID-based: `principal_bio_${o.id}`
+   - Name reads from `o.display_name` (correct column)
+   - Guarantors and `life_insurance_insured` also use `o.display_name`
+
+4. **`page.tsx`** — Wizard receives `p.id` (UUID) not name slug. Bio keys
+   are now stable across renames.
+
+5. **`extractFactsFromDocument.ts`** — Added `extractTaxpayerName()` +
+   `ensureOwnerEntity()` helpers. Personal income (1040) and PFS extraction
+   blocks now auto-create an `ownership_entities` row when no owner is
+   assigned, using the taxpayer name parsed from OCR. The document is then
+   assigned to that entity so future re-extractions reuse the same row.
+
+6. **tsc clean** — No type errors.
+
+### Permanent behavior going forward
+
+When a 1040 is uploaded and processed:
+1. OCR extracts taxpayer name from Form 1040 header
+2. `ensureOwnerEntity()` upserts a row in `ownership_entities` (idempotent)
+3. The document is linked to that entity via `assigned_owner_id`
+4. `buildCanonicalCreditMemo` reads the entity, renders the principal in
+   Management Qualifications with the correct name
+5. Banker opens wizard → types bio under `principal_bio_<uuid>` → saves
+6. Memo reload shows bio in Management Qualifications
 
 ---
 
 ## Current State — Active Deals
 
 **Deal ffcc9733** — Samaritus Management LLC (primary active test deal)
-- 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368. DSCR = 3.03x.
+- 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368. DSCR = 4.27x.
 - ✅ AI Risk: BB+ grade, 975 bps
 - ✅ BIE: LIVE — 9 memo subsections with Gemini-written content
 - ✅ B&I Analysis: clean — BIE-priority, no BRE prefix, no SBA bleed
-- ✅ Generate Narratives: unblocked — Gemini Flash writes prose sections
-- ✅ Memo Completion Wizard: live — banker can fill qualitative fields
+- ✅ Generate Narratives: unblocked
+- ✅ Wizard: qualitative fields saved — business description, revenue mix,
+  seasonality, collateral description all populated
+- ✅ Ownership entities: column mismatch fixed, auto-create wired
+- 🔴 Management bio: existing save was under old key (`principal_bio_general`);
+  re-open wizard, retype Ialacci bio once under new UUID key
 - 🔴 Reconciliation: `recon_status` NULL — blocks Committee signal
 
 ---
@@ -136,10 +157,10 @@ and the wizard button from the page. Zero other changes needed.
 
 ### P1 — Immediate
 
-1. **Use the wizard** — fill in business description, collateral description,
-   principal bios for Samaritus. Reload memo and confirm "Pending" replaced.
-2. **Generate Narratives** — click the button now that maxDuration is fixed.
-   Confirm Executive Summary and Borrower sections show Gemini-written prose.
+1. **Re-open wizard on Samaritus** — retype Ialacci bio (one-time, old key
+   `principal_bio_general` is stale; new UUID key will persist permanently)
+2. **Generate Narratives** — confirm Executive Summary and Borrower sections
+   show Gemini prose after maxDuration fix
 3. **Reconciliation** — `recon_status` NULL. Blocks Committee Approve signal.
 
 ### P2 — Near Term
@@ -198,8 +219,8 @@ and the wizard button from the page. Zero other changes needed.
 
 ## Definition of Done — God Tier
 
-1–61. ✅ All prior phases and AARs complete through Phase 35 + AARs 45/46/47 + Phase 48.
-62. 🔴 Wizard filled — Samaritus business description, bios, collateral prose
+1–61. ✅ All prior phases and AARs complete through Phase 35 + AARs 45/46/47 + Phases 48/49.
+62. 🔴 Ialacci bio retyped in wizard under UUID key — Management Qualifications complete
 63. 🔴 Generate Narratives confirmed — Executive Summary shows Gemini prose
 64. 🔴 Reconciliation complete — Committee Approve signal unlocked
 65. 🔴 Borrower Intake wired — wizard deprecated, qualitative fields auto-populate
@@ -269,6 +290,10 @@ and the wizard button from the page. Zero other changes needed.
 - **`TOTAL_PERSONAL_INCOME` must be guarded against stale negative DB values — recalculate from components if stored total is negative.**
 - **`deal_memo_overrides` is a stopgap for qualitative memo fields (business description, seasonality, revenue mix, collateral description, principal bios). It will be deprecated when borrower intake auto-populates these fields. Never use it for numeric/computed fields — those must come from documents and facts only.**
 - **The wizard must never ask bankers to manually enter numbers. Collateral values, LTV, DSCR, stressed DSCR come from documents and computation. The wizard is strictly for narrative qualitative fields that a banker knows from conversations and cannot be extracted.**
+- **`ownership_entities` correct columns: `id`, `deal_id`, `entity_type`, `display_name`, `tax_id_last4`, `meta_json`, `confidence`, `evidence_json`, `created_at`, `ownership_pct`, `title`. Never reference `name`, `legal_name` — those don't exist. Always use `display_name`.**
+- **Principal bio keys in `deal_memo_overrides` use UUID format: `principal_bio_<ownership_entity_uuid>`. Name-derived slugs (`principal_bio_joseph_ialacci`) are fragile — UUIDs are the contract.**
+- **`ownership_entities` rows must be auto-created during personal doc extraction (1040, PFS) using `ensureOwnerEntity()`. Never assume a row exists — always upsert idempotently by `(deal_id, display_name)`.**
+- **When a CSS context inherits a non-black text color (common in dark-mode-aware apps), always set `text-gray-900 bg-white` and `placeholder-gray-400` explicitly on every `<input>` and `<textarea>`. Omitting these causes white-on-white invisible text.**
 
 ---
 
@@ -291,9 +316,11 @@ and the wizard button from the page. Zero other changes needed.
 | AAR 45 | Research deduplication + SBA language fix | ✅ Complete | — |
 | AAR 46 | BIE content priority + management per-sentence fix | ✅ Complete | — |
 | AAR 47 | Personal income spread factKey fix + alias fallback + negative total guard | ✅ Complete | — |
-| **Phase 48A** | **Narratives route `maxDuration=60` — Generate Narratives was timing out silently** | **✅ Complete** | **—** |
-| **Phase 48B** | **Memo Completion Wizard — qualitative stopgap, `deal_memo_overrides` table** | **✅ Complete** | **—** |
-| Fill wizard + narratives | Use wizard on Samaritus, then Generate Narratives | 🔴 Next | — |
+| Phase 48A | Narratives route `maxDuration=60` — Generate Narratives was timing out | ✅ Complete | — |
+| Phase 48B | Memo Completion Wizard — `deal_memo_overrides`, qualitative stopgap | ✅ Complete | — |
+| **Phase 49** | **Ownership entities permanent fix — column mismatch, UUID bio keys, auto-create from 1040 OCR** | **✅ Complete** | **—** |
+| Retype Ialacci bio | Re-open wizard, retype bio under new UUID key (one-time) | 🔴 Next | — |
+| Generate Narratives | Confirm Gemini prose in Executive Summary + Borrower sections | 🔴 Next | — |
 | Reconciliation | `recon_status` — Committee Approve signal | 🔴 Active | — |
 | Borrower Intake | Voice interview + forms → auto-populate memo (replaces wizard) | 🔴 Queued | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
