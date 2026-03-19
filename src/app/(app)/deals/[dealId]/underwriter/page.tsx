@@ -85,7 +85,6 @@ export default async function UnderwriterOverviewPage({ params }: Props) {
     <DealCockpitClient
       dealId={dealId}
       isAdmin={isAdmin}
-      dealName={dealName}
       verify={verify}
     />
   );

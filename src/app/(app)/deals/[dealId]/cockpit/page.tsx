@@ -256,8 +256,6 @@ export default async function DealCockpitPage({ params }: Props) {
         <DealCockpitClient
           dealId={dealId}
           isAdmin={isAdmin}
-          dealName={dealName}
-          bankName={bankName}
           readiness={readiness}
           lifecycleStage={lifecycleStage}
           ignitedEvent={ignitedEvent}
