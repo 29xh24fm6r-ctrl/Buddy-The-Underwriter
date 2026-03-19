@@ -395,19 +395,21 @@ export default function DealShell({
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="mx-auto max-w-[1600px] px-6 pb-3">
-          <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            {tabs.map((t) => (
-              <Tab
-                key={t.href}
-                href={t.href}
-                label={t.label}
-                active={(() => { const hp = t.href.split("?")[0]; return (pathname ?? "") === hp || (pathname ?? "").startsWith(hp + "/"); })()}
-              />
-            ))}
+        {/* Tabs — hidden on cockpit (cockpit has its own workspace tabs) */}
+        {!pathname?.includes("/cockpit") && (
+          <div className="mx-auto max-w-[1600px] px-6 pb-3">
+            <div className="flex gap-2 overflow-x-auto no-scrollbar">
+              {tabs.map((t) => (
+                <Tab
+                  key={t.href}
+                  href={t.href}
+                  label={t.label}
+                  active={(() => { const hp = t.href.split("?")[0]; return (pathname ?? "") === hp || (pathname ?? "").startsWith(hp + "/"); })()}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Page content */}
