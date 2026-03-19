@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 49 complete — ownership_entities permanent fix, auto-create from 1040 OCR**
+**Status: Phase 50 complete — Deal Truth Graph + Gap Resolution Engine live**
 
 ---
 
@@ -47,11 +47,13 @@ Documents (tax returns, financials, statements)
         ↓ Classic Banker Spread PDF (MMAS format)   ✅ PRs #180–#209
         ↓ AUTO-VERIFIED → Banker reviews for credit judgment only
         ↓ AI Risk Assessment (Gemini Flash)         ✅ BB+ LIVE
-        ↓ Buddy Intelligence Engine (BIE)           ✅ Phase 35 + AARs 45/46 — LIVE
+        ↓ Buddy Intelligence Engine (BIE)           ✅ Phase 35 — LIVE
         ↓ Memo Completion Wizard (stopgap)          ✅ Phase 48 — LIVE
-        ↓ Credit Memo (Florida Armory standard)     ✅ Phase 33
         ↓ Ownership Entity auto-creation            ✅ Phase 49 — from 1040 OCR
+        ↓ Deal Truth Graph + Gap Resolution         ✅ Phase 50 — LIVE
+        ↓ Credit Memo (Florida Armory standard)     ✅ Phase 33
         ↓ Borrower Intake → auto-populates memo     🔴 Future (replaces wizard)
+        ↓ Phase 51 — Full interactive credit session (voice/chat + gap drive)
         ↓ Committee Package
         ↓ Deposit Profile + Treasury Proposals surfaced automatically
 ```
@@ -71,68 +73,55 @@ Documents (tax returns, financials, statements)
 ### AAR 37 ✅ — Legacy sections removed, Phase 33 memo primary (70d161bc)
 ### AAR 38–40 ✅ — Bridge fixes, maxDuration, supabaseAdmin
 ### AAR 41–44 ✅ — Research fixes, B&I Analysis populates
-### Phase 35 ✅ — Buddy Intelligence Engine built (7 threads, Google Search grounding)
+### Phase 35 ✅ — Buddy Intelligence Engine (7 threads, Google Search grounding)
 ### AAR 45 ✅ — Research deduplication + SBA language fix
 ### AAR 46 ✅ — BIE content priority + management per-sentence fix
 ### AAR 47 ✅ — Personal income spread key mismatch fixed
 ### Phase 48 ✅ — Generate Narratives unblocked + Memo Completion Wizard
-### Phase 49 ✅ — Ownership entities permanent fix
+### Phase 49 ✅ — Ownership entities permanent fix (column mismatch, UUID bio keys, auto-create from 1040 OCR)
+### Phase 50 ✅ — Deal Truth Graph + Gap Resolution Engine
 
 ---
 
-## Phase 49 — Ownership Entities Permanent Fix ✅ COMPLETE
+## Phase 50 — Deal Truth Graph + Gap Resolution Engine ✅ COMPLETE
 
-### Root cause chain
+### What was built (8 steps)
 
-Three compounding bugs caused "Pending — ownership entities required" to always show
-in Management Qualifications:
+| Step | What | Status |
+|---|---|---|
+| 1 | 4 DB migrations: `resolution_status` on `deal_financial_facts`, `deal_gap_queue`, `deal_fact_conflicts`, `deal_transcript_uploads` | ✅ |
+| 2 | 3 server functions in `src/lib/gapEngine/`: `computeDealGaps()`, `extractFactsFromTranscript()`, `resolveDealGap()` | ✅ |
+| 3 | 4 API routes: `gap-queue` (GET+POST), `gap-queue/resolve`, `transcript-ingest`, `banker-session/start` | ✅ |
+| 4 | `DealHealthPanel` — completeness %, gap list, confirm buttons | ✅ |
+| 5 | `TranscriptUploadPanel` — source selector, extract + confirm workflow | ✅ |
+| 6 | Pipeline wiring: `extractFactsFromDocument` + `runMission` trigger `computeDealGaps()` | ✅ |
+| 7 | Page wiring: cockpit + credit memo | ✅ |
+| 8 | Validation: `tsc` clean, all tables verified | ✅ |
 
-1. **Column mismatch:** `buildCanonicalCreditMemo` referenced `o.name`, `o.legal_name`,
-   `o.ownership_pct`, `o.title` — none of which exist in `ownership_entities`.
-   The real column is `display_name`. This caused the query to return data
-   but render every principal as "Unknown."
+### Type fixes applied during build (spec adaptations)
 
-2. **Zero rows:** The extraction pipeline never created `ownership_entities` rows.
-   The table existed and was queried, but no code wrote to it during document processing.
+- `source_type: "MANUAL"` instead of `"BANKER_INPUT"` — not in `FinancialFactSourceType` union
+- Removed `extraction_path` from banker-provided provenance — not in `FinancialFactProvenance` type
+- `bankId` null-guard in `runMission` — function requires `string`, not `string | null`
 
-3. **Unstable bio key:** The wizard stored bios under
-   `principal_bio_{name_slug}` (name-derived, collision-prone). The memo
-   builder looked up by `principal_bio_{id}` (UUID). They never matched.
+These are expected — the spec cannot know runtime type constraints without running `tsc`.
+This confirms the review workflow (spec → Claude inspection → Antigravity build) is working correctly.
 
-### Fixes applied (6 steps, tsc clean)
+### Architectural decisions (preserved from ChatGPT concept spec)
 
-1. **DB migration** — Added `ownership_pct numeric` and `title text` columns to
-   `ownership_entities` (additive, safe).
+- **"Resolve uncertainty" not "ask questions"** — the gap queue drives all human interaction
+- **"Deal Health / Resolve N Open Items"** — the UI metaphor, never "Start Intake"
+- **No subjective data ever stored** — `extractFactsFromTranscript()` prompt explicitly
+  instructs the model to skip qualitative assessments; only verifiable facts are extracted
+- **Single ledger** — every resolution emits a `deal_events` ledger event
+- **Confidence thresholds** — ADE 0.85, BIE 0.65, transcript 0.60, banker confirmed 1.00
 
-2. **`types.ts`** — Added `id: string` as first field in `principals` array type,
-   threaded through all consumers.
+### What Phase 50 does NOT do (Phase 51)
 
-3. **`buildCanonicalCreditMemo.ts`** — Three fixes:
-   - Bio key now UUID-based: `principal_bio_${o.id}`
-   - Name reads from `o.display_name` (correct column)
-   - Guarantors and `life_insurance_insured` also use `o.display_name`
-
-4. **`page.tsx`** — Wizard receives `p.id` (UUID) not name slug. Bio keys
-   are now stable across renames.
-
-5. **`extractFactsFromDocument.ts`** — Added `extractTaxpayerName()` +
-   `ensureOwnerEntity()` helpers. Personal income (1040) and PFS extraction
-   blocks now auto-create an `ownership_entities` row when no owner is
-   assigned, using the taxpayer name parsed from OCR. The document is then
-   assigned to that entity so future re-extractions reuse the same row.
-
-6. **tsc clean** — No type errors.
-
-### Permanent behavior going forward
-
-When a 1040 is uploaded and processed:
-1. OCR extracts taxpayer name from Form 1040 header
-2. `ensureOwnerEntity()` upserts a row in `ownership_entities` (idempotent)
-3. The document is linked to that entity via `assigned_owner_id`
-4. `buildCanonicalCreditMemo` reads the entity, renders the principal in
-   Management Qualifications with the correct name
-5. Banker opens wizard → types bio under `principal_bio_<uuid>` → saves
-6. Memo reload shows bio in Management Qualifications
+- Does NOT deprecate `deal_memo_overrides` — wizard remains as fallback
+- Does NOT wire voice/chat session transcript → auto-confirm facts in real time
+- Does NOT build the full interactive credit interview UI
+- Does NOT wire `buildCanonicalCreditMemo` to read confirmed facts instead of overrides
 
 ---
 
@@ -142,13 +131,12 @@ When a 1040 is uploaded and processed:
 - 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368. DSCR = 4.27x.
 - ✅ AI Risk: BB+ grade, 975 bps
 - ✅ BIE: LIVE — 9 memo subsections with Gemini-written content
-- ✅ B&I Analysis: clean — BIE-priority, no BRE prefix, no SBA bleed
 - ✅ Generate Narratives: unblocked
-- ✅ Wizard: qualitative fields saved — business description, revenue mix,
-  seasonality, collateral description all populated
+- ✅ Wizard: qualitative fields saved
 - ✅ Ownership entities: column mismatch fixed, auto-create wired
-- 🔴 Management bio: existing save was under old key (`principal_bio_general`);
-  re-open wizard, retype Ialacci bio once under new UUID key
+- ✅ Deal Health Panel: live — shows completeness % and open gaps
+- ✅ Transcript Upload: live — paste Otter/Fireflies → extract + confirm
+- 🔴 Management bio: retype Ialacci bio in wizard (old key stale)
 - 🔴 Reconciliation: `recon_status` NULL — blocks Committee signal
 
 ---
@@ -157,14 +145,15 @@ When a 1040 is uploaded and processed:
 
 ### P1 — Immediate
 
-1. **Re-open wizard on Samaritus** — retype Ialacci bio (one-time, old key
-   `principal_bio_general` is stale; new UUID key will persist permanently)
-2. **Generate Narratives** — confirm Executive Summary and Borrower sections
-   show Gemini prose after maxDuration fix
-3. **Reconciliation** — `recon_status` NULL. Blocks Committee Approve signal.
+1. **Retype Ialacci bio** — re-open wizard, one-time retype under UUID key
+2. **Generate Narratives** — confirm Executive Summary shows Gemini prose
+3. **Reconciliation** — `recon_status` NULL blocks Committee Approve signal
 
-### P2 — Near Term
+### P2 — Near Term (Phase 51 + Borrower Intake)
 
+- **Phase 51 — Full Credit Interview Session** — voice/chat layer as gap-queue driver;
+  session transcript → auto-confirm facts in real time; wire `buildCanonicalCreditMemo`
+  to read confirmed facts; deprecate `deal_memo_overrides`
 - **Borrower Intake pipeline** — voice interview + intake forms → auto-populate
   `business_summary` and `management_qualifications` (replaces wizard permanently)
 - **Model Engine V2 activation** — feature flag disabled, DB tables empty
@@ -184,6 +173,19 @@ When a 1040 is uploaded and processed:
 
 ---
 
+## Workflow — How Specs Are Built
+
+**Architecture review process (established after Phase 50 near-miss):**
+1. ChatGPT produces architecture concept + spec draft
+2. Claude inspects spec against live codebase (schema, types, existing functions)
+3. Claude produces corrected build-ready spec (saved as `PHASE_XX_SPEC.md` in repo root)
+4. Antigravity implements from the corrected spec only
+5. AAR documents type fixes applied during build (expected — spec can't run `tsc`)
+
+This prevents parallel system construction (the Pulse problem) and schema drift.
+
+---
+
 ## Technical Stack
 
 | Layer | Technology |
@@ -196,6 +198,7 @@ When a 1040 is uploaded and processed:
 | AI — Research | gemini-3.1-pro-preview via Developer API (GEMINI_API_KEY) — BIE |
 | Integration | MCP (Model Context Protocol) |
 | Event Ledger | Supabase `deal_events` (append-only) |
+| Gap Engine | `src/lib/gapEngine/` — computeDealGaps, extractFactsFromTranscript, resolveDealGap |
 | PDF Generation | PDFKit (portrait 8.5×11, serverExternalPackages) |
 | Deployment | Vercel (frontend), Cloud Run (workers) |
 | Testing | Vitest, Playwright |
@@ -212,20 +215,22 @@ When a 1040 is uploaded and processed:
 | Voice interview sessions | gpt-4o-realtime-preview | OpenAI API key | ✅ Retained on OpenAI |
 | Risk + Memo orchestrator | Gemini Flash | GEMINI_API_KEY (Dev API) | ✅ **LIVE — BB+ on Samaritus** |
 | **Buddy Intelligence Engine** | **gemini-3.1-pro-preview** | **GEMINI_API_KEY (Dev API)** | **✅ LIVE — 9 sections rendering** |
-| **Generate Narratives** | **Gemini Flash** | **GEMINI_API_KEY (Dev API)** | **✅ LIVE — maxDuration fixed** |
+| **Generate Narratives** | **Gemini Flash** | **GEMINI_API_KEY (Dev API)** | **✅ LIVE** |
+| **Transcript extraction** | **Gemini Flash** | **GEMINI_API_KEY (Dev API)** | **✅ LIVE — Phase 50** |
 | chatAboutDeal | OpenAI gpt-4o-2024-08-06 | OpenAI API key | 🔴 Gemini migration queued (P3) |
 
 ---
 
 ## Definition of Done — God Tier
 
-1–61. ✅ All prior phases and AARs complete through Phase 35 + AARs 45/46/47 + Phases 48/49.
-62. 🔴 Ialacci bio retyped in wizard under UUID key — Management Qualifications complete
+1–61. ✅ All prior phases and AARs complete through Phase 35 + AARs 45/46/47 + Phases 48/49/50.
+62. 🔴 Ialacci bio retyped — Management Qualifications complete
 63. 🔴 Generate Narratives confirmed — Executive Summary shows Gemini prose
 64. 🔴 Reconciliation complete — Committee Approve signal unlocked
-65. 🔴 Borrower Intake wired — wizard deprecated, qualitative fields auto-populate
-66. 🔴 Spread completeness ≥80%
-67. 🔴 Banker experience — opens a spread, trusts every number, focuses on credit
+65. 🔴 Phase 51 — Full credit interview session live (voice/chat drives gap queue)
+66. 🔴 Borrower Intake wired — wizard deprecated, qualitative fields auto-populate
+67. 🔴 Spread completeness ≥80%
+68. 🔴 Banker opens a deal, 10-minute voice session resolves all gaps, memo auto-completes
 
 ---
 
@@ -288,12 +293,19 @@ When a 1040 is uploaded and processed:
 - **Personal income spread `ROW_REGISTRY` factKeys: `TAXABLE_INTEREST` (not `INTEREST_INCOME`), `ORDINARY_DIVIDENDS` (not `DIVIDEND_INCOME`), `SCH_E_NET` (not `SCHED_E_NET`).**
 - **Spread template `factKey` is the DB lookup contract. When extractor and template use different key names, cells silently render null.**
 - **`TOTAL_PERSONAL_INCOME` must be guarded against stale negative DB values — recalculate from components if stored total is negative.**
-- **`deal_memo_overrides` is a stopgap for qualitative memo fields (business description, seasonality, revenue mix, collateral description, principal bios). It will be deprecated when borrower intake auto-populates these fields. Never use it for numeric/computed fields — those must come from documents and facts only.**
-- **The wizard must never ask bankers to manually enter numbers. Collateral values, LTV, DSCR, stressed DSCR come from documents and computation. The wizard is strictly for narrative qualitative fields that a banker knows from conversations and cannot be extracted.**
-- **`ownership_entities` correct columns: `id`, `deal_id`, `entity_type`, `display_name`, `tax_id_last4`, `meta_json`, `confidence`, `evidence_json`, `created_at`, `ownership_pct`, `title`. Never reference `name`, `legal_name` — those don't exist. Always use `display_name`.**
-- **Principal bio keys in `deal_memo_overrides` use UUID format: `principal_bio_<ownership_entity_uuid>`. Name-derived slugs (`principal_bio_joseph_ialacci`) are fragile — UUIDs are the contract.**
-- **`ownership_entities` rows must be auto-created during personal doc extraction (1040, PFS) using `ensureOwnerEntity()`. Never assume a row exists — always upsert idempotently by `(deal_id, display_name)`.**
-- **When a CSS context inherits a non-black text color (common in dark-mode-aware apps), always set `text-gray-900 bg-white` and `placeholder-gray-400` explicitly on every `<input>` and `<textarea>`. Omitting these causes white-on-white invisible text.**
+- **`deal_memo_overrides` is a stopgap for qualitative memo fields. Deprecated when borrower intake auto-populates these fields. Never use for numeric/computed fields.**
+- **The wizard must never ask bankers to manually enter numbers. The wizard is strictly for narrative qualitative fields.**
+- **`ownership_entities` correct columns: `id`, `deal_id`, `entity_type`, `display_name`, `tax_id_last4`, `meta_json`, `confidence`, `evidence_json`, `created_at`, `ownership_pct`, `title`. Never reference `name`, `legal_name` — those don't exist.**
+- **Principal bio keys in `deal_memo_overrides` use UUID format: `principal_bio_<ownership_entity_uuid>`. Name-derived slugs are fragile — UUIDs are the contract.**
+- **`ownership_entities` rows must be auto-created during personal doc extraction (1040, PFS) using `ensureOwnerEntity()`. Always upsert idempotently by `(deal_id, display_name)`.**
+- **When a CSS context inherits a non-black text color, always set `text-gray-900 bg-white` and `placeholder-gray-400` explicitly on every `<input>` and `<textarea>`. Omitting causes white-on-white invisible text.**
+- **`deal_financial_facts` is the canonical fact store. Never build a parallel `deal_facts` table. The Gap Resolution Engine extends `deal_financial_facts` via `resolution_status` — it does not replace it.**
+- **`deal_gap_queue` unique constraint is `(deal_id, fact_type, fact_key, gap_type, status)` — prevents duplicate open gaps for the same fact.**
+- **`computeDealGaps()` must be called after every extraction run and every BIE mission. Wire as non-fatal fire-and-forget at the end of both pipelines.**
+- **`extractFactsFromTranscript()` prompt must explicitly instruct the model to skip subjective assessments. Only verifiable, documentable facts are stored. This is a fair lending compliance requirement.**
+- **Banker-provided facts (from voice/chat/transcript confirmation) use `source_type: "MANUAL"` and `confidence: 1.00`. They set `resolution_status = "confirmed"` on the fact.**
+- **`FinancialFactProvenance` does not have an `extraction_path` field. Do not add it to banker-provided provenance objects.**
+- **Architecture review workflow: ChatGPT drafts spec → Claude inspects against live schema + types → Claude produces corrected spec in `PHASE_XX_SPEC.md` → Antigravity builds from corrected spec only. This prevents parallel system construction (the Pulse/deal_facts problem).**
 
 ---
 
@@ -316,12 +328,14 @@ When a 1040 is uploaded and processed:
 | AAR 45 | Research deduplication + SBA language fix | ✅ Complete | — |
 | AAR 46 | BIE content priority + management per-sentence fix | ✅ Complete | — |
 | AAR 47 | Personal income spread factKey fix + alias fallback + negative total guard | ✅ Complete | — |
-| Phase 48A | Narratives route `maxDuration=60` — Generate Narratives was timing out | ✅ Complete | — |
+| Phase 48A | Narratives route `maxDuration=60` | ✅ Complete | — |
 | Phase 48B | Memo Completion Wizard — `deal_memo_overrides`, qualitative stopgap | ✅ Complete | — |
-| **Phase 49** | **Ownership entities permanent fix — column mismatch, UUID bio keys, auto-create from 1040 OCR** | **✅ Complete** | **—** |
-| Retype Ialacci bio | Re-open wizard, retype bio under new UUID key (one-time) | 🔴 Next | — |
+| Phase 49 | Ownership entities permanent fix — column mismatch, UUID bio keys, auto-create from 1040 OCR | ✅ Complete | — |
+| **Phase 50** | **Deal Truth Graph + Gap Resolution Engine — gap queue, conflict detection, transcript ingestion, Deal Health Panel, banker session start** | **✅ Complete** | **—** |
+| Retype Ialacci bio | Re-open wizard, retype bio under UUID key (one-time) | 🔴 Next | — |
 | Generate Narratives | Confirm Gemini prose in Executive Summary + Borrower sections | 🔴 Next | — |
 | Reconciliation | `recon_status` — Committee Approve signal | 🔴 Active | — |
+| **Phase 51** | **Full Credit Interview Session — voice/chat drives gap queue in real time, auto-confirm facts, deprecate `deal_memo_overrides`** | **🔴 Queued** | **—** |
 | Borrower Intake | Voice interview + forms → auto-populate memo (replaces wizard) | 🔴 Queued | — |
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
