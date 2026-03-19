@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 51 complete — Gemini Live voice gateway on Fly.io, zero OpenAI**
+**Status: Phase 52 complete — Cockpit redesign: Status Strip, Story tab, 5 workspace tabs**
 
 ---
 
@@ -62,7 +62,8 @@ Documents (tax returns, financials, statements)
         ↓ Memo Completion Wizard (stopgap)          ✅ Phase 48 — LIVE
         ↓ Ownership Entity auto-creation            ✅ Phase 49 — from 1040 OCR
         ↓ Deal Truth Graph + Gap Resolution Engine  ✅ Phase 50 — LIVE
-        ↓ Banker Credit Interview (Gemini Live)     ✅ Phase 51 — LIVE (pending Fly deploy)
+        ↓ Banker Credit Interview (Gemini Live)     ✅ Phase 51 — LIVE
+        ↓ Cockpit Redesign (Story tab, Status Strip) ✅ Phase 52 — LIVE
         ↓ Credit Memo (Florida Armory standard)     ✅ Phase 33
         ↓ Borrower Intake → auto-populates memo     🔴 Future (replaces wizard)
         ↓ Committee Package
@@ -92,6 +93,65 @@ Documents (tax returns, financials, statements)
 ### Phase 49 ✅ — Ownership entities permanent fix
 ### Phase 50 ✅ — Deal Truth Graph + Gap Resolution Engine
 ### Phase 51 ✅ — Buddy Voice Gateway (Gemini Live, Fly.io)
+### Phase 52 ✅ — Cockpit Redesign (Status Strip, Story tab, 5 workspace tabs)
+
+---
+
+## Phase 52 — Cockpit Redesign ✅ COMPLETE
+
+### What was built (10 steps, tsc clean)
+
+| Item | What | Status |
+|---|---|---|
+| StatusChip.tsx | Expandable pill chip with localStorage persistence per dealId | ✅ |
+| StatusStrip.tsx | Compact single-row status strip replacing the 3-column grid | ✅ |
+| StoryPanel.tsx | New Story tab — Buddy's Questions + Deal Story fields + Credit Interview | ✅ |
+| DocumentsTabPanel.tsx | New Documents tab — DealFilesCard + CoreDocuments + ArtifactPipeline | ✅ |
+| story/questions/route.ts | API: BIE underwriting questions + missing fact gaps | ✅ |
+| memo-overrides/route.ts | API: GET/PATCH story field overrides (merge, not replace) | ✅ |
+| DealIntakeCard.tsx | Fixed CSS bug: text-white + placeholder color on borrower inputs | ✅ |
+| SecondaryTabsPanel.tsx | 5 tabs (Setup/Story/Documents/Underwriting/Timeline), removed Portal + Spreads | ✅ |
+| DealCockpitClient.tsx | Replaced 3-column grid with StatusStrip | ✅ |
+| cockpit/page.tsx | Removed dangling DealHealthPanel + BankerVoicePanel (now in Story tab) | ✅ |
+
+### Architecture
+
+**Before:**
+```
+[Hero Header]
+[3-column grid: Left(4 panels) | Center(Checklist) | Right(Readiness)]
+[Secondary Tabs: Setup | Portal | Underwriting | Spreads | Timeline]
+[DealHealthPanel]  ← bolted below
+[BankerVoicePanel] ← bolted below
+```
+
+**After:**
+```
+[Hero Header]
+[Status Strip: Documents | Checklist | Pipeline | Readiness | → CTA]
+[Workspace Tabs: Setup | Story | Documents | Underwriting | Timeline]
+```
+
+### Story tab — what it collects
+
+**Section 1 — Buddy's Questions:** BIE `underwriting_questions` from `buddy_research_narratives` (version 3) + `missing_fact` gaps from `deal_gap_queue`. Each question has a text answer field that saves to `deal_memo_overrides`.
+
+**Section 2 — Deal Story Fields:** 6 guided textarea fields that feed directly into the credit memo. Debounced PATCH to `deal_memo_overrides` on change.
+- Use of Proceeds (`use_of_proceeds`)
+- Management Background (`principal_background`)
+- Collateral (`collateral_description`)
+- Banking Relationship (`banking_relationship`)
+- Deal Strengths (`key_strengths`)
+- Deal Weaknesses & Mitigants (`key_weaknesses`)
+
+**Section 3 — Credit Interview:** DealHealthPanel (data completeness) + BankerVoicePanel (Gemini Live voice session) + collapsed TranscriptUploadPanel.
+
+### Key design principles enforced
+- Status strip chips expand inline — no modals, no page navigations
+- Story tab defaults when deal is ignited (`intakePhase` is set)
+- Portal controls collapsed inside Setup under "Borrower Portal"
+- AI Doc Recognition moved to Documents tab where it belongs
+- Nothing deleted — all components reused, just reorganized
 
 ---
 
@@ -131,15 +191,6 @@ Browser
 - **Fly.io:** `buddy-voice-gateway`, `shared-cpu-1x`, 512mb, `min_machines_running = 1`
 - **Compliance:** system instruction explicitly prohibits subjective content — fair lending enforced at prompt level
 
-### Pending manual step
-`fly deploy` from `buddy-voice-gateway/` — requires Fly.io CLI + secrets set:
-```
-SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GCP_PROJECT_ID,
-GOOGLE_SERVICE_ACCOUNT_KEY, BUDDY_APP_URL, BUDDY_GATEWAY_SECRET, PORT=8080
-```
-Vercel env vars needed: `NEXT_PUBLIC_BUDDY_VOICE_GATEWAY_URL`, `BUDDY_GATEWAY_SECRET`,
-`GEMINI_LIVE_MODEL`, `GEMINI_LIVE_VOICE`
-
 ---
 
 ## Current State — Active Deals
@@ -148,15 +199,11 @@ Vercel env vars needed: `NEXT_PUBLIC_BUDDY_VOICE_GATEWAY_URL`, `BUDDY_GATEWAY_SE
 - 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368. DSCR = 4.27x.
 - ✅ AI Risk: BB+ grade, 975 bps
 - ✅ BIE: LIVE — 9 memo subsections with Gemini-written content
-- ✅ Generate Narratives: unblocked
-- ✅ Wizard: qualitative fields saved
-- ✅ Ownership entities: column mismatch fixed, auto-create wired
+- ✅ Story tab: 3 BIE underwriting questions surfaced, 6 guided fields
+- ✅ Voice interview: Gemini Live via Fly.io gateway
 - ✅ Deal Health Panel: live — shows completeness % and open gaps
-- ✅ Transcript Upload: live
-- ✅ BankerVoicePanel: wired (pending Fly deploy to go live)
 - 🔴 Ialacci bio: retype in wizard under UUID key (one-time)
 - 🔴 Reconciliation: `recon_status` NULL — blocks Committee signal
-- 🔴 Fly deploy: `fly deploy` from `buddy-voice-gateway/` + set secrets
 
 ---
 
@@ -164,14 +211,11 @@ Vercel env vars needed: `NEXT_PUBLIC_BUDDY_VOICE_GATEWAY_URL`, `BUDDY_GATEWAY_SE
 
 ### P1 — Immediate
 
-1. **Fly deploy** — `cd buddy-voice-gateway && fly deploy` + set all secrets
-2. **Set Vercel env vars** — `NEXT_PUBLIC_BUDDY_VOICE_GATEWAY_URL`, `BUDDY_GATEWAY_SECRET`
-3. **Retype Ialacci bio** — re-open wizard, one-time retype under UUID key
-4. **Reconciliation** — `recon_status` NULL blocks Committee Approve signal
+1. **Retype Ialacci bio** — re-open wizard, one-time retype under UUID key
+2. **Reconciliation** — `recon_status` NULL blocks Committee Approve signal
 
 ### P2 — Near Term
 
-- **Borrower Intake pipeline** — voice interview + intake forms → auto-populate memo
 - **`buildCanonicalCreditMemo` reads confirmed facts** — replace `deal_memo_overrides` with confirmed `deal_financial_facts`
 - **Model Engine V2 activation** — feature flag disabled, DB tables empty
 - **Observability pipeline** — missing env vars, Pulse events not flowing
@@ -217,7 +261,7 @@ Vercel env vars needed: `NEXT_PUBLIC_BUDDY_VOICE_GATEWAY_URL`, `BUDDY_GATEWAY_SE
 | Document extraction | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active |
 | Classic Spread narrative | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active |
 | Document classification | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active |
-| **Voice interview** | **gemini-live-2.5-flash-native-audio** | **Vertex AI / GCP service account** | **✅ Built — pending Fly deploy** |
+| **Voice interview** | **gemini-live-2.5-flash-native-audio** | **Vertex AI / GCP service account** | **✅ LIVE** |
 | Risk + Memo orchestrator | Gemini Flash | GEMINI_API_KEY (Dev API) | ✅ **LIVE — BB+ on Samaritus** |
 | **Buddy Intelligence Engine** | **gemini-3.1-pro-preview** | **GEMINI_API_KEY (Dev API)** | **✅ LIVE — 9 sections rendering** |
 | **Generate Narratives** | **Gemini Flash** | **GEMINI_API_KEY (Dev API)** | **✅ LIVE** |
@@ -230,8 +274,7 @@ Vercel env vars needed: `NEXT_PUBLIC_BUDDY_VOICE_GATEWAY_URL`, `BUDDY_GATEWAY_SE
 
 ## Definition of Done — God Tier
 
-1–61. ✅ All prior phases and AARs complete through Phase 35 + AARs 45/46/47 + Phases 48/49/50/51.
-62. 🔴 Fly deploy complete — `curl https://buddy-voice-gateway.fly.dev/health` returns ok
+1–62. ✅ All prior phases and AARs complete through Phase 52.
 63. 🔴 Ialacci bio retyped — Management Qualifications complete
 64. 🔴 Reconciliation complete — Committee Approve signal unlocked
 65. 🔴 Borrower Intake wired — wizard deprecated, qualitative fields auto-populate
@@ -320,6 +363,9 @@ Vercel env vars needed: `NEXT_PUBLIC_BUDDY_VOICE_GATEWAY_URL`, `BUDDY_GATEWAY_SE
 - **`buddy-mic-processor.js` must be placed in `/public/audio/` so Next.js serves it as a static file. AudioWorklet `addModule()` requires a URL, not an import.**
 - **Gemini Live audio: input 16kHz PCM mono (AudioWorklet), output 24kHz PCM (AudioContext). No third-party audio SDK needed.**
 - **Single tool declaration pattern (from Pulse): one `buddy_query` / `pulse_query` tool handles all intents. Reduces token overhead (~80 tokens vs ~1500 for multiple tools).**
+- **Cockpit layout: Status Strip (expandable chips) replaces 3-column grid. Story tab is the default when deal is ignited. DealHealthPanel and BankerVoicePanel live inside Story tab — never bolted below cockpit page.**
+- **`buddy_research_narratives.sections` is a JSONB array `[{title, sentences:[{text}]}]`. Underwriting Questions text contains newline-separated questions — split on `\n+` and strip `^\d+\.\s*`.**
+- **`memo-overrides` PATCH route must merge into existing JSONB, never replace. Use sequential select-then-update/insert, not upsert, to avoid wiping existing keys.**
 
 ---
 
@@ -346,8 +392,8 @@ Vercel env vars needed: `NEXT_PUBLIC_BUDDY_VOICE_GATEWAY_URL`, `BUDDY_GATEWAY_SE
 | Phase 48B | Memo Completion Wizard — `deal_memo_overrides` | ✅ Complete | — |
 | Phase 49 | Ownership entities permanent fix — column mismatch, UUID bio keys, auto-create from 1040 OCR | ✅ Complete | — |
 | Phase 50 | Deal Truth Graph + Gap Resolution Engine — 4 tables, gap engine, transcript upload, Deal Health Panel | ✅ Complete | — |
-| **Phase 51** | **Buddy Voice Gateway — Gemini Live native audio, Fly.io, zero OpenAI, `buddy-voice-gateway/`, BankerVoicePanel** | **✅ Complete** | **—** |
-| Fly deploy | `cd buddy-voice-gateway && fly deploy` + set secrets | 🔴 Manual next step | — |
+| Phase 51 | Buddy Voice Gateway — Gemini Live native audio, Fly.io, zero OpenAI, `buddy-voice-gateway/`, BankerVoicePanel | ✅ Complete | — |
+| **Phase 52** | **Cockpit Redesign — Status Strip, Story tab, 5 workspace tabs, BIE questions surfaced, borrower input CSS fix** | **✅ Complete** | **—** |
 | Retype Ialacci bio | Re-open wizard, retype bio under UUID key | 🔴 Next | — |
 | Reconciliation | `recon_status` — Committee Approve signal | 🔴 Active | — |
 | Borrower Intake | Voice interview + forms → auto-populate memo (replaces wizard) | 🔴 Queued | — |
