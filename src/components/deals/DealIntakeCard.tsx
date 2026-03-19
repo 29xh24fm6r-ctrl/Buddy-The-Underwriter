@@ -845,7 +845,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
               name="borrowerName"
               value={intake.borrower_name || ""}
               onChange={(e) => setIntake({ ...intake, borrower_name: e.target.value })}
-              className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
+              className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-white placeholder:text-neutral-500 outline-none focus:border-neutral-600"
               placeholder="Optional"
             />
           </div>
@@ -856,7 +856,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
               name="borrowerEmail"
               value={intake.borrower_email || ""}
               onChange={(e) => setIntake({ ...intake, borrower_email: e.target.value })}
-              className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
+              className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-white placeholder:text-neutral-500 outline-none focus:border-neutral-600"
               placeholder="Optional"
             />
           </div>
@@ -867,7 +867,7 @@ const DealIntakeCard = forwardRef<DealIntakeCardHandle, DealIntakeCardProps>(({
               name="borrowerPhone"
               value={intake.borrower_phone || ""}
               onChange={(e) => setIntake({ ...intake, borrower_phone: e.target.value })}
-              className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
+              className="mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-white placeholder:text-neutral-500 outline-none focus:border-neutral-600"
               placeholder="Optional"
             />
           </div>

@@ -8,8 +8,9 @@ import DealIntakeCard from "@/components/deals/DealIntakeCard";
 import BorrowerAttachmentCard from "@/components/deals/BorrowerAttachmentCard";
 import BorrowerRequestComposerCard from "@/components/deals/BorrowerRequestComposerCard";
 import BorrowerUploadLinksCard from "@/components/deals/BorrowerUploadLinksCard";
-import UploadAuditCard from "@/components/deals/UploadAuditCard";
 import { UnderwritingControlPanel } from "@/components/deals/UnderwritingControlPanel";
+import StoryPanel from "@/components/deals/cockpit/panels/StoryPanel";
+import { DocumentsTabPanel } from "@/components/deals/cockpit/panels/DocumentsTabPanel";
 import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
 import { PreviewUnderwritePanel } from "@/components/deals/PreviewUnderwritePanel";
 import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
@@ -40,17 +41,17 @@ type VerifyLedgerEvent = {
 };
 
 const TABS = [
-  { key: "setup", label: "Setup", icon: "settings" },
-  { key: "portal", label: "Portal", icon: "link" },
+  { key: "setup",        label: "Setup",        icon: "settings" },
+  { key: "story",        label: "Story",        icon: "auto_stories" },
+  { key: "documents",    label: "Documents",    icon: "folder_open" },
   { key: "underwriting", label: "Underwriting", icon: "analytics" },
-  { key: "spreads", label: "Spreads", icon: "table_chart" },
-  { key: "timeline", label: "Timeline", icon: "timeline" },
+  { key: "timeline",     label: "Timeline",     icon: "timeline" },
 ] as const;
 
 const ADMIN_TAB = { key: "admin" as const, label: "Admin", icon: "admin_panel_settings" };
 const INTAKE_TAB = { key: "intake" as const, label: "Intake Review", icon: "fact_check" };
 
-type TabKey = (typeof TABS)[number]["key"] | "admin" | "intake" | "spreads";
+type TabKey = (typeof TABS)[number]["key"] | "admin" | "intake";
 
 const VALID_TAB_KEYS = new Set<string>(TABS.map((t) => t.key));
 // Admin + Intake are conditionally valid but always recognized for URL parsing
@@ -68,7 +69,26 @@ type Props = {
   verifyLedger?: VerifyLedgerEvent | null;
   unifiedLifecycleState?: any;
   onLifecycleStageChange?: (stage: string | null) => void;
+  gatekeeperPrimaryRouting?: boolean;
 };
+
+function BorrowerPortalCollapsed({ dealId, lifecycleStage }: { dealId: string; lifecycleStage: string | null }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl border border-white/8 bg-white/[0.02]">
+      <button type="button" onClick={() => setOpen(v => !v)} className="flex w-full items-center justify-between px-4 py-3 text-xs font-semibold text-white/40 hover:text-white/60">
+        <span>Borrower Portal</span>
+        <span className="material-symbols-outlined text-[14px]">{open ? "expand_less" : "expand_more"}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 space-y-4">
+          <SafeBoundary><BorrowerRequestComposerCard dealId={dealId} /></SafeBoundary>
+          <SafeBoundary><BorrowerUploadLinksCard dealId={dealId} lifecycleStage={lifecycleStage} /></SafeBoundary>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function SecondaryTabsPanel({
   dealId,
@@ -81,6 +101,7 @@ export function SecondaryTabsPanel({
   verifyLedger,
   unifiedLifecycleState,
   onLifecycleStageChange,
+  gatekeeperPrimaryRouting = false,
 }: Props) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -88,9 +109,9 @@ export function SecondaryTabsPanel({
   const urlTab = searchParams?.get("tab") as TabKey | null;
   const defaultTab: TabKey = (() => {
     if (urlTab && VALID_TAB_KEYS.has(urlTab)) return urlTab;
-    if (!intakeGateEnabled) return "setup";
+    if (!intakeGateEnabled) return intakePhase ? "story" : "setup";
     if (intakePhase === "CLASSIFIED_PENDING_CONFIRMATION") return "intake";
-    return "setup";
+    return intakePhase ? "story" : "setup";
   })();
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -128,11 +149,6 @@ export function SecondaryTabsPanel({
   ];
 
   const handleTabChange = (tab: TabKey) => {
-    // Spreads tab navigates to the dedicated spreads workspace
-    if (tab === "spreads") {
-      router.push(`/deals/${dealId}/spreads`);
-      return;
-    }
     setActiveTab(tab);
     // Update URL for deep linking without full navigation
     const params = new URLSearchParams(searchParams?.toString() || "");
@@ -182,21 +198,21 @@ export function SecondaryTabsPanel({
             <SafeBoundary>
               <BorrowerAttachmentCard dealId={dealId} />
             </SafeBoundary>
+            <BorrowerPortalCollapsed dealId={dealId} lifecycleStage={lifecycleStage ?? null} />
           </>
         )}
 
-        {activeTab === "portal" && (
+        {activeTab === "story" && (
           <>
-            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider">Portal</h3>
-            <SafeBoundary>
-              <BorrowerRequestComposerCard dealId={dealId} />
-            </SafeBoundary>
-            <SafeBoundary>
-              <BorrowerUploadLinksCard dealId={dealId} lifecycleStage={lifecycleStage ?? null} />
-            </SafeBoundary>
-            <SafeBoundary>
-              <UploadAuditCard dealId={dealId} />
-            </SafeBoundary>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider">Deal Story</h3>
+            <SafeBoundary><StoryPanel dealId={dealId} /></SafeBoundary>
+          </>
+        )}
+
+        {activeTab === "documents" && (
+          <>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider">Documents</h3>
+            <SafeBoundary><DocumentsTabPanel dealId={dealId} isAdmin={isAdmin} gatekeeperPrimaryRouting={gatekeeperPrimaryRouting} /></SafeBoundary>
           </>
         )}
 
@@ -220,6 +236,10 @@ export function SecondaryTabsPanel({
             <SafeBoundary>
               <PreviewUnderwritePanel dealId={dealId} />
             </SafeBoundary>
+            <a href={`/deals/${dealId}/spreads`} className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/60 hover:bg-white/10 w-full justify-center mt-2">
+              <span className="material-symbols-outlined text-[14px]">table_chart</span>
+              View Classic Spreads
+            </a>
           </>
         )}
 

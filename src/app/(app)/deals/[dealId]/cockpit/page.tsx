@@ -8,8 +8,6 @@ import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
 import { deriveLifecycleState } from "@/buddy/lifecycle";
 import { isGatekeeperPrimaryRoutingEnabled } from "@/lib/flags/openaiGatekeeper";
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
-import DealHealthPanel from "@/components/deals/DealHealthPanel";
-import BankerVoicePanel from "@/components/deals/BankerVoicePanel";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 import type { LifecycleState } from "@/buddy/lifecycle";
 
@@ -272,10 +270,6 @@ export default async function DealCockpitPage({ params }: Props) {
           intakePhase={intakePhase}
           intakeGateEnabled={isIntakeConfirmationGateEnabled()}
         />
-        <div className="container mx-auto px-6 mt-4 space-y-4">
-          <DealHealthPanel dealId={dealId} />
-          <BankerVoicePanel dealId={dealId} />
-        </div>
       </Suspense>
     </div>
   );

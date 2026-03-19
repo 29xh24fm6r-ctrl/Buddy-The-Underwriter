@@ -15,10 +15,7 @@ import { getStageBadge } from "@/lib/lifecycle/stageBadge";
 import { useDealMeta } from "@/hooks/useDealMeta";
 import { deriveDealHeader } from "@/lib/deals/deriveDealHeader";
 
-// Keystone Cockpit: 3-column layout
-import { LeftColumn } from "@/components/deals/cockpit/columns/LeftColumn";
-import { CenterColumn } from "@/components/deals/cockpit/columns/CenterColumn";
-import { RightColumn } from "@/components/deals/cockpit/columns/RightColumn";
+import { StatusStrip } from "@/components/deals/cockpit/StatusStrip";
 import { SecondaryTabsPanel } from "@/components/deals/cockpit/panels/SecondaryTabsPanel";
 import { PipelineIndicator } from "@/components/deals/PipelineStatus";
 
@@ -303,23 +300,16 @@ function DealCockpitClientInner({
           {/* Processing Micro-State */}
           <ProcessingIndicator />
 
-          {/* === KEYSTONE 3-COLUMN LAYOUT === */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
-            {/* Left Column: Documents + Pipeline (mobile: 3rd) */}
-            <div id="cockpit-documents" className="lg:col-span-4 order-3 lg:order-1">
-              <LeftColumn dealId={dealId} isAdmin={isAdmin} gatekeeperPrimaryRouting={gatekeeperPrimaryRouting} />
-            </div>
-
-            {/* Center Column: Year-Aware Checklist (mobile: 2nd) */}
-            <div className="lg:col-span-4 order-2 lg:order-2">
-              <CenterColumn dealId={dealId} />
-            </div>
-
-            {/* Right Column: Readiness + Primary CTA (mobile: 1st) */}
-            <div className="lg:col-span-4 order-1 lg:order-3">
-              <RightColumn dealId={dealId} isAdmin={isAdmin} />
-            </div>
-          </div>
+          {/* === STATUS STRIP === */}
+          <SafeBoundary>
+            <StatusStrip
+              dealId={dealId}
+              isAdmin={isAdmin}
+              gatekeeperPrimaryRouting={gatekeeperPrimaryRouting}
+              unifiedLifecycleState={unifiedLifecycleState}
+              onAdvance={() => router.refresh()}
+            />
+          </SafeBoundary>
 
           {/* === SECONDARY TABS === */}
           <SafeBoundary>
@@ -334,6 +324,7 @@ function DealCockpitClientInner({
               verifyLedger={verifyLedger}
               unifiedLifecycleState={unifiedLifecycleState}
               onLifecycleStageChange={setStage}
+              gatekeeperPrimaryRouting={gatekeeperPrimaryRouting}
             />
           </SafeBoundary>
         </div>
