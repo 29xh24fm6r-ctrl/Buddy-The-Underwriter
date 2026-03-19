@@ -48,6 +48,55 @@ async function resolveOwnerForDocument(sb: any, documentId: string): Promise<str
 }
 
 /**
+ * Extract the taxpayer name from a 1040 OCR text.
+ * Looks for the name field at the top of Form 1040 (line: "Your first name and middle initial / Last name").
+ * Returns null if not found.
+ */
+function extractTaxpayerName(ocrText: string): string | null {
+  const patterns = [
+    /your\s+first\s+name.*?last\s+name[^\n]*\n([A-Z][a-z]+(?:\s+[A-Z]\.?)?\s+[A-Z][a-z]+)/i,
+    /^([A-Z][A-Za-z]+(?:\s+[A-Z]\.?)?\s+[A-Z][A-Za-z]+)\s+\d{3}-\d{2}-\d{4}/m,
+    /taxpayer\s+name[:\s]+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+)/i,
+  ];
+  for (const p of patterns) {
+    const m = ocrText.match(p);
+    if (m?.[1]?.trim()) return m[1].trim();
+  }
+  return null;
+}
+
+/**
+ * Ensure an ownership_entities row exists for this deal and name.
+ * Uses display_name as the conflict target — idempotent.
+ * Returns the entity id.
+ */
+async function ensureOwnerEntity(
+  sb: any,
+  dealId: string,
+  displayName: string,
+  entityType: "individual" | "entity" = "individual",
+): Promise<string | null> {
+  try {
+    const { data: existing } = await sb
+      .from("ownership_entities")
+      .select("id")
+      .eq("deal_id", dealId)
+      .eq("display_name", displayName)
+      .maybeSingle();
+    if (existing?.id) return String(existing.id);
+
+    const { data: created } = await sb
+      .from("ownership_entities")
+      .insert({ deal_id: dealId, display_name: displayName, entity_type: entityType })
+      .select("id")
+      .maybeSingle();
+    return created?.id ? String(created.id) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Load structured JSON from extraction assist from document_extracts.
  * Returns the structured JSON blob or null if not available.
  */
@@ -393,7 +442,23 @@ export async function extractFactsFromDocument(args: {
     // Owner resolution is also required for accurate guarantor attribution.
     // Always use the deterministic extractor for personal docs.
     try {
-      const ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
+      let ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
+
+      // If no owner is assigned, try to extract the taxpayer name from OCR
+      // and auto-create an ownership_entities row for this deal.
+      if (!ownerEntityId) {
+        const taxpayerName = extractTaxpayerName(extractedText);
+        if (taxpayerName) {
+          ownerEntityId = await ensureOwnerEntity(sb, args.dealId, taxpayerName, "individual");
+          if (ownerEntityId) {
+            await sb
+              .from("deal_documents")
+              .update({ assigned_owner_id: ownerEntityId })
+              .eq("id", args.documentId);
+          }
+        }
+      }
+
       if (useDeterministic) {
         const result = await extractPersonalIncomeDeterministic({
           ...deterministicArgs,
@@ -441,7 +506,23 @@ export async function extractFactsFromDocument(args: {
       extractionPath = "gemini_primary";
     } else {
       try {
-        const ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
+        let ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
+
+        // If no owner is assigned, try to extract the taxpayer name from OCR
+        // and auto-create an ownership_entities row for this deal.
+        if (!ownerEntityId) {
+          const taxpayerName = extractTaxpayerName(extractedText);
+          if (taxpayerName) {
+            ownerEntityId = await ensureOwnerEntity(sb, args.dealId, taxpayerName, "individual");
+            if (ownerEntityId) {
+              await sb
+                .from("deal_documents")
+                .update({ assigned_owner_id: ownerEntityId })
+                .eq("id", args.documentId);
+            }
+          }
+        }
+
         if (useDeterministic) {
           const result = await extractPfsDeterministic({
             ...deterministicArgs,

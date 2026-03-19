@@ -605,10 +605,10 @@ export async function buildCanonicalCreditMemo(args: {
     // ===== Phase 33: Build management qualifications =====
     const managementQualifications: CanonicalCreditMemoV1["management_qualifications"] = {
       principals: ownerEntities.map((o: any) => {
-        const nameKey = (o.name ?? o.legal_name ?? "").replace(/\s+/g, "_").toLowerCase();
-        const bioKey = `principal_bio_${nameKey}`;
+        const bioKey = `principal_bio_${o.id}`;
         return {
-          name: o.name ?? o.legal_name ?? "Unknown",
+          id: String(o.id),
+          name: o.display_name ?? "Unknown",
           ownership_pct: o.ownership_pct ?? null,
           title: o.title ?? null,
           bio: overrides[bioKey] || "Pending — complete borrower interview to populate management qualifications.",
@@ -689,7 +689,7 @@ export async function buildCanonicalCreditMemo(args: {
           name: deal.name ?? null,
         }),
         borrower_name: String(deal.borrower_name ?? borrower?.legal_name ?? "—"),
-        guarantors: ownerEntities.map((o: any) => o.name ?? o.legal_name ?? "Unknown").filter(Boolean),
+        guarantors: ownerEntities.map((o: any) => o.display_name ?? "Unknown").filter(Boolean),
         lender_name: "Buddy – The Underwriter",
         prepared_by: args.preparedBy ?? "Buddy",
         underwriting_assistance: aiRisk ? `Buddy AI Risk Assessment (${aiRisk.grade ?? "—"})` : null,
@@ -763,7 +763,7 @@ export async function buildCanonicalCreditMemo(args: {
         is_adequate: null,
         life_insurance_required: lifeInsuranceRequired,
         life_insurance_amount: lifeInsuranceAmount,
-        life_insurance_insured: ownerEntities[0]?.name ?? ownerEntities[0]?.legal_name ?? null,
+        life_insurance_insured: ownerEntities[0]?.display_name ?? null,
       },
 
       business_summary: {

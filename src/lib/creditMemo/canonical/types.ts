@@ -285,6 +285,7 @@ export type CanonicalCreditMemoV1 = {
   // ── MANAGEMENT QUALIFICATIONS ─────────────────────────────────────────────
   management_qualifications: {
     principals: Array<{
+      id: string;
       name: string;
       ownership_pct: CanonicalMemoNumber;
       title: string | null;

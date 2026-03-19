@@ -145,7 +145,7 @@ export default async function CanonicalCreditMemoPage(props: {
             <MemoCompletionWizard
               dealId={dealId}
               principals={res.memo.management_qualifications.principals.map(p => ({
-                id: p.name.replace(/\s+/g, "_").toLowerCase(),
+                id: p.id,
                 name: p.name,
               }))}
               missingMetrics={res.memo.meta.readiness.missing_metrics}
