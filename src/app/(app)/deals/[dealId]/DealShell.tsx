@@ -354,7 +354,8 @@ export default function DealShell({
             </div>
           </div>
 
-          {/* Row 2: Financial metrics + status (hidden on small screens) */}
+          {/* Row 2: Financial metrics + status (hidden on cockpit + small screens) */}
+          {!pathname?.includes("/cockpit") && (
           <div className="hidden lg:flex items-center justify-between gap-4 mt-3 pt-3 border-t border-white/5">
             <div className="flex items-center gap-3">
               <FinancialSnapshotCapsule dealId={dealId} />
@@ -393,6 +394,7 @@ export default function DealShell({
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {/* Tabs — hidden on cockpit (cockpit has its own workspace tabs) */}
