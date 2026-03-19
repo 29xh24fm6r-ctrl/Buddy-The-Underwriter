@@ -1,11 +1,18 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-// Minimum confidence to consider a fact "resolved enough" without banker confirmation
+// Minimum confidence to consider a required fact "resolved enough" without banker confirmation.
+// Only applies to REQUIRED_FACT_KEYS — secondary schedule facts routinely extract at 50%
+// and should never surface as individual banker gaps.
 export const CONFIDENCE_THRESHOLD = 0.75;
 
 // Required fact keys that MUST be present AND banker-confirmed for a deal to be complete.
 // "Complete" means resolution_status = 'confirmed' on all of these — not just extracted.
+//
+// SCOPE RULE: All gap categories (missing_fact, low_confidence, needs_confirmation) operate
+// exclusively on these keys. Secondary facts (schedule line items, balance sheet components,
+// etc.) are NOT surfaced as banker gaps regardless of their confidence level. The banker's
+// job is to confirm the credit-critical facts, not to audit every extracted line item.
 export const REQUIRED_FACT_KEYS = [
   "TOTAL_REVENUE",
   "NET_INCOME",
@@ -35,17 +42,17 @@ export type GapItem = {
 /**
  * Computes the current gap state for a deal and upserts into deal_gap_queue.
  *
- * Gap categories in priority order:
- *   1. missing_fact (p90)   — required key has no extracted value at all
- *   2. conflict (p90)       — same key has conflicting values across documents
- *   3. low_confidence (p70) — extracted value confidence < CONFIDENCE_THRESHOLD
- *   4. needs_confirmation (p60) — present + confident but resolution_status != 'confirmed'
+ * Gap categories in priority order (all scoped to REQUIRED_FACT_KEYS only):
+ *   1. missing_fact (p90)        — required key has no extracted value at all
+ *   2. conflict (p90)            — required key has conflicting values across documents
+ *   3. low_confidence (p70)      — required key extracted below CONFIDENCE_THRESHOLD
+ *   4. needs_confirmation (p60)  — required key present + confident but not banker-confirmed
  *
  * A deal is only truly complete when ALL required facts have resolution_status = 'confirmed'.
- * Extracted facts are NOT the same as confirmed facts. This is a regulatory requirement.
+ * Extracted facts are NOT the same as confirmed facts. OCC SR 11-7 requirement.
  *
- * Called after every: document extraction, BIE run, transcript ingestion, manual confirmation.
  * Safe to call repeatedly — upserts are idempotent.
+ * Called after: document extraction, BIE run, transcript ingestion, manual confirmation.
  */
 export async function computeDealGaps(args: {
   dealId: string;
@@ -56,6 +63,7 @@ export async function computeDealGaps(args: {
     const gaps: GapItem[] = [];
 
     // ── 1. Load all required facts (present or missing) ────────────────────
+    // Scoped to REQUIRED_FACT_KEYS only. We never load secondary facts here.
     const { data: presentFacts } = await sb
       .from("deal_financial_facts")
       .select("fact_key, fact_value_num, confidence, id, resolution_status")
@@ -87,13 +95,14 @@ export async function computeDealGaps(args: {
       }
     }
 
-    // ── 3. Open conflicts ───────────────────────────────────────────────────
+    // ── 3. Conflicts on required facts only ────────────────────────────────
     const { data: conflicts } = await sb
       .from("deal_fact_conflicts")
       .select("id, fact_type, fact_key, conflicting_values, owner_entity_id")
       .eq("deal_id", args.dealId)
       .eq("bank_id", args.bankId)
-      .eq("status", "open");
+      .eq("status", "open")
+      .in("fact_key", REQUIRED_FACT_KEYS as unknown as string[]);
 
     for (const c of conflicts ?? []) {
       const vals = (c.conflicting_values as any[])
@@ -112,47 +121,41 @@ export async function computeDealGaps(args: {
       });
     }
 
-    // ── 4. Low-confidence facts ─────────────────────────────────────────────
-    const { data: lowConfFacts } = await sb
-      .from("deal_financial_facts")
-      .select("id, fact_key, fact_type, confidence, fact_value_num, fact_value_text")
-      .eq("deal_id", args.dealId)
-      .eq("bank_id", args.bankId)
-      .eq("is_superseded", false)
-      .not("confidence", "is", null)
-      .lt("confidence", CONFIDENCE_THRESHOLD)
-      .neq("resolution_status", "confirmed")
-      .neq("resolution_status", "rejected")
-      .order("confidence", { ascending: true })
-      .limit(20);
+    // ── 4. Low-confidence REQUIRED facts only ──────────────────────────────
+    //
+    // We intentionally do NOT query all facts with low confidence — that would
+    // surface every schedule line item extracted at 50% (expected behavior for
+    // secondary facts) as a banker gap. Only the 5 required keys matter here.
+    for (const [key, f] of presentMap.entries()) {
+      const conf = f.confidence ?? 0;
+      if (conf >= CONFIDENCE_THRESHOLD) continue;
+      if (f.resolution_status === "confirmed") continue;
+      if (f.resolution_status === "rejected") continue;
 
-    for (const f of lowConfFacts ?? []) {
+      const displayValue = f.fact_value_num != null
+        ? Number(f.fact_value_num).toLocaleString("en-US", { maximumFractionDigits: 2 })
+        : "unknown";
+
       gaps.push({
         gap_type: "low_confidence",
-        fact_type: f.fact_type,
-        fact_key: f.fact_key,
+        fact_type: "FINANCIAL",
+        fact_key: key,
         owner_entity_id: null,
         fact_id: f.id,
         conflict_id: null,
-        description: `"${f.fact_key}" was extracted with low confidence (${Math.round(f.confidence * 100)}%). Banker verification required.`,
-        resolution_prompt: `Can you confirm the value for ${f.fact_key}? I extracted ${f.fact_value_num ?? f.fact_value_text} but I'm not fully certain.`,
+        description: `"${key}" was extracted as ${displayValue} with low confidence (${Math.round(conf * 100)}%). Banker verification required.`,
+        resolution_prompt: `I extracted ${key} as ${displayValue} but with only ${Math.round(conf * 100)}% confidence. Can you confirm that's correct?`,
         priority: 70,
       });
     }
 
-    // ── 5. Needs confirmation — present + confident but not banker-confirmed ─
+    // ── 5. Needs confirmation — required facts present + confident but unconfirmed ─
     //
-    // This is the critical category that prevents the system from falsely
-    // declaring a deal complete. Extracted facts are NOT confirmed facts.
-    // A fact with confidence 0.95 still requires banker sign-off before it
-    // can legally anchor a credit decision. This is an OCC SR 11-7 requirement.
-    //
-    // Only applies to REQUIRED_FACT_KEYS — we don't ask for confirmation on
-    // every fact, only the ones that gate memo generation.
+    // This prevents the system from falsely declaring a deal complete.
+    // Extracted ≠ confirmed. A fact with 95% confidence still requires
+    // banker sign-off before it can anchor a credit decision. OCC SR 11-7.
     for (const [key, f] of presentMap.entries()) {
-      // Skip if already caught by low_confidence above
-      if ((f.confidence ?? 0) < CONFIDENCE_THRESHOLD) continue;
-      // Skip if already confirmed or deliberately rejected
+      if ((f.confidence ?? 0) < CONFIDENCE_THRESHOLD) continue; // already caught above
       if (f.resolution_status === "confirmed") continue;
       if (f.resolution_status === "rejected") continue;
 
@@ -174,11 +177,6 @@ export async function computeDealGaps(args: {
     }
 
     // ── 6. Sync gap queue ───────────────────────────────────────────────────
-    //
-    // Resolve previously open gaps that are no longer in the current gap list.
-    // This handles both cases:
-    //   - gaps.length > 0: resolve gaps for keys not in current open set
-    //   - gaps.length = 0: resolve ALL previously open gaps (deal truly complete)
     if (gaps.length > 0) {
       const openGapKeys = gaps.map(g => g.fact_key);
       await sb
@@ -189,7 +187,7 @@ export async function computeDealGaps(args: {
         .eq("status", "open")
         .not("fact_key", "in", `(${openGapKeys.map(k => `"${k}"`).join(",")})`);
     } else {
-      // No gaps — resolve everything. Deal is genuinely complete.
+      // No gaps — deal is genuinely complete. Resolve everything.
       await sb
         .from("deal_gap_queue")
         .update({ status: "resolved", resolved_at: new Date().toISOString() })
@@ -198,7 +196,6 @@ export async function computeDealGaps(args: {
         .eq("status", "open");
     }
 
-    // Upsert current open gaps
     for (const gap of gaps) {
       await sb
         .from("deal_gap_queue")
