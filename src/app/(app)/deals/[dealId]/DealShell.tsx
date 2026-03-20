@@ -354,8 +354,7 @@ export default function DealShell({
             </div>
           </div>
 
-          {/* Row 2: Financial metrics + status (hidden on cockpit + small screens) */}
-          {!pathname?.includes("/cockpit") && (
+          {/* Row 2: Financial metrics + status (hidden on small screens) */}
           <div className="hidden lg:flex items-center justify-between gap-4 mt-3 pt-3 border-t border-white/5">
             <div className="flex items-center gap-3">
               <FinancialSnapshotCapsule dealId={dealId} />
@@ -394,24 +393,21 @@ export default function DealShell({
               </div>
             </div>
           </div>
-          )}
         </div>
 
-        {/* Tabs — hidden on cockpit (cockpit has its own workspace tabs) */}
-        {!pathname?.includes("/cockpit") && (
-          <div className="mx-auto max-w-[1600px] px-6 pb-3">
-            <div className="flex gap-2 overflow-x-auto no-scrollbar">
-              {tabs.map((t) => (
-                <Tab
-                  key={t.href}
-                  href={t.href}
-                  label={t.label}
-                  active={(() => { const hp = t.href.split("?")[0]; return (pathname ?? "") === hp || (pathname ?? "").startsWith(hp + "/"); })()}
-                />
-              ))}
-            </div>
+        {/* Tabs */}
+        <div className="mx-auto max-w-[1600px] px-6 pb-3">
+          <div className="flex gap-2 overflow-x-auto no-scrollbar">
+            {tabs.map((t) => (
+              <Tab
+                key={t.href}
+                href={t.href}
+                label={t.label}
+                active={(() => { const hp = t.href.split("?")[0]; return (pathname ?? "") === hp || (pathname ?? "").startsWith(hp + "/"); })()}
+              />
+            ))}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Page content */}
