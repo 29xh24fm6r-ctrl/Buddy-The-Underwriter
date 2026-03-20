@@ -2,7 +2,7 @@
 # Institutional-Grade Commercial Lending AI Platform
 
 **Last Updated: March 2026**
-**Status: Phase 52 complete — Cockpit redesign: Status Strip, Story tab, 5 workspace tabs**
+**Status: Phase 53A complete — Deal Builder: workflow rail, summary-first workspaces, modal/drawer UX, milestone readiness**
 
 ---
 
@@ -64,6 +64,7 @@ Documents (tax returns, financials, statements)
         ↓ Deal Truth Graph + Gap Resolution Engine  ✅ Phase 50 — LIVE
         ↓ Banker Credit Interview (Gemini Live)     ✅ Phase 51 — LIVE
         ↓ Cockpit Redesign (Story tab, Status Strip) ✅ Phase 52 — LIVE
+        ↓ Deal Builder (workflow rail, drawers)     ✅ Phase 53A — LIVE
         ↓ Credit Memo (Florida Armory standard)     ✅ Phase 33
         ↓ Borrower Intake → auto-populates memo     🔴 Future (replaces wizard)
         ↓ Committee Package
@@ -94,6 +95,14 @@ Documents (tax returns, financials, statements)
 ### Phase 50 ✅ — Deal Truth Graph + Gap Resolution Engine
 ### Phase 51 ✅ — Buddy Voice Gateway (Gemini Live, Fly.io)
 ### Phase 52 ✅ — Cockpit Redesign (Status Strip, Story tab, 5 workspace tabs)
+### Phase 53A ✅ — Deal Builder (workflow rail, modal/drawer UX, milestone readiness) — commit 22bac029
+
+---
+
+## Phase 53A — Deal Builder ✅ COMPLETE
+**Commit:** 22bac029 | **42 files, 3,825 lines**
+See AAR_PHASE_53A.md for full detail.
+Completed God Tier item #65 — Borrower Intake wired.
 
 ---
 
@@ -211,8 +220,9 @@ Browser
 
 ### P1 — Immediate
 
-1. **Retype Ialacci bio** — re-open wizard, one-time retype under UUID key
-2. **Reconciliation** — `recon_status` NULL blocks Committee Approve signal
+1. ~~Apply builder migration~~ ✅ DONE — all 3 builder tables confirmed live in production with RLS
+2. **Retype Ialacci bio** — re-open wizard, one-time retype under UUID key
+3. **Reconciliation** — `recon_status` NULL blocks Committee Approve signal
 
 ### P2 — Near Term
 
@@ -277,7 +287,7 @@ Browser
 1–62. ✅ All prior phases and AARs complete through Phase 52.
 63. 🔴 Ialacci bio retyped — Management Qualifications complete
 64. 🔴 Reconciliation complete — Committee Approve signal unlocked
-65. 🔴 Borrower Intake wired — wizard deprecated, qualitative fields auto-populate
+65. ✅ Borrower Intake wired — Deal Builder live, data model in place, builder data feeds memo
 66. 🔴 Spread completeness ≥80%
 67. 🔴 Banker opens a deal, 10-minute voice session resolves all gaps, memo auto-completes
 
@@ -366,6 +376,13 @@ Browser
 - **Cockpit layout: Status Strip (expandable chips) replaces 3-column grid. Story tab is the default when deal is ignited. DealHealthPanel and BankerVoicePanel live inside Story tab — never bolted below cockpit page.**
 - **`buddy_research_narratives.sections` is a JSONB array `[{title, sentences:[{text}]}]`. Underwriting Questions text contains newline-separated questions — split on `\n+` and strip `^\d+\.\s*`.**
 - **`memo-overrides` PATCH route must merge into existing JSONB, never replace. Use sequential select-then-update/insert, not upsert, to avoid wiping existing keys.**
+- **Supabase CLI is the only migration path. Never apply migrations via the Supabase dashboard. Always create locally and apply via `supabase db push`. 248 migrations registered as of Phase 53A.**
+- **Deal Builder entity model: `ownership_entities` is canonical in Phase 53A. Do NOT introduce `entities` or `deal_entities` tables until Phase 53B. Every owner save calls `ensureOwnerEntity()` — conflict key `(deal_id, display_name)`.**
+- **Deal Builder section keys: `deal`, `business`, `parties`, `guarantors`, `structure`, `story`. `parties` (not `borrowers`) is the canonical key for owner data.**
+- **Deal Builder drawers have explicit Save buttons. Workspace auto-save is debounced 500ms. Collateral/proceeds fire immediately on add/delete.**
+- **Deal Builder milestone facts: `BUILDER_COMPLETION_PCT`, `CREDIT_READY_PCT`, `DOC_READY_PCT` written to `deal_financial_facts` after every section save. source_type = "COMPUTED", confidence = 1.00.**
+- **Deal Builder story write-through: `competitive_position` and `committee_notes` are new keys in `deal_memo_overrides`. Always merge, never replace.**
+- **`ssn_last4` (4 chars max) is the only SSN field in Phase 53A. Full SSN vault path is Phase 53C.**
 
 ---
 
@@ -393,7 +410,9 @@ Browser
 | Phase 49 | Ownership entities permanent fix — column mismatch, UUID bio keys, auto-create from 1040 OCR | ✅ Complete | — |
 | Phase 50 | Deal Truth Graph + Gap Resolution Engine — 4 tables, gap engine, transcript upload, Deal Health Panel | ✅ Complete | — |
 | Phase 51 | Buddy Voice Gateway — Gemini Live native audio, Fly.io, zero OpenAI, `buddy-voice-gateway/`, BankerVoicePanel | ✅ Complete | — |
-| **Phase 52** | **Cockpit Redesign — Status Strip, Story tab, 5 workspace tabs, BIE questions surfaced, borrower input CSS fix** | **✅ Complete** | **—** |
+| Phase 52 | Cockpit Redesign — Status Strip, Story tab, 5 workspace tabs, BIE questions surfaced, borrower input CSS fix | ✅ Complete | — |
+| **Phase 53A** | **Deal Builder — workflow rail, 9 summary-first workspaces, modal/drawer UX, milestone readiness, 3 DB tables, 42 files** | **✅ Complete** | **22bac029** |
+| Supabase CLI sync | 156 migrations renamed, schema_migrations repaired, supabase db push working | ✅ Complete | — |
 | Retype Ialacci bio | Re-open wizard, retype bio under UUID key | 🔴 Next | — |
 | Reconciliation | `recon_status` — Committee Approve signal | 🔴 Active | — |
 | Borrower Intake | Voice interview + forms → auto-populate memo (replaces wizard) | 🔴 Queued | — |
