@@ -9,6 +9,13 @@ import type {
   StorySectionData,
 } from "./builderTypes";
 
+const PLACEHOLDER_NAMES = new Set([
+  "Unassigned Owner",
+  "Unassigned Business",
+  "Unknown Owner",
+  "Unknown Business",
+]);
+
 /**
  * Load prefill data for the Deal Builder.
  * Sequential queries — no FK-dependent joins.
@@ -36,17 +43,43 @@ export async function loadBuilderPrefill(
   // 2. ownership_entities → all rows for deal_id
   const { data: entities } = await sb
     .from("ownership_entities")
-    .select("id, display_name, entity_type")
+    .select("id, display_name, entity_type, ownership_pct, title")
     .eq("deal_id", dealId);
 
-  const owners: Partial<BorrowerCard>[] = (entities ?? []).map((e: any) => {
+  let owners: Partial<BorrowerCard>[] = (entities ?? []).map((e: any) => {
     sources[`owners.${e.id}.full_legal_name`] = "buddy";
     return {
       id: e.id,
       ownership_entity_id: e.id,
       full_legal_name: e.display_name ?? undefined,
+      ownership_pct: e.ownership_pct != null ? Number(e.ownership_pct) : undefined,
+      title: e.title ?? undefined,
     };
   });
+
+  if (owners.length === 0) {
+    const { data: dealEntities } = await sb
+      .from("deal_entities")
+      .select("id, entity_kind, name, legal_name, role, entity_type")
+      .eq("deal_id", dealId)
+      .eq("entity_kind", "PERSON");
+
+    owners = (dealEntities ?? [])
+      .filter((e: any) => {
+        const displayName: string = (e.name ?? e.legal_name ?? "").trim();
+        return displayName.length > 0 && !PLACEHOLDER_NAMES.has(displayName);
+      })
+      .map((e: any) => {
+        const displayName: string = (e.name ?? e.legal_name ?? "").trim();
+        sources[`owners.${e.id}.full_legal_name`] = "buddy";
+        return {
+          id: e.id,
+          ownership_entity_id: undefined,
+          full_legal_name: displayName || undefined,
+          title: e.role ?? undefined,
+        };
+      });
+  }
 
   // 3. deal_memo_overrides → existing overrides
   const { data: overridesRow } = await sb
