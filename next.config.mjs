@@ -11,6 +11,7 @@ function getGitSha() {
   }
 }
 
+// Force clean build — cache-bust 2026-03-20
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   env: {

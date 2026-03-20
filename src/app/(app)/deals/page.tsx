@@ -176,9 +176,27 @@ export default async function DealsPage({
     };
   });
 
-  const verifyResults = await Promise.all(
-    uiDeals.map((deal) => verifyUnderwrite({ dealId: deal.id, actor: "banker" })),
-  );
+  let verifyResults: VerifyUnderwriteResult[] = uiDeals.map(() => ({
+    ok: false,
+    dealId: "",
+    auth: true,
+    recommendedNextAction: "deal_not_found" as const,
+    diagnostics: {},
+    ledgerEventsWritten: [],
+  }));
+  try {
+    const results = await Promise.race([
+      Promise.all(
+        uiDeals.map((deal) => verifyUnderwrite({ dealId: deal.id, actor: "banker" }))
+      ),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("verify_timeout")), 5000)
+      ),
+    ]);
+    verifyResults = results as VerifyUnderwriteResult[];
+  } catch {
+    // verifyUnderwrite timed out or failed — show deals without verify status
+  }
 
   const uiDealsWithVerify = uiDeals.map((deal, idx) => ({
     ...deal,
