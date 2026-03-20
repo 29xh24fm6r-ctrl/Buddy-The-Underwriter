@@ -1,59 +1,111 @@
-# Phase 53 — Deal Builder
+# Phase 53 — Deal Builder (Reconciled Spec)
 
 **Status:** 🔴 Spec — Ready for Build  
 **Prereq:** Phase 52 complete ✅  
-**Architect:** Claude (codebase-reconciled spec)  
+**Architect:** Claude (codebase-reconciled) + ChatGPT (UX model)  
 **Builder:** Antigravity / Claude Code  
+**Replaces:** PHASE_53_SPEC.md v1 (form-grid approach — superseded)
 
 ---
 
-## Overview
+## Reconciliation Notes
 
-Phase 53 introduces the **Deal Builder** — a structured deal origination
-workspace accessible from the DealShell tab row. It is the informational
-foundation of every deal: the place where a banker (or a borrower) provides
-all data required for a complete credit decision.
+ChatGPT produced a significantly better UX architecture: workflow rail,
+summary-first workspaces, modal/drawer editing, entity-first model, story
+as prompt cards, and milestone readiness. All of that is correct and
+adopted here.
 
-The Builder is equivalent to what a banker enters in nCino to originate a
-deal, but redesigned from the ground up to be:
+Four guardrails were applied before this spec was finalized:
 
-- **Zero friction.** Completely intuitive. An untrained banker can follow it
-  without training.
-- **Dual-use.** Identical data model whether a banker fills it or a borrower
-  fills it via the portal.
-- **Buddy-assisted.** Fields Buddy already knows from documents and research
-  are pre-populated. Bankers confirm, not retype.
-- **Auto-saving.** No Save button. Every keystroke persists.
-- **Non-blocking.** Missing fields are flagged visually, never block progress.
+**1. Entity model scoped to Phase 53B.**
+ChatGPT proposes `entities` + `deal_entities` + `entity_relationships` tables.
+These conflict with `ownership_entities`, which is deeply wired into the
+extraction pipeline (Phase 49 `ensureOwnerEntity()`, principal bio UUID keys,
+1040/PFS auto-creation). Introducing parallel entity tables in 53A creates
+two competing identity systems. Fix: Phase 53A uses `ownership_entities` as
+the entity layer. `deal_entities` (participation/role table) moves to Phase 53B.
+`entity_relationships` moves to Phase 53C.
 
-The six sections of the Builder collect everything needed for a complete
-credit file: deal terms, business information, borrowers/owners, guarantors,
-deal structure, and the qualitative deal story.
+**2. PII vault scoped to Phase 53C.**
+"Encrypted storage / vault / external provider" is correct long-term but
+would block Phase 53A entirely. Fix: ssn_last4 only in Phase 53A. Full PII
+vault path is Phase 53C.
+
+**3. Financials, Risk, Documents workflow steps are read-only surfaces in 53A.**
+Buddy already owns all financial data. The Builder surfaces it as a snapshot
+with a deep-link to the full tab. Phase 53A does not re-implement financial
+entry. These steps become interactive review surfaces in Phase 53B.
+
+**4. "Generate Docs" gating is stubbed.**
+Loan-doc generation does not yet exist. The button is present, disabled, with
+"Coming Soon" state. The milestone architecture is in place. The button
+activates in a future phase.
 
 ---
 
-## Architecture Decision
+## Product Goal
 
-### Route
+The Deal Builder is the primary workspace where a banker assembles a complete
+commercial loan package from start to finish — and where a borrower completes
+their own intake using the exact same underlying data model.
+
+It is:
+- A deal assembly system
+- An entity configuration system
+- A story capture system
+- A readiness engine
+- A bridge to credit memo and loan-doc generation
+
+It is not a dashboard and not a static form engine.
+
+The standard: **dramatically easier than nCino, while more rigorous underneath.**
+
+---
+
+## Phased Architecture
+
+### Phase 53A — Foundation (build now)
+Route, shell, workflow rail, summary-first workspaces, auto-save, prefill,
+Parties using `ownership_entities`, Story prompt cards, collateral/proceeds
+modals, completion scoring, milestone readiness UI.
+
+### Phase 53B — Entity-first upgrade (next phase)
+Add `deal_entities` participation table. Introduce "Select Existing Entity"
+cross-deal modal. Promote Owner → Guarantor flow. Full entity profile drawer.
+
+### Phase 53C — Readiness + PII (future)
+Secure SSN/TIN vault path. Doc-ready milestone gates. Submit to Credit gating.
+Borrower portal wizard skin.
+
+### Phase 53D — Observability (future)
+Full ledger events for all builder actions. Builder activity in Timeline tab.
+Pulse telemetry forwarding.
+
+**This spec covers Phase 53A in full detail. Phases 53B–D are scoped
+conceptually to inform architecture decisions made now.**
+
+---
+
+## Route + Placement
+
+### Primary route
 
 ```
 /deals/[dealId]/builder
 ```
 
-- Lives inside `src/app/(app)/deals/[dealId]/builder/`
-- Uses the existing DealShell chrome (same layout as all other deal pages)
-- Own 2-column internal layout: left sidebar nav + right content area
-- Does NOT live inside the cockpit — it is a sibling route to cockpit, documents, structure, etc.
+Inside `src/app/(app)/deals/[dealId]/builder/`.
+Uses the existing DealShell chrome. Does NOT live inside cockpit — it is
+a sibling route alongside cockpit, documents, financials, etc.
 
-### Entry Point
+### DealShell Tab
 
-Add **"Builder"** as the **first tab** in the DealShell tab array in
-`DealShell.tsx`. Position before "Intelligence".
+Add **"Builder"** as the **first tab** in `DealShell.tsx`:
 
 ```tsx
-// DealShell.tsx — tabs array (updated)
+// DealShell.tsx — tabs array (updated, one line change)
 const tabs = [
-  { label: "Builder", href: `${base}/builder` },      // ← NEW — first
+  { label: "Builder", href: `${base}/builder` },       // ← NEW — first
   { label: "Intelligence", href: `${base}/intelligence` },
   { label: "Documents", href: `${base}/documents` },
   { label: "Financials", href: `${base}/financials` },
@@ -67,40 +119,391 @@ const tabs = [
 ];
 ```
 
-### Data Model Strategy
+### Borrower portal route
 
-Two storage layers:
+```
+/portal/[dealId]/apply
+```
 
-1. **`deal_builder_sections`** — primary key-value store. One row per section
-   per deal. `data jsonb` holds all field values for that section. Auto-saved
-   on every change via debounced PATCH.
-
-2. **Canonical write-through.** On save, key structured fields are also
-   written to their canonical tables so the rest of the system sees them:
-   - Business entity name / EIN → `deals.name` (if not already set)
-   - Borrowers/owners → `ownership_entities` (upsert by display_name per
-     existing `ensureOwnerEntity()` pattern)
-   - Story fields → `deal_memo_overrides` (merge PATCH, same pattern as
-     Phase 52 Story tab)
-   - Loan amount → `deals.loan_amount` (if changed)
-
-   This write-through is best-effort and non-fatal. If the canonical write
-   fails, the builder data is still saved to `deal_builder_sections`.
-
-3. **`deal_collateral_items`** — structured collateral rows (one per
-   collateral item, not JSONB array inside sections). This allows the
-   underwriting engine to query collateral independently.
-
-4. **`deal_proceeds_items`** — structured use-of-proceeds rows (same
-   rationale — line-item format).
+Inside `src/app/(borrower)/portal/[dealId]/apply/`.
+Phase 53C implementation. The route must exist in 53A but renders a
+"Coming Soon" placeholder until 53C.
 
 ---
 
-## Database Migration
+## Primary Interaction Model
 
-File: `supabase/migrations/20260320_deal_builder.sql`
+### Page layout
 
-### Table 1: `deal_builder_sections`
+```
+[DealShell Header + Tab Row]
+┌──────────────────────────────────────────────────────────────────────────┐
+│ BUILDER HEADER                                                           │
+│ Deal Name | Product | $Amount | Stage | [In Progress] [Credit Ready ○]  │
+│ [Run Analysis]  [View Credit Memo]  [Submit to Credit ○]                 │
+├──────────────────────────────────────────────────────────────────────────┤
+│ WORKFLOW RAIL (top, full-width)                                          │
+│ [Overview] [Parties] [Loan Request] [Financials] [Collateral]           │
+│ [Risk] [Documents] [Story] [Review]                                     │
+│  ✅ 100%    ⚠ 2      ✅ 100%        📊 view      ○ 0 items              │
+├──────────────────────────────────────────────────────┬───────────────────┤
+│ MAIN WORKSPACE (active step)                         │ RIGHT RAIL        │
+│                                                      │                   │
+│ [Summary cards]                                      │ Missing Items     │
+│ [Entity cards]                                       │ Buddy Suggestions │
+│ [Action buttons → drawers/modals]                    │ Risk Flags        │
+│                                                      │ Save State        │
+│                                                      │ Credit Readiness  │
+└──────────────────────────────────────────────────────┴───────────────────┘
+```
+
+### Builder Header (always visible)
+
+Always shows:
+- Deal name (editable, same `DealNameInlineEditor` used in DealShell)
+- Product / Loan type badge
+- Requested amount
+- Stage
+- Milestone chips: `In Progress` | `Credit Ready ●` | `Doc Ready ●`
+  (filled green when milestone passes, gray with checkmark outline when not)
+- Primary actions:
+  - **Run Analysis** → triggers research/risk run (existing routes)
+  - **View Credit Memo** → `/credit-memo/[dealId]/canonical`
+  - **Submit to Credit** → disabled if not credit-ready, enabled when milestone passes
+  - **Generate Docs** → disabled + "Coming Soon" in Phase 53A
+
+### Workflow Rail (top navigation)
+
+Nine steps rendered as a horizontal chip rail below the header.
+Each chip shows:
+- Step name
+- Completion indicator: ✅ complete | ⚠ N warnings | ○ not started | 🔴 N blockers
+- Clicking navigates to that step's workspace
+- Active step is highlighted (same pill style as DealShell tabs)
+
+Steps:
+1. **Overview** — deal snapshot + launch actions
+2. **Parties** — borrowers, owners, guarantors
+3. **Loan Request** — amount, type, structure terms
+4. **Financials** — Buddy's extracted data (read-only in 53A)
+5. **Collateral** — collateral package
+6. **Risk** — live risk flags (read-only in 53A)
+7. **Documents** — doc checklist status (read-only in 53A)
+8. **Story** — qualitative capture
+9. **Review** — readiness + handoff
+
+### Right Intelligence Rail (persistent)
+
+Always visible on the right (collapsible on mobile):
+- **Missing Items** — list of required fields not yet filled
+- **Buddy Suggestions** — prefill opportunities (click to apply)
+- **Risk Flags** — from `ai_risk_runs` if available
+- **Save State** — last saved timestamp, retry indicator if offline
+- **Credit Readiness** — `credit_ready_pct` progress bar
+  with checklist of what's blocking
+
+---
+
+## Workspace Definitions (Phase 53A)
+
+### 1 — Overview
+
+Purpose: instant deal understanding, launch actions.
+
+Display:
+- **Deal Snapshot Card** — name, borrower, loan type, amount, stage
+- **Parties Snapshot** — number of owners identified, guarantors
+- **Financial Snapshot** — DSCR, NOI, LTV from `useFinancialSnapshot` hook
+  (already exists and used in DealShell)
+- **Buddy Deal Summary** — 2–3 sentence narrative from BIE research
+  (read from `buddy_research_narratives` version 3, `Summary` section)
+- **Top Strengths** — from `ai_risk_runs.result_json` if available
+- **Top Risks** — from `ai_risk_runs.result_json` if available
+- **Missing for Credit Ready** — computed list of credit_ready blockers
+- **Missing for Doc Ready** — computed list (shown but gated actions are 53C)
+
+Actions (launch into other steps):
+- "Add Owner" → opens Parties workspace
+- "Define Loan Request" → opens Loan Request workspace
+- "Complete Story" → opens Story workspace
+- "Resolve Blockers" → scrolls right rail missing items into view
+
+No large forms here. Summary only.
+
+---
+
+### 2 — Parties
+
+Purpose: manage all entities on the transaction.
+
+**Phase 53A entity model:** Uses `ownership_entities` as the underlying
+entity store. Each `ownership_entities` row is an "entity" for Builder purposes.
+The Phase 53B `deal_entities` table will add a richer participation/role layer.
+
+Default display:
+- **Borrower Entity Card** per `ownership_entities` row (type: business)
+- **Owner/Principal Cards** per `ownership_entities` row (type: person)
+- **Guarantor Cards** per guarantors in `deal_builder_sections.guarantors`
+- **Ownership % summary** — total shown at bottom, red if > 100%
+
+Primary actions:
+- "Add Owner" → opens `OwnerDrawer` (right-side drawer)
+- "Add Guarantor" → opens `GuarantorDrawer` (right-side drawer)
+- "Same as Owner" shortcut in `GuarantorDrawer` — links guarantor to owner card
+- Clicking any entity card → opens `EntityProfileDrawer`
+
+**OwnerDrawer fields** (right-side drawer, not inline form):
+- Full legal name
+- Role / title (CEO, President, Managing Member, Partner, etc.)
+- Ownership %
+- DOB
+- Home address, city, state, zip
+- SSN last 4 (never full SSN — see Implementation Constraints)
+- Years with company
+- Credit authorization obtained (checkbox)
+- Link PFS document (file reference)
+
+On save → upserts to both `deal_builder_sections.borrowers.owners` (full
+section PATCH) AND calls `ensureOwnerEntity()` write-through to
+`ownership_entities`. Conflict key: `(deal_id, display_name)`.
+
+**GuarantorDrawer fields**:
+- "Same as existing owner" dropdown (auto-fills name + links record)
+- Full legal name
+- Guaranty type: Full | Limited | Springing | Environmental
+- Guaranty amount (only if Limited)
+- Net worth (from PFS if uploaded)
+- Liquid assets (from PFS if uploaded)
+- Link PFS document
+
+"No personal guaranty" toggle — sets `data.no_guarantors = true`, collapses
+section with a note.
+
+**EntityProfileDrawer** (read/edit):
+- Tabs: Core Info | Deal Role | Financial Snapshot | Associated Docs
+- Core Info = all the fields from OwnerDrawer, editable
+- Deal Role = ownership %, title, guaranty status
+- Financial Snapshot = PFS summary if PFS uploaded (read-only)
+- Associated Docs = documents linked to this entity
+
+Buddy pre-fill: `ownership_entities` rows auto-populate the cards on load.
+Fields already set are shown with source badge. Banker can confirm or edit.
+
+---
+
+### 3 — Loan Request
+
+Purpose: define the requested credit structure.
+
+Default display: summary card showing current loan request, not raw fields.
+
+**Loan Request Summary Card** shows:
+- Product type badge
+- Requested amount (large, prominent)
+- Term / Amortization
+- Loan Purpose (first 80 chars)
+- Target close date
+- Deposit relationship badges (DDA ✓ | Treasury | Payroll | Merchant)
+
+Action: "Edit Loan Request" → opens `LoanRequestDrawer`
+
+**Use of Proceeds Card**:
+- Proceeds lines list with category, description, amount
+- Running total vs. requested amount
+- Variance warning if > 5% off
+- "Edit Proceeds" → opens `ProceedsModal`
+
+**Equity Injection Card** (if applicable):
+- Amount, source, type
+- "Edit" → opens `EquityDrawer` (subset of LoanRequestDrawer)
+
+**LoanRequestDrawer fields** (right-side drawer):
+- Loan purpose (plain text — "What does the borrower intend to use this loan for?")
+- Requested amount
+- Product type (select — see LoanType enum below)
+- Desired term (months)
+- Desired amortization (months — defaults to term)
+- Interest-only period (months, optional)
+- Fixed vs. floating (toggle)
+- Target close date
+- Referral source
+- Relationship manager (pre-fill from Clerk user display name)
+- Existing customer (toggle)
+- Deposit relationship (checkboxes: DDA | Treasury | Payroll | Merchant)
+- Equity injection amount + source + type
+
+**ProceedsModal** (centered modal):
+- Repeatable rows: category (select) + description + amount
+- Running total shown at bottom
+- Variance indicator vs. requested amount
+- "Add Line" button at bottom
+- Save closes modal and returns to workspace
+
+Data persistence: Scalar fields → `deal_builder_sections` (section_key: `deal`
+and `structure`). Proceeds lines → `deal_proceeds_items` table (one row per
+line, INSERT/DELETE via API).
+
+---
+
+### 4 — Financials (read-only in Phase 53A)
+
+Purpose: show what Buddy extracted. Not a data entry surface in 53A.
+
+Display:
+- **Financial Summary Card** — DSCR, NOI, ADS, net income — from
+  `useFinancialSnapshot` hook (already built, used in DealShell)
+- **Borrower Financial Health** — trends, year-over-year, from snapshot
+- **Confidence Badges** per metric — from `ConfidenceBadge.tsx` (already exists)
+- **Extraction Status** — number of docs extracted, any unresolved issues
+- **"Open Full Financials"** → links to `/deals/[dealId]/financials`
+- **"Open Spreads"** → links to `/deals/[dealId]/classic-spreads`
+
+In Phase 53B: this step becomes an interactive financial review surface where
+bankers can confirm/override extracted values directly.
+
+---
+
+### 5 — Collateral
+
+Purpose: manage the collateral package.
+
+Default display:
+- **Collateral Item Cards** — one card per `deal_collateral_items` row
+- **Total Collateral Value** — sum of all estimated values
+- **Lien Summary** — 1st lien items listed
+- **Coverage Ratio** — total collateral value / requested amount (computed)
+
+Each collateral card shows: type badge, description, value, lien position,
+appraisal date (if set), address (if real estate).
+
+Actions:
+- "Add Collateral" → opens `CollateralModal`
+- Clicking a card → opens `CollateralModal` in edit mode
+- Delete icon on each card (confirm inline, no modal)
+
+**CollateralModal fields** (centered modal):
+- Type (select — see CollateralType enum)
+- Description (plain text — "Describe the collateral")
+- Estimated value ($)
+- Lien position (1st, 2nd, 3rd — select)
+- Appraisal date (date picker)
+- Property address (conditional — only shown if type = real_estate)
+
+Saves to `deal_collateral_items` table via POST/PATCH API route.
+
+---
+
+### 6 — Risk (read-only in Phase 53A)
+
+Purpose: surface live underwriting concerns.
+
+Display:
+- **AI Risk Grade** — from `ai_risk_runs` (BB+, pricing) — already rendered
+  in existing Risk tab
+- **Top 3 Risks** — from `ai_risk_runs.result_json`
+- **Key Strengths** — from `ai_risk_runs.result_json`
+- **Policy Exceptions** — any active exceptions (future)
+- **"Open Full Risk Analysis"** → links to `/deals/[dealId]/risk`
+
+In Phase 53B: bankers can enter mitigants directly in this step.
+
+---
+
+### 7 — Documents (read-only in Phase 53A)
+
+Purpose: documents are evidence, not the center of experience.
+
+Display:
+- **Core Documents Status** — the same checklist from the cockpit
+  (5/5 received, etc.) — reuse `CoreDocumentsChecklist` component if it exists
+- **Missing Required Docs** — list with "Request from Borrower" action
+- **Extraction Issues** — any docs with unresolved extraction problems
+- **"Open Documents"** → links to `/deals/[dealId]/documents`
+- **"Request from Borrower"** → links to portal inbox
+
+In Phase 53B: doc linking to entities (this appraisal belongs to this
+collateral item, this PFS belongs to this guarantor) is added here.
+
+---
+
+### 8 — Story
+
+Purpose: capture qualitative intelligence. Never stacked text areas.
+
+Display: six **Prompt Cards** arranged in a 2-column grid (3 rows).
+
+Each Prompt Card shows:
+- Question (plain language, large)
+- Buddy draft (if available — extracted from BIE or existing `deal_memo_overrides`)
+  with ✨ "Buddy found this" amber badge
+- Current banker answer (first 120 chars, truncated)
+- Banker status badge: `Untouched` | `Reviewed` | `Edited` | `Confirmed`
+- Character count + minimum indicator (50 char minimum)
+- "Edit" button → opens `StoryPromptDrawer`
+
+The six prompts:
+
+| Card | Field Key | Memo Override Key | Prompt |
+|---|---|---|---|
+| 1 | `loan_purpose_narrative` | `use_of_proceeds` | Why does this business need this loan right now? |
+| 2 | `management_qualifications` | `principal_background` | What makes this management team qualified? |
+| 3 | `competitive_position` | `competitive_position` (new) | What is this business's competitive advantage? |
+| 4 | `known_weaknesses` | `key_weaknesses` | What are the known weaknesses and how are they mitigated? |
+| 5 | `deal_strengths` | `key_strengths` | What makes this a strong credit? |
+| 6 | `committee_notes` | `committee_notes` (new) | Anything else the credit committee should know? |
+
+**StoryPromptDrawer** (right-side drawer):
+- Prompt shown at top (large, gray)
+- Buddy draft shown below in amber-tinted box (if available):
+  "✨ Buddy found this — review and confirm, or edit below"
+  - "Use Buddy's Draft" button → copies draft to editable field
+- Large textarea (editable)
+- Character count live
+- Auto-saves to `deal_builder_sections.story` on debounce
+- On save, ALSO merges into `deal_memo_overrides` (sequential
+  select-then-update/insert pattern — never replace full JSONB)
+- "Confirm" button sets `status = "confirmed"` in local state (persisted
+  in `deal_builder_sections.story_confirmations jsonb`)
+
+Buddy pre-fill sources:
+- `deal_memo_overrides` — any fields already set via Phase 52 Story tab
+  (pre-existing data — confirmed, not just draft)
+- BIE narrative `Management` section → `management_qualifications` draft
+- BIE narrative `Competitive Position` → `competitive_position` draft
+- Pre-fill takes no precedence over existing builder data. Only fills
+  null/empty fields.
+
+Completion rule: 3+ of 6 cards with ≥ 50 characters each.
+
+---
+
+### 9 — Review
+
+Purpose: final readiness check and handoff surface.
+
+Display:
+- **Milestone Readiness** (two large status cards):
+  - Credit Ready: pct + blockers list
+  - Doc Ready: pct + blockers list (actions gated until 53C)
+- **Section Completeness Table** — all 6 sections, completion %, warnings
+- **Entity Completeness** — each owner/guarantor, completeness
+- **Document Completeness** — required docs received/missing
+- **Memo Completeness** — story fields filled / not filled
+- **Actions**:
+  - "Generate Credit Memo" → `/credit-memo/[dealId]/canonical`
+  - "Submit to Credit" → enabled only when `credit_ready_pct >= 100`
+  - "Generate Docs" → disabled + "Coming Soon" (Phase 53C)
+  - "Request Missing Docs from Borrower" → portal inbox link
+
+---
+
+## Data Model
+
+### Three new tables (same as v1 spec)
+
+All three tables are additive. No existing tables are modified.
+
+#### `deal_builder_sections`
 
 ```sql
 create table if not exists deal_builder_sections (
@@ -113,7 +516,6 @@ create table if not exists deal_builder_sections (
   unique(deal_id, section_key)
 );
 
--- RLS: bank-scoped via deals join
 alter table deal_builder_sections enable row level security;
 
 create policy "bank_scoped_builder_sections"
@@ -133,15 +535,13 @@ create index idx_deal_builder_sections_deal_id
   on deal_builder_sections(deal_id);
 ```
 
-### Table 2: `deal_collateral_items`
+#### `deal_collateral_items`
 
 ```sql
 create table if not exists deal_collateral_items (
   id               uuid        primary key default gen_random_uuid(),
   deal_id          uuid        not null references deals(id) on delete cascade,
   item_type        text        not null,
-    -- real_estate | equipment | accounts_receivable | inventory
-    -- blanket_lien | vehicle | other
   description      text,
   estimated_value  numeric,
   lien_position    integer     not null default 1,
@@ -170,15 +570,13 @@ create index idx_deal_collateral_items_deal_id
   on deal_collateral_items(deal_id);
 ```
 
-### Table 3: `deal_proceeds_items`
+#### `deal_proceeds_items`
 
 ```sql
 create table if not exists deal_proceeds_items (
   id          uuid        primary key default gen_random_uuid(),
   deal_id     uuid        not null references deals(id) on delete cascade,
   category    text        not null,
-    -- equipment | real_estate | working_capital | debt_payoff
-    -- acquisition | renovation | other
   description text,
   amount      numeric     not null,
   created_at  timestamptz not null default now()
@@ -203,518 +601,161 @@ create index idx_deal_proceeds_items_deal_id
   on deal_proceeds_items(deal_id);
 ```
 
----
+Migration file: `supabase/migrations/20260320_deal_builder.sql`
 
-## Section Architecture
+### `deal_builder_sections.data` shapes by section_key
 
-Six sections. Each has a `section_key` used as the `deal_builder_sections`
-lookup key and a set of typed fields stored in `data jsonb`.
+Section keys and their JSONB data structures:
 
----
+**`deal`** → `DealSectionData`
+**`business`** → `BusinessSectionData`
+**`parties`** → `{ owners: BorrowerCard[]; }` (same structure as `borrowers` from v1)
+**`guarantors`** → `{ guarantors: GuarantorCard[]; no_guarantors?: boolean; }`
+**`structure`** → `StructureSectionData` (scalar fields only — collateral/proceeds are rows)
+**`story`** → `{ [fieldKey]: string; story_confirmations?: Record<string, 'confirmed' | 'edited'> }`
 
-### Section 1 — The Deal
-
-**section_key:** `deal`  
-**Plain-language prompt:** "What are you trying to do?"
-
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `loan_purpose` | text | ✅ | Free text — plain language |
-| `requested_amount` | numeric | ✅ | Pre-fill from `deals.loan_amount` |
-| `loan_type` | enum | ✅ | See values below |
-| `desired_term_months` | integer | ✅ | |
-| `desired_amortization_months` | integer | — | Defaults to term if blank |
-| `target_close_date` | date | — | |
-| `referral_source` | text | — | |
-| `relationship_manager` | text | — | Pre-fill from Clerk user name |
-| `existing_bank_customer` | boolean | — | |
-
-**loan_type enum values:**
-`term_loan` | `line_of_credit` | `sba_7a` | `sba_504` | `usda_b_and_i` |
-`cre_mortgage` | `ci_loan` | `equipment` | `construction` | `other`
-
-**Completion rule:** `loan_purpose` + `requested_amount` + `loan_type` +
-`desired_term_months` = 100%.
+Note: `section_key = 'parties'` replaces `'borrowers'` from v1. The data
+shape is identical. Using `parties` aligns with the ChatGPT long-term model
+where this section grows to include affiliates and co-borrowers.
 
 ---
 
-### Section 2 — The Business
+## Canonical Write-Through
 
-**section_key:** `business`  
-**Plain-language prompt:** "Tell us about the company."
+When any section is saved, `builderCanonicalWrite.ts` fires non-fatally:
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `legal_entity_name` | text | ✅ | Pre-fill from `deals.name` |
-| `dba` | text | — | |
-| `ein` | text | — | Store full EIN. Display as XX-XXXXXXX. |
-| `entity_type` | enum | ✅ | See values below |
-| `state_of_formation` | text | ✅ | |
-| `date_formed` | date | — | Derives `years_in_business` client-side |
-| `business_address` | text | ✅ | |
-| `city` | text | ✅ | |
-| `state` | text | ✅ | |
-| `zip` | text | ✅ | |
-| `phone` | text | — | |
-| `website` | text | — | |
-| `naics_code` | text | — | Auto-suggest from description |
-| `industry_description` | text | — | Derived from NAICS, editable |
-| `operations_description` | text | ✅ | Pre-fill from BIE research |
-| `employee_count` | integer | — | |
-| `seasonal` | boolean | — | |
-| `key_customers` | text | — | Concentration risk narrative |
-
-**entity_type enum:** `llc` | `s_corp` | `c_corp` | `partnership` |
-`sole_prop` | `trust` | `non_profit` | `other`
-
-**Completion rule:** `legal_entity_name` + `entity_type` +
-`state_of_formation` + `business_address` + `city` + `state` + `zip` +
-`operations_description` = 100%.
-
-**Buddy pre-fill sources:**
-- `deals.name` → `legal_entity_name`
-- `deal_financial_facts` where `fact_key = 'ENTITY_TYPE'` → `entity_type`
-- BIE narrative `Business Overview` section → `operations_description`
-
----
-
-### Section 3 — Borrowers / Owners
-
-**section_key:** `borrowers`  
-**Plain-language prompt:** "Who owns this business?"
-
-Stored as `data.owners` — a JSON array. Each element is one owner card.
-
-**Owner card fields:**
-
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `id` | uuid | ✅ | Client-generated on Add |
-| `ownership_entity_id` | uuid | — | FK to `ownership_entities.id` if linked |
-| `full_legal_name` | text | ✅ | |
-| `ssn_last4` | text | — | Store ONLY last 4 digits. Never store full SSN. |
-| `dob` | date | — | |
-| `home_address` | text | — | |
-| `home_city` | text | — | |
-| `home_state` | text | — | |
-| `home_zip` | text | — | |
-| `ownership_pct` | numeric | ✅ | Validate sum ≤ 100% |
-| `title` | text | ✅ | CEO, President, Managing Member, etc. |
-| `years_with_company` | integer | — | |
-| `credit_auth_obtained` | boolean | — | Flag only — Buddy doesn't store credit data |
-| `pfs_document_id` | uuid | — | Link to uploaded PFS document |
-
-**Completion rule:** At least one owner card with `full_legal_name` +
-`ownership_pct` + `title` = 100%.
-
-**Buddy pre-fill sources:**
-- `ownership_entities` rows for this `deal_id` → one card per entity, mapped
-  to `ownership_entity_id` + `full_legal_name` (from `display_name`) +
-  `ownership_pct` + `title`
-
-**Canonical write-through on save:**
-- For each card with `full_legal_name`, call `ensureOwnerEntity()` pattern:
-  upsert `ownership_entities` by `(deal_id, display_name)` with
-  `ownership_pct` and `title`. If `ownership_entity_id` is present, use it
-  as the conflict key.
-
-**UX:**
-- Each owner is a collapsible card. Completed cards show name + ownership %
-  in the collapsed header.
-- "Add Another Owner" button appends a new blank card.
-- Ownership % sum is shown at the bottom. Turns red if > 100%.
-- Cards with 100% completion show a green checkmark.
-
----
-
-### Section 4 — Guarantors
-
-**section_key:** `guarantors`  
-**Plain-language prompt:** "Who is guaranteeing this loan?"
-
-Stored as `data.guarantors` — JSON array.
-
-**Guarantor card fields:**
-
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `id` | uuid | ✅ | Client-generated |
-| `same_as_borrower_id` | uuid | — | If guarantor = owner, link to borrower card id |
-| `full_legal_name` | text | ✅ | Auto-filled if same_as_borrower_id set |
-| `guaranty_type` | enum | ✅ | full \| limited \| springing \| environmental |
-| `guaranty_amount` | numeric | — | Required only if type = limited |
-| `net_worth` | numeric | — | From PFS if uploaded |
-| `liquid_assets` | numeric | — | From PFS if uploaded |
-| `pfs_document_id` | uuid | — | |
-
-**Completion rule:** This section is optional if `data.no_guarantors = true`
-(e.g., for certain SBA deals with fee waivers or non-recourse structures).
-If guarantors exist, each card needs `full_legal_name` + `guaranty_type`.
-
-**UX:**
-- "Same as an owner" shortcut — selecting from a dropdown of borrower cards
-  auto-fills name and links the record.
-- "No personal guaranty" toggle sets `data.no_guarantors = true` and
-  collapses the section with a note.
-
----
-
-### Section 5 — Structure
-
-**section_key:** `structure`  
-**Plain-language prompt:** "How is the deal put together?"
-
-This section has two subsections backed by separate DB tables
-(`deal_collateral_items` and `deal_proceeds_items`) plus scalar fields
-stored in `deal_builder_sections.data`.
-
-#### 5A — Collateral
-
-Each collateral item is a row in `deal_collateral_items`. The UI renders
-them as repeatable cards.
-
-**Collateral card fields:**
-
-| Field | DB Column | Required |
+| Section | What gets written | Where |
 |---|---|---|
-| Type | `item_type` | ✅ |
-| Description | `description` | ✅ |
-| Estimated Value | `estimated_value` | — |
-| Lien Position | `lien_position` | ✅ |
-| Appraisal Date | `appraisal_date` | — |
-| Property Address | `address` | — (real_estate only) |
+| `deal` | `loan_amount` if changed | `deals.loan_amount` |
+| `business` | `legal_entity_name` if not already set | `deals.name` |
+| `parties` | Each owner card → `ensureOwnerEntity()` | `ownership_entities` |
+| `story` | All 6 story fields | `deal_memo_overrides` (merge, never replace) |
+| any | `BUILDER_COMPLETION_PCT` | `deal_financial_facts` |
 
-**item_type display labels:**
-- `real_estate` → "Real Estate"
-- `equipment` → "Equipment / Machinery"
-- `accounts_receivable` → "Accounts Receivable"
-- `inventory` → "Inventory"
-- `blanket_lien` → "Blanket Business Lien"
-- `vehicle` → "Vehicle / Fleet"
-- `other` → "Other"
+Write-through is always best-effort. Failure logs to `console.error` with
+`error.code`, `error.details`, `error.hint` but never throws.
 
-#### 5B — Use of Proceeds
-
-Each line is a row in `deal_proceeds_items`.
-
-**Proceeds line fields:**
-
-| Field | DB Column | Required |
-|---|---|---|
-| Category | `category` | ✅ |
-| Description | `description` | — |
-| Amount | `amount` | ✅ |
-
-**category display labels:**
-- `equipment` → "Equipment / Machinery"
-- `real_estate` → "Real Estate Purchase"
-- `working_capital` → "Working Capital"
-- `debt_payoff` → "Debt Payoff / Refinance"
-- `acquisition` → "Business Acquisition"
-- `renovation` → "Leasehold / Renovation"
-- `other` → "Other"
-
-Running total is shown below the list. Must equal `requested_amount` ±5%
-before this section is marked complete (soft warning, not a blocker).
-
-#### 5C — Scalar Structure Fields (stored in `deal_builder_sections.data`)
-
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `equity_injection_amount` | numeric | — | |
-| `equity_injection_source` | text | — | |
-| `equity_injection_type` | enum | — | cash \| equity_in_property \| seller_note \| other |
-| `existing_debt_payoff` | boolean | — | |
-| `existing_debt_description` | text | — | If true |
-| `deposit_dda` | boolean | — | Primary checking account |
-| `deposit_treasury` | boolean | — | Treasury / cash management |
-| `deposit_payroll` | boolean | — | Payroll services |
-| `deposit_merchant` | boolean | — | Merchant processing |
-| `participation_flag` | boolean | — | |
-| `participation_details` | text | — | If true |
-
-**Completion rule:** At least one collateral item + at least one proceeds
-line + `requested_amount` roughly matches proceeds total.
+Story fields written to `deal_memo_overrides` use the sequential
+select-then-update/insert pattern (not upsert). New keys added:
+`competitive_position`, `committee_notes`.
 
 ---
 
-### Section 6 — The Story
+## Milestone Readiness Engine
 
-**section_key:** `story`  
-**Plain-language prompt:** "Help Buddy understand this deal."
+File: `src/lib/builder/builderReadiness.ts`
 
-All fields stored in `deal_builder_sections.data`. On save, also PATCH to
-`deal_memo_overrides` using the same merge pattern as Phase 52.
+Computes two milestone states from current builder data:
 
-| Field Key | Memo Override Key | Prompt Label |
-|---|---|---|
-| `loan_purpose_narrative` | `use_of_proceeds` | "Why does this business need this loan right now?" |
-| `management_qualifications` | `principal_background` | "What makes this management team qualified?" |
-| `competitive_position` | _(new key)_ `competitive_position` | "What is this business's competitive advantage?" |
-| `known_weaknesses` | `key_weaknesses` | "What are the known deal weaknesses and how are they mitigated?" |
-| `deal_strengths` | `key_strengths` | "What makes this a strong credit?" |
-| `committee_notes` | _(new key)_ `committee_notes` | "Anything else the credit committee should know?" |
+### Credit Ready Checklist
 
-**Completion rule:** At least 3 of the 6 fields filled with ≥ 50 characters.
+A deal is Credit Ready when ALL of the following are present:
 
-**Buddy pre-fill sources:**
-- `deal_memo_overrides` → any fields already set via Phase 52 Story tab
-- BIE narrative `Management` section → `management_qualifications` seed
-- BIE narrative `Competitive Position` section → `competitive_position` seed
-- Pre-filled fields are clearly badged as "✨ Buddy found this — confirm or edit"
+| Check | Source |
+|---|---|
+| Loan purpose filled | `deal.loan_purpose` |
+| Requested amount > 0 | `deal.requested_amount` |
+| Loan type set | `deal.loan_type` |
+| Legal entity name | `business.legal_entity_name` |
+| Entity type | `business.entity_type` |
+| At least one owner with name + ownership % + title | `parties.owners` |
+| At least one story field ≥ 50 chars | `story.*` |
+| Financial snapshot exists | `deal_financial_facts` (DSCR present) |
 
----
+### Doc Ready Checklist (Phase 53C gates actions, but compute now)
 
-## Completion Scoring
+A deal is Doc Ready when Credit Ready PLUS:
 
-### Section weights
+| Check | Source |
+|---|---|
+| State of formation | `business.state_of_formation` |
+| Business address complete | `business.business_address` + city + state + zip |
+| All owners have home address | `parties.owners[*].home_address` |
+| Guarantors configured (or no_guarantors=true) | `guarantors.*` |
+| At least one collateral item | `deal_collateral_items` count |
+| Proceeds lines sum within 5% of requested | `deal_proceeds_items` sum |
+| 3+ story fields ≥ 50 chars | `story.*` |
 
-| Section | Key | Weight | Required Fields |
-|---|---|---|---|
-| The Deal | `deal` | 20% | 4 fields |
-| The Business | `business` | 20% | 8 fields |
-| Borrowers | `borrowers` | 20% | 1+ card with 3 fields |
-| Guarantors | `guarantors` | 5% | Optional — full credit if no_guarantors=true |
-| Structure | `structure` | 20% | 1+ collateral + 1+ proceeds |
-| The Story | `story` | 15% | 3+ of 6 fields |
+Output type:
 
-**Overall score** = weighted average of section completion percentages.
-
-### Storage
-
-Completion % per section is stored as `deal_builder_sections.completed`
-(boolean) and derived client-side via `builderCompletion.ts`. The overall
-score is also surfaced as a fact:
-
-- After save, write `BUILDER_COMPLETION_PCT` to `deal_financial_facts` with
-  `source_type = "COMPUTED"`, `confidence = 1.00`.
-- The Readiness Panel can read this fact to include Builder completion in
-  the overall deal readiness signal.
-
----
-
-## UI Layout
-
-### Page Layout
-
-```
-[DealShell Header + Tab Row]
-
-[Builder Page — full width inside DealShell]
-┌─────────────────────────────────────────────────────────────────┐
-│  DEAL BUILDER                                    87% Complete   │
-│  ████████████████████░░░░  [View Credit Memo]                   │
-├───────────────┬─────────────────────────────────────────────────┤
-│ SECTION NAV   │  ACTIVE SECTION CONTENT                        │
-│               │                                                 │
-│ ✅ The Deal   │  [Section heading]                             │
-│ ✅ Business   │  [Sub-heading / prompt]                        │
-│ ⏳ Borrowers  │                                                 │
-│ ○  Guarantors │  [Fields — 1 or 2 column grid]                 │
-│ ○  Structure  │                                                 │
-│ ○  The Story  │  [Repeatable cards if applicable]              │
-│               │                                                 │
-│               │  [Completion bar for this section]             │
-│               │  [→ Next Section button]                        │
-└───────────────┴─────────────────────────────────────────────────┘
+```ts
+type BuilderReadiness = {
+  credit_ready: boolean;
+  credit_ready_pct: number;
+  credit_ready_blockers: string[];
+  doc_ready: boolean;
+  doc_ready_pct: number;
+  doc_ready_blockers: string[];
+};
 ```
 
-### Section Nav (left sidebar)
-
-- Fixed position, scrolls with page on mobile (collapses to top tab strip)
-- Each section shows:
-  - Icon
-  - Section name
-  - Completion status: green checkmark (done) | amber clock (in progress) |
-    gray circle (not started)
-  - Completion % in small text
-- Active section highlighted
-- Clicking any section nav item jumps to that section
-
-### Section Content (right panel)
-
-- One section visible at a time
-- Large plain-language heading at top
-- Sub-prompt in gray below ("Fill this in so Buddy can...")
-- Fields in a responsive 1–2 column grid
-- Each field:
-  - Plain-language label (bold)
-  - Technical label below in gray small text (e.g., "NAICS Code" below
-    "Industry")
-  - Input / select / date / toggle
-  - Buddy-pre-fill badge: ✨ small amber chip "Buddy found this"
-  - Auto-save indicator: brief "Saved ✓" flash after debounce
-- Repeatable cards (borrowers, guarantors, collateral, proceeds) use
-  `RepeatableCard.tsx` — each card expandable/collapsible
-- "→ Next Section" button at bottom right of each section
-- "← Previous" ghost button at bottom left
-
-### Progress Bar
-
-- Full-width amber/green gradient bar at top of page (below DealShell tabs)
-- Shows overall completion %
-- Changes to green when ≥ 80% complete
+After every section save, compute readiness client-side and write
+`CREDIT_READY_PCT` and `DOC_READY_PCT` to `deal_financial_facts`
+with `source_type = "COMPUTED"`, `confidence = 1.00`.
 
 ---
 
 ## Auto-Save Pattern
 
 ```
-User types in field
-  → field `onChange` updates local React state immediately
-  → debounced 800ms → PATCH /api/deals/[dealId]/builder/sections
-      body: { section_key: "business", data: { ...fullSectionData } }
-  → API: upsert deal_builder_sections ON CONFLICT (deal_id, section_key)
-  → API: trigger canonical write-through (non-fatal)
-  → Response: { ok: true, updated_at }
-  → Client: flash "Saved ✓" for 1.2s on the field or section header
+Drawer/field onChange → local React state updated immediately
+  → debounced 500ms → PATCH /api/deals/[dealId]/builder/sections
+      body: { section_key: "parties", data: { owners: [...] } }
+  → API: upsert ON CONFLICT (deal_id, section_key) DO UPDATE SET data = ...
+  → API: fire builderCanonicalWrite (non-fatal async)
+  → Response: { ok: true; updated_at: string }
+  → Client: SaveStatePill flashes "Saved ✓" for 1.2s
 ```
 
-No Save button anywhere on the page.
+Collateral and proceeds items use their own atomic API routes (POST/DELETE).
+These are not debounced — they fire immediately on add/delete.
+
+No Save button anywhere. Every state change persists.
 
 ---
 
-## Buddy Pre-Fill
+## Buddy Prefill
 
 Route: `GET /api/deals/[dealId]/builder/prefill`
 
-Reads from:
-1. `deals` — `name`, `loan_amount`, `stage`
-2. `ownership_entities` — all rows for deal_id
-3. `deal_memo_overrides` — all existing overrides
-4. `deal_financial_facts` — `ENTITY_TYPE`, `DATE_FORMED`
-5. `buddy_research_narratives` — version 3 (BIE), extract
-   `Business Overview`, `Management`, `Competitive Position` sections
+Sequential queries (no FK-dependent joins):
+1. `deals` → `name`, `loan_amount`, `stage`
+2. `ownership_entities` → all rows for deal_id
+3. `deal_memo_overrides` → existing overrides
+4. `deal_financial_facts` → `ENTITY_TYPE`, `DATE_FORMED`
+5. `buddy_research_narratives` → latest version 3 (BIE), extract:
+   `Business Overview` → `business.operations_description`
+   `Management` → `story.management_qualifications`
+   `Competitive Position` → `story.competitive_position`
 
-Returns a structured `BuilderPrefill` object:
-
+Returns `BuilderPrefill`:
 ```ts
 type BuilderPrefill = {
   deal: Partial<DealSectionData>;
   business: Partial<BusinessSectionData>;
-  borrowers: Partial<BorrowerCard>[];
+  owners: Partial<BorrowerCard>[];
   story: Partial<StorySectionData>;
-  sources: Record<string, 'buddy' | 'manual'>;  // field-level source tracking
+  sources: Record<string, 'buddy' | 'manual'>;
 };
 ```
 
-The `sources` map is keyed by field path (e.g., `"business.operations_description"`)
-and its value tells the UI whether to show the ✨ badge.
+`sources` map keyed by field path → drives ✨ badge display in UI.
 
-Pre-fill is fetched once on page load. If `deal_builder_sections` already
-has saved data, it takes priority over pre-fill for that field — pre-fill
-only fills blank fields.
+Pre-fill populates only blank fields. Any field with existing value in
+`deal_builder_sections` takes priority over pre-fill.
 
 ---
 
-## Borrower Portal — Dual-Use
+## Ledger Events (Phase 53A subset)
 
-### New Route
+Fire to `deal_events` (append-only) for:
+- `builder.section_updated` — on every section save
+- `builder.owner_added` — when a new owner card is created
+- `builder.guarantor_added` — when a new guarantor card is created
+- `builder.story_confirmed` — when a story prompt is confirmed
+- `builder.credit_ready_changed` — when `credit_ready` flips true/false
 
-```
-/portal/[dealId]/apply
-```
-
-Inside `src/app/(borrower)/portal/[dealId]/apply/`
-
-### Sections shown to borrower
-
-| Section | Borrower sees? | Notes |
-|---|---|---|
-| The Deal | ❌ | Banker-only (loan terms) |
-| The Business | ✅ | All fields |
-| Borrowers / Owners | ✅ | Their own card only (filtered by identity) |
-| Guarantors | ✅ | All guarantor info |
-| Structure | ❌ | Banker-only (collateral, proceeds) |
-| The Story | ✅ | 4 of 6 fields (no committee_notes, no known_weaknesses) |
-
-### Same DB — different skin
-
-The borrower portal reads from and writes to the same `deal_builder_sections`,
-`deal_collateral_items`, and `deal_proceeds_items` tables. RLS governs
-access by bank_id, not by user type — borrower portal auth is handled via
-the existing magic-link / portal session pattern.
-
-### Consumer skin differences
-
-| Attribute | Banker Builder | Borrower Portal |
-|---|---|---|
-| Background | Dark (`#0b0d10`) | White |
-| Type scale | Compact | Large / generous padding |
-| Field labels | Plain + technical sub-label | Plain language only |
-| Help text | Minimal | Contextual tooltips on every field |
-| Progress | "87% complete" + section status | "Your application is 87% complete" |
-| ✨ Pre-fill badge | Amber "Buddy found this" | Hidden — borrower shouldn't see Buddy |
-| SSN field | Last 4 only, masked | Full SSN with confirmation re-entry |
-| Navigation | Sidebar nav | Step-by-step wizard (one section per screen) |
-
-### Borrower completion flow
-
-When borrower reaches 100% on their sections, show:
-> "✅ Your application information is complete. Your banker has been notified
-> and will be in touch shortly."
-
-Trigger a `deal_events` ledger entry: `borrower.application_completed`.
-
----
-
-## API Routes
-
-### `GET | PATCH /api/deals/[dealId]/builder/sections`
-
-```ts
-// GET — load all sections for a deal
-// Response: { sections: Record<string, BuilderSectionRow> }
-
-// PATCH — save one section
-// Body: { section_key: string; data: Record<string, unknown> }
-// Response: { ok: true; updated_at: string }
-```
-
-- Upsert `deal_builder_sections` ON CONFLICT (deal_id, section_key)
-- After upsert, fire canonical write-through (non-fatal try/catch)
-- Do NOT recalculate completion % server-side — keep route fast
-- `export const runtime = "nodejs"`
-- No `maxDuration` needed (simple DB write, <1s)
-
-### `GET | POST | DELETE /api/deals/[dealId]/builder/collateral`
-
-```ts
-// GET — list all collateral items
-// Response: { items: CollateralItem[] }
-
-// POST — create a collateral item
-// Body: CollateralItemInput
-// Response: { item: CollateralItem }
-
-// DELETE /api/deals/[dealId]/builder/collateral/[itemId]
-// Response: { ok: true }
-```
-
-### `GET | POST | DELETE /api/deals/[dealId]/builder/proceeds`
-
-```ts
-// GET — list all proceeds items
-// Response: { items: ProceedsItem[] }
-
-// POST — create a proceeds item
-// Body: ProceedsItemInput
-// Response: { item: ProceedsItem }
-
-// DELETE /api/deals/[dealId]/builder/proceeds/[itemId]
-// Response: { ok: true }
-```
-
-### `GET /api/deals/[dealId]/builder/prefill`
-
-```ts
-// GET — compute Buddy pre-fill for this deal
-// Response: BuilderPrefill
-```
-
-- Sequential queries (no FK-dependent joins per codebase principle)
-- `supabaseAdmin()` — server-only
-- `export const runtime = "nodejs"`
+Events are best-effort fire-and-forget. Never block the save response.
 
 ---
 
@@ -742,13 +783,21 @@ export type ProceedsCategory =
   | 'equipment' | 'real_estate' | 'working_capital' | 'debt_payoff'
   | 'acquisition' | 'renovation' | 'other';
 
-// Section data shapes (stored in deal_builder_sections.data jsonb)
+export type BuilderStepKey =
+  | 'overview' | 'parties' | 'loan_request' | 'financials'
+  | 'collateral' | 'risk' | 'documents' | 'story' | 'review';
+
+export type BuilderSectionKey =
+  | 'deal' | 'business' | 'parties' | 'guarantors' | 'structure' | 'story';
+
 export type DealSectionData = {
   loan_purpose?: string;
   requested_amount?: number;
   loan_type?: LoanType;
   desired_term_months?: number;
   desired_amortization_months?: number;
+  interest_only_months?: number;
+  fixed_vs_floating?: 'fixed' | 'floating';
   target_close_date?: string;
   referral_source?: string;
   relationship_manager?: string;
@@ -793,7 +842,7 @@ export type BorrowerCard = {
   pfs_document_id?: string;
 };
 
-export type BorrowersSectionData = {
+export type PartiesSectionData = {
   owners: BorrowerCard[];
 };
 
@@ -834,15 +883,7 @@ export type StorySectionData = {
   known_weaknesses?: string;
   deal_strengths?: string;
   committee_notes?: string;
-};
-
-export type BuilderSections = {
-  deal?: DealSectionData;
-  business?: BusinessSectionData;
-  borrowers?: BorrowersSectionData;
-  guarantors?: GuarantorsSectionData;
-  structure?: StructureSectionData;
-  story?: StorySectionData;
+  story_confirmations?: Record<string, 'confirmed' | 'edited'>;
 };
 
 export type CollateralItem = {
@@ -870,83 +911,214 @@ export type ProceedsItem = {
 export type BuilderPrefill = {
   deal: Partial<DealSectionData>;
   business: Partial<BusinessSectionData>;
-  borrowers: Partial<BorrowerCard>[];
+  owners: Partial<BorrowerCard>[];
   story: Partial<StorySectionData>;
   sources: Record<string, 'buddy' | 'manual'>;
 };
 
-export type SectionKey = 'deal' | 'business' | 'borrowers' | 'guarantors' | 'structure' | 'story';
-
-export type SectionCompletion = {
-  key: SectionKey;
+export type StepCompletion = {
+  key: BuilderStepKey;
   label: string;
   pct: number;
   complete: boolean;
+  warnings: number;
+  blockers: number;
 };
 
-export type BuilderCompletion = {
-  sections: SectionCompletion[];
-  overall_pct: number;
+export type BuilderReadiness = {
+  credit_ready: boolean;
+  credit_ready_pct: number;
+  credit_ready_blockers: string[];
+  doc_ready: boolean;
+  doc_ready_pct: number;
+  doc_ready_blockers: string[];
+};
+
+export type BuilderState = {
+  sections: Partial<Record<BuilderSectionKey, Record<string, unknown>>>;
+  collateral: CollateralItem[];
+  proceeds: ProceedsItem[];
+  prefill: BuilderPrefill | null;
+  readiness: BuilderReadiness;
+  activeStep: BuilderStepKey;
+  saveState: 'idle' | 'saving' | 'saved' | 'error';
+  lastSaved: string | null;
 };
 ```
 
 ---
 
-## File Manifest
+## API Routes
 
-### New Files
+### `GET | PATCH /api/deals/[dealId]/builder/sections`
 
-#### Pages
+```
+GET  → { sections: Record<BuilderSectionKey, { data: unknown; updated_at: string }> }
+PATCH body: { section_key: BuilderSectionKey; data: Record<string, unknown> }
+PATCH response: { ok: true; updated_at: string }
+```
+
+- `supabaseAdmin()` — server-only
+- Upsert `deal_builder_sections` ON CONFLICT (deal_id, section_key)
+- Fire `builderCanonicalWrite` non-fatally after upsert
+- `export const runtime = "nodejs"`
+
+### `GET /api/deals/[dealId]/builder/prefill`
+
+```
+GET → BuilderPrefill
+```
+
+- Sequential queries — no FK joins
+- `supabaseAdmin()`
+- `export const runtime = "nodejs"`
+
+### `GET | POST /api/deals/[dealId]/builder/collateral`
+
+```
+GET  → { items: CollateralItem[] }
+POST body: CollateralItemInput → { item: CollateralItem }
+```
+
+### `PATCH | DELETE /api/deals/[dealId]/builder/collateral/[itemId]`
+
+```
+PATCH body: Partial<CollateralItemInput> → { item: CollateralItem }
+DELETE → { ok: true }
+```
+
+### `GET | POST /api/deals/[dealId]/builder/proceeds`
+
+```
+GET  → { items: ProceedsItem[] }
+POST body: ProceedsItemInput → { item: ProceedsItem }
+```
+
+### `DELETE /api/deals/[dealId]/builder/proceeds/[itemId]`
+
+```
+DELETE → { ok: true }
+```
+
+All routes: `supabaseAdmin()`, `export const runtime = "nodejs"`,
+sequential queries, no FK-dependent joins.
+
+---
+
+## Library Files
+
+### `src/lib/builder/builderTypes.ts`
+All TypeScript types (see above).
+
+### `src/lib/builder/builderCompletion.ts`
+
+```ts
+// computeStepCompletions(state: BuilderState): StepCompletion[]
+// computeOverallPct(steps: StepCompletion[]): number
+```
+
+Pure functions, no DB access. Driven entirely by `BuilderState`.
+
+Step completion rules:
+- **Overview:** always 100% (informational)
+- **Parties:** ≥ 1 owner with name + ownership_pct + title
+- **Loan Request:** loan_purpose + requested_amount + loan_type + desired_term_months
+- **Financials:** true if financial snapshot exists (passed as prop from server)
+- **Collateral:** ≥ 1 collateral item
+- **Risk:** true if ai_risk_run exists (passed as prop from server)
+- **Documents:** true if lifecycle.documentsReady (passed as prop)
+- **Story:** ≥ 3 of 6 fields with ≥ 50 chars
+- **Review:** computed from all above
+
+### `src/lib/builder/builderReadiness.ts`
+
+```ts
+// computeBuilderReadiness(state: BuilderState, serverFlags: ServerFlags): BuilderReadiness
+```
+
+Pure function. `ServerFlags` carries booleans from server (snapshotExists,
+documentsReady, etc.) that the client can't compute alone.
+
+### `src/lib/builder/builderPrefill.ts`
+
+```ts
+// loadBuilderPrefill(dealId: string, sb: SupabaseClient): Promise<BuilderPrefill>
+```
+
+Server-only. Sequential queries. Returns `BuilderPrefill`.
+
+### `src/lib/builder/builderCanonicalWrite.ts`
+
+```ts
+// writeBuilderCanonical(
+//   dealId: string,
+//   sectionKey: BuilderSectionKey,
+//   data: Record<string, unknown>,
+//   sb: SupabaseClient
+// ): Promise<void>
+```
+
+Server-only. Never throws — all errors logged. Contains the deterministic
+field map from section data to canonical tables. Story section always calls
+the sequential select-then-update/insert pattern for `deal_memo_overrides`.
+
+---
+
+## Component Manifest
+
+### Shell / Layout
 
 | File | Purpose |
 |---|---|
-| `src/app/(app)/deals/[dealId]/builder/page.tsx` | Server component — loads deal, sections, prefill |
-| `src/app/(app)/deals/[dealId]/builder/BuilderPageClient.tsx` | Main client component — layout + state |
-| `src/app/(borrower)/portal/[dealId]/apply/page.tsx` | Borrower portal — server component |
-| `src/app/(borrower)/portal/[dealId]/apply/ApplyPageClient.tsx` | Borrower portal — client |
+| `src/components/builder/BuilderPageClient.tsx` | Root client component — owns all state, coordinates all workspaces |
+| `src/components/builder/BuilderHeader.tsx` | Always-visible header: name, loan type, amount, milestone chips, primary actions |
+| `src/components/builder/BuilderWorkflowRail.tsx` | Top step navigation rail — 9 steps with completion/warning indicators |
+| `src/components/builder/BuilderWorkspace.tsx` | Main content area — renders active step workspace |
+| `src/components/builder/BuilderRightRail.tsx` | Persistent right rail: missing items, Buddy suggestions, save state, readiness |
 
-#### Components
-
-| File | Purpose |
-|---|---|
-| `src/components/builder/BuilderShell.tsx` | 2-column layout: sidebar + content |
-| `src/components/builder/BuilderSectionNav.tsx` | Left sidebar with section list + progress |
-| `src/components/builder/BuilderProgressBar.tsx` | Top-level progress bar |
-| `src/components/builder/BuilderField.tsx` | Base field: label + input + Buddy badge + save state |
-| `src/components/builder/RepeatableCard.tsx` | Add/remove card pattern |
-| `src/components/builder/sections/TheDealSection.tsx` | Section 1 |
-| `src/components/builder/sections/TheBusinessSection.tsx` | Section 2 |
-| `src/components/builder/sections/BorrowersSection.tsx` | Section 3 |
-| `src/components/builder/sections/GuarantorsSection.tsx` | Section 4 |
-| `src/components/builder/sections/StructureSection.tsx` | Section 5 (includes collateral + proceeds) |
-| `src/components/builder/sections/TheStorySection.tsx` | Section 6 |
-| `src/components/builder/borrower/BorrowerBuilderShell.tsx` | Consumer skin wrapper |
-
-#### Library
+### Shared Atoms
 
 | File | Purpose |
 |---|---|
-| `src/lib/builder/builderTypes.ts` | All TypeScript types (see above) |
-| `src/lib/builder/builderCompletion.ts` | `computeBuilderCompletion(sections, collateral, proceeds)` |
-| `src/lib/builder/builderPrefill.ts` | `loadBuilderPrefill(dealId, sb)` — reads research + ownership + overrides |
-| `src/lib/builder/builderCanonicalWrite.ts` | `writeBuilderCanonical(dealId, sectionKey, data, sb)` — non-fatal write-through |
+| `src/components/builder/BuilderField.tsx` | Field: label + input + Buddy badge + save flash |
+| `src/components/builder/BuddySourceBadge.tsx` | ✨ "Buddy found this" amber chip |
+| `src/components/builder/SaveStatePill.tsx` | "Saved ✓" / "Saving..." / error indicator |
+| `src/components/builder/MilestonChip.tsx` | Credit Ready / Doc Ready status chip |
+| `src/components/builder/MissingItemsPanel.tsx` | Right-rail missing items list |
 
-#### API Routes
-
-| File | Purpose |
-|---|---|
-| `src/app/api/deals/[dealId]/builder/sections/route.ts` | GET + PATCH sections |
-| `src/app/api/deals/[dealId]/builder/collateral/route.ts` | GET + POST collateral |
-| `src/app/api/deals/[dealId]/builder/collateral/[itemId]/route.ts` | DELETE collateral item |
-| `src/app/api/deals/[dealId]/builder/proceeds/route.ts` | GET + POST proceeds |
-| `src/app/api/deals/[dealId]/builder/proceeds/[itemId]/route.ts` | DELETE proceeds item |
-| `src/app/api/deals/[dealId]/builder/prefill/route.ts` | GET prefill |
-
-#### Migration
+### Step Workspaces
 
 | File | Purpose |
 |---|---|
-| `supabase/migrations/20260320_deal_builder.sql` | 3 tables + RLS + indexes |
+| `src/components/builder/workspaces/OverviewWorkspace.tsx` | Deal snapshot, financial summary, missing-for-milestone |
+| `src/components/builder/workspaces/PartiesWorkspace.tsx` | Entity cards, add/edit via drawers |
+| `src/components/builder/workspaces/LoanRequestWorkspace.tsx` | Summary card + edit via LoanRequestDrawer |
+| `src/components/builder/workspaces/FinancialsWorkspace.tsx` | Read-only snapshot + deep-link to Financials tab |
+| `src/components/builder/workspaces/CollateralWorkspace.tsx` | Collateral cards + CollateralModal |
+| `src/components/builder/workspaces/RiskWorkspace.tsx` | Read-only risk summary + deep-link |
+| `src/components/builder/workspaces/DocumentsWorkspace.tsx` | Doc checklist + deep-link |
+| `src/components/builder/workspaces/StoryWorkspace.tsx` | Six prompt cards + StoryPromptDrawer |
+| `src/components/builder/workspaces/ReviewWorkspace.tsx` | Readiness, blockers, handoff actions |
+
+### Drawers + Modals
+
+| File | Purpose |
+|---|---|
+| `src/components/builder/drawers/OwnerDrawer.tsx` | Right-side drawer: create/edit owner |
+| `src/components/builder/drawers/GuarantorDrawer.tsx` | Right-side drawer: create/edit guarantor |
+| `src/components/builder/drawers/EntityProfileDrawer.tsx` | Right-side drawer: full entity profile (tabs) |
+| `src/components/builder/drawers/LoanRequestDrawer.tsx` | Right-side drawer: loan request fields |
+| `src/components/builder/drawers/StoryPromptDrawer.tsx` | Right-side drawer: single story prompt edit |
+| `src/components/builder/modals/CollateralModal.tsx` | Centered modal: add/edit collateral item |
+| `src/components/builder/modals/ProceedsModal.tsx` | Centered modal: use of proceeds lines |
+
+### Pages
+
+| File | Purpose |
+|---|---|
+| `src/app/(app)/deals/[dealId]/builder/page.tsx` | Server component — fetches all data, passes to client |
+| `src/app/(app)/deals/[dealId]/builder/BuilderPageClient.tsx` | See Shell above |
+| `src/app/(borrower)/portal/[dealId]/apply/page.tsx` | Borrower portal — Phase 53C (stub in 53A) |
 
 ### Modified Files
 
@@ -956,162 +1128,246 @@ export type BuilderCompletion = {
 
 ---
 
-## Build Sequence
+## Drawer Architecture Pattern
 
-Build in this order to avoid blocked dependencies:
+All drawers are right-side slide-in panels (not modals). They should:
+- Slide in from the right, width ~480px
+- Have a title row with close button (X)
+- Have a Save button at the bottom (NOT auto-save — drawers have an explicit
+  save action because they represent a more deliberate edit flow than inline fields)
+- On Save: close drawer + trigger section auto-save (debounced PATCH)
+- On Close without save: discard local drawer state (confirm if dirty)
+
+Use existing `dialog.tsx` in `src/components/ui/` as the base. The drawer
+variant slides from the right using CSS transforms. No new UI libraries needed.
+
+Modals (CollateralModal, ProceedsModal) are centered dialogs using the same
+`dialog.tsx` base.
+
+---
+
+## Build Sequence (Phase 53A)
 
 ### Step 1 — Migration
-
 Apply `supabase/migrations/20260320_deal_builder.sql`.
-Verify: `deal_builder_sections`, `deal_collateral_items`, `deal_proceeds_items`
-all exist with correct RLS.
+Verify 3 tables exist with correct RLS + indexes.
+Smoke: `select count(*) from deal_builder_sections` returns 0 rows, no error.
 
-### Step 2 — Types + Library
-
-Create:
-- `src/lib/builder/builderTypes.ts`
-- `src/lib/builder/builderCompletion.ts`
-- `src/lib/builder/builderPrefill.ts`
-- `src/lib/builder/builderCanonicalWrite.ts`
-
-No DB reads yet — pure functions only. Confirm `tsc --noEmit` clean.
+### Step 2 — Types + Library (pure functions)
+Create `src/lib/builder/builderTypes.ts` — all types verbatim from above.
+Create `src/lib/builder/builderCompletion.ts` — pure completion functions.
+Create `src/lib/builder/builderReadiness.ts` — pure readiness functions.
+Create `src/lib/builder/builderPrefill.ts` — server-only prefill loader.
+Create `src/lib/builder/builderCanonicalWrite.ts` — server-only write-through.
+Confirm `tsc --noEmit` clean before proceeding.
 
 ### Step 3 — API Routes
+Create all 8 API routes (sections GET/PATCH, collateral CRUD, proceeds CRUD, prefill GET).
+`supabaseAdmin()` everywhere. `export const runtime = "nodejs"` everywhere.
+Smoke-test against `ffcc9733`:
+- GET sections → empty `{}` (no rows yet, expected)
+- GET prefill → populated with entity name + owner cards
 
-Create all 6 API routes. Routes must:
-- Use `supabaseAdmin()` not `createSupabaseServerClient()`
-- Use `export const runtime = "nodejs"`
-- Use sequential queries, no FK-dependent joins
-- Return typed responses
+### Step 4 — Shared Atoms
+Build in order (smallest first):
+1. `BuddySourceBadge.tsx`
+2. `SaveStatePill.tsx`
+3. `MilestoneChip.tsx`
+4. `BuilderField.tsx` (wraps input + label + badge + save pill)
+5. `MissingItemsPanel.tsx`
 
-Smoke-test with curl against `ffcc9733` before proceeding.
+Confirm renders correctly in isolation with mock props.
 
-### Step 4 — Builder Components (banker skin)
+### Step 5 — Shell + Rail
+Build:
+1. `BuilderRightRail.tsx` (receives readiness + missing items as props)
+2. `BuilderWorkflowRail.tsx` (receives step completions as props)
+3. `BuilderHeader.tsx` (receives deal data + readiness as props)
+4. `BuilderWorkspace.tsx` (switch on activeStep, renders workspace component)
+5. `BuilderPageClient.tsx` (owns state, wires everything together)
 
-Create in this order:
-1. `BuilderField.tsx` (atomic)
-2. `RepeatableCard.tsx` (atomic)
-3. `BuilderProgressBar.tsx` (atomic)
-4. `BuilderSectionNav.tsx` (depends on progress types)
-5. `BuilderShell.tsx` (depends on nav)
-6. Six section components (depend on shell + field)
+### Step 6 — Drawers + Modals
+Build:
+1. Right-side drawer base (CSS transform variant of `dialog.tsx`)
+2. `OwnerDrawer.tsx`
+3. `GuarantorDrawer.tsx`
+4. `LoanRequestDrawer.tsx`
+5. `CollateralModal.tsx`
+6. `ProceedsModal.tsx`
+7. `StoryPromptDrawer.tsx`
+8. `EntityProfileDrawer.tsx` (can be stub with Core Info tab only in 53A)
 
-Each section component must:
-- Accept `data`, `prefill`, `prefillSources`, `onChange` props
-- Call `onChange(sectionKey, updatedData)` on any field change
-- Not call the API directly — auto-save is handled by `BuilderPageClient`
+### Step 7 — Workspace Components
+Build workspaces in order:
+1. `OverviewWorkspace.tsx` (surfaces existing data, no new inputs)
+2. `PartiesWorkspace.tsx` (entity cards + opens OwnerDrawer/GuarantorDrawer)
+3. `LoanRequestWorkspace.tsx` (summary card + opens LoanRequestDrawer)
+4. `CollateralWorkspace.tsx` (cards + opens CollateralModal)
+5. `StoryWorkspace.tsx` (prompt cards + opens StoryPromptDrawer)
+6. `ReviewWorkspace.tsx` (readiness display)
+7. `FinancialsWorkspace.tsx` (read-only snapshot)
+8. `RiskWorkspace.tsx` (read-only summary)
+9. `DocumentsWorkspace.tsx` (checklist + deep-links)
 
-### Step 5 — Builder Page
+### Step 8 — Builder Page (server component)
+Create `src/app/(app)/deals/[dealId]/builder/page.tsx`:
+- Auth via `clerkAuth()` + `ensureDealBankAccess()`
+- Parallel fetches: deal row, all sections, prefill, collateral, proceeds,
+  financial snapshot existence flag, lifecycle state (reuse pattern from
+  cockpit page.tsx)
+- Pass all as props to `BuilderPageClient`
 
-Create:
-- `src/app/(app)/deals/[dealId]/builder/page.tsx`
-  - Server component
-  - Fetches deal, all sections, prefill in parallel
-  - Passes to `BuilderPageClient`
-- `src/app/(app)/deals/[dealId]/builder/BuilderPageClient.tsx`
-  - Holds all section state
-  - Manages active section
-  - Implements debounced auto-save (800ms)
-  - Merges prefill into blank fields on mount
+### Step 9 — DealShell Tab
+One-line change in `DealShell.tsx`. Confirm active state highlights on
+`/deals/[dealId]/builder` and any sub-path.
 
-### Step 6 — DealShell Tab
+### Step 10 — Canonical Write-Through + Completion Facts
+Wire `builderCanonicalWrite.ts` into sections PATCH route.
+After every section save, compute `BUILDER_COMPLETION_PCT`,
+`CREDIT_READY_PCT`, `DOC_READY_PCT` and write to `deal_financial_facts`.
+Fire ledger events.
 
-In `DealShell.tsx`, add "Builder" as first tab. Confirm active state
-highlights correctly when pathname starts with `/deals/[dealId]/builder`.
-
-### Step 7 — Borrower Portal
-
-Create:
-- `src/components/builder/borrower/BorrowerBuilderShell.tsx`
-- `src/app/(borrower)/portal/[dealId]/apply/page.tsx`
-- `src/app/(borrower)/portal/[dealId]/apply/ApplyPageClient.tsx`
-
-Reuse section components from Step 4 — pass `skin="borrower"` prop to
-toggle between dark/light styling and hide banker-only fields.
-
-### Step 8 — Canonical Write-Through + Completion Fact
-
-Wire `builderCanonicalWrite.ts` into the sections PATCH route (non-fatal).
-After every section save, also write `BUILDER_COMPLETION_PCT` to
-`deal_financial_facts`.
-
-### Step 9 — tsc Clean + Smoke Test
-
-- `tsc --noEmit` must pass with zero errors
-- Smoke test: load Builder on `ffcc9733`
-  - Pre-fill should show entity name + owner cards
-  - Type in a field → confirm auto-save fires → confirm DB row updated
-  - Check "Builder" tab appears and highlights correctly in DealShell
+### Step 11 — tsc Clean + Smoke Test
+- `tsc --noEmit` zero errors
+- Load Builder on `ffcc9733`:
+  - Overview shows entity name, financial snapshot, BIE summary
+  - Parties shows owner cards pre-populated from `ownership_entities`
+  - Loan Request shows requested amount from `deals.loan_amount`
+  - Story shows existing `deal_memo_overrides` fields as Buddy drafts
+  - Workflow rail shows correct completion states for each step
+  - "Edit" any owner → drawer opens, save → card updates, DB updated
+  - Add collateral → modal opens → item appears in Collateral workspace
+  - Edit story prompt → drawer opens, confirm → memo override updated
+  - Credit Ready milestone chip updates when required fields are filled
+- No `console.error` in browser on load or save
 
 ---
 
 ## Key Implementation Constraints
 
-1. **Never store full SSN.** Section 3 `ssn_last4` is the only SSN-related
-   field. Store exactly 4 characters. No exceptions.
+1. **Never store full SSN.** `ssn_last4` (4 chars max) only in `PartiesSectionData`.
+   No exceptions. Full SSN vault path is Phase 53C.
 
-2. **EIN display vs storage.** Store full EIN (9 digits) in `ein` field.
-   Display as `XX-XXXXXXX` with only last 4 visible. Never log the full EIN.
+2. **EIN: store full, display masked.** Store 9 digits in `business.ein`.
+   Display as `XX-XXXXXXX` (last 4 visible). Never log full EIN.
 
-3. **Ownership entity write-through uses existing pattern.** When saving
-   Section 3, use the same `ensureOwnerEntity()` upsert pattern introduced
-   in Phase 49. Conflict key is `(deal_id, display_name)`. The `id` field
-   on the borrower card is a client-local UUID until it is linked to a real
-   `ownership_entity_id` via write-through.
+3. **`ownership_entities` is the canonical entity store in Phase 53A.**
+   Do NOT introduce `entities` or `deal_entities` tables. Every owner save
+   calls `ensureOwnerEntity()` (Phase 49 pattern). Conflict key: `(deal_id, display_name)`.
 
-4. **Story fields must merge into `deal_memo_overrides`.** Use the
-   sequential select-then-update/insert pattern from Phase 52. Never replace
-   the full JSONB — always merge. Two new keys are added:
-   `competitive_position` and `committee_notes`.
+4. **Story write-through is a MERGE, never a replace.** Sequential
+   select-then-update/insert into `deal_memo_overrides`. Never overwrite
+   existing keys. Two new keys: `competitive_position`, `committee_notes`.
 
-5. **Prefill takes no precedence over existing builder data.** If
-   `deal_builder_sections` has a value for a field, display that value.
-   Only display prefill for fields that are null/empty in builder sections.
+5. **Prefill never overwrites.** Only fills null/empty fields. Saved builder
+   data always wins.
 
-6. **Proceeds total mismatch is a warning, not a blocker.** If proceeds
-   total differs from `requested_amount` by more than 5%, show an amber
-   warning banner in Section 5. Never block save.
+6. **Proceeds mismatch = amber warning, not a blocker.** Never block save.
 
-7. **RepeatableCard add/remove must be instant.** Card adds/removes update
-   local state immediately. The full section data (including the updated
-   cards array) is then auto-saved via the debounced PATCH. Never make an
-   API call per card operation — always save the full section array.
+7. **Drawer save is explicit. Workspace saves are debounced.** Drawers have
+   a Save button. Inline workspace field changes (if any) are debounced 500ms.
+   Collateral/proceeds API calls fire immediately on add/delete.
 
-8. **CSS skin rule.** Banker Builder uses the existing dark theme
-   (`bg-[#0b0d10]`, `text-white`). Borrower portal uses `bg-white`,
-   `text-gray-900`. Per the known build principle: always set
-   `text-gray-900 bg-white placeholder-gray-400` explicitly on every
-   `<input>` and `<textarea>` in the borrower skin.
+8. **CSS skin rules.** Builder: `bg-[#0b0d10]`, `text-white`. Every
+   `<input>` and `<textarea>` must set `text-gray-900 bg-white placeholder-gray-400`
+   explicitly. Borrower portal (Phase 53C): `bg-white`, `text-gray-900`.
+
+9. **Financials, Risk, Documents steps are read-only in 53A.** No new DB
+   writes from those workspaces. Deep-link buttons navigate to existing tabs.
+
+10. **"Generate Docs" button is disabled + "Coming Soon" in 53A.** The
+    button exists so the milestone architecture is visible, but it does nothing.
+
+11. **`supabaseAdmin()` in all server-side routes.** Never
+    `createSupabaseServerClient()` in API routes. Sequential queries everywhere,
+    no FK-dependent join syntax.
+
+12. **`export const runtime = "nodejs"` on all API routes.** No maxDuration
+    needed for builder routes (all simple DB reads/writes <1s).
 
 ---
 
-## Definition of Done
+## Definition of Done — Phase 53A
 
-- [ ] Migration applied — 3 tables exist with RLS
-- [ ] All 6 API routes return correct responses for deal `ffcc9733`
-- [ ] "Builder" tab appears first in DealShell, highlights on active route
-- [ ] Builder page loads for `ffcc9733` with Buddy pre-fill visible:
-  - Entity name pre-filled in Section 2
-  - Owner cards pre-filled from `ownership_entities` in Section 3
-  - Story fields pre-filled from existing `deal_memo_overrides` in Section 6
-- [ ] Auto-save fires on field change, "Saved ✓" appears, DB row updated
-- [ ] Repeatable cards (borrowers, collateral, proceeds) add/remove correctly
-- [ ] Overall completion % renders correctly in progress bar
-- [ ] Story section save also writes to `deal_memo_overrides` (merge, not replace)
-- [ ] Canonical write-through writes to `ownership_entities` on borrower save
-- [ ] `BUILDER_COMPLETION_PCT` written to `deal_financial_facts` after save
-- [ ] Borrower portal `/portal/[dealId]/apply` renders with white skin,
-  shows only borrower-facing sections, wizard-style navigation
+- [ ] Migration applied: 3 tables with RLS + indexes on `ffcc9733` DB
 - [ ] `tsc --noEmit` zero errors
+- [ ] "Builder" tab is first in DealShell, highlights on active route
+- [ ] Builder loads for `ffcc9733`:
+  - [ ] Builder Header shows deal name, loan type badge, amount, milestone chips
+  - [ ] Workflow Rail shows 9 steps with correct completion/warning states
+  - [ ] Overview workspace renders deal snapshot + financial summary + BIE summary
+  - [ ] Parties workspace shows owner cards pre-populated from `ownership_entities`
+  - [ ] Loan Request workspace shows requested amount + summary card
+  - [ ] Financials workspace shows snapshot data + "Open Full Financials" link
+  - [ ] Story workspace shows 6 prompt cards, Buddy drafts from `deal_memo_overrides`
+  - [ ] Review workspace shows credit_ready_pct progress
+  - [ ] Right rail shows missing items
+- [ ] Edit owner in OwnerDrawer → Save → card updates → `ownership_entities` updated
+- [ ] Add collateral → CollateralModal → item appears in Collateral workspace
+- [ ] Edit story prompt → StoryPromptDrawer → save → `deal_memo_overrides` updated (merged)
+- [ ] SaveStatePill flashes "Saved ✓" on every successful save
+- [ ] Credit Ready milestone chip turns green when required fields are filled
+- [ ] "Generate Docs" button is visible but disabled with "Coming Soon"
 - [ ] No `console.error` in browser on load or save
+
+---
+
+## Future Phases (scoped, not built in 53A)
+
+### Phase 53B — Entity-First Upgrade
+
+New table `deal_entities`:
+```sql
+create table deal_entities (
+  id                uuid primary key default gen_random_uuid(),
+  deal_id           uuid not null references deals(id) on delete cascade,
+  ownership_entity_id uuid not null references ownership_entities(id),
+  role_key          text not null,
+    -- lead_borrower | co_borrower | guarantor | limited_guarantor
+    -- key_principal | affiliate | holding_company | operating_company
+  is_primary        boolean not null default false,
+  ownership_pct     numeric,
+  guaranty_type     text,
+  guaranty_amount   numeric,
+  title             text,
+  participation_data jsonb,
+  completed         boolean not null default false,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  unique(deal_id, ownership_entity_id, role_key)
+);
+```
+
+Adds:
+- "Select Existing Entity" modal with cross-deal search
+- "Promote Owner to Guarantor" flow
+- EntityProfileDrawer fully built out (all tabs)
+- Financials step becomes interactive review surface
+
+### Phase 53C — Readiness + PII + Borrower Portal
+
+- Secure PII path for full SSN/TIN (vault table or encrypted ref)
+- "Submit to Credit" gate fully wired
+- "Generate Docs" activated (when loan-doc generation exists)
+- Borrower portal `/portal/[dealId]/apply` — wizard skin, light theme,
+  borrower-visible sections only
+- `borrower.application_completed` ledger event
+
+### Phase 53D — Observability
+
+- Full builder ledger events flowing to Pulse telemetry
+- Builder activity in Timeline tab
+- `builder.credit_ready_changed` Pulse push notification
 
 ---
 
 ## Roadmap Impact
 
-Phase 53 completes **God Tier item #65** (Borrower Intake wired) and
-establishes the data foundation for:
-- Credit memo auto-population from builder fields (replaces wizard)
-- Model Engine V2 can read `loan_type` and `entity_type` from builder
-- Completeness scoring in Readiness Panel includes builder data
-- Borrower-facing portal replaces the current ad hoc portal flows
+Phase 53A completes **God Tier item #65** (Borrower Intake wired — data
+model and banker UX in place; borrower portal UI in 53C) and creates:
+
+- Credit memo auto-population foundation (builder story fields → memo, replacing wizard)
+- Model Engine V2 can read `loan_type` and `entity_type` from builder sections
+- Readiness Panel can include `CREDIT_READY_PCT` in deal readiness scoring
+- Collateral data accessible to underwriting engine independently
+- Proceeds data accessible for covenant and use-of-funds verification
