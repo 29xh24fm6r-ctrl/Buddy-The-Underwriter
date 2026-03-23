@@ -1,5 +1,4 @@
-// src/middleware.ts
-// Next.js only recognizes this filename as application middleware.
-// All middleware logic lives in proxy.ts — this file simply re-exports it
-// so the framework picks it up correctly.
-export { default, config } from "./proxy";
+// This file intentionally has no exports.
+// Next.js 16 uses proxy.ts as the middleware convention.
+// Having both middleware.ts and proxy.ts causes a build error.
+// All middleware logic lives in proxy.ts.
