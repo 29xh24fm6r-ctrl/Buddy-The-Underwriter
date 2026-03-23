@@ -1,22 +1,23 @@
 // src/proxy.ts — Next.js 16 middleware
-// NEVER use clerkMiddleware here. It calls Clerk BAPI on every cold start.
-// If Clerk's network is slow, clerkMiddleware hangs ALL routes → 504.
-// Actual JWT validation happens in route handlers via clerkAuth().
+// Uses clerkMiddleware to establish auth context so auth() works in route handlers.
+// Set CLERK_JWT_KEY in env to enable local JWT verification (no Clerk BAPI calls).
 
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_EXACT = new Set(["/", "/pricing", "/borrower-portal", "/upload", "/sign-in", "/sign-up"]);
-const PUBLIC_PREFIXES = ["/pricing/", "/borrower-portal/", "/upload/", "/sign-in/", "/sign-up/"];
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/pricing(.*)",
+  "/borrower-portal(.*)",
+  "/upload(.*)",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+]);
+
 const E2E_BYPASS_PATHS = new Set(["/", "/deals", "/analytics", "/portfolio", "/intake", "/borrower/portal", "/underwrite"]);
 const E2E_BYPASS_PREFIXES = ["/underwrite/", "/deals/", "/credit-memo/"];
 
-function isPublicRoute(pathname: string): boolean {
-  if (PUBLIC_EXACT.has(pathname)) return true;
-  return PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
-}
-
-function withBuildHeader(): NextResponse {
-  const res = NextResponse.next();
+function withBuildHeader(res: NextResponse = NextResponse.next()): NextResponse {
   const build = process.env.VERCEL_GIT_COMMIT_SHA || process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "unknown";
   res.headers.set("x-buddy-build", build);
   if (process.env.NODE_ENV !== "production" || process.env.BUDDY_INTERNAL_FORCE === "true") {
@@ -25,42 +26,47 @@ function withBuildHeader(): NextResponse {
   return res;
 }
 
-function hasClerkSession(req: NextRequest): boolean {
-  return !!(req.cookies.get("__session")?.value || req.cookies.get("__client_uat")?.value);
+function handleE2eBypass(req: NextRequest): NextResponse | null {
+  if (process.env.E2E !== "1" || process.env.PLAYWRIGHT !== "1" || process.env.NODE_ENV === "production") {
+    return null;
+  }
+  const p = req.nextUrl.pathname;
+  const match = E2E_BYPASS_PATHS.has(p) || E2E_BYPASS_PREFIXES.some((prefix) => p.startsWith(prefix));
+  if (!match) return null;
+  const isUnderwrite = p.startsWith("/underwrite/") || /\/deals\/[^/]+\/underwrite/.test(p);
+  return new NextResponse(
+    `<!doctype html><html><body>E2E OK: ${p}${isUnderwrite ? " | controls: documents, checklist-request, recommendation-primary" : ""}</body></html>`,
+    { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+  );
 }
 
-export default function proxy(req: NextRequest): NextResponse {
+export default clerkMiddleware(async (auth, req) => {
   const p = req.nextUrl.pathname;
 
   // E2E bypass (never in production)
-  if (process.env.E2E === "1" && process.env.PLAYWRIGHT === "1" && process.env.NODE_ENV !== "production") {
-    const match = E2E_BYPASS_PATHS.has(p) || E2E_BYPASS_PREFIXES.some((prefix) => p.startsWith(prefix));
-    if (match) {
-      const isUnderwrite = p.startsWith("/underwrite/") || /\/deals\/[^/]+\/underwrite/.test(p);
-      return new NextResponse(
-        `<!doctype html><html><body>E2E OK: ${p}${isUnderwrite ? " | controls: documents, checklist-request, recommendation-primary" : ""}</body></html>`,
-        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
-      );
-    }
-  }
+  const e2e = handleE2eBypass(req);
+  if (e2e) return e2e;
 
-  // API routes: always pass through
+  // API routes: always pass through (auth validated per-handler)
   if (p === "/api" || p.startsWith("/api/") || p === "/trpc" || p.startsWith("/trpc/")) {
     return NextResponse.next();
   }
 
-  // Public routes: instant response, no auth
-  if (isPublicRoute(p)) return withBuildHeader();
+  // Public routes: no auth required
+  if (isPublicRoute(req)) {
+    return withBuildHeader();
+  }
 
-  // Protected routes: cookie gate (JWT validated in route handlers)
-  if (!hasClerkSession(req)) {
+  // Protected routes: require authenticated user
+  const { userId } = await auth();
+  if (!userId) {
     const signInUrl = new URL("/sign-in", req.url);
     signInUrl.searchParams.set("redirect_url", p + req.nextUrl.search);
     return NextResponse.redirect(signInUrl);
   }
 
   return withBuildHeader();
-}
+});
 
 export const config = {
   matcher: ["/((?!_next|api/workers/|.*\\..*).*)" ],
