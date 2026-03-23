@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "src/proxy.ts": {
+      "maxDuration": 30
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/borrower-reminders",

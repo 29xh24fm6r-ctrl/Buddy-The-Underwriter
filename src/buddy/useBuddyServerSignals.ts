@@ -17,7 +17,9 @@ export function useBuddyServerSignals(opts: {
     if (!enabled) return;
 
     let alive = true;
-    const tickMs = 2500;
+    const BASE_TICK_MS = 2500;
+    const MAX_TICK_MS = 30_000;
+    let consecutiveErrors = 0;
 
     async function poll() {
       if (!alive) return;
@@ -31,7 +33,12 @@ export function useBuddyServerSignals(opts: {
         const res = await fetch(url.toString(), { cache: "no-store" });
         const json = await res.json();
         if (!alive) return;
-        if (!json?.ok) return;
+        if (!json?.ok) {
+          consecutiveErrors++;
+          return;
+        }
+
+        consecutiveErrors = 0;
 
         const items = (json.items ?? []) as Array<BuddySignal & { id?: string }>;
         const ordered = items.slice().reverse();
@@ -54,9 +61,13 @@ export function useBuddyServerSignals(opts: {
           seen.current.clear();
         }
       } catch {
-        // ignore
+        consecutiveErrors++;
       } finally {
-        if (alive) setTimeout(poll, tickMs);
+        if (alive) {
+          // Exponential backoff on consecutive errors (2.5s → 5s → 10s → 20s → 30s cap)
+          const delay = Math.min(BASE_TICK_MS * Math.pow(2, consecutiveErrors), MAX_TICK_MS);
+          setTimeout(poll, delay);
+        }
       }
     }
 

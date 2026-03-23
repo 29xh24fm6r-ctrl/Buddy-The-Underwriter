@@ -60,6 +60,27 @@ function getClientIp(req: Request): string | null {
   return realIp ? String(realIp) : null;
 }
 
+/**
+ * Resolve Clerk auth with a timeout safety net.
+ * If auth() hangs (e.g. Clerk BAPI unreachable), treat as unauthenticated
+ * instead of letting the entire request timeout with a 504.
+ */
+const AUTH_TIMEOUT_MS = 5_000;
+
+async function safeAuth(auth: () => Promise<any>): Promise<any> {
+  try {
+    return await Promise.race([
+      auth(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("clerk_auth_timeout")), AUTH_TIMEOUT_MS)
+      ),
+    ]);
+  } catch (e) {
+    console.error("[proxy] auth() failed or timed out:", e);
+    return { userId: null, sessionClaims: null };
+  }
+}
+
 export default clerkMiddleware(async (auth, req) => {
   const p = req.nextUrl.pathname;
 
@@ -94,21 +115,27 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.next();
   }
 
-  const a = await auth();
-
+  // ✅ Public routes: serve immediately, don't block on auth().
+  // Demo telemetry for public routes is fire-and-forget (non-blocking).
   if (isPublicRoute(req)) {
-    await logDemoPageviewIfApplicable({
-      email: extractEmailFromClaims(a?.sessionClaims ?? null),
-      bankId: req.cookies.get("bank_id")?.value ?? null,
-      path: p,
-      method: req.method,
-      ip: getClientIp(req),
-      userAgent: req.headers.get("user-agent"),
-      eventType: "pageview",
-      meta: { method: req.method },
-    });
+    // Best-effort auth for telemetry — never blocks the response
+    safeAuth(auth).then((a) => {
+      logDemoPageviewIfApplicable({
+        email: extractEmailFromClaims(a?.sessionClaims ?? null),
+        bankId: req.cookies.get("bank_id")?.value ?? null,
+        path: p,
+        method: req.method,
+        ip: getClientIp(req),
+        userAgent: req.headers.get("user-agent"),
+        eventType: "pageview",
+        meta: { method: req.method },
+      }).catch(() => {});
+    }).catch(() => {});
     return withBuildHeader();
   }
+
+  // Protected routes: resolve auth with timeout fallback
+  const a = await safeAuth(auth);
 
   if (!a?.userId) {
     const signInUrl = new URL("/sign-in", req.url);
@@ -116,7 +143,7 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.redirect(signInUrl);
   }
 
-  await logDemoPageviewIfApplicable({
+  logDemoPageviewIfApplicable({
     email: extractEmailFromClaims(a?.sessionClaims ?? null),
     bankId: req.cookies.get("bank_id")?.value ?? null,
     path: p,
@@ -125,7 +152,7 @@ export default clerkMiddleware(async (auth, req) => {
     userAgent: req.headers.get("user-agent"),
     eventType: "pageview",
     meta: { method: req.method },
-  });
+  }).catch(() => {});
 
   return withBuildHeader();
 });
