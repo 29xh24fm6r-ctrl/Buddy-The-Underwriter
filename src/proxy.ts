@@ -14,6 +14,7 @@ const isPublicRoute = createRouteMatcher([
   "/upload(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  "/canary(.*)", // SSR debug — remove after investigation
 ]);
 
 const E2E_BYPASS_PATHS = ["/", "/deals", "/analytics", "/portfolio", "/intake", "/borrower/portal", "/underwrite"];
