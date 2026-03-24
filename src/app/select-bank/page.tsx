@@ -6,6 +6,28 @@ import Link from "next/link";
 
 type Bank = { id: string; code: string; name: string };
 
+/**
+ * Map internal error codes to user-facing messages.
+ * This page must never surface raw internal reason codes.
+ */
+function friendlyError(raw: string): string {
+  const lower = raw.toLowerCase();
+
+  if (lower.includes("profile_required") || lower.includes("profile_update_failed"))
+    return "We created your bank, but couldn\u2019t finish setting up your user profile. Please try again.";
+  if (lower.includes("bank_creation_failed"))
+    return "Could not create bank. Please try a different name or contact support.";
+  if (lower.includes("forbidden"))
+    return "You don\u2019t have access to that bank. Please select one you belong to.";
+  if (lower.includes("bank_not_found"))
+    return "That bank could not be found. Please select another.";
+  if (lower.includes("unauthorized") || lower.includes("not_authenticated"))
+    return "Your session has expired. Please sign in again.";
+
+  // Catch-all: don't leak internal codes
+  return "Something went wrong. Please try again or contact support.";
+}
+
 export default function SelectBankPage() {
   const router = useRouter();
   const [banks, setBanks] = useState<Bank[]>([]);
@@ -27,7 +49,7 @@ export default function SelectBankPage() {
         if (!res.ok || !json.ok) throw new Error(json.error || "Failed to load banks");
         setBanks(json.banks || []);
       } catch (e: any) {
-        setErr(e?.message || "Failed to load banks");
+        setErr(friendlyError(e?.message || "load_failed"));
       } finally {
         setLoading(false);
       }
@@ -44,10 +66,10 @@ export default function SelectBankPage() {
         body: JSON.stringify({ bank_id: bankId }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json.ok) throw new Error(json.error || "Failed to save bank");
+      if (!res.ok || !json.ok) throw new Error(json.error || "select_failed");
       router.replace("/deals");
     } catch (e: any) {
-      setErr(e?.message || "Failed to save bank");
+      setErr(friendlyError(e?.message || "select_failed"));
     } finally {
       setBusy(false);
     }
@@ -65,24 +87,11 @@ export default function SelectBankPage() {
         body: JSON.stringify({ name }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json.ok) throw new Error(json.error || "Failed to create bank");
-      // Auto-select the newly created bank
-      const created = json.bank as Bank;
-      setBanks((prev) => [...prev, created]);
-      setBankId(created.id);
-      setNewBankName("");
-      setShowCreate(false);
-      // Auto-save selection
-      const selRes = await fetch("/api/profile/bank", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bank_id: created.id }),
-      });
-      const selJson = await selRes.json().catch(() => ({}));
-      if (!selRes.ok || !selJson.ok) throw new Error(selJson.error || "Failed to select bank");
+      if (!res.ok || !json.ok) throw new Error(json.error || "create_failed");
+      // POST /api/banks already sets bank context + profile — just redirect
       router.replace("/deals");
     } catch (e: any) {
-      setErr(e?.message || "Failed to create bank");
+      setErr(friendlyError(e?.message || "create_failed"));
     } finally {
       setCreating(false);
     }
@@ -95,7 +104,11 @@ export default function SelectBankPage() {
           <h1 className="text-2xl font-bold text-white tracking-tight">
             Buddy <span className="text-white/60">The Underwriter</span>
           </h1>
-          <p className="mt-2 text-sm text-white/50">Select or create a bank to continue</p>
+          <p className="mt-2 text-sm text-white/50">
+            {banks.length > 0
+              ? "Select a bank or create a new one to continue."
+              : "We need to finish setting up your workspace before you continue."}
+          </p>
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm p-6 space-y-4">

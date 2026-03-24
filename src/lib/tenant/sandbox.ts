@@ -109,6 +109,20 @@ export async function ensureSandboxGate(bankId: string, userId: string) {
 
   if (memErr) throw memErr;
   if (!membership) {
+    // Ensure profile exists before membership insert.
+    // The `trg_bank_memberships_fill_user_id` trigger resolves
+    // `user_id` from `profiles.id` via `clerk_user_id`.
+    await sb
+      .from("profiles")
+      .upsert(
+        {
+          clerk_user_id: userId,
+          bank_id: bankId,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "clerk_user_id" },
+      );
+
     const { error: insErr } = await sb.from("bank_memberships").insert({
       bank_id: bankId,
       clerk_user_id: userId,
@@ -136,16 +150,10 @@ export async function ensureSandboxMembership(userId: string): Promise<{ ok: boo
 
   if (memErr) throw memErr;
 
-  if (!membership) {
-    const { error: insErr } = await sb.from("bank_memberships").insert({
-      bank_id: bankId,
-      clerk_user_id: userId,
-      role: "bank_admin",
-    });
-
-    if (insErr) throw insErr;
-  }
-
+  // Profile MUST be upserted BEFORE membership insert because the
+  // `trg_bank_memberships_fill_user_id` trigger resolves `user_id`
+  // from `profiles.id` via `clerk_user_id`. Without a profile row,
+  // the trigger hard-fails (user_id NOT NULL).
   await sb
     .from("profiles")
     .upsert(
@@ -158,6 +166,16 @@ export async function ensureSandboxMembership(userId: string): Promise<{ ok: boo
       },
       { onConflict: "clerk_user_id" },
     );
+
+  if (!membership) {
+    const { error: insErr } = await sb.from("bank_memberships").insert({
+      bank_id: bankId,
+      clerk_user_id: userId,
+      role: "bank_admin",
+    });
+
+    if (insErr) throw insErr;
+  }
 
   return { ok: true, bankId };
 }

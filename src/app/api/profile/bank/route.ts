@@ -5,6 +5,14 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * POST /api/profile/bank
+ *
+ * Switch or set the user's active bank context.
+ * Validates membership before updating. Upserts profile with bank_id.
+ * This route is part of the canonical bootstrap: bank context must exist
+ * before or during profile creation.
+ */
 export async function POST(req: Request) {
   const { userId } = await clerkAuth();
 
@@ -27,26 +35,28 @@ export async function POST(req: Request) {
 
   const sb = supabaseAdmin();
 
-  // Validate bank exists
+  // 1. Validate bank exists
   const { data: bank, error: bErr } = await sb
     .from("banks")
     .select("id")
     .eq("id", bankId)
     .maybeSingle();
 
-  if (bErr)
+  if (bErr) {
+    console.error("[POST /api/profile/bank] bank lookup failed:", bErr.message);
     return NextResponse.json(
-      { ok: false, error: bErr.message },
+      { ok: false, error: "bank_lookup_failed" },
       { status: 500 },
     );
-  if (!bank)
+  }
+  if (!bank) {
     return NextResponse.json(
       { ok: false, error: "bank_not_found" },
       { status: 404 },
     );
+  }
 
-  // Ensure the user actually has membership in the target bank.
-  // (Prevents arbitrary tenant switching to banks the user does not belong to.)
+  // 2. Validate membership — prevents arbitrary tenant switching
   const { data: mem, error: mErr } = await sb
     .from("bank_memberships")
     .select("bank_id")
@@ -54,18 +64,21 @@ export async function POST(req: Request) {
     .eq("bank_id", bankId)
     .maybeSingle();
 
-  if (mErr)
+  if (mErr) {
+    console.error("[POST /api/profile/bank] membership lookup failed:", mErr.message);
     return NextResponse.json(
-      { ok: false, error: mErr.message },
+      { ok: false, error: "membership_lookup_failed" },
       { status: 500 },
     );
-  if (!mem)
+  }
+  if (!mem) {
     return NextResponse.json(
       { ok: false, error: "forbidden" },
       { status: 403 },
     );
+  }
 
-  // Upsert profile using Clerk user ID
+  // 3. Upsert profile with bank_id (conflict on clerk_user_id)
   const { error: pErr } = await sb.from("profiles").upsert(
     {
       clerk_user_id: userId,
@@ -78,12 +91,14 @@ export async function POST(req: Request) {
   );
 
   if (pErr) {
+    console.error("[POST /api/profile/bank] profile upsert failed:", pErr.message);
     return NextResponse.json(
-      { ok: false, error: pErr.message },
+      { ok: false, error: "profile_update_failed" },
       { status: 500 },
     );
   }
 
+  // 4. Set active bank cookie
   const res = NextResponse.json({ ok: true }, { status: 200 });
   res.cookies.set({
     name: "bank_id",

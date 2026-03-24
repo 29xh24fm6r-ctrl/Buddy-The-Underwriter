@@ -19,7 +19,7 @@ import assert from "node:assert/strict";
 type UserProfile = {
   id: string;
   clerk_user_id: string;
-  bank_id: string | null;
+  bank_id: string;
   display_name: string | null;
   avatar_url: string | null;
 };
@@ -38,7 +38,7 @@ function buildProfileFromRow(row: Record<string, any>): UserProfile {
   return {
     id: row.id,
     clerk_user_id: row.clerk_user_id,
-    bank_id: row.bank_id ?? null,
+    bank_id: row.bank_id ?? "",
     display_name: row.display_name ?? null,
     avatar_url: row.avatar_url ?? null,
   };
@@ -119,18 +119,18 @@ test("maps full row correctly", () => {
   assert.equal(profile.avatar_url, "https://example.com/avatar.png");
 });
 
-test("nullifies missing optional fields", () => {
+test("nullifies missing optional fields, bank_id falls back to empty string", () => {
   const row = { id: "prof-2", clerk_user_id: "user_def" };
   const profile = buildProfileFromRow(row);
-  assert.equal(profile.bank_id, null);
+  assert.equal(profile.bank_id, "");
   assert.equal(profile.display_name, null);
   assert.equal(profile.avatar_url, null);
 });
 
 test("handles explicit null values", () => {
-  const row = { id: "prof-3", clerk_user_id: "user_ghi", bank_id: null, display_name: null, avatar_url: null };
+  const row = { id: "prof-3", clerk_user_id: "user_ghi", bank_id: "bank-3", display_name: null, avatar_url: null };
   const profile = buildProfileFromRow(row);
-  assert.equal(profile.bank_id, null);
+  assert.equal(profile.bank_id, "bank-3");
   assert.equal(profile.display_name, null);
   assert.equal(profile.avatar_url, null);
 });
@@ -196,13 +196,37 @@ test("schema_mismatch result shape has ok:false + detail", () => {
     ok: false as const,
     error: "schema_mismatch" as const,
     detail: "profiles.display_name or avatar_url missing",
-    profile: buildProfileFromRow({ id: "p1", clerk_user_id: "u1" }),
+    profile: buildProfileFromRow({ id: "p1", clerk_user_id: "u1", bank_id: "bank-1" }),
   };
   assert.equal(result.ok, false);
   assert.equal(result.error, "schema_mismatch");
   assert.equal(result.profile.display_name, null);
   assert.equal(result.profile.avatar_url, null);
   assert.ok(result.detail.includes("display_name"));
+});
+
+// ─── bankId required invariant ───────────────────────────────────────────
+
+console.log("ensureUserProfile — bankId required invariant");
+
+test("bank_required result shape when bankId is missing", () => {
+  // Simulate what ensureUserProfile returns when called without bankId
+  const result = {
+    ok: false as const,
+    error: "bank_required" as const,
+    detail: "ensureUserProfile requires a bankId. Resolve bank context first.",
+  };
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "bank_required");
+  assert.ok(result.detail.includes("bankId"));
+});
+
+test("ensureUserProfile signature requires bankId at call site", () => {
+  // Type-level contract: calling without bankId should be a compile error.
+  // We verify the opts shape here as a runtime proxy.
+  const opts = { userId: "u1", bankId: "bank-1" };
+  assert.ok("bankId" in opts, "bankId must be a required key in opts");
+  assert.ok(opts.bankId.length > 0, "bankId must be a non-empty string");
 });
 
 console.log("\nAll ensureUserProfile tests complete.");

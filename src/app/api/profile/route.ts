@@ -2,8 +2,8 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { clerkAuth, clerkCurrentUser } from "@/lib/auth/clerkServer";
-import { ensureUserProfile } from "@/lib/tenant/ensureUserProfile";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { deriveOnboardingState } from "@/lib/tenant/onboardingState";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +22,10 @@ function isSchemaMismatchError(errorMsg: string): boolean {
     (msg.includes("relation") && msg.includes("does not exist"))
   );
 }
+
+// Columns for full and base profile selects
+const FULL_SELECT = "id, clerk_user_id, bank_id, display_name, avatar_url";
+const BASE_SELECT = "id, clerk_user_id, bank_id";
 
 /**
  * Load the user's bank memberships and current bank name.
@@ -43,7 +47,6 @@ async function loadBankContext(userId: string, bankId: string | null) {
 
   if (memRows && memRows.length > 0) {
     const bankIds = memRows.map((m: any) => m.bank_id);
-    // Fetch bank details including logo_url and website_url
     const { data: bankRows } = await sb
       .from("banks")
       .select("id, name, logo_url, website_url")
@@ -75,7 +78,6 @@ async function loadBankContext(userId: string, bankId: string | null) {
     if (cached) {
       current_bank = cached;
     } else {
-      // bank_id set but not in memberships — fetch directly
       const { data: bk } = await sb
         .from("banks")
         .select("id, name, logo_url, website_url")
@@ -98,10 +100,11 @@ async function loadBankContext(userId: string, bankId: string | null) {
 /**
  * GET /api/profile
  *
- * Returns the current user's profile (auto-created if missing),
- * plus bank memberships and current bank context.
- * Schema-safe: returns { ok:false, error:"schema_mismatch" } (200) if
- * avatar columns don't exist yet, instead of a 500.
+ * READ-ONLY. Returns the current user's profile + bank context.
+ * Does NOT auto-create a profile — profile creation is the responsibility
+ * of bank selection / bank creation flows.
+ *
+ * If no profile exists, returns { ok: true, profile: null }.
  */
 export async function GET() {
   const { userId } = await clerkAuth();
@@ -109,65 +112,94 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  // Fetch Clerk user for email/name/avatar — best-effort, don't fail on error
-  let clerkUser: Awaited<ReturnType<typeof clerkCurrentUser>> = null;
-  try {
-    clerkUser = await clerkCurrentUser();
-  } catch (e) {
-    console.warn("[GET /api/profile] clerkCurrentUser failed:", e);
-  }
+  const sb = supabaseAdmin();
 
   try {
-    const result = await ensureUserProfile({
-      userId,
-      email: clerkUser?.primaryEmailAddress?.emailAddress,
-      name: clerkUser?.fullName,
-      avatarUrl: clerkUser?.imageUrl,
-    });
-    const bankCtx = await loadBankContext(userId, result.profile.bank_id);
+    // Try loading profile with full columns
+    const { data: profile, error: loadErr } = await sb
+      .from("profiles")
+      .select(FULL_SELECT)
+      .eq("clerk_user_id", userId)
+      .maybeSingle();
 
-    // Extract email from Clerk user
-    const email = clerkUser?.primaryEmailAddress?.emailAddress ?? null;
+    // Schema mismatch on load → retry with base columns
+    if (loadErr && isSchemaMismatchError(loadErr.message)) {
+      console.warn(`[GET /api/profile] schema_mismatch: ${loadErr.message}`);
 
-    // Find role for current bank
-    const currentBankRole = bankCtx.current_bank
-      ? bankCtx.memberships.find((m) => m.bank_id === bankCtx.current_bank?.id)?.role ?? null
-      : null;
+      const { data: baseProfile } = await sb
+        .from("profiles")
+        .select(BASE_SELECT)
+        .eq("clerk_user_id", userId)
+        .maybeSingle();
 
-    if (!result.ok) {
-      // Schema mismatch — return 200 with degraded profile + error flag
-      console.warn(`[GET /api/profile] schema_mismatch: ${result.detail}`);
+      const bankId = baseProfile?.bank_id ?? null;
+      const bankCtx = await loadBankContext(userId, bankId);
+
       return NextResponse.json({
         ok: false,
         error: "schema_mismatch",
-        detail: result.detail,
-        profile: result.profile,
-        email,
-        current_bank_role: currentBankRole,
+        detail: `profiles.display_name or avatar_url missing — run migration 20260202_profiles_avatar.sql`,
+        profile: baseProfile
+          ? {
+              id: baseProfile.id,
+              clerk_user_id: baseProfile.clerk_user_id,
+              bank_id: bankId,
+              display_name: null,
+              avatar_url: null,
+            }
+          : null,
         ...bankCtx,
       });
     }
 
+    if (loadErr) {
+      console.error("[GET /api/profile]", loadErr.message);
+      return NextResponse.json({ ok: false, error: loadErr.message }, { status: 500 });
+    }
+
+    // Profile may not exist — that's fine, return null
+    const bankId = profile?.bank_id ?? null;
+    const bankCtx = await loadBankContext(userId, bankId);
+
+    // Extract email from Clerk — best-effort
+    let email: string | null = null;
+    try {
+      const clerkUser = await clerkCurrentUser();
+      email = clerkUser?.primaryEmailAddress?.emailAddress ?? null;
+    } catch {
+      // best-effort
+    }
+
+    const currentBankRole = bankCtx.current_bank
+      ? bankCtx.memberships.find((m) => m.bank_id === bankCtx.current_bank?.id)?.role ?? null
+      : null;
+
+    // Derive canonical onboarding state for debuggability
+    const onboarding = deriveOnboardingState({
+      userId,
+      bankId,
+      hasProfile: !!profile,
+      membershipCount: bankCtx.memberships.length,
+    });
+
     return NextResponse.json({
       ok: true,
-      profile: result.profile,
+      profile: profile
+        ? {
+            id: profile.id,
+            clerk_user_id: profile.clerk_user_id,
+            bank_id: profile.bank_id ?? null,
+            display_name: (profile as any).display_name ?? null,
+            avatar_url: (profile as any).avatar_url ?? null,
+          }
+        : null,
       email,
       current_bank_role: currentBankRole,
+      onboarding_state: onboarding.state,
       ...bankCtx,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "profile_load_failed";
-
-    // Final safety net: catch any schema errors that slipped through
-    if (isSchemaMismatchError(msg)) {
-      console.warn(`[GET /api/profile] schema_mismatch (catch): ${msg}`);
-      return NextResponse.json({
-        ok: false,
-        error: "schema_mismatch",
-        detail: msg,
-      });
-    }
-
     console.error("[GET /api/profile]", msg);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }

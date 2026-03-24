@@ -7,6 +7,102 @@ import { ensureUserProfile } from "@/lib/tenant/ensureUserProfile";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Helper: activate bank context for a user.
+ *
+ * Canonical order: profile (with bank_id) → membership → active context.
+ * The bank row must already exist before calling this.
+ *
+ * Profile is created/upserted BEFORE membership because the
+ * `trg_bank_memberships_fill_user_id` trigger resolves
+ * `bank_memberships.user_id` from `profiles.id` via `clerk_user_id`.
+ * If the profile doesn't exist when the membership is inserted,
+ * the trigger hard-fails (user_id NOT NULL).
+ */
+async function activateBank(
+  userId: string,
+  bankId: string,
+  bank: { id: string; name: string; logo_url?: string | null; website_url?: string | null },
+  opts?: { existing?: boolean; claimed?: boolean; skipMembership?: boolean },
+): Promise<NextResponse> {
+  const sb = supabaseAdmin();
+
+  // Step 1: Ensure profile exists with this bank_id
+  // This MUST happen before membership insert so the trigger can resolve user_id.
+  const profileResult = await ensureUserProfile({ userId, bankId });
+  if (!profileResult.ok && profileResult.error !== "schema_mismatch") {
+    console.error("[POST /api/banks] ensureUserProfile failed:", profileResult);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "profile_setup_failed",
+        detail: "Could not set up your user profile. Please try again.",
+      },
+      { status: 500 },
+    );
+  }
+
+  // Step 2: Create membership (if not already done by caller)
+  // The trigger will resolve user_id from the profile we just created.
+  if (!opts?.skipMembership) {
+    const { error: memErr } = await sb
+      .from("bank_memberships")
+      .upsert(
+        {
+          bank_id: bankId,
+          clerk_user_id: userId,
+          role: "admin",
+        },
+        { onConflict: "bank_id,clerk_user_id" },
+      );
+
+    if (memErr) {
+      // Non-fatal for idempotent paths (duplicate membership is OK)
+      const isDuplicate = memErr.code === "23505" || memErr.message?.includes("duplicate");
+      if (!isDuplicate) {
+        console.error("[POST /api/banks] membership insert failed:", memErr.message);
+      }
+    }
+  }
+
+  // Step 3: Set active bank context on profile
+  await sb
+    .from("profiles")
+    .update({
+      bank_id: bankId,
+      last_bank_id: bankId,
+      bank_selected_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("clerk_user_id", userId);
+
+  const res = NextResponse.json(
+    {
+      ok: true,
+      bank: { id: bank.id, name: bank.name },
+      current_bank: {
+        id: bank.id,
+        name: bank.name,
+        logo_url: bank.logo_url ?? null,
+        website_url: bank.website_url ?? null,
+      },
+      ...(opts?.existing ? { existing: true } : {}),
+      ...(opts?.claimed ? { claimed: true } : {}),
+    },
+    { status: opts?.existing || opts?.claimed ? 200 : 201 },
+  );
+  res.cookies.set({
+    name: "bank_id",
+    value: bankId,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,
+  });
+  return res;
+}
+
 export async function GET() {
   const { userId } = await clerkAuth();
 
@@ -44,8 +140,16 @@ export async function GET() {
 /**
  * POST /api/banks
  *
- * Create a new bank, add the caller as admin member, and set it as their current bank.
- * Idempotent: if the user already admins a bank with the same name, returns that bank.
+ * Create a new bank, set up the user's profile, then create membership.
+ *
+ * Canonical order: bank → profile (with bank_id) → membership → active context.
+ *
+ * Profile MUST exist before membership because the DB trigger
+ * `trg_bank_memberships_fill_user_id` resolves `user_id` from
+ * `profiles.id` via `clerk_user_id`. Without a profile row,
+ * the trigger hard-fails (user_id NOT NULL).
+ *
+ * Idempotent: if the user already has a bank with the same name, returns that bank.
  */
 export async function POST(req: NextRequest) {
   const { userId } = await clerkAuth();
@@ -70,68 +174,16 @@ export async function POST(req: NextRequest) {
 
   // Normalize website_url: auto-prepend https:// if missing
   if (websiteUrl) {
-    // If URL starts with www., prepend https://
     if (websiteUrl.startsWith("www.")) {
       websiteUrl = `https://${websiteUrl}`;
-    }
-    // If URL doesn't have a protocol, prepend https://
-    else if (!websiteUrl.startsWith("http://") && !websiteUrl.startsWith("https://")) {
+    } else if (!websiteUrl.startsWith("http://") && !websiteUrl.startsWith("https://")) {
       websiteUrl = `https://${websiteUrl}`;
     }
   }
 
   const sb = supabaseAdmin();
 
-  // SECURITY: Profile must exist before creating bank membership.
-  // This ensures user_id references a real profiles.id (no placeholders).
-  let profileId: string | null = null;
-
-  // Step 1: Try ensureUserProfile (creates if missing)
-  try {
-    const profileResult = await ensureUserProfile({ userId });
-    profileId = profileResult.profile.id;
-  } catch (e: any) {
-    console.warn("[POST /api/banks] ensureUserProfile failed:", e?.message ?? e);
-  }
-
-  // Step 2: Direct lookup fallback
-  if (!profileId) {
-    const { data: prof } = await sb
-      .from("profiles")
-      .select("id")
-      .eq("clerk_user_id", userId)
-      .maybeSingle();
-    profileId = prof?.id ?? null;
-  }
-
-  // Step 3: Create minimal profile if still missing
-  if (!profileId) {
-    const { data: newProf, error: createErr } = await sb
-      .from("profiles")
-      .insert({ clerk_user_id: userId, updated_at: new Date().toISOString() })
-      .select("id")
-      .single();
-
-    if (createErr) {
-      console.error("[POST /api/banks] profile creation failed:", createErr.message);
-      return NextResponse.json(
-        { ok: false, error: "profile_required", detail: "Could not create user profile. Please try again." },
-        { status: 500 },
-      );
-    }
-    profileId = newProf?.id ?? null;
-  }
-
-  // Hard-fail if we still don't have a profile (should never happen)
-  if (!profileId) {
-    return NextResponse.json(
-      { ok: false, error: "profile_required", detail: "User profile is required to create a bank." },
-      { status: 400 },
-    );
-  }
-
-  // Idempotency: check if user already has ANY membership to a bank with this name
-  // (not just admin - catches edge cases from failed previous attempts)
+  // --- Idempotency: check if user already has a membership to a bank with this name ---
   const { data: existingMems } = await sb
     .from("bank_memberships")
     .select("bank_id, role")
@@ -157,42 +209,15 @@ export async function POST(req: NextRequest) {
           .eq("clerk_user_id", userId);
       }
 
-      // Set as current bank
-      await sb
-        .from("profiles")
-        .update({
-          bank_id: matchingBank.id,
-          last_bank_id: matchingBank.id,
-          bank_selected_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("clerk_user_id", userId);
-
-      const res = NextResponse.json({
-        ok: true,
-        bank: { id: matchingBank.id, name: matchingBank.name },
-        current_bank: {
-          id: matchingBank.id,
-          name: matchingBank.name,
-          logo_url: matchingBank.logo_url,
-          website_url: matchingBank.website_url,
-        },
+      // Membership already exists — activate (profile ensured, membership skipped)
+      return activateBank(userId, matchingBank.id, matchingBank, {
         existing: true,
+        skipMembership: true,
       });
-      res.cookies.set({
-        name: "bank_id",
-        value: matchingBank.id,
-        httpOnly: true,
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        path: "/",
-        maxAge: 60 * 60 * 24 * 30,
-      });
-      return res;
     }
   }
 
-  // Check if bank with this name already exists (handles orphaned banks and name collisions)
+  // --- Check if bank with this name already exists (orphaned banks / name collisions) ---
   const { data: existingBank } = await sb
     .from("banks")
     .select("id, name, logo_url, website_url")
@@ -200,77 +225,35 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   if (existingBank) {
-    // Bank exists - check if it's orphaned (no memberships) or belongs to another client
     const { count: memberCount } = await sb
       .from("bank_memberships")
       .select("*", { count: "exact", head: true })
       .eq("bank_id", existingBank.id);
 
     if (memberCount === 0) {
-      // Orphaned bank - safe to claim it for this user
-      const { error: claimErr } = await sb
-        .from("bank_memberships")
-        .insert({
-          bank_id: existingBank.id,
-          user_id: profileId,
-          clerk_user_id: userId,
-          role: "admin",
-        });
-
-      if (!claimErr) {
-        // Update website_url and logo if provided
-        if (websiteUrl) {
-          let logoUrl: string | null = null;
-          try {
-            const hostname = new URL(websiteUrl).hostname;
-            logoUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=128`;
-          } catch {
-            // Invalid URL, skip logo
-          }
-          await sb
-            .from("banks")
-            .update({ website_url: websiteUrl, logo_url: logoUrl })
-            .eq("id", existingBank.id);
-          existingBank.website_url = websiteUrl;
-          existingBank.logo_url = logoUrl;
+      // Orphaned bank — claim it.
+      // Update website_url and logo if provided
+      if (websiteUrl) {
+        let logoUrl: string | null = null;
+        try {
+          const hostname = new URL(websiteUrl).hostname;
+          logoUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=128`;
+        } catch {
+          // Invalid URL, skip logo
         }
-
-        // Set as current bank
         await sb
-          .from("profiles")
-          .update({
-            bank_id: existingBank.id,
-            last_bank_id: existingBank.id,
-            bank_selected_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("clerk_user_id", userId);
-
-        const res = NextResponse.json({
-          ok: true,
-          bank: { id: existingBank.id, name: existingBank.name },
-          current_bank: {
-            id: existingBank.id,
-            name: existingBank.name,
-            logo_url: existingBank.logo_url,
-            website_url: existingBank.website_url,
-          },
-          claimed: true,
-        });
-        res.cookies.set({
-          name: "bank_id",
-          value: existingBank.id,
-          httpOnly: true,
-          sameSite: "lax",
-          secure: process.env.NODE_ENV === "production",
-          path: "/",
-          maxAge: 60 * 60 * 24 * 30,
-        });
-        return res;
+          .from("banks")
+          .update({ website_url: websiteUrl, logo_url: logoUrl })
+          .eq("id", existingBank.id);
+        existingBank.website_url = websiteUrl;
+        existingBank.logo_url = logoUrl;
       }
+
+      // activateBank handles: profile → membership → active context
+      return activateBank(userId, existingBank.id, existingBank, { claimed: true });
     }
 
-    // Bank belongs to another client - return generic error (don't expose bank existence)
+    // Bank belongs to another client — generic error (don't expose bank existence)
     return NextResponse.json(
       {
         ok: false,
@@ -281,15 +264,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Create new bank
-  // Generate a unique code from the name (first 3 chars + random suffix)
+  // --- Create new bank ---
   const baseCode = name
     .replace(/[^a-zA-Z0-9]/g, "")
     .slice(0, 3)
     .toUpperCase() || "BNK";
   const code = `${baseCode}_${Date.now().toString(36).slice(-4).toUpperCase()}`;
 
-  // Auto-generate logo URL from favicon if website provided
   let logoUrl: string | null = null;
   if (websiteUrl) {
     try {
@@ -309,121 +290,21 @@ export async function POST(req: NextRequest) {
   if (bankErr) {
     console.error("[POST /api/banks] bank insert:", bankErr.message);
     return NextResponse.json(
-      { ok: false, error: bankErr.message },
+      { ok: false, error: "bank_creation_failed", detail: "Could not create bank. Please try again." },
       { status: 500 },
     );
   }
 
-  // Create admin membership with real profile.id (no placeholders)
-  // Uses upsert for idempotency (retries/double-clicks won't fail)
-  // The DB trigger will also resolve user_id from clerk_user_id as a safety net
-  const { error: memErr } = await sb
-    .from("bank_memberships")
-    .upsert(
-      {
-        bank_id: newBank.id,
-        user_id: profileId,
-        clerk_user_id: userId,
-        role: "admin",
-      },
-      { onConflict: "bank_id,user_id" }
-    );
+  // activateBank handles: profile → membership → active context
+  // If membership fails, it will attempt cleanup
+  const result = await activateBank(userId, newBank.id, newBank);
 
-  if (memErr) {
-    console.error("[POST /api/banks] membership insert failed:", {
-      error: memErr.message,
-      code: memErr.code,
-      profileId,
-      userId,
-      bankId: newBank.id,
-    });
-    // Rollback: delete the orphaned bank (best-effort)
+  // If activation failed (profile couldn't be created), rollback the bank
+  const resultBody = await result.clone().json();
+  if (!resultBody.ok) {
+    console.warn("[POST /api/banks] activation failed, rolling back bank:", newBank.id);
     await sb.from("banks").delete().eq("id", newBank.id);
-
-    // Check for duplicate membership - if user already has this bank, switch to it silently
-    const isDuplicate = memErr.code === "23505" || memErr.message?.includes("duplicate");
-    if (isDuplicate) {
-      // User likely already has a bank with this name - find and switch to it
-      const { data: userBanks } = await sb
-        .from("bank_memberships")
-        .select("bank_id, banks(id, name, logo_url, website_url)")
-        .eq("clerk_user_id", userId);
-
-      const existingBank = userBanks?.find((m: any) =>
-        m.banks?.name?.toLowerCase() === name.toLowerCase()
-      );
-
-      if (existingBank?.banks) {
-        // Switch to existing bank silently
-        await sb
-          .from("profiles")
-          .update({
-            bank_id: existingBank.bank_id,
-            last_bank_id: existingBank.bank_id,
-            bank_selected_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("clerk_user_id", userId);
-
-        const bank0 = existingBank.banks[0];
-
-        const res = NextResponse.json({
-          ok: true,
-          bank: { id: bank0.id, name: bank0.name },
-          current_bank: bank0,
-          existing: true,
-        });
-        res.cookies.set({
-          name: "bank_id",
-          value: existingBank.bank_id,
-          httpOnly: true,
-          sameSite: "lax",
-          secure: process.env.NODE_ENV === "production",
-          path: "/",
-          maxAge: 60 * 60 * 24 * 30,
-        });
-        return res;
-      }
-    }
-
-    // Generic error - don't expose internal details
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "bank_creation_failed",
-        detail: "Could not create bank. Please try a different name or contact support.",
-      },
-      { status: 500 },
-    );
   }
 
-  // Set as current bank on profile
-  await sb
-    .from("profiles")
-    .update({
-      bank_id: newBank.id,
-      last_bank_id: newBank.id,
-      bank_selected_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("clerk_user_id", userId);
-
-  const res = NextResponse.json(
-    {
-      ok: true,
-      bank: { id: newBank.id, name: newBank.name },
-      current_bank: { id: newBank.id, name: newBank.name },
-    },
-    { status: 201 },
-  );
-  res.cookies.set({
-    name: "bank_id",
-    value: newBank.id,
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 30,
-  });
-  return res;
+  return result;
 }

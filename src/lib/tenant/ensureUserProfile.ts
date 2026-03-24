@@ -5,14 +5,16 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export type UserProfile = {
   id: string;
   clerk_user_id: string;
-  bank_id: string | null;
+  bank_id: string;
   display_name: string | null;
   avatar_url: string | null;
 };
 
 export type EnsureProfileResult =
   | { ok: true; profile: UserProfile }
-  | { ok: false; error: "schema_mismatch"; detail: string; profile: UserProfile };
+  | { ok: false; error: "schema_mismatch"; detail: string; profile: UserProfile }
+  | { ok: false; error: "bank_required"; detail: string }
+  | { ok: false; error: "insert_failed"; detail: string };
 
 /**
  * Detect PostgREST schema mismatch errors (missing column, relation, etc.).
@@ -37,8 +39,11 @@ const BASE_SELECT = "id, clerk_user_id, bank_id";
 /**
  * Idempotent profile provisioning.
  *
- * If a profiles row exists for the given Clerk user, return it.
- * If missing, insert one with sensible defaults.
+ * INVARIANT: bankId is REQUIRED. A profile without bank context is not a valid
+ * Buddy state. Callers must resolve bank context before calling this function.
+ *
+ * If a profiles row exists for the given Clerk user, return it (backfilling
+ * avatar/display_name as needed). If missing, upsert one with the given bankId.
  *
  * Schema-safe: if avatar columns don't exist yet (prod migration pending),
  * falls back to base columns and returns { ok:false, error:"schema_mismatch" }.
@@ -47,10 +52,19 @@ const BASE_SELECT = "id, clerk_user_id, bank_id";
  */
 export async function ensureUserProfile(opts: {
   userId: string;
+  bankId: string;
   email?: string | null;
   name?: string | null;
   avatarUrl?: string | null;
 }): Promise<EnsureProfileResult> {
+  if (!opts.bankId) {
+    return {
+      ok: false,
+      error: "bank_required",
+      detail: "ensureUserProfile requires a bankId. Resolve bank context first.",
+    };
+  }
+
   const sb = supabaseAdmin();
 
   // 1) Try full select (with avatar columns)
@@ -74,7 +88,11 @@ export async function ensureUserProfile(opts: {
       .maybeSingle();
 
     if (baseErr) {
-      throw new Error(`ensureUserProfile: base load failed: ${baseErr.message}`);
+      return {
+        ok: false,
+        error: "insert_failed",
+        detail: `ensureUserProfile: base load failed: ${baseErr.message}`,
+      };
     }
 
     if (base) {
@@ -85,7 +103,7 @@ export async function ensureUserProfile(opts: {
         profile: {
           id: base.id,
           clerk_user_id: base.clerk_user_id,
-          bank_id: base.bank_id ?? null,
+          bank_id: base.bank_id ?? opts.bankId,
           display_name: null,
           avatar_url: null,
         },
@@ -98,6 +116,7 @@ export async function ensureUserProfile(opts: {
       .upsert(
         {
           clerk_user_id: opts.userId,
+          bank_id: opts.bankId,
           updated_at: new Date().toISOString(),
         } as any,
         { onConflict: "clerk_user_id" },
@@ -106,7 +125,11 @@ export async function ensureUserProfile(opts: {
       .single();
 
     if (baseInsertErr) {
-      throw new Error(`ensureUserProfile: base insert failed: ${baseInsertErr.message}`);
+      return {
+        ok: false,
+        error: "insert_failed",
+        detail: `ensureUserProfile: base insert failed: ${baseInsertErr.message}`,
+      };
     }
 
     return {
@@ -116,7 +139,7 @@ export async function ensureUserProfile(opts: {
       profile: {
         id: baseInserted.id,
         clerk_user_id: baseInserted.clerk_user_id,
-        bank_id: baseInserted.bank_id ?? null,
+        bank_id: baseInserted.bank_id ?? opts.bankId,
         display_name: null,
         avatar_url: null,
       },
@@ -124,7 +147,11 @@ export async function ensureUserProfile(opts: {
   }
 
   if (loadErr) {
-    throw new Error(`ensureUserProfile: load failed: ${loadErr.message}`);
+    return {
+      ok: false,
+      error: "insert_failed",
+      detail: `ensureUserProfile: load failed: ${loadErr.message}`,
+    };
   }
 
   if (existing) {
@@ -150,7 +177,7 @@ export async function ensureUserProfile(opts: {
           profile: {
             id: existing.id,
             clerk_user_id: existing.clerk_user_id,
-            bank_id: existing.bank_id ?? null,
+            bank_id: existing.bank_id ?? opts.bankId,
             display_name: (existing as any).display_name ?? null,
             avatar_url: opts.avatarUrl,
           },
@@ -163,14 +190,14 @@ export async function ensureUserProfile(opts: {
       profile: {
         id: existing.id,
         clerk_user_id: existing.clerk_user_id,
-        bank_id: existing.bank_id ?? null,
+        bank_id: existing.bank_id ?? opts.bankId,
         display_name: (existing as any).display_name ?? null,
         avatar_url: existingAvatarUrl,
       },
     };
   }
 
-  // 2) Profile missing — create one (full columns)
+  // 2) Profile missing — create one (full columns) with bank_id
   const defaultDisplayName =
     opts.name?.trim() ||
     opts.email?.split("@")[0] ||
@@ -181,6 +208,7 @@ export async function ensureUserProfile(opts: {
     .upsert(
       {
         clerk_user_id: opts.userId,
+        bank_id: opts.bankId,
         display_name: defaultDisplayName,
         avatar_url: opts.avatarUrl ?? null,
         updated_at: new Date().toISOString(),
@@ -202,6 +230,7 @@ export async function ensureUserProfile(opts: {
       .upsert(
         {
           clerk_user_id: opts.userId,
+          bank_id: opts.bankId,
           updated_at: new Date().toISOString(),
         } as any,
         { onConflict: "clerk_user_id" },
@@ -210,7 +239,11 @@ export async function ensureUserProfile(opts: {
       .single();
 
     if (baseInsertErr) {
-      throw new Error(`ensureUserProfile: base insert failed: ${baseInsertErr.message}`);
+      return {
+        ok: false,
+        error: "insert_failed",
+        detail: `ensureUserProfile: base insert failed: ${baseInsertErr.message}`,
+      };
     }
 
     return {
@@ -220,7 +253,7 @@ export async function ensureUserProfile(opts: {
       profile: {
         id: baseInserted.id,
         clerk_user_id: baseInserted.clerk_user_id,
-        bank_id: baseInserted.bank_id ?? null,
+        bank_id: baseInserted.bank_id ?? opts.bankId,
         display_name: null,
         avatar_url: null,
       },
@@ -228,7 +261,11 @@ export async function ensureUserProfile(opts: {
   }
 
   if (insertErr) {
-    throw new Error(`ensureUserProfile: insert failed: ${insertErr.message}`);
+    return {
+      ok: false,
+      error: "insert_failed",
+      detail: `ensureUserProfile: insert failed: ${insertErr.message}`,
+    };
   }
 
   return {
@@ -236,7 +273,7 @@ export async function ensureUserProfile(opts: {
     profile: {
       id: inserted.id,
       clerk_user_id: inserted.clerk_user_id,
-      bank_id: inserted.bank_id ?? null,
+      bank_id: inserted.bank_id ?? opts.bankId,
       display_name: (inserted as any).display_name ?? null,
       avatar_url: (inserted as any).avatar_url ?? null,
     },
