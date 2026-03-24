@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
@@ -15,15 +16,7 @@ type Props = {
 
 export default async function BuilderPage({ params }: Props) {
   const { userId } = await clerkAuth();
-
-  if (!userId) {
-    return (
-      <div className="container mx-auto p-6">
-        <h1 className="text-2xl font-bold text-white">Deal Builder</h1>
-        <p className="mt-2 text-sm text-white/60">Please sign in to view this deal.</p>
-      </div>
-    );
-  }
+  if (!userId) redirect("/sign-in"); // type guard — middleware owns auth
 
   const { dealId } = await params;
 

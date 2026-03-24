@@ -13,6 +13,8 @@ function superAdminAllowlist(userId: string) {
 }
 
 export async function getCurrentRole(): Promise<{ userId: string; role: BuddyRole | null }> {
+  // Type guards only — middleware owns auth for all page/layout callers.
+  // These redirects are unreachable in normal operation.
   if (!isClerkConfigured()) redirect("/sign-in");
   const { userId } = await clerkAuth();
   if (!userId) redirect("/sign-in");

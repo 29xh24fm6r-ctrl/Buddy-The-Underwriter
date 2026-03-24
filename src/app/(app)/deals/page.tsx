@@ -66,7 +66,7 @@ export default async function DealsPage({
 }) {
   const bankPick = await tryGetCurrentBankId();
   if (!bankPick.ok) {
-    redirect(bankPick.reason === "not_authenticated" ? "/sign-in" : "/select-bank");
+    redirect("/select-bank"); // middleware owns auth; page owns bank-state only
   }
   const bankId = bankPick.bankId;
   const demoBank = await isSandboxBank(bankId);

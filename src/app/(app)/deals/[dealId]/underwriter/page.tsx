@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import DealCockpitClient from "@/components/deals/DealCockpitClient";
 import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
@@ -21,17 +22,7 @@ type Props = {
  */
 export default async function UnderwriterOverviewPage({ params }: Props) {
   const { userId } = await clerkAuth();
-
-  if (!userId) {
-    return (
-      <div className="p-6">
-        <h1 className="text-2xl font-bold">Deal Overview</h1>
-        <p className="mt-2 text-sm text-white/70">
-          Please sign in to view this deal.
-        </p>
-      </div>
-    );
-  }
+  if (!userId) redirect("/sign-in"); // type guard — middleware owns auth
 
   const adminIds = (process.env.ADMIN_CLERK_USER_IDS ?? "")
     .split(",")

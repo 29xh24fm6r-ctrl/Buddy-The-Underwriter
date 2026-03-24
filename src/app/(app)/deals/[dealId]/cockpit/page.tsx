@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import DealCockpitClient from "@/components/deals/DealCockpitClient";
 import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
@@ -40,17 +41,7 @@ type Props = {
 
 export default async function DealCockpitPage({ params }: Props) {
   const { userId } = await clerkAuth();
-
-  if (!userId) {
-    return (
-      <div className="container mx-auto p-6" data-testid="deal-cockpit">
-        <h1 className="text-2xl font-bold">Deal Cockpit</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Please sign in to view this deal.
-        </p>
-      </div>
-    );
-  }
+  if (!userId) redirect("/sign-in"); // type guard — middleware owns auth
 
   // Check if user is admin
   const adminIds = (process.env.ADMIN_CLERK_USER_IDS ?? "")
