@@ -87,9 +87,7 @@ export async function getCurrentBankId(): Promise<string> {
     //
     // IMPORTANT: Do not run this in production by default.
 
-    const allowAutoProvision =
-      process.env.BUDDY_DEV_AUTO_PROVISION === "1" ||
-      process.env.NODE_ENV !== "production";
+    const allowAutoProvision = process.env.BUDDY_DEV_AUTO_PROVISION === "1";
 
     if (!allowAutoProvision) {
       throw new Error("no_memberships");

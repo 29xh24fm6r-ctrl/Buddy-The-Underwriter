@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { clerkAuth } from "@/lib/auth/clerkServer";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { derivePipelineStatus } from "@/lib/deals/derivePipeline";
@@ -65,9 +64,6 @@ export default async function DealsPage({
 }: {
   searchParams: Promise<{ filter?: string }>;
 }) {
-  const { userId } = await clerkAuth();
-  if (!userId) redirect("/sign-in");
-
   const bankPick = await tryGetCurrentBankId();
   if (!bankPick.ok) {
     redirect(bankPick.reason === "not_authenticated" ? "/sign-in" : "/select-bank");

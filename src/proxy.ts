@@ -94,10 +94,36 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.next();
   }
 
+  // 3) Public routes — return immediately, never block on auth()
+  if (isPublicRoute(req)) {
+    // Fire-and-forget telemetry — never awaited
+    Promise.resolve().then(() =>
+      logDemoPageviewIfApplicable({
+        email: null,
+        bankId: req.cookies.get("bank_id")?.value ?? null,
+        path: p,
+        method: req.method,
+        ip: getClientIp(req),
+        userAgent: req.headers.get("user-agent"),
+        eventType: "pageview",
+        meta: { method: req.method },
+      }).catch(() => {})
+    );
+    return withBuildHeader();
+  }
+
+  // 4) Protected routes only — auth() called only here
   const a = await auth();
 
-  if (isPublicRoute(req)) {
-    await logDemoPageviewIfApplicable({
+  if (!a?.userId) {
+    const signInUrl = new URL("/sign-in", req.url);
+    signInUrl.searchParams.set("redirect_url", req.nextUrl.pathname + req.nextUrl.search);
+    return NextResponse.redirect(signInUrl);
+  }
+
+  // Fire-and-forget telemetry for authenticated pages
+  Promise.resolve().then(() =>
+    logDemoPageviewIfApplicable({
       email: extractEmailFromClaims(a?.sessionClaims ?? null),
       bankId: req.cookies.get("bank_id")?.value ?? null,
       path: p,
@@ -106,26 +132,8 @@ export default clerkMiddleware(async (auth, req) => {
       userAgent: req.headers.get("user-agent"),
       eventType: "pageview",
       meta: { method: req.method },
-    });
-    return withBuildHeader();
-  }
-
-  if (!a?.userId) {
-    const signInUrl = new URL("/sign-in", req.url);
-    signInUrl.searchParams.set("redirect_url", req.nextUrl.pathname + req.nextUrl.search);
-    return NextResponse.redirect(signInUrl);
-  }
-
-  await logDemoPageviewIfApplicable({
-    email: extractEmailFromClaims(a?.sessionClaims ?? null),
-    bankId: req.cookies.get("bank_id")?.value ?? null,
-    path: p,
-    method: req.method,
-    ip: getClientIp(req),
-    userAgent: req.headers.get("user-agent"),
-    eventType: "pageview",
-    meta: { method: req.method },
-  });
+    }).catch(() => {})
+  );
 
   return withBuildHeader();
 });
