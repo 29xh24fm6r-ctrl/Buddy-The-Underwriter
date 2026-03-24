@@ -9,10 +9,27 @@ type Bank = { id: string; code: string; name: string };
 /**
  * Map internal error codes to user-facing messages.
  * This page must never surface raw internal reason codes.
+ *
+ * When the API returns a `detail` string alongside the error code,
+ * we prefer the detail (it already contains contextual info like the
+ * conflicting bank name). Otherwise fall back to a static message.
  */
-function friendlyError(raw: string): string {
+function friendlyError(raw: string, detail?: string | null): string {
   const lower = raw.toLowerCase();
 
+  // ── Bank creation structured errors ───────────────────────────────
+  if (lower === "bank_name_conflict")
+    return detail || "A bank with that name already exists. Please choose a different name.";
+  if (lower === "bank_code_conflict")
+    return "A temporary code conflict occurred. Please try again.";
+  if (lower === "bank_insert_failed")
+    return "Could not create the bank. Please try again or contact support.";
+  if (lower === "profile_setup_failed")
+    return "Your bank was created, but we couldn\u2019t finish setting up your profile. Please try again.";
+  if (lower === "membership_failed")
+    return "Your bank was created, but we couldn\u2019t link your account. Please try again.";
+
+  // ── Legacy / selection errors ─────────────────────────────────────
   if (lower.includes("profile_required") || lower.includes("profile_update_failed"))
     return "We created your bank, but couldn\u2019t finish setting up your user profile. Please try again.";
   if (lower.includes("bank_creation_failed"))
@@ -23,6 +40,8 @@ function friendlyError(raw: string): string {
     return "That bank could not be found. Please select another.";
   if (lower.includes("unauthorized") || lower.includes("not_authenticated"))
     return "Your session has expired. Please sign in again.";
+  if (lower === "name_required")
+    return "Please enter a bank name.";
 
   // Catch-all: don't leak internal codes
   return "Something went wrong. Please try again or contact support.";
@@ -66,7 +85,10 @@ export default function SelectBankPage() {
         body: JSON.stringify({ bank_id: bankId }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json.ok) throw new Error(json.error || "select_failed");
+      if (!res.ok || !json.ok) {
+        setErr(friendlyError(json.error || "select_failed", json.detail));
+        return;
+      }
       router.replace("/deals");
     } catch (e: any) {
       setErr(friendlyError(e?.message || "select_failed"));
@@ -87,7 +109,10 @@ export default function SelectBankPage() {
         body: JSON.stringify({ name }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json.ok) throw new Error(json.error || "create_failed");
+      if (!res.ok || !json.ok) {
+        setErr(friendlyError(json.error || "create_failed", json.detail));
+        return;
+      }
       // POST /api/banks already sets bank context + profile — just redirect
       router.replace("/deals");
     } catch (e: any) {

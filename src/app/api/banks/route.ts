@@ -3,12 +3,19 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { isSandboxAccessAllowed } from "@/lib/tenant/sandbox";
 import { ensureUserProfile } from "@/lib/tenant/ensureUserProfile";
+import {
+  type BankCreateError,
+  classifyBankInsertError,
+  generateBankCode,
+} from "@/lib/tenant/bankCreateErrors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// ─── activateBank helper ───────────────────────────────────────────────────
+
 /**
- * Helper: activate bank context for a user.
+ * Activate bank context for a user.
  *
  * Canonical order: profile (with bank_id) → membership → active context.
  * The bank row must already exist before calling this.
@@ -16,8 +23,6 @@ export const dynamic = "force-dynamic";
  * Profile is created/upserted BEFORE membership because the
  * `trg_bank_memberships_fill_user_id` trigger resolves
  * `bank_memberships.user_id` from `profiles.id` via `clerk_user_id`.
- * If the profile doesn't exist when the membership is inserted,
- * the trigger hard-fails (user_id NOT NULL).
  */
 async function activateBank(
   userId: string,
@@ -28,14 +33,13 @@ async function activateBank(
   const sb = supabaseAdmin();
 
   // Step 1: Ensure profile exists with this bank_id
-  // This MUST happen before membership insert so the trigger can resolve user_id.
   const profileResult = await ensureUserProfile({ userId, bankId });
   if (!profileResult.ok && profileResult.error !== "schema_mismatch") {
     console.error("[POST /api/banks] ensureUserProfile failed:", profileResult);
     return NextResponse.json(
       {
         ok: false,
-        error: "profile_setup_failed",
+        error: "profile_setup_failed" as BankCreateError,
         detail: "Could not set up your user profile. Please try again.",
       },
       { status: 500 },
@@ -43,7 +47,6 @@ async function activateBank(
   }
 
   // Step 2: Create membership (if not already done by caller)
-  // The trigger will resolve user_id from the profile we just created.
   if (!opts?.skipMembership) {
     const { error: memErr } = await sb
       .from("bank_memberships")
@@ -57,7 +60,6 @@ async function activateBank(
       );
 
     if (memErr) {
-      // Non-fatal for idempotent paths (duplicate membership is OK)
       const isDuplicate = memErr.code === "23505" || memErr.message?.includes("duplicate");
       if (!isDuplicate) {
         console.error("[POST /api/banks] membership insert failed:", memErr.message);
@@ -103,6 +105,8 @@ async function activateBank(
   return res;
 }
 
+// ─── GET /api/banks ────────────────────────────────────────────────────────
+
 export async function GET() {
   const { userId } = await clerkAuth();
 
@@ -115,7 +119,6 @@ export async function GET() {
 
   const sb = supabaseAdmin();
 
-  // Get banks where user has membership
   const { data, error } = await sb
     .from("bank_memberships")
     .select("bank_id, banks(id, code, name, is_sandbox)")
@@ -137,6 +140,8 @@ export async function GET() {
   return NextResponse.json({ ok: true, banks }, { status: 200 });
 }
 
+// ─── POST /api/banks ───────────────────────────────────────────────────────
+
 /**
  * POST /api/banks
  *
@@ -144,10 +149,12 @@ export async function GET() {
  *
  * Canonical order: bank → profile (with bank_id) → membership → active context.
  *
- * Profile MUST exist before membership because the DB trigger
- * `trg_bank_memberships_fill_user_id` resolves `user_id` from
- * `profiles.id` via `clerk_user_id`. Without a profile row,
- * the trigger hard-fails (user_id NOT NULL).
+ * Error codes returned (never raw DB errors):
+ *   bank_name_conflict   — a bank with that name already exists (owned by another user)
+ *   bank_code_conflict   — generated code collided (retry should fix)
+ *   bank_insert_failed   — DB insert failed for unknown reason
+ *   profile_setup_failed — profile couldn't be created after bank
+ *   membership_failed    — membership couldn't be created after bank + profile
  *
  * Idempotent: if the user already has a bank with the same name, returns that bank.
  */
@@ -167,12 +174,12 @@ export async function POST(req: NextRequest) {
 
   if (!name) {
     return NextResponse.json(
-      { ok: false, error: "name is required" },
+      { ok: false, error: "name_required" },
       { status: 400 },
     );
   }
 
-  // Normalize website_url: auto-prepend https:// if missing
+  // Normalize website_url
   if (websiteUrl) {
     if (websiteUrl.startsWith("www.")) {
       websiteUrl = `https://${websiteUrl}`;
@@ -183,7 +190,8 @@ export async function POST(req: NextRequest) {
 
   const sb = supabaseAdmin();
 
-  // --- Idempotency: check if user already has a membership to a bank with this name ---
+  // ── 1. Idempotency: user already has a bank with this name ──────────────
+
   const { data: existingMems } = await sb
     .from("bank_memberships")
     .select("bank_id, role")
@@ -199,7 +207,6 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (matchingBank) {
-      // Ensure user has admin role (upgrade if needed)
       const existingRole = existingMems.find((m: any) => m.bank_id === matchingBank.id)?.role;
       if (existingRole !== "admin") {
         await sb
@@ -209,7 +216,6 @@ export async function POST(req: NextRequest) {
           .eq("clerk_user_id", userId);
       }
 
-      // Membership already exists — activate (profile ensured, membership skipped)
       return activateBank(userId, matchingBank.id, matchingBank, {
         existing: true,
         skipMembership: true,
@@ -217,7 +223,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // --- Check if bank with this name already exists (orphaned banks / name collisions) ---
+  // ── 2. Check global name collision ──────────────────────────────────────
+
   const { data: existingBank } = await sb
     .from("banks")
     .select("id, name, logo_url, website_url")
@@ -231,8 +238,13 @@ export async function POST(req: NextRequest) {
       .eq("bank_id", existingBank.id);
 
     if (memberCount === 0) {
-      // Orphaned bank — claim it.
-      // Update website_url and logo if provided
+      // Orphaned bank — safe to claim
+      console.log("[POST /api/banks] claiming orphaned bank:", {
+        bankId: existingBank.id,
+        name: existingBank.name,
+        userId,
+      });
+
       if (websiteUrl) {
         let logoUrl: string | null = null;
         try {
@@ -249,27 +261,30 @@ export async function POST(req: NextRequest) {
         existingBank.logo_url = logoUrl;
       }
 
-      // activateBank handles: profile → membership → active context
       return activateBank(userId, existingBank.id, existingBank, { claimed: true });
     }
 
-    // Bank belongs to another client — generic error (don't expose bank existence)
+    // Bank with this name exists and has members — name conflict
+    console.warn("[POST /api/banks] name conflict:", {
+      requestedName: name,
+      existingBankId: existingBank.id,
+      memberCount,
+      userId,
+    });
+
     return NextResponse.json(
       {
         ok: false,
-        error: "bank_creation_failed",
-        detail: "Could not create bank. Please try a different name or contact support.",
+        error: "bank_name_conflict" as BankCreateError,
+        detail: `A bank named "${existingBank.name}" already exists. Please choose a different name.`,
       },
       { status: 409 },
     );
   }
 
-  // --- Create new bank ---
-  const baseCode = name
-    .replace(/[^a-zA-Z0-9]/g, "")
-    .slice(0, 3)
-    .toUpperCase() || "BNK";
-  const code = `${baseCode}_${Date.now().toString(36).slice(-4).toUpperCase()}`;
+  // ── 3. Create new bank ──────────────────────────────────────────────────
+
+  const code = generateBankCode(name);
 
   let logoUrl: string | null = null;
   if (websiteUrl) {
@@ -281,22 +296,65 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const { data: newBank, error: bankErr } = await sb
+  // Try insert — if code collides, retry once with a fresh code
+  let newBank: { id: string; name: string; website_url: string | null; logo_url: string | null } | null = null;
+  let insertError: { code?: string; message?: string } | null = null;
+
+  const { data: firstTry, error: firstErr } = await sb
     .from("banks")
     .insert({ name, code, website_url: websiteUrl, logo_url: logoUrl })
     .select("id, name, website_url, logo_url")
     .single();
 
-  if (bankErr) {
-    console.error("[POST /api/banks] bank insert:", bankErr.message);
+  if (firstErr) {
+    const isCodeCollision =
+      (firstErr.code === "23505" || firstErr.message?.includes("duplicate")) &&
+      (firstErr.message?.includes("banks_code_key") || firstErr.message?.includes("code"));
+
+    if (isCodeCollision) {
+      // Retry with a different code
+      const retryCode = generateBankCode(name + Date.now());
+      console.warn("[POST /api/banks] code collision, retrying:", { originalCode: code, retryCode });
+
+      const { data: secondTry, error: secondErr } = await sb
+        .from("banks")
+        .insert({ name, code: retryCode, website_url: websiteUrl, logo_url: logoUrl })
+        .select("id, name, website_url, logo_url")
+        .single();
+
+      if (secondErr) {
+        insertError = secondErr;
+      } else {
+        newBank = secondTry;
+      }
+    } else {
+      insertError = firstErr;
+    }
+  } else {
+    newBank = firstTry;
+  }
+
+  if (insertError || !newBank) {
+    console.error("[POST /api/banks] bank insert failed:", {
+      pgCode: insertError?.code ?? "",
+      message: insertError?.message ?? "unknown",
+      requestedName: name,
+      generatedCode: code,
+      websiteUrl,
+    });
+    const classified = classifyBankInsertError(insertError ?? { message: "unknown" }, {
+      name,
+      code,
+      websiteUrl,
+    });
     return NextResponse.json(
-      { ok: false, error: "bank_creation_failed", detail: "Could not create bank. Please try again." },
-      { status: 500 },
+      { ok: false, error: classified.error, detail: classified.detail },
+      { status: classified.status },
     );
   }
 
-  // activateBank handles: profile → membership → active context
-  // If membership fails, it will attempt cleanup
+  // ── 4. Activate: profile → membership → context ────────────────────────
+
   const result = await activateBank(userId, newBank.id, newBank);
 
   // If activation failed (profile couldn't be created), rollback the bank
