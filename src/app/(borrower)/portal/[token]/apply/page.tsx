@@ -4,11 +4,11 @@
 export const runtime = "nodejs";
 
 type Props = {
-  params: Promise<{ dealId?: string }>;
+  params: Promise<{ token: string }>;
 };
 
 export default async function BorrowerApplyPage({ params }: Props) {
-  const { dealId } = await params;
+  const { token } = await params;
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">
@@ -21,8 +21,8 @@ export default async function BorrowerApplyPage({ params }: Props) {
           The borrower application portal is coming soon. Your banker will contact
           you when this feature is available.
         </p>
-        {dealId && (
-          <p className="text-xs text-gray-400">Deal: {dealId}</p>
+        {token && (
+          <p className="text-xs text-gray-400">Token: {token}</p>
         )}
       </div>
     </div>
