@@ -21,6 +21,15 @@ type CurrentBank = {
   name: string;
 };
 
+type BankSearchResult = {
+  id: string;
+  name: string;
+  logo_url: string | null;
+  isMember: boolean;
+  isActive: boolean;
+  role: string | null;
+};
+
 // Input styling constants
 const INPUT_CLS =
   "w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-white " +
@@ -49,7 +58,6 @@ export default function ProfileClient() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form state - Bank context
-  const [switchingBank, setSwitchingBank] = useState(false);
   const [bankActionMsg, setBankActionMsg] = useState<string | null>(null);
 
   // Create bank form
@@ -57,6 +65,13 @@ export default function ProfileClient() {
   const [newBankName, setNewBankName] = useState("");
   const [newBankWebsite, setNewBankWebsite] = useState("");
   const [creatingBank, setCreatingBank] = useState(false);
+
+  // Select existing bank (search + attach)
+  const [bankQuery, setBankQuery] = useState("");
+  const [bankResults, setBankResults] = useState<BankSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectingBankId, setSelectingBankId] = useState<string | null>(null);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Diagnostics state
   const [copied, setCopied] = useState(false);
@@ -137,12 +152,38 @@ export default function ProfileClient() {
     reader.readAsDataURL(file);
   }
 
-  async function handleBankSwitch(bankId: string) {
-    if (bankId === currentBank?.id) return;
-    setSwitchingBank(true);
+  function handleBankSearch(query: string) {
+    setBankQuery(query);
+    setBankActionMsg(null);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (query.trim().length < 2) {
+      setBankResults([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/banks/search?q=${encodeURIComponent(query.trim())}`);
+        const json = await res.json();
+        if (json.ok) {
+          setBankResults(json.results);
+        } else {
+          setBankResults([]);
+        }
+      } catch {
+        setBankResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+  }
+
+  async function handleSelectBank(bankId: string) {
+    setSelectingBankId(bankId);
     setBankActionMsg(null);
     try {
-      const res = await fetch("/api/profile/bank", {
+      const res = await fetch("/api/profile/select-bank", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bank_id: bankId }),
@@ -151,12 +192,12 @@ export default function ProfileClient() {
       if (json.ok) {
         window.location.reload();
       } else {
-        setBankActionMsg(json.error ?? "Bank switch failed");
-        setSwitchingBank(false);
+        setBankActionMsg(json.detail ?? json.error ?? "Bank selection failed");
+        setSelectingBankId(null);
       }
     } catch {
       setBankActionMsg("Network error");
-      setSwitchingBank(false);
+      setSelectingBankId(null);
     }
   }
 
@@ -176,11 +217,17 @@ export default function ProfileClient() {
       const json = await res.json();
       if (json.ok) {
         window.location.reload();
+      } else if (json.error === "bank_name_conflict") {
+        // Auto-recovery: switch to search with the conflicting name
+        setShowCreateBank(false);
+        setBankQuery(newBankName.trim());
+        handleBankSearch(newBankName.trim());
+        setBankActionMsg(`A bank named "${newBankName.trim()}" already exists. Select it below.`);
+        setNewBankName("");
+        setNewBankWebsite("");
       } else {
-        // Show detailed error message for debugging
         const msg = json.detail ?? json.error ?? "Bank creation failed";
         setBankActionMsg(msg);
-        console.error("[handleCreateBank] failed:", json);
       }
     } catch {
       setBankActionMsg("Couldn't create bank — please check your connection.");
@@ -428,38 +475,112 @@ export default function ProfileClient() {
                 </div>
               )}
 
-              {/* Bank switcher (if multiple memberships) */}
-              {memberships.length > 1 && (
-                <div>
-                  <label className="block text-sm font-medium text-white/90 mb-1.5">
-                    Switch Bank
-                  </label>
-                  <select
-                    value={currentBank?.id ?? ""}
-                    onChange={(e) => handleBankSwitch(e.target.value)}
-                    disabled={switchingBank}
-                    className={DISABLED_INPUT_CLS}
-                  >
-                    {!currentBank && <option value="">Select a bank...</option>}
-                    {memberships.map((m) => (
-                      <option key={m.bank_id} value={m.bank_id}>
-                        {m.bank_name} ({m.role})
-                      </option>
+              {/* ── Select Existing Bank ──────────────────────── */}
+              <div>
+                <div className="text-sm font-medium text-white/80 mb-1.5">Select Existing Bank</div>
+                <p className="text-xs text-white/50 mb-2">
+                  Search for a bank you already work with, or discover one to join.
+                </p>
+                <input
+                  value={bankQuery}
+                  onChange={(e) => handleBankSearch(e.target.value)}
+                  placeholder="Search banks by name..."
+                  className={INPUT_CLS}
+                />
+                {searching && (
+                  <div className="mt-1 text-xs text-white/50">Searching...</div>
+                )}
+
+                {/* Search results */}
+                {bankResults.length > 0 && (
+                  <ul className="mt-2 rounded-lg border border-white/10 bg-white/[0.04] divide-y divide-white/10 max-h-64 overflow-y-auto">
+                    {bankResults.map((b) => (
+                      <li key={b.id} className="flex items-center justify-between px-3 py-2.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {b.logo_url ? (
+                            <img src={b.logo_url} alt="" className="h-5 w-5 rounded-full flex-shrink-0" />
+                          ) : (
+                            <div className="h-5 w-5 rounded-full bg-white/10 flex-shrink-0" />
+                          )}
+                          <span className="text-sm text-white truncate">{b.name}</span>
+                          {b.role && (
+                            <span className="text-[10px] text-white/40 flex-shrink-0">({b.role})</span>
+                          )}
+                        </div>
+                        <div className="flex-shrink-0 ml-2">
+                          {b.isActive ? (
+                            <span className="text-xs font-medium text-emerald-400">Current</span>
+                          ) : b.isMember ? (
+                            <button
+                              type="button"
+                              onClick={() => handleSelectBank(b.id)}
+                              disabled={selectingBankId === b.id}
+                              className="rounded-md bg-white/10 px-2.5 py-1 text-xs font-medium text-white hover:bg-white/20 transition-colors disabled:opacity-50"
+                            >
+                              {selectingBankId === b.id ? "Switching..." : "Switch"}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleSelectBank(b.id)}
+                              disabled={selectingBankId === b.id}
+                              className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-black hover:bg-white/90 transition-colors disabled:opacity-50"
+                            >
+                              {selectingBankId === b.id ? "Joining..." : "Join"}
+                            </button>
+                          )}
+                        </div>
+                      </li>
                     ))}
-                  </select>
-                  {switchingBank && (
-                    <div className="mt-1 text-xs text-white/50">Switching bank...</div>
-                  )}
-                </div>
-              )}
+                  </ul>
+                )}
+
+                {/* No results */}
+                {bankQuery.trim().length >= 2 && !searching && bankResults.length === 0 && (
+                  <div className="mt-2 text-xs text-white/40">
+                    No banks found matching &ldquo;{bankQuery}&rdquo;
+                  </div>
+                )}
+
+                {/* Quick-access: existing memberships (when not searching) */}
+                {bankQuery.trim().length < 2 && memberships.length > 1 && (
+                  <div className="mt-3">
+                    <div className="text-xs text-white/40 mb-1.5">Your banks</div>
+                    <ul className="rounded-lg border border-white/10 bg-white/[0.04] divide-y divide-white/10">
+                      {memberships.map((m) => (
+                        <li key={m.bank_id} className="flex items-center justify-between px-3 py-2">
+                          <span className="text-sm text-white truncate">{m.bank_name}</span>
+                          <div className="flex-shrink-0 ml-2">
+                            {m.bank_id === currentBank?.id ? (
+                              <span className="text-xs font-medium text-emerald-400">Current</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleSelectBank(m.bank_id)}
+                                disabled={selectingBankId === m.bank_id}
+                                className="rounded-md bg-white/10 px-2.5 py-1 text-xs font-medium text-white hover:bg-white/20 transition-colors disabled:opacity-50"
+                              >
+                                {selectingBankId === m.bank_id ? "Switching..." : "Switch"}
+                              </button>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
 
               {/* Divider */}
               <div className="h-px bg-white/10" />
 
-              {/* Create Bank */}
+              {/* ── Create New Bank ───────────────────────────── */}
               {showCreateBank ? (
                 <div className="space-y-3">
-                  <div className="text-sm font-medium text-white/80">Create a New Bank</div>
+                  <div className="text-sm font-medium text-white/80">Create New Bank</div>
+                  <p className="text-xs text-white/50">
+                    Use this only if your bank does not already exist in Buddy.
+                  </p>
                   <div>
                     <label className="block text-sm font-medium text-white/90 mb-1.5">
                       Bank Name
@@ -485,9 +606,6 @@ export default function ProfileClient() {
                       Auto-generates bank logo from favicon.
                     </p>
                   </div>
-                  <p className="text-xs text-white/50">
-                    Creates a new bank and sets it as your active bank.
-                  </p>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
