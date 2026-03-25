@@ -5,6 +5,7 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { BuddyRole } from "@/lib/auth/roles";
 import { isBuddyRole } from "@/lib/auth/roles";
+import { normalizeBuddyRole } from "@/lib/auth/normalizeBuddyRole";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -147,21 +148,21 @@ async function resolveEffectiveRole(
   bankId: string,
   dealId: string,
 ): Promise<BuddyRole | null> {
-  // a) Clerk publicMetadata.role
+  // a) Clerk publicMetadata.role (normalize legacy labels)
   let clerkRole: BuddyRole | null = null;
   try {
     const client = await clerkClient();
     if (client) {
       const user = await client.users.getUser(userId);
       const roleRaw = (user.publicMetadata as any)?.role;
-      clerkRole = isBuddyRole(roleRaw) ? roleRaw : null;
+      clerkRole = normalizeBuddyRole(roleRaw);
     }
   } catch (e) {
     // Clerk API failure is non-fatal — fall through to membership
     console.warn("[requireDealCockpitAccess] Clerk role lookup failed:", e);
   }
 
-  // b) bank_memberships.role
+  // b) bank_memberships.role (normalize legacy "admin"/"member" labels)
   let membershipRole: BuddyRole | null = null;
   try {
     const sb = supabaseAdmin();
@@ -172,9 +173,7 @@ async function resolveEffectiveRole(
       .eq("bank_id", bankId)
       .maybeSingle();
 
-    if (mem?.role && isBuddyRole(mem.role)) {
-      membershipRole = mem.role;
-    }
+    membershipRole = normalizeBuddyRole(mem?.role);
   } catch (e) {
     console.warn("[requireDealCockpitAccess] membership role lookup failed:", e);
   }

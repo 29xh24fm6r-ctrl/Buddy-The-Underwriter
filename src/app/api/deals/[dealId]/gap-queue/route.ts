@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { computeDealGaps, REQUIRED_FACT_KEYS } from "@/lib/gapEngine/computeDealGaps";
 
@@ -23,15 +22,16 @@ export async function GET(
   props: { params: Promise<{ dealId: string }> }
 ) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await props.params;
-    const bankPick = await tryGetCurrentBankId();
-    if (!bankPick.ok) return NextResponse.json({ ok: false, error: "no_bank" }, { status: 401 });
+    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    }
 
     // Always recompute before reading — ensures queue is never stale or empty
     // from a deal that was never seeded. Non-fatal: if this fails, we still
     // return whatever is in the queue rather than erroring the whole request.
-    await computeDealGaps({ dealId, bankId: bankPick.bankId }).catch((err) => {
+    await computeDealGaps({ dealId, bankId: auth.bankId }).catch((err) => {
       console.error("[gap-queue GET] computeDealGaps failed (non-fatal)", err);
     });
 
@@ -40,7 +40,7 @@ export async function GET(
       .from("deal_gap_queue")
       .select("*")
       .eq("deal_id", dealId)
-      .eq("bank_id", bankPick.bankId)
+      .eq("bank_id", auth.bankId)
       .eq("status", "open")
       .order("priority", { ascending: false })
       .order("created_at", { ascending: true });
@@ -53,7 +53,7 @@ export async function GET(
       .from("deal_financial_facts")
       .select("fact_key")
       .eq("deal_id", dealId)
-      .eq("bank_id", bankPick.bankId)
+      .eq("bank_id", auth.bankId)
       .eq("resolution_status", "confirmed")
       .eq("is_superseded", false)
       .in("fact_key", REQUIRED_FACT_KEYS as unknown as string[]);
@@ -76,9 +76,7 @@ export async function GET(
     });
   } catch (e: unknown) {
     rethrowNextErrors(e);
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json({ ok: false, error: e.code }, { status: 403 });
-    }
+    console.error("[gap-queue GET]", e);
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
   }
 }
@@ -89,15 +87,17 @@ export async function POST(
   props: { params: Promise<{ dealId: string }> }
 ) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await props.params;
-    const bankPick = await tryGetCurrentBankId();
-    if (!bankPick.ok) return NextResponse.json({ ok: false, error: "no_bank" }, { status: 401 });
+    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    }
 
-    const result = await computeDealGaps({ dealId, bankId: bankPick.bankId });
+    const result = await computeDealGaps({ dealId, bankId: auth.bankId });
     return NextResponse.json(result);
   } catch (e: unknown) {
     rethrowNextErrors(e);
+    console.error("[gap-queue POST]", e);
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
   }
 }
