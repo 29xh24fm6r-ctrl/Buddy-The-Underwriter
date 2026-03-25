@@ -114,8 +114,8 @@ test("[guard-4] confirm route rejects when pending/uploaded docs exist", () => {
     "computeDocBlockers must check for CLASSIFIED_PENDING_REVIEW status",
   );
   assert.ok(
-    blockerSrc.includes("needs_confirmation"),
-    "computeDocBlockers must emit needs_confirmation blocker",
+    blockerSrc.includes("needs_intake_review"),
+    "computeDocBlockers must emit needs_intake_review blocker",
   );
 });
 

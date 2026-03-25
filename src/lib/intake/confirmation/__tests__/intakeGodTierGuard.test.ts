@@ -158,16 +158,16 @@ test("Guard F: fully clean doc produces zero blockers", () => {
   );
 });
 
-test("Guard F.1: needs_confirmation for UPLOADED status", () => {
+test("Guard F.1: needs_intake_review for UPLOADED status", () => {
   const doc = makeDoc({ intake_status: "UPLOADED" });
   const blockers = computeDocBlockers(doc, EMPTY_AMBIGUOUS);
-  assert.ok(blockers.includes("needs_confirmation"));
+  assert.ok(blockers.includes("needs_intake_review"));
 });
 
-test("Guard F.2: needs_confirmation for CLASSIFIED_PENDING_REVIEW", () => {
+test("Guard F.2: needs_intake_review for CLASSIFIED_PENDING_REVIEW", () => {
   const doc = makeDoc({ intake_status: "CLASSIFIED_PENDING_REVIEW" });
   const blockers = computeDocBlockers(doc, EMPTY_AMBIGUOUS);
-  assert.ok(blockers.includes("needs_confirmation"));
+  assert.ok(blockers.includes("needs_intake_review"));
 });
 
 // ── Guard G: Golden corpus has >= 25 fixtures ────────────────────────────
@@ -252,7 +252,7 @@ test("Guard J: computeAllBlockers summary counts match blocked docs", () => {
   const { blocked_documents, summary } = computeAllBlockers(docs);
 
   assert.equal(blocked_documents.length, 2, "Should have 2 blocked docs");
-  assert.equal(summary.needs_confirmation, 1, "1 needs_confirmation");
+  assert.equal(summary.needs_intake_review, 1, "1 needs_intake_review");
   assert.equal(summary.quality_not_passed, 1, "1 quality_not_passed");
 
   // Clean doc should not appear
@@ -296,7 +296,7 @@ test("Guard M: doc with multiple issues produces multiple blockers", () => {
     canonical_type: null,
   });
   const blockers = computeDocBlockers(doc, EMPTY_AMBIGUOUS);
-  assert.ok(blockers.includes("needs_confirmation"), "should have needs_confirmation");
+  assert.ok(blockers.includes("needs_intake_review"), "should have needs_intake_review");
   assert.ok(blockers.includes("quality_not_passed"), "should have quality_not_passed");
   assert.ok(blockers.includes("segmented_parent"), "should have segmented_parent");
   assert.ok(blockers.includes("unclassified"), "should have unclassified");

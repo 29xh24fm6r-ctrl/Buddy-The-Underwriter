@@ -137,7 +137,7 @@ export default function StoryPanel({ dealId }: { dealId: string }) {
         )}
       </div>
 
-      {/* Section 3: Credit Interview */}
+      {/* Section 3: Financial Review & Interview */}
       <div className={glassSection}>
         <div className={sectionLabel}>Financial Review &amp; Interview</div>
         <p className="text-xs text-white/35 mb-4 -mt-1">Items requiring banker judgment, plus voice session for missing facts. Buddy only asks for review when evidence supports it.</p>
