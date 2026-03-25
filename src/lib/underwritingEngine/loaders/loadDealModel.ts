@@ -21,7 +21,9 @@ export async function loadDealModel(dealId: string): Promise<FinancialModel> {
   const { data: facts } = await sb
     .from("deal_financial_facts")
     .select("fact_type, fact_key, fact_value_num, fact_period_end, confidence")
-    .eq("deal_id", dealId);
+    .eq("deal_id", dealId)
+    .eq("is_superseded", false)
+    .neq("resolution_status", "rejected");
 
   return buildFinancialModel(dealId, facts ?? []);
 }

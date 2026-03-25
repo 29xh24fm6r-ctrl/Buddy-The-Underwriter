@@ -94,6 +94,8 @@ export async function getCanonicalMemoStatusForDeals(args: {
       .select("deal_id, fact_type, fact_key, fact_value_num, created_at")
       .eq("bank_id", args.bankId)
       .in("deal_id", args.dealIds)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
       .in("fact_type", REQUIRED_FACT_TYPES as any)
       .in(
         "fact_key",

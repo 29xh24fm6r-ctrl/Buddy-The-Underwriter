@@ -171,6 +171,8 @@ export async function computeTotalDebtService(args: {
         .select("fact_value_num")
         .eq("deal_id", dealId)
         .eq("fact_key", "CASH_FLOW_AVAILABLE")
+        .eq("is_superseded", false)
+        .neq("resolution_status", "rejected")
         .order("confidence", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -204,6 +206,8 @@ export async function computeTotalDebtService(args: {
         .select("fact_value_num")
         .eq("deal_id", dealId)
         .eq("fact_key", "GCF_GLOBAL_CASH_FLOW")
+        .eq("is_superseded", false)
+        .neq("resolution_status", "rejected")
         .order("confidence", { ascending: false })
         .limit(1)
         .maybeSingle();

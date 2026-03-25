@@ -53,6 +53,8 @@ export async function GET(_req: Request, ctx: Ctx) {
           .from("deal_financial_facts")
           .select("fact_key, fact_value_num, fact_period_end")
           .eq("deal_id", dealId)
+          .eq("is_superseded", false)
+          .neq("resolution_status", "rejected")
           .in("fact_key", ["EBITDA", "ORDINARY_BUSINESS_INCOME", "NET_INCOME"])
           .not("fact_value_num", "is", null)
           .order("fact_period_end", { ascending: false })

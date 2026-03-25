@@ -37,12 +37,14 @@ export async function buildCreditMemoBindings(args: {
   const { dealId, bankId } = args;
   const sb = supabaseAdmin();
 
-  // 1. Load all facts for this deal
+  // 1. Load all active facts for this deal (exclude superseded/rejected)
   const { data: factRows } = await (sb as any)
     .from("deal_financial_facts")
     .select("*")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
+    .eq("is_superseded", false)
+    .neq("resolution_status", "rejected")
     .order("created_at", { ascending: false });
 
   const facts = (factRows ?? []) as FactRow[];

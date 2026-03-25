@@ -63,7 +63,9 @@ async function loadCanonicalFacts(
     const { data, error } = await (sb as any)
       .from("deal_financial_facts")
       .select("fact_key, fact_value_num, fact_value_text, fact_period_end")
-      .eq("deal_id", dealId);
+      .eq("deal_id", dealId)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected");
 
     if (error || !data) {
       console.warn("[buildFlagEngineInput] facts query failed", { dealId, error: error?.message });

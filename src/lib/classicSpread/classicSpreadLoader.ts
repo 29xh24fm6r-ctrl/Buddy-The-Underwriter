@@ -1055,11 +1055,13 @@ async function buildGlobalCashFlowSection(
 ): Promise<GlobalCashFlowSection | null> {
   const sb = supabaseAdmin();
 
-  // Read GCF-related facts
+  // Read GCF-related facts (exclude superseded/rejected)
   const { data: gcfFacts } = await (sb as any)
     .from("deal_financial_facts")
     .select("fact_key, fact_value_num, owner_type, owner_entity_id, fact_period_end")
     .eq("deal_id", dealId)
+    .eq("is_superseded", false)
+    .neq("resolution_status", "rejected")
     .in("fact_key", [
       "GCF_GLOBAL_CASH_FLOW",
       "GCF_DSCR",
@@ -1118,6 +1120,8 @@ async function buildGlobalCashFlowSection(
       .select("fact_key, fact_value_num, owner_type, owner_entity_id, fact_period_end")
       .eq("deal_id", dealId)
       .eq("fact_type", "PERSONAL_INCOME")
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
       .not("fact_value_num", "is", null);
 
     if (rawPiFacts && rawPiFacts.length > 0) {
@@ -1236,6 +1240,8 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
       .from("deal_financial_facts")
       .select("fact_key, fact_period_end, fact_value_num, confidence, created_at")
       .eq("deal_id", dealId)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
       .not("fact_value_num", "is", null),
     sb
       .from("deals")
