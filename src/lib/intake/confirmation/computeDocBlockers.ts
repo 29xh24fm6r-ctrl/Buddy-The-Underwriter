@@ -23,7 +23,7 @@ export type ActiveDoc = {
 
 /** Blocker reason codes — each maps to a concrete banker action. */
 export type BlockerCode =
-  | "needs_confirmation"    // Action: Confirm button
+  | "needs_intake_review"    // Action: Review / confirm document in intake
   | "quality_not_passed"    // Action: Re-upload
   | "segmented_parent"      // Action: Wait for children / re-upload
   | "entity_ambiguous"      // Action: Assign entity
@@ -76,7 +76,7 @@ export function computeDocBlockers(
     doc.intake_status === "UPLOADED" ||
     doc.intake_status === "CLASSIFIED_PENDING_REVIEW"
   ) {
-    blockers.push("needs_confirmation");
+    blockers.push("needs_intake_review");
   }
 
   // Quality gate: null or non-PASSED = blocked (fail-closed)
@@ -153,7 +153,7 @@ export function computeAllBlockers(docs: ActiveDoc[]): {
   const ambiguousKeys = buildAmbiguousKeySet(docs);
 
   const allBlockerCodes: BlockerCode[] = [
-    "needs_confirmation",
+    "needs_intake_review",
     "quality_not_passed",
     "segmented_parent",
     "entity_ambiguous",

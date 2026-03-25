@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 import { useBuddyVoice } from "@/lib/voice/useBuddyVoice";
 
 const STATUS_DISPLAY: Record<string, { icon: string; label: string; color: string }> = {
-  idle:          { icon: "\uD83C\uDFA4", label: "Start Credit Interview", color: "text-gray-600" },
+  idle:          { icon: "\uD83C\uDFA4", label: "Start Financial Review", color: "text-gray-600" },
   connecting:    { icon: "\u23F3", label: "Connecting...",          color: "text-amber-600" },
   listening:     { icon: "\uD83D\uDC42", label: "Listening",              color: "text-emerald-600" },
   speaking:      { icon: "\uD83D\uDD0A", label: "Buddy is speaking",      color: "text-sky-600" },
@@ -41,7 +41,7 @@ export default function BankerVoicePanel({
       <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
-            Credit Interview
+            Financial Review
           </span>
           <span className={`text-xs font-medium ${display.color}`}>
             {display.icon} {display.label}
@@ -58,7 +58,7 @@ export default function BankerVoicePanel({
               : "bg-gray-900 text-white hover:bg-gray-700"
           }`}
         >
-          {isConnected ? "End Session" : "Start Interview"}
+          {isConnected ? "End Session" : "Start Review"}
         </button>
       </div>
 

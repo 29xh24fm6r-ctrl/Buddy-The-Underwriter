@@ -139,7 +139,7 @@ export function DealCockpitInsights({ dealId }: { dealId: string }) {
       <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur shadow-[0_18px_50px_rgba(0,0,0,0.35)] p-4">
         <div className="flex items-center gap-2 mb-4">
           <Icon name="fact_check" className="h-5 w-5 text-neutral-900" />
-          <h3 className="text-sm font-semibold">Deal Health</h3>
+          <h3 className="text-sm font-semibold">Financial Validation</h3>
           {context?.stage ? (
             <span className="text-xs text-neutral-500">• {context.stage}</span>
           ) : null}

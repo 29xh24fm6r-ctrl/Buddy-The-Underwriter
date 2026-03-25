@@ -35,10 +35,23 @@ const GAP_TYPE_BADGE: Record<string, { label: string; color: string }> = {
 };
 
 const REASON_LABEL: Record<string, string> = {
-  missing_fact:   "Required metric not found in any uploaded document.",
-  conflict:       "Conflicting values found across source documents.",
-  low_confidence: "Extracted with low confidence — banker judgment needed.",
+  conflict:       "Buddy found conflicting values across source materials.",
+  missing_fact:   "Buddy could not find this required metric in uploaded materials.",
+  low_confidence: "Buddy extracted a value, but confidence is low and banker judgment is needed.",
 };
+
+/** Deterministic sort: conflict → missing_fact → low_confidence, then by priority desc, then fact_key asc */
+const GAP_TYPE_ORDER: Record<string, number> = { conflict: 0, missing_fact: 1, low_confidence: 2 };
+
+function sortReviewItems(gaps: Gap[]): Gap[] {
+  return [...gaps].sort((a, b) => {
+    const typeA = GAP_TYPE_ORDER[a.gap_type] ?? 9;
+    const typeB = GAP_TYPE_ORDER[b.gap_type] ?? 9;
+    if (typeA !== typeB) return typeA - typeB;
+    if (a.priority !== b.priority) return b.priority - a.priority;
+    return a.fact_key.localeCompare(b.fact_key);
+  });
+}
 
 function formatPeriod(start: string | null, end: string | null): string | null {
   if (!start && !end) return null;
@@ -123,11 +136,11 @@ export default function DealHealthPanel({ dealId, onSessionStart }: DealHealthPa
     );
   }
 
-  // Filter to only evidence-backed review items (low_confidence + conflict).
-  // missing_fact items always show (they are action items, not confirmations).
-  const reviewableGaps = gaps.filter(
+  // Filter to only evidence-backed review items, sorted by underwriting urgency:
+  // conflict → missing_fact → low_confidence
+  const reviewableGaps = sortReviewItems(gaps.filter(
     g => g.gap_type === "missing_fact" || g.gap_type === "conflict" || g.gap_type === "low_confidence",
-  );
+  ));
 
   // ── STATE C: Snapshot ready, no exceptions ────────────────────────────
   if (reviewableGaps.length === 0) {
@@ -183,7 +196,7 @@ export default function DealHealthPanel({ dealId, onSessionStart }: DealHealthPa
             onClick={onSessionStart}
             className="text-xs font-semibold bg-white/10 text-white/70 px-3 py-1.5 rounded-md hover:bg-white/15 flex items-center gap-1.5 transition-colors"
           >
-            Start Credit Interview
+            Start Financial Review
           </button>
         )}
       </div>

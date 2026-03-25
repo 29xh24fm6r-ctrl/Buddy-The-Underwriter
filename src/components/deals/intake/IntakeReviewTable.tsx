@@ -78,7 +78,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 // E1.2: Per-doc blocker labels — each maps to a concrete banker action
 const BLOCKER_LABELS: Record<string, string> = {
-  needs_confirmation: "Needs Confirmation",
+  needs_intake_review: "Needs Review",
   quality_not_passed: "Quality Failed",
   segmented_parent: "Segmentation Incomplete",
   entity_ambiguous: "Entity Ambiguous",
@@ -474,7 +474,7 @@ export function IntakeReviewTable({
 
     const parts: string[] = [];
     const s = json.summary as Record<string, number> | undefined;
-    if (s?.needs_confirmation) parts.push(`${s.needs_confirmation} need confirmation`);
+    if (s?.needs_intake_review) parts.push(`${s.needs_intake_review} need review`);
     if (s?.quality_not_passed) parts.push(`${s.quality_not_passed} quality failed`);
     if (s?.segmented_parent) parts.push(`${s.segmented_parent} segmentation incomplete`);
     if (s?.entity_ambiguous) parts.push(`${s.entity_ambiguous} entity ambiguous`);
