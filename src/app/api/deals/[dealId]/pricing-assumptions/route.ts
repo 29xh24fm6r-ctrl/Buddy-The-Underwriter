@@ -2,8 +2,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -16,14 +15,10 @@ type Ctx = { params: Promise<{ dealId: string }> };
 // ──────────────────────────────────────────────────────────────
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
-    const access = await ensureDealBankAccess(dealId);
-    if (!access.ok) {
-      return NextResponse.json(
-        { ok: false, error: access.error },
-        { status: access.error === "deal_not_found" ? 404 : 403 },
-      );
+    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
     }
 
     const sb = supabaseAdmin();
@@ -40,14 +35,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ ok: true, pricingAssumptions: data ?? null });
   } catch (e: any) {
     rethrowNextErrors(e);
-
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: e.code },
-        { status: e.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
-
     console.error("[pricing-assumptions GET]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
@@ -59,14 +46,10 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 // ──────────────────────────────────────────────────────────────
 export async function POST(_req: NextRequest, ctx: Ctx) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
-    const access = await ensureDealBankAccess(dealId);
-    if (!access.ok) {
-      return NextResponse.json(
-        { ok: false, error: access.error },
-        { status: access.error === "deal_not_found" ? 404 : 403 },
-      );
+    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
     }
 
     const sb = supabaseAdmin();
@@ -128,14 +111,6 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ ok: true, pricingAssumptions: data });
   } catch (e: any) {
     rethrowNextErrors(e);
-
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: e.code },
-        { status: e.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
-
     console.error("[pricing-assumptions POST]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
@@ -200,14 +175,10 @@ function validateBody(body: Record<string, unknown>): ValidationError[] {
 
 export async function PUT(req: NextRequest, ctx: Ctx) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
-    const access = await ensureDealBankAccess(dealId);
-    if (!access.ok) {
-      return NextResponse.json(
-        { ok: false, error: access.error },
-        { status: access.error === "deal_not_found" ? 404 : 403 },
-      );
+    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
     }
 
     const body = await req.json();
@@ -261,7 +232,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     // 1. Compute structural pricing from inputs
     // 2. Compute total debt service (writes facts + DSCR)
     // 3. Write ledger event
-    const bankId = access.bankId;
+    const bankId = auth.bankId;
     const inputs = data as any;
 
     Promise.resolve()
@@ -338,14 +309,6 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ ok: true, pricingAssumptions: data });
   } catch (e: any) {
     rethrowNextErrors(e);
-
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: e.code },
-        { status: e.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
-
     console.error("[pricing-assumptions PUT]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }

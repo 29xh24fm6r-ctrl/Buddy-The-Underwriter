@@ -2,8 +2,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -21,15 +20,10 @@ type Ctx = { params: Promise<{ dealId: string }> };
  */
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
-
     const { dealId } = await ctx.params;
-    const access = await ensureDealBankAccess(dealId);
-    if (!access.ok) {
-      return NextResponse.json(
-        { ok: false, error: access.error },
-        { status: access.error === "deal_not_found" ? 404 : 403 },
-      );
+    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
     }
 
     const sb = supabaseAdmin();
@@ -44,7 +38,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
             "id, document_type, gatekeeper_needs_review, created_at",
           )
           .eq("deal_id", dealId)
-          .eq("bank_id", access.bankId),
+          .eq("bank_id", auth.bankId),
 
         // 2. document_jobs by job_type + status
         sb
@@ -57,28 +51,28 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
           .from("deal_spread_jobs")
           .select("status, created_at")
           .eq("deal_id", dealId)
-          .eq("bank_id", access.bankId),
+          .eq("bank_id", auth.bankId),
 
         // 4. deal_financial_facts count + max created_at
         sb
           .from("deal_financial_facts")
           .select("id, created_at")
           .eq("deal_id", dealId)
-          .eq("bank_id", access.bankId),
+          .eq("bank_id", auth.bankId),
 
         // 5. deal_spreads summary
         (sb as any)
           .from("deal_spreads")
           .select("spread_type, status, updated_at")
           .eq("deal_id", dealId)
-          .eq("bank_id", access.bankId),
+          .eq("bank_id", auth.bankId),
 
         // 6. deal_pipeline_ledger — last 25
         sb
           .from("deal_pipeline_ledger")
           .select("stage, event_key, status, payload, ui_state, ui_message, created_at")
           .eq("deal_id", dealId)
-          .eq("bank_id", access.bankId)
+          .eq("bank_id", auth.bankId)
           .order("created_at", { ascending: false })
           .limit(25),
       ]);
@@ -202,14 +196,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     });
   } catch (e: any) {
     rethrowNextErrors(e);
-
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: e.code },
-        { status: e.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
-
     console.error("[/api/deals/[dealId]/pipeline-status]", e);
     return NextResponse.json(
       { ok: false, error: "unexpected_error" },

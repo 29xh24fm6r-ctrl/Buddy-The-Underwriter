@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -9,10 +8,11 @@ export const maxDuration = 15;
 
 export async function GET(_req: NextRequest, props: { params: Promise<{ dealId: string }> }) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await props.params;
-    const bankPick = await tryGetCurrentBankId();
-    if (!bankPick.ok) return NextResponse.json({ ok: false, error: "no_bank" }, { status: 401 });
+    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    }
 
     const sb = supabaseAdmin();
 
@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ dealId: 
       .from("buddy_research_missions")
       .select("id")
       .eq("deal_id", dealId)
-      .eq("bank_id", bankPick.bankId)
+      .eq("bank_id", auth.bankId)
       .eq("status", "completed")
       .order("completed_at", { ascending: false })
       .limit(1)
@@ -53,7 +53,7 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ dealId: 
       .from("deal_gap_queue")
       .select("id, fact_key, description, resolution_prompt")
       .eq("deal_id", dealId)
-      .eq("bank_id", bankPick.bankId)
+      .eq("bank_id", auth.bankId)
       .eq("status", "open")
       .eq("gap_type", "missing_fact")
       .order("priority", { ascending: false });
@@ -73,7 +73,7 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ dealId: 
     return NextResponse.json({ ok: true, questions, hasResearch: bieQuestions.length > 0 });
   } catch (e: unknown) {
     rethrowNextErrors(e);
-    if (e instanceof AuthorizationError) return NextResponse.json({ ok: false, error: e.code }, { status: 403 });
+    console.error("[story/questions GET]", e);
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
   }
 }
