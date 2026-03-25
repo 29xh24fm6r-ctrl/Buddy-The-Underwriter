@@ -275,6 +275,13 @@ export type BuilderReadinessBlocker = {
   target: BuilderReadinessTarget;
 };
 
+export type BuilderPolicyException = {
+  type: string;
+  severity: "warning" | "exception";
+  description: string;
+  policy_reference?: string | null;
+};
+
 export type BuilderReadiness = {
   credit_ready: boolean;
   credit_ready_pct: number;
@@ -282,6 +289,7 @@ export type BuilderReadiness = {
   doc_ready: boolean;
   doc_ready_pct: number;
   doc_ready_blockers: BuilderReadinessBlocker[];
+  policy_exceptions: BuilderPolicyException[];
 };
 
 export type ServerFlags = {

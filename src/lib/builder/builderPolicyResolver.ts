@@ -1,7 +1,9 @@
 /**
  * Unified policy resolution for builder advance rates + equity requirements.
- * Layered: bank_policy → product_default → manual_override.
+ * Layered: bank_policy_rules → product_default → manual_override.
  * Pure module — no DB, no server-only.
+ *
+ * Phase 53A.3: extended to consume structured bank_policy_rules lookup results.
  */
 
 import type { EquityRequirementSource } from "./builderTypes";
@@ -17,17 +19,34 @@ export type ResolvedAdvanceRate = {
   advance_rate: number;
   source: "bank_policy" | "product_default" | "manual_override";
   policy_reference?: string | null;
+  source_document_id?: string | null;
+  confidence?: number | null;
 };
 
 export type ResolvedEquityRequirement = {
   required_pct: number | null;
   source: EquityRequirementSource;
   policy_reference?: string | null;
+  confidence?: number | null;
+};
+
+export type ResolvedLtvLimit = {
+  limit: number;
+  source: "bank_policy" | "product_default";
+  policy_reference?: string | null;
 };
 
 export type BuilderPolicyResolution = {
   advance_rates: ResolvedAdvanceRate[];
   equity_requirement: ResolvedEquityRequirement | null;
+  ltv_limit: ResolvedLtvLimit | null;
+};
+
+/** Structured policy lookup result from policyQuery.ts */
+export type PolicyLookupInput = {
+  advance_rates?: Record<string, { rate: number; reference: string | null; confidence: number | null }>;
+  equity_requirement?: { pct: number; reference: string | null; confidence: number | null } | null;
+  ltv_limit?: { limit: number; reference: string | null; confidence: number | null } | null;
 };
 
 export type BuilderPolicyContext = {
@@ -37,7 +56,9 @@ export type BuilderPolicyContext = {
   manual_advance_rates?: Record<string, number>;
   /** Manual equity override from banker */
   manual_equity_pct?: number | null;
-  /** Bank policy overrides (future: parsed from uploaded policy docs) */
+  /** Structured bank policy rules (from policyQuery) */
+  bank_policy?: PolicyLookupInput | null;
+  /** Legacy: direct bank policy overrides (kept for backward compat) */
   bank_policy_advance_rates?: Record<string, number>;
   bank_policy_equity_pct?: number | null;
   bank_policy_reference?: string | null;
@@ -46,16 +67,17 @@ export type BuilderPolicyContext = {
 // ── Resolver ─────────────────────────────────────────────────────
 
 /**
- * Resolve builder policy for advance rates and equity.
- * Priority: bank_policy > product_default > manual_override (for initial fill).
- * Manual overrides on saved items always win at item level.
+ * Resolve builder policy for advance rates, equity, and LTV limit.
+ * Priority: manual_override (item-level) > bank_policy_rules > product_default.
  */
 export function resolveBuilderPolicy(
   ctx: BuilderPolicyContext,
 ): BuilderPolicyResolution {
+  const bp = ctx.bank_policy;
+
   // ── Advance rates ──
   const advance_rates: ResolvedAdvanceRate[] = ctx.collateral_types.map((ct) => {
-    // Manual override on the item itself (highest priority at item level)
+    // 1. Manual override on the item itself (highest priority)
     if (ctx.manual_advance_rates?.[ct] != null) {
       return {
         collateral_type: ct,
@@ -64,7 +86,18 @@ export function resolveBuilderPolicy(
       };
     }
 
-    // Bank policy
+    // 2. Structured bank policy rules
+    if (bp?.advance_rates?.[ct] != null) {
+      return {
+        collateral_type: ct,
+        advance_rate: bp.advance_rates[ct].rate,
+        source: "bank_policy" as const,
+        policy_reference: bp.advance_rates[ct].reference,
+        confidence: bp.advance_rates[ct].confidence,
+      };
+    }
+
+    // 3. Legacy bank policy context
     if (ctx.bank_policy_advance_rates?.[ct] != null) {
       return {
         collateral_type: ct,
@@ -74,7 +107,7 @@ export function resolveBuilderPolicy(
       };
     }
 
-    // Product default
+    // 4. Product default
     const defaultRate = DEFAULT_ADVANCE_RATES[ct];
     if (defaultRate != null) {
       return {
@@ -100,6 +133,13 @@ export function resolveBuilderPolicy(
       required_pct: ctx.manual_equity_pct,
       source: "manual_override",
     };
+  } else if (bp?.equity_requirement?.pct != null) {
+    equity_requirement = {
+      required_pct: bp.equity_requirement.pct,
+      source: "bank_policy",
+      policy_reference: bp.equity_requirement.reference,
+      confidence: bp.equity_requirement.confidence,
+    };
   } else if (ctx.bank_policy_equity_pct != null) {
     equity_requirement = {
       required_pct: ctx.bank_policy_equity_pct,
@@ -116,5 +156,21 @@ export function resolveBuilderPolicy(
     }
   }
 
-  return { advance_rates, equity_requirement };
+  // ── LTV limit ──
+  let ltv_limit: ResolvedLtvLimit | null = null;
+
+  if (bp?.ltv_limit?.limit != null) {
+    ltv_limit = {
+      limit: bp.ltv_limit.limit,
+      source: "bank_policy",
+      policy_reference: bp.ltv_limit.reference,
+    };
+  } else {
+    ltv_limit = {
+      limit: 0.80,
+      source: "product_default",
+    };
+  }
+
+  return { advance_rates, equity_requirement, ltv_limit };
 }
