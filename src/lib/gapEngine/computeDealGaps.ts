@@ -9,7 +9,7 @@ export const CONFIDENCE_THRESHOLD = 0.75;
 // Required fact keys that MUST be present AND banker-confirmed for a deal to be complete.
 // "Complete" means resolution_status = 'confirmed' on all of these — not just extracted.
 //
-// SCOPE RULE: All gap categories (missing_fact, low_confidence, needs_confirmation) operate
+// SCOPE RULE: All gap categories (missing_fact, low_confidence, conflict) operate
 // exclusively on these keys. Secondary facts (schedule line items, balance sheet components,
 // etc.) are NOT surfaced as banker gaps regardless of their confidence level. The banker's
 // job is to confirm the credit-critical facts, not to audit every extracted line item.
@@ -24,8 +24,7 @@ export const REQUIRED_FACT_KEYS = [
 export type GapType =
   | "missing_fact"
   | "low_confidence"
-  | "conflict"
-  | "needs_confirmation";
+  | "conflict";
 
 export type GapItem = {
   gap_type: GapType;
@@ -46,7 +45,6 @@ export type GapItem = {
  *   1. missing_fact (p90)        — required key has no extracted value at all
  *   2. conflict (p90)            — required key has conflicting values across documents
  *   3. low_confidence (p70)      — required key extracted below CONFIDENCE_THRESHOLD
- *   4. needs_confirmation (p60)  — required key present + confident but not banker-confirmed
  *
  * A deal is only truly complete when ALL required facts have resolution_status = 'confirmed'.
  * Extracted facts are NOT the same as confirmed facts. OCC SR 11-7 requirement.
@@ -149,32 +147,24 @@ export async function computeDealGaps(args: {
       });
     }
 
-    // ── 5. Needs confirmation — required facts present + confident but unconfirmed ─
+    // ── 5. High-confidence facts — auto-confirm ────────────────────────────
     //
-    // This prevents the system from falsely declaring a deal complete.
-    // Extracted ≠ confirmed. A fact with 95% confidence still requires
-    // banker sign-off before it can anchor a credit decision. OCC SR 11-7.
-    for (const [key, f] of presentMap.entries()) {
-      if ((f.confidence ?? 0) < CONFIDENCE_THRESHOLD) continue; // already caught above
-      if (f.resolution_status === "confirmed") continue;
-      if (f.resolution_status === "rejected") continue;
-
-      const displayValue = f.fact_value_num != null
-        ? Number(f.fact_value_num).toLocaleString("en-US", { maximumFractionDigits: 2 })
-        : "unknown";
-
-      gaps.push({
-        gap_type: "needs_confirmation",
-        fact_type: "FINANCIAL",
-        fact_key: key,
-        owner_entity_id: null,
-        fact_id: f.id,
-        conflict_id: null,
-        description: `"${key}" was extracted as ${displayValue} but has not been confirmed by a banker.`,
-        resolution_prompt: `I have ${key} as ${displayValue} from the financial documents. Can you confirm that's correct?`,
-        priority: 60,
-      });
-    }
+    // Facts extracted with high confidence (>= CONFIDENCE_THRESHOLD) from
+    // source-backed documents do not require blind banker confirmation.
+    // They are treated as trustworthy unless a specific issue arises
+    // (conflict, low confidence, missing support).
+    //
+    // Banker review is evidence-based: only low_confidence, conflict, and
+    // missing_fact items surface in the review panel. High-confidence
+    // extractions are accepted by the system and available for downstream
+    // underwriting immediately.
+    //
+    // If a banker needs to override a high-confidence value, they do so
+    // through the financials/spreads UI, not through a blind confirm queue.
+    //
+    // Previous behavior (needs_confirmation) was removed because it asked
+    // bankers to approve numbers without evidence context — creating
+    // busywork and audit risk.
 
     // ── 6. Sync gap queue ───────────────────────────────────────────────────
     if (gaps.length > 0) {

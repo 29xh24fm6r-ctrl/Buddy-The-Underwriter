@@ -139,8 +139,8 @@ export default function StoryPanel({ dealId }: { dealId: string }) {
 
       {/* Section 3: Credit Interview */}
       <div className={glassSection}>
-        <div className={sectionLabel}>Credit Interview</div>
-        <p className="text-xs text-white/35 mb-4 -mt-1">Start a voice session — Buddy will ask about this deal based on what&apos;s missing. Or paste a call transcript.</p>
+        <div className={sectionLabel}>Financial Review &amp; Interview</div>
+        <p className="text-xs text-white/35 mb-4 -mt-1">Items requiring banker judgment, plus voice session for missing facts. Buddy only asks for review when evidence supports it.</p>
         <div className="mb-4"><SafeBoundary><DealHealthPanel dealId={dealId} /></SafeBoundary></div>
         <SafeBoundary><BankerVoicePanel dealId={dealId} /></SafeBoundary>
         <div className="mt-3">
