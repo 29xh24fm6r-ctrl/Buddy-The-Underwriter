@@ -3,6 +3,7 @@ import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealC
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { computeDealGaps, REQUIRED_FACT_KEYS } from "@/lib/gapEngine/computeDealGaps";
+import { TRUSTED_RESOLUTION_FILTER } from "@/lib/financialReview/isTrustedFinancialResolution";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -54,25 +55,26 @@ export async function GET(
       .order("priority", { ascending: false })
       .order("created_at", { ascending: true });
 
-    // Completeness score: confirmed required facts / total required facts
+    // Completeness score: banker-resolved required facts / total required facts
     // This is the ONLY accurate measure of deal completeness.
     // A deal is NOT complete just because the gap queue is empty —
-    // it is complete only when all required facts have resolution_status = 'confirmed'.
-    const { data: confirmedFacts } = await sb
+    // it is complete only when all required facts have trusted resolution
+    // (confirmed, overridden, or provided by banker).
+    const { data: resolvedFacts } = await sb
       .from("deal_financial_facts")
       .select("fact_key")
       .eq("deal_id", dealId)
       .eq("bank_id", auth.bankId)
-      .eq("resolution_status", "confirmed")
+      .in("resolution_status", TRUSTED_RESOLUTION_FILTER)
       .eq("is_superseded", false)
       .in("fact_key", REQUIRED_FACT_KEYS as unknown as string[]);
 
     const totalRequired = REQUIRED_FACT_KEYS.length;
-    const confirmedRequired = (confirmedFacts ?? []).filter(f =>
+    const resolvedRequired = (resolvedFacts ?? []).filter(f =>
       (REQUIRED_FACT_KEYS as readonly string[]).includes(f.fact_key)
     ).length;
-    const completenessScore = Math.round((confirmedRequired / totalRequired) * 100);
-    const isGenuinelyComplete = confirmedRequired === totalRequired;
+    const completenessScore = Math.round((resolvedRequired / totalRequired) * 100);
+    const isGenuinelyComplete = resolvedRequired === totalRequired;
 
     // Load provenance for reviewable gaps (low_confidence + conflict) so UI
     // can show evidence-backed review instead of blind confirmation.

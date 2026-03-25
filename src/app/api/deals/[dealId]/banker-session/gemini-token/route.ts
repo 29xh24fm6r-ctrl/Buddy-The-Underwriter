@@ -4,6 +4,7 @@ import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { randomUUID } from "crypto";
 import { computeDealGaps, REQUIRED_FACT_KEYS } from "@/lib/gapEngine/computeDealGaps";
+import { TRUSTED_RESOLUTION_FILTER, resolutionLabel } from "@/lib/financialReview/isTrustedFinancialResolution";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -62,7 +63,7 @@ export async function POST(
         .select("fact_key")
         .eq("deal_id", dealId)
         .eq("bank_id", bankId)
-        .eq("resolution_status", "confirmed")
+        .in("resolution_status", TRUSTED_RESOLUTION_FILTER)
         .eq("is_superseded", false)
         .in("fact_key", REQUIRED_FACT_KEYS as unknown as string[]),
     ]);
@@ -79,7 +80,7 @@ export async function POST(
     // Build metric summary for Buddy's context
     const metricLines = metrics.map((m: any) => {
       const val = Number(m.fact_value_num).toLocaleString("en-US", { maximumFractionDigits: 2 });
-      const status = m.resolution_status === "confirmed" ? "\u2713 confirmed" : "extracted from documents";
+      const status = `\u2713 ${resolutionLabel(m.resolution_status)}`;
       return `  ${m.fact_key}: ${val} (${status})`;
     }).join("\n");
 
