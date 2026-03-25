@@ -251,8 +251,14 @@ export function computeBuilderReadiness(
       });
   }
 
+  const blockerOnly = creditChecks.filter((c) => !c.met && c.severity === "blocker");
+  const creditReadyStrict = creditMet === creditTotal;
+  // Credit ready with exceptions: all blockers met, but warnings may exist
+  const creditReadyWithExceptions = blockerOnly.length === 0 && !creditReadyStrict;
+
   return {
-    credit_ready: creditMet === creditTotal,
+    credit_ready: creditReadyStrict,
+    credit_ready_with_exceptions: creditReadyWithExceptions,
     credit_ready_pct: creditPct,
     credit_ready_blockers: toBlockers(creditChecks),
     doc_ready: docMet === docTotal,

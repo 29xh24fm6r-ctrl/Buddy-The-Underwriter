@@ -284,6 +284,7 @@ export type BuilderPolicyException = {
 
 export type BuilderReadiness = {
   credit_ready: boolean;
+  credit_ready_with_exceptions: boolean;
   credit_ready_pct: number;
   credit_ready_blockers: BuilderReadinessBlocker[];
   doc_ready: boolean;
