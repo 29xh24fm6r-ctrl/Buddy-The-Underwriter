@@ -61,9 +61,9 @@ export function BuilderRightRail({ readiness, saveState, lastSaved }: Props) {
         </div>
         {readiness.doc_ready_blockers.length > 0 && (
           <ul className="space-y-1">
-            {readiness.doc_ready_blockers.map((b, i) => (
-              <li key={i} className="text-[11px] text-white/50">
-                &bull; {b}
+            {readiness.doc_ready_blockers.map((b) => (
+              <li key={b.key} className="text-[11px] text-white/50">
+                &bull; {b.label}
               </li>
             ))}
           </ul>

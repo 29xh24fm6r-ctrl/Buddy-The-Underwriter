@@ -34,8 +34,8 @@ export function ReviewWorkspace({ state, serverFlags, dealId }: Props) {
           </div>
           {readiness.credit_ready_blockers.length > 0 && (
             <ul className="space-y-1">
-              {readiness.credit_ready_blockers.map((b, i) => (
-                <li key={i} className="text-xs text-amber-200/80">&bull; {b}</li>
+              {readiness.credit_ready_blockers.map((b) => (
+                <li key={b.key} className="text-xs text-amber-200/80">&bull; {b.label}</li>
               ))}
             </ul>
           )}
@@ -54,8 +54,8 @@ export function ReviewWorkspace({ state, serverFlags, dealId }: Props) {
           </div>
           {readiness.doc_ready_blockers.length > 0 && (
             <ul className="space-y-1">
-              {readiness.doc_ready_blockers.map((b, i) => (
-                <li key={i} className="text-xs text-white/50">&bull; {b}</li>
+              {readiness.doc_ready_blockers.map((b) => (
+                <li key={b.key} className="text-xs text-white/50">&bull; {b.label}</li>
               ))}
             </ul>
           )}

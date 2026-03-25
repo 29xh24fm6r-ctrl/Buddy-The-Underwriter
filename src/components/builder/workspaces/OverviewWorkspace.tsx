@@ -67,8 +67,8 @@ export function OverviewWorkspace({ state, serverFlags, dealId, dealName, onStep
         <div className={glass}>
           <div className="text-sm font-semibold text-amber-300 mb-2">Missing for Credit Ready</div>
           <ul className="space-y-1">
-            {state.readiness.credit_ready_blockers.map((b, i) => (
-              <li key={i} className="text-xs text-amber-200/80">&bull; {b}</li>
+            {state.readiness.credit_ready_blockers.map((b) => (
+              <li key={b.key} className="text-xs text-amber-200/80">&bull; {b.label}</li>
             ))}
           </ul>
         </div>

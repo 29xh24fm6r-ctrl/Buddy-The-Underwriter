@@ -1,5 +1,6 @@
-// Phase 53A — Deal Builder types
+// Phase 53A / 53A.1 — Deal Builder types
 // All types for the builder data model, sections, and state.
+// 53A.1 additions: collateral valuation, LTV, equity policy, owner prefill, readiness targets.
 
 export type LoanType =
   | "term_loan"
@@ -42,6 +43,28 @@ export type ProceedsCategory =
   | "acquisition"
   | "renovation"
   | "other";
+
+export type CollateralValuationMethod =
+  | "appraisal"
+  | "management_stated_value"
+  | "purchase_price"
+  | "broker_opinion"
+  | "book_value"
+  | "tax_assessment"
+  | "liquidation_estimate"
+  | "other";
+
+export type EquityRequirementSource =
+  | "bank_policy"
+  | "product_default"
+  | "manual_override";
+
+export type OwnerPrefillSource = {
+  source_type: "business_tax_return" | "intake_identity" | "manual";
+  source_document_id?: string | null;
+  source_label?: string;
+  confidence?: number;
+};
 
 export type BuilderStepKey =
   | "overview"
@@ -110,8 +133,13 @@ export type BorrowerCard = {
   ownership_pct?: number;
   title?: string;
   years_with_company?: number;
+  /** @deprecated Use credit_pull_authorization_on_file instead */
   credit_auth_obtained?: boolean;
+  credit_pull_authorization_on_file?: boolean;
+  credit_pull_authorization_notes?: string;
   pfs_document_id?: string;
+  prefill_source?: OwnerPrefillSource;
+  prefill_status?: "suggested" | "accepted" | "edited";
 };
 
 export type PartiesSectionData = {
@@ -135,6 +163,7 @@ export type GuarantorsSectionData = {
 };
 
 export type StructureSectionData = {
+  /** @deprecated Use equity_required_pct / equity_actual_pct instead */
   equity_injection_amount?: number;
   equity_injection_source?: string;
   equity_injection_type?:
@@ -142,6 +171,14 @@ export type StructureSectionData = {
     | "equity_in_property"
     | "seller_note"
     | "other";
+  // Phase 53A.1: policy-aware equity model
+  equity_required_pct?: number;
+  equity_actual_pct?: number;
+  equity_required_amount?: number;
+  equity_actual_amount?: number;
+  equity_requirement_source?: EquityRequirementSource;
+  equity_policy_reference?: string;
+  equity_manually_overridden?: boolean;
   existing_debt_payoff?: boolean;
   existing_debt_description?: string;
   deposit_dda?: boolean;
@@ -171,6 +208,11 @@ export type CollateralItem = {
   lien_position: number;
   appraisal_date?: string;
   address?: string;
+  // Phase 53A.1: valuation methodology + LTV
+  valuation_method?: CollateralValuationMethod;
+  valuation_source_note?: string;
+  advance_rate?: number;
+  net_lendable_value?: number;
   created_at: string;
   updated_at: string;
 };
@@ -201,13 +243,27 @@ export type StepCompletion = {
   blockers: number;
 };
 
+export type BuilderReadinessTarget = {
+  step: BuilderStepKey;
+  action?: "open_owner_drawer" | "open_guarantor_drawer" | "open_loan_request_drawer" | "open_collateral_modal" | "open_story_prompt_drawer";
+  field_path?: string;
+  entity_id?: string;
+  story_key?: string;
+};
+
+export type BuilderReadinessBlocker = {
+  key: string;
+  label: string;
+  target: BuilderReadinessTarget;
+};
+
 export type BuilderReadiness = {
   credit_ready: boolean;
   credit_ready_pct: number;
-  credit_ready_blockers: string[];
+  credit_ready_blockers: BuilderReadinessBlocker[];
   doc_ready: boolean;
   doc_ready_pct: number;
-  doc_ready_blockers: string[];
+  doc_ready_blockers: BuilderReadinessBlocker[];
 };
 
 export type ServerFlags = {
