@@ -10,7 +10,10 @@ import type { BuilderReadinessTarget, BuilderStepKey } from "./builderTypes";
  * that the banker should be taken to in order to resolve it.
  */
 export function mapBlockerToTarget(blockerKey: string): BuilderReadinessTarget {
-  switch (blockerKey) {
+  // Strip instance suffix (e.g. "owner_title_missing:uuid" → "owner_title_missing")
+  const baseKey = blockerKey.includes(":") ? blockerKey.slice(0, blockerKey.indexOf(":")) : blockerKey;
+
+  switch (baseKey) {
     // Deal / Loan Request
     case "loan_purpose_missing":
       return { step: "loan_request", action: "open_loan_request_drawer", field_path: "deal.loan_purpose" };
@@ -58,6 +61,8 @@ export function mapBlockerToTarget(blockerKey: string): BuilderReadinessTarget {
       return { step: "loan_request", action: "open_loan_request_drawer", field_path: "structure.equity" };
     case "equity_source_of_funds_missing":
       return { step: "loan_request", action: "open_loan_request_drawer", field_path: "structure.equity_injection_source" };
+    case "equity_below_requirement":
+      return { step: "loan_request", action: "open_loan_request_drawer", field_path: "structure.equity" };
 
     // Financials
     case "financial_snapshot_missing":

@@ -230,8 +230,23 @@ export type BuilderPrefill = {
   deal: Partial<DealSectionData>;
   business: Partial<BusinessSectionData>;
   owners: Partial<BorrowerCard>[];
+  owner_candidates?: ExtractedOwnerCandidateSummary[];
   story: Partial<StorySectionData>;
   sources: Record<string, "buddy" | "manual">;
+};
+
+export type ExtractedOwnerCandidateSummary = {
+  temp_id: string;
+  full_legal_name?: string;
+  ownership_pct?: number | null;
+  title?: string | null;
+  home_address?: string | null;
+  home_city?: string | null;
+  home_state?: string | null;
+  home_zip?: string | null;
+  source_document_id: string;
+  source_label: string;
+  confidence: number;
 };
 
 export type StepCompletion = {
@@ -248,12 +263,15 @@ export type BuilderReadinessTarget = {
   action?: "open_owner_drawer" | "open_guarantor_drawer" | "open_loan_request_drawer" | "open_collateral_modal" | "open_story_prompt_drawer";
   field_path?: string;
   entity_id?: string;
+  collateral_id?: string;
   story_key?: string;
+  focus_selector?: string;
 };
 
 export type BuilderReadinessBlocker = {
   key: string;
   label: string;
+  severity: "blocker" | "warning";
   target: BuilderReadinessTarget;
 };
 

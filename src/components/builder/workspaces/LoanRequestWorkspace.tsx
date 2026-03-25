@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { BuilderState, BuilderPrefill, DealSectionData, StructureSectionData, ProceedsItem, ProceedsCategory } from "@/lib/builder/builderTypes";
+import type { BuilderState, BuilderPrefill, DealSectionData, StructureSectionData, ProceedsItem, ProceedsCategory, EquityRequirementSource } from "@/lib/builder/builderTypes";
 import { LoanRequestDrawer } from "../drawers/LoanRequestDrawer";
 import { ProceedsModal } from "../modals/ProceedsModal";
 import { BuddySourceBadge } from "../BuddySourceBadge";
@@ -91,6 +91,9 @@ export function LoanRequestWorkspace({ state, prefill, onSectionChange, dealId, 
         </div>
       </div>
 
+      {/* Equity Compliance */}
+      <EquityComplianceCard structure={structure} requestedAmt={requestedAmt} />
+
       {/* Use of Proceeds */}
       <div className={glass}>
         <div className="flex items-center justify-between mb-3">
@@ -117,6 +120,90 @@ export function LoanRequestWorkspace({ state, prefill, onSectionChange, dealId, 
 
       <LoanRequestDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} deal={deal} structure={structure} onSave={handleDrawerSave} />
       <ProceedsModal open={proceedsOpen} onClose={() => setProceedsOpen(false)} items={proceeds} requestedAmount={requestedAmt} onAdd={onProceedsAdd} onDelete={onProceedsDelete} />
+    </div>
+  );
+}
+
+// ── Equity Compliance sub-component ──────────────────────────────
+
+const SOURCE_LABELS: Record<EquityRequirementSource, string> = {
+  bank_policy: "Bank Policy",
+  product_default: "Product Default",
+  manual_override: "Manual Override",
+};
+
+function EquityComplianceCard({ structure, requestedAmt }: { structure: Partial<StructureSectionData>; requestedAmt: number }) {
+  const hasEquity =
+    structure.equity_required_pct != null ||
+    structure.equity_actual_pct != null ||
+    structure.equity_injection_amount != null;
+
+  if (!hasEquity) return null;
+
+  const reqPct = structure.equity_required_pct;
+  const actPct = structure.equity_actual_pct;
+  const reqAmt = structure.equity_required_amount ?? (reqPct != null && requestedAmt > 0 ? requestedAmt * reqPct : null);
+  const actAmt = structure.equity_actual_amount ?? structure.equity_injection_amount ?? (actPct != null && requestedAmt > 0 ? requestedAmt * actPct : null);
+  const source = structure.equity_requirement_source;
+
+  // Status
+  let statusLabel = "Missing Inputs";
+  let statusCls = "text-white/50 bg-white/5";
+  if (actAmt != null && reqAmt != null) {
+    if (actAmt >= reqAmt) {
+      statusLabel = "Meets Requirement";
+      statusCls = "text-emerald-300 bg-emerald-500/15";
+    } else {
+      statusLabel = "Below Requirement";
+      statusCls = "text-rose-300 bg-rose-500/15";
+    }
+  } else if (reqPct == null && actAmt != null) {
+    statusLabel = "Not Required";
+    statusCls = "text-white/50 bg-white/5";
+  } else if (requestedAmt <= 0) {
+    statusLabel = "Awaiting transaction base";
+    statusCls = "text-yellow-300/60 bg-yellow-500/10";
+  }
+
+  const glass = "rounded-xl border border-white/10 bg-white/[0.03] p-4";
+
+  return (
+    <div className={glass}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-sm font-semibold text-white">Equity Requirement</div>
+        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusCls}`}>
+          {statusLabel}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <span className="text-white/50">Required %</span>
+          <div className="text-white font-medium">{reqPct != null ? `${(reqPct * 100).toFixed(0)}%` : "\u2014"}</div>
+        </div>
+        <div>
+          <span className="text-white/50">Required $</span>
+          <div className="text-white font-medium">{reqAmt != null ? `$${reqAmt.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "\u2014"}</div>
+        </div>
+        <div>
+          <span className="text-white/50">Proposed %</span>
+          <div className="text-white font-medium">{actPct != null ? `${(actPct * 100).toFixed(0)}%` : "\u2014"}</div>
+        </div>
+        <div>
+          <span className="text-white/50">Proposed $</span>
+          <div className="text-white font-medium">{actAmt != null ? `$${actAmt.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "\u2014"}</div>
+        </div>
+        <div>
+          <span className="text-white/50">Source of Funds</span>
+          <div className="text-white font-medium">{structure.equity_injection_source || "\u2014"}</div>
+        </div>
+        <div>
+          <span className="text-white/50">Requirement Source</span>
+          <div className="text-white/70 text-xs">{source ? SOURCE_LABELS[source] : "\u2014"}</div>
+        </div>
+      </div>
+      {structure.equity_policy_reference && (
+        <div className="mt-2 text-[10px] text-white/30">Policy: {structure.equity_policy_reference}</div>
+      )}
     </div>
   );
 }
