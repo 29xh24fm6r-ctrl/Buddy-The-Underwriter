@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { extractFactsFromTranscript } from "@/lib/gapEngine/extractFactsFromTranscript";
-import { clerkAuth } from "@/lib/auth/clerkServer";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -14,12 +12,12 @@ export async function POST(
   props: { params: Promise<{ dealId: string }> }
 ) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await props.params;
-    const bankPick = await tryGetCurrentBankId();
-    if (!bankPick.ok) return NextResponse.json({ ok: false, error: "no_bank" }, { status: 401 });
+    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    }
 
-    const { userId } = await clerkAuth();
     const body = await req.json().catch(() => ({}));
     const rawText: string = body.raw_text ?? "";
     const sourceLabel: string = body.source_label ?? "Uploaded notes";
@@ -35,8 +33,8 @@ export async function POST(
       .from("deal_transcript_uploads")
       .insert({
         deal_id: dealId,
-        bank_id: bankPick.bankId,
-        uploaded_by: userId ?? "unknown",
+        bank_id: auth.bankId,
+        uploaded_by: auth.userId,
         source_label: sourceLabel,
         raw_text: rawText,
         extraction_status: "processing",
@@ -77,9 +75,7 @@ export async function POST(
     });
   } catch (e: unknown) {
     rethrowNextErrors(e);
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json({ ok: false, error: e.code }, { status: 403 });
-    }
+    console.error("[transcript-ingest POST]", e);
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
   }
 }

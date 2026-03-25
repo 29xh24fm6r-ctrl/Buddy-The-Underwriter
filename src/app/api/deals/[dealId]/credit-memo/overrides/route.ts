@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -12,11 +11,11 @@ export async function POST(
   props: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await props.params;
-    const bankPick = await tryGetCurrentBankId();
-    if (!bankPick.ok) return NextResponse.json({ ok: false, error: "no_bank" }, { status: 401 });
-    const bankId = bankPick.bankId;
+    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    }
 
     const body = await req.json().catch(() => ({}));
     const overrides = body?.overrides ?? {};
@@ -25,7 +24,7 @@ export async function POST(
     const { error } = await sb
       .from("deal_memo_overrides")
       .upsert(
-        { deal_id: dealId, bank_id: bankId, overrides, updated_at: new Date().toISOString() },
+        { deal_id: dealId, bank_id: auth.bankId, overrides, updated_at: new Date().toISOString() },
         { onConflict: "deal_id,bank_id" },
       );
 
@@ -34,9 +33,7 @@ export async function POST(
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     rethrowNextErrors(e);
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json({ ok: false, error: e.code }, { status: 403 });
-    }
+    console.error("[credit-memo/overrides POST]", e);
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
   }
 }
@@ -46,22 +43,24 @@ export async function GET(
   props: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await props.params;
-    const bankPick = await tryGetCurrentBankId();
-    if (!bankPick.ok) return NextResponse.json({ ok: false, error: "no_bank" }, { status: 401 });
+    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    }
 
     const sb = supabaseAdmin();
     const { data } = await sb
       .from("deal_memo_overrides")
       .select("overrides")
       .eq("deal_id", dealId)
-      .eq("bank_id", bankPick.bankId)
+      .eq("bank_id", auth.bankId)
       .maybeSingle();
 
     return NextResponse.json({ ok: true, overrides: data?.overrides ?? {} });
   } catch (e: unknown) {
     rethrowNextErrors(e);
+    console.error("[credit-memo/overrides GET]", e);
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
   }
 }

@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { randomUUID } from "crypto";
 import { computeDealGaps, REQUIRED_FACT_KEYS } from "@/lib/gapEngine/computeDealGaps";
@@ -21,18 +19,17 @@ export async function POST(
   props: { params: Promise<{ dealId: string }> }
 ) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await props.params;
-    const bankPick = await tryGetCurrentBankId();
-    if (!bankPick.ok) return NextResponse.json({ ok: false, error: "no_bank" }, { status: 401 });
+    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    }
 
-    const { userId } = await clerkAuth();
-    if (!userId) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-
+    const { userId, bankId } = auth;
     const sb = supabaseAdmin();
 
     // Always recompute gaps before building the session — guarantees accuracy
-    await computeDealGaps({ dealId, bankId: bankPick.bankId });
+    await computeDealGaps({ dealId, bankId });
 
     const [dealRes, gapsRes, metricsRes, confirmedRes] = await Promise.all([
       sb.from("deals")
@@ -47,7 +44,7 @@ export async function POST(
       sb.from("deal_gap_queue")
         .select("fact_key, gap_type, description, resolution_prompt, priority")
         .eq("deal_id", dealId)
-        .eq("bank_id", bankPick.bankId)
+        .eq("bank_id", bankId)
         .eq("status", "open")
         .in("gap_type", ["missing_fact", "conflict"])
         .order("priority", { ascending: false })
@@ -56,7 +53,7 @@ export async function POST(
       sb.from("deal_financial_facts")
         .select("fact_key, fact_value_num, resolution_status")
         .eq("deal_id", dealId)
-        .eq("bank_id", bankPick.bankId)
+        .eq("bank_id", bankId)
         .eq("is_superseded", false)
         .in("fact_key", ["TOTAL_REVENUE", "NET_INCOME", "DSCR", "ANNUAL_DEBT_SERVICE", "DEPRECIATION"])
         .not("fact_value_num", "is", null),
@@ -64,7 +61,7 @@ export async function POST(
       sb.from("deal_financial_facts")
         .select("fact_key")
         .eq("deal_id", dealId)
-        .eq("bank_id", bankPick.bankId)
+        .eq("bank_id", bankId)
         .eq("resolution_status", "confirmed")
         .eq("is_superseded", false)
         .in("fact_key", REQUIRED_FACT_KEYS as unknown as string[]),
@@ -82,7 +79,7 @@ export async function POST(
     // Build metric summary for Buddy's context
     const metricLines = metrics.map((m: any) => {
       const val = Number(m.fact_value_num).toLocaleString("en-US", { maximumFractionDigits: 2 });
-      const status = m.resolution_status === "confirmed" ? "✓ confirmed" : "extracted from documents";
+      const status = m.resolution_status === "confirmed" ? "\u2713 confirmed" : "extracted from documents";
       return `  ${m.fact_key}: ${val} (${status})`;
     }).join("\n");
 
@@ -168,7 +165,7 @@ COMPLIANCE: Every recorded fact becomes part of a regulatory credit file. Only o
     const { error: insertError } = await sb.from("deal_voice_sessions").insert({
       id: sessionId,
       deal_id: dealId,
-      bank_id: bankPick.bankId,
+      bank_id: bankId,
       user_id: userId,
       state: "active",
       expires_at: expiresAt,
@@ -178,7 +175,7 @@ COMPLIANCE: Every recorded fact becomes part of a regulatory credit file. Only o
         proxyUserId: userId,
         proxyTraceId: traceId,
         proxyDealId: dealId,
-        proxyBankId: bankPick.bankId,
+        proxyBankId: bankId,
         proxyModel: GEMINI_MODEL,
         proxyVoice: GEMINI_VOICE,
         proxySystemInstruction: systemInstruction,
@@ -212,9 +209,7 @@ COMPLIANCE: Every recorded fact becomes part of a regulatory credit file. Only o
     );
   } catch (e: unknown) {
     rethrowNextErrors(e);
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json({ ok: false, error: e.code }, { status: 403 });
-    }
+    console.error("[gemini-token POST]", e);
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
   }
 }
