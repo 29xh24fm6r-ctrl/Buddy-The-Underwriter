@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { BuilderState, BuilderPrefill, BorrowerCard, GuarantorCard, PartiesSectionData, GuarantorsSectionData } from "@/lib/builder/builderTypes";
+import type { BuilderState, BuilderPrefill, BorrowerCard, GuarantorCard, PartiesSectionData, GuarantorsSectionData, ExtractedOwnerCandidateSummary } from "@/lib/builder/builderTypes";
 import { OwnerDrawer } from "../drawers/OwnerDrawer";
 import { GuarantorDrawer } from "../drawers/GuarantorDrawer";
 import { EntityProfileDrawer } from "../drawers/EntityProfileDrawer";
@@ -19,12 +19,22 @@ export function PartiesWorkspace({ state, prefill, onSectionChange }: Props) {
   const guarantorsSection = (state.sections.guarantors ?? { guarantors: [] }) as GuarantorsSectionData;
   const owners = parties.owners ?? [];
   const guarantors = guarantorsSection.guarantors ?? [];
+  const candidates = prefill?.owner_candidates ?? [];
 
   const [ownerDrawer, setOwnerDrawer] = useState<{ open: boolean; owner: BorrowerCard | null }>({ open: false, owner: null });
   const [guarantorDrawer, setGuarantorDrawer] = useState<{ open: boolean; guarantor: GuarantorCard | null }>({ open: false, guarantor: null });
   const [profileDrawer, setProfileDrawer] = useState<{ open: boolean; owner: BorrowerCard | null }>({ open: false, owner: null });
+  const [dismissedCandidates, setDismissedCandidates] = useState<Set<string>>(new Set());
 
   const totalPct = owners.reduce((s, o) => s + (o.ownership_pct ?? 0), 0);
+
+  // Filter candidates: exclude already-added owners and dismissed ones
+  const ownerNames = new Set(owners.map((o) => o.full_legal_name?.toLowerCase().trim()).filter(Boolean));
+  const visibleCandidates = candidates.filter(
+    (c) =>
+      !dismissedCandidates.has(c.temp_id) &&
+      !ownerNames.has(c.full_legal_name?.toLowerCase().trim()),
+  );
 
   function handleOwnerSave(owner: BorrowerCard) {
     const idx = owners.findIndex((o) => o.id === owner.id);
@@ -32,6 +42,31 @@ export function PartiesWorkspace({ state, prefill, onSectionChange }: Props) {
     if (idx >= 0) next[idx] = owner;
     else next.push(owner);
     onSectionChange("parties", { owners: next });
+  }
+
+  function handleAcceptCandidate(candidate: ExtractedOwnerCandidateSummary) {
+    const card: BorrowerCard = {
+      id: candidate.temp_id,
+      full_legal_name: candidate.full_legal_name,
+      ownership_pct: candidate.ownership_pct ?? undefined,
+      title: candidate.title ?? undefined,
+      home_address: candidate.home_address ?? undefined,
+      home_city: candidate.home_city ?? undefined,
+      home_state: candidate.home_state ?? undefined,
+      home_zip: candidate.home_zip ?? undefined,
+      prefill_source: {
+        source_type: "business_tax_return",
+        source_document_id: candidate.source_document_id,
+        source_label: candidate.source_label,
+        confidence: candidate.confidence,
+      },
+      prefill_status: "accepted",
+    };
+    onSectionChange("parties", { owners: [...owners, card] });
+  }
+
+  function handleDismissCandidate(tempId: string) {
+    setDismissedCandidates((prev) => new Set(prev).add(tempId));
   }
 
   function handleGuarantorSave(g: GuarantorCard) {
@@ -60,7 +95,54 @@ export function PartiesWorkspace({ state, prefill, onSectionChange }: Props) {
         </button>
       </div>
 
-      {owners.length === 0 ? (
+      {/* Suggested owner candidates from business tax returns */}
+      {visibleCandidates.length > 0 && owners.length === 0 && (
+        <div className="rounded-xl border border-blue-500/20 bg-blue-600/10 p-4 space-y-3">
+          <div className="text-sm font-semibold text-blue-300">
+            Buddy found {visibleCandidates.length} owner{visibleCandidates.length > 1 ? "s" : ""} from tax returns
+          </div>
+          <div className="text-xs text-blue-300/60">Review and accept to add to your deal.</div>
+          <div className="space-y-2">
+            {visibleCandidates.map((c) => (
+              <div key={c.temp_id} className="flex items-center justify-between rounded-lg border border-blue-500/15 bg-white/[0.02] px-3 py-2">
+                <div>
+                  <div className="text-sm font-medium text-white">{c.full_legal_name || "Unnamed"}</div>
+                  <div className="text-xs text-white/50">
+                    {c.title ?? "No title"} &middot; {c.ownership_pct != null ? `${c.ownership_pct}%` : "No %"}
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-[10px] text-blue-300/60 bg-blue-500/10 px-1.5 py-0.5 rounded-full">
+                      Buddy found this
+                    </span>
+                    <span className="text-[10px] text-white/30">{c.source_label}</span>
+                    {c.confidence < 0.80 && (
+                      <span className="text-[10px] text-yellow-300/60">Low confidence</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleAcceptCandidate(c)}
+                    className="rounded-lg bg-blue-600/20 border border-blue-500/30 px-3 py-1 text-xs font-semibold text-blue-200 hover:bg-blue-600/30"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDismissCandidate(c.temp_id)}
+                    className="text-xs text-white/40 hover:text-white/70"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {owners.length === 0 && visibleCandidates.length === 0 ? (
         <div className={`${glass} text-center text-sm text-white/40`}>
           No owners added yet. Click &quot;Add Owner&quot; to get started.
         </div>
@@ -69,10 +151,20 @@ export function PartiesWorkspace({ state, prefill, onSectionChange }: Props) {
           {owners.map((owner) => (
             <div key={owner.id} className={`${glass} flex items-center justify-between cursor-pointer hover:bg-white/[0.05]`} onClick={() => setProfileDrawer({ open: true, owner })}>
               <div>
-                <div className="text-sm font-medium text-white">{owner.full_legal_name || "Unnamed"}</div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-white">{owner.full_legal_name || "Unnamed"}</span>
+                  {owner.prefill_source && (
+                    <span className="text-[10px] text-blue-300/60 bg-blue-500/10 px-1.5 py-0.5 rounded-full">
+                      {owner.prefill_status === "accepted" ? "Accepted" : owner.prefill_status === "edited" ? "Edited" : "Suggested"}
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-white/50">
                   {owner.title ?? "No title"} &middot; {owner.ownership_pct != null ? `${owner.ownership_pct}%` : "No ownership %"}
                 </div>
+                {owner.prefill_source?.source_label && (
+                  <div className="text-[10px] text-white/30 mt-0.5">Source: {owner.prefill_source.source_label}</div>
+                )}
               </div>
               <button
                 type="button"
