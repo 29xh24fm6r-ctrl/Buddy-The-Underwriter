@@ -1,13 +1,15 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { isTrustedResolution } from "@/lib/financialReview/isTrustedFinancialResolution";
 
 // Minimum confidence to consider a required fact "resolved enough" without banker confirmation.
 // Only applies to REQUIRED_FACT_KEYS — secondary schedule facts routinely extract at 50%
 // and should never surface as individual banker gaps.
 export const CONFIDENCE_THRESHOLD = 0.75;
 
-// Required fact keys that MUST be present AND banker-confirmed for a deal to be complete.
-// "Complete" means resolution_status = 'confirmed' on all of these — not just extracted.
+// Required fact keys that MUST be present AND banker-resolved for a deal to be complete.
+// "Complete" means resolution_status is a trusted resolution (confirmed/overridden/provided)
+// on all of these — not just extracted.
 //
 // SCOPE RULE: All gap categories (missing_fact, low_confidence, conflict) operate
 // exclusively on these keys. Secondary facts (schedule line items, balance sheet components,
@@ -46,8 +48,9 @@ export type GapItem = {
  *   2. conflict (p90)            — required key has conflicting values across documents
  *   3. low_confidence (p70)      — required key extracted below CONFIDENCE_THRESHOLD
  *
- * A deal is only truly complete when ALL required facts have resolution_status = 'confirmed'.
- * Extracted facts are NOT the same as confirmed facts. OCC SR 11-7 requirement.
+ * A deal is only truly complete when ALL required facts have a trusted resolution
+ * (confirmed, overridden, or provided). Extracted facts are NOT the same as
+ * banker-resolved facts. OCC SR 11-7 requirement.
  *
  * Safe to call repeatedly — upserts are idempotent.
  * Called after: document extraction, BIE run, transcript ingestion, manual confirmation.
@@ -127,7 +130,7 @@ export async function computeDealGaps(args: {
     for (const [key, f] of presentMap.entries()) {
       const conf = f.confidence ?? 0;
       if (conf >= CONFIDENCE_THRESHOLD) continue;
-      if (f.resolution_status === "confirmed") continue;
+      if (isTrustedResolution(f.resolution_status)) continue;
       if (f.resolution_status === "rejected") continue;
 
       const displayValue = f.fact_value_num != null
