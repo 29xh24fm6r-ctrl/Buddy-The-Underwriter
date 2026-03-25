@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import FinancialReviewItem from "@/components/deals/financial-review/FinancialReviewItem";
 
 type Gap = {
   id: string;
@@ -28,18 +29,6 @@ type DealHealthPanelProps = {
   onSessionStart?: () => void;
 };
 
-const GAP_TYPE_BADGE: Record<string, { label: string; color: string }> = {
-  missing_fact:   { label: "Missing",     color: "bg-rose-500/20 text-rose-300" },
-  conflict:       { label: "Conflict",    color: "bg-orange-500/20 text-orange-300" },
-  low_confidence: { label: "Low confidence", color: "bg-amber-500/20 text-amber-300" },
-};
-
-const REASON_LABEL: Record<string, string> = {
-  conflict:       "Buddy found conflicting values across source materials.",
-  missing_fact:   "Buddy could not find this required metric in uploaded materials.",
-  low_confidence: "Buddy extracted a value, but confidence is low and banker judgment is needed.",
-};
-
 /** Deterministic sort: conflict → missing_fact → low_confidence, then by priority desc, then fact_key asc */
 const GAP_TYPE_ORDER: Record<string, number> = { conflict: 0, missing_fact: 1, low_confidence: 2 };
 
@@ -53,23 +42,12 @@ function sortReviewItems(gaps: Gap[]): Gap[] {
   });
 }
 
-function formatPeriod(start: string | null, end: string | null): string | null {
-  if (!start && !end) return null;
-  if (start && end) {
-    const y1 = start.slice(0, 4);
-    const y2 = end.slice(0, 4);
-    return y1 === y2 ? `FY${y1}` : `${y1}–${y2}`;
-  }
-  return start ? `FY${start.slice(0, 4)}` : `FY${end!.slice(0, 4)}`;
-}
-
 export default function DealHealthPanel({ dealId, onSessionStart }: DealHealthPanelProps) {
   const [gaps, setGaps] = useState<Gap[]>([]);
   const [completeness, setCompleteness] = useState<number>(0);
   const [snapshotExists, setSnapshotExists] = useState<boolean | null>(null);
   const [provenance, setProvenance] = useState<Record<string, Provenance>>({});
   const [loading, setLoading] = useState(true);
-  const [resolving, setResolving] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -85,18 +63,6 @@ export default function DealHealthPanel({ dealId, onSessionStart }: DealHealthPa
   };
 
   useEffect(() => { load(); }, [dealId]);
-
-  const confirmFact = async (gap: Gap) => {
-    if (!gap.fact_id) return;
-    setResolving(gap.id);
-    await fetch(`/api/deals/${dealId}/gap-queue/resolve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "confirm", factId: gap.fact_id }),
-    });
-    await load();
-    setResolving(null);
-  };
 
   const barColor = completeness >= 80 ? "bg-emerald-500" :
                    completeness >= 50 ? "bg-amber-500" : "bg-rose-500";
@@ -212,77 +178,17 @@ export default function DealHealthPanel({ dealId, onSessionStart }: DealHealthPa
         </div>
       </div>
 
-      {/* Review items */}
+      {/* Review items — each with full action workflow */}
       <div className="divide-y divide-white/5">
-        {reviewableGaps.map(gap => {
-          const badge = GAP_TYPE_BADGE[gap.gap_type] ?? { label: gap.gap_type, color: "bg-white/10 text-white/50" };
-          const prov = gap.fact_id ? provenance[gap.fact_id] : null;
-          const period = prov ? formatPeriod(prov.periodStart, prov.periodEnd) : null;
-          const reason = REASON_LABEL[gap.gap_type] ?? "Banker judgment needed.";
-
-          return (
-            <div key={gap.id} className="px-4 py-3">
-              {/* Top row: badge + key + action */}
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${badge.color}`}>
-                      {badge.label}
-                    </span>
-                    <span className="text-xs font-mono text-white/40">{gap.fact_key}</span>
-                    {period && (
-                      <span className="text-[10px] text-white/30">{period}</span>
-                    )}
-                  </div>
-                  <p className="text-xs text-white/50 leading-relaxed">{gap.description}</p>
-                </div>
-
-                {/* Action button — only for low_confidence with fact_id (evidence-backed) */}
-                {gap.gap_type === "low_confidence" && gap.fact_id && prov && (
-                  <button
-                    onClick={() => confirmFact(gap)}
-                    disabled={resolving === gap.id}
-                    className="flex-shrink-0 text-xs font-semibold text-emerald-300 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 rounded transition-colors disabled:opacity-50"
-                  >
-                    {resolving === gap.id ? "..." : "Confirm value"}
-                  </button>
-                )}
-              </div>
-
-              {/* Evidence block — only render if provenance exists */}
-              {prov && (
-                <div className="mt-2 ml-0 pl-3 border-l border-white/10 space-y-0.5">
-                  {prov.value != null && (
-                    <div className="text-[11px] text-white/40">
-                      <span className="text-white/25">Value:</span>{" "}
-                      <span className="text-white/60 font-medium">
-                        ${Number(prov.value).toLocaleString("en-US", { maximumFractionDigits: 0 })}
-                      </span>
-                    </div>
-                  )}
-                  {prov.sourceDocumentName && (
-                    <div className="text-[11px] text-white/40">
-                      <span className="text-white/25">Source:</span>{" "}
-                      <span className="text-white/50">{prov.sourceDocumentName}</span>
-                    </div>
-                  )}
-                  {prov.confidence != null && (
-                    <div className="text-[11px] text-white/40">
-                      <span className="text-white/25">Confidence:</span>{" "}
-                      <span className="text-white/50">{Math.round(prov.confidence * 100)}%</span>
-                    </div>
-                  )}
-                  <div className="text-[11px] text-white/30 italic">{reason}</div>
-                </div>
-              )}
-
-              {/* For missing_fact — no evidence, just action guidance */}
-              {gap.gap_type === "missing_fact" && !prov && (
-                <div className="mt-1.5 text-[11px] text-white/30 italic">{reason}</div>
-              )}
-            </div>
-          );
-        })}
+        {reviewableGaps.map(gap => (
+          <FinancialReviewItem
+            key={gap.id}
+            gap={gap}
+            provenance={gap.fact_id ? provenance[gap.fact_id] ?? null : null}
+            dealId={dealId}
+            onResolved={load}
+          />
+        ))}
       </div>
     </div>
   );
