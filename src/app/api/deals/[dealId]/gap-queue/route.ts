@@ -28,6 +28,8 @@ export async function GET(
       return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
     }
 
+    const sb = supabaseAdmin();
+
     // Always recompute before reading — ensures queue is never stale or empty
     // from a deal that was never seeded. Non-fatal: if this fails, we still
     // return whatever is in the queue rather than erroring the whole request.
@@ -35,7 +37,14 @@ export async function GET(
       console.error("[gap-queue GET] computeDealGaps failed (non-fatal)", err);
     });
 
-    const sb = supabaseAdmin();
+    // Check if financial snapshot exists — gates whether review UI renders
+    const { count: snapshotCount } = await sb
+      .from("deal_truth_snapshots")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId);
+
+    const financialSnapshotExists = (snapshotCount ?? 0) > 0;
+
     const { data: gaps } = await sb
       .from("deal_gap_queue")
       .select("*")
@@ -65,14 +74,60 @@ export async function GET(
     const completenessScore = Math.round((confirmedRequired / totalRequired) * 100);
     const isGenuinelyComplete = confirmedRequired === totalRequired;
 
+    // Load provenance for reviewable gaps (low_confidence + conflict) so UI
+    // can show evidence-backed review instead of blind confirmation.
+    const reviewableGaps = (gaps ?? []).filter(
+      (g: any) => g.gap_type === "low_confidence" || g.gap_type === "conflict",
+    );
+    const factIdsToEnrich = reviewableGaps
+      .map((g: any) => g.fact_id)
+      .filter(Boolean) as string[];
+
+    let provenanceMap: Record<string, any> = {};
+    if (factIdsToEnrich.length > 0) {
+      const { data: facts } = await sb
+        .from("deal_financial_facts")
+        .select("id, fact_key, fact_value_num, fact_period_start, fact_period_end, confidence, provenance, source_document_id")
+        .in("id", factIdsToEnrich);
+
+      // Load source document names for provenance display
+      const docIds = (facts ?? [])
+        .map((f: any) => f.source_document_id)
+        .filter(Boolean) as string[];
+      let docNameMap: Record<string, string> = {};
+      if (docIds.length > 0) {
+        const { data: docs } = await sb
+          .from("deal_documents")
+          .select("id, original_filename, document_type")
+          .in("id", docIds);
+        for (const d of docs ?? []) {
+          docNameMap[d.id] = d.original_filename ?? d.document_type ?? "Unknown document";
+        }
+      }
+
+      for (const f of facts ?? []) {
+        provenanceMap[f.id] = {
+          value: f.fact_value_num,
+          periodStart: f.fact_period_start,
+          periodEnd: f.fact_period_end,
+          confidence: f.confidence,
+          sourceDocumentName: docNameMap[f.source_document_id] ?? null,
+          sourceLineLabel: (f.provenance as any)?.source_ref ?? null,
+          extractionPath: (f.provenance as any)?.extractor ?? null,
+        };
+      }
+    }
+
     return NextResponse.json({
       ok: true,
+      financialSnapshotExists,
       gaps: gaps ?? [],
       openCount: (gaps ?? []).length,
       completenessScore,
       // isGenuinelyComplete = ALL required facts have been banker-confirmed.
       // Use this — not openCount === 0 — to decide whether to show "Complete".
       isGenuinelyComplete,
+      provenance: provenanceMap,
     });
   } catch (e: unknown) {
     rethrowNextErrors(e);

@@ -38,9 +38,9 @@ export async function POST(
         .maybeSingle(),
 
       // Only load missing_fact and conflict gaps for the voice session.
-      // needs_confirmation and low_confidence gaps are NOT surfaced in voice —
-      // the banker cannot verify extracted numbers they don't have in front of them.
-      // Those are handled via the Deal Health Panel UI confirm buttons instead.
+      // low_confidence gaps are NOT surfaced in voice — the banker cannot
+      // verify extracted numbers they don't have in front of them. Those are
+      // handled via the evidence-backed Financial Validation panel instead.
       sb.from("deal_gap_queue")
         .select("fact_key, gap_type, description, resolution_prompt, priority")
         .eq("deal_id", dealId)
