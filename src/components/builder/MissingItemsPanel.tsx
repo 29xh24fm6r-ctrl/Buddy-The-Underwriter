@@ -1,6 +1,13 @@
 "use client";
 
-export function MissingItemsPanel({ items }: { items: string[] }) {
+import type { BuilderReadinessBlocker, BuilderStepKey } from "@/lib/builder/builderTypes";
+
+type Props = {
+  items: BuilderReadinessBlocker[];
+  onNavigate?: (step: BuilderStepKey, action?: string, fieldPath?: string) => void;
+};
+
+export function MissingItemsPanel({ items, onNavigate }: Props) {
   if (items.length === 0) {
     return (
       <div className="rounded-xl border border-emerald-500/20 bg-emerald-600/10 p-4">
@@ -16,10 +23,20 @@ export function MissingItemsPanel({ items }: { items: string[] }) {
         Missing Items ({items.length})
       </div>
       <ul className="space-y-1">
-        {items.map((item, i) => (
-          <li key={i} className="flex items-start gap-2 text-xs text-amber-200/80">
+        {items.map((item) => (
+          <li key={item.key} className="flex items-start gap-2 text-xs text-amber-200/80">
             <span className="mt-0.5 text-amber-400">&#9679;</span>
-            {item}
+            {onNavigate ? (
+              <button
+                type="button"
+                onClick={() => onNavigate(item.target.step, item.target.action, item.target.field_path)}
+                className="text-left hover:text-amber-100 hover:underline underline-offset-2 transition-colors"
+              >
+                {item.label}
+              </button>
+            ) : (
+              item.label
+            )}
           </li>
         ))}
       </ul>
