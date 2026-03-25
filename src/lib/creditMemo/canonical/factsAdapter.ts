@@ -179,6 +179,8 @@ export async function getLatestFactNum(args: {
     .eq("bank_id", args.bankId)
     .eq("fact_type", args.factType)
     .eq("fact_key", args.factKey)
+    .eq("is_superseded", false)
+    .neq("resolution_status", "rejected")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();

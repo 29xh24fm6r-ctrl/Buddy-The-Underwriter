@@ -26,12 +26,14 @@ export async function selectPeriods(args: {
 }): Promise<PeriodSelection> {
   const sb = supabaseAdmin();
 
-  // Get distinct period ranges from facts
+  // Get distinct period ranges from active facts
   const { data: periodRows } = await (sb as any)
     .from("deal_financial_facts")
     .select("fact_period_start, fact_period_end")
     .eq("deal_id", args.dealId)
     .eq("bank_id", args.bankId)
+    .eq("is_superseded", false)
+    .neq("resolution_status", "rejected")
     .not("fact_period_end", "is", null)
     .order("fact_period_end", { ascending: false })
     .limit(200);

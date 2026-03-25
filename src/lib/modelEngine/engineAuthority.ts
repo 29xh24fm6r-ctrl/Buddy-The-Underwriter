@@ -80,6 +80,8 @@ export async function computeAuthoritativeEngine(
       .select("*")
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
       .neq("fact_type", "EXTRACTION_HEARTBEAT"),
     (sb as any)
       .from("deals")
@@ -253,6 +255,8 @@ export async function computeLegacyComparison(
       .select("*")
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
       .neq("fact_type", "EXTRACTION_HEARTBEAT");
     factsToUse = (rawFacts ?? []) as FinancialFact[];
   }

@@ -71,6 +71,8 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         .select("fact_type,fact_key,created_at,confidence,provenance")
         .eq("deal_id", dealId)
         .eq("bank_id", access.bankId)
+        .eq("is_superseded", false)
+        .neq("resolution_status", "rejected")
         .in(
           "fact_key",
           Array.from(new Set(REQUIRED_CANONICAL_FACT_KEYS.map((k) => CANONICAL_FACTS[k].fact_key))),
