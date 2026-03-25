@@ -113,7 +113,7 @@ export default function BuilderPageClient({
 
   // Build current state object
   const readiness = computeBuilderReadiness(
-    { sections, collateral, proceeds, prefill, readiness: { credit_ready: false, credit_ready_pct: 0, credit_ready_blockers: [], doc_ready: false, doc_ready_pct: 0, doc_ready_blockers: [] }, activeStep, saveState, lastSaved },
+    { sections, collateral, proceeds, prefill, readiness: { credit_ready: false, credit_ready_pct: 0, credit_ready_blockers: [], doc_ready: false, doc_ready_pct: 0, doc_ready_blockers: [], policy_exceptions: [] }, activeStep, saveState, lastSaved },
     serverFlags,
   );
 

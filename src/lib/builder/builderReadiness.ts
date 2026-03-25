@@ -258,5 +258,6 @@ export function computeBuilderReadiness(
     doc_ready: docMet === docTotal,
     doc_ready_pct: docPct,
     doc_ready_blockers: toBlockers(allDocChecks),
+    policy_exceptions: [],
   };
 }

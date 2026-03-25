@@ -69,6 +69,28 @@ export function BuilderRightRail({ readiness, saveState, lastSaved }: Props) {
           </ul>
         )}
       </div>
+
+      {/* Policy Exceptions */}
+      {readiness.policy_exceptions.length > 0 && (
+        <div className="rounded-xl border border-rose-500/20 bg-rose-600/5 p-4 space-y-3">
+          <div className="text-sm font-semibold text-rose-300">
+            Policy Exceptions ({readiness.policy_exceptions.length})
+          </div>
+          <ul className="space-y-1">
+            {readiness.policy_exceptions.map((ex, i) => (
+              <li key={i} className="flex items-start gap-2 text-[11px]">
+                <span className={`mt-0.5 ${ex.severity === "exception" ? "text-rose-400" : "text-yellow-400"}`}>&#9679;</span>
+                <div>
+                  <span className="text-white/70">{ex.description}</span>
+                  {ex.policy_reference && (
+                    <span className="text-white/30 ml-1">({ex.policy_reference})</span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
