@@ -161,13 +161,19 @@ export async function buildDealFinancialSnapshotForBank(args: {
   const bankId = args.bankId;
   const sb = supabaseAdmin();
 
-  // Load facts, rent roll rows, and deal_mode in parallel
+  // Load facts, rent roll rows, and deal_mode in parallel.
+  // Exclude superseded and rejected facts so the snapshot only considers
+  // active truth: banker overrides/provides (MANUAL), spreads, extractions.
+  // The selectBestFact() priority (MANUAL > STRUCTURAL > SPREAD > DOC_EXTRACT)
+  // ensures banker-resolved values win when present.
   const [factsRes, rrRes, dealModeRes] = await Promise.all([
     (sb as any)
       .from("deal_financial_facts")
       .select("*")
       .eq("deal_id", args.dealId)
-      .eq("bank_id", bankId),
+      .eq("bank_id", bankId)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected"),
     (sb as any)
       .from("deal_rent_roll_rows")
       .select("*")

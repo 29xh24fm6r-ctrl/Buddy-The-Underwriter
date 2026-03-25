@@ -180,6 +180,8 @@ export async function buildCanonicalCreditMemo(args: {
         .from("deal_financial_facts")
         .select("fact_key, fact_value_num, fact_period_end")
         .eq("deal_id", args.dealId)
+        .eq("is_superseded", false)
+        .neq("resolution_status", "rejected")
         .in("fact_key", [
           "TOTAL_REVENUE", "NET_INCOME", "DEPRECIATION", "INTEREST_EXPENSE", "RENT_EXPENSE",
           "COST_OF_GOODS_SOLD", "GROSS_PROFIT", "TOTAL_OPERATING_EXPENSES", "OPERATING_INCOME", "EBITDA",
