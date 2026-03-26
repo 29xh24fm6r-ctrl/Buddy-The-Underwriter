@@ -31,6 +31,11 @@ export type DecisionReadinessInput = {
   financialExceptionCriticalCount?: number;
   financialOverrideDisclosureRequired?: boolean;
   financialMaterialChangeAfterMemo?: boolean;
+  // Phase 55F: Credit actioning integration
+  openRequiredActionCount?: number;
+  unresolvedPricingReview?: boolean;
+  unresolvedStructureReview?: boolean;
+  committeeDiscussionItemsOpen?: number;
 };
 
 /**
@@ -80,6 +85,20 @@ export function validateDecisionReadiness(
   }
   if (input.financialExceptionHighCount != null && input.financialExceptionHighCount > 0) {
     warnings.push(`${input.financialExceptionHighCount} high-severity financial exception(s) should be reviewed before committee`);
+  }
+
+  // Phase 55F: Credit actioning blockers
+  if (input.unresolvedPricingReview === true) {
+    blockers.push("Pricing review recommended but not completed");
+  }
+  if (input.unresolvedStructureReview === true) {
+    blockers.push("Structure review recommended but not completed");
+  }
+  if (input.openRequiredActionCount != null && input.openRequiredActionCount > 0) {
+    blockers.push(`${input.openRequiredActionCount} required credit action(s) remain unaccepted`);
+  }
+  if (input.committeeDiscussionItemsOpen != null && input.committeeDiscussionItemsOpen > 0) {
+    warnings.push(`${input.committeeDiscussionItemsOpen} committee discussion item(s) remain unresolved`);
   }
 
   // Memo must meet completeness threshold
