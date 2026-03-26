@@ -1,13 +1,42 @@
 import { buildDealIntelligence, formatConditionsEmail } from "@/lib/dealIntelligence/buildDealIntelligence";
 import { CopyToClipboardButton } from "@/components/deals/DealOutputActions";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
+import { DealPageErrorState } from "@/components/deals/DealPageErrorState";
+import { safeLoader } from "@/lib/server/safe-loader";
+import type { DealIntelligence } from "@/lib/dealIntelligence/types";
 
 export const dynamic = "force-dynamic";
 
 type Props = { params: { dealId: string } };
 
 export default async function ConditionsSummaryPage({ params }: Props) {
-  const intelligence = await buildDealIntelligence(params.dealId);
+  const result = await safeLoader<DealIntelligence | null>({
+    name: "buildDealIntelligence",
+    dealId: params.dealId,
+    surface: "conditions",
+    run: () => buildDealIntelligence(params.dealId),
+    fallback: null,
+  });
+
+  if (!result.ok || !result.data) {
+    return (
+      <div className="mx-auto w-full max-w-5xl px-6 py-8 space-y-6">
+        <h1 className="text-2xl font-bold text-neutral-900">Conditions & Missing Docs</h1>
+        <DealPageErrorState
+          title="Data unavailable"
+          message="Could not load conditions for this deal. The deal may not exist or data is still being prepared."
+          backHref={`/deals/${params.dealId}/cockpit`}
+          backLabel="Back to Cockpit"
+          dealId={params.dealId}
+          surface="conditions"
+          technicalDetail={result.error ?? undefined}
+        />
+      </div>
+    );
+  }
+
+  const intelligence = result.data;
+
   const emailText = formatConditionsEmail(intelligence);
 
   const requiredMissing = intelligence.conditions.missingDocs.filter((d) => d.required);

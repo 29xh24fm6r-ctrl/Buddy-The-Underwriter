@@ -69,7 +69,7 @@ export async function POST(req: Request, ctx: Ctx) {
     .from("deals")
     .select("id, bank_id")
     .eq("id", dealId)
-    .single();
+    .maybeSingle();
 
   if (dealErr || !deal || deal.bank_id !== bankId) {
     redirectTo.searchParams.set("seed", "forbidden");

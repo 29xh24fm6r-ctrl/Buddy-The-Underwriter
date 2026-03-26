@@ -9,6 +9,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { deriveLifecycleState } from "@/buddy/lifecycle";
+import { DealPageErrorState } from "@/components/deals/DealPageErrorState";
+import { safeLoader } from "@/lib/server/safe-loader";
 
 type PricingInputs = {
   index_code: "SOFR" | "UST_5Y" | "PRIME";
@@ -91,7 +93,7 @@ export default async function Page(
     )
     .eq("id", dealId)
     .eq("bank_id", bankId)
-    .single();
+    .maybeSingle();
 
   // Fetch primary loan request amount (first by request_number)
   const { data: primaryLoanRequest } = await sb
@@ -120,7 +122,32 @@ export default async function Page(
   }
 
   // Gate risk pricing behind spreads + snapshot + research completion
-  const lifecycle = await deriveLifecycleState(dealId);
+  const lifecycleResult = await safeLoader({
+    name: "deriveLifecycleState",
+    dealId,
+    surface: "pricing",
+    run: () => deriveLifecycleState(dealId),
+    fallback: null as Awaited<ReturnType<typeof deriveLifecycleState>> | null,
+  });
+
+  if (!lifecycleResult.ok || !lifecycleResult.data) {
+    return (
+      <main className="p-8">
+        <h1 className="text-xl font-semibold">Deal Pricing</h1>
+        <DealPageErrorState
+          title="Pricing data unavailable"
+          message="Could not load lifecycle data for pricing. Try refreshing."
+          backHref={`/deals/${dealId}/cockpit`}
+          backLabel="Back to Cockpit"
+          dealId={dealId}
+          surface="pricing"
+          technicalDetail={lifecycleResult.error ?? undefined}
+        />
+      </main>
+    );
+  }
+
+  const lifecycle = lifecycleResult.data;
   const { spreadsComplete, financialSnapshotExists, researchComplete } = lifecycle.derived;
   const pricingReady = spreadsComplete && financialSnapshotExists && researchComplete;
 
@@ -148,7 +175,33 @@ export default async function Page(
     );
   }
 
-  const pricing = await runDealRiskPricing(deal);
+  const pricingResult = await safeLoader({
+    name: "runDealRiskPricing",
+    dealId,
+    surface: "pricing",
+    run: () => runDealRiskPricing(deal),
+    fallback: null as Awaited<ReturnType<typeof runDealRiskPricing>> | null,
+  });
+
+  if (!pricingResult.ok || !pricingResult.data) {
+    return (
+      <div data-testid="deal-pricing" className="space-y-6">
+        <PricingAssumptionsCard dealId={dealId} />
+        <PricingScenariosPanel dealId={dealId} />
+        <DealPageErrorState
+          title="Risk pricing computation failed"
+          message="Could not compute risk pricing for this deal. Assumptions and scenarios are still accessible."
+          backHref={`/deals/${dealId}/cockpit`}
+          backLabel="Back to Cockpit"
+          dealId={dealId}
+          surface="pricing"
+          technicalDetail={pricingResult.error ?? undefined}
+        />
+      </div>
+    );
+  }
+
+  const pricing = pricingResult.data;
   const baseUrl = await getBaseUrl();
 
   const [inputsRes, ratesRes, quotesRes] = await Promise.all([

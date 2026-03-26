@@ -11,6 +11,8 @@ import { isGatekeeperPrimaryRoutingEnabled } from "@/lib/flags/openaiGatekeeper"
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import DealHealthPanel from "@/components/deals/DealHealthPanel";
 import BankerVoicePanel from "@/components/deals/BankerVoicePanel";
+import { DealPageErrorState } from "@/components/deals/DealPageErrorState";
+import { safeLoader } from "@/lib/server/safe-loader";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 import type { LifecycleState } from "@/buddy/lifecycle";
 
@@ -120,7 +122,8 @@ export default async function DealCockpitPage({ params }: Props) {
   }
 
   let bankName: string | null = null;
-  {
+  let dataLoadError: string | null = null;
+  try {
     const sb = supabaseAdmin();
 
     // Fetch bank name for cockpit header
@@ -132,15 +135,20 @@ export default async function DealCockpitPage({ params }: Props) {
     bankName = bankRow?.name ?? null;
 
     // Derive unified lifecycle state FIRST - this is the single source of truth
-    try {
-      unifiedLifecycleState = await deriveLifecycleState(dealId);
-      // Check for infrastructure errors in the state
+    const lifecycleResult = await safeLoader<LifecycleState | null>({
+      name: "deriveLifecycleState",
+      dealId,
+      surface: "cockpit",
+      run: () => deriveLifecycleState(dealId),
+      fallback: null,
+    });
+    if (lifecycleResult.ok && lifecycleResult.data) {
+      unifiedLifecycleState = lifecycleResult.data;
       const errorCodes = ["internal_error", "data_fetch_failed", "deal_not_found"];
-      if (unifiedLifecycleState?.blockers.some((b) => errorCodes.includes(b.code))) {
+      if (unifiedLifecycleState.blockers.some((b) => errorCodes.includes(b.code))) {
         lifecycleAvailable = false;
       }
-    } catch (e) {
-      console.error("[DealCockpitPage] deriveLifecycleState failed:", e);
+    } else {
       lifecycleAvailable = false;
     }
 
@@ -236,7 +244,44 @@ export default async function DealCockpitPage({ params }: Props) {
       }
     }
 
-    verify = await verifyUnderwrite({ dealId, actor: "banker" });
+    const verifyResult = await safeLoader<VerifyUnderwriteResult>({
+      name: "verifyUnderwrite",
+      dealId,
+      surface: "cockpit",
+      run: () => verifyUnderwrite({ dealId, actor: "banker" }),
+      fallback: verify, // pre-initialized safe default (ok: false)
+    });
+    verify = verifyResult.data;
+  } catch (outerErr) {
+    // Catch-all: any unguarded throw in the data-loading block.
+    // The deal shell still renders — page body shows a recoverable error card.
+    dataLoadError = outerErr instanceof Error ? outerErr.message : String(outerErr);
+    console.error("[DealCockpitPage] Unhandled data-load error — rendering degraded shell", {
+      dealId,
+      loader: "cockpit_data_block",
+      error: dataLoadError,
+      stack: outerErr instanceof Error ? outerErr.stack : undefined,
+    });
+  }
+
+  // If the outer data block threw, render a degraded but functional shell
+  if (dataLoadError) {
+    return (
+      <div data-testid="deal-cockpit">
+        <DealCockpitLoadingBar dealId={dealId} />
+        <div className="container mx-auto p-6 space-y-4">
+          <DealPageErrorState
+            title="Cockpit data partially unavailable"
+            message="Some deal data could not be loaded. The deal shell is intact — try refreshing, or contact support if this persists."
+            backHref={`/deals/${dealId}/cockpit`}
+            backLabel="Refresh Page"
+            dealId={dealId}
+            surface="cockpit"
+            technicalDetail={dataLoadError}
+          />
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -33,7 +33,7 @@ export default async function PortalLoanRequestPage({
       .from("deals")
       .select("id, borrower_name")
       .eq("id", ctx.dealId)
-      .single(),
+      .maybeSingle(),
     getProductTypesForBank(ctx.bankId),
   ]);
 
