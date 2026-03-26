@@ -98,11 +98,13 @@ export async function getCurrentBankId(): Promise<string> {
 
     console.log(`[getCurrentBankId] No bank memberships found for user ${userId}, auto-provisioning...`);
 
-    // 1) Check if a default dev bank exists (code: "OGB")
+    // 1) Check if a default dev bank exists (code: "DEV_DEFAULT")
+    //    Legacy: previously used code "OGB" (Old Glory Bank). Now tenant-neutral.
+    const DEV_BANK_CODE = "DEV_DEFAULT";
     const { data: existingBank } = await sb
       .from("banks")
       .select("id, code")
-      .eq("code", "OGB")
+      .or(`code.eq.${DEV_BANK_CODE},code.eq.OGB`)
       .maybeSingle();
 
     let bankId: string;
@@ -114,8 +116,8 @@ export async function getCurrentBankId(): Promise<string> {
       const { data: newBank, error: bankErr } = await sb
         .from("banks")
         .insert({
-          code: "OGB",
-          name: "Octagon Bank (Default)",
+          code: DEV_BANK_CODE,
+          name: "Dev Bank (Auto-Provisioned)",
         })
         .select("id")
         .single();

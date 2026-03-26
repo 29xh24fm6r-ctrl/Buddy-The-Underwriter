@@ -5,7 +5,11 @@ export async function ensureDealHasBank(opts: {
   dealId: string;
   defaultBankCode?: string;
 }) {
-  const { supabase, dealId, defaultBankCode = "OGB" } = opts;
+  const { supabase, dealId, defaultBankCode } = opts;
+
+  if (!defaultBankCode) {
+    throw new Error("defaultBankCode is required — do not assume a default bank");
+  }
 
   // 1) Load the deal
   const { data: deal, error: dErr } = await supabase

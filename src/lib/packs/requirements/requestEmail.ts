@@ -5,6 +5,7 @@ import type { RequirementResult } from "./types";
 export function buildMissingDocsEmail(input: {
   borrowerName?: string;
   dealName?: string;
+  bankName?: string;
   results: RequirementResult[];
 }) {
   const missing = input.results.filter((r) => r.status === "MISSING" || r.status === "PARTIAL");
@@ -23,6 +24,6 @@ export function buildMissingDocsEmail(input: {
     `If you have questions on any item, reply here and we’ll clarify exactly what we need.`,
     ``,
     `Thank you,`,
-    `Old Glory Bank`,
+    input.bankName ?? `Your Lending Team`,
   ].join("\n");
 }

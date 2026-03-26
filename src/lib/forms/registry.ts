@@ -5,7 +5,7 @@ export type PdfField = {
 };
 
 export const SBA_INTAKE_FORM = {
-  name: "OGB_SBA_INTAKE_V1",
+  name: "SBA_INTAKE_V1",
   version: "v1",
   fields: [
     { pdf: "BusinessLegalName", path: "business.legal_name" },
@@ -41,7 +41,7 @@ export type FormDefinition = {
 
 export const FORM_REGISTRY: FormDefinition[] = [
   {
-    form_name: "OGB_SBA_INTAKE_V1",
+    form_name: "SBA_INTAKE_V1",
     display_name: "SBA Intake (Internal)",
     source: "BANK",
     version: "v1",
