@@ -139,7 +139,7 @@ export async function getCurrentBankId(): Promise<string> {
       .insert({
         bank_id: bankId,
         clerk_user_id: userId,
-        role: "admin",
+        role: "bank_admin",
       });
 
     if (memInsertErr) {
