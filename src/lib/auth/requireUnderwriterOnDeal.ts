@@ -1,15 +1,10 @@
-// src/lib/auth/requireUnderwriterOnDeal.ts
-import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
-
 /**
- * HARDEN LATER.
- * For now: require a signed-in user.
- * Later: verify user is assigned on deal_participants or deal_assignees.
+ * Phase 53C — Redirect to real assignment enforcement.
+ *
+ * This file previously was a stub that only checked "signed in" without
+ * verifying deal assignment. Now delegates to the canonical implementation
+ * in participants.ts which checks deal_participants table.
+ *
+ * All 6 routes importing from this path now get real enforcement.
  */
-export async function requireUnderwriterOnDeal(_dealId: string) {
-  if (!isClerkConfigured()) throw new Error("auth_not_configured");
-  const a = await clerkAuth();
-  const userId = (a as any)?.userId;
-  if (!userId) throw new Error("Not authenticated");
-  return { userId };
-}
+export { requireUnderwriterOnDeal } from "@/lib/deals/participants";
