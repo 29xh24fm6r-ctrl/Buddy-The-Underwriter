@@ -1,8 +1,10 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
+import {
+  requireDealCockpitAccess,
+  COCKPIT_ROLES,
+} from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { buildFinancialSnapshot } from "@/lib/financials/buildFinancialSnapshot";
 
@@ -15,32 +17,40 @@ type Params = Promise<{ dealId: string }>;
  * POST /api/deals/[dealId]/lifecycle/action
  *
  * Unified endpoint for running lifecycle server actions.
- * Accepts an action type in the request body and routes to the appropriate handler.
  *
- * Supported actions:
- * - generate_snapshot: Generate financial snapshot
- * - generate_packet: Generate committee packet
- * - run_ai_classification: Run AI classification on documents
- * - send_reminder: Send borrower reminder
+ * Phase 56D fix: uses requireDealCockpitAccess (effective role from
+ * Clerk + bank_memberships fallback) instead of requireRoleApi
+ * (Clerk-only, causes false role_missing when publicMetadata is stale).
  */
 export async function POST(
   req: NextRequest,
   ctx: { params: Params }
 ): Promise<NextResponse> {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
 
-    // Verify deal access
-    const access = await ensureDealBankAccess(dealId);
-    if (!access.ok) {
+    // Phase 56D: unified cockpit auth — resolves role from Clerk OR bank_memberships
+    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
+    if (!auth.ok) {
+      console.log("[lifecycle/action] cockpit auth result", {
+        dealId,
+        ok: false,
+        error: auth.error,
+        detail: (auth as any).detail ?? null,
+      });
       return NextResponse.json(
-        { ok: false, error: access.error },
-        { status: access.error === "deal_not_found" ? 404 : 403 }
+        { ok: false, error: auth.error, detail: (auth as any).detail ?? null },
+        { status: auth.status }
       );
     }
 
-    // Parse action from request body
+    console.log("[lifecycle/action] cockpit auth result", {
+      dealId,
+      ok: true,
+      bankId: auth.bankId,
+      role: auth.role,
+    });
+
     const body = await req.json();
     const { action } = body;
 
@@ -51,12 +61,11 @@ export async function POST(
       );
     }
 
-    // Route to appropriate action handler
     switch (action) {
       case "generate_snapshot": {
         const result = await buildFinancialSnapshot({
           dealId,
-          bankId: access.bankId,
+          bankId: auth.bankId,
         });
 
         if (result.status === "already_present") {
@@ -77,22 +86,22 @@ export async function POST(
       }
 
       case "generate_packet": {
-        // TODO: Implement committee packet generation
-        return NextResponse.json({
-          ok: false,
-          error: "Committee packet generation not yet implemented",
-        }, { status: 501 });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Committee packet generation not yet implemented",
+          },
+          { status: 501 }
+        );
       }
 
       case "run_ai_classification": {
-        // Trigger AI classification for all unclassified documents
         const classifyRes = await fetch(
           `${req.nextUrl.origin}/api/deals/${dealId}/files/classify-all`,
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              // Forward auth cookies
               Cookie: req.headers.get("cookie") || "",
             },
           }
@@ -101,10 +110,13 @@ export async function POST(
         const classifyData = await classifyRes.json();
 
         if (!classifyRes.ok || !classifyData.ok) {
-          return NextResponse.json({
-            ok: false,
-            error: classifyData.error || "Classification failed",
-          }, { status: classifyRes.status });
+          return NextResponse.json(
+            {
+              ok: false,
+              error: classifyData.error || "Classification failed",
+            },
+            { status: classifyRes.status }
+          );
         }
 
         return NextResponse.json({
@@ -115,11 +127,13 @@ export async function POST(
       }
 
       case "send_reminder": {
-        // TODO: Implement borrower reminder
-        return NextResponse.json({
-          ok: false,
-          error: "Borrower reminder not yet implemented",
-        }, { status: 501 });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Borrower reminder not yet implemented",
+          },
+          { status: 501 }
+        );
       }
 
       default:
@@ -130,13 +144,6 @@ export async function POST(
     }
   } catch (error: any) {
     rethrowNextErrors(error);
-
-    if (error instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: error.code },
-        { status: error.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     console.error("[/api/deals/[dealId]/lifecycle/action] Error:", error);
     return NextResponse.json(
