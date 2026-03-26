@@ -26,6 +26,11 @@ export type DecisionReadinessInput = {
   financialValidationMemoSafe?: boolean;
   financialValidationSummaryStale?: boolean;
   financialValidationOpenCriticalCount?: number;
+  // Phase 55E: Exception intelligence integration
+  financialExceptionHighCount?: number;
+  financialExceptionCriticalCount?: number;
+  financialOverrideDisclosureRequired?: boolean;
+  financialMaterialChangeAfterMemo?: boolean;
 };
 
 /**
@@ -61,6 +66,20 @@ export function validateDecisionReadiness(
   }
   if (input.financialValidationOpenCriticalCount != null && input.financialValidationOpenCriticalCount > 0) {
     blockers.push(`${input.financialValidationOpenCriticalCount} open critical financial validation item(s) remain`);
+  }
+
+  // Phase 55E: Exception intelligence blockers
+  if (input.financialMaterialChangeAfterMemo === true) {
+    blockers.push("Material financial change occurred after memo generation — regenerate memo");
+  }
+  if (input.financialExceptionCriticalCount != null && input.financialExceptionCriticalCount > 0) {
+    blockers.push(`${input.financialExceptionCriticalCount} critical financial exception(s) remain open`);
+  }
+  if (input.financialOverrideDisclosureRequired === true) {
+    warnings.push("Committee disclosure required for material banker override(s)");
+  }
+  if (input.financialExceptionHighCount != null && input.financialExceptionHighCount > 0) {
+    warnings.push(`${input.financialExceptionHighCount} high-severity financial exception(s) should be reviewed before committee`);
   }
 
   // Memo must meet completeness threshold
