@@ -99,3 +99,6 @@ services/buddy-core-worker/node_modules/
 services/buddy-core-worker/dist/
 .env*.local
 gh_2.65.0_linux_amd64/
+
+# local machine / credentials
+buddy-the-underwriter-*.json
