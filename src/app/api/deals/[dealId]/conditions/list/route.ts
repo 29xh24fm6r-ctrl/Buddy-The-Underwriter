@@ -41,14 +41,21 @@ export async function GET(
       { status: 403 },
     );
 
-  const q = await sb
-    .from("deal_conditions")
-    .select(
-      "id,title,description,category,status,source,source_key,required_docs,due_date,borrower_message_subject,borrower_message_body,reminder_subscription_id,created_at,updated_at",
-    )
-    .eq("deal_id", dealId)
-    .order("status", { ascending: true })
-    .order("created_at", { ascending: false });
+  // Fetch conditions + linked evidence in parallel
+  const [q, linksRes] = await Promise.all([
+    sb
+      .from("deal_conditions")
+      .select(
+        "id,title,description,category,status,source,source_key,required_docs,due_date,borrower_message_subject,borrower_message_body,reminder_subscription_id,created_at,updated_at",
+      )
+      .eq("deal_id", dealId)
+      .order("status", { ascending: true })
+      .order("created_at", { ascending: false }),
+    sb
+      .from("condition_document_links")
+      .select("condition_id, document_id, link_source, match_confidence, match_reason, created_at")
+      .eq("deal_id", dealId),
+  ]);
 
   if (q.error)
     return NextResponse.json(
@@ -56,5 +63,20 @@ export async function GET(
       { status: 500 },
     );
 
-  return NextResponse.json({ ok: true, items: q.data ?? [] });
+  // Attach linked evidence to each condition
+  const links = linksRes.data ?? [];
+  const linksByCondition = new Map<string, typeof links>();
+  for (const l of links) {
+    const arr = linksByCondition.get(l.condition_id) ?? [];
+    arr.push(l);
+    linksByCondition.set(l.condition_id, arr);
+  }
+
+  const items = (q.data ?? []).map((c: any) => ({
+    ...c,
+    linked_evidence: linksByCondition.get(c.id) ?? [],
+    linked_doc_count: (linksByCondition.get(c.id) ?? []).length,
+  }));
+
+  return NextResponse.json({ ok: true, items });
 }
