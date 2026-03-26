@@ -27,6 +27,11 @@ type NextStepInput = {
   covenantSeedsCount: number;
   monitoringSeedsCount: number;
   financialValidationBlocked: boolean;
+  // Phase 56A: Builder integration
+  builderPartiesIncomplete?: boolean;
+  builderCollateralMissing?: boolean;
+  builderStoryIncomplete?: boolean;
+  builderDocsMissing?: boolean;
 };
 
 /**
@@ -120,6 +125,44 @@ export function getDealNextStep(input: NextStepInput): DealNextStep {
       reason: `${input.pendingBorrowerRequests} borrower request(s) are pending`,
       priority: "soon",
       domain: "borrower",
+    };
+  }
+
+  // 8.5. Phase 56A: Builder-aware routing
+  if (input.builderPartiesIncomplete) {
+    return {
+      label: "Complete Deal Parties",
+      href: `/deals/${dealId}/cockpit?tab=setup`,
+      reason: "Required participation roles are incomplete in Builder",
+      priority: "soon",
+      domain: "underwrite",
+    };
+  }
+  if (input.builderCollateralMissing) {
+    return {
+      label: "Configure Collateral",
+      href: `/deals/${dealId}/cockpit?tab=setup`,
+      reason: "Collateral configuration is required for this deal structure",
+      priority: "soon",
+      domain: "underwrite",
+    };
+  }
+  if (input.builderDocsMissing) {
+    return {
+      label: "Request Missing Documents",
+      href: `/deals/${dealId}/cockpit?tab=documents`,
+      reason: "Required documents are missing for one or more entities",
+      priority: "soon",
+      domain: "documents",
+    };
+  }
+  if (input.builderStoryIncomplete) {
+    return {
+      label: "Complete Deal Story",
+      href: `/deals/${dealId}/cockpit?tab=story`,
+      reason: "Deal narrative needs completion for credit memo",
+      priority: "later",
+      domain: "underwrite",
     };
   }
 
