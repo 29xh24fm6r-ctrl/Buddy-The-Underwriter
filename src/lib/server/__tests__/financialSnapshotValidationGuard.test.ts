@@ -95,9 +95,9 @@ describe("Snapshot gating — memo/decision readiness", () => {
 
   it("gate can block on missing/conflicted/stale state", () => {
     const content = readFile("lib/financial/snapshot/getFinancialSnapshotGate.ts");
-    assert.ok(content.includes("financialBlockers"), "must return blockers");
-    assert.ok(content.includes("memoSafe"), "must return memoSafe");
-    assert.ok(content.includes("decisionSafe"), "must return decisionSafe");
+    assert.ok(content.includes("blockerCode"), "must return blocker code");
+    assert.ok(content.includes("ready"), "must return ready flag");
+    assert.ok(content.includes("evidence"), "must return evidence");
     assert.ok(content.includes("stale"), "must detect stale state");
   });
 

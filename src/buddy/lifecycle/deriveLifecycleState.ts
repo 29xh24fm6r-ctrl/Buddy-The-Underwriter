@@ -505,6 +505,24 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   // Map to unified stage
   const stage = mapToUnifiedStage(lifecycleStage, dealStatusStage, derived);
 
+  // Phase 55C: Financial snapshot gate — blocks committee readiness
+  // Only query the gate for stages where it matters (underwriting+committee)
+  const GATE_STAGES = new Set(["underwrite_in_progress", "committee_ready", "committee_decisioned"]);
+  if (GATE_STAGES.has(stage)) {
+    try {
+      const { getFinancialSnapshotGate } = await import("@/lib/financial/snapshot/getFinancialSnapshotGate");
+      const gate = await getFinancialSnapshotGate(dealId);
+      derived.financialSnapshotGateReady = gate.ready;
+      derived.financialSnapshotGateCode = gate.blockerCode;
+      derived.financialSnapshotOpenReviewCount = gate.evidence.openReviewItems;
+      derived.financialSnapshotLastBuiltAt = gate.evidence.lastBuiltAt;
+      derived.financialSnapshotStale = gate.evidence.lastBuildStatus === "stale";
+    } catch {
+      // Non-fatal — financial gate failure must never block lifecycle derivation
+      derived.financialSnapshotGateReady = true; // fail-open
+    }
+  }
+
   // Compute blockers (merge with any runtime fetch failures)
   const blockers: LifecycleBlocker[] = [
     ...computeBlockers(stage, derived, checklist.length, loanRequestCount, loanRequestHasIncomplete),

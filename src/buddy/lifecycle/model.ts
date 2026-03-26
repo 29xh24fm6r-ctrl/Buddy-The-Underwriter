@@ -77,6 +77,10 @@ export type LifecycleBlockerCode =
   | "intake_health_below_threshold"
   // Intake confirmation gate — emitted when ENABLE_INTAKE_CONFIRMATION_GATE=true
   | "intake_confirmation_required"
+  // Financial validation blockers — Phase 55C
+  | "financial_snapshot_stale"
+  | "financial_validation_open"
+  | "financial_snapshot_build_failed"
   // Critical risk flags blocker — emitted when unresolved critical flags exist
   | "critical_flags_unresolved"
   // Pipeline stall blocker — emitted when artifacts stuck queued/processing
@@ -140,6 +144,16 @@ export type LifecycleDerived = {
   researchComplete: boolean;
   /** True if no unresolved critical risk flags exist (fail-open on query failure) */
   criticalFlagsResolved: boolean;
+  /** Phase 55C: True if financial snapshot gate is ready (no blocking validation items) */
+  financialSnapshotGateReady?: boolean;
+  /** Phase 55C: Blocker code from financial snapshot gate */
+  financialSnapshotGateCode?: string | null;
+  /** Phase 55C: Count of open financial review items */
+  financialSnapshotOpenReviewCount?: number;
+  /** Phase 55C: Last snapshot build timestamp */
+  financialSnapshotLastBuiltAt?: string | null;
+  /** Phase 55C: Whether snapshot is stale */
+  financialSnapshotStale?: boolean;
   /** Request correlation ID for debugging (optional, set by route) */
   correlationId?: string;
   // Gatekeeper-derived readiness detail fields
