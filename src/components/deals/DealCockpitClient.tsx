@@ -22,6 +22,7 @@ import { RightColumn } from "@/components/deals/cockpit/columns/RightColumn";
 import { SecondaryTabsPanel } from "@/components/deals/cockpit/panels/SecondaryTabsPanel";
 import { PipelineIndicator } from "@/components/deals/PipelineStatus";
 import CockpitAuthGate from "@/components/deals/CockpitAuthGate";
+import { IntelligencePanel } from "@/components/deal/IntelligencePanel";
 
 // Glass panel style for Stitch-like design
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
@@ -218,6 +219,9 @@ function DealCockpitClientInner({
       <DegradedBanner dealId={dealId} />
       <div className="min-h-screen text-white">
         <div className="mx-auto max-w-[1600px] px-3 py-4 space-y-4 sm:px-6 sm:py-6 sm:space-y-6">
+
+          {/* Phase 59: Intelligence Panel — always above tabs */}
+          <IntelligencePanel dealId={dealId} />
 
           {/* Hero Header — compact, focused */}
           <div className={cn(glassPanel, "overflow-hidden")}>
