@@ -166,6 +166,22 @@ export function computeBlockers(
     });
   }
 
+  // Phase 55C: Financial validation gate — blocks committee readiness
+  if (
+    (stage === "underwrite_in_progress" || stage === "committee_ready") &&
+    derived.financialSnapshotGateReady === false &&
+    derived.financialSnapshotGateCode
+  ) {
+    blockers.push({
+      code: derived.financialSnapshotGateCode as any,
+      message: derived.financialSnapshotGateCode === "financial_snapshot_stale"
+        ? "Financial snapshot is stale — newer evidence exists"
+        : derived.financialSnapshotGateCode === "financial_validation_open"
+        ? `${derived.financialSnapshotOpenReviewCount ?? 0} unresolved financial validation item(s)`
+        : "Financial validation must be completed before committee",
+    });
+  }
+
   // Committee readiness blockers
   if (stage === "underwrite_in_progress" || stage === "committee_ready") {
     if (!derived.committeePacketReady && derived.committeeRequired) {
