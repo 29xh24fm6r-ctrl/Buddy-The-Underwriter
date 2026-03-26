@@ -232,17 +232,48 @@ describe("Wiring markers guard", () => {
       }
     }
 
-    // Known existing placeholders — track them explicitly so new ones fail CI
-    const KNOWN_PLACEHOLDERS = new Set([
-      "components/deals/BorrowerConditionsCard.tsx",
-      "components/deals/EntitySelector.tsx",
-    ]);
-
-    const newViolations = violations.filter((v) => !KNOWN_PLACEHOLDERS.has(v));
+    // Phase 53C: All known placeholders have been removed.
+    // No allowlist — any alert("coming soon") in components now fails CI.
     assert.deepStrictEqual(
-      newViolations,
+      violations,
       [],
-      `New "Coming Soon" alert() placeholders found:\n${newViolations.join("\n")}\n\nExisting known: ${[...KNOWN_PLACEHOLDERS].join(", ")}`,
+      `"Coming Soon" alert() placeholders found in components:\n${violations.join("\n")}`,
+    );
+  });
+
+  it("no 'Coming Soon' text badges in builder components", () => {
+    const builders = globSync("components/builder", /\.tsx$/);
+    const violations: string[] = [];
+
+    for (const file of builders) {
+      const content = fs.readFileSync(file, "utf-8");
+      // Look for visible "Coming Soon" text in JSX (not comments)
+      const lines = content.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/Coming Soon/i.test(line) && !line.trim().startsWith("//") && !line.trim().startsWith("*") && !line.trim().startsWith("{/*")) {
+          violations.push(`${path.relative(SRC_ROOT, file)}:${i + 1}`);
+        }
+      }
+    }
+
+    assert.deepStrictEqual(
+      violations,
+      [],
+      `Visible "Coming Soon" badges found in builder components:\n${violations.join("\n")}`,
+    );
+  });
+
+  it("DealSetupCard persists loan type (no fake setTimeout)", () => {
+    const content = readFile("components/deals/DealSetupCard.tsx");
+    // Must call a real API endpoint, not just setTimeout
+    assert.ok(
+      content.includes("/api/deals/") && content.includes("intake"),
+      "DealSetupCard must persist via real API call",
+    );
+    assert.ok(
+      !content.includes("setTimeout(resolve"),
+      "DealSetupCard must not use fake setTimeout persistence",
     );
   });
 });
@@ -268,6 +299,30 @@ describe("Deal access — no caller-supplied bankId trust", () => {
     assert.ok(
       content.includes("requireBankMembership()"),
       "requireDealAccess must call requireBankMembership to derive bankId",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// E. SBA page explicit access contract
+// ---------------------------------------------------------------------------
+
+describe("SBA page explicit access check", () => {
+  it("SBA page uses ensureDealBankAccess or equivalent", () => {
+    const content = readFile("app/(app)/deals/[dealId]/sba/page.tsx");
+    assert.ok(
+      content.includes("ensureDealBankAccess") ||
+        content.includes("assertDealAccess") ||
+        content.includes("requireDealAccess"),
+      "SBA page must assert deal/tenant access explicitly",
+    );
+  });
+
+  it("SBA page handles access denial with DealPageErrorState", () => {
+    const content = readFile("app/(app)/deals/[dealId]/sba/page.tsx");
+    assert.ok(
+      content.includes("DealPageErrorState"),
+      "SBA page must render DealPageErrorState on access denial",
     );
   });
 });
