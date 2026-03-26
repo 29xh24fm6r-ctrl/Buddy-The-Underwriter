@@ -21,6 +21,11 @@ export type DecisionReadinessInput = {
   activeExceptionCount: number;
   mitigatedExceptionCount: number;
   hasDecisionNotes: boolean;
+  // Phase 55D: Financial validation integration
+  financialValidationDecisionSafe?: boolean;
+  financialValidationMemoSafe?: boolean;
+  financialValidationSummaryStale?: boolean;
+  financialValidationOpenCriticalCount?: number;
 };
 
 /**
@@ -45,6 +50,17 @@ export function validateDecisionReadiness(
   // Memo must be aligned to current freeze
   if (input.hasActiveMemoSnapshot && !input.memoAlignedToFreeze) {
     blockers.push("Credit memo is stale relative to current freeze — regenerate memo");
+  }
+
+  // Phase 55D: Financial validation must be decision-safe
+  if (input.financialValidationDecisionSafe === false) {
+    blockers.push("Financial validation is not decision-safe — resolve open financial validation items");
+  }
+  if (input.financialValidationSummaryStale === true) {
+    blockers.push("Financial validation summary is stale relative to latest evidence — regenerate memo");
+  }
+  if (input.financialValidationOpenCriticalCount != null && input.financialValidationOpenCriticalCount > 0) {
+    blockers.push(`${input.financialValidationOpenCriticalCount} open critical financial validation item(s) remain`);
   }
 
   // Memo must meet completeness threshold
