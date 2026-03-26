@@ -21,6 +21,7 @@ import { CenterColumn } from "@/components/deals/cockpit/columns/CenterColumn";
 import { RightColumn } from "@/components/deals/cockpit/columns/RightColumn";
 import { SecondaryTabsPanel } from "@/components/deals/cockpit/panels/SecondaryTabsPanel";
 import { PipelineIndicator } from "@/components/deals/PipelineStatus";
+import CockpitAuthGate from "@/components/deals/CockpitAuthGate";
 
 // Glass panel style for Stitch-like design
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
@@ -211,6 +212,8 @@ function DealCockpitClientInner({
 
   return (
     <CockpitDataProvider dealId={dealId} initialLifecycleState={unifiedLifecycleState}>
+      {/* Phase 58A: Auth gate prevents data panels from mounting before session hydration */}
+      <CockpitAuthGate>
       {/* Builder Observer: Show degraded API responses */}
       <DegradedBanner dealId={dealId} />
       <div className="min-h-screen text-white">
@@ -342,6 +345,7 @@ function DealCockpitClientInner({
 
       {/* Toast Stack for "What Changed" notifications */}
       <CockpitToastStack />
+      </CockpitAuthGate>
     </CockpitDataProvider>
   );
 }
