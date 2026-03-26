@@ -98,16 +98,7 @@ export function EntitySelector({
         ))}
       </div>
       
-      {/* Add Entity button */}
-      <button
-        onClick={() => {
-          // TODO: Open entity creation modal
-          alert('Entity creation UI coming soon!');
-        }}
-        className="px-3 py-2 mt-2 text-sm text-blue-600 border-2 border-dashed border-blue-300 rounded-md hover:bg-blue-50 hover:border-blue-400 transition-colors"
-      >
-        + Add Entity
-      </button>
+      {/* Entity creation gated — will be enabled when entity management API is ready */}
     </div>
   );
 }

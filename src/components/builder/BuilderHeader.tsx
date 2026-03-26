@@ -93,15 +93,7 @@ export function BuilderHeader({
         >
           Submit to Credit
         </button>
-        <button
-          type="button"
-          disabled
-          className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/40 cursor-not-allowed"
-          title="Coming Soon"
-        >
-          Generate Docs
-          <span className="ml-1.5 text-[10px] text-white/30">Coming Soon</span>
-        </button>
+        {/* Generate Docs: hidden until document generation backend is ready */}
       </div>
     </div>
   );

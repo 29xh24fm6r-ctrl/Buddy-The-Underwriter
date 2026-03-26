@@ -103,15 +103,9 @@ export default function BorrowerConditionsCard() {
                       Severity: {c.severity}
                     </div>
                   </div>
-                  <button
-                    className="ml-4 px-3 py-1 bg-black text-white text-xs rounded hover:opacity-90"
-                    onClick={() => {
-                      // TODO: Launch upload flow for this condition
-                      alert(`Upload flow for condition ${c.id} - coming soon`);
-                    }}
-                  >
-                    Upload
-                  </button>
+                  <span className="ml-4 px-3 py-1 bg-gray-200 text-gray-500 text-xs rounded cursor-default" title="Upload will be available when your underwriter requests documents">
+                    Pending
+                  </span>
                 </div>
               </div>
             ))}

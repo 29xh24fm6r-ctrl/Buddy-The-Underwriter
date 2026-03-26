@@ -98,13 +98,7 @@ export function ReviewWorkspace({ state, serverFlags, dealId }: Props) {
         >
           Submit to Credit
         </button>
-        <button
-          type="button"
-          disabled
-          className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white/40 cursor-not-allowed"
-        >
-          Generate Docs <span className="text-[10px] text-white/30 ml-1">Coming Soon</span>
-        </button>
+        {/* Generate Docs: hidden until document generation backend is ready */}
         <Link
           href={`/deals/${dealId}/portal-inbox`}
           className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white/80 hover:bg-white/10"
