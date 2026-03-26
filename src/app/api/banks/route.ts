@@ -115,10 +115,10 @@ export async function POST(req: NextRequest) {
 
     if (matchingBank) {
       const existingRole = existingMems.find((m: any) => m.bank_id === matchingBank.id)?.role;
-      if (existingRole !== "admin") {
+      if (existingRole !== "bank_admin") {
         await sb
           .from("bank_memberships")
-          .update({ role: "admin" })
+          .update({ role: "bank_admin" })
           .eq("bank_id", matchingBank.id)
           .eq("clerk_user_id", userId);
       }
