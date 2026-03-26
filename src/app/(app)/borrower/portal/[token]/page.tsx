@@ -158,11 +158,13 @@ export default function BorrowerPortalPage() {
           return resolve();
         }
 
-        // 3) Record in DB (deal_documents) using canonical record route
+        // 3) Record in DB (deal_documents) using borrower-token-authed route
+        //    CRITICAL: Must use /api/portal/[token]/files/record (token auth),
+        //    NOT /api/deals/[dealId]/files/record (Clerk auth — borrowers don't have Clerk sessions).
         try {
           const selectedKey =
             itemsRef.current.find((x) => x.id === id)?.checklistKey ?? "";
-          const recordRes = await fetch(`/api/deals/${dealIdFromToken}/files/record`, {
+          const recordRes = await fetch(`/api/portal/${token}/files/record`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
