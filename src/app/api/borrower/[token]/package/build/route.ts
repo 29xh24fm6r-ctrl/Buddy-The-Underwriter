@@ -77,7 +77,7 @@ export async function POST(
     }
 
     const formDef = FORM_REGISTRY.find(
-      (f) => f.form_name === "OGB_SBA_INTAKE_V1",
+      (f) => f.form_name === "SBA_INTAKE_V1",
     );
     const filledForms = formDef ? fillPdfFields(forms?.payload, formDef) : {};
 

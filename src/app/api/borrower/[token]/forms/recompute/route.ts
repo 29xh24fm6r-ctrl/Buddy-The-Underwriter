@@ -25,7 +25,7 @@ export async function POST(
     const answers: Record<string, any> = {};
     for (const r of answersRows ?? []) answers[r.question_key] = r.value;
 
-    const formName = "OGB_SBA_INTAKE_V1";
+    const formName = "SBA_INTAKE_V1";
     const built = buildSbaFormPayloadFromAnswers({ answers });
 
     const { error: upErr } = await (sb as any).from("sba_form_payloads").upsert(
