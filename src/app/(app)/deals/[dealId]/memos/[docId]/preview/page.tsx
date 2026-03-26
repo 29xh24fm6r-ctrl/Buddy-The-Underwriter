@@ -15,7 +15,7 @@ const supabase = supabaseAdmin();
     .from("generated_documents")
     .select("id, deal_id, doc_type, content_json")
     .eq("id", docId)
-    .single();
+    .maybeSingle();
 
   if (error || !doc || doc.deal_id !== dealId) {
     return <div className="p-8">Not found</div>;

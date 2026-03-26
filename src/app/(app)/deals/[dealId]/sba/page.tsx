@@ -17,7 +17,7 @@ export default async function DealSbaPage({ params }: { params: Promise<{ dealId
     .eq("application_id", dealId)
     .order("created_at", { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   return (
     <div className="space-y-4 p-6">

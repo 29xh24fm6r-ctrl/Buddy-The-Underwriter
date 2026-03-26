@@ -11,7 +11,7 @@ export default async function UploadPage({ params }: { params: Promise<{ token: 
     .from("borrower_portal_links")
     .select("id, deal_id, expires_at, used_at")
     .eq("token", token)
-    .single();
+    .maybeSingle();
 
   if (error || !link) {
     return (

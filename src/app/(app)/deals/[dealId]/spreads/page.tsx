@@ -16,7 +16,7 @@ export default async function SpreadsPage({ params }: Props) {
     .from("deals")
     .select("id, display_name, name, deal_type")
     .eq("id", dealId)
-    .single();
+    .maybeSingle();
 
   if (!deal) notFound();
 
