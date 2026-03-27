@@ -129,7 +129,7 @@ export function buildPricingMemoActivationScript(): string {
 
   if (data.scenarios) renderRows(data.scenarios);
 
-  // Update decision section if present
+  // Update decision section
   if (data.decision) {
     var recEls = document.querySelectorAll("[class*='font-bold'], [class*='font-semibold']");
     for (var i = 0; i < recEls.length; i++) {
@@ -140,6 +140,52 @@ export function buildPricingMemoActivationScript(): string {
         break;
       }
     }
+  }
+
+  // Inject commit action bar
+  if (data.dealId && data.scenarios && data.scenarios.length > 0) {
+    var container = document.querySelector("table") || document.querySelector("main") || document.body;
+    var bar = document.createElement("div");
+    bar.className = "flex items-center gap-3 mt-4 p-4 rounded-xl border border-blue-200 bg-blue-50";
+    bar.setAttribute("data-activated", "true");
+
+    var label = document.createElement("span");
+    label.className = "text-sm font-medium text-blue-900";
+    label.textContent = data.decision ? "Decision: " + data.decision.recommendation : "No decision recorded yet";
+    bar.appendChild(label);
+
+    if (!data.decision) {
+      var commitBtn = document.createElement("button");
+      commitBtn.className = "ml-auto px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700";
+      commitBtn.textContent = "Commit Pricing";
+      commitBtn.addEventListener("click", function () {
+        commitBtn.disabled = true;
+        commitBtn.textContent = "Committing...";
+        var origin = window.__STITCH_PARENT_ORIGIN || window.location.origin || "";
+        var firstScenario = data.scenarios[0];
+        fetch(origin + "/api/deals/" + data.dealId + "/pricing/decide", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ scenarioKey: firstScenario.key, decision: "APPROVED", rationale: "Committed from pricing memo surface" }),
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (res) {
+            if (res.ok) {
+              commitBtn.textContent = "Committed";
+              commitBtn.className = "ml-auto px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white";
+              label.textContent = "Decision: APPROVED";
+            } else {
+              commitBtn.textContent = res.error || "Error";
+              commitBtn.disabled = false;
+            }
+          })
+          .catch(function () { commitBtn.textContent = "Error"; commitBtn.disabled = false; });
+      });
+      bar.appendChild(commitBtn);
+    }
+
+    container.parentNode.insertBefore(bar, container.nextSibling);
   }
 })();
 `;

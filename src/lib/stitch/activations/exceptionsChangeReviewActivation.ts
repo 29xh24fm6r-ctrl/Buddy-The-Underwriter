@@ -160,9 +160,83 @@ export function buildExceptionsChangeReviewActivationScript(): string {
     }
   }
 
+  function addActionCell(row, item) {
+    var td = document.createElement("td");
+    td.className = "px-3 py-2 flex gap-1";
+    function mkBtn(label, cls, action) {
+      var btn = document.createElement("button");
+      btn.className = "px-2 py-1 text-[11px] font-semibold rounded " + cls;
+      btn.textContent = label;
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        btn.disabled = true;
+        btn.textContent = "...";
+        var origin = window.__STITCH_PARENT_ORIGIN || window.location.origin || "";
+        fetch(origin + "/api/exceptions/decide", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ exceptionId: item.id, action: action, dealId: item.id, rationale: "Decision from exceptions surface" }),
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (res) {
+            if (res.ok) {
+              btn.textContent = action === "approve" ? "Approved" : action === "reject" ? "Rejected" : "Escalated";
+              btn.className = "px-2 py-1 text-[11px] font-semibold rounded bg-emerald-100 text-emerald-800";
+              row.style.opacity = "0.6";
+            } else {
+              btn.textContent = res.error || "Error";
+              btn.disabled = false;
+            }
+          })
+          .catch(function () { btn.textContent = "Error"; btn.disabled = false; });
+      });
+      return btn;
+    }
+    td.appendChild(mkBtn("Approve", "bg-emerald-600 text-white hover:bg-emerald-700", "approve"));
+    td.appendChild(mkBtn("Reject", "bg-red-100 text-red-700 hover:bg-red-200", "reject"));
+    td.appendChild(mkBtn("Escalate", "bg-amber-100 text-amber-700 hover:bg-amber-200", "escalate"));
+    row.appendChild(td);
+  }
+
   var data = getData();
   if (!data || !data.rows) return;
-  renderRows(data.rows);
+
+  var thead = document.querySelector("table thead tr");
+  if (thead) {
+    var th = document.createElement("th");
+    th.className = "px-3 py-2 text-xs font-medium";
+    th.textContent = "Actions";
+    thead.appendChild(th);
+  }
+
+  var tbody = document.querySelector("table tbody");
+  if (tbody) {
+    var tpl = tbody.querySelector("tr");
+    if (tpl) {
+      tbody.innerHTML = "";
+      data.rows.forEach(function (item) {
+        var row = tpl.cloneNode(true);
+        updateRow(row, item);
+        addActionCell(row, item);
+        row.style.cursor = "pointer";
+        row.addEventListener("click", function () {
+          var origin = window.__STITCH_PARENT_ORIGIN || "";
+          try { parent.postMessage({ __stitchFrame: true, type: "navigate", href: "/deals/" + item.id + "/risk" }, origin); } catch (e) {}
+        });
+        tbody.appendChild(row);
+      });
+      if (!data.rows.length) {
+        var empty = document.createElement("tr");
+        var etd = document.createElement("td");
+        etd.colSpan = 9;
+        etd.className = "px-4 py-6 text-center text-sm opacity-60";
+        etd.textContent = "No active exceptions.";
+        empty.appendChild(etd);
+        tbody.appendChild(empty);
+      }
+    }
+  }
 
   var nodes = document.querySelectorAll("span.text-xl, span.text-2xl, span.text-3xl");
   for (var i = 0; i < nodes.length; i++) {
