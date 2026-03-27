@@ -56,9 +56,11 @@ function isSatisfied(status: string): boolean {
 
 const fetcher = async (url: string) => {
   const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch checklist");
+  if (res.status === 403 || res.status === 401) return { ok: false, error: "forbidden", items: [] };
+  if (res.status === 404) return { ok: false, error: "not_found", items: [] };
+  if (!res.ok) return { ok: false, error: `http_${res.status}`, items: [] };
   const json = await res.json();
-  if (!json.ok) throw new Error(json.error?.message || "Checklist error");
+  if (!json.ok) return { ok: false, error: json.error?.message || "Checklist error", items: [] };
   return json;
 };
 
@@ -72,7 +74,7 @@ export function useChecklistDetail(dealId: string): {
   const { data, error, isLoading, mutate } = useSWR(
     dealId ? `/api/deals/${dealId}/checklist/list` : null,
     fetcher,
-    { revalidateOnFocus: false, dedupingInterval: 5000 },
+    { revalidateOnFocus: false, dedupingInterval: 5000, shouldRetryOnError: false },
   );
 
   // Listen for refresh events

@@ -7,7 +7,13 @@ import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonica
 import { useFinancialSnapshot } from "@/hooks/useFinancialSnapshot";
 import type { DealFinancialSnapshotV1, SnapshotMetricName, SnapshotMetricValue } from "@/lib/deals/financialSnapshotCore";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+const fetcher = async (url: string) => {
+  const res = await fetch(url);
+  if (res.status === 403 || res.status === 401) return { ok: false, error: "forbidden" };
+  if (res.status === 404) return { ok: false, error: "not_found" };
+  if (!res.ok) return { ok: false, error: `http_${res.status}` };
+  return res.json();
+};
 
 function fmtCurrency(n: number) {
   const abs = Math.abs(n);

@@ -108,19 +108,13 @@ function yearChips(checklistKey: unknown, requiredYears: unknown, satisfiedYears
   );
 }
 
-const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then(async (res) => {
-  const json = await res.json();
-  console.log('[EnhancedChecklistCard] API Response:', {
-    url,
-    status: res.status,
-    ok: json.ok,
-    state: json.state,
-    itemsCount: json.items?.length,
-    firstItem: json.items?.[0],
-    rawResponse: json
-  });
-  return json;
-});
+const fetcher = async (url: string) => {
+  const res = await fetch(url, { cache: 'no-store' });
+  if (res.status === 403 || res.status === 401) return { ok: false, error: "forbidden" };
+  if (res.status === 404) return { ok: false, error: "not_found" };
+  if (!res.ok) return { ok: false, error: `http_${res.status}` };
+  return res.json();
+};
 
 export function EnhancedChecklistCard({
   dealId,
@@ -132,6 +126,7 @@ export function EnhancedChecklistCard({
   const { data, error, isLoading, mutate } = useSWR(
     `/api/deals/${dealId}/checklist/list`,
     fetcher,
+    { shouldRetryOnError: false },
   );
 
   const [togglingKey, setTogglingKey] = React.useState<string | null>(null);

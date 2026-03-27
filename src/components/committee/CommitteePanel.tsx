@@ -12,14 +12,20 @@
 import { useState } from "react";
 import useSWR from "swr";
 
-const fetcher = (url: string) => fetch(url).then(r => r.json());
+const fetcher = async (url: string) => {
+  const res = await fetch(url);
+  if (res.status === 403 || res.status === 401) return { ok: false, error: "forbidden" };
+  if (res.status === 404) return { ok: false, error: "not_found" };
+  if (!res.ok) return { ok: false, error: `http_${res.status}` };
+  return res.json();
+};
 
-export function CommitteePanel({ 
-  dealId, 
-  snapshotId 
-}: { 
-  dealId: string; 
-  snapshotId: string; 
+export function CommitteePanel({
+  dealId,
+  snapshotId
+}: {
+  dealId: string;
+  snapshotId: string;
 }) {
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -27,7 +33,7 @@ export function CommitteePanel({
   const { data, mutate } = useSWR(
     `/api/deals/${dealId}/decision/${snapshotId}/committee/status`,
     fetcher,
-    { refreshInterval: 5000 } // Auto-refresh every 5s
+    { refreshInterval: 5000, shouldRetryOnError: false }
   );
 
   if (!data?.ok) return null;
