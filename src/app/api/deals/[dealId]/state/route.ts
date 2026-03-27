@@ -7,6 +7,7 @@ import { getBuddyCanonicalState } from "@/core/state/BuddyCanonicalStateAdapter"
 import { getOmegaAdvisoryState } from "@/core/omega/OmegaAdvisoryAdapter";
 import { deriveBuddyExplanation } from "@/core/explanation/deriveBuddyExplanation";
 import { formatOmegaAdvisory } from "@/core/omega/formatOmegaAdvisory";
+import { deriveNextActions } from "@/core/actions/deriveNextActions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,10 +33,16 @@ export async function GET(
       getOmegaAdvisoryState(dealId),
     ]);
 
-    // Derive explanation from canonical state (Buddy explains state)
+    // Derive explanation (Buddy explains state)
     const explanation = deriveBuddyExplanation(state);
 
-    // Format Omega advisory (Omega explains reasoning — separate)
+    // Derive next actions from canonical state + explanation
+    const { nextActions, primaryAction } = deriveNextActions({
+      canonicalState: state,
+      explanation,
+    });
+
+    // Format Omega advisory (separate from Buddy explanation)
     const omegaExplanation = formatOmegaAdvisory(omega);
 
     return NextResponse.json({
@@ -44,6 +51,8 @@ export async function GET(
       omega,
       explanation,
       omegaExplanation,
+      nextActions,
+      primaryAction,
     });
   } catch (err) {
     console.error("[GET /api/deals/[dealId]/state] error:", err);
