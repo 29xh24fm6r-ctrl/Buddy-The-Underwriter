@@ -194,6 +194,7 @@ export default async function StitchRouteBridge({
       const existingData = JSON.parse(activationDataJson);
       existingData.canonicalState = statePayload.canonicalState;
       existingData.omega = statePayload.omega;
+      existingData.explanation = statePayload.explanation;
       activationDataJson = JSON.stringify(existingData)
         .replace(/</g, "\\u003c")
         .replace(/\u2028/g, "\\u2028")
