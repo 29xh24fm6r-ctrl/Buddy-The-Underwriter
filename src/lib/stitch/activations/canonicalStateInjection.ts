@@ -1,21 +1,25 @@
 /**
- * Canonical State Injection — Phase 65A Surface Integration
+ * Canonical State Injection — Phase 65C
  *
  * Shared helpers to inject BuddyCanonicalState + OmegaAdvisoryState
- * into Stitch activation data and render as DOM elements.
+ * + BuddyExplanation into Stitch activation data and render as DOM elements.
  *
  * RULE: No surface computes lifecycle/readiness/next-step locally.
- * All state comes from BuddyCanonicalStateAdapter.
+ * RULE: Buddy explains state. Omega explains reasoning. Never mixed.
  */
 
 import { getBuddyCanonicalState } from "@/core/state/BuddyCanonicalStateAdapter";
 import { getOmegaAdvisoryState } from "@/core/omega/OmegaAdvisoryAdapter";
+import { deriveBuddyExplanation } from "@/core/explanation/deriveBuddyExplanation";
+import { formatOmegaAdvisory } from "@/core/omega/formatOmegaAdvisory";
 import type { BuddyCanonicalState } from "@/core/state/types";
 import type { OmegaAdvisoryState } from "@/core/omega/types";
+import type { BuddyExplanation } from "@/core/explanation/types";
 
 export type CanonicalStatePayload = {
   canonicalState: BuddyCanonicalState | null;
   omega: OmegaAdvisoryState | null;
+  explanation: BuddyExplanation | null;
 };
 
 /**
@@ -25,17 +29,18 @@ export type CanonicalStatePayload = {
 export async function fetchCanonicalStatePayload(
   dealId: string | null,
 ): Promise<CanonicalStatePayload> {
-  if (!dealId) return { canonicalState: null, omega: null };
+  if (!dealId) return { canonicalState: null, omega: null, explanation: null };
 
   try {
     const [state, omega] = await Promise.all([
       getBuddyCanonicalState(dealId),
       getOmegaAdvisoryState(dealId),
     ]);
-    return { canonicalState: state, omega };
+    const explanation = deriveBuddyExplanation(state);
+    return { canonicalState: state, omega, explanation };
   } catch (err) {
     console.error("[canonicalStateInjection] error:", err);
-    return { canonicalState: null, omega: null };
+    return { canonicalState: null, omega: null, explanation: null };
   }
 }
 
@@ -111,7 +116,62 @@ export function buildCanonicalStateRenderScript(): string {
       anchor.appendChild(stateBar);
     }
 
-    // Omega advisory panel (if advisory text exists)
+    // Buddy explanation panel (WHY + BLOCKING)
+    var expl = data.explanation;
+    if (expl) {
+      var explPanel = document.createElement("div");
+      explPanel.className = "px-4 py-3 mb-3 rounded-xl border border-neutral-200 bg-white space-y-2";
+      explPanel.setAttribute("data-buddy-explanation", "true");
+
+      // Summary
+      var summaryEl = document.createElement("div");
+      summaryEl.className = "text-sm font-medium text-neutral-900";
+      summaryEl.textContent = expl.summary;
+      explPanel.appendChild(summaryEl);
+
+      // Reasons
+      if (expl.reasons && expl.reasons.length > 0) {
+        var reasonTitle = document.createElement("div");
+        reasonTitle.className = "text-[10px] font-semibold uppercase tracking-wide text-neutral-500";
+        reasonTitle.textContent = "Why";
+        explPanel.appendChild(reasonTitle);
+        expl.reasons.forEach(function (r) {
+          var li = document.createElement("div");
+          li.className = "text-xs text-neutral-700 pl-2";
+          li.textContent = "· " + r;
+          explPanel.appendChild(li);
+        });
+      }
+
+      // Blocking factors
+      if (expl.blockingFactors && expl.blockingFactors.length > 0) {
+        var blockTitle = document.createElement("div");
+        blockTitle.className = "text-[10px] font-semibold uppercase tracking-wide text-red-500";
+        blockTitle.textContent = "Blocking";
+        explPanel.appendChild(blockTitle);
+        expl.blockingFactors.forEach(function (b) {
+          var li = document.createElement("div");
+          li.className = "text-xs text-red-700 pl-2";
+          li.textContent = "· " + b;
+          explPanel.appendChild(li);
+        });
+      }
+
+      // Next action reason
+      if (cs && cs.nextRequiredAction) {
+        var nextEl = document.createElement("div");
+        nextEl.className = "text-xs text-neutral-600 mt-1";
+        nextEl.textContent = "Next: " + cs.nextRequiredAction.label;
+        if (cs.nextRequiredAction.intent === "blocked") {
+          nextEl.textContent += " (blocked)";
+        }
+        explPanel.appendChild(nextEl);
+      }
+
+      stateBar.parentNode.insertBefore(explPanel, stateBar.nextSibling);
+    }
+
+    // Omega advisory panel (if advisory text exists — SEPARATE from Buddy explanation)
     if (omega && omega.advisory) {
       var advisoryPanel = document.createElement("div");
       advisoryPanel.className = "px-4 py-3 mb-3 rounded-xl border " + (omega.stale ? "border-neutral-200 bg-neutral-50" : "border-blue-200 bg-blue-50");

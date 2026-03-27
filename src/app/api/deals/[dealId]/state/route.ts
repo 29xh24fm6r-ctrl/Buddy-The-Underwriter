@@ -5,6 +5,8 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { getBuddyCanonicalState } from "@/core/state/BuddyCanonicalStateAdapter";
 import { getOmegaAdvisoryState } from "@/core/omega/OmegaAdvisoryAdapter";
+import { deriveBuddyExplanation } from "@/core/explanation/deriveBuddyExplanation";
+import { formatOmegaAdvisory } from "@/core/omega/formatOmegaAdvisory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,16 +27,23 @@ export async function GET(
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
-    // Fetch canonical state and Omega advisory in parallel
     const [state, omega] = await Promise.all([
       getBuddyCanonicalState(dealId),
       getOmegaAdvisoryState(dealId),
     ]);
 
+    // Derive explanation from canonical state (Buddy explains state)
+    const explanation = deriveBuddyExplanation(state);
+
+    // Format Omega advisory (Omega explains reasoning — separate)
+    const omegaExplanation = formatOmegaAdvisory(omega);
+
     return NextResponse.json({
       ok: true,
       state,
       omega,
+      explanation,
+      omegaExplanation,
     });
   } catch (err) {
     console.error("[GET /api/deals/[dealId]/state] error:", err);
