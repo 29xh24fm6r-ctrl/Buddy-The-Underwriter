@@ -142,11 +142,63 @@ export function buildCreditCommitteeViewActivationScript(): string {
     }
   }
 
+  function addActionCell(row, deal) {
+    var td = document.createElement("td");
+    td.className = "px-3 py-2";
+    var btn = document.createElement("button");
+    btn.className = "px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700";
+    btn.textContent = "Review";
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var origin = window.__STITCH_PARENT_ORIGIN || "";
+      try { parent.postMessage({ __stitchFrame: true, type: "navigate", href: "/deals/" + deal.id + "/committee" }, origin); } catch (err) {}
+    });
+    td.appendChild(btn);
+    row.appendChild(td);
+  }
+
   var data = getData();
   if (!data || !data.rows) return;
-  renderRows(data.rows);
 
-  // Update KPI counts if visible
+  // Patch: add Actions header to table
+  var thead = document.querySelector("table thead tr");
+  if (thead) {
+    var th = document.createElement("th");
+    th.className = "px-3 py-2 text-xs font-medium";
+    th.textContent = "Actions";
+    thead.appendChild(th);
+  }
+
+  // Override renderRows to include action cell
+  var tbody = document.querySelector("table tbody");
+  if (tbody) {
+    var tpl = tbody.querySelector("tr");
+    if (tpl) {
+      tbody.innerHTML = "";
+      data.rows.forEach(function (deal) {
+        var row = tpl.cloneNode(true);
+        updateRow(row, deal);
+        addActionCell(row, deal);
+        row.style.cursor = "pointer";
+        row.addEventListener("click", function () {
+          var origin = window.__STITCH_PARENT_ORIGIN || "";
+          try { parent.postMessage({ __stitchFrame: true, type: "navigate", href: "/deals/" + deal.id + "/committee" }, origin); } catch (e) {}
+        });
+        tbody.appendChild(row);
+      });
+      if (!data.rows.length) {
+        var empty = document.createElement("tr");
+        var td = document.createElement("td");
+        td.colSpan = 9;
+        td.className = "px-4 py-6 text-center text-sm opacity-60";
+        td.textContent = "No deals pending committee review.";
+        empty.appendChild(td);
+        tbody.appendChild(empty);
+      }
+    }
+  }
+
+  // Update KPI counts
   var nodes = document.querySelectorAll("span.text-xl, span.text-2xl, span.text-3xl");
   for (var i = 0; i < nodes.length; i++) {
     var text = (nodes[i].previousElementSibling || {}).textContent || "";
