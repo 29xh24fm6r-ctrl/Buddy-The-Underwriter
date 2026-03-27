@@ -38,10 +38,10 @@ function SnapMetric({ label, value, title }: { label: string; value: string; tit
 }
 
 function FinancialSnapshotCapsule({ dealId }: { dealId: string }) {
-  const { data, loading, error, notFound } = useFinancialSnapshot(dealId);
+  const { data, loading, error, notFound, forbidden } = useFinancialSnapshot(dealId);
   const decision = useFinancialSnapshotDecision(dealId);
 
-  if (notFound) return null;
+  if (notFound || forbidden) return null;
   if (loading) {
     return (
       <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">

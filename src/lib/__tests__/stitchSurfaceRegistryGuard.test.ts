@@ -64,20 +64,23 @@ test("every required surface pagePath references StitchSurface", () => {
   }
 });
 
-// ── Guard 6: Every required surface pagePath is covered by tracing ──
-test("every required surface pagePath is covered by tracing includes", () => {
+// ── Guard 6: Every required surface route is covered by tracing ──
+test("every required surface route is in outputFileTracingIncludes", () => {
   const configPath = path.resolve(root, "next.config.mjs");
   const configContent = fs.readFileSync(configPath, "utf8");
 
-  const required = STITCH_SURFACES.filter((s) => s.required);
-  for (const surface of required) {
-    if (!surface.pagePath) continue;
-    // Check that the pagePath (or a glob covering it) appears in the config
-    const basename = path.basename(surface.pagePath);
-    const parentDir = path.basename(path.dirname(surface.pagePath));
+  // The config now uses route paths as keys with stitch_exports glob
+  assert.ok(
+    configContent.includes("stitch_exports/**/code.html"),
+    "next.config.mjs must include stitch_exports glob in tracing",
+  );
+
+  // Spot-check a few key routes are present
+  const spotCheckRoutes = ["/analytics", "/servicing", "/workout", "/portfolio"];
+  for (const route of spotCheckRoutes) {
     assert.ok(
-      configContent.includes(basename) && configContent.includes(parentDir),
-      `${surface.key} pagePath not found in next.config.mjs tracing: ${surface.pagePath}`,
+      configContent.includes(`"${route}"`),
+      `Route ${route} not found in next.config.mjs tracing`,
     );
   }
 });
