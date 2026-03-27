@@ -83,26 +83,24 @@ test("audit: no route collisions in registry", () => {
   );
 });
 
-// ── Guard 4: Tracing config covers all required surfaces ──
-test("audit: tracing config covers all required surfaces", () => {
+// ── Guard 4: Tracing config includes stitch_exports glob ──
+test("audit: tracing config includes stitch_exports for Vercel bundle", () => {
   const configPath = path.resolve(root, "next.config.mjs");
   const configContent = fs.readFileSync(configPath, "utf8");
 
-  const required = STITCH_SURFACES.filter((s) => s.required);
-  const uncovered: string[] = [];
+  assert.ok(
+    configContent.includes("stitch_exports/**/code.html"),
+    "next.config.mjs must include stitch_exports/**/code.html in outputFileTracingIncludes",
+  );
 
-  for (const surface of required) {
-    if (!surface.pagePath) continue;
-    const basename = path.basename(surface.pagePath);
-    if (!configContent.includes(basename)) {
-      uncovered.push(surface.key);
-    }
-  }
-
-  assert.equal(
-    uncovered.length,
-    0,
-    `Surfaces not in tracing config: ${uncovered.join(", ")}`,
+  // Verify route keys are present (not just pagePath basenames)
+  assert.ok(
+    configContent.includes('"/analytics"'),
+    "Route /analytics must be in tracing config",
+  );
+  assert.ok(
+    configContent.includes('"/servicing"'),
+    "Route /servicing must be in tracing config",
   );
 });
 

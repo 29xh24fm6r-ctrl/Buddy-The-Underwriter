@@ -50,6 +50,10 @@ export default async function StitchSurface({
     return (
       <div
         data-testid="stitch-surface"
+        data-stitch-surface="true"
+        data-stitch-key={surfaceKey}
+        data-stitch-mode="iframe"
+        data-stitch-slug={config.slug}
         data-surface-key={surfaceKey}
         className="stitch-embed"
       >
@@ -66,6 +70,10 @@ export default async function StitchSurface({
     return (
       <div
         data-testid="stitch-surface"
+        data-stitch-surface="true"
+        data-stitch-key={surfaceKey}
+        data-stitch-mode="new_tab"
+        data-stitch-slug={config.slug ?? ""}
         data-surface-key={surfaceKey}
         className="rounded-2xl border border-neutral-200 bg-white p-6"
       >
@@ -90,6 +98,10 @@ export default async function StitchSurface({
   return (
     <div
       data-testid="stitch-surface"
+      data-stitch-surface="true"
+      data-stitch-key={surfaceKey}
+      data-stitch-mode="panel"
+      data-stitch-slug={config.slug ?? ""}
       data-surface-key={surfaceKey}
       className="rounded-2xl border border-neutral-200 bg-white p-6"
     >

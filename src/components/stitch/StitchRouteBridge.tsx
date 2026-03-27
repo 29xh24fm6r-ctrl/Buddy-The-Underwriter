@@ -38,7 +38,7 @@ type StitchRouteBridgeProps = {
 /**
  * Bridge component that renders a Stitch export inside a real Next.js route.
  * Preserves real URLs, auth, layout while using Stitch as the view layer.
- * 
+ *
  * Supports progressive React replacement:
  * - If a React component is registered for this route, render it instead
  * - Otherwise, render the Stitch export
@@ -48,20 +48,38 @@ export default async function StitchRouteBridge({
   forceStitch = false,
   activationContext,
 }: StitchRouteBridgeProps) {
-  // Check for React replacement (requires pathname mapping)
-  // For now, just render Stitch - React replacement can be added per-route
-  // when you're ready to migrate specific pages
-
   // Fetch stripped Stitch HTML (chrome already removed)
   let bodyHtml: string;
   try {
     bodyHtml = await getStrippedStitchHtml(slug);
-  } catch {
-    // Stitch export not found — render fallback instead of crashing
+  } catch (err) {
+    // Hard failure — do NOT silently render a generic placeholder.
+    // Surface the failure so it's visible in dev, builder mode, and CI.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[StitchRouteBridge] FAILED to load export for slug="${slug}": ${message}`);
     return (
-      <div className="rounded-2xl border border-neutral-200 bg-white p-8 text-center">
-        <p className="text-sm text-neutral-500">
-          This surface is not yet available. Please check back later.
+      <div
+        data-stitch-bridge-error="true"
+        data-stitch-slug={slug}
+        className="rounded-2xl border-2 border-red-300 bg-red-50 p-8"
+      >
+        <div className="text-sm font-semibold text-red-800">
+          Required Stitch surface missing
+        </div>
+        <dl className="mt-3 space-y-1 text-xs text-red-700">
+          <div className="flex gap-2">
+            <dt className="font-medium">Slug:</dt>
+            <dd className="font-mono">{slug}</dd>
+          </div>
+          <div className="flex gap-2">
+            <dt className="font-medium">Reason:</dt>
+            <dd>{message}</dd>
+          </div>
+        </dl>
+        <p className="mt-4 text-xs text-red-600">
+          The Stitch export for this surface could not be loaded. Check that{" "}
+          <code className="rounded bg-red-100 px-1">stitch_exports/{slug}/code.html</code>{" "}
+          exists and is included in the deployment bundle.
         </p>
       </div>
     );

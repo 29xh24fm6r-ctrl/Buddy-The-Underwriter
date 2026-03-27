@@ -67,48 +67,39 @@ const nextConfig = {
       },
     ];
   },
-  outputFileTracingIncludes: {
-    "/api/builder/stitch/audit": [
-      "src/stitch/stitchSurfaceRegistry.ts",
-      "src/stitch/StitchSurface.tsx",
+  // CRITICAL: stitch_exports must be in the Vercel serverless bundle.
+  // loadRawStitchHtml uses dynamic fs.readFile which Next.js cannot auto-trace.
+  // Every route that renders StitchSurface needs the HTML files at runtime.
+  outputFileTracingIncludes: (() => {
+    const stitchExports = ["stitch_exports/**/code.html"];
+    // Every page route that uses StitchSurface needs stitch_exports in its bundle
+    const stitchPageRoutes = [
       // Existing surfaces
-      "src/app/(app)/deals/*/command/StitchPanel.tsx",
-      "src/app/(app)/deals/*/underwrite/page.tsx",
-      "src/app/(app)/deals/*/committee/CommitteeView.tsx",
-      "src/app/(app)/borrower/portal/page.tsx",
-      "src/app/(app)/portfolio/page.tsx",
-      "src/app/(app)/intake/page.tsx",
+      "/portfolio", "/intake", "/borrower/portal",
+      "/deals/[dealId]/command", "/deals/[dealId]/underwrite", "/deals/[dealId]/committee",
       // Class 1: Direct page restoration
-      "src/app/(app)/analytics/page.tsx",
-      "src/app/(app)/servicing/page.tsx",
-      "src/app/(app)/workout/page.tsx",
-      "src/app/(app)/workout/case-file/page.tsx",
-      "src/app/(app)/workout/committee-packet/page.tsx",
-      "src/app/(app)/workout/legal/page.tsx",
-      "src/app/(app)/workout/reo/page.tsx",
-      "src/app/(app)/workout/chargeoff/page.tsx",
-      "src/app/(app)/compliance/audit-ledger/page.tsx",
-      "src/app/(app)/templates/vault/page.tsx",
-      "src/app/(app)/exceptions/page.tsx",
-      "src/app/(app)/ocr/review/page.tsx",
-      "src/app/(app)/admin/roles/page.tsx",
-      "src/app/(app)/admin/merge-fields/page.tsx",
-      "src/app/(app)/borrowers/control-record/page.tsx",
-      "src/app/(app)/credit/committee/page.tsx",
+      "/analytics", "/servicing",
+      "/workout", "/workout/case-file", "/workout/committee-packet",
+      "/workout/legal", "/workout/reo", "/workout/chargeoff",
+      "/compliance/audit-ledger", "/templates/vault", "/exceptions",
+      "/ocr/review", "/admin/roles", "/admin/merge-fields",
+      "/borrowers/control-record", "/credit/committee",
       // Class 2: Deal-scoped restoration
-      "src/app/(app)/deals/*/underwriter/page.tsx",
-      "src/app/(app)/deals/*/portal-inbox/page.tsx",
-      "src/app/(app)/deals/*/borrower-inbox/page.tsx",
-      "src/app/(app)/deals/*/borrower/page.tsx",
-      "src/app/(app)/deals/*/pricing-memo/page.tsx",
-      "src/app/(app)/deals/*/memo-template/page.tsx",
-      "src/app/(app)/deals/*/memos/new/page.tsx",
+      "/deals/[dealId]/underwriter", "/deals/[dealId]/portal-inbox",
+      "/deals/[dealId]/borrower-inbox", "/deals/[dealId]/borrower",
+      "/deals/[dealId]/pricing-memo", "/deals/[dealId]/memo-template",
+      "/deals/[dealId]/memos/new",
       // Class 3: Recovery routes
-      "src/app/(app)/stitch-recovery/deals/page.tsx",
-      "src/app/(app)/stitch-recovery/deals-new/page.tsx",
-      "src/app/stitch-login/page.tsx",
-    ],
-  },
+      "/stitch-recovery/deals", "/stitch-recovery/deals-new", "/stitch-login",
+    ];
+    const entries = stitchPageRoutes.map((route) => [route, stitchExports]);
+    // Audit route also needs the registry + page files for verification
+    entries.push(["/api/builder/stitch/audit", [
+      ...stitchExports,
+      "src/stitch/stitchSurfaceRegistry.ts",
+    ]]);
+    return Object.fromEntries(entries);
+  })(),
   experimental: {
     cpus: process.env.CODESPACES ? 1 : undefined,
     workerThreads: process.env.CODESPACES ? false : undefined,
