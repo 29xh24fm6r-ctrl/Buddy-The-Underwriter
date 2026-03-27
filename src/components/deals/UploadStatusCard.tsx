@@ -4,10 +4,16 @@ import * as React from 'react';
 import { Icon } from '@/components/ui/Icon';
 import useSWR from 'swr';
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = async (url: string) => {
+  const res = await fetch(url);
+  if (res.status === 403 || res.status === 401) return { ok: false, error: "forbidden" };
+  if (res.status === 404) return { ok: false, error: "not_found" };
+  if (!res.ok) return { ok: false, error: `http_${res.status}` };
+  return res.json();
+};
 
 export function UploadStatusCard({ dealId, onStatusChange }: { dealId: string, onStatusChange?: (status: any) => void }) {
-  const { data, error, isLoading } = useSWR(`/api/deals/${dealId}/uploads/status`, fetcher, { refreshInterval: 2500 });
+  const { data, error, isLoading } = useSWR(`/api/deals/${dealId}/uploads/status`, fetcher, { refreshInterval: 2500, shouldRetryOnError: false });
 
   React.useEffect(() => {
     if (data) {
