@@ -26,6 +26,12 @@ import {
   serializeActivationData as serializeUnderwriteActivationData,
 } from "@/lib/stitch/activations/underwriteCommandBridgeActivation";
 
+// ── Phase 65A canonical state injection ──────────────────────
+import {
+  fetchCanonicalStatePayload,
+  buildCanonicalStateRenderScript,
+} from "@/lib/stitch/activations/canonicalStateInjection";
+
 // ── Phase 62C activation imports ─────────────────────────────
 import {
   buildCreditCommitteeViewActivationScript,
@@ -168,6 +174,37 @@ export default async function StitchRouteBridge({
     );
     activationDataJson = serializePricingMemoData(data);
     activationScript = buildPricingMemoActivationScript();
+  }
+
+  // ── Phase 65A: Inject canonical state + omega for P0 surfaces ──
+  const p0Slugs = new Set([
+    "deals-command-bridge",
+    "credit-committee-view",
+    "exceptions-change-review",
+    "borrower-task-inbox",
+    "pricing-memo-command-center",
+  ]);
+
+  if (p0Slugs.has(slug) && activationDataJson) {
+    const dealId = activationContext?.dealId ?? null;
+    const statePayload = await fetchCanonicalStatePayload(dealId);
+
+    // Merge canonical state into existing activation data
+    try {
+      const existingData = JSON.parse(activationDataJson);
+      existingData.canonicalState = statePayload.canonicalState;
+      existingData.omega = statePayload.omega;
+      activationDataJson = JSON.stringify(existingData)
+        .replace(/</g, "\\u003c")
+        .replace(/\u2028/g, "\\u2028")
+        .replace(/\u2029/g, "\\u2029");
+    } catch {
+      // If parse fails, continue with original data
+    }
+
+    // Append canonical state render script
+    const stateRenderScript = buildCanonicalStateRenderScript();
+    activationScript = (activationScript ?? "") + "\n" + stateRenderScript;
   }
 
   return (
