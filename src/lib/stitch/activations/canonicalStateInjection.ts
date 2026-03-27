@@ -1,25 +1,29 @@
 /**
- * Canonical State Injection — Phase 65C
+ * Canonical State Injection — Phase 65D
  *
  * Shared helpers to inject BuddyCanonicalState + OmegaAdvisoryState
- * + BuddyExplanation into Stitch activation data and render as DOM elements.
+ * + BuddyExplanation + NextActions into Stitch activation data.
  *
  * RULE: No surface computes lifecycle/readiness/next-step locally.
  * RULE: Buddy explains state. Omega explains reasoning. Never mixed.
+ * RULE: Actions derived from canonical state only. No Omega influence.
  */
 
 import { getBuddyCanonicalState } from "@/core/state/BuddyCanonicalStateAdapter";
 import { getOmegaAdvisoryState } from "@/core/omega/OmegaAdvisoryAdapter";
 import { deriveBuddyExplanation } from "@/core/explanation/deriveBuddyExplanation";
-import { formatOmegaAdvisory } from "@/core/omega/formatOmegaAdvisory";
+import { deriveNextActions } from "@/core/actions/deriveNextActions";
 import type { BuddyCanonicalState } from "@/core/state/types";
 import type { OmegaAdvisoryState } from "@/core/omega/types";
 import type { BuddyExplanation } from "@/core/explanation/types";
+import type { BuddyNextAction } from "@/core/actions/types";
 
 export type CanonicalStatePayload = {
   canonicalState: BuddyCanonicalState | null;
   omega: OmegaAdvisoryState | null;
   explanation: BuddyExplanation | null;
+  nextActions: BuddyNextAction[] | null;
+  primaryAction: BuddyNextAction | null;
 };
 
 /**
@@ -29,7 +33,7 @@ export type CanonicalStatePayload = {
 export async function fetchCanonicalStatePayload(
   dealId: string | null,
 ): Promise<CanonicalStatePayload> {
-  if (!dealId) return { canonicalState: null, omega: null, explanation: null };
+  if (!dealId) return { canonicalState: null, omega: null, explanation: null, nextActions: null, primaryAction: null };
 
   try {
     const [state, omega] = await Promise.all([
@@ -37,10 +41,11 @@ export async function fetchCanonicalStatePayload(
       getOmegaAdvisoryState(dealId),
     ]);
     const explanation = deriveBuddyExplanation(state);
-    return { canonicalState: state, omega, explanation };
+    const { nextActions, primaryAction } = deriveNextActions({ canonicalState: state, explanation });
+    return { canonicalState: state, omega, explanation, nextActions, primaryAction };
   } catch (err) {
     console.error("[canonicalStateInjection] error:", err);
-    return { canonicalState: null, omega: null, explanation: null };
+    return { canonicalState: null, omega: null, explanation: null, nextActions: null, primaryAction: null };
   }
 }
 
@@ -169,6 +174,54 @@ export function buildCanonicalStateRenderScript(): string {
       }
 
       stateBar.parentNode.insertBefore(explPanel, stateBar.nextSibling);
+    }
+
+    // Next actions panel (Phase 65D — derived from canonical state, no Omega)
+    var actions = data.nextActions;
+    var primary = data.primaryAction;
+    if (actions && actions.length > 0) {
+      var actionsPanel = document.createElement("div");
+      actionsPanel.className = "px-4 py-3 mb-3 rounded-xl border border-neutral-200 bg-white space-y-2";
+      actionsPanel.setAttribute("data-buddy-actions", "true");
+
+      var actTitle = document.createElement("div");
+      actTitle.className = "text-[10px] font-semibold uppercase tracking-wide text-neutral-500";
+      actTitle.textContent = "What Needs to Happen Next";
+      actionsPanel.appendChild(actTitle);
+
+      if (primary) {
+        var primaryEl = document.createElement("div");
+        var prioColor = primary.priority === "critical" ? "border-red-200 bg-red-50"
+          : primary.priority === "high" ? "border-amber-200 bg-amber-50" : "border-neutral-200 bg-neutral-50";
+        primaryEl.className = "rounded-lg border p-2 " + prioColor;
+        primaryEl.setAttribute("data-primary-action", "true");
+        var priLabel = document.createElement("div");
+        priLabel.className = "text-sm font-semibold";
+        priLabel.textContent = primary.label;
+        primaryEl.appendChild(priLabel);
+        var priDesc = document.createElement("div");
+        priDesc.className = "text-xs opacity-80 mt-0.5";
+        priDesc.textContent = primary.description;
+        primaryEl.appendChild(priDesc);
+        actionsPanel.appendChild(primaryEl);
+      }
+
+      if (actions.length > 1) {
+        actions.slice(1).forEach(function (a) {
+          var li = document.createElement("div");
+          li.className = "text-xs text-neutral-700 pl-2";
+          li.textContent = "· " + a.label + " — " + a.description;
+          actionsPanel.appendChild(li);
+        });
+      }
+
+      // Insert after explanation, before omega
+      var insertRef = explPanel ? explPanel.nextSibling : stateBar.nextSibling;
+      if (insertRef && insertRef.parentNode) {
+        insertRef.parentNode.insertBefore(actionsPanel, insertRef);
+      } else if (stateBar.parentNode) {
+        stateBar.parentNode.insertBefore(actionsPanel, stateBar.nextSibling);
+      }
     }
 
     // Omega advisory panel (if advisory text exists — SEPARATE from Buddy explanation)
