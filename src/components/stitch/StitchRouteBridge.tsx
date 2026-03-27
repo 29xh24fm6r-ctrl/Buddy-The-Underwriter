@@ -3,6 +3,8 @@
 import StitchFrame from "@/components/stitch/StitchFrame";
 import { getStrippedStitchHtml } from "@/lib/stitch/getStrippedStitchHtml";
 import { getReactReplacement } from "@/lib/stitch/stitchReplace";
+
+// ── Existing activation imports ──────────────────────────────
 import {
   buildPortfolioCommandBridgeActivationScript,
   getPortfolioCommandBridgeActivationData,
@@ -24,10 +26,35 @@ import {
   serializeActivationData as serializeUnderwriteActivationData,
 } from "@/lib/stitch/activations/underwriteCommandBridgeActivation";
 
+// ── Phase 62C activation imports ─────────────────────────────
+import {
+  buildCreditCommitteeViewActivationScript,
+  getCreditCommitteeViewActivationData,
+  serializeCreditCommitteeViewData,
+} from "@/lib/stitch/activations/creditCommitteeViewActivation";
+import {
+  buildExceptionsChangeReviewActivationScript,
+  getExceptionsChangeReviewActivationData,
+  serializeExceptionsData,
+} from "@/lib/stitch/activations/exceptionsChangeReviewActivation";
+import {
+  buildBorrowerTaskInboxActivationScript,
+  getBorrowerTaskInboxActivationData,
+  serializeTaskInboxData,
+} from "@/lib/stitch/activations/borrowerTaskInboxActivation";
+import {
+  buildBorrowerControlRecordActivationScript,
+  getBorrowerControlRecordActivationData,
+  serializeBorrowerControlData,
+} from "@/lib/stitch/activations/borrowerControlRecordActivation";
+import {
+  buildPricingMemoActivationScript,
+  getPricingMemoActivationData,
+  serializePricingMemoData,
+} from "@/lib/stitch/activations/pricingMemoActivation";
+
 type StitchRouteBridgeProps = {
-  /** Slug for the stitch export, e.g. "command-center-latest" */
   slug: string;
-  /** Optional: force Stitch rendering even if React replacement exists */
   forceStitch?: boolean;
   activationContext?: {
     token?: string | null;
@@ -35,14 +62,6 @@ type StitchRouteBridgeProps = {
   };
 };
 
-/**
- * Bridge component that renders a Stitch export inside a real Next.js route.
- * Preserves real URLs, auth, layout while using Stitch as the view layer.
- *
- * Supports progressive React replacement:
- * - If a React component is registered for this route, render it instead
- * - Otherwise, render the Stitch export
- */
 export default async function StitchRouteBridge({
   slug,
   forceStitch = false,
@@ -53,8 +72,6 @@ export default async function StitchRouteBridge({
   try {
     bodyHtml = await getStrippedStitchHtml(slug);
   } catch (err) {
-    // Hard failure — do NOT silently render a generic placeholder.
-    // Surface the failure so it's visible in dev, builder mode, and CI.
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[StitchRouteBridge] FAILED to load export for slug="${slug}": ${message}`);
     return (
@@ -88,32 +105,69 @@ export default async function StitchRouteBridge({
   let activationDataJson: string | undefined;
   let activationScript: string | undefined;
 
+  // ── Existing activations ───────────────────────────────────
   if (slug === "portfolio-command-bridge") {
-    const activationData = await getPortfolioCommandBridgeActivationData(200);
-    activationDataJson = serializeActivationData(activationData);
+    const data = await getPortfolioCommandBridgeActivationData(200);
+    activationDataJson = serializeActivationData(data);
     activationScript = buildPortfolioCommandBridgeActivationScript();
   }
 
   if (slug === "deal-intake-console") {
-    const activationData = await getDealIntakeConsoleActivationData(25);
-    activationDataJson = serializeIntakeActivationData(activationData);
+    const data = await getDealIntakeConsoleActivationData(25);
+    activationDataJson = serializeIntakeActivationData(data);
     activationScript = buildDealIntakeConsoleActivationScript();
   }
 
   if (slug === "borrower-document-upload-review") {
     const token = activationContext?.token ?? null;
-    const activationData = await getBorrowerPortalActivationData(token, 25);
-    activationDataJson = serializeBorrowerPortalActivationData(activationData);
+    const data = await getBorrowerPortalActivationData(token, 25);
+    activationDataJson = serializeBorrowerPortalActivationData(data);
     activationScript = buildBorrowerPortalActivationScript();
   }
 
   if (slug === "deals-command-bridge") {
-    const activationData = await getUnderwriteCommandBridgeActivationData(
+    const data = await getUnderwriteCommandBridgeActivationData(
       activationContext?.dealId ?? null,
-      25
+      25,
     );
-    activationDataJson = serializeUnderwriteActivationData(activationData);
+    activationDataJson = serializeUnderwriteActivationData(data);
     activationScript = buildUnderwriteCommandBridgeActivationScript();
+  }
+
+  // ── Phase 62C activations ──────────────────────────────────
+  if (slug === "credit-committee-view") {
+    const data = await getCreditCommitteeViewActivationData(50);
+    activationDataJson = serializeCreditCommitteeViewData(data);
+    activationScript = buildCreditCommitteeViewActivationScript();
+  }
+
+  if (slug === "exceptions-change-review") {
+    const data = await getExceptionsChangeReviewActivationData(50);
+    activationDataJson = serializeExceptionsData(data);
+    activationScript = buildExceptionsChangeReviewActivationScript();
+  }
+
+  if (slug === "borrower-task-inbox") {
+    const data = await getBorrowerTaskInboxActivationData(
+      activationContext?.dealId ?? null,
+      50,
+    );
+    activationDataJson = serializeTaskInboxData(data);
+    activationScript = buildBorrowerTaskInboxActivationScript();
+  }
+
+  if (slug === "borrower-control-record") {
+    const data = await getBorrowerControlRecordActivationData(50);
+    activationDataJson = serializeBorrowerControlData(data);
+    activationScript = buildBorrowerControlRecordActivationScript();
+  }
+
+  if (slug === "pricing-memo-command-center") {
+    const data = await getPricingMemoActivationData(
+      activationContext?.dealId ?? null,
+    );
+    activationDataJson = serializePricingMemoData(data);
+    activationScript = buildPricingMemoActivationScript();
   }
 
   return (
