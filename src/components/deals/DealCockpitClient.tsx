@@ -23,6 +23,7 @@ import { SecondaryTabsPanel } from "@/components/deals/cockpit/panels/SecondaryT
 import { PipelineIndicator } from "@/components/deals/PipelineStatus";
 import CockpitAuthGate from "@/components/deals/CockpitAuthGate";
 import { IntelligencePanel } from "@/components/deal/IntelligencePanel";
+import { InsightPanel } from "@/components/deals/cockpit/panels/InsightPanel";
 
 // Glass panel style for Stitch-like design
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
@@ -222,6 +223,9 @@ function DealCockpitClientInner({
 
           {/* Phase 59: Intelligence Panel — always above tabs */}
           <IntelligencePanel dealId={dealId} />
+
+          {/* Phase 60: Insight Panel — decision synthesis below intelligence */}
+          <InsightPanel dealId={dealId} />
 
           {/* Hero Header — compact, focused */}
           <div className={cn(glassPanel, "overflow-hidden")}>
