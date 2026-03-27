@@ -12,9 +12,18 @@ export type CommitteeActivationRow = {
   searchText: string;
 };
 
+export type CommitteeHistoryEntry = {
+  actionLabel: string;
+  actor: string;
+  occurredAt: string;
+  rationale?: string;
+  dealName?: string;
+};
+
 export type CommitteeActivationData = {
   rows: CommitteeActivationRow[];
   totals: { count: number; pendingCount: number };
+  history: CommitteeHistoryEntry[];
   error?: string;
 };
 
@@ -64,7 +73,26 @@ export async function getCreditCommitteeViewActivationData(
 
     const pendingCount = rows.filter((r) => r.stage === "committee_ready").length;
 
-    return { rows, totals: { count: rows.length, pendingCount } };
+    // Fetch recent committee decision events
+    const { data: events } = await sb
+      .from("deal_events")
+      .select("kind, payload, created_at")
+      .eq("bank_id", bankId)
+      .in("kind", ["committee.decision.approved", "committee.decision.declined", "committee.decision.escalated"])
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    const history: CommitteeHistoryEntry[] = (events ?? []).map((e: any) => {
+      const payload = typeof e.payload === "object" ? e.payload : {};
+      return {
+        actionLabel: e.kind?.replace("committee.decision.", "") ?? "unknown",
+        actor: payload?.actor_user_id ?? payload?.meta?.actor_user_id ?? "system",
+        occurredAt: e.created_at ?? "",
+        rationale: payload?.meta?.rationale ?? null,
+      };
+    });
+
+    return { rows, totals: { count: rows.length, pendingCount }, history };
   } catch (err) {
     console.error("[creditCommitteeView activation] error:", err);
     return { rows: [], totals: { count: 0, pendingCount: 0 }, error: String(err) };
@@ -196,6 +224,46 @@ export function buildCreditCommitteeViewActivationScript(): string {
         tbody.appendChild(empty);
       }
     }
+  }
+
+  // Render history panel
+  if (data.history && data.history.length > 0) {
+    var histPanel = document.createElement("div");
+    histPanel.className = "mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4";
+    histPanel.setAttribute("data-activated", "true");
+    var histTitle = document.createElement("div");
+    histTitle.className = "text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-2";
+    histTitle.textContent = "Recent Committee Decisions";
+    histPanel.appendChild(histTitle);
+    data.history.forEach(function (h) {
+      var row = document.createElement("div");
+      row.className = "flex items-center gap-2 py-1 text-xs";
+      var badge = document.createElement("span");
+      badge.className = "px-1.5 py-0.5 rounded text-[10px] font-bold uppercase " +
+        (h.actionLabel === "approved" ? "bg-emerald-100 text-emerald-700" :
+         h.actionLabel === "declined" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700");
+      badge.textContent = h.actionLabel;
+      row.appendChild(badge);
+      var actor = document.createElement("span");
+      actor.className = "text-neutral-600";
+      actor.textContent = "by " + h.actor;
+      row.appendChild(actor);
+      var time = document.createElement("span");
+      time.className = "text-neutral-400 ml-auto";
+      time.textContent = formatRelative(h.occurredAt);
+      row.appendChild(time);
+      if (h.rationale) {
+        var rat = document.createElement("div");
+        rat.className = "text-[11px] text-neutral-500 ml-8 italic";
+        rat.textContent = h.rationale;
+        histPanel.appendChild(row);
+        histPanel.appendChild(rat);
+      } else {
+        histPanel.appendChild(row);
+      }
+    });
+    var table = document.querySelector("table");
+    if (table && table.parentNode) { table.parentNode.insertBefore(histPanel, table); }
   }
 
   // Update KPI counts
