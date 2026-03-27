@@ -1,6 +1,20 @@
-import { redirect } from "next/navigation";
+import StitchSurface from "@/stitch/StitchSurface";
 
-export default async function Page({ params }: { params: Promise<{ dealId: string }> }) {
+export const dynamic = "force-dynamic";
+
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ dealId: string }>;
+}) {
   const { dealId } = await params;
-  redirect(`/deals/${dealId}/pricing-memo`);
+
+  return (
+    <StitchSurface
+      surfaceKey="deal_output_credit_memo_spreads"
+      dealId={dealId}
+      title="Credit Memo & Spreads"
+      mode="iframe"
+    />
+  );
 }

@@ -1,7 +1,13 @@
-import RolesAdminClient from "@/components/admin/RolesAdminClient";
+import StitchSurface from "@/stitch/StitchSurface";
 
 export const dynamic = "force-dynamic";
 
-export default function Page() {
-  return <RolesAdminClient />;
+export default async function Page() {
+  return (
+    <StitchSurface
+      surfaceKey="roles_permissions_control"
+      title="Roles & Permissions"
+      mode="iframe"
+    />
+  );
 }

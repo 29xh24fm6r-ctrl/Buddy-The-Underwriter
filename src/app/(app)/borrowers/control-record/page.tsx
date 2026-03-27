@@ -5,8 +5,8 @@ export const dynamic = "force-dynamic";
 export default async function Page() {
   return (
     <StitchSurface
-      surfaceKey="document_template_vault"
-      title="Document Template Vault"
+      surfaceKey="borrower_control_record"
+      title="Borrower Control Record"
       mode="iframe"
     />
   );

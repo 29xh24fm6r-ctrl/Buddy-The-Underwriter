@@ -1,34 +1,20 @@
-import { clerkAuth } from "@/lib/auth/clerkServer";
-import DealMemoTemplateClient from "./DealMemoTemplateClient";
+import StitchSurface from "@/stitch/StitchSurface";
 
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export default async function Page({
-    params,
+  params,
 }: {
-    params: Promise<{ dealId?: string }>;
+  params: Promise<{ dealId: string }>;
 }) {
-    const { userId } = await clerkAuth();
-    const { dealId } = await params;
+  const { dealId } = await params;
 
-    if (!userId) {
-        return (
-            <div className="p-6">
-                <h1 className="text-xl font-semibold text-white">Credit Memo</h1>
-                <p className="mt-2 text-sm text-white/70">Please sign in to continue.</p>
-            </div>
-        );
-    }
-
-    if (!dealId || dealId === "undefined") {
-        return (
-            <div className="p-6">
-                <h1 className="text-xl font-semibold text-white">Credit Memo</h1>
-                <p className="mt-2 text-sm text-white/70">Loading deal…</p>
-            </div>
-        );
-    }
-
-    return <DealMemoTemplateClient dealId={dealId} />;
+  return (
+    <StitchSurface
+      surfaceKey="credit_memo_pdf_template"
+      dealId={dealId}
+      title="Credit Memo Template"
+      mode="iframe"
+    />
+  );
 }

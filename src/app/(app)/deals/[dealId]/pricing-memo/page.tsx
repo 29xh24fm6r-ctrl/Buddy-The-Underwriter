@@ -1,34 +1,20 @@
-import { clerkAuth } from "@/lib/auth/clerkServer";
-import PricingMemoCommandCenterClient from "./pricingMemoCommandCenterClient";
+import StitchSurface from "@/stitch/StitchSurface";
 
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default async function PricingMemoPage({
-    params,
+export default async function Page({
+  params,
 }: {
-    params: Promise<{ dealId?: string }>;
+  params: Promise<{ dealId: string }>;
 }) {
-    const { userId } = await clerkAuth();
-    const { dealId } = await params;
+  const { dealId } = await params;
 
-    if (!userId) {
-        return (
-            <div className="p-6">
-                <h1 className="text-xl font-semibold text-white">Pricing + Memo</h1>
-                <p className="mt-2 text-sm text-white/70">Please sign in to continue.</p>
-            </div>
-        );
-    }
-
-    if (!dealId || dealId === "undefined") {
-        return (
-            <div className="p-6">
-                <h1 className="text-xl font-semibold text-white">Pricing + Memo</h1>
-                <p className="mt-2 text-sm text-white/70">Loading deal…</p>
-            </div>
-        );
-    }
-
-    return <PricingMemoCommandCenterClient dealId={dealId} />;
+  return (
+    <StitchSurface
+      surfaceKey="pricing_memo_command_center"
+      dealId={dealId}
+      title="Pricing Memo"
+      mode="iframe"
+    />
+  );
 }

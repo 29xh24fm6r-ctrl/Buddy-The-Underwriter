@@ -5,8 +5,8 @@ export const dynamic = "force-dynamic";
 export default async function Page() {
   return (
     <StitchSurface
-      surfaceKey="document_template_vault"
-      title="Document Template Vault"
+      surfaceKey="deals_pipeline_recovery"
+      title="Deals Pipeline (Stitch Recovery)"
       mode="iframe"
     />
   );
