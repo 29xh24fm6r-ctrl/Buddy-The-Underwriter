@@ -98,11 +98,46 @@ export const QUEUE_REASON_CATALOG: QueueReasonEntry[] = [
     precedence: 11,
   },
   {
+    code: "post_close_reporting_overdue",
+    label: "Reporting overdue",
+    description: "Post-close reporting obligation is overdue.",
+    domain: "post_close",
+    precedence: 12,
+  },
+  {
+    code: "post_close_review_backlog",
+    label: "Post-close review backlog",
+    description: "Submitted monitoring items await banker review.",
+    domain: "post_close",
+    precedence: 13,
+  },
+  {
+    code: "monitoring_exception_open",
+    label: "Monitoring exception",
+    description: "An open monitoring exception requires attention.",
+    domain: "post_close",
+    precedence: 14,
+  },
+  {
+    code: "annual_review_due",
+    label: "Annual review due",
+    description: "Annual review is due and should be started.",
+    domain: "post_close",
+    precedence: 15,
+  },
+  {
+    code: "renewal_prep_due",
+    label: "Renewal prep due",
+    description: "Loan renewal prep should begin based on maturity timeline.",
+    domain: "post_close",
+    precedence: 16,
+  },
+  {
     code: "healthy_monitoring",
     label: "Healthy — monitoring",
     description: "Deal is progressing normally. No immediate action required.",
     domain: "general",
-    precedence: 12,
+    precedence: 17,
   },
 ];
 
