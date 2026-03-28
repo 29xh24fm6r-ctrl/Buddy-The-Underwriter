@@ -31,6 +31,10 @@ const REASON_TO_PATH: Record<QueueReasonCode, string> = {
   renewal_under_review: "/reviews",
   renewal_ready: "/reviews",
   review_exception_open: "/reviews",
+  watchlist_active: "/special-assets",
+  workout_active: "/special-assets",
+  workout_action_overdue: "/special-assets",
+  workout_stalled: "/special-assets",
   healthy_monitoring: "",
 };
 
