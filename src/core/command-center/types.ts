@@ -61,7 +61,14 @@ export type QueueReasonCode =
   | "post_close_reporting_overdue"
   | "post_close_review_backlog"
   | "annual_review_due"
+  | "annual_review_collecting"
+  | "annual_review_under_review"
+  | "annual_review_ready"
   | "renewal_prep_due"
+  | "renewal_collecting"
+  | "renewal_under_review"
+  | "renewal_ready"
+  | "review_exception_open"
   | "monitoring_exception_open"
   | "healthy_monitoring";
 
