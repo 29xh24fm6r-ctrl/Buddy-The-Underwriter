@@ -23,6 +23,7 @@ export type QueueDomain =
   | "pricing"
   | "committee"
   | "closing"
+  | "post_close"
   | "general";
 
 // ── Blocking Party ──────────────────────────────────────────────────────
@@ -57,6 +58,11 @@ export type QueueReasonCode =
   | "pricing_waiting"
   | "committee_ready"
   | "closing_stalled"
+  | "post_close_reporting_overdue"
+  | "post_close_review_backlog"
+  | "annual_review_due"
+  | "renewal_prep_due"
+  | "monitoring_exception_open"
   | "healthy_monitoring";
 
 // ── Banker Queue Item ───────────────────────────────────────────────────

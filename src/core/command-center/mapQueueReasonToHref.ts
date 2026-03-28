@@ -19,6 +19,11 @@ const REASON_TO_PATH: Record<QueueReasonCode, string> = {
   pricing_waiting: "/pricing",
   committee_ready: "/committee",
   closing_stalled: "/closing",
+  post_close_reporting_overdue: "/post-close",
+  post_close_review_backlog: "/post-close",
+  monitoring_exception_open: "/post-close",
+  annual_review_due: "/post-close",
+  renewal_prep_due: "/post-close",
   healthy_monitoring: "",
 };
 
