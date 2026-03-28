@@ -15,7 +15,7 @@ create table if not exists public.borrower_request_campaigns (
   borrower_name text null,
   borrower_phone text null,
   borrower_email text null,
-  portal_link_id uuid null references public.borrower_portal_links(id) on delete set null,
+  portal_link_id bigint null references public.borrower_portal_links(id) on delete set null,
   last_sent_at timestamptz null,
   completed_at timestamptz null,
   created_by text not null,
