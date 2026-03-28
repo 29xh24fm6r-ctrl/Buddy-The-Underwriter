@@ -22,8 +22,15 @@ const REASON_TO_PATH: Record<QueueReasonCode, string> = {
   post_close_reporting_overdue: "/post-close",
   post_close_review_backlog: "/post-close",
   monitoring_exception_open: "/post-close",
-  annual_review_due: "/post-close",
-  renewal_prep_due: "/post-close",
+  annual_review_due: "/reviews",
+  annual_review_collecting: "/reviews",
+  annual_review_under_review: "/reviews",
+  annual_review_ready: "/reviews",
+  renewal_prep_due: "/reviews",
+  renewal_collecting: "/reviews",
+  renewal_under_review: "/reviews",
+  renewal_ready: "/reviews",
+  review_exception_open: "/reviews",
   healthy_monitoring: "",
 };
 

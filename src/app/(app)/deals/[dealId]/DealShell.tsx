@@ -276,6 +276,7 @@ export default function DealShell({
     { label: "Borrower", href: `${base}/borrower` },
     { label: "Portal", href: `${base}/portal-inbox` },
     { label: "Post-Close", href: `${base}/post-close` },
+    { label: "Reviews", href: `${base}/reviews` },
     { label: "Classic Spreads", href: `${base}/classic-spreads` },
   ];
 
