@@ -70,6 +70,10 @@ export type QueueReasonCode =
   | "renewal_ready"
   | "review_exception_open"
   | "monitoring_exception_open"
+  | "watchlist_active"
+  | "workout_active"
+  | "workout_action_overdue"
+  | "workout_stalled"
   | "healthy_monitoring";
 
 // ── Banker Queue Item ───────────────────────────────────────────────────

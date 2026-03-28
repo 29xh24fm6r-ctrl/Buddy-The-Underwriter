@@ -189,11 +189,39 @@ export const QUEUE_REASON_CATALOG: QueueReasonEntry[] = [
     precedence: 24,
   },
   {
+    code: "watchlist_active",
+    label: "On watchlist",
+    description: "Deal is on the watchlist and requires monitoring.",
+    domain: "post_close",
+    precedence: 25,
+  },
+  {
+    code: "workout_active",
+    label: "In workout",
+    description: "Deal is in active workout / special assets.",
+    domain: "post_close",
+    precedence: 26,
+  },
+  {
+    code: "workout_action_overdue",
+    label: "Workout action overdue",
+    description: "A workout action item is past due.",
+    domain: "post_close",
+    precedence: 27,
+  },
+  {
+    code: "workout_stalled",
+    label: "Workout stalled",
+    description: "No material workout activity in extended period.",
+    domain: "post_close",
+    precedence: 28,
+  },
+  {
     code: "healthy_monitoring",
     label: "Healthy — monitoring",
     description: "Deal is progressing normally. No immediate action required.",
     domain: "general",
-    precedence: 25,
+    precedence: 29,
   },
 ];
 
