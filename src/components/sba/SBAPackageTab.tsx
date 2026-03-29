@@ -65,6 +65,11 @@ export default function SBAPackageTab({
         SBA Borrower Readiness Package
       </h2>
 
+      {/* Risk Profile Panel — top of tab */}
+      <div className="mb-4">
+        <SBARiskProfilePanel dealId={dealId} />
+      </div>
+
       <div className="flex gap-6">
         {/* Left panel: Assumption Interview */}
         <div className="w-[55%] min-w-0">
@@ -117,13 +122,6 @@ export default function SBAPackageTab({
             </div>
           )}
 
-          {/* Risk Profile Panel */}
-          <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm p-5">
-            <h3 className="text-sm font-semibold text-white/80 mb-3">
-              Risk Profile
-            </h3>
-            <SBARiskProfilePanel dealId={dealId} />
-          </div>
         </div>
       </div>
     </div>

@@ -1,301 +1,212 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useEffect, useState } from "react";
 
-interface RiskProfile {
-  industryScore: number;
-  businessAgeScore: number;
-  loanTermScore: number;
-  locationScore: number;
-  compositeScore: number;
-  riskTier: "LOW" | "MODERATE" | "ELEVATED" | "HIGH";
-  explanations: {
-    industry: string;
-    businessAge: string;
-    loanTerm: string;
-    location: string;
-    overall: string;
-  };
-}
+// ---------------------------------------------------------------------------
+// Types (mirrored from sbaRiskProfile.ts for client use)
+// ---------------------------------------------------------------------------
 
-interface NewBusinessResult {
-  isNewBusiness: boolean;
-  businessAgeMonths: number | null;
-  dscrThreshold: number;
-  flags: Array<{
-    code: string;
-    message: string;
-    severity: "INFO" | "WARN" | "BLOCK";
-  }>;
-  projectionsRequired: boolean;
-  managementExperienceElevated: boolean;
-}
-
-interface Props {
-  dealId: string;
-}
-
-function tierColor(tier: string): string {
-  switch (tier) {
-    case "LOW":
-      return "text-emerald-400";
-    case "MODERATE":
-      return "text-blue-400";
-    case "ELEVATED":
-      return "text-amber-400";
-    case "HIGH":
-      return "text-red-400";
-    default:
-      return "text-white/60";
-  }
-}
-
-function tierBg(tier: string): string {
-  switch (tier) {
-    case "LOW":
-      return "bg-emerald-500/10 border-emerald-500/30";
-    case "MODERATE":
-      return "bg-blue-500/10 border-blue-500/30";
-    case "ELEVATED":
-      return "bg-amber-500/10 border-amber-500/30";
-    case "HIGH":
-      return "bg-red-500/10 border-red-500/30";
-    default:
-      return "bg-white/5 border-white/10";
-  }
-}
-
-function scoreColor(score: number): string {
-  if (score >= 75) return "text-emerald-400";
-  if (score >= 55) return "text-blue-400";
-  if (score >= 35) return "text-amber-400";
-  return "text-red-400";
-}
-
-function ScoreBar({ label, score, weight, explanation }: {
+interface SBARiskProfileFactor {
+  factorName: string;
   label: string;
-  score: number;
-  weight: string;
-  explanation: string;
-}) {
+  tier: "low" | "medium" | "high" | "very_high" | "unknown";
+  riskScore: number;
+  narrative: string;
+  source: string;
+}
+
+interface SBARiskProfile {
+  dealId: string;
+  computedAt: string;
+  loanType: string;
+  industryFactor: SBARiskProfileFactor;
+  businessAgeFactor: SBARiskProfileFactor;
+  loanTermFactor: SBARiskProfileFactor;
+  urbanRuralFactor: SBARiskProfileFactor;
+  compositeRiskScore: number;
+  compositeRiskTier: "low" | "medium" | "high" | "very_high";
+  compositeNarrative: string;
+  requiresProjectedDscr: boolean;
+  projectedDscrThreshold: number;
+  equityInjectionFloor: number;
+  hardBlockers: string[];
+  softWarnings: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Styling
+// ---------------------------------------------------------------------------
+
+const TIER_COLORS: Record<string, string> = {
+  low: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
+  medium: "text-amber-300 bg-amber-500/10 border-amber-500/30",
+  high: "text-orange-400 bg-orange-500/10 border-orange-500/30",
+  very_high: "text-red-400 bg-red-500/10 border-red-500/30",
+  unknown: "text-white/60 bg-white/5 border-white/10",
+};
+
+function scoreBarColor(score: number): string {
+  if (score < 2.0) return "bg-emerald-500";
+  if (score < 3.0) return "bg-amber-500";
+  if (score < 4.0) return "bg-orange-500";
+  return "bg-red-500";
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function FactorRow({ factor }: { factor: SBARiskProfileFactor }) {
+  const [expanded, setExpanded] = useState(false);
   return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-white/70">
-          {label} <span className="text-white/40">({weight})</span>
+    <div className="py-2 border-b border-white/5 last:border-0">
+      <div
+        className="flex items-center justify-between gap-2 cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className="text-sm text-white/80 font-medium">
+          {factor.label}
         </span>
-        <span className={`font-mono font-semibold ${scoreColor(score)}`}>
-          {score}
+        <span
+          className={`text-xs px-2 py-0.5 rounded border font-semibold ${TIER_COLORS[factor.tier]}`}
+        >
+          {factor.tier.replace("_", " ").toUpperCase()}
         </span>
       </div>
-      <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${
-            score >= 75
-              ? "bg-emerald-500"
-              : score >= 55
-                ? "bg-blue-500"
-                : score >= 35
-                  ? "bg-amber-500"
-                  : "bg-red-500"
-          }`}
-          style={{ width: `${score}%` }}
-        />
-      </div>
-      <p className="text-[10px] text-white/40">{explanation}</p>
+      {expanded && (
+        <p className="mt-1 text-xs text-white/50 leading-relaxed">
+          {factor.narrative}
+        </p>
+      )}
     </div>
   );
 }
 
-function FlagBadge({ flag }: {
-  flag: { code: string; message: string; severity: "INFO" | "WARN" | "BLOCK" };
+// ---------------------------------------------------------------------------
+// Main Panel
+// ---------------------------------------------------------------------------
+
+export default function SBARiskProfilePanel({
+  dealId,
+}: {
+  dealId: string;
 }) {
-  const colors = {
-    INFO: "bg-blue-500/10 border-blue-500/30 text-blue-300",
-    WARN: "bg-amber-500/10 border-amber-500/30 text-amber-300",
-    BLOCK: "bg-red-500/10 border-red-500/30 text-red-300",
-  };
-
-  return (
-    <div
-      className={`rounded-lg border px-3 py-2 text-xs ${colors[flag.severity]}`}
-    >
-      <span className="font-semibold">{flag.severity}</span>
-      <span className="mx-1.5 text-white/20">|</span>
-      {flag.message}
-    </div>
-  );
-}
-
-export default function SBARiskProfilePanel({ dealId }: Props) {
-  const [loading, setLoading] = useState(false);
-  const [profile, setProfile] = useState<RiskProfile | null>(null);
-  const [newBusiness, setNewBusiness] = useState<NewBusinessResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadProfile = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const resp = await fetch(`/api/deals/${dealId}/sba/risk-profile`);
-      const data = await resp.json();
-      if (data.ok) {
-        setProfile(data.riskProfile);
-        setNewBusiness(data.newBusiness);
-      } else {
-        setError(data.error ?? "Failed to load risk profile");
-      }
-    } catch {
-      setError("Failed to load risk profile");
-    } finally {
-      setLoading(false);
-    }
-  }, [dealId]);
+  const [profile, setProfile] = useState<SBARiskProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+    fetch(`/api/deals/${dealId}/sba/risk-profile`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.profile) setProfile(d.profile);
+      })
+      .catch((e) => console.error("[SBARiskProfilePanel]", e))
+      .finally(() => setLoading(false));
+  }, [dealId]);
 
   if (loading) {
     return (
-      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5 flex items-center justify-center min-h-[200px]">
-        <div className="animate-spin h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
-        <p className="text-sm text-red-300">{error}</p>
-        <button
-          onClick={loadProfile}
-          className="mt-2 text-xs text-blue-400 hover:text-blue-300"
-        >
-          Retry
-        </button>
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="text-sm text-white/40 animate-pulse">
+          Loading SBA risk profile...
+        </div>
       </div>
     );
   }
 
   if (!profile) return null;
 
+  const barWidth = `${((profile.compositeRiskScore - 1) / 4) * 100}%`;
+
   return (
-    <div className="space-y-4">
-      {/* Composite Score + Tier */}
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
+      {/* Header */}
       <div
-        className={`rounded-xl border p-4 ${tierBg(profile.riskTier)}`}
+        className="flex items-center justify-between px-4 py-3 cursor-pointer bg-white/[0.02] border-b border-white/10"
+        onClick={() => setCollapsed(!collapsed)}
       >
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-white/80">
-              SBA Risk Profile
-            </h3>
-            <p className="text-xs text-white/50 mt-0.5">
-              {profile.explanations.overall}
-            </p>
-          </div>
-          <div className="text-right">
-            <div
-              className={`text-2xl font-bold font-mono ${tierColor(profile.riskTier)}`}
-            >
-              {profile.compositeScore}
-            </div>
-            <div
-              className={`text-xs font-semibold ${tierColor(profile.riskTier)}`}
-            >
-              {profile.riskTier}
-            </div>
-          </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-semibold text-white/80">
+            SBA Risk Intelligence
+          </span>
+          <span
+            className={`text-xs px-2 py-0.5 rounded border font-semibold ${TIER_COLORS[profile.compositeRiskTier]}`}
+          >
+            {profile.compositeRiskTier.replace("_", " ").toUpperCase()} &mdash;{" "}
+            {profile.compositeRiskScore.toFixed(1)}/5.0
+          </span>
         </div>
+        <span className="text-white/40 text-xs">
+          {collapsed ? "Show" : "Hide"}
+        </span>
       </div>
 
-      {/* Component Scores */}
-      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
-        <h4 className="text-xs font-semibold text-white/60 uppercase tracking-wide">
-          Component Scores
-        </h4>
-        <ScoreBar
-          label="Industry"
-          score={profile.industryScore}
-          weight="40%"
-          explanation={profile.explanations.industry}
-        />
-        <ScoreBar
-          label="Business Age"
-          score={profile.businessAgeScore}
-          weight="35%"
-          explanation={profile.explanations.businessAge}
-        />
-        <ScoreBar
-          label="Loan Term"
-          score={profile.loanTermScore}
-          weight="15%"
-          explanation={profile.explanations.loanTerm}
-        />
-        <ScoreBar
-          label="Location"
-          score={profile.locationScore}
-          weight="10%"
-          explanation={profile.explanations.location}
-        />
-      </div>
+      {!collapsed && (
+        <div className="p-4 space-y-3">
+          {/* Score bar */}
+          <div className="w-full bg-white/10 rounded-full h-2">
+            <div
+              className={`h-2 rounded-full transition-all ${scoreBarColor(profile.compositeRiskScore)}`}
+              style={{ width: barWidth }}
+            />
+          </div>
+          <p className="text-xs text-white/50">
+            {profile.compositeNarrative}
+          </p>
 
-      {/* New Business Protocol */}
-      {newBusiness && (
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-2">
-          <h4 className="text-xs font-semibold text-white/60 uppercase tracking-wide">
-            New Business Protocol
-          </h4>
-          <div className="grid grid-cols-3 gap-3 text-sm">
-            <div>
-              <span className="text-white/50 text-xs">Status</span>
-              <div
-                className={`font-semibold ${
-                  newBusiness.isNewBusiness
-                    ? "text-amber-400"
-                    : "text-emerald-400"
-                }`}
-              >
-                {newBusiness.isNewBusiness
-                  ? "New Business"
-                  : "Established"}
-              </div>
+          {/* New Business Protocol Banner */}
+          {profile.requiresProjectedDscr && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-600/10 px-3 py-2">
+              <p className="text-xs font-semibold text-amber-300">
+                New Business Underwriting Protocol Active
+              </p>
+              <p className="text-xs text-amber-200/80 mt-0.5">
+                Projected DSCR of {profile.projectedDscrThreshold}x required
+                (not historical). Business plan with 3-year projections
+                mandatory per SBA SOP 50 10 8. Equity injection floor:{" "}
+                {(profile.equityInjectionFloor * 100).toFixed(0)}%.
+              </p>
             </div>
-            <div>
-              <span className="text-white/50 text-xs">DSCR Threshold</span>
-              <div className="text-white font-mono">
-                {newBusiness.dscrThreshold.toFixed(2)}x
-              </div>
-            </div>
-            <div>
-              <span className="text-white/50 text-xs">Age</span>
-              <div className="text-white font-mono">
-                {newBusiness.businessAgeMonths !== null
-                  ? `${(newBusiness.businessAgeMonths / 12).toFixed(1)} yrs`
-                  : "Unknown"}
-              </div>
-            </div>
+          )}
+
+          {/* Four factor rows */}
+          <div>
+            <FactorRow factor={profile.industryFactor} />
+            <FactorRow factor={profile.businessAgeFactor} />
+            <FactorRow factor={profile.loanTermFactor} />
+            <FactorRow factor={profile.urbanRuralFactor} />
           </div>
 
-          {newBusiness.flags.length > 0 && (
-            <div className="space-y-1.5 pt-1">
-              {newBusiness.flags.map((flag) => (
-                <FlagBadge key={flag.code} flag={flag} />
+          {/* Hard blockers */}
+          {profile.hardBlockers.length > 0 && (
+            <div className="rounded-lg border border-red-500/30 bg-red-600/10 px-3 py-2 space-y-1">
+              <p className="text-xs font-semibold text-red-300">
+                Hard Blockers
+              </p>
+              {profile.hardBlockers.map((b, i) => (
+                <p key={i} className="text-xs text-red-200/80">
+                  &bull; {b}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {/* Soft warnings */}
+          {profile.softWarnings.length > 0 && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-600/10 px-3 py-2 space-y-1">
+              <p className="text-xs font-semibold text-amber-300">
+                Warnings
+              </p>
+              {profile.softWarnings.map((w, i) => (
+                <p key={i} className="text-xs text-amber-200/80">
+                  &bull; {w}
+                </p>
               ))}
             </div>
           )}
         </div>
       )}
-
-      {/* Refresh */}
-      <button
-        onClick={loadProfile}
-        disabled={loading}
-        className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-40"
-      >
-        Refresh Profile
-      </button>
     </div>
   );
 }

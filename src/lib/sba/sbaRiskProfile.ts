@@ -1,301 +1,309 @@
 /**
  * SBA Risk Profile — Phase 58A
  *
- * Weighted composite risk scoring for SBA deals.
- * Components: Industry (40%), Business Age (35%), Loan Term (15%), Location (10%).
+ * Four-factor weighted composite risk scoring for SBA deals.
+ * Industry default rate (40%), Business age (35%), Loan term (15%), Urban/rural (10%).
  *
- * Pure functions. No DB. No LLM. No side effects.
- * All scores are 0–100 where higher = lower risk (safer).
+ * OCC SR 11-7 requires explainability — all logic is deterministic.
  */
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
+import "server-only";
 
-const WEIGHTS = {
-  industry: 0.40,
-  businessAge: 0.35,
-  loanTerm: 0.15,
-  location: 0.10,
-} as const;
-
-// Risk tier thresholds (composite score)
-const TIER_THRESHOLDS = {
-  LOW: 75,       // >= 75
-  MODERATE: 55,  // >= 55
-  ELEVATED: 35,  // >= 35
-  // < 35 = HIGH
-} as const;
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  assessNewBusinessRisk,
+  detectNewBusinessFromFacts,
+} from "./newBusinessProtocol";
+import { getSBAIndustryDefaultProfile } from "@/lib/benchmarks/industryBenchmarks";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type SBARiskTier = "LOW" | "MODERATE" | "ELEVATED" | "HIGH";
+export type LoanTermRiskTier = "short" | "medium" | "long" | "very_long";
+export type UrbanRuralClassification =
+  | "urban"
+  | "rural"
+  | "suburban"
+  | "unknown";
 
-export interface SBARiskProfileInput {
-  /** NAICS code for industry lookup */
-  naicsCode: string | null;
-  /** SBA 5-year default rate for this NAICS (0.0–1.0) */
-  sbaDefaultRate5yr: number | null;
-  /** SBA 10-year default rate for this NAICS (0.0–1.0) */
-  sbaDefaultRate10yr: number | null;
-  /** Business age in months */
-  businessAgeMonths: number | null;
-  /** Loan term in months */
-  loanTermMonths: number | null;
-  /** Whether business is in an urban area (null = unknown) */
-  isUrban: boolean | null;
+export interface SBARiskProfileFactor {
+  factorName: string;
+  label: string;
+  tier: "low" | "medium" | "high" | "very_high" | "unknown";
+  riskScore: number; // 1–5
+  narrative: string;
+  source: string;
 }
 
-export interface SBARiskProfileResult {
-  /** Individual component scores (0–100, higher = safer) */
-  industryScore: number;
-  businessAgeScore: number;
-  loanTermScore: number;
-  locationScore: number;
-  /** Weighted composite score (0–100) */
-  compositeScore: number;
-  /** Risk tier derived from composite */
-  riskTier: SBARiskTier;
-  /** Human-readable explanations for each component */
-  explanations: {
-    industry: string;
-    businessAge: string;
-    loanTerm: string;
-    location: string;
-    overall: string;
-  };
+export interface SBARiskProfile {
+  dealId: string;
+  computedAt: string;
+  loanType: string;
+  industryFactor: SBARiskProfileFactor;
+  businessAgeFactor: SBARiskProfileFactor;
+  loanTermFactor: SBARiskProfileFactor;
+  urbanRuralFactor: SBARiskProfileFactor;
+  compositeRiskScore: number;
+  compositeRiskTier: "low" | "medium" | "high" | "very_high";
+  compositeNarrative: string;
+  newBusinessResult: import("./newBusinessProtocol").NewBusinessUnderwritingResult;
+  requiresProjectedDscr: boolean;
+  projectedDscrThreshold: number;
+  equityInjectionFloor: number;
+  hardBlockers: string[];
+  softWarnings: string[];
 }
 
 // ---------------------------------------------------------------------------
-// Component Scorers
+// Scoring helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Industry score based on SBA historical default rates.
- * Lower default rate = higher score.
- *
- * Scoring curve:
- *   0% default → 100
- *   5% default → 75
- *  10% default → 50
- *  20% default → 25
- *  30%+ default → 10
- *  Unknown → 50 (neutral)
- */
-export function scoreIndustry(
-  defaultRate5yr: number | null,
-  defaultRate10yr: number | null,
-): { score: number; explanation: string } {
-  // Prefer 5yr rate; fallback to 10yr
-  const rate = defaultRate5yr ?? defaultRate10yr;
+const FACTOR_WEIGHTS = {
+  industry: 0.4,
+  businessAge: 0.35,
+  loanTerm: 0.15,
+  urbanRural: 0.1,
+} as const;
 
-  if (rate === null || rate === undefined) {
-    return {
-      score: 50,
-      explanation: "No SBA default rate data available for this industry. Neutral score applied.",
-    };
-  }
-
-  // Piecewise linear scoring
-  let score: number;
-  if (rate <= 0.0) {
-    score = 100;
-  } else if (rate <= 0.05) {
-    score = 100 - (rate / 0.05) * 25; // 100 → 75
-  } else if (rate <= 0.10) {
-    score = 75 - ((rate - 0.05) / 0.05) * 25; // 75 → 50
-  } else if (rate <= 0.20) {
-    score = 50 - ((rate - 0.10) / 0.10) * 25; // 50 → 25
-  } else if (rate <= 0.30) {
-    score = 25 - ((rate - 0.20) / 0.10) * 15; // 25 → 10
-  } else {
-    score = 10;
-  }
-
-  score = Math.round(Math.max(0, Math.min(100, score)));
-
-  const pct = (rate * 100).toFixed(1);
-  return {
-    score,
-    explanation:
-      score >= 75
-        ? `Industry 5yr default rate of ${pct}% is below average. Strong industry profile.`
-        : score >= 50
-          ? `Industry 5yr default rate of ${pct}% is moderate.`
-          : `Industry 5yr default rate of ${pct}% is above average. Elevated industry risk.`,
-  };
+function tierToScore(
+  tier: "low" | "medium" | "high" | "very_high" | "unknown",
+): number {
+  return { low: 1, medium: 2, high: 3.5, very_high: 5, unknown: 2.5 }[tier];
 }
 
-/**
- * Business age score.
- * Older businesses score higher.
- *
- * Scoring curve:
- *   0–6 months → 15
- *   6–12 months → 30
- *   12–24 months → 50
- *   24–60 months → 70
- *   60–120 months → 85
- *   120+ months → 95
- *   Unknown → 40 (conservative)
- */
-export function scoreBusinessAge(
-  ageMonths: number | null,
-): { score: number; explanation: string } {
-  if (ageMonths === null) {
-    return {
-      score: 40,
-      explanation: "Business age unknown. Conservative score applied.",
-    };
-  }
-
-  let score: number;
-  if (ageMonths < 6) {
-    score = 15;
-  } else if (ageMonths < 12) {
-    score = 30;
-  } else if (ageMonths < 24) {
-    score = 50;
-  } else if (ageMonths < 60) {
-    score = 70;
-  } else if (ageMonths < 120) {
-    score = 85;
-  } else {
-    score = 95;
-  }
-
-  const years = (ageMonths / 12).toFixed(1);
-  return {
-    score,
-    explanation:
-      ageMonths < 24
-        ? `Business is ${years} years old (new business). SBA new business protocol applies.`
-        : `Business is ${years} years old. Established operating history.`,
-  };
+function termTierToScore(tier: LoanTermRiskTier): number {
+  return { short: 1, medium: 2, long: 3, very_long: 4 }[tier];
 }
 
-/**
- * Loan term score.
- * Shorter terms score higher (lower risk).
- *
- * Scoring curve:
- *   0–60 months (5yr) → 90
- *   60–120 months (10yr) → 75
- *   120–240 months (20yr) → 60
- *   240–300 months (25yr) → 45
- *   300+ months → 35
- *   Unknown → 60 (neutral)
- */
-export function scoreLoanTerm(
+function scoreToTier(
+  s: number,
+): SBARiskProfile["compositeRiskTier"] {
+  if (s < 2.0) return "low";
+  if (s < 3.0) return "medium";
+  if (s < 4.0) return "high";
+  return "very_high";
+}
+
+function assessLoanTermRisk(
   termMonths: number | null,
-): { score: number; explanation: string } {
-  if (termMonths === null) {
+): { tier: LoanTermRiskTier; note: string } {
+  if (termMonths === null)
+    return { tier: "medium", note: "Loan term not specified" };
+  if (termMonths <= 36)
     return {
-      score: 60,
-      explanation: "Loan term unknown. Neutral score applied.",
+      tier: "short",
+      note: "Short-term loan (\u2264 3 years) \u2014 lower default exposure",
     };
-  }
-
-  let score: number;
-  if (termMonths <= 60) {
-    score = 90;
-  } else if (termMonths <= 120) {
-    score = 75;
-  } else if (termMonths <= 240) {
-    score = 60;
-  } else if (termMonths <= 300) {
-    score = 45;
-  } else {
-    score = 35;
-  }
-
-  const years = Math.round(termMonths / 12);
+  if (termMonths <= 84)
+    return {
+      tier: "medium",
+      note: "Medium-term loan (3\u20137 years) \u2014 typical SBA 7(a) structure",
+    };
+  if (termMonths <= 180)
+    return {
+      tier: "long",
+      note: "Long-term loan (7\u201315 years) \u2014 extended default exposure",
+    };
   return {
-    score,
-    explanation: `${years}-year loan term. ${
-      score >= 75 ? "Shorter duration reduces exposure." : "Longer duration increases exposure period."
-    }`,
+    tier: "very_long",
+    note: "Very long-term loan (> 15 years) \u2014 maximum SBA term",
   };
 }
 
-/**
- * Location score.
- * Urban areas score slightly higher (larger market, more diversification).
- *
- * Urban → 65, Rural → 50, Unknown → 55
- */
-export function scoreLocation(
-  isUrban: boolean | null,
-): { score: number; explanation: string } {
-  if (isUrban === null) {
-    return {
-      score: 55,
-      explanation: "Location type unknown. Neutral score applied.",
-    };
+// ---------------------------------------------------------------------------
+// Main builder
+// ---------------------------------------------------------------------------
+
+export async function buildSBARiskProfile(params: {
+  dealId: string;
+  loanType: string;
+  naicsCode: string | null;
+  termMonths: number | null;
+  urbanRural: UrbanRuralClassification | null;
+  state: string | null;
+  zip: string | null;
+  facts: Array<{
+    fact_key: string;
+    value_numeric: number | null;
+    value_text: string | null;
+  }>;
+  managementYearsInIndustry: number | null;
+  hasBusinessPlan: boolean;
+  sb: SupabaseClient;
+}): Promise<SBARiskProfile> {
+  const {
+    dealId,
+    loanType,
+    naicsCode,
+    termMonths,
+    facts,
+    managementYearsInIndustry,
+    hasBusinessPlan,
+    urbanRural,
+    sb,
+  } = params;
+
+  // Factor 1: Industry
+  const industryProfile = naicsCode
+    ? await getSBAIndustryDefaultProfile(naicsCode, sb)
+    : null;
+  const industryTier = (industryProfile?.defaultRiskTier ??
+    "unknown") as SBARiskProfileFactor["tier"];
+  const industryScore = tierToScore(industryTier);
+  const industryFactor: SBARiskProfileFactor = {
+    factorName: "industry_default_rate",
+    label: industryProfile?.benchmarkAvailable
+      ? `Industry Default Risk: ${industryTier.toUpperCase().replace("_", " ")} (${industryProfile.defaultRateFormatted})`
+      : "Industry Default Risk: No benchmark available",
+    tier: industryTier,
+    riskScore: industryScore,
+    narrative: industryProfile?.benchmarkAvailable
+      ? `Businesses in NAICS ${naicsCode} (${industryProfile.naicsDescription ?? "this industry"}) have a historical SBA default rate of ${industryProfile.defaultRateFormatted} based on ${industryProfile.sampleSize?.toLocaleString() ?? "historical"} loans from ${industryProfile.dataPeriod ?? "1987\u20132014"}. This is a population-level historical baseline \u2014 individual loan outcomes depend on borrower-specific factors.`
+      : `No SBA default benchmark available for NAICS ${naicsCode ?? "not specified"}.`,
+    source:
+      "U.S. SBA national loan database (1987\u20132014), ~899,164 observations",
+  };
+
+  // Factor 2: Business age
+  const { yearsInBusiness, monthsInBusiness } =
+    detectNewBusinessFromFacts(facts);
+  const newBusinessResult = assessNewBusinessRisk({
+    yearsInBusiness,
+    monthsInBusiness,
+    hasBusinessPlan,
+    managementYearsInIndustry,
+    loanType,
+  });
+  const ageTier: SBARiskProfileFactor["tier"] =
+    newBusinessResult.riskFactorLabel === "STARTUP"
+      ? "very_high"
+      : newBusinessResult.riskFactorLabel === "EARLY_STAGE"
+        ? "high"
+        : "low";
+  const businessAgeFactor: SBARiskProfileFactor = {
+    factorName: "business_age",
+    label: `Business Age: ${newBusinessResult.riskFactorLabel.replace("_", " ")} (${
+      monthsInBusiness !== null
+        ? `${Math.round(monthsInBusiness)} months`
+        : "unknown"
+    })`,
+    tier: ageTier,
+    riskScore: tierToScore(ageTier),
+    narrative: newBusinessResult.flags.narrativeContext,
+    source: "SBA SOP 50 10 8 and historical default pattern analysis",
+  };
+
+  // Factor 3: Loan term
+  const termAssessment = assessLoanTermRisk(termMonths);
+  const termScore = termTierToScore(termAssessment.tier);
+  const termTier: SBARiskProfileFactor["tier"] =
+    termAssessment.tier === "very_long"
+      ? "high"
+      : termAssessment.tier === "long"
+        ? "medium"
+        : "low";
+  const loanTermFactor: SBARiskProfileFactor = {
+    factorName: "loan_term",
+    label: `Loan Term Risk: ${termAssessment.tier.toUpperCase().replace("_", " ")} (${
+      termMonths
+        ? `${Math.round(termMonths / 12)} years`
+        : "not specified"
+    })`,
+    tier: termTier,
+    riskScore: termScore,
+    narrative:
+      termAssessment.note +
+      ". Longer terms increase default exposure due to the extended window for business conditions to change.",
+    source:
+      "Historical SBA default analysis \u2014 loan term is a top predictor of default",
+  };
+
+  // Factor 4: Urban/rural
+  const classification = urbanRural ?? "unknown";
+  const urbanRuralTier: SBARiskProfileFactor["tier"] =
+    classification === "rural" ? "medium" : "low";
+  const urbanRuralFactor: SBARiskProfileFactor = {
+    factorName: "urban_rural",
+    label: `Location: ${classification.toUpperCase()}`,
+    tier: urbanRuralTier,
+    riskScore: tierToScore(urbanRuralTier),
+    narrative:
+      classification === "rural"
+        ? "Rural business location \u2014 SBA historical data shows modestly higher default rates in rural markets due to concentrated economic dependency and limited refinancing alternatives."
+        : "Urban/suburban business location \u2014 typical SBA risk profile for this factor.",
+    source:
+      "SBA historical data \u2014 urban/rural is the weakest of the four empirical predictors",
+  };
+
+  // Composite
+  const compositeScore =
+    industryScore * FACTOR_WEIGHTS.industry +
+    tierToScore(ageTier) * FACTOR_WEIGHTS.businessAge +
+    termScore * FACTOR_WEIGHTS.loanTerm +
+    tierToScore(urbanRuralTier) * FACTOR_WEIGHTS.urbanRural;
+  const compositeRiskTier = scoreToTier(compositeScore);
+
+  const compositeNarrative = [
+    `SBA risk profile composite score: ${compositeScore.toFixed(1)}/5.0 (${compositeRiskTier.replace("_", " ")} risk).`,
+    industryProfile?.benchmarkAvailable
+      ? `Primary risk driver: ${industryFactor.label}.`
+      : null,
+    newBusinessResult.flags.isNewBusiness
+      ? `Business age is a significant risk factor \u2014 projected DSCR analysis required (${newBusinessResult.flags.projectedDscrThreshold}x minimum).`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const hardBlockers = [...newBusinessResult.flags.blockers];
+  const softWarnings = [...newBusinessResult.flags.warnings];
+
+  if (industryTier === "very_high" && newBusinessResult.flags.isNewBusiness) {
+    hardBlockers.push(
+      "Very high industry default rate combined with new business status \u2014 consider requiring 6-month interest reserve or additional collateral",
+    );
   }
 
-  return isUrban
-    ? { score: 65, explanation: "Urban location. Larger addressable market." }
-    : { score: 50, explanation: "Rural location. SBA community advantage may apply." };
-}
-
-// ---------------------------------------------------------------------------
-// Composite Scorer
-// ---------------------------------------------------------------------------
-
-/**
- * Derive risk tier from composite score.
- */
-export function deriveRiskTier(compositeScore: number): SBARiskTier {
-  if (compositeScore >= TIER_THRESHOLDS.LOW) return "LOW";
-  if (compositeScore >= TIER_THRESHOLDS.MODERATE) return "MODERATE";
-  if (compositeScore >= TIER_THRESHOLDS.ELEVATED) return "ELEVATED";
-  return "HIGH";
-}
-
-/**
- * Compute the full SBA risk profile.
- * Pure function — deterministic, no side effects.
- */
-export function computeSBARiskProfile(
-  input: SBARiskProfileInput,
-): SBARiskProfileResult {
-  const industry = scoreIndustry(input.sbaDefaultRate5yr, input.sbaDefaultRate10yr);
-  const businessAge = scoreBusinessAge(input.businessAgeMonths);
-  const loanTerm = scoreLoanTerm(input.loanTermMonths);
-  const location = scoreLocation(input.isUrban);
-
-  const compositeScore = Math.round(
-    industry.score * WEIGHTS.industry +
-    businessAge.score * WEIGHTS.businessAge +
-    loanTerm.score * WEIGHTS.loanTerm +
-    location.score * WEIGHTS.location,
+  // Persist to cache table
+  await sb.from("buddy_sba_risk_profiles").upsert(
+    {
+      deal_id: dealId,
+      loan_type: loanType,
+      naics_code: naicsCode,
+      industry_factor: industryFactor,
+      business_age_factor: businessAgeFactor,
+      loan_term_factor: loanTermFactor,
+      urban_rural_factor: urbanRuralFactor,
+      composite_risk_score: compositeScore,
+      composite_risk_tier: compositeRiskTier,
+      composite_narrative: compositeNarrative,
+      requires_projected_dscr: newBusinessResult.flags.requiresProjectedDscr,
+      projected_dscr_threshold:
+        newBusinessResult.flags.projectedDscrThreshold,
+      equity_injection_floor: newBusinessResult.flags.equityInjectionFloor,
+      hard_blockers: hardBlockers,
+      soft_warnings: softWarnings,
+    },
+    { onConflict: "deal_id" },
   );
 
-  const riskTier = deriveRiskTier(compositeScore);
-
-  const tierLabel: Record<SBARiskTier, string> = {
-    LOW: "Low risk profile. Standard SBA underwriting applies.",
-    MODERATE: "Moderate risk profile. Standard SBA underwriting with attention to flagged areas.",
-    ELEVATED: "Elevated risk profile. Enhanced due diligence recommended.",
-    HIGH: "High risk profile. Significant risk factors present. Thorough review required.",
-  };
-
   return {
-    industryScore: industry.score,
-    businessAgeScore: businessAge.score,
-    loanTermScore: loanTerm.score,
-    locationScore: location.score,
-    compositeScore,
-    riskTier,
-    explanations: {
-      industry: industry.explanation,
-      businessAge: businessAge.explanation,
-      loanTerm: loanTerm.explanation,
-      location: location.explanation,
-      overall: tierLabel[riskTier],
-    },
+    dealId,
+    computedAt: new Date().toISOString(),
+    loanType,
+    industryFactor,
+    businessAgeFactor,
+    loanTermFactor,
+    urbanRuralFactor,
+    compositeRiskScore: compositeScore,
+    compositeRiskTier,
+    compositeNarrative,
+    newBusinessResult,
+    requiresProjectedDscr: newBusinessResult.flags.requiresProjectedDscr,
+    projectedDscrThreshold: newBusinessResult.flags.projectedDscrThreshold,
+    equityInjectionFloor: newBusinessResult.flags.equityInjectionFloor,
+    hardBlockers,
+    softWarnings,
   };
 }

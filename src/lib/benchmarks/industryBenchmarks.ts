@@ -679,35 +679,73 @@ export function getAvailableMetrics(naicsCode: string): BenchmarkMetricId[] {
 // SBA Default Profile Lookup (Phase 58A)
 // ---------------------------------------------------------------------------
 
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 export interface SBAIndustryDefaultProfile {
   naicsCode: string;
   naicsDescription: string | null;
-  defaultRate5yr: number | null;
-  defaultRate10yr: number | null;
-  avgLoanSize: number | null;
-  approvalRate: number | null;
-  chargeOffRate: number | null;
+  defaultRatePct: number | null;
+  chargeOffRatePct: number | null;
+  defaultRiskTier: "low" | "medium" | "high" | "very_high" | null;
+  sampleSize: number | null;
+  dataPeriod: string | null;
+  notes: string | null;
+  defaultRateFormatted: string;
+  benchmarkAvailable: boolean;
 }
 
-/**
- * Look up SBA-specific default profile for a NAICS code.
- * Returns null if the NAICS code is not in our catalog.
- * This is a local lookup only — DB query is separate.
- */
-export function getSBAIndustryDefaultProfile(
-  naicsCode: string | null,
-): SBAIndustryDefaultProfile | null {
-  if (!naicsCode) return null;
-  const entry = resolveNaics(naicsCode);
-  if (!entry) return null;
+export async function getSBAIndustryDefaultProfile(
+  naicsCode: string,
+  sb: SupabaseClient,
+): Promise<SBAIndustryDefaultProfile> {
+  const { data: rawData } = await sb
+    .from("buddy_industry_benchmarks")
+    .select(
+      "naics_code, naics_description, sba_default_rate_pct, " +
+        "sba_charge_off_rate_pct, sba_default_risk_tier, " +
+        "sba_sample_size, sba_data_period, sba_notes",
+    )
+    .or(
+      `naics_code.eq.${naicsCode},` +
+        `naics_code.eq.${naicsCode.slice(0, 4)},` +
+        `naics_code.eq.${naicsCode.slice(0, 2)}`,
+    )
+    .order("naics_code", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // Cast to Record to access SBA columns that may not be in generated types
+  const data = rawData as Record<string, unknown> | null;
+
+  if (!data || data.sba_default_rate_pct === null || data.sba_default_rate_pct === undefined) {
+    return {
+      naicsCode,
+      naicsDescription: null,
+      defaultRatePct: null,
+      chargeOffRatePct: null,
+      defaultRiskTier: null,
+      sampleSize: null,
+      dataPeriod: null,
+      notes: null,
+      defaultRateFormatted: "N/A",
+      benchmarkAvailable: false,
+    };
+  }
+
+  const defaultRate = Number(data.sba_default_rate_pct);
   return {
-    naicsCode,
-    naicsDescription: entry.description,
-    defaultRate5yr: null,   // Must be loaded from DB (buddy_industry_benchmarks.sba_default_rate_5yr)
-    defaultRate10yr: null,  // Must be loaded from DB
-    avgLoanSize: null,      // Must be loaded from DB
-    approvalRate: null,     // Must be loaded from DB
-    chargeOffRate: null,    // Must be loaded from DB
+    naicsCode: String(data.naics_code ?? naicsCode),
+    naicsDescription: (data.naics_description as string) ?? null,
+    defaultRatePct: defaultRate,
+    chargeOffRatePct: data.sba_charge_off_rate_pct != null ? Number(data.sba_charge_off_rate_pct) : null,
+    defaultRiskTier:
+      (data.sba_default_risk_tier as SBAIndustryDefaultProfile["defaultRiskTier"]) ??
+      null,
+    sampleSize: data.sba_sample_size != null ? Number(data.sba_sample_size) : null,
+    dataPeriod: (data.sba_data_period as string) ?? null,
+    notes: (data.sba_notes as string) ?? null,
+    defaultRateFormatted: `${(defaultRate * 100).toFixed(1)}%`,
+    benchmarkAvailable: true,
   };
 }
 

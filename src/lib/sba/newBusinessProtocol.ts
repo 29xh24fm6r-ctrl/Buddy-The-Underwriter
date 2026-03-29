@@ -1,174 +1,160 @@
 /**
- * SBA New Business Protocol — Phase 58A
+ * SBA New Business Underwriting Protocol — Phase 58A
  *
- * Detects businesses < 2 years old and applies SBA SOP 50 10 8
- * requirements for new business DSCR thresholds.
+ * Detects businesses under 2 years old and applies SBA SOP 50 10 8 rules:
+ * projected DSCR threshold 1.25x (not historical 1.10x),
+ * equity injection floor 20%, business plan required.
  *
- * Pure functions. No DB. No side effects.
+ * Pure functions. No DB. No LLM.
  */
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** SBA defines "new business" as < 2 years of operation */
-const NEW_BUSINESS_THRESHOLD_MONTHS = 24;
-
-/** Standard SBA DSCR minimum */
-const SBA_DSCR_STANDARD = 1.25;
-
-/** New business projected DSCR minimum per SOP 50 10 8 */
-const SBA_DSCR_NEW_BUSINESS = 1.25;
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface NewBusinessInput {
-  /** Business age in months (null = unknown) */
-  businessAgeMonths: number | null;
-  /** Date business was established (ISO string, null = unknown) */
-  businessEstablishedDate: string | null;
-  /** Whether the deal has historical financials (T12 or annual) */
-  hasHistoricalFinancials: boolean;
-  /** Whether the deal has projections */
-  hasProjections: boolean;
-  /** NAICS code for industry context */
-  naicsCode: string | null;
-}
-
-export interface NewBusinessFlag {
-  code: string;
-  message: string;
-  severity: "INFO" | "WARN" | "BLOCK";
-}
-
-export interface NewBusinessResult {
+export interface NewBusinessRiskFlags {
   isNewBusiness: boolean;
-  businessAgeMonths: number | null;
-  dscrThreshold: number;
-  flags: NewBusinessFlag[];
-  /** Whether projections are required (always true for new business) */
-  projectionsRequired: boolean;
-  /** Whether management experience is weighted higher */
-  managementExperienceElevated: boolean;
+  yearsInBusiness: number | null;
+  requiresProjectedDscr: boolean;
+  projectedDscrThreshold: number; // 1.25 new, 1.10 existing
+  requiresManagementExperience: boolean;
+  equityInjectionFloor: number; // 0.20 new, 0.10 existing
+  requiresStartupBusinessPlan: boolean;
+  blockers: string[];
+  warnings: string[];
+  narrativeContext: string;
 }
 
-// ---------------------------------------------------------------------------
-// Core Functions
-// ---------------------------------------------------------------------------
-
-/**
- * Determine business age in months from an establishment date.
- * Returns null if date is invalid or missing.
- */
-export function computeBusinessAgeMonths(
-  establishedDate: string | null | undefined,
-  asOfDate?: Date,
-): number | null {
-  if (!establishedDate) return null;
-
-  const established = new Date(establishedDate);
-  if (isNaN(established.getTime())) return null;
-
-  const now = asOfDate ?? new Date();
-  const diffMs = now.getTime() - established.getTime();
-  if (diffMs < 0) return 0;
-
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24 * 30.44));
+export interface NewBusinessUnderwritingResult {
+  flags: NewBusinessRiskFlags;
+  riskFactorLabel: "STARTUP" | "EARLY_STAGE" | "ESTABLISHED" | "SEASONED";
+  riskMultiplier: number;
+  narrativeContext: string;
 }
 
-/**
- * Evaluate whether a business qualifies as "new" under SBA SOP 50 10 8
- * and determine applicable DSCR thresholds and flags.
- *
- * Pure function — deterministic, no side effects.
- */
-export function evaluateNewBusinessProtocol(
-  input: NewBusinessInput,
-): NewBusinessResult {
-  const flags: NewBusinessFlag[] = [];
+const SBA_7A_DSCR_EXISTING = 1.1;
+const SBA_7A_DSCR_NEW_BUSINESS = 1.25; // SOP 50 10 8
+const EQUITY_FLOOR_EXISTING = 0.1;
+const EQUITY_FLOOR_NEW_BUSINESS = 0.2;
 
-  // Resolve business age
-  let ageMonths = input.businessAgeMonths;
-  if (ageMonths === null && input.businessEstablishedDate) {
-    ageMonths = computeBusinessAgeMonths(input.businessEstablishedDate);
-  }
+export function assessNewBusinessRisk(params: {
+  yearsInBusiness: number | null;
+  monthsInBusiness: number | null;
+  hasBusinessPlan: boolean;
+  managementYearsInIndustry: number | null;
+  loanType: string;
+}): NewBusinessUnderwritingResult {
+  const months =
+    params.monthsInBusiness ??
+    (params.yearsInBusiness !== null ? params.yearsInBusiness * 12 : null);
 
-  const isNewBusiness =
-    ageMonths !== null && ageMonths < NEW_BUSINESS_THRESHOLD_MONTHS;
-
-  // New business with unknown age is treated conservatively
-  const ageUnknown = ageMonths === null;
-
-  if (ageUnknown) {
-    flags.push({
-      code: "BUSINESS_AGE_UNKNOWN",
-      message:
-        "Business establishment date not provided. Cannot determine new business status.",
-      severity: "WARN",
-    });
-  }
+  const isNewBusiness = months !== null && months < 24;
+  const blockers: string[] = [];
+  const warnings: string[] = [];
 
   if (isNewBusiness) {
-    flags.push({
-      code: "NEW_BUSINESS_DETECTED",
-      message: `Business is ${ageMonths} months old (< 24 months). SBA new business protocol applies.`,
-      severity: "INFO",
-    });
-
-    if (!input.hasProjections) {
-      flags.push({
-        code: "PROJECTIONS_REQUIRED",
-        message:
-          "SBA SOP 50 10 8 requires financial projections for businesses under 2 years old.",
-        severity: "BLOCK",
-      });
+    if (!params.hasBusinessPlan) {
+      blockers.push(
+        "New business (< 2 years) requires a business plan with 3-year projections per SBA SOP 50 10 8",
+      );
     }
-
-    if (!input.hasHistoricalFinancials) {
-      flags.push({
-        code: "NO_HISTORICAL_FINANCIALS",
-        message:
-          "New business has no historical financials. DSCR must be evaluated from projections only.",
-        severity: "WARN",
-      });
+    if (
+      params.managementYearsInIndustry !== null &&
+      params.managementYearsInIndustry < 3
+    ) {
+      warnings.push(
+        `Management has ${params.managementYearsInIndustry} year(s) of industry experience — ` +
+          "SBA lenders expect demonstrable industry expertise for new business loans",
+      );
     }
-
-    // Businesses under 12 months get extra scrutiny
-    if (ageMonths !== null && ageMonths < 12) {
-      flags.push({
-        code: "STARTUP_PHASE",
-        message:
-          "Business is in startup phase (< 12 months). Enhanced due diligence and management experience review required.",
-        severity: "WARN",
-      });
+    if (params.managementYearsInIndustry === null) {
+      warnings.push(
+        "Management industry experience not documented — required for new business SBA underwriting",
+      );
     }
   }
 
-  // DSCR threshold: new businesses use projected DSCR at 1.25x
-  // (not the 1.10x historical that some lenders allow for established businesses)
-  const dscrThreshold = isNewBusiness
-    ? SBA_DSCR_NEW_BUSINESS
-    : SBA_DSCR_STANDARD;
+  let riskFactorLabel: NewBusinessUnderwritingResult["riskFactorLabel"];
+  let riskMultiplier: number;
+
+  if (months === null) {
+    riskFactorLabel = "ESTABLISHED";
+    riskMultiplier = 1.0;
+  } else if (months < 6) {
+    riskFactorLabel = "STARTUP";
+    riskMultiplier = 1.8;
+  } else if (months < 24) {
+    riskFactorLabel = "EARLY_STAGE";
+    riskMultiplier = 1.4;
+  } else if (months < 60) {
+    riskFactorLabel = "ESTABLISHED";
+    riskMultiplier = 1.0;
+  } else {
+    riskFactorLabel = "SEASONED";
+    riskMultiplier = 0.9;
+  }
+
+  const narrativeContext = isNewBusiness
+    ? `This is a ${riskFactorLabel.toLowerCase().replace("_", " ")} business ` +
+      `(${months !== null ? Math.round(months) : "unknown"} months operating history). ` +
+      `SBA SOP 50 10 8 requires projected DSCR analysis for businesses under 2 years. ` +
+      `Projected DSCR threshold: ${SBA_7A_DSCR_NEW_BUSINESS}x. ` +
+      `Minimum equity injection: ${(EQUITY_FLOOR_NEW_BUSINESS * 100).toFixed(0)}% of total project cost.`
+    : `This is an ${riskFactorLabel.toLowerCase().replace("_", " ")} business ` +
+      `(${months !== null ? Math.round(months / 12) : "unknown"} years operating history). ` +
+      `Historical DSCR analysis applies with a ${SBA_7A_DSCR_EXISTING}x minimum threshold.`;
 
   return {
-    isNewBusiness,
-    businessAgeMonths: ageMonths,
-    dscrThreshold,
-    flags,
-    projectionsRequired: isNewBusiness,
-    managementExperienceElevated: isNewBusiness,
+    flags: {
+      isNewBusiness,
+      yearsInBusiness: params.yearsInBusiness,
+      requiresProjectedDscr: isNewBusiness,
+      projectedDscrThreshold: isNewBusiness
+        ? SBA_7A_DSCR_NEW_BUSINESS
+        : SBA_7A_DSCR_EXISTING,
+      requiresManagementExperience: isNewBusiness,
+      equityInjectionFloor: isNewBusiness
+        ? EQUITY_FLOOR_NEW_BUSINESS
+        : EQUITY_FLOOR_EXISTING,
+      requiresStartupBusinessPlan: isNewBusiness,
+      blockers,
+      warnings,
+      narrativeContext,
+    },
+    riskFactorLabel,
+    riskMultiplier,
+    narrativeContext,
   };
 }
 
-/**
- * Check if a DSCR value passes the applicable threshold.
- */
-export function dscrPassesThreshold(
-  dscr: number,
-  isNewBusiness: boolean,
-): boolean {
-  const threshold = isNewBusiness ? SBA_DSCR_NEW_BUSINESS : SBA_DSCR_STANDARD;
-  return dscr >= threshold;
+export function detectNewBusinessFromFacts(
+  facts: Array<{
+    fact_key: string;
+    value_numeric: number | null;
+    value_text: string | null;
+  }>,
+): { yearsInBusiness: number | null; monthsInBusiness: number | null } {
+  const yearsFact = facts.find((f) => f.fact_key === "YEARS_IN_BUSINESS");
+  const monthsFact = facts.find((f) => f.fact_key === "MONTHS_IN_BUSINESS");
+  const dateFact = facts.find(
+    (f) =>
+      f.fact_key === "BUSINESS_DATE_FORMED" || f.fact_key === "DATE_FORMED",
+  );
+
+  let monthsInBusiness: number | null = null;
+
+  if (monthsFact?.value_numeric != null) {
+    monthsInBusiness = monthsFact.value_numeric;
+  } else if (yearsFact?.value_numeric != null) {
+    monthsInBusiness = yearsFact.value_numeric * 12;
+  } else if (dateFact?.value_text) {
+    const formed = new Date(dateFact.value_text);
+    if (!isNaN(formed.getTime())) {
+      const now = new Date();
+      monthsInBusiness =
+        (now.getFullYear() - formed.getFullYear()) * 12 +
+        (now.getMonth() - formed.getMonth());
+    }
+  }
+
+  return {
+    yearsInBusiness: monthsInBusiness !== null ? monthsInBusiness / 12 : null,
+    monthsInBusiness,
+  };
 }

@@ -1,42 +1,32 @@
 -- Phase 58A: SBA Risk Profiles — computed composite risk per deal
-create table if not exists buddy_sba_risk_profiles (
-  id                    uuid primary key default gen_random_uuid(),
-  deal_id               uuid not null references deals(id) on delete cascade,
-  naics_code            text,
-  business_age_months   integer,
-  is_new_business       boolean not null default false,
-  loan_term_months      integer,
-  is_urban              boolean,
-
-  -- Component scores (0-100, higher = lower risk)
-  industry_score        numeric(5,2) not null default 50,
-  business_age_score    numeric(5,2) not null default 50,
-  loan_term_score       numeric(5,2) not null default 50,
-  location_score        numeric(5,2) not null default 50,
-
-  -- Composite
-  composite_score       numeric(5,2) not null,
-  risk_tier             text not null,  -- LOW / MODERATE / ELEVATED / HIGH
-
-  -- New business protocol
-  dscr_threshold_applied numeric(4,2) not null default 1.25,
-  new_business_flags    jsonb not null default '[]',
-
-  -- Metadata
-  computed_at           timestamptz not null default now(),
-  engine_version        text not null default 'sba_risk_v1',
-
-  created_at            timestamptz not null default now()
+CREATE TABLE IF NOT EXISTS buddy_sba_risk_profiles (
+  id                       uuid primary key default gen_random_uuid(),
+  deal_id                  uuid not null references deals(id) on delete cascade,
+  computed_at              timestamptz not null default now(),
+  loan_type                text not null,
+  naics_code               text,
+  industry_factor          jsonb not null default '{}',
+  business_age_factor      jsonb not null default '{}',
+  loan_term_factor         jsonb not null default '{}',
+  urban_rural_factor       jsonb not null default '{}',
+  composite_risk_score     numeric(4,2) not null,
+  composite_risk_tier      text not null,
+  composite_narrative      text,
+  requires_projected_dscr  boolean not null default false,
+  projected_dscr_threshold numeric(4,2),
+  equity_injection_floor   numeric(4,2),
+  hard_blockers            jsonb not null default '[]',
+  soft_warnings            jsonb not null default '[]',
+  UNIQUE(deal_id)
 );
 
-alter table buddy_sba_risk_profiles enable row level security;
-create policy "bank_scoped_sba_risk_profiles" on buddy_sba_risk_profiles
-  using (
-    deal_id in (
-      select id from deals where bank_id = (
-        select bank_id from bank_users where user_id = auth.uid() limit 1
+ALTER TABLE buddy_sba_risk_profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "bank_scoped_sba_risk_profiles" ON buddy_sba_risk_profiles
+  USING (
+    deal_id IN (
+      SELECT id FROM deals WHERE bank_id = (
+        SELECT bank_id FROM bank_users WHERE user_id = auth.uid() LIMIT 1
       )
     )
   );
-
-create index idx_sba_risk_profiles_deal_id on buddy_sba_risk_profiles(deal_id, computed_at desc);
+CREATE INDEX idx_sba_risk_profiles_deal_id ON buddy_sba_risk_profiles(deal_id);

@@ -20,6 +20,8 @@ export {
   getNaicsDescription,
   getSupportedNaicsCodes,
   getAvailableMetrics,
-  type SBAIndustryDefaultProfile,
-  getSBAIndustryDefaultProfile,
 } from "./industryBenchmarks";
+
+// SBA exports (Phase 58A) — async DB function, separate export
+export type { SBAIndustryDefaultProfile } from "./industryBenchmarks";
+export { getSBAIndustryDefaultProfile } from "./industryBenchmarks";
