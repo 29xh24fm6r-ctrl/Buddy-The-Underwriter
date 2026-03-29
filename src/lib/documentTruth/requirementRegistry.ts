@@ -21,7 +21,27 @@ export type RequirementCode =
   | "property.insurance"
   | "property.occupancy_plan"
   // Legal
-  | "legal.major_leases";
+  | "legal.major_leases"
+  // Loan Request
+  | "loan_request.summary";
+
+export type CanonicalDocType =
+  | "business_tax_return"
+  | "personal_tax_return"
+  | "income_statement"
+  | "ytd_income_statement"
+  | "balance_sheet"
+  | "current_balance_sheet"
+  | "personal_financial_statement"
+  | "bank_statement"
+  | "appraisal"
+  | "rent_roll"
+  | "property_operating_statement"
+  | "real_estate_tax_bill"
+  | "insurance_declaration"
+  | "occupancy_plan"
+  | "major_lease"
+  | "loan_request";
 
 export type QuantityRule = "exact_count" | "minimum_count" | "any_one";
 export type YearRule = "consecutive" | "most_recent" | "current";
@@ -39,6 +59,8 @@ export type RequirementDefinition = {
   yearRule?: YearRule;
   yearCount?: number;
   subjectRule: SubjectRule;
+  acceptedDocTypes: CanonicalDocType[];
+  canBeWaived: boolean;
 };
 
 // ─── Registry ─────────────────────────────────────────────────────────────────
@@ -56,6 +78,8 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     yearRule: "consecutive",
     yearCount: 3,
     subjectRule: "business",
+    acceptedDocTypes: ["business_tax_return"],
+    canBeWaived: false,
   },
   {
     code: "financials.personal_tax_returns",
@@ -68,6 +92,8 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     yearRule: "consecutive",
     yearCount: 3,
     subjectRule: "per_guarantor",
+    acceptedDocTypes: ["personal_tax_return"],
+    canBeWaived: false,
   },
   {
     code: "financials.ytd_income_statement",
@@ -77,6 +103,8 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     dealTypes: ["all"],
     quantityRule: "any_one",
     subjectRule: "business",
+    acceptedDocTypes: ["income_statement", "ytd_income_statement"],
+    canBeWaived: false,
   },
   {
     code: "financials.current_balance_sheet",
@@ -86,6 +114,8 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     dealTypes: ["all"],
     quantityRule: "any_one",
     subjectRule: "business",
+    acceptedDocTypes: ["balance_sheet", "current_balance_sheet"],
+    canBeWaived: false,
   },
   {
     code: "financials.personal_financial_statement",
@@ -95,6 +125,8 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     dealTypes: ["all"],
     quantityRule: "any_one",
     subjectRule: "per_guarantor",
+    acceptedDocTypes: ["personal_financial_statement"],
+    canBeWaived: true,
   },
   // Collateral
   {
@@ -105,6 +137,8 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     dealTypes: ["cre", "sba_7a", "sba_504"],
     quantityRule: "any_one",
     subjectRule: "per_property",
+    acceptedDocTypes: ["appraisal"],
+    canBeWaived: true,
   },
   // Liquidity
   {
@@ -116,6 +150,8 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     quantityRule: "minimum_count",
     requiredCount: 3,
     subjectRule: "business",
+    acceptedDocTypes: ["bank_statement"],
+    canBeWaived: false,
   },
   // Property
   {
@@ -126,6 +162,8 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     dealTypes: ["cre"],
     quantityRule: "any_one",
     subjectRule: "per_property",
+    acceptedDocTypes: ["rent_roll"],
+    canBeWaived: false,
   },
   {
     code: "property.operating_statement",
@@ -135,6 +173,8 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     dealTypes: ["cre"],
     quantityRule: "any_one",
     subjectRule: "per_property",
+    acceptedDocTypes: ["property_operating_statement"],
+    canBeWaived: false,
   },
   {
     code: "property.real_estate_tax_bill",
@@ -144,6 +184,8 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     dealTypes: ["cre"],
     quantityRule: "any_one",
     subjectRule: "per_property",
+    acceptedDocTypes: ["real_estate_tax_bill"],
+    canBeWaived: true,
   },
   {
     code: "property.insurance",
@@ -153,6 +195,8 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     dealTypes: ["cre"],
     quantityRule: "any_one",
     subjectRule: "per_property",
+    acceptedDocTypes: ["insurance_declaration"],
+    canBeWaived: true,
   },
   {
     code: "property.occupancy_plan",
@@ -162,6 +206,8 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     dealTypes: ["cre"],
     quantityRule: "any_one",
     subjectRule: "per_property",
+    acceptedDocTypes: ["occupancy_plan"],
+    canBeWaived: true,
   },
   // Legal
   {
@@ -173,6 +219,20 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     quantityRule: "minimum_count",
     requiredCount: 1,
     subjectRule: "per_property",
+    acceptedDocTypes: ["major_lease"],
+    canBeWaived: true,
+  },
+  // Loan Request
+  {
+    code: "loan_request.summary",
+    label: "Loan Request",
+    group: "loan_request",
+    required: true,
+    dealTypes: ["all"],
+    quantityRule: "any_one",
+    subjectRule: "any",
+    acceptedDocTypes: ["loan_request"],
+    canBeWaived: false,
   },
 ];
 

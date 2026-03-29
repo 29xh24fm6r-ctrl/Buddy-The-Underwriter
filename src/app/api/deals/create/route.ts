@@ -35,12 +35,13 @@ export async function POST(req: NextRequest) {
 
     // ── Rule 1: Borrower MUST exist before deal is written ────────────────
     let borrowerId = body.borrower_id as string | undefined;
+    let borrowerLegalName = "";
 
     if (borrowerId) {
       // Verify borrower exists and belongs to this bank
       const { data: existingBorrower } = await sb
         .from("borrowers")
-        .select("id")
+        .select("id, legal_name")
         .eq("id", borrowerId)
         .eq("bank_id", bankId)
         .maybeSingle();
@@ -51,16 +52,26 @@ export async function POST(req: NextRequest) {
           { status: 404 },
         );
       }
-    } else {
-      // Auto-create borrower
-      const borrowerName = (body.borrower_name as string)?.trim() || "New Borrower";
+      borrowerLegalName = existingBorrower.legal_name ?? "";
+    } else if (body.borrower_draft) {
+      // Create borrower from draft
+      const draft = body.borrower_draft as { legal_name?: string; entity_type?: string };
+      const legalName = draft.legal_name?.trim();
+      if (!legalName) {
+        return NextResponse.json(
+          { ok: false, error: "borrower_draft.legal_name is required" },
+          { status: 400 },
+        );
+      }
+
       const { data: newBorrower, error: borrowerError } = await sb
         .from("borrowers")
         .insert({
           bank_id: bankId,
-          legal_name: borrowerName,
+          legal_name: legalName,
+          entity_type: draft.entity_type ?? null,
         })
-        .select("id")
+        .select("id, legal_name")
         .single();
 
       if (borrowerError || !newBorrower) {
@@ -71,11 +82,38 @@ export async function POST(req: NextRequest) {
       }
 
       borrowerId = newBorrower.id;
+      borrowerLegalName = newBorrower.legal_name ?? legalName;
+    } else if (body.borrower_name) {
+      // Legacy path: auto-create from borrower_name
+      const borrowerName = (body.borrower_name as string).trim();
+      const { data: newBorrower, error: borrowerError } = await sb
+        .from("borrowers")
+        .insert({
+          bank_id: bankId,
+          legal_name: borrowerName,
+        })
+        .select("id, legal_name")
+        .single();
+
+      if (borrowerError || !newBorrower) {
+        return NextResponse.json(
+          { ok: false, error: `Failed to create borrower: ${borrowerError?.message ?? "unknown"}` },
+          { status: 500 },
+        );
+      }
+
+      borrowerId = newBorrower.id;
+      borrowerLegalName = borrowerName;
+    } else {
+      return NextResponse.json(
+        { ok: false, error: "One of borrower_id, borrower_draft, or borrower_name is required" },
+        { status: 400 },
+      );
     }
 
     // ── Rule 2: Deal name MUST NEVER be empty ─────────────────────────────
     const rawName = (body.deal_name as string)?.trim() || (body.name as string)?.trim();
-    const borrowerDisplayName = (body.borrower_name as string)?.trim() || "New Borrower";
+    const borrowerDisplayName = borrowerLegalName || (body.borrower_name as string)?.trim() || "New Borrower";
     const today = new Date().toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
