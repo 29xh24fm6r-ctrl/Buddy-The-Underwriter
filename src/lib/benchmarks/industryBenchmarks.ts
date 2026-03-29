@@ -676,6 +676,42 @@ export function getAvailableMetrics(naicsCode: string): BenchmarkMetricId[] {
 }
 
 // ---------------------------------------------------------------------------
+// SBA Default Profile Lookup (Phase 58A)
+// ---------------------------------------------------------------------------
+
+export interface SBAIndustryDefaultProfile {
+  naicsCode: string;
+  naicsDescription: string | null;
+  defaultRate5yr: number | null;
+  defaultRate10yr: number | null;
+  avgLoanSize: number | null;
+  approvalRate: number | null;
+  chargeOffRate: number | null;
+}
+
+/**
+ * Look up SBA-specific default profile for a NAICS code.
+ * Returns null if the NAICS code is not in our catalog.
+ * This is a local lookup only — DB query is separate.
+ */
+export function getSBAIndustryDefaultProfile(
+  naicsCode: string | null,
+): SBAIndustryDefaultProfile | null {
+  if (!naicsCode) return null;
+  const entry = resolveNaics(naicsCode);
+  if (!entry) return null;
+  return {
+    naicsCode,
+    naicsDescription: entry.description,
+    defaultRate5yr: null,   // Must be loaded from DB (buddy_industry_benchmarks.sba_default_rate_5yr)
+    defaultRate10yr: null,  // Must be loaded from DB
+    avgLoanSize: null,      // Must be loaded from DB
+    approvalRate: null,     // Must be loaded from DB
+    chargeOffRate: null,    // Must be loaded from DB
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

@@ -20,4 +20,6 @@ export {
   getNaicsDescription,
   getSupportedNaicsCodes,
   getAvailableMetrics,
+  type SBAIndustryDefaultProfile,
+  getSBAIndustryDefaultProfile,
 } from "./industryBenchmarks";

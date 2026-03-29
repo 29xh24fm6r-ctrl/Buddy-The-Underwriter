@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import type { SBAAssumptions, SBAPackageData } from "@/lib/sba/sbaReadinessTypes";
 import AssumptionInterview from "./AssumptionInterview";
 import SBAPackageViewer from "./SBAPackageViewer";
+import SBARiskProfilePanel from "./SBARiskProfilePanel";
 
 interface Props {
   dealId: string;
@@ -115,6 +116,14 @@ export default function SBAPackageTab({
               </p>
             </div>
           )}
+
+          {/* Risk Profile Panel */}
+          <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm p-5">
+            <h3 className="text-sm font-semibold text-white/80 mb-3">
+              Risk Profile
+            </h3>
+            <SBARiskProfilePanel dealId={dealId} />
+          </div>
         </div>
       </div>
     </div>
