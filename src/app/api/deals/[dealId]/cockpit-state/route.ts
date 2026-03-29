@@ -6,6 +6,12 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { recomputeDealDocumentState } from "@/lib/documentTruth/recomputeDealDocumentState";
 import { computeReadinessAndBlockers } from "@/lib/documentTruth/computeReadinessAndBlockers";
 import { getRequirementsForDealType } from "@/lib/documentTruth/requirementRegistry";
+import {
+  computeLoanRequestStatus,
+  deriveLoanRequestBlocker,
+  deriveNextBestAction,
+  buildBankerExplanation,
+} from "@/lib/dealControl/loanRequestCompleteness";
 
 export const runtime = "nodejs";
 
@@ -76,12 +82,21 @@ export async function GET(
       .maybeSingle();
 
     // ── Load supplemental state ───────────────────────────────────────────
-    const { data: loanRequest } = await sb
+    // Check both legacy deal_loan_requests and new loan_requests table
+    const { data: legacyLoanRequest } = await sb
       .from("deal_loan_requests")
       .select("id")
       .eq("deal_id", dealId)
       .limit(1)
       .maybeSingle();
+
+    const { data: loanRequestRow } = await sb
+      .from("loan_requests")
+      .select("*")
+      .eq("deal_id", dealId)
+      .maybeSingle();
+
+    const loanRequest = legacyLoanRequest || loanRequestRow;
 
     const { data: spreads } = await sb
       .from("deal_spreads")
@@ -131,7 +146,67 @@ export async function GET(
       hasDecision: false,
     };
 
-    const { categories, blockers, readinessPercent } = computeReadinessAndBlockers(readinessInput);
+    const { categories, blockers: docBlockers, readinessPercent } = computeReadinessAndBlockers(readinessInput);
+
+    // ── Loan request status + blockers ────────────────────────────────────
+    const mappedLoanRequest = loanRequestRow ? {
+      id: loanRequestRow.id,
+      dealId: loanRequestRow.deal_id,
+      requestName: loanRequestRow.request_name,
+      loanAmount: loanRequestRow.loan_amount ? Number(loanRequestRow.loan_amount) : null,
+      loanPurpose: loanRequestRow.loan_purpose,
+      loanType: loanRequestRow.loan_type,
+      collateralType: loanRequestRow.collateral_type,
+      collateralDescription: loanRequestRow.collateral_description,
+      termMonths: loanRequestRow.term_months,
+      amortizationMonths: loanRequestRow.amortization_months,
+      interestType: loanRequestRow.interest_type,
+      rateIndex: loanRequestRow.rate_index,
+      repaymentType: loanRequestRow.repayment_type,
+      facilityPurpose: loanRequestRow.facility_purpose,
+      occupancyType: loanRequestRow.occupancy_type,
+      recourseType: loanRequestRow.recourse_type,
+      guarantorRequired: loanRequestRow.guarantor_required ?? false,
+      guarantorNotes: loanRequestRow.guarantor_notes,
+      requestedCloseDate: loanRequestRow.requested_close_date,
+      useOfProceedsJson: loanRequestRow.use_of_proceeds_json,
+      covenantNotes: loanRequestRow.covenant_notes,
+      structureNotes: loanRequestRow.structure_notes,
+      source: loanRequestRow.source ?? "banker",
+      createdBy: loanRequestRow.created_by,
+      updatedBy: loanRequestRow.updated_by,
+    } : null;
+
+    const lrStatus = computeLoanRequestStatus(mappedLoanRequest);
+    const lrBlocker = deriveLoanRequestBlocker(mappedLoanRequest);
+
+    // Merge all blockers
+    const allBlockers = [...docBlockers];
+    if (lrBlocker) {
+      allBlockers.unshift({
+        code: lrBlocker.code,
+        severity: "blocking",
+        title: lrBlocker.title,
+        details: lrBlocker.details,
+        actionLabel: lrBlocker.actionLabel,
+      });
+    }
+
+    // ── Next best action + guidance ───────────────────────────────────────
+    const reviewRequiredCount = reqState.filter(
+      (r) => r.readinessStatus === "warning" && applicableCodes.has(r.code),
+    ).length;
+    const missingRequiredCount = reqState.filter(
+      (r) => r.checklistStatus === "missing" && applicableCodes.has(r.code),
+    ).length;
+
+    const nextBestAction = deriveNextBestAction({
+      loanRequestStatus: lrStatus.status,
+      reviewRequiredCount,
+      missingRequiredCount,
+    });
+
+    const bankerExplanation = buildBankerExplanation(allBlockers);
 
     return NextResponse.json({
       ok: true,
@@ -152,7 +227,27 @@ export async function GET(
         percent: readinessPercent,
         categories,
       },
-      blockers,
+      blockers: allBlockers,
+      nextBestAction,
+      guidance: {
+        bankerExplanation,
+      },
+      loanRequest: {
+        status: lrStatus.status,
+        missingFields: lrStatus.missingFields,
+        summary: mappedLoanRequest ? {
+          loanAmount: mappedLoanRequest.loanAmount,
+          loanType: mappedLoanRequest.loanType,
+          facilityPurpose: mappedLoanRequest.facilityPurpose,
+          collateralType: mappedLoanRequest.collateralType,
+        } : null,
+      },
+      permissions: {
+        canEditLoanRequest: true,
+        canReviewDocuments: true,
+        canWaiveRequirements: false,
+        canViewAuditTrail: false,
+      },
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Unknown error";
