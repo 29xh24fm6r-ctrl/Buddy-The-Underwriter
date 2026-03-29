@@ -1,8 +1,8 @@
 # Buddy The Underwriter — Project Roadmap
 # Institutional-Grade Commercial Lending AI Platform
 
-**Last Updated: March 2026**
-**Status: Phase 53A complete — Deal Builder: workflow rail, summary-first workspaces, modal/drawer UX, milestone readiness**
+**Last Updated: March 29, 2026**
+**Status: Phase 58A complete — SBA Risk Profile Enhancement (4-factor scoring, NAICS benchmarks, new business protocol)**
 
 ---
 
@@ -419,6 +419,34 @@ Browser
 | Model Engine V2 | Feature flag + seeding + wiring | 🔴 Queued | — |
 | Observability | Telemetry pipeline activation | 🔴 Queued | — |
 | Corpus Expansion | 10+ verified docs across industries | 🔴 Queued | — |
+| **Phase 57** | **SBA Borrower Readiness Module** — 5-pass forward model, 3-scenario sensitivity, break-even, Gemini narrative, PDFKit package | **✅ Complete** | **0c777d2** |
+| **Phase 58A** | **SBA Risk Profile Enhancement** — 4-factor scorer (industry/age/term/location), NAICS default benchmarks, new business protocol | **✅ Complete** | **0eb522a** |
+
+---
+
+## Session AAR — March 29, 2026
+
+### Phase 57 — SBA Borrower Readiness Module ✅
+**Commit:** 0c777d2 | **Tables:** 2 | **Routes:** 4 | **Components:** 4
+
+5-pass deterministic forward model. 3-scenario sensitivity. Break-even. Two Gemini narrative calls. PDFKit 5-section borrower PDF. Critical bug fixed: `deals.loan_type` → `deals.deal_type`, value `'SBA'` not `'sba_7a'`. Fixed across 10 files. All SBA type checks now use `['SBA', 'sba_7a', 'sba_504', 'sba_express']`.
+
+### Phase 58A — SBA Risk Profile Enhancement ✅
+**Commits:** 4c5225f (initial) + 0eb522a (spec-aligned rebuild) | **Tables:** 1 + 6 columns | **Files:** 7
+
+Initial build had wrong DB column names, synthetic rates, 0-100 scale. Spec-aligned rebuild corrected all deviations. Real 899k loan dataset rates (7.8–28.2%). Four weighted factors: industry 40%, business age 35%, loan term 15%, urban/rural 10%. `newBusinessProtocol.ts` SOP 50 10 8 compliant — DSCR 1.25x projected (new) vs 1.10x historical (existing). `SBARiskProfilePanel` positioned at top of SBA Package tab before assumption interview.
+
+---
+
+## Phase 58B — SBA Loan Sizing Intelligence 🔜
+
+Deterministic calculation of expected SBA guarantee amount from SOP 50 10 8 schedule. Pure function `calculateSBAGuarantee(loanAmount, program)` → `{ guaranteePct, guaranteeAmount, bankExposure }`. Display in SBA Package tab header. No ML, no new tables beyond two additive columns on `buddy_sba_packages`.
+
+**SBA 7(a) Guarantee Schedule:**
+- Loans ≤ $150,000: 85% guarantee
+- Loans > $150,000: 75% guarantee
+- SBA Express: 50% guarantee
+- Export Express: 90% (up to $500k)
 
 ---
 
