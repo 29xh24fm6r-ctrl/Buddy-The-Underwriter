@@ -83,6 +83,26 @@ export async function POST(
 
     if (narrativeErr) throw narrativeErr;
 
+    // ── Step 2b: Validation Pass gate ─────────────────────────────────────
+    const { data: validationReport } = await sb
+      .from("buddy_validation_reports")
+      .select("gating_decision")
+      .eq("deal_id", dealId)
+      .order("run_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!validationReport || validationReport.gating_decision === "BLOCK_GENERATION") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Validation pass required before generating memo. Run Validation first.",
+        },
+        { status: 400 },
+      );
+    }
+
     // ── Step 3: Build deal snapshot ──────────────────────────────────────
     const [dealResult, factsResult] = await Promise.all([
       sb
