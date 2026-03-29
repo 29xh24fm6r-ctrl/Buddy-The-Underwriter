@@ -1,0 +1,108 @@
+import "server-only";
+
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { SBAAssumptions } from "./sbaReadinessTypes";
+
+export async function loadSBAAssumptionsPrefill(
+  dealId: string,
+): Promise<Partial<SBAAssumptions>> {
+  const sb = supabaseAdmin();
+
+  // 1. Deal scalar fields
+  const { data: deal } = await sb
+    .from("deals")
+    .select("loan_amount, deal_type")
+    .eq("id", dealId)
+    .single();
+
+  // 2. Loan structure from builder sections (term, rate if captured)
+  const { data: structureSection } = await sb
+    .from("deal_builder_sections")
+    .select("data")
+    .eq("deal_id", dealId)
+    .eq("section_key", "structure")
+    .maybeSingle();
+
+  // 3. Base revenue from financial facts (most recent)
+  const { data: revFact } = await sb
+    .from("deal_financial_facts")
+    .select("value_numeric")
+    .eq("deal_id", dealId)
+    .eq("fact_key", "TOTAL_REVENUE_IS")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // 4. COGS from financial facts
+  const { data: cogsFact } = await sb
+    .from("deal_financial_facts")
+    .select("value_numeric")
+    .eq("deal_id", dealId)
+    .eq("fact_key", "TOTAL_COGS_IS")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // 5. Annual debt service (existing) from financial facts
+  const { data: adsFact } = await sb
+    .from("deal_financial_facts")
+    .select("value_numeric")
+    .eq("deal_id", dealId)
+    .eq("fact_key", "ADS")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const structure = structureSection?.data as Record<string, unknown> | null;
+  const revenue = revFact?.value_numeric ?? 0;
+  const cogs = cogsFact?.value_numeric ?? 0;
+  const cogsPercent = revenue > 0 ? Math.min(0.95, cogs / revenue) : 0.5;
+
+  return {
+    revenueStreams:
+      revenue > 0
+        ? [
+            {
+              id: "stream_primary",
+              name: "Primary Revenue",
+              baseAnnualRevenue: revenue,
+              growthRateYear1: 0.1,
+              growthRateYear2: 0.08,
+              growthRateYear3: 0.06,
+              pricingModel: "flat",
+              seasonalityProfile: null,
+            },
+          ]
+        : [],
+    costAssumptions: {
+      cogsPercentYear1: cogsPercent,
+      cogsPercentYear2: cogsPercent,
+      cogsPercentYear3: cogsPercent,
+      fixedCostCategories: [],
+      plannedHires: [],
+      plannedCapex: [],
+    },
+    workingCapital: {
+      targetDSO: 45,
+      targetDPO: 30,
+      inventoryTurns: null,
+    },
+    loanImpact: {
+      loanAmount: deal?.loan_amount ?? 0,
+      termMonths:
+        (structure?.desired_term_months as number | undefined) ?? 120,
+      interestRate: 0.0725, // SBA prime + 2.75 default; banker must confirm
+      existingDebt: adsFact?.value_numeric
+        ? [
+            {
+              description: "Existing debt obligations (from spread)",
+              currentBalance: 0,
+              monthlyPayment: adsFact.value_numeric / 12,
+              remainingTermMonths: 60,
+            },
+          ]
+        : [],
+    },
+    managementTeam: [],
+  };
+}

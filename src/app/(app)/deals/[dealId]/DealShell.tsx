@@ -168,6 +168,7 @@ type DealShellDeal = {
   amount: number | null;
   stage: string | null;
   risk_score: number | null;
+  deal_type?: string | null;
 };
 
 type CanonicalMemoHeaderStatus = {
@@ -264,6 +265,11 @@ export default function DealShell({
     return "bg-white/5 text-white/70 border-white/10";
   })();
 
+  const SBA_DEAL_TYPES = ["SBA", "sba_7a", "sba_504", "sba_express"] as const;
+  const isSbaDeal = SBA_DEAL_TYPES.includes(
+    (deal?.deal_type ?? "") as (typeof SBA_DEAL_TYPES)[number],
+  );
+
   const tabs = [
     { label: "Builder", href: `${base}/builder` },
     { label: "Intelligence", href: `${base}/intelligence` },
@@ -278,6 +284,9 @@ export default function DealShell({
     { label: "Post-Close", href: `${base}/post-close` },
     { label: "Reviews", href: `${base}/reviews` },
     { label: "Special Assets", href: `${base}/special-assets` },
+    ...(isSbaDeal
+      ? [{ label: "SBA Package", href: `${base}/sba-package` }]
+      : []),
     { label: "Classic Spreads", href: `${base}/classic-spreads` },
   ];
 
