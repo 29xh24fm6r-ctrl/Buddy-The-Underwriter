@@ -6,6 +6,7 @@ import AssumptionInterview from "./AssumptionInterview";
 import SBAPackageViewer from "./SBAPackageViewer";
 import SBARiskProfilePanel from "./SBARiskProfilePanel";
 import SBAGuaranteeCard from "./SBAGuaranteeCard";
+import SBAEtranReadinessPanel from "./SBAEtranReadinessPanel";
 
 interface Props {
   dealId: string;
@@ -73,6 +74,16 @@ export default function SBAPackageTab({
       {/* Guarantee Card — very top */}
       <div className="mb-4">
         <SBAGuaranteeCard loanAmount={loanAmount} dealType={dealType} />
+      </div>
+
+      {/* E-Tran Readiness Panel */}
+      <div className="mb-4">
+        <SBAEtranReadinessPanel
+          dealId={dealId}
+          onNavigateToBuilder={(section) => {
+            window.location.href = `../builder?section=${section}`;
+          }}
+        />
       </div>
 
       {/* Risk Profile Panel */}
