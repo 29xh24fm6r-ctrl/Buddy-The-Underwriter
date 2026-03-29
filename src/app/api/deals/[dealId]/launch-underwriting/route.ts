@@ -4,8 +4,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { clerkAuth } from "@/lib/auth/clerkServer";
-import { computeUnderwritingEligibility } from "@/lib/underwritingLaunch/computeEligibility";
-import { computeLoanRequestStatus } from "@/lib/dealControl/loanRequestCompleteness";
+import { ensureUnderwritingActivatedCore } from "@/lib/deals/underwriting/ensureUnderwritingActivatedCore";
+import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { emitBuilderLifecycleSignal } from "@/lib/buddy/builderSignals";
+import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
+import { getCanonicalLoanRequestForUnderwriting } from "@/lib/underwritingLaunch/getCanonicalLoanRequest";
 
 export const runtime = "nodejs";
 
@@ -17,8 +20,9 @@ const CERTIFICATION_TEXT =
 /**
  * POST /api/deals/[dealId]/launch-underwriting
  *
- * Creates immutable snapshot, workspace, certification.
- * Rejects if eligibility fails at launch moment.
+ * Phase 56R: Wraps existing ensureUnderwritingActivatedCore for lifecycle transition.
+ * Creates immutable snapshot, workspace, certification ONLY after activation succeeds.
+ * Uses deal_loan_requests as canonical loan request source.
  */
 export async function POST(
   req: NextRequest,
@@ -40,94 +44,88 @@ export async function POST(
     const sb = supabaseAdmin();
     const now = new Date().toISOString();
 
-    // Load deal + borrower + bank
-    const { data: deal } = await sb.from("deals").select("*").eq("id", dealId).single();
-    if (!deal) return NextResponse.json({ ok: false, error: "deal_not_found" }, { status: 404 });
+    // ── Preflight: canonical loan request must be submitted ────────────────
+    const { request: canonicalRequest, isSubmitted, requestId } =
+      await getCanonicalLoanRequestForUnderwriting(dealId);
 
-    const { data: borrower } = await sb.from("borrowers").select("id, legal_name, entity_type")
-      .eq("id", deal.borrower_id).maybeSingle();
-    const { data: bank } = await sb.from("banks").select("id, name").eq("id", deal.bank_id).maybeSingle();
-
-    // Load loan request
-    const { data: loanRequestRow } = await sb.from("loan_requests").select("*").eq("deal_id", dealId).maybeSingle();
-    const lrStatus = computeLoanRequestStatus(loanRequestRow ? {
-      id: loanRequestRow.id, dealId, requestName: loanRequestRow.request_name,
-      loanAmount: loanRequestRow.loan_amount ? Number(loanRequestRow.loan_amount) : null,
-      loanPurpose: loanRequestRow.loan_purpose, loanType: loanRequestRow.loan_type,
-      collateralType: loanRequestRow.collateral_type, collateralDescription: loanRequestRow.collateral_description,
-      termMonths: loanRequestRow.term_months, amortizationMonths: loanRequestRow.amortization_months,
-      interestType: loanRequestRow.interest_type, rateIndex: loanRequestRow.rate_index,
-      repaymentType: loanRequestRow.repayment_type, facilityPurpose: loanRequestRow.facility_purpose,
-      occupancyType: loanRequestRow.occupancy_type, recourseType: loanRequestRow.recourse_type,
-      guarantorRequired: loanRequestRow.guarantor_required ?? false, guarantorNotes: loanRequestRow.guarantor_notes,
-      requestedCloseDate: loanRequestRow.requested_close_date, useOfProceedsJson: loanRequestRow.use_of_proceeds_json,
-      covenantNotes: loanRequestRow.covenant_notes, structureNotes: loanRequestRow.structure_notes,
-      source: loanRequestRow.source ?? "banker", createdBy: loanRequestRow.created_by, updatedBy: loanRequestRow.updated_by,
-    } : null);
-
-    // Load document snapshot
-    const { data: docSnapshot } = await sb.from("deal_document_snapshots").select("*").eq("deal_id", dealId).maybeSingle();
-    const reqState = (docSnapshot?.requirement_state ?? []) as Array<Record<string, unknown>>;
-    const blockers = (docSnapshot?.blockers ?? []) as Array<{ code: string }>;
-
-    const satisfiedCount = reqState.filter((r) => r.checklistStatus === "satisfied" || r.checklistStatus === "waived").length;
-    const requiredCount = reqState.filter((r) => r.required).length;
-
-    // Eligibility check
-    const eligibility = computeUnderwritingEligibility({
-      blockers,
-      loanRequestStatus: lrStatus.status,
-      hasDealName: !!deal.name,
-      hasBorrowerId: !!deal.borrower_id,
-      hasBankId: !!deal.bank_id,
-      applicableRequiredSatisfiedCount: satisfiedCount,
-      applicableRequiredTotalCount: requiredCount,
-      hasExistingWorkspace: false,
-      hasDrift: false,
-    });
-
-    if (!eligibility.canLaunch) {
+    if (!isSubmitted || !canonicalRequest) {
       return NextResponse.json({
         ok: false,
-        error: "Deal is not eligible for underwriting launch",
-        reasons: eligibility.reasonsNotReady,
+        error: "Cannot launch: no submitted canonical loan request found in deal_loan_requests",
       }, { status: 400 });
     }
 
-    // Determine launch sequence
+    // ── Step 1: Delegate lifecycle transition to existing activation core ──
+    const activationResult = await ensureUnderwritingActivatedCore({
+      dealId,
+      bankId: access.bankId,
+      trigger: "launch_underwriting_api",
+      deps: { sb, logLedgerEvent, emitBuilderLifecycleSignal, advanceDealLifecycle },
+    });
+
+    if (!activationResult.ok && activationResult.status === "failed") {
+      return NextResponse.json({
+        ok: false,
+        error: `Activation failed: ${(activationResult as any).error ?? "unknown"}`,
+      }, { status: 400 });
+    }
+
+    if (activationResult.status === "blocked") {
+      return NextResponse.json({
+        ok: false,
+        error: "Underwriting blocked by missing required items",
+        missing: (activationResult as any).missing ?? [],
+      }, { status: 400 });
+    }
+
+    // Activation succeeded (activated or already_activated)
+
+    // ── Step 2: Load canonical context for snapshot ────────────────────────
+    const { data: deal } = await sb.from("deals").select("*").eq("id", dealId).single();
+    const { data: borrower } = await sb.from("borrowers").select("id, legal_name, entity_type")
+      .eq("id", deal?.borrower_id).maybeSingle();
+    const { data: bank } = await sb.from("banks").select("id, name").eq("id", deal?.bank_id).maybeSingle();
+    const { data: docSnapshot } = await sb.from("deal_document_snapshots").select("*").eq("deal_id", dealId).maybeSingle();
+    const { data: financialSnapshot } = await sb.from("financial_snapshots").select("id").eq("deal_id", dealId).limit(1).maybeSingle();
+
+    // ── Step 3: Determine launch sequence ─────────────────────────────────
     const { data: priorSnapshots } = await sb.from("underwriting_launch_snapshots")
       .select("launch_sequence").eq("deal_id", dealId).order("launch_sequence", { ascending: false }).limit(1);
     const launchSequence = ((priorSnapshots?.[0] as Record<string, unknown>)?.launch_sequence as number ?? 0) + 1;
 
-    // Create immutable snapshot
+    // ── Step 4: Create immutable snapshot with canonical references ────────
     const { data: snapshot, error: snapError } = await sb.from("underwriting_launch_snapshots").insert({
       deal_id: dealId,
       launch_sequence: launchSequence,
       launched_by: userId,
       launched_at: now,
-      lifecycle_stage_at_launch: deal.lifecycle_stage ?? "intake",
+      lifecycle_stage_at_launch: deal?.lifecycle_stage ?? deal?.stage ?? "underwriting",
       borrower_snapshot_json: borrower ?? {},
-      deal_snapshot_json: { id: deal.id, name: deal.name, bank_id: deal.bank_id },
-      loan_request_snapshot_json: loanRequestRow ?? {},
-      requirement_snapshot_json: reqState,
+      deal_snapshot_json: { id: deal?.id, name: deal?.name, bank_id: deal?.bank_id },
+      loan_request_snapshot_json: canonicalRequest,
+      requirement_snapshot_json: docSnapshot?.requirement_state ?? [],
       document_snapshot_json: docSnapshot ?? {},
       readiness_snapshot_json: docSnapshot?.readiness ?? {},
-      blocker_snapshot_json: blockers,
-      guidance_snapshot_json: null,
+      blocker_snapshot_json: docSnapshot?.blockers ?? [],
       analyst_handoff_note: body.analyst_handoff_note ?? null,
       certification_json: {
         certifiedBy: userId,
         certifiedAt: now,
         certificationText: CERTIFICATION_TEXT,
-        eligibility,
+        activationStatus: activationResult.status,
       },
+      // Canonical references (Phase 56R)
+      canonical_loan_request_id: requestId,
+      financial_snapshot_id: financialSnapshot?.id ?? null,
+      documents_readiness_pct: (docSnapshot?.readiness as any)?.pct ?? null,
+      pricing_inputs_present: false,
     }).select("id").single();
 
     if (snapError || !snapshot) {
       return NextResponse.json({ ok: false, error: `Snapshot creation failed: ${snapError?.message ?? "unknown"}` }, { status: 500 });
     }
 
-    // Create workspace
+    // ── Step 5: Create/update workspace ───────────────────────────────────
     const { data: workspace } = await sb.from("underwriting_workspaces").upsert({
       deal_id: dealId,
       active_snapshot_id: snapshot.id,
@@ -136,27 +134,30 @@ export async function POST(
       launched_by: userId,
     }, { onConflict: "deal_id" }).select("id").single();
 
-    // Create certification record
+    // ── Step 6: Write certification ───────────────────────────────────────
     await sb.from("underwriting_launch_certifications").insert({
       deal_id: dealId,
       snapshot_id: snapshot.id,
       certified_by: userId,
       certified_at: now,
       certification_text: CERTIFICATION_TEXT,
-      eligibility_json: eligibility,
+      eligibility_json: { activationStatus: activationResult.status, launchSequence },
       handoff_note: body.analyst_handoff_note ?? null,
     });
 
-    // Update deal lifecycle
-    await sb.from("deals").update({ lifecycle_stage: "underwriting" }).eq("id", dealId);
-
-    // Audit
+    // ── Step 7: Audit log ─────────────────────────────────────────────────
     await sb.from("deal_audit_log").insert({
       deal_id: dealId,
       bank_id: access.bankId,
       actor_id: userId,
       event: "underwriting_launched",
-      payload: { snapshot_id: snapshot.id, launch_sequence: launchSequence, workspace_id: workspace?.id },
+      payload: {
+        snapshot_id: snapshot.id,
+        launch_sequence: launchSequence,
+        workspace_id: workspace?.id,
+        canonical_loan_request_id: requestId,
+        activation_status: activationResult.status,
+      },
     }).then(null, () => {});
 
     return NextResponse.json({
@@ -165,6 +166,7 @@ export async function POST(
       snapshotId: snapshot.id,
       workspaceId: workspace?.id,
       launchSequence,
+      activationStatus: activationResult.status,
       status: "launched",
     }, { status: 201 });
   } catch (e: unknown) {

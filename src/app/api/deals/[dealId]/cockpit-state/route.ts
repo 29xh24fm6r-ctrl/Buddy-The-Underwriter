@@ -82,21 +82,22 @@ export async function GET(
       .maybeSingle();
 
     // ── Load supplemental state ───────────────────────────────────────────
-    // Check both legacy deal_loan_requests and new loan_requests table
-    const { data: legacyLoanRequest } = await sb
+    // Phase 56R: deal_loan_requests is the ONLY canonical loan request source
+    const { data: canonicalLoanRequest } = await sb
       .from("deal_loan_requests")
-      .select("id")
+      .select("*")
       .eq("deal_id", dealId)
+      .order("request_number", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    const { data: loanRequestRow } = await sb
-      .from("loan_requests")
-      .select("*")
-      .eq("deal_id", dealId)
-      .maybeSingle();
+    // Fallback check Phase 55 table during migration period only
+    const { data: phase55LoanRequest } = !canonicalLoanRequest
+      ? await sb.from("loan_requests").select("*").eq("deal_id", dealId).maybeSingle()
+      : { data: null };
 
-    const loanRequest = legacyLoanRequest || loanRequestRow;
+    const loanRequest = canonicalLoanRequest || phase55LoanRequest;
+    const loanRequestRow = phase55LoanRequest;
 
     const { data: spreads } = await sb
       .from("deal_spreads")
