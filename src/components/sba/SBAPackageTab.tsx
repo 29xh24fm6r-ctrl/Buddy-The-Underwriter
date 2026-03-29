@@ -5,9 +5,12 @@ import type { SBAAssumptions, SBAPackageData } from "@/lib/sba/sbaReadinessTypes
 import AssumptionInterview from "./AssumptionInterview";
 import SBAPackageViewer from "./SBAPackageViewer";
 import SBARiskProfilePanel from "./SBARiskProfilePanel";
+import SBAGuaranteeCard from "./SBAGuaranteeCard";
 
 interface Props {
   dealId: string;
+  loanAmount: number;
+  dealType: string | null;
   initialAssumptions: SBAAssumptions | null;
   initialPackage: SBAPackageData | null;
   prefilled: Partial<SBAAssumptions>;
@@ -15,6 +18,8 @@ interface Props {
 
 export default function SBAPackageTab({
   dealId,
+  loanAmount,
+  dealType,
   initialAssumptions,
   initialPackage,
   prefilled,
@@ -65,7 +70,12 @@ export default function SBAPackageTab({
         SBA Borrower Readiness Package
       </h2>
 
-      {/* Risk Profile Panel — top of tab */}
+      {/* Guarantee Card — very top */}
+      <div className="mb-4">
+        <SBAGuaranteeCard loanAmount={loanAmount} dealType={dealType} />
+      </div>
+
+      {/* Risk Profile Panel */}
       <div className="mb-4">
         <SBARiskProfilePanel dealId={dealId} />
       </div>

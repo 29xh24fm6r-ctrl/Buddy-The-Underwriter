@@ -10,6 +10,7 @@ import {
   buildSensitivityScenarios,
   buildUseOfProceeds,
 } from "./sbaForwardModelBuilder";
+import { calculateSBAGuarantee, detectSBAProgram } from "./sbaGuarantee";
 import {
   generateBusinessOverviewNarrative,
   generateSensitivityNarrative,
@@ -236,6 +237,13 @@ export async function generateSBAPackage(
     // Non-fatal: proceed without PDF
   }
 
+  // Compute SBA guarantee
+  const sbaProgram = detectSBAProgram(deal?.deal_type ?? null);
+  const guarantee = calculateSBAGuarantee(
+    assumptions.loanImpact.loanAmount,
+    sbaProgram,
+  );
+
   // Store package record
   const { data: pkg } = await sb
     .from("buddy_sba_packages")
@@ -258,6 +266,10 @@ export async function generateSBAPackage(
       business_overview_narrative: businessOverviewNarrative,
       sensitivity_narrative: sensitivityNarrative,
       pdf_url: pdfUrl,
+      sba_guarantee_pct: guarantee.guaranteePct,
+      sba_guarantee_amount: guarantee.guaranteeAmount,
+      sba_bank_exposure: guarantee.bankExposure,
+      sba_bank_exposure_pct: guarantee.bankExposurePct,
       status: "draft",
     })
     .select("id")

@@ -31,7 +31,7 @@ export default async function SBAPackagePage({
   // Check deal is SBA type
   const { data: deal } = await sb
     .from("deals")
-    .select("deal_type")
+    .select("deal_type, loan_amount")
     .eq("id", dealId)
     .single();
 
@@ -96,6 +96,8 @@ export default async function SBAPackagePage({
   return (
     <SBAPackageTab
       dealId={dealId}
+      loanAmount={Number((deal as any).loan_amount) || 0}
+      dealType={(deal as any).deal_type ?? null}
       initialAssumptions={assumptions}
       initialPackage={packageData}
       prefilled={prefilled}
