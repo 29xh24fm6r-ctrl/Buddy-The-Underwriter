@@ -91,13 +91,9 @@ export async function GET(
       .limit(1)
       .maybeSingle();
 
-    // Fallback check Phase 55 table during migration period only
-    const { data: phase55LoanRequest } = !canonicalLoanRequest
-      ? await sb.from("loan_requests").select("*").eq("deal_id", dealId).maybeSingle()
-      : { data: null };
-
-    const loanRequest = canonicalLoanRequest || phase55LoanRequest;
-    const loanRequestRow = phase55LoanRequest;
+    // Phase 56R.1: No fallback to legacy loan_requests. Canonical only.
+    const loanRequest = canonicalLoanRequest;
+    const loanRequestRow: Record<string, unknown> | null = null;
 
     const { data: spreads } = await sb
       .from("deal_spreads")
@@ -150,32 +146,34 @@ export async function GET(
     const { categories, blockers: docBlockers, readinessPercent } = computeReadinessAndBlockers(readinessInput);
 
     // ── Loan request status + blockers ────────────────────────────────────
-    const mappedLoanRequest = loanRequestRow ? {
-      id: loanRequestRow.id,
-      dealId: loanRequestRow.deal_id,
-      requestName: loanRequestRow.request_name,
-      loanAmount: loanRequestRow.loan_amount ? Number(loanRequestRow.loan_amount) : null,
-      loanPurpose: loanRequestRow.loan_purpose,
-      loanType: loanRequestRow.loan_type,
-      collateralType: loanRequestRow.collateral_type,
-      collateralDescription: loanRequestRow.collateral_description,
-      termMonths: loanRequestRow.term_months,
-      amortizationMonths: loanRequestRow.amortization_months,
-      interestType: loanRequestRow.interest_type,
-      rateIndex: loanRequestRow.rate_index,
-      repaymentType: loanRequestRow.repayment_type,
-      facilityPurpose: loanRequestRow.facility_purpose,
-      occupancyType: loanRequestRow.occupancy_type,
-      recourseType: loanRequestRow.recourse_type,
-      guarantorRequired: loanRequestRow.guarantor_required ?? false,
-      guarantorNotes: loanRequestRow.guarantor_notes,
-      requestedCloseDate: loanRequestRow.requested_close_date,
-      useOfProceedsJson: loanRequestRow.use_of_proceeds_json,
-      covenantNotes: loanRequestRow.covenant_notes,
-      structureNotes: loanRequestRow.structure_notes,
-      source: loanRequestRow.source ?? "banker",
-      createdBy: loanRequestRow.created_by,
-      updatedBy: loanRequestRow.updated_by,
+    // Phase 56R.1: derive from canonical deal_loan_requests only
+    const clr = canonicalLoanRequest as Record<string, unknown> | null;
+    const mappedLoanRequest = clr ? {
+      id: clr.id as string,
+      dealId: (clr.deal_id as string) ?? dealId,
+      requestName: (clr.request_name as string) ?? null,
+      loanAmount: clr.requested_amount ? Number(clr.requested_amount) : null,
+      loanPurpose: (clr.purpose as string) ?? (clr.loan_purpose as string) ?? null,
+      loanType: (clr.product_type as string) ?? (clr.loan_type as string) ?? null,
+      collateralType: (clr.collateral_type as string) ?? null,
+      collateralDescription: (clr.collateral_description as string) ?? null,
+      termMonths: (clr.requested_term_months as number) ?? null,
+      amortizationMonths: (clr.amortization_months as number) ?? null,
+      interestType: (clr.interest_type as string) ?? null,
+      rateIndex: (clr.rate_index as string) ?? null,
+      repaymentType: (clr.repayment_type as string) ?? null,
+      facilityPurpose: (clr.facility_purpose as string) ?? (clr.purpose as string) ?? null,
+      occupancyType: (clr.occupancy_type as string) ?? null,
+      recourseType: (clr.recourse_type as string) ?? null,
+      guarantorRequired: (clr.guarantor_required as boolean) ?? false,
+      guarantorNotes: (clr.guarantor_notes as string) ?? null,
+      requestedCloseDate: (clr.requested_close_date as string) ?? null,
+      useOfProceedsJson: (clr.use_of_proceeds_json as Record<string, unknown>) ?? null,
+      covenantNotes: (clr.covenant_notes as string) ?? null,
+      structureNotes: (clr.structure_notes as string) ?? null,
+      source: (clr.source as string) ?? "banker",
+      createdBy: (clr.created_by as string) ?? "",
+      updatedBy: (clr.updated_by as string) ?? "",
     } : null;
 
     const lrStatus = computeLoanRequestStatus(mappedLoanRequest);

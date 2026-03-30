@@ -55,20 +55,7 @@ export async function getCanonicalLoanRequestForUnderwriting(
     };
   }
 
-  // Also check Phase 55 loan_requests as fallback (non-canonical, for migration period)
-  const { data: phase55Request } = await sb
-    .from("loan_requests")
-    .select("*")
-    .eq("deal_id", dealId)
-    .maybeSingle();
-
-  if (phase55Request) {
-    return {
-      request: phase55Request,
-      isSubmitted: !!(phase55Request.loan_amount && phase55Request.loan_purpose && phase55Request.loan_type),
-      requestId: phase55Request.id,
-    };
-  }
-
+  // No fallback to legacy loan_requests table.
+  // deal_loan_requests is the EXCLUSIVE canonical source.
   return { request: null, isSubmitted: false, requestId: null };
 }
