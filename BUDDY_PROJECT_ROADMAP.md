@@ -1,8 +1,8 @@
 # Buddy The Underwriter — Project Roadmap
 # Institutional-Grade Commercial Lending AI Platform
 
-**Last Updated: March 29, 2026**
-**Status: Phase 58A complete — SBA Risk Profile Enhancement (4-factor scoring, NAICS benchmarks, new business protocol)**
+**Last Updated: March 30, 2026**
+**Status: Phase 57C complete + underwriting platform through Phase 57B / 56R.1 + Phase 54 (cockpit truth) + Phase 66 (document foundation) + Phase 67 (UI wiring)**
 
 ---
 
@@ -507,6 +507,44 @@ Deterministic calculation of expected SBA guarantee amount from SOP 50 10 8 sche
 - Permission failures isolated from readiness computation
 - Pre-Phase-66 orphan deals require explicit backfill run before cockpit renders
   correctly (run backfill against Samaritus deal: `ffcc9733`)
+
+---
+
+## Underwriting Platform — Shipped Phases
+
+| Phase | Name | Commit | Summary |
+|-------|------|--------|---------|
+| 54 | Deal Truth Integrity + Cockpit Readiness | `c6d5b2c` | Canonical deal creation, requirement registry, document ledger, cockpit-state endpoint |
+| 55 | Deal Control Layer | `b4915f3` | Loan request system, document review actions, next-best-action, banker guidance |
+| 56 | Underwriting Launch Control | `84f15d4` | Immutable launch snapshots, workspaces, drift detection, certification |
+| 56R | Underwriting Launch Reconciliation | `85df80b` | Canonical loan request consolidation, launch wraps existing activation |
+| 56R.1 | Fallback Removal + Launch Burn-In | `140ef66` | Exclusive canonical loan request, 25 regression tests |
+| 57A | Analyst Workbench + Snapshot-Aware Execution | `1692b7c` | Workbench API, snapshot/drift banners, workstream cards, seed packages |
+| 57B | Underwrite Access + Page UX | `bb1d3f0` | Underwrite tab in DealShell, AnalystWorkbench on underwrite page |
+| 57C | Foundation Consolidation | — | Cockpit cleanup, route retirement, roadmap reconciliation |
+
+### Current Underwriting Stack
+- Canonical underwriting launch with immutable launch snapshots
+- Underwriting workspace (AnalystWorkbench is primary)
+- Canonical drift detection (canonical artifact reference comparison)
+- Analyst workbench with snapshot-aware spread/memo/risk execution
+- Explicit Underwrite tab in DealShell
+- `/underwriter` and `/underwrite-console` retired (redirect to `/underwrite`)
+
+### Do Not Duplicate (guardrail)
+Underwriting launch, underwriting snapshots, underwriting workspace, drift detection,
+and analyst workbench are now live. Future phases must extend these systems rather than
+creating new underwriting control planes.
+
+---
+
+## Next Phases (priority order)
+
+1. **Canonical Credit Memo Facts** — Replace `deal_memo_overrides` dependency for computed fields. Keep overrides only for qualitative banker-supplied narrative.
+2. **Observability** — Activate telemetry/Pulse/event flow. Tables exist but event forwarding not flowing.
+3. **Model Engine V2** — Enable feature flag + seeding once observability exists.
+4. **Borrower Intake** — Replace the stopgap wizard per core architecture.
+5. **Corpus Expansion** — Needed for bank confidence and model quality.
 
 ---
 

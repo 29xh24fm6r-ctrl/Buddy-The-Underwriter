@@ -9,8 +9,6 @@ import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
 import { deriveLifecycleState } from "@/buddy/lifecycle";
 import { isGatekeeperPrimaryRoutingEnabled } from "@/lib/flags/openaiGatekeeper";
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
-import DealHealthPanel from "@/components/deals/DealHealthPanel";
-import BankerVoicePanel from "@/components/deals/BankerVoicePanel";
 import { DealPageErrorState } from "@/components/deals/DealPageErrorState";
 import { safeLoader } from "@/lib/server/safe-loader";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
@@ -308,10 +306,7 @@ export default async function DealCockpitPage({ params }: Props) {
           intakePhase={intakePhase}
           intakeGateEnabled={isIntakeConfirmationGateEnabled()}
         />
-        <div className="container mx-auto px-6 mt-4 space-y-4">
-          <DealHealthPanel dealId={dealId} />
-          <BankerVoicePanel dealId={dealId} />
-        </div>
+        {/* DealHealthPanel + BankerVoicePanel removed — canonical home is StoryPanel only (Phase 57C) */}
       </Suspense>
     </div>
   );

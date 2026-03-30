@@ -1,6 +1,9 @@
-import StitchSurface from "@/stitch/StitchSurface";
-
-export const dynamic = "force-dynamic";
+/**
+ * RETIRED ROUTE — Phase 57C
+ * Previously: Stitch "deals_command_bridge" surface
+ * Canonical underwriting: /deals/[dealId]/underwrite (AnalystWorkbench)
+ */
+import { redirect } from "next/navigation";
 
 export default async function Page({
   params,
@@ -8,13 +11,5 @@ export default async function Page({
   params: Promise<{ dealId: string }>;
 }) {
   const { dealId } = await params;
-
-  return (
-    <StitchSurface
-      surfaceKey="deals_command_bridge"
-      dealId={dealId}
-      title="Underwriter Command Bridge"
-      mode="iframe"
-    />
-  );
+  redirect(`/deals/${dealId}/underwrite`);
 }

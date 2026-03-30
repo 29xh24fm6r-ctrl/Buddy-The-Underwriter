@@ -1,3 +1,9 @@
+/**
+ * CANONICAL UNDERWRITING ROUTE
+ * Primary: AnalystWorkbench
+ * All underwriting execution flows through this route only.
+ * /underwriter and /underwrite-console are retired (redirect here).
+ */
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { dealLabel } from "@/lib/deals/dealLabel";
