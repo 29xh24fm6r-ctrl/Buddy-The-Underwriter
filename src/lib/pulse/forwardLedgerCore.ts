@@ -24,7 +24,7 @@ const MAX_DEFAULT = 50;
 const MAX_CEILING = 200;
 const CLAIM_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_ATTEMPTS = 10;
-const INGEST_TIMEOUT_MS = 2000;
+const INGEST_TIMEOUT_MS = 5000;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -70,10 +70,6 @@ export type ForwardResult = {
 
 function getEnv(): string {
   return process.env.BUDDY_ENV ?? process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development";
-}
-
-function signBody(body: string, secret: string): string {
-  return crypto.createHmac("sha256", secret).update(body).digest("hex");
 }
 
 function buildPulseEvent(row: LedgerRow, env: string): PulseEvent {
@@ -122,23 +118,9 @@ export async function forwardLedgerBatch(opts: {
   }
 
   const ingestUrl = process.env.PULSE_BUDDY_INGEST_URL;
-  const ingestSecret = process.env.PULSE_BUDDY_INGEST_SECRET;
-  if (!ingestUrl || !ingestSecret) {
+  const ingestToken = process.env.PULSE_INGEST_TOKEN;
+  if (!ingestUrl || !ingestToken) {
     return { ok: true, skipped: true, reason: "no_ingest_config", attempted: 0, forwarded: 0, failed: 0, deadlettered: 0 };
-  }
-
-  // ── Circuit breaker: fast pre-check that ingest is reachable ────────────
-  // Prevents burning 30s of function time when Pulse MCP is down.
-  try {
-    const probe = await fetch(ingestUrl, {
-      method: "HEAD",
-      signal: AbortSignal.timeout(1500),
-    });
-    // Any response (even 4xx) means the server is reachable.
-    // Only unreachable / timeout should abort.
-  } catch {
-    console.warn("[pulse-forwarder] circuit breaker: ingest unreachable, skipping batch");
-    return { ok: true, skipped: true, reason: "ingest_unreachable", attempted: 0, forwarded: 0, failed: 0, deadlettered: 0 };
   }
 
   const sb = supabaseAdmin();
@@ -212,17 +194,24 @@ export async function forwardLedgerBatch(opts: {
 
   for (const row of claimed) {
     const event = buildPulseEvent(row, env);
-    const rawBody = JSON.stringify(event);
-    const sig = signBody(rawBody, ingestSecret);
+    const ingestPayload = {
+      event_code: event.event_key,
+      deal_id: event.deal_id ?? null,
+      bank_id: event.bank_id ?? null,
+      actor_id: null,
+      status: "success",
+      payload: event.payload,
+      emitted_at: event.created_at,
+    };
 
     try {
       const res = await fetch(ingestUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-pulse-signature": sig,
+          "Authorization": `Bearer ${ingestToken}`,
         },
-        body: rawBody,
+        body: JSON.stringify(ingestPayload),
         signal: AbortSignal.timeout(INGEST_TIMEOUT_MS),
       });
 
