@@ -272,6 +272,7 @@ export default function DealShell({
 
   const tabs = [
     { label: "Builder", href: `${base}/builder` },
+    { label: "Underwrite", href: `${base}/underwrite` },
     { label: "Intelligence", href: `${base}/intelligence` },
     { label: "Documents", href: `${base}/documents` },
     { label: "Financials", href: `${base}/financials` },

@@ -6,6 +6,7 @@ import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
 import { deriveLifecycleState, PageGuards, getBlockerExplanation, STAGE_LABELS } from "@/buddy/lifecycle";
 import StitchSurface from "@/stitch/StitchSurface";
 import { UnderwriteBlockedPanel } from "@/components/underwrite/UnderwriteBlockedPanel";
+import AnalystWorkbench from "@/components/underwrite/AnalystWorkbench";
 import Link from "next/link";
 import type { Metadata } from "next";
 
@@ -156,8 +157,13 @@ export default async function DealUnderwritePage({
 
   if (activated) {
     return (
-      <div className="mx-auto w-full max-w-6xl px-6 py-10">
-        <StitchSurface surfaceKey="underwrite" dealId={dealId} title="Underwrite" mode="iframe" />
+      <div className="mx-auto w-full max-w-6xl px-6 py-10 space-y-6">
+        {/* Phase 57A: Snapshot-aware analyst workbench */}
+        <AnalystWorkbench dealId={dealId} />
+        {/* Legacy Stitch surface below workbench for backward compatibility */}
+        <div className="mt-8">
+          <StitchSurface surfaceKey="underwrite" dealId={dealId} title="Underwrite" mode="iframe" />
+        </div>
       </div>
     );
   }
