@@ -115,6 +115,7 @@ export default function ProfileClient() {
         }
       })
       .catch((err) => {
+        if (err instanceof Error && err.name === 'AbortError') return;
         const msg = err instanceof Error ? err.message : "profile_fetch_failed";
         console.error("[ProfileClient] error:", msg);
         setError(msg);
