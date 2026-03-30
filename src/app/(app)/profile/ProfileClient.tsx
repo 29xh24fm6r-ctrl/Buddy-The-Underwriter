@@ -85,8 +85,14 @@ export default function ProfileClient() {
     displayName !== savedDisplayName || avatarUrl !== savedAvatarUrl;
 
   useEffect(() => {
-    fetch("/api/profile")
-      .then((r) => r.json())
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    fetch("/api/profile", { signal: controller.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error(`profile_fetch_${r.status}`);
+        return r.json();
+      })
       .then((json) => {
         if (json.memberships) setMemberships(json.memberships);
         if (json.current_bank) setCurrentBank(json.current_bank);
@@ -108,8 +114,20 @@ export default function ProfileClient() {
           setError(json.error ?? "Failed to load profile");
         }
       })
-      .catch(() => setError("Network error"))
-      .finally(() => setLoading(false));
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : "profile_fetch_failed";
+        console.error("[ProfileClient] error:", msg);
+        setError(msg);
+      })
+      .finally(() => {
+        clearTimeout(timeout);
+        setLoading(false);
+      });
+
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
   }, []);
 
   async function handleSave() {

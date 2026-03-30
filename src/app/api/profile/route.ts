@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { clerkAuth, clerkCurrentUser } from "@/lib/auth/clerkServer";
+import { safeClerkAuth, safeClerkCurrentUser, ClerkTimeoutError } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { deriveOnboardingState } from "@/lib/tenant/onboardingState";
 
@@ -108,10 +108,20 @@ async function loadBankContext(userId: string, bankId: string | null) {
  */
 export async function GET() {
   const startMs = Date.now();
-  console.log("[GET /api/profile] start");
+  console.log("[GET /api/profile] enter");
 
-  const { userId } = await clerkAuth();
-  console.log("[GET /api/profile] auth userId:", userId ? userId.slice(0, 8) + "..." : "null");
+  let userId: string | null = null;
+  try {
+    const authState = await safeClerkAuth(5000);
+    userId = authState?.userId ?? null;
+    console.log("[GET /api/profile] auth resolved:", userId ? `${userId.slice(0, 8)}...` : "null", `(${Date.now() - startMs}ms)`);
+  } catch (err) {
+    if (err instanceof ClerkTimeoutError) {
+      console.error("[GET /api/profile] clerk auth TIMEOUT", `(${Date.now() - startMs}ms)`);
+      return NextResponse.json({ ok: false, error: "clerk_auth_timeout" }, { status: 503 });
+    }
+    throw err;
+  }
 
   if (!userId) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -170,13 +180,13 @@ export async function GET() {
     const bankCtx = await loadBankContext(userId, bankId);
     console.log("[GET /api/profile] bank context loaded:", bankCtx.current_bank ? bankCtx.current_bank.name : "null", `(${Date.now() - startMs}ms)`);
 
-    // Extract email from Clerk — best-effort
+    // Extract email from Clerk — best-effort, bounded, non-blocking
     let email: string | null = null;
     try {
-      const clerkUser = await clerkCurrentUser();
+      const clerkUser = await safeClerkCurrentUser(2000);
       email = clerkUser?.primaryEmailAddress?.emailAddress ?? null;
-    } catch {
-      // best-effort
+    } catch (err) {
+      console.warn("[GET /api/profile] currentUser degraded:", err instanceof Error ? err.message : "unknown");
     }
 
     const currentBankRole = bankCtx.current_bank
@@ -222,7 +232,7 @@ export async function GET() {
  * Schema-safe: returns { ok:false, error:"schema_mismatch" } if columns missing.
  */
 export async function PATCH(req: NextRequest) {
-  const { userId } = await clerkAuth();
+  const { userId } = await safeClerkAuth(5000);
   if (!userId) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
