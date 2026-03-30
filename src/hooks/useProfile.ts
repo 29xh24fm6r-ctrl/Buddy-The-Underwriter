@@ -29,30 +29,55 @@ export type ProfileState = {
  * Surfaces schema_mismatch flag so UI can show a degraded hint.
  * Re-fetches when a "profile-updated" custom event fires (e.g. after profile save).
  */
-export function useProfile(): ProfileState {
-  const [state, setState] = useState<ProfileState>({
+export function useProfile(): ProfileState & { error: string | null; loading: boolean } {
+  const [state, setState] = useState<ProfileState & { error: string | null; loading: boolean }>({
     profile: null,
     currentBank: null,
     schemaMismatch: false,
+    error: null,
+    loading: true,
   });
 
   const fetchProfile = useCallback(() => {
-    fetch("/api/profile")
-      .then((r) => r.json())
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    fetch("/api/profile", { signal: controller.signal })
+      .then((r) => {
+        if (!r.ok) {
+          console.error("[useProfile] fetch failed:", r.status);
+          throw new Error(`profile_fetch_${r.status}`);
+        }
+        return r.json();
+      })
       .then((json) => {
         if (json.ok && json.profile) {
-          setState({ profile: json.profile, currentBank: json.current_bank ?? null, schemaMismatch: false });
+          setState({ profile: json.profile, currentBank: json.current_bank ?? null, schemaMismatch: false, error: null, loading: false });
         } else if (json.error === "schema_mismatch") {
           setState({
             profile: json.profile ?? null,
             currentBank: json.current_bank ?? null,
             schemaMismatch: true,
+            error: "schema_mismatch",
+            loading: false,
+          });
+        } else {
+          // Profile may be null (no profile yet) — that's valid
+          setState({
+            profile: json.profile ?? null,
+            currentBank: json.current_bank ?? null,
+            schemaMismatch: false,
+            error: json.error ?? null,
+            loading: false,
           });
         }
       })
-      .catch(() => {
-        // Network error — silently degrade
-      });
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : "profile_fetch_failed";
+        console.error("[useProfile] error:", msg);
+        setState((prev) => ({ ...prev, error: msg, loading: false }));
+      })
+      .finally(() => clearTimeout(timeout));
   }, []);
 
   useEffect(() => {

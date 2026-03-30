@@ -107,7 +107,12 @@ async function loadBankContext(userId: string, bankId: string | null) {
  * If no profile exists, returns { ok: true, profile: null }.
  */
 export async function GET() {
+  const startMs = Date.now();
+  console.log("[GET /api/profile] start");
+
   const { userId } = await clerkAuth();
+  console.log("[GET /api/profile] auth userId:", userId ? userId.slice(0, 8) + "..." : "null");
+
   if (!userId) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
@@ -116,6 +121,7 @@ export async function GET() {
 
   try {
     // Try loading profile with full columns
+    console.log("[GET /api/profile] loading profile...");
     const { data: profile, error: loadErr } = await sb
       .from("profiles")
       .select(FULL_SELECT)
@@ -158,8 +164,11 @@ export async function GET() {
     }
 
     // Profile may not exist — that's fine, return null
+    console.log("[GET /api/profile] profile loaded:", profile ? "found" : "null", `(${Date.now() - startMs}ms)`);
     const bankId = profile?.bank_id ?? null;
+    console.log("[GET /api/profile] loading bank context, bankId:", bankId);
     const bankCtx = await loadBankContext(userId, bankId);
+    console.log("[GET /api/profile] bank context loaded:", bankCtx.current_bank ? bankCtx.current_bank.name : "null", `(${Date.now() - startMs}ms)`);
 
     // Extract email from Clerk — best-effort
     let email: string | null = null;
@@ -182,6 +191,7 @@ export async function GET() {
       membershipCount: bankCtx.memberships.length,
     });
 
+    console.log("[GET /api/profile] done", `(${Date.now() - startMs}ms total)`);
     return NextResponse.json({
       ok: true,
       profile: profile
