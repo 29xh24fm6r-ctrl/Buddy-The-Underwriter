@@ -14,6 +14,7 @@ import type { LifecycleState } from "@/buddy/lifecycle/client";
 import { getStageBadge } from "@/lib/lifecycle/stageBadge";
 import { useDealMeta } from "@/hooks/useDealMeta";
 import { deriveDealHeader } from "@/lib/deals/deriveDealHeader";
+import { CockpitStateProvider, useCockpitStateContext } from "@/hooks/useCockpitState";
 
 // Keystone Cockpit: 3-column layout
 import { LeftColumn } from "@/components/deals/cockpit/columns/LeftColumn";
@@ -56,6 +57,31 @@ type UnderwriteVerifyLedgerEvent = {
  * Below: Secondary tabs for Setup, Portal, Underwriting, Timeline, Admin
  */
 const FORCE_CLIENT_ONLY = process.env.NEXT_PUBLIC_COCKPIT_CLIENT_ONLY === "true";
+
+/**
+ * Phase 67: Canonical borrower identity from cockpit-state.
+ * Renders below the deal name. Hard-fails on missing borrower.
+ */
+function CockpitBorrowerIdentity() {
+  const { state, loading } = useCockpitStateContext();
+  if (loading || !state) return null;
+  const { deal } = state;
+
+  if (!deal.borrower || !deal.borrower.legalName) {
+    return (
+      <span className="text-xs text-red-400 font-medium">
+        Borrower data unavailable — contact support
+      </span>
+    );
+  }
+
+  return (
+    <span className="text-xs text-white/50">
+      {deal.borrower.legalName}
+      {deal.bank && <> · {deal.bank.name}</>}
+    </span>
+  );
+}
 
 type DealCockpitClientProps = {
   dealId: string;
@@ -214,6 +240,8 @@ function DealCockpitClientInner({
 
   return (
     <CockpitDataProvider dealId={dealId} initialLifecycleState={unifiedLifecycleState}>
+      {/* Phase 67: canonical state provider for all cockpit panels */}
+      <CockpitStateProvider dealId={dealId}>
       {/* Phase 58A: Auth gate prevents data panels from mounting before session hydration */}
       <CockpitAuthGate>
       {/* Builder Observer: Show degraded API responses */}
@@ -239,6 +267,8 @@ function DealCockpitClientInner({
                     <div className="text-[10px] font-bold uppercase tracking-widest text-white/50">
                       Deal Cockpit{bankName ? <span className="normal-case tracking-normal font-medium"> · {bankName}</span> : null}
                     </div>
+                    {/* Phase 67: Canonical borrower identity from cockpit-state */}
+                    <CockpitBorrowerIdentity />
                     {!renaming ? (
                       <div className="flex items-center gap-2">
                         <h1
@@ -318,7 +348,7 @@ function DealCockpitClientInner({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
             {/* Left Column: Documents + Pipeline (mobile: 3rd) */}
             <div id="cockpit-documents" className="lg:col-span-4 order-3 lg:order-1">
-              <LeftColumn dealId={dealId} isAdmin={isAdmin} gatekeeperPrimaryRouting={gatekeeperPrimaryRouting} />
+              <LeftColumn dealId={dealId} isAdmin={isAdmin} />
             </div>
 
             {/* Center Column: Year-Aware Checklist (mobile: 2nd) */}
@@ -354,6 +384,7 @@ function DealCockpitClientInner({
       {/* Toast Stack for "What Changed" notifications */}
       <CockpitToastStack />
       </CockpitAuthGate>
+      </CockpitStateProvider>
     </CockpitDataProvider>
   );
 }

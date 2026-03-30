@@ -4,9 +4,9 @@ import React, { useState, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useCockpitDataContext } from "@/buddy/cockpit/useCockpitData";
+import { useCockpitStateContext } from "@/hooks/useCockpitState";
 import { STAGE_LABELS, type LifecycleStage } from "@/buddy/lifecycle/model";
 import { PrimaryCTAButton } from "./PrimaryCTAButton";
-import { BlockerList } from "./BlockerList";
 
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
 const glassHeader = "border-b border-white/10 bg-white/[0.02] px-5 py-3";
@@ -16,15 +16,6 @@ const STAGE_ORDER: LifecycleStage[] = [
   "underwrite_ready", "underwrite_in_progress", "committee_ready",
   "committee_decisioned", "closing_in_progress", "closed",
 ];
-
-const REASON_LABELS: Record<string, string> = {
-  UNKNOWN_DOC_TYPE: "Unknown type",
-  LOW_CONFIDENCE: "Low confidence",
-  MISSING_TAX_YEAR: "Missing year",
-  UNRECOGNIZED_DOC_TYPE: "Unrecognized",
-  NO_OCR_OR_IMAGE: "Unreadable",
-  CLASSIFICATION_ERROR: "AI error",
-};
 
 
 function DerivedFactDot({ label, ok }: { label: string; ok: boolean }) {
@@ -141,8 +132,23 @@ type Props = {
   onAdvance?: () => void;
 };
 
+// Category labels for cockpit-state readiness categories
+const CATEGORY_LABELS: Record<string, string> = {
+  documents: "Documents",
+  loan_request: "Loan Request",
+  spreads: "Spreads",
+  financials: "Financial Snapshot",
+  pricing_quote: "Pricing",
+  decision: "Decision",
+  underwriting: "Underwriting",
+  risk_pricing: "Risk & Pricing",
+  ai_pipeline: "AI Pipeline",
+  pricing_setup: "Pricing Setup",
+};
+
 export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: Props) {
   const { lifecycleState, isInitialLoading, error } = useCockpitDataContext();
+  const { state: cockpitState, refetch: refetchCockpitState } = useCockpitStateContext();
   const [bankerExplainerOpen, setBankerExplainerOpen] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -187,6 +193,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
             setActionError(body?.error ?? `Processing failed (${res.status})`);
             return;
           }
+          refetchCockpitState(); // Phase 67: refresh all panels
           onAdvance?.();
           return;
         }
@@ -246,6 +253,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
           }
           autoHealAttempted.current = false; // Reset on success for future attempts
           setSnapshotGeneratedLocally(true);
+          refetchCockpitState(); // Phase 67: refresh all panels
           onAdvance?.();
           return;
         }
@@ -333,7 +341,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-emerald-400 text-[18px]">
-              {blockers.length > 0 ? "warning" : "verified"}
+              {(cockpitState?.blockers.length ?? blockers.length) > 0 ? "warning" : "verified"}
             </span>
             <span className="text-xs font-bold uppercase tracking-widest text-white/50">
               Readiness
@@ -355,80 +363,57 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
           onAdvance={onAdvance}
         />
 
-        {/* Document readiness bar */}
-        <div className="space-y-1">
-          <div className="flex justify-between text-xs text-white/50">
-            <span>AI Document Readiness</span>
-            <span>{Math.round(primaryPct)}%</span>
-          </div>
-          <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all duration-500",
-                primaryReady ? "bg-emerald-400" : "bg-violet-400",
-              )}
-              style={{ width: `${primaryPct}%` }}
-            />
-          </div>
-          {/* Needs-review indicator with reason breakdown */}
-          {(derived?.gatekeeperNeedsReviewCount ?? 0) > 0 && (
-            <div className="space-y-0.5">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] text-amber-300/60">
-                  {derived!.gatekeeperNeedsReviewCount} document(s) need review
-                </p>
-                <Link href={`/deals/${dealId}/documents`}
-                  className="text-[10px] text-amber-300/80 hover:text-amber-200 underline underline-offset-2">
-                  Review
-                </Link>
+        {/* Phase 67: Canonical readiness from cockpit-state */}
+        {cockpitState ? (
+          <>
+            {/* Readiness percent bar */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-white/50">
+                <span>Overall Readiness</span>
+                <span>{cockpitState.readiness.percent}%</span>
               </div>
-              {derived?.gatekeeperNeedsReviewReasons && Object.keys(derived.gatekeeperNeedsReviewReasons).length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {Object.entries(derived.gatekeeperNeedsReviewReasons).map(([code, count]) => (
-                    <span key={code} className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/10 text-[9px] text-amber-300/60">
-                      {REASON_LABELS[code] ?? code} ({count})
-                    </span>
-                  ))}
-                </div>
-              )}
+              <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all duration-500",
+                    cockpitState.readiness.percent >= 100 ? "bg-emerald-400" : "bg-blue-400",
+                  )}
+                  style={{ width: `${cockpitState.readiness.percent}%` }}
+                />
+              </div>
             </div>
-          )}
-          {/* Missing document year chips — amber (year mismatch) vs violet (truly missing) */}
-          {!primaryReady && (
-            (Array.isArray(derived?.gatekeeperMissingBtrYears) && derived.gatekeeperMissingBtrYears.length > 0) ||
-            (Array.isArray(derived?.gatekeeperMissingPtrYears) && derived.gatekeeperMissingPtrYears.length > 0) ||
-            derived?.gatekeeperMissingFinancialStatements
-          ) && (
-            <div className="flex flex-wrap gap-1">
-              {Array.isArray(derived?.gatekeeperMissingBtrYears) && derived.gatekeeperMissingBtrYears.map((y) => {
-                const nearMiss = derived?.gatekeeperNearMissBtrYears?.find((nm) => nm.requiredYear === y);
-                return nearMiss ? (
-                  <span key={`btr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/15 text-[10px] text-amber-300/70">
-                    BTR {y} — have {nearMiss.foundYear}
-                  </span>
-                ) : (
-                  <span key={`btr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">BTR {y}</span>
-                );
-              })}
-              {Array.isArray(derived?.gatekeeperMissingPtrYears) && derived.gatekeeperMissingPtrYears.map((y) => {
-                const nearMiss = derived?.gatekeeperNearMissPtrYears?.find((nm) => nm.requiredYear === y);
-                return nearMiss ? (
-                  <span key={`ptr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/15 text-[10px] text-amber-300/70">
-                    PTR {y} — have {nearMiss.foundYear}
-                  </span>
-                ) : (
-                  <span key={`ptr-${y}`} className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">PTR {y}</span>
-                );
-              })}
-              {derived?.gatekeeperMissingFinancialStatements && (
-                <span className="inline-flex px-1.5 py-0.5 rounded bg-violet-500/15 text-[10px] text-violet-300/70">Financial Stmt</span>
-              )}
-            </div>
-          )}
-        </div>
 
-        {/* Derived facts grid */}
-        {derived && (
+            {/* Readiness categories from cockpit-state */}
+            <div className="space-y-1">
+              {cockpitState.readiness.categories.map((cat) => {
+                const isComplete = cat.status === "complete";
+                const isBlocking = cat.status === "blocking";
+                return (
+                  <div
+                    key={cat.code}
+                    className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5"
+                  >
+                    <div className="flex items-center gap-2">
+                      <DerivedFactDot
+                        label={CATEGORY_LABELS[cat.code] ?? cat.code}
+                        ok={isComplete}
+                      />
+                    </div>
+                    <span className={cn(
+                      "rounded px-2 py-0.5 text-[10px] font-medium",
+                      isComplete ? "bg-emerald-500/20 text-emerald-300" :
+                      isBlocking ? "bg-red-500/20 text-red-300" :
+                      "bg-amber-500/20 text-amber-300",
+                    )}>
+                      {isComplete ? "✓ Complete" : isBlocking ? "✗ Blocking" : "○ Warning"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : derived ? (
+          /* Fallback to lifecycle derived facts when cockpit-state hasn't loaded */
           <div className="grid grid-cols-2 gap-2">
             <DerivedFactDot label="Documents" ok={derived.documentsReady} />
             <DerivedFactDot label="AI Pipeline" ok={derived.aiPipelineComplete} />
@@ -441,7 +426,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
             <DerivedFactDot label="Underwriting" ok={derived.underwriteStarted} />
             <DerivedFactDot label="Decision" ok={derived.decisionPresent} />
           </div>
-        )}
+        ) : null}
 
         {/* Credit Memo CTA — visible when financial snapshot exists */}
         {derived?.financialSnapshotExists && (
@@ -455,13 +440,55 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
           </Link>
         )}
 
-        {/* Blockers */}
-        <BlockerList
-          blockers={blockers}
-          dealId={dealId}
-          onServerAction={handleServerAction}
-          busyAction={busyAction}
-        />
+        {/* Phase 67: Canonical blockers from cockpit-state */}
+        {cockpitState && cockpitState.blockers.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-white/50 uppercase tracking-wider">
+              Blockers ({cockpitState.blockers.length})
+            </div>
+            {cockpitState.blockers.map((blocker, idx) => (
+              <div
+                key={`${blocker.code}-${idx}`}
+                className={cn(
+                  "rounded-lg border px-3 py-2.5",
+                  blocker.severity === "warning"
+                    ? "border-amber-500/20 bg-amber-500/5"
+                    : "border-red-500/20 bg-red-500/5",
+                )}
+              >
+                <div className="text-xs font-medium text-white/80">
+                  {blocker.title}
+                </div>
+                {blocker.details.length > 0 && (
+                  <ul className="mt-1 space-y-0.5">
+                    {blocker.details.map((detail, j) => (
+                      <li key={j} className="text-[10px] text-white/50">
+                        {detail}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {blocker.actionLabel && (
+                  <button
+                    className="mt-1.5 text-[10px] text-blue-400 hover:text-blue-300 font-medium"
+                    onClick={() => {
+                      // Route action based on blocker code
+                      if (blocker.code === "loan_request_missing" || blocker.code === "loan_request_incomplete") {
+                        handleServerAction("loan_request.open");
+                      } else if (blocker.code.startsWith("required_documents")) {
+                        window.location.hash = "#cockpit-documents";
+                      } else if (blocker.code.includes("review")) {
+                        window.location.href = `/deals/${dealId}/documents`;
+                      }
+                    }}
+                  >
+                    {blocker.actionLabel}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         {actionError && (
           <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">
             {actionError}
@@ -493,11 +520,11 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
                   <div className="font-semibold text-white/70">What Buddy has done</div>
                   <ul className="space-y-1">
                     <li className="flex items-start gap-2">
-                      <span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", derived.documentsReady ? "bg-emerald-400" : "bg-amber-400/50")} />
+                      <span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", (cockpitState?.readiness.categories.find(c => c.code === "documents")?.status === "complete" || derived.documentsReady) ? "bg-emerald-400" : "bg-amber-400/50")} />
                       <div>
-                        {derived.documentsReady
+                        {cockpitState?.readiness.categories.find(c => c.code === "documents")?.status === "complete" || derived.documentsReady
                           ? "All required documents received and matched"
-                          : `${Math.round(primaryPct)}% of required documents received`}
+                          : `${cockpitState?.readiness.percent ?? Math.round(primaryPct)}% of required documents received`}
                       </div>
                     </li>
                     <li className="flex items-center gap-2">
@@ -515,12 +542,12 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
                   </ul>
                 </div>
 
-                {blockers.length > 0 && (
+                {cockpitState && cockpitState.blockers.length > 0 && (
                   <div className="rounded-lg bg-white/[0.02] border border-white/5 p-3 space-y-2">
                     <div className="font-semibold text-white/70">Why it matters</div>
                     <p>
                       Buddy needs{" "}
-                      {blockers.map((b) => b.message.toLowerCase()).join(", ")}.
+                      {cockpitState.blockers.map((b) => b.title.toLowerCase()).join(", ")}.
                       Once resolved, the deal advances automatically.
                     </p>
                   </div>
@@ -530,8 +557,8 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
                   <div className="font-semibold text-white/70 mb-1">Progress</div>
                   <div className="flex items-center gap-4 text-[10px] font-mono">
                     <span>Stage: {stageIdx + 1}/{STAGE_ORDER.length}</span>
-                    <span>Docs: {Math.round(primaryPct)}%</span>
-                    <span>Blockers: {blockers.length}</span>
+                    <span>Ready: {cockpitState?.readiness.percent ?? Math.round(primaryPct)}%</span>
+                    <span>Blockers: {cockpitState?.blockers.length ?? blockers.length}</span>
                   </div>
                 </div>
               </div>
