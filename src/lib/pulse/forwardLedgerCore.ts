@@ -127,6 +127,20 @@ export async function forwardLedgerBatch(opts: {
     return { ok: true, skipped: true, reason: "no_ingest_config", attempted: 0, forwarded: 0, failed: 0, deadlettered: 0 };
   }
 
+  // ── Circuit breaker: fast pre-check that ingest is reachable ────────────
+  // Prevents burning 30s of function time when Pulse MCP is down.
+  try {
+    const probe = await fetch(ingestUrl, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(1500),
+    });
+    // Any response (even 4xx) means the server is reachable.
+    // Only unreachable / timeout should abort.
+  } catch {
+    console.warn("[pulse-forwarder] circuit breaker: ingest unreachable, skipping batch");
+    return { ok: true, skipped: true, reason: "ingest_unreachable", attempted: 0, forwarded: 0, failed: 0, deadlettered: 0 };
+  }
+
   const sb = supabaseAdmin();
   const env = getEnv();
   const claimId = crypto.randomUUID();
