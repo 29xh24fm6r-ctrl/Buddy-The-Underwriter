@@ -450,5 +450,65 @@ Deterministic calculation of expected SBA guarantee amount from SOP 50 10 8 sche
 
 ---
 
+## Phase 66 — Deal Initialization & Document Truth Foundation
+**Status: ✅ SHIPPED**
+**Commit: `89d7ae5`**
+
+### Shipped
+- `POST /api/deals/create`: borrower-first (auto-create or verify), name-always
+  (rejects NEEDS NAME/UUID names), atomic deal_lifecycle + deal_readiness +
+  deal_audit_log on insert
+- `deal_document_items` table: canonical ledger, single source of truth
+- `deal_document_snapshots` table: cached reducer output consumed by all panels
+- `deal_audit_log` table: deal event audit trail (RLS applied, migration live)
+- `requirementRegistry.ts`: 13 RequirementDefinition objects
+- `matchDocumentToRequirement.ts`: canonical matcher only — personal returns
+  need subject_id, tax returns need year, strict status taxonomy
+- `recomputeDealDocumentState.ts`: 8-step pipeline
+- 28 tests passing
+
+### Permanent Rules Established
+1. No deal without borrower
+2. No deal without name
+3. No intake completion without finalized_at (atomic)
+4. No cockpit without clean joins — missing borrower is hard error
+5. test-id stub permanently banned (`98beb96`)
+6. One canonical document ledger — all panels read snapshot only
+7. One canonical matcher — matchDocumentToRequirement only
+8. Status taxonomy: uploaded ≠ classified ≠ confirmed ≠ validated ≠ satisfied ≠ ready
+9. Blockers must reference requirement_code — vague "documents missing" banned
+
+---
+
+## Phase 67 — Cockpit UI Wiring to Canonical State
+**Status: ✅ SHIPPED**
+**Commit: `3092407` (refinements: `8d9dae6`)**
+
+### Shipped
+- `CockpitStateProvider` + `useCockpitStateContext` hook: single fetch shared
+  across all panels, refetch() after every document action
+- `CockpitBorrowerIdentity`: header wired to deal.borrower.legal_name exclusively;
+  hard-fails on missing borrower — no soft "Borrower not set" fallback
+- `CanonicalCoreDocumentsPanel`: reads cockpit-state.document_state.requirements;
+  approved chip vocabulary only — "Validated" chip permanently removed
+- `CanonicalChecklistPanel`: requirement-level rollups from cockpit-state;
+  count = satisfied/waived required only, matches readiness count
+- `ReadinessPanel`: reads cockpit-state.readiness categories; blockers read from
+  cockpit-state.blockers with specific copy — no vague language
+- `PanelAccessGate` + `safePanelFetch()`: 403s render local "Access restricted"
+  only — never create phantom document blockers
+- Backfill route (`backfill-document-state`): supports CRON_SECRET + superAdmin
+  auth, accepts `{ dealIds?: string[] }` for targeting specific deals
+
+### State as of this commit
+- All four cockpit panels (Core Documents, Checklist, Readiness, Blockers) derive
+  from single cockpit-state endpoint
+- No panel makes independent document queries
+- Permission failures isolated from readiness computation
+- Pre-Phase-66 orphan deals require explicit backfill run before cockpit renders
+  correctly (run backfill against Samaritus deal: `ffcc9733`)
+
+---
+
 *The mission: a system that proves itself right before delivery —
 so bankers focus entirely on credit judgment.*
