@@ -72,6 +72,7 @@ export const STITCH_SURFACES: StitchSurfaceConfig[] = [
     slug: "underwrite",
     activation: "dealId",
     pagePath: "src/app/(app)/deals/[dealId]/underwrite/page.tsx",
+    notes: "Canonical underwriting route. AnalystWorkbench is primary. Embeds deals_command_bridge as transitional legacy Stitch layer. No standalone stitch_exports/underwrite/code.html.",
   },
   {
     key: "credit_committee",
@@ -287,7 +288,7 @@ export const STITCH_SURFACES: StitchSurfaceConfig[] = [
     slug: "deals-command-bridge",
     activation: "dealId",
     pagePath: "src/app/(app)/deals/[dealId]/underwriter/page.tsx",
-    notes: "Deals command bridge — restored from saved Stitch export.",
+    notes: "Legacy Stitch surface formerly at /deals/[dealId]/underwriter (route retired). Now embedded only inside canonical /deals/[dealId]/underwrite as transitional layer beneath AnalystWorkbench.",
   },
   {
     key: "borrower_task_inbox",

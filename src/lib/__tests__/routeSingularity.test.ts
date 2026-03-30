@@ -58,4 +58,19 @@ describe("Underwriting route singularity", () => {
     assert.ok(content.includes("CANONICAL UNDERWRITING ROUTE"));
     assert.ok(content.includes("AnalystWorkbench"));
   });
+
+  it("canonical underwrite page embeds the retired underwriter Stitch surface", () => {
+    const content = fs.readFileSync(
+      path.resolve("src/app/(app)/deals/[dealId]/underwrite/page.tsx"),
+      "utf-8",
+    );
+    assert.ok(
+      content.includes('surfaceKey="deals_command_bridge"'),
+      "Must embed deals_command_bridge as the transitional Stitch layer",
+    );
+    assert.ok(
+      !content.includes('surfaceKey="underwrite"'),
+      "Must not use surfaceKey='underwrite' — no real Stitch export exists for that key",
+    );
+  });
 });

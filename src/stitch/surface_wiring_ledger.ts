@@ -142,7 +142,7 @@ export const SURFACE_WIRING_LEDGER: SurfaceWiringEntry[] = [
     hasReflectionMap: true,
     interactiveType: "direct",
     status: "wired_interactive",
-    notes: "Dual mode (pipeline/deal). Real docs, checklist, audit ledger, naming, borrower requests.",
+    notes: "Legacy Stitch surface formerly at /deals/[dealId]/underwriter (route retired). Now embedded only inside canonical /deals/[dealId]/underwrite as transitional backward-compat layer beneath AnalystWorkbench. Not a primary route.",
   },
 
   // ══════════════════════════════════════════════════════════════
@@ -434,7 +434,7 @@ export const SURFACE_WIRING_LEDGER: SurfaceWiringEntry[] = [
     hasReflectionMap: false,
     interactiveType: "none",
     status: "visual_static",
-    notes: "No stitch_exports/underwrite/code.html. Lifecycle-gated native wrapper.",
+    notes: "Canonical underwriting route. Native lifecycle-gated page with AnalystWorkbench as primary. Legacy Stitch content is transitional and embedded via deals_command_bridge. No standalone stitch_exports/underwrite/code.html.",
   },
   {
     key: "credit_committee",

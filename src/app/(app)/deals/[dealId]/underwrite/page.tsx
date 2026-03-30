@@ -166,9 +166,12 @@ export default async function DealUnderwritePage({
       <div className="mx-auto w-full max-w-6xl px-6 py-10 space-y-6">
         {/* Phase 57A: Snapshot-aware analyst workbench */}
         <AnalystWorkbench dealId={dealId} />
-        {/* Legacy Stitch surface below workbench for backward compatibility */}
+        {/* Transitional legacy Stitch layer:
+            Embed the retired /underwriter Stitch surface here via deals_command_bridge.
+            Canonical underwriting remains /deals/[dealId]/underwrite with AnalystWorkbench as primary.
+        */}
         <div className="mt-8">
-          <StitchSurface surfaceKey="underwrite" dealId={dealId} title="Underwrite" mode="iframe" />
+          <StitchSurface surfaceKey="deals_command_bridge" dealId={dealId} title="Underwriter Command Bridge" mode="iframe" />
         </div>
       </div>
     );
