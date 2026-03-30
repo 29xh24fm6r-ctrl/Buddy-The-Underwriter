@@ -1,5 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { getOmegaAdvisoryState } from "@/core/omega/OmegaAdvisoryAdapter";
+import type { OmegaAdvisoryState } from "@/core/omega/types";
+import { OmegaAdvisoryPanel } from "@/components/deal/OmegaAdvisoryPanel";
 import IntelligenceClient from "./IntelligenceClient";
 
 type Props = {
@@ -53,6 +56,14 @@ export default async function IntelligencePage({ params }: Props) {
     // non-fatal
   }
 
+  // Fetch Omega advisory state (non-fatal — advisory only)
+  let omegaState: OmegaAdvisoryState | null = null;
+  try {
+    omegaState = await getOmegaAdvisoryState(dealId);
+  } catch {
+    // non-fatal — Omega is advisory layer only
+  }
+
   // Fetch reconciliation result
   let reconStatus: string | null = null;
   try {
@@ -69,12 +80,17 @@ export default async function IntelligencePage({ params }: Props) {
   }
 
   return (
-    <IntelligenceClient
-      dealId={dealId}
-      auditConfidence={auditConfidence}
-      auditDocCount={auditDocCount}
-      totalDocs={totalDocs}
-      reconStatus={reconStatus}
-    />
+    <div className="space-y-6">
+      {/* Omega Advisory — annotation only, never canonical state */}
+      {omegaState && <OmegaAdvisoryPanel omega={omegaState} />}
+
+      <IntelligenceClient
+        dealId={dealId}
+        auditConfidence={auditConfidence}
+        auditDocCount={auditDocCount}
+        totalDocs={totalDocs}
+        reconStatus={reconStatus}
+      />
+    </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCockpitStateContext } from "@/hooks/useCockpitState";
+import { CockpitOmegaBadge } from "./CockpitOmegaBadge";
 
 /**
  * Cockpit header wired exclusively to cockpit-state canonical endpoint.
@@ -62,6 +63,7 @@ export function CockpitCanonicalHeader() {
           <span className="text-xs text-white/40 capitalize">
             {deal.lifecycleStage.replace(/_/g, " ")}
           </span>
+          <CockpitOmegaBadge />
         </div>
       </div>
 
