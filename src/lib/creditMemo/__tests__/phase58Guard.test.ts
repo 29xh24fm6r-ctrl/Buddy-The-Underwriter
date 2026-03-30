@@ -153,16 +153,16 @@ describe("Override policy — pure file guard", () => {
 describe("emitBuddyEvent — structural guard", () => {
   it("exists and uses deal_pipeline_ledger", () => {
     const content = fs.readFileSync(
-      path.resolve(__dirname, "../../pipeline/emitBuddyEvent.ts"),
+      path.resolve(__dirname, "../../pipeline/emitPipelineLedgerEvent.ts"),
       "utf-8",
     );
     assert.ok(content.includes("deal_pipeline_ledger"));
-    assert.ok(content.includes("emitBuddyEvent"));
+    assert.ok(content.includes("emitPipelineLedgerEvent") || content.includes("emitBuddyEvent"));
   });
 
   it("is non-blocking (catches errors)", () => {
     const content = fs.readFileSync(
-      path.resolve(__dirname, "../../pipeline/emitBuddyEvent.ts"),
+      path.resolve(__dirname, "../../pipeline/emitPipelineLedgerEvent.ts"),
       "utf-8",
     );
     assert.ok(content.includes("catch") || content.includes("console.warn"));
@@ -170,7 +170,7 @@ describe("emitBuddyEvent — structural guard", () => {
 
   it("includes duration_ms in payload", () => {
     const content = fs.readFileSync(
-      path.resolve(__dirname, "../../pipeline/emitBuddyEvent.ts"),
+      path.resolve(__dirname, "../../pipeline/emitPipelineLedgerEvent.ts"),
       "utf-8",
     );
     assert.ok(content.includes("duration_ms"));
@@ -178,7 +178,7 @@ describe("emitBuddyEvent — structural guard", () => {
 
   it("emitStructuredLog exists", () => {
     const content = fs.readFileSync(
-      path.resolve(__dirname, "../../pipeline/emitBuddyEvent.ts"),
+      path.resolve(__dirname, "../../pipeline/emitPipelineLedgerEvent.ts"),
       "utf-8",
     );
     assert.ok(content.includes("emitStructuredLog"));

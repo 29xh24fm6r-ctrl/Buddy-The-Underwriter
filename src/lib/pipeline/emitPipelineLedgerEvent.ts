@@ -1,13 +1,19 @@
+/**
+ * Deal-scoped timeline / cockpit UX ledger writer.
+ * Writes to deal_pipeline_ledger.
+ *
+ * NOT the canonical global observability ledger.
+ * For global observability, use: src/lib/observability/emitEvent.ts → buddy_ledger_events
+ *
+ * Authority split:
+ *   buddy_ledger_events     = canonical immutable global observability ledger
+ *   deal_pipeline_ledger    = deal-scoped timeline and cockpit UX progression ledger
+ */
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-/**
- * Standardized pipeline event writer.
- * Extends the existing deal_pipeline_ledger with consistent event contracts.
- * Non-blocking — never throws.
- */
-export type BuddyPipelineEvent = {
+export type PipelineLedgerEvent = {
   eventKey: string;
   dealId: string;
   bankId: string;
@@ -18,7 +24,11 @@ export type BuddyPipelineEvent = {
   durationMs?: number;
 };
 
-export async function emitBuddyEvent(event: BuddyPipelineEvent): Promise<void> {
+/**
+ * Write a deal-scoped pipeline event to deal_pipeline_ledger.
+ * Non-blocking — never throws.
+ */
+export async function emitPipelineLedgerEvent(event: PipelineLedgerEvent): Promise<void> {
   try {
     const sb = supabaseAdmin();
     await sb.from("deal_pipeline_ledger").insert({
@@ -35,19 +45,19 @@ export async function emitBuddyEvent(event: BuddyPipelineEvent): Promise<void> {
       ui_state: event.status === "ok" ? "done" : event.status === "error" ? "error" : "waiting",
       ui_message: event.eventKey.replace(/[._]/g, " "),
       meta: {
-        source: "buddy_pipeline_event",
+        source: "pipeline_ledger_event",
         duration_ms: event.durationMs ?? null,
       },
     });
   } catch (err) {
-    // Telemetry must never break user flows
-    console.warn("[emitBuddyEvent] failed:", event.eventKey, err);
+    console.warn("[emitPipelineLedgerEvent] failed:", event.eventKey, err);
   }
 }
 
 /**
  * Structured JSON log emitter for server-side counters.
- * Non-blocking, safe to fail.
+ * Supplemental — not the canonical ledger. Not ledger truth.
+ * Use for log-drain/metrics aggregation only.
  */
 export function emitStructuredLog(
   counter: string,
