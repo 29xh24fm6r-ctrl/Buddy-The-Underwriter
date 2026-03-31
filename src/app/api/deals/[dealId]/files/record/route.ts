@@ -29,6 +29,7 @@ import { getBaseUrl } from "@/lib/net/getBaseUrl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 /**
  * Phase 15C: Allowlist validator for slot_key values.

@@ -15,6 +15,7 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 // Bank-grade MIME type allowlist (aligned with /files/sign)
 const ALLOWED_MIME_TYPES = new Set([

@@ -3,6 +3,7 @@ import { handleCreateUploadSession } from "@/lib/uploads/createUploadSessionApi"
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /** Detect WIF / STS configuration errors that should surface as 400, not 500. */
 function isWifConfigError(msg: string): boolean {
