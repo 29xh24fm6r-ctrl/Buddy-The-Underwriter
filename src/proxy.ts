@@ -86,11 +86,17 @@ export default clerkMiddleware(async (auth, req) => {
       headers: { "content-type": "text/html; charset=utf-8" },
     });
   }
-  // ✅ ABSOLUTE BYPASS FOR API
+  // ✅ API ROUTES — warm Clerk context, then bypass.
+  // Call auth() for side-effects only so downstream route handlers can
+  // read the session via @clerk/nextjs/server auth(). Without this,
+  // API route auth() intermittently returns { userId: null } because
+  // clerkMiddleware never established the auth context.
   if (p === "/api" || p.startsWith("/api/") || p === "/trpc" || p.startsWith("/trpc/")) {
-    // NOTE: For API routes we must return a bare `next()` response.
-    // Vercel's Next.js "Proxy" layer is sensitive here; adding headers can
-    // interfere with routing to Node lambdas in some environments.
+    try {
+      await auth();
+    } catch {
+      // non-fatal — route handler remains authoritative for 401/403
+    }
     return NextResponse.next();
   }
 
