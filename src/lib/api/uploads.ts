@@ -43,17 +43,31 @@ export type UploadSessionResponse = {
 
 export async function createUploadSession(
   input: CreateUploadSessionInput,
+  timeoutMs = 20000,
 ): Promise<UploadSessionResponse> {
-  const res = await fetch("/api/uploads/sessions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  const payload = (await res.json().catch(() => null)) as UploadSessionResponse | null;
-  if (!res.ok) {
-    return payload || { ok: false, error: `HTTP_${res.status}` };
+  try {
+    const res = await fetch("/api/uploads/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+      signal: controller.signal,
+    });
+
+    const payload = (await res.json().catch(() => null)) as UploadSessionResponse | null;
+    if (!res.ok) {
+      return payload || { ok: false, error: `HTTP_${res.status}` };
+    }
+
+    return payload || { ok: false, error: "invalid_response" };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, error: "upload_session_timeout", message: "Upload session timed out. Please retry." };
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-
-  return payload || { ok: false, error: "invalid_response" };
 }

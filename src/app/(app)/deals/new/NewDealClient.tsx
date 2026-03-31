@@ -429,39 +429,34 @@ export default function NewDealClient({
 
     const createBootstrap = async () => {
       const rid = requestId();
-      const t = setTimeout(() => {}, 20000);
-      try {
-        const payload = await createUploadSession({
-          dealName: dealName || `Deal - ${new Date().toLocaleDateString()}`,
-          dealMode,
-          source: "banker",
-          files: entries.map((e) => ({
-            name: e.file.name,
-            size: e.file.size,
-            mime: e.file.type,
-          })),
-        });
+      const payload = await createUploadSession({
+        dealName: dealName || `Deal - ${new Date().toLocaleDateString()}`,
+        dealMode,
+        source: "banker",
+        files: entries.map((e) => ({
+          name: e.file.name,
+          size: e.file.size,
+          mime: e.file.type,
+        })),
+      });
 
-        if (!payload?.ok) {
-          const errText = payload?.message || payload?.error || "Failed to bootstrap deal";
-          const err = new Error(errText);
-          (err as any).code = payload?.code ?? null;
-          throw err;
-        }
-
-        if (!payload?.dealId || !payload?.uploadUrls?.length || !payload?.sessionId) {
-          throw new Error("failed_to_bootstrap_deal");
-        }
-
-        return {
-          dealId: payload.dealId,
-          sessionId: payload.sessionId,
-          uploads: payload.uploadUrls as UploadSpec[],
-          requestId: rid,
-        };
-      } finally {
-        clearTimeout(t);
+      if (!payload?.ok) {
+        const errText = payload?.message || payload?.error || "Failed to bootstrap deal";
+        const err = new Error(errText);
+        (err as any).code = payload?.code ?? null;
+        throw err;
       }
+
+      if (!payload?.dealId || !payload?.uploadUrls?.length || !payload?.sessionId) {
+        throw new Error("upload_session_invalid_response");
+      }
+
+      return {
+        dealId: payload.dealId,
+        sessionId: payload.sessionId,
+        uploads: payload.uploadUrls as UploadSpec[],
+        requestId: rid,
+      };
     };
 
     const createBootstrapWithRetries = async () => {
@@ -475,7 +470,8 @@ export default function NewDealClient({
           const { isAbort, isNetwork } = classifyNetworkError(e);
           const msg = e instanceof Error ? e.message : String(e);
           const retryableStatus =
-            msg.startsWith("timeout:") || msg.includes("504") || msg.includes("502") || msg.includes("503");
+            msg.startsWith("timeout:") || msg.includes("upload_session_timeout") ||
+            msg.includes("504") || msg.includes("502") || msg.includes("503") || msg.includes("401");
           const shouldRetry = attempt < maxAttempts && (isAbort || isNetwork || retryableStatus);
           if (!shouldRetry) break;
           await new Promise((r) => setTimeout(r, 350 * attempt));
@@ -712,15 +708,24 @@ export default function NewDealClient({
         rawMessage.includes("Invalid value for audience") ||
         rawMessage.includes("Missing Workload Identity");
 
-      if (isAbort) {
+      const isAuthError = rawMessage.includes("401") || rawMessage.includes("unauthorized") || rawMessage.includes("upload_session_auth");
+      const isTimeout = rawMessage.includes("upload_session_timeout") || isAbort;
+
+      if (isTimeout) {
         setProcessError(
-          "Create deal timed out (20s). This is usually a cold-start/serverless stall. Retry once; if it keeps happening, share the Request ID + Stage shown during upload.",
+          "Upload session timed out. The server took too long to respond. Please retry.",
+        );
+        return;
+      }
+      if (isAuthError) {
+        setProcessError(
+          "Your session expired. Please refresh the page and try again.",
         );
         return;
       }
       if (isNetwork) {
         setProcessError(
-          "Network error calling the backend. Retry once; if it keeps happening, share the Request ID + Stage shown during upload.",
+          "Network error while starting upload. Please check your connection and retry.",
         );
         return;
       }
@@ -1042,21 +1047,19 @@ export default function NewDealClient({
             >
               {isWorking ? (
                 <>
-                  {uploading
-                    ? `${uploadProgress.current}/${uploadProgress.total}`
-                    : "Processing"}
                   <span className="animate-spin material-symbols-outlined text-[20px]">
                     progress_activity
                   </span>
-                  {uploading ? "Uploading..." : "Processing..."}
-                  {debugInfo.requestId ? (
+                  {debugInfo.stage === "create_upload_session"
+                    ? "Preparing upload session..."
+                    : uploading
+                      ? `Uploading ${uploadProgress.current}/${uploadProgress.total}...`
+                      : "Processing..."}
+                  {debugInfo.requestId && (
                     <span className="ml-2 text-xs text-white/80">
-                      (Request: {debugInfo.requestId}
-                      {debugInfo.stage ? ` \u2022 ${debugInfo.stage}` : ""})
+                      (Request: {debugInfo.requestId})
                     </span>
-                  ) : debugInfo.stage ? (
-                    <span className="ml-2 text-xs text-white/80">({debugInfo.stage})</span>
-                  ) : null}
+                  )}
                 </>
               ) : (
                 <>
