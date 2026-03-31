@@ -7,6 +7,7 @@ import { deriveOnboardingState } from "@/lib/tenant/onboardingState";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 /**
  * Detect PostgREST schema mismatch errors.
@@ -174,18 +175,29 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: loadErr.message }, { status: 500 });
     }
 
-    // STEP 2: fetch memberships separately
+    // STEP 2+3: fetch memberships + Clerk email in parallel (independent)
+    const bankId = profile?.bank_id ?? null;
     t0 = Date.now();
-    const { data: memRows } = await sb
-      .from("bank_memberships")
-      .select("bank_id, role")
-      .eq("clerk_user_id", userId);
-    console.log("[GET /api/profile] step2 memberships:", memRows?.length ?? 0, `${Date.now() - t0}ms`);
+
+    const [memResult, emailResult] = await Promise.allSettled([
+      // 2a: memberships
+      sb.from("bank_memberships").select("bank_id, role").eq("clerk_user_id", userId),
+      // 2b: Clerk email — best-effort, bounded
+      safeClerkCurrentUser(2000).then(
+        (u) => u?.primaryEmailAddress?.emailAddress ?? null,
+        (err) => {
+          console.warn("[GET /api/profile] currentUser degraded:", err instanceof Error ? err.message : "unknown");
+          return null;
+        },
+      ),
+    ]);
+
+    const memRows = memResult.status === "fulfilled" ? memResult.value.data : null;
+    const email: string | null = emailResult.status === "fulfilled" ? emailResult.value : null;
+    console.log("[GET /api/profile] step2 memberships:", memRows?.length ?? 0, "email:", email ? "found" : "null", `${Date.now() - t0}ms`);
 
     // STEP 3: fetch banks for memberships + current bank (only if needed)
-    const bankId = profile?.bank_id ?? null;
     const bankIds = (memRows ?? []).map((m: any) => m.bank_id);
-    // Ensure current bank_id is included even if not in memberships
     if (bankId && !bankIds.includes(bankId)) bankIds.push(bankId);
 
     type BankInfo = { id: string; name: string; logo_url: string | null; website_url: string | null };
@@ -218,17 +230,6 @@ export async function GET() {
     }));
 
     const current_bank = bankId ? (bankInfoMap.get(bankId) ?? null) : null;
-
-    // STEP 4: Extract email from Clerk — best-effort, bounded
-    t0 = Date.now();
-    let email: string | null = null;
-    try {
-      const clerkUser = await safeClerkCurrentUser(2000);
-      email = clerkUser?.primaryEmailAddress?.emailAddress ?? null;
-    } catch (err) {
-      console.warn("[GET /api/profile] currentUser degraded:", err instanceof Error ? err.message : "unknown");
-    }
-    console.log("[GET /api/profile] step4 email:", email ? "found" : "null", `${Date.now() - t0}ms`);
 
     const currentBankRole = current_bank
       ? memberships.find((m) => m.bank_id === current_bank.id)?.role ?? null

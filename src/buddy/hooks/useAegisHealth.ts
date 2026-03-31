@@ -61,7 +61,7 @@ export interface AegisHealthState {
 export function useAegisHealth({
   dealId,
   enabled = true,
-  pollIntervalMs = 30_000,
+  pollIntervalMs = 60_000,
 }: {
   dealId: string | null;
   enabled?: boolean;

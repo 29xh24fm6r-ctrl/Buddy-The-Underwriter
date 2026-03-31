@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { safeClerkAuth, ClerkTimeoutError } from "@/lib/auth/clerkServer";
 
 export const runtime = "nodejs";
+export const maxDuration = 15;
 
 export async function GET() {
   const start = Date.now();
