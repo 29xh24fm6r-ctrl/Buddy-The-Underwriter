@@ -86,22 +86,10 @@ export default clerkMiddleware(async (auth, req) => {
       headers: { "content-type": "text/html; charset=utf-8" },
     });
   }
-  // ✅ API ROUTES — warm Clerk context, then bypass.
-  // Call auth() for side-effects only so downstream route handlers can
-  // read the session via @clerk/nextjs/server auth(). Without this,
-  // API route auth() intermittently returns { userId: null } because
-  // clerkMiddleware never established the auth context.
-  if (p === "/api" || p.startsWith("/api/") || p === "/trpc" || p.startsWith("/trpc/")) {
-    try {
-      await auth();
-    } catch {
-      // non-fatal — route handler remains authoritative for 401/403
-    }
-    return NextResponse.next();
-  }
+  const isApiRoute = p === "/api" || p.startsWith("/api/") || p === "/trpc" || p.startsWith("/trpc/");
 
   // 3) Public routes — return immediately, never block on auth()
-  if (isPublicRoute(req)) {
+  if (!isApiRoute && isPublicRoute(req)) {
     // Fire-and-forget telemetry — never awaited
     Promise.resolve().then(() =>
       logDemoPageviewIfApplicable({
@@ -118,9 +106,19 @@ export default clerkMiddleware(async (auth, req) => {
     return withBuildHeader();
   }
 
-  // 4) Protected routes only — auth() called only here
+  // 4) auth() for ALL non-public routes (pages AND API).
+  // Clerk requires auth() to be called in middleware so downstream
+  // route handlers can read the session. Without this, API route
+  // auth() returns { userId: null } because context was never set.
   const a = await auth();
 
+  // API routes: never redirect — route handler owns 401/403 responses.
+  // The auth() call above is the critical side-effect that establishes context.
+  if (isApiRoute) {
+    return NextResponse.next();
+  }
+
+  // Page routes: redirect unauthenticated users to sign-in
   if (!a?.userId) {
     const signInUrl = new URL("/sign-in", req.url);
     signInUrl.searchParams.set("redirect_url", req.nextUrl.pathname + req.nextUrl.search);
