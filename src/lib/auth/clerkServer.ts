@@ -66,9 +66,11 @@ export async function safeClerkAuth(timeoutMs = 5000): Promise<SafeAuth> {
   console.log("[clerk] auth start");
 
   try {
-    const mod = await import("@clerk/nextjs/server");
     const a = await Promise.race([
-      mod.auth(),
+      (async () => {
+        const mod = await import("@clerk/nextjs/server");
+        return await mod.auth();
+      })(),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new ClerkTimeoutError()), timeoutMs),
       ),
@@ -100,9 +102,11 @@ export async function safeClerkCurrentUser(timeoutMs = 3000) {
   console.log("[clerk] currentUser start");
 
   try {
-    const mod = await import("@clerk/nextjs/server");
     const result = await Promise.race([
-      mod.currentUser(),
+      (async () => {
+        const mod = await import("@clerk/nextjs/server");
+        return await mod.currentUser();
+      })(),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new ClerkCurrentUserTimeoutError()), timeoutMs),
       ),
