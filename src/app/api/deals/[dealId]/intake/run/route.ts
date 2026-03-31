@@ -10,6 +10,7 @@ import { canTransitionIntakeState, type DealIntakeState } from "@/lib/deals/inta
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 type Ctx = { params: Promise<{ dealId: string }> };
 

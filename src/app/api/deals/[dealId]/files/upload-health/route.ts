@@ -8,6 +8,7 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 15;
 
 type Params = Promise<{ dealId: string }>;
 
