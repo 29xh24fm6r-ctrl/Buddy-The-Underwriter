@@ -57,6 +57,11 @@ export class ClerkCurrentUserTimeoutError extends Error {
 /**
  * Bounded Clerk auth with timeout.
  * Prevents indefinite hangs on server routes.
+ *
+ * IMPORTANT: The timeout wraps BOTH the dynamic import("@clerk/nextjs/server")
+ * AND the auth() call inside a single Promise.race. If the import is placed
+ * outside the race, a stalled dynamic import (common on cold starts / serverless)
+ * can hang the request indefinitely before the timeout even begins.
  */
 export async function safeClerkAuth(timeoutMs = 5000): Promise<SafeAuth> {
   const nullAuth: SafeAuth = { userId: null, sessionId: null, getToken: async () => null };
@@ -94,6 +99,9 @@ export async function safeClerkAuth(timeoutMs = 5000): Promise<SafeAuth> {
 /**
  * Bounded Clerk currentUser with timeout.
  * For enrichment only — never block a route on this.
+ *
+ * Same pattern as safeClerkAuth: the dynamic import is inside the race
+ * so a stalled module load on cold start is also bounded by the timeout.
  */
 export async function safeClerkCurrentUser(timeoutMs = 3000) {
   if (!isClerkConfigured()) return null;

@@ -73,8 +73,12 @@ export function useProfile(): ProfileState & { error: string | null; loading: bo
         }
       })
       .catch((err) => {
-        if (err instanceof Error && err.name === 'AbortError') return;
-        const msg = err instanceof Error ? err.message : "profile_fetch_failed";
+        const msg =
+          err instanceof DOMException && err.name === "AbortError"
+            ? "request_aborted"
+            : err instanceof Error
+              ? err.message
+              : "profile_fetch_failed";
         console.error("[useProfile] error:", msg);
         setState((prev) => ({ ...prev, error: msg, loading: false }));
       })
