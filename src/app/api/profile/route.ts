@@ -130,13 +130,14 @@ export async function GET() {
   const sb = supabaseAdmin();
 
   try {
-    // Try loading profile with full columns
-    console.log("[GET /api/profile] loading profile...");
+    // STEP 1: fetch profile ONLY (no joins)
+    let t0 = Date.now();
     const { data: profile, error: loadErr } = await sb
       .from("profiles")
       .select(FULL_SELECT)
       .eq("clerk_user_id", userId)
       .maybeSingle();
+    console.log("[GET /api/profile] step1 profile:", profile ? "found" : "null", `${Date.now() - t0}ms`);
 
     // Schema mismatch on load → retry with base columns
     if (loadErr && isSchemaMismatchError(loadErr.message)) {
@@ -173,14 +174,53 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: loadErr.message }, { status: 500 });
     }
 
-    // Profile may not exist — that's fine, return null
-    console.log("[GET /api/profile] profile loaded:", profile ? "found" : "null", `(${Date.now() - startMs}ms)`);
-    const bankId = profile?.bank_id ?? null;
-    console.log("[GET /api/profile] loading bank context, bankId:", bankId);
-    const bankCtx = await loadBankContext(userId, bankId);
-    console.log("[GET /api/profile] bank context loaded:", bankCtx.current_bank ? bankCtx.current_bank.name : "null", `(${Date.now() - startMs}ms)`);
+    // STEP 2: fetch memberships separately
+    t0 = Date.now();
+    const { data: memRows } = await sb
+      .from("bank_memberships")
+      .select("bank_id, role")
+      .eq("clerk_user_id", userId);
+    console.log("[GET /api/profile] step2 memberships:", memRows?.length ?? 0, `${Date.now() - t0}ms`);
 
-    // Extract email from Clerk — best-effort, bounded, non-blocking
+    // STEP 3: fetch banks for memberships + current bank (only if needed)
+    const bankId = profile?.bank_id ?? null;
+    const bankIds = (memRows ?? []).map((m: any) => m.bank_id);
+    // Ensure current bank_id is included even if not in memberships
+    if (bankId && !bankIds.includes(bankId)) bankIds.push(bankId);
+
+    type BankInfo = { id: string; name: string; logo_url: string | null; website_url: string | null };
+    const bankInfoMap = new Map<string, BankInfo>();
+
+    if (bankIds.length > 0) {
+      t0 = Date.now();
+      const { data: bankRows } = await sb
+        .from("banks")
+        .select("id, name, logo_url, website_url")
+        .in("id", bankIds);
+      console.log("[GET /api/profile] step3 banks:", bankRows?.length ?? 0, `${Date.now() - t0}ms`);
+
+      for (const b of bankRows ?? []) {
+        bankInfoMap.set(b.id, {
+          id: b.id,
+          name: b.name,
+          logo_url: (b as any).logo_url ?? null,
+          website_url: (b as any).website_url ?? null,
+        });
+      }
+    }
+
+    // Assemble memberships with bank names
+    type Membership = { bank_id: string; bank_name: string; role: string };
+    const memberships: Membership[] = (memRows ?? []).map((m: any) => ({
+      bank_id: m.bank_id,
+      bank_name: bankInfoMap.get(m.bank_id)?.name ?? m.bank_id,
+      role: m.role ?? "member",
+    }));
+
+    const current_bank = bankId ? (bankInfoMap.get(bankId) ?? null) : null;
+
+    // STEP 4: Extract email from Clerk — best-effort, bounded
+    t0 = Date.now();
     let email: string | null = null;
     try {
       const clerkUser = await safeClerkCurrentUser(2000);
@@ -188,9 +228,10 @@ export async function GET() {
     } catch (err) {
       console.warn("[GET /api/profile] currentUser degraded:", err instanceof Error ? err.message : "unknown");
     }
+    console.log("[GET /api/profile] step4 email:", email ? "found" : "null", `${Date.now() - t0}ms`);
 
-    const currentBankRole = bankCtx.current_bank
-      ? bankCtx.memberships.find((m) => m.bank_id === bankCtx.current_bank?.id)?.role ?? null
+    const currentBankRole = current_bank
+      ? memberships.find((m) => m.bank_id === current_bank.id)?.role ?? null
       : null;
 
     // Derive canonical onboarding state for debuggability
@@ -198,7 +239,7 @@ export async function GET() {
       userId,
       bankId,
       hasProfile: !!profile,
-      membershipCount: bankCtx.memberships.length,
+      membershipCount: memberships.length,
     });
 
     console.log("[GET /api/profile] done", `(${Date.now() - startMs}ms total)`);
@@ -216,7 +257,8 @@ export async function GET() {
       email,
       current_bank_role: currentBankRole,
       onboarding_state: onboarding.state,
-      ...bankCtx,
+      memberships,
+      current_bank,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "profile_load_failed";
