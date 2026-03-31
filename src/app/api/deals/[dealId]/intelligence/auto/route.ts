@@ -5,6 +5,7 @@ import { deriveAutoIntelligenceState } from "@/lib/intelligence/auto/deriveAutoI
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 8;
 
 type Ctx = { params: Promise<{ dealId: string }> };
 

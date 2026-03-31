@@ -30,7 +30,8 @@ export type AutoIntelligenceUI = {
   retry: () => Promise<void>;
 };
 
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 10_000;
+const MAX_CONSECUTIVE_FAILURES = 3;
 
 export function useAutoIntelligence(dealId: string): AutoIntelligenceUI {
   const [steps, setSteps] = useState<IntelligenceStepUI[]>([]);
@@ -39,26 +40,41 @@ export function useAutoIntelligence(dealId: string): AutoIntelligenceUI {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const failureCountRef = useRef(0);
 
   const fetchState = useCallback(async () => {
     try {
       const res = await fetch(`/api/deals/${dealId}/intelligence/auto`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        failureCountRef.current += 1;
+        return;
+      }
       const data = await res.json();
-      if (!data.ok) return;
-
+      if (!data.ok) {
+        failureCountRef.current += 1;
+        return;
+      }
+      failureCountRef.current = 0;
       setHasRun(data.state?.hasRun ?? false);
       setRunStatus(data.state?.runStatus ?? null);
       setSteps(data.state?.steps ?? []);
       setLastUpdated(new Date().toISOString());
-    } catch { /* degrade silently */ }
+    } catch {
+      failureCountRef.current += 1;
+    }
   }, [dealId]);
 
   // Initial fetch + polling
   useEffect(() => {
+    failureCountRef.current = 0;
     fetchState();
 
     intervalRef.current = setInterval(() => {
+      if (failureCountRef.current >= MAX_CONSECUTIVE_FAILURES) {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        intervalRef.current = null;
+        return;
+      }
       fetchState();
     }, POLL_INTERVAL_MS);
 
