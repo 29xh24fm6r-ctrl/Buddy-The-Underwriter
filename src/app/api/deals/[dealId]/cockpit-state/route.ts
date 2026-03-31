@@ -69,17 +69,27 @@ export async function GET(
       .eq("id", deal.bank_id)
       .maybeSingle();
 
-    // ── Recompute if needed ───────────────────────────────────────────────
-    if (forceRecompute) {
-      await recomputeDealDocumentState(dealId);
-    }
-
     // ── Load document snapshot ────────────────────────────────────────────
-    const { data: snapshot } = await sb
+    let { data: snapshot } = await sb
       .from("deal_document_snapshots")
       .select("requirement_state, readiness, blockers, computed_at")
       .eq("deal_id", dealId)
       .maybeSingle();
+
+    // ── Recompute if needed ───────────────────────────────────────────────
+    // Auto-recompute when: (a) ?recompute=1 forced, OR (b) no snapshot exists.
+    // Case (b) is the defensive fallback for deals that completed intake before
+    // recomputeDealDocumentState was wired into the processing pipeline.
+    if (forceRecompute || !snapshot) {
+      await recomputeDealDocumentState(dealId);
+      // Reload snapshot after recompute
+      const { data: freshSnapshot } = await sb
+        .from("deal_document_snapshots")
+        .select("requirement_state, readiness, blockers, computed_at")
+        .eq("deal_id", dealId)
+        .maybeSingle();
+      snapshot = freshSnapshot;
+    }
 
     // ── Load supplemental state ───────────────────────────────────────────
     // Phase 56R: deal_loan_requests is the ONLY canonical loan request source

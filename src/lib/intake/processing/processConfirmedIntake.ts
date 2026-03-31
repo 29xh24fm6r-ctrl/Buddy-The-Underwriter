@@ -522,6 +522,19 @@ export async function processConfirmedIntake(
     errors.push(`reconcile:${err?.message}`);
   }
 
+  // 3b-ii. Recompute document state snapshot (cockpit source of truth)
+  // CRITICAL: must run after reconcileChecklistForDeal so the snapshot
+  // reflects confirmed + matched docs. Without this, cockpit-state returns
+  // an empty Core Documents panel because deal_document_snapshots is never written.
+  try {
+    const { recomputeDealDocumentState } = await import(
+      "@/lib/documentTruth/recomputeDealDocumentState"
+    );
+    await recomputeDealDocumentState(dealId);
+  } catch (err: any) {
+    errors.push(`snapshot_recompute:${err?.message}`);
+  }
+
   // 3c. Bootstrap lifecycle
   try {
     const { bootstrapDealLifecycle } = await import(
