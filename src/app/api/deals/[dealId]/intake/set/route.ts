@@ -13,6 +13,7 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
+export const maxDuration = 15;
 
 function getRequestId(req: Request) {
   return (

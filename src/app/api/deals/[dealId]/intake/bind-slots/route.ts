@@ -8,6 +8,7 @@ import { ENTITY_SCOPED_DOC_TYPES } from "@/lib/intake/identity/entityScopedDocTy
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 15;
 
 type RouteContext = { params: Promise<{ dealId: string }> };
 

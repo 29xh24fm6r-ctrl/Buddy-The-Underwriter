@@ -8,6 +8,7 @@ import { seedIntakePrereqsCore } from "@/lib/intake/seedIntakePrereqsCore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 15;
 
 export async function POST(_req: Request, ctx: { params: Promise<{ dealId: string }> }) {
   try {

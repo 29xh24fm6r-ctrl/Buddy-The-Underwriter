@@ -25,6 +25,7 @@ import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 type Ctx = { params: Promise<{ dealId: string }> };
 

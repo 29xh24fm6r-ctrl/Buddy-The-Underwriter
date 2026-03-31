@@ -5,6 +5,7 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
+export const maxDuration = 15;
 
 function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
   return Promise.race<T>([
