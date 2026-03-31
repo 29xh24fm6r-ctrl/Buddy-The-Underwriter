@@ -14,6 +14,7 @@ import {
 } from "@/lib/dealControl/loanRequestCompleteness";
 
 export const runtime = "nodejs";
+export const maxDuration = 15;
 
 type Params = Promise<{ dealId: string }>;
 
