@@ -12,8 +12,8 @@ function json(status: number, body: any) {
 }
 
 async function getSupabaseClient(): Promise<any> {
-  // Stub: Replace with your actual Supabase initialization
-  return null;
+  const { supabaseAdmin } = await import("@/lib/supabase/admin");
+  return supabaseAdmin();
 }
 
 /**
@@ -99,6 +99,10 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       "ownership_percent",
       "notes",
       "meta",
+      "entity_type",
+      "role",
+      "is_primary_borrower",
+      "is_guarantor_entity",
     ];
     const updates: any = {};
 

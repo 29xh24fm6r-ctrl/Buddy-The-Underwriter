@@ -51,7 +51,7 @@ export async function loadBuilderPrefill(
     return {
       id: e.id,
       ownership_entity_id: e.id,
-      full_legal_name: e.display_name ?? undefined,
+      full_legal_name: (e.display_name ?? "").split(/[\n\r]+/)[0].trim() || undefined,
       ownership_pct: e.ownership_pct != null ? Number(e.ownership_pct) : undefined,
       title: e.title ?? undefined,
     };

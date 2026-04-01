@@ -12,6 +12,7 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 10;
 
 const ROUTE = "/api/aegis/findings";
 
@@ -32,8 +33,7 @@ export async function GET(req: NextRequest) {
   const headers = createHeaders(correlationId, ROUTE);
 
   try {
-    const bankId = await getCurrentBankId();
-
+    // Check deal_id before any Clerk call — avoids unnecessary auth round-trip
     const url = new URL(req.url);
     const dealId = url.searchParams.get("deal_id");
 
@@ -47,6 +47,8 @@ export async function GET(req: NextRequest) {
         headers,
       );
     }
+
+    const bankId = await getCurrentBankId();
 
     let limit = parseInt(url.searchParams.get("limit") || "20", 10);
     limit = Math.min(50, Math.max(1, limit || 20));

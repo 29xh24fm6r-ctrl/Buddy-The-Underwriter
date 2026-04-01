@@ -6,6 +6,7 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 import type { BuilderSectionKey } from "@/lib/builder/builderTypes";
 
 export const runtime = "nodejs";
+export const maxDuration = 10;
 
 type Ctx = { params: Promise<{ dealId: string }> };
 
