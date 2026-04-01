@@ -28,6 +28,20 @@ export function PartiesWorkspace({ state, prefill, onSectionChange }: Props) {
 
   const totalPct = owners.reduce((s, o) => s + (o.ownership_pct ?? 0), 0);
 
+  const business = (state.sections.business ?? {}) as {
+    legal_entity_name?: string;
+    entity_type?: string;
+    state_of_formation?: string;
+    business_address?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
+
+  function handleBusinessChange(field: string, value: string) {
+    onSectionChange("business", { ...business, [field]: value });
+  }
+
   // Filter candidates: exclude already-added owners and dismissed ones
   const ownerNames = new Set(owners.map((o) => o.full_legal_name?.toLowerCase().trim()).filter(Boolean));
   const visibleCandidates = candidates.filter(
@@ -83,6 +97,100 @@ export function PartiesWorkspace({ state, prefill, onSectionChange }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* ── Business Entity ─────────────────────────────────────── */}
+      <div className="border-b border-white/10 pb-4 mb-2">
+        <div className="text-sm font-semibold text-white mb-3">Business Entity</div>
+        <div className="grid grid-cols-1 gap-3">
+          {/* Legal entity name */}
+          <div>
+            <label className="text-xs text-white/50 mb-1 block">Legal Entity Name</label>
+            <input
+              type="text"
+              value={business.legal_entity_name ?? ""}
+              onChange={(e) => handleBusinessChange("legal_entity_name", e.target.value)}
+              placeholder="Samaritus Management LLC"
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+            />
+          </div>
+          {/* Entity type + State of formation — side by side */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">Entity Type</label>
+              <select
+                value={business.entity_type ?? ""}
+                onChange={(e) => handleBusinessChange("entity_type", e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-white/25 focus:outline-none"
+              >
+                <option value="">Select…</option>
+                <option value="LLC">LLC</option>
+                <option value="S-Corp">S-Corp</option>
+                <option value="C-Corp">C-Corp</option>
+                <option value="Partnership">Partnership</option>
+                <option value="Sole Prop">Sole Prop</option>
+                <option value="Non-Profit">Non-Profit</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">State of Formation</label>
+              <input
+                type="text"
+                value={business.state_of_formation ?? ""}
+                onChange={(e) => handleBusinessChange("state_of_formation", e.target.value)}
+                placeholder="FL"
+                maxLength={2}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+              />
+            </div>
+          </div>
+          {/* Business address */}
+          <div>
+            <label className="text-xs text-white/50 mb-1 block">Business Address</label>
+            <input
+              type="text"
+              value={business.business_address ?? ""}
+              onChange={(e) => handleBusinessChange("business_address", e.target.value)}
+              placeholder="123 Main St"
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-1">
+              <label className="text-xs text-white/50 mb-1 block">City</label>
+              <input
+                type="text"
+                value={business.city ?? ""}
+                onChange={(e) => handleBusinessChange("city", e.target.value)}
+                placeholder="Miami"
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">State</label>
+              <input
+                type="text"
+                value={business.state ?? ""}
+                onChange={(e) => handleBusinessChange("state", e.target.value)}
+                placeholder="FL"
+                maxLength={2}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">ZIP</label>
+              <input
+                type="text"
+                value={business.zip ?? ""}
+                onChange={(e) => handleBusinessChange("zip", e.target.value)}
+                placeholder="33101"
+                maxLength={10}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Owners */}
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold text-white">Owners / Principals</div>
