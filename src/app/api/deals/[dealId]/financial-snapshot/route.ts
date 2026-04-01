@@ -4,7 +4,6 @@ export const maxDuration = 15;
 
 import { NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { buildDealFinancialSnapshotForBank } from "@/lib/deals/financialSnapshot";
 
@@ -23,10 +22,10 @@ function noStoreHeaders() {
 
 export async function GET(_req: Request, ctx: Ctx) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
-
     const { dealId } = await ctx.params;
 
+    // ensureDealBankAccess is the canonical auth + tenant gate for this route.
+    // requireRoleApi is redundant here and blocks bankers without Clerk metadata roles.
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok) {
       // Do not leak existence across tenants.
@@ -52,13 +51,6 @@ export async function GET(_req: Request, ctx: Ctx) {
     );
   } catch (e: any) {
     rethrowNextErrors(e);
-
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: e.code },
-        { status: e.code === "not_authenticated" ? 401 : 403, headers: noStoreHeaders() },
-      );
-    }
 
     console.error("[/api/deals/[dealId]/financial-snapshot]", e);
 
