@@ -59,7 +59,7 @@ export async function recomputeDealDocumentState(dealId: string): Promise<void> 
 
   const { data: documents } = await sb
     .from("deal_documents")
-    .select("id, deal_id, original_filename, checklist_key, ai_doc_type, ai_confidence, assigned_owner_id, created_at")
+    .select("id, deal_id, original_filename, checklist_key, canonical_type, ai_doc_type, ai_confidence, doc_year, ai_tax_year, assigned_owner_id, created_at")
     .eq("deal_id", dealId);
 
   const dealType = (deal as Record<string, unknown>).deal_type as string ?? "conventional";
@@ -78,11 +78,14 @@ export async function recomputeDealDocumentState(dealId: string): Promise<void> 
   }> = [];
 
   for (const doc of (documents ?? []) as Array<Record<string, unknown>>) {
-    const classifiedType = (doc.ai_doc_type as string) ?? (doc.checklist_key as string) ?? null;
+    // canonical_type is the authoritative source — it is updated by manual corrections.
+    // ai_doc_type is raw AI output and is never overwritten by the correction pipeline.
+    const classifiedType = (doc.canonical_type as string) ?? (doc.ai_doc_type as string) ?? null;
 
-    // Extract year from filename if present
-    const yearMatch = (doc.original_filename as string)?.match(/(?:^|[^0-9])(20[0-3][0-9])(?:[^0-9]|$)/);
-    const year = yearMatch ? parseInt(yearMatch[1], 10) : null;
+    // Prefer DB year fields (set by classification/correction pipeline), fall back to filename parsing
+    const yearFromDb = (doc.doc_year as number) ?? (doc.ai_tax_year ? parseInt(doc.ai_tax_year as string, 10) : null);
+    const yearMatch = !yearFromDb ? (doc.original_filename as string)?.match(/(?:^|[^0-9])(20[0-3][0-9])(?:[^0-9]|$)/) : null;
+    const year = yearFromDb ?? (yearMatch ? parseInt(yearMatch[1], 10) : null);
 
     const result = matchDocumentToRequirement({
       classifiedType,
