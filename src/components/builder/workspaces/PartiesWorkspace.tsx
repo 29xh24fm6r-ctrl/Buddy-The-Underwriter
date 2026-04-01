@@ -119,16 +119,16 @@ export function PartiesWorkspace({ state, prefill, onSectionChange }: Props) {
               <select
                 value={business.entity_type ?? ""}
                 onChange={(e) => handleBusinessChange("entity_type", e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-white/25 focus:outline-none"
+                className="w-full rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 text-sm text-white focus:border-white/25 focus:outline-none"
               >
-                <option value="">Select…</option>
-                <option value="LLC">LLC</option>
-                <option value="S-Corp">S-Corp</option>
-                <option value="C-Corp">C-Corp</option>
-                <option value="Partnership">Partnership</option>
-                <option value="Sole Prop">Sole Prop</option>
-                <option value="Non-Profit">Non-Profit</option>
-                <option value="Other">Other</option>
+                <option value="" className="bg-neutral-900 text-white">Select…</option>
+                <option value="LLC" className="bg-neutral-900 text-white">LLC</option>
+                <option value="S-Corp" className="bg-neutral-900 text-white">S-Corp</option>
+                <option value="C-Corp" className="bg-neutral-900 text-white">C-Corp</option>
+                <option value="Partnership" className="bg-neutral-900 text-white">Partnership</option>
+                <option value="Sole Prop" className="bg-neutral-900 text-white">Sole Prop</option>
+                <option value="Non-Profit" className="bg-neutral-900 text-white">Non-Profit</option>
+                <option value="Other" className="bg-neutral-900 text-white">Other</option>
               </select>
             </div>
             <div>
