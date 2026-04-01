@@ -16,7 +16,10 @@ export function CanonicalChecklistPanel() {
 
   const { requirements } = state.documentState;
   const applicable = requirements.filter((r) => r.required);
-  const satisfied = applicable.filter(
+  const received = applicable.filter(
+    (r) => r.checklistStatus === "received" || r.checklistStatus === "satisfied" || r.checklistStatus === "waived",
+  );
+  const confirmed = applicable.filter(
     (r) => r.checklistStatus === "satisfied" || r.checklistStatus === "waived",
   );
 
@@ -34,7 +37,7 @@ export function CanonicalChecklistPanel() {
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-white/80">Checklist</h3>
         <span className="text-sm font-mono text-white/60">
-          {satisfied.length}/{applicable.length} required satisfied
+          {received.length}/{applicable.length} required satisfied
         </span>
       </div>
 
@@ -76,15 +79,14 @@ export function CanonicalChecklistPanel() {
                        "Missing"}
                     </span>
                   </div>
-                  {req.matchedYears.length > 0 && (
-                    <span className="text-xs text-white/40">
-                      Matched: {req.matchedYears.join(" · ")}
-                    </span>
-                  )}
-                  {req.matchedDocumentIds.length > 0 && req.checklistStatus === "received" && (
-                    <span className="text-xs text-white/40">
-                      {req.matchedDocumentIds.length} doc{req.matchedDocumentIds.length > 1 ? "s" : ""} awaiting confirmation
-                    </span>
+                  {(req.matchedYears.length > 0 || (req.matchedDocumentIds.length > 0 && req.checklistStatus === "received")) && (
+                    <div className="text-xs text-white/40 mt-0.5">
+                      {req.matchedYears.length > 0 && `Matched ${req.matchedYears.join(" · ")}`}
+                      {req.matchedYears.length > 0 && req.matchedDocumentIds.length > 0 && req.checklistStatus === "received" && " · "}
+                      {req.matchedDocumentIds.length > 0 && req.checklistStatus === "received" &&
+                        `${req.matchedDocumentIds.length} doc${req.matchedDocumentIds.length !== 1 ? "s" : ""} awaiting confirmation`
+                      }
+                    </div>
                   )}
                   {req.reasons.length > 0 && req.checklistStatus !== "satisfied" && (
                     <p className="text-xs text-white/30">{req.reasons[0]}</p>

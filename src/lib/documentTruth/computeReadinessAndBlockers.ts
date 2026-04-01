@@ -55,7 +55,11 @@ export function computeReadinessAndBlockers(input: ReadinessInput): {
   const blockers: Blocker[] = [];
 
   // Document readiness
-  const applicableRequired = input.requirements.filter((r) => r.applicable && r.required);
+  // Exclude loan_request group — it is tracked separately via hasLoanRequest / lrBlocker.
+  // Keeping it here produces a duplicate in "Missing: N required documents".
+  const applicableRequired = input.requirements.filter(
+    (r) => r.applicable && r.required && r.group !== "loan_request",
+  );
   const missingRequired = applicableRequired.filter((r) => r.checklistStatus === "missing");
   const reviewRequired = applicableRequired.filter((r) => r.reviewPending && r.checklistStatus !== "waived");
   const satisfiedRequired = applicableRequired.filter(
@@ -86,17 +90,9 @@ export function computeReadinessAndBlockers(input: ReadinessInput): {
     });
   }
 
-  // Loan request readiness
-  let loanRequestStatus: ReadinessCategoryStatus = input.hasLoanRequest ? "complete" : "blocking";
-  if (!input.hasLoanRequest) {
-    blockers.push({
-      code: "loan_request_missing",
-      severity: "blocking",
-      title: "No loan request has been created",
-      details: ["A loan request is required before underwriting can proceed."],
-      actionLabel: "Add Loan Request",
-    });
-  }
+  // Loan request category status — blocker is emitted by cockpit-state via deriveLoanRequestBlocker.
+  // Do NOT push a blocker here; cockpit-state prepends lrBlocker which is the canonical source.
+  const loanRequestStatus: ReadinessCategoryStatus = input.hasLoanRequest ? "complete" : "blocking";
 
   // Other categories
   const spreadsStatus: ReadinessCategoryStatus = input.hasSpreads ? "complete" : "warning";
