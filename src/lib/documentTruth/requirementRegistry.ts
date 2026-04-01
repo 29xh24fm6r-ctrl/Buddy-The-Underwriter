@@ -145,13 +145,13 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     code: "liquidity.bank_statements",
     label: "Bank Statements (last 3 months)",
     group: "liquidity",
-    required: true,
+    required: false,      // Optional — banker judgment call, not a hard gate
     dealTypes: ["all"],
     quantityRule: "minimum_count",
     requiredCount: 3,
     subjectRule: "business",
     acceptedDocTypes: ["bank_statement"],
-    canBeWaived: false,
+    canBeWaived: true,    // Can be waived when provided via other means
   },
   // Property
   {
