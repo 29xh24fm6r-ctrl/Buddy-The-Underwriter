@@ -70,10 +70,6 @@ export async function POST(
   ctx: { params: Params }
 ): Promise<NextResponse> {
   try {
-      "super_admin",
-      "bank_admin",
-      "underwriter",
-    ]);
     const { dealId } = await ctx.params;
 
     // Verify deal access

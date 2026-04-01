@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import { requireBorrowerOnDeal } from "@/lib/deals/participants";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -21,17 +20,6 @@ export async function GET(
 ) {
   const { dealId } = await ctx.params;
   try {
-      "borrower",
-      "underwriter",
-      "bank_admin",
-      "super_admin",
-    ]);
-
-    // API-level access control: borrowers can only see their own deals
-    if (role === "borrower") {
-      await requireBorrowerOnDeal(dealId); // Throws if not participant
-    }
-
     // Fetch conditions
     const supabase = supabaseAdmin();
     const { data, error } = await (supabase as any)

@@ -50,13 +50,7 @@ export async function POST(
   let dealId = "unknown";
 
   try {
-    // === Phase 1: Auth ===
-      "super_admin",
-      "bank_admin",
-      "underwriter",
-    ]);
-
-    // === Phase 2: Extract dealId ===
+    // === Phase 1: Extract dealId ===
     const params = await ctx.params;
     dealId = params.dealId;
 
