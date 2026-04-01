@@ -192,10 +192,10 @@ export default async function DealCockpitPage({ params }: Props) {
 
     const { data: intake } = await sb
       .from("deal_intake")
-      .select("id")
+      .select("deal_id")
       .eq("deal_id", dealId)
       .maybeSingle();
-    intakeInitialized = Boolean(intake?.id);
+    intakeInitialized = Boolean(intake?.deal_id);
 
     const { data: latestIgnite } = await sb
       .from("audit_ledger")
