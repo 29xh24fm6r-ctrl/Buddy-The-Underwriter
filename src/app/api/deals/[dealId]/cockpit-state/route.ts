@@ -42,13 +42,17 @@ export async function GET(
     const forceRecompute = searchParams.get("recompute") === "1";
 
     // ── Deal + Borrower identity ──────────────────────────────────────────
-    const { data: deal } = await sb
+    const { data: deal, error: dealError } = await sb
       .from("deals")
-      .select("id, name, borrower_name, borrower_id, bank_id, lifecycle_stage, deal_type, intake_phase")
+      .select("id, name, borrower_name, borrower_id, bank_id, stage, deal_type, intake_phase")
       .eq("id", dealId)
       .single();
 
-    if (!deal) {
+    if (dealError || !deal) {
+      console.warn("[cockpit-state] deal_not_found or query error", {
+        dealId,
+        error: dealError?.message ?? "no_data",
+      });
       return NextResponse.json({ ok: false, error: "deal_not_found" }, { status: 404 });
     }
 
@@ -232,9 +236,9 @@ export async function GET(
     } else if (intakePhase === "CONFIRMED_READY_FOR_PROCESSING") {
       cockpitPhase = "PROCESSING";
     } else if (intakePhase === "PROCESSING_COMPLETE_WITH_ERRORS") {
-      cockpitPhase = allBlockers.length > 0 ? "PROCESSING_FAILED" : "PROCESSING_FAILED";
+      cockpitPhase = reqState.length > 0 ? "PROCESSING_FAILED" : "PROCESSING_NO_OUTPUT";
     } else if (intakePhase === "PROCESSING_COMPLETE") {
-      cockpitPhase = "READY";
+      cockpitPhase = reqState.length > 0 ? "READY" : "PROCESSING_NO_OUTPUT";
     }
 
     return NextResponse.json({
@@ -246,7 +250,7 @@ export async function GET(
           ? { id: borrower.id, legalName: borrower.legal_name }
           : null,
         bank: bank ? { id: bank.id, name: bank.name } : null,
-        lifecycleStage: deal.lifecycle_stage,
+        lifecycleStage: (deal as any).stage ?? (deal as any).intake_phase ?? "draft",
         cockpitPhase,
       },
       documentState: {
