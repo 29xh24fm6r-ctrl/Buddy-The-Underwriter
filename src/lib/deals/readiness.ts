@@ -198,17 +198,19 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
       .select("id")
       .maybeSingle();
 
-    // Log to pipeline ledger
-    await sb.from("deal_pipeline_ledger").insert({
-      deal_id: dealId,
-      bank_id: null, // Will be backfilled by trigger if needed
-      stage: "readiness",
-      status: "completed",
-      payload: {
-        ready_at: new Date().toISOString(),
-        ...result.details,
-      },
-    });
+    // Log to pipeline ledger — bank_id is NOT NULL, use the value already fetched above
+    if (currentDeal?.bank_id) {
+      await sb.from("deal_pipeline_ledger").insert({
+        deal_id: dealId,
+        bank_id: currentDeal.bank_id,
+        stage: "readiness",
+        status: "completed",
+        payload: {
+          ready_at: new Date().toISOString(),
+          ...result.details,
+        },
+      });
+    }
 
     // Pulse: readiness recomputed
     void emitPipelineEvent({
