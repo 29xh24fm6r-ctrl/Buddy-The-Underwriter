@@ -3,9 +3,10 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { clerkAuth } from "@/lib/auth/clerkServer";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 10;
 
 type Params = Promise<{ dealId: string }>;
 
@@ -46,9 +47,6 @@ export async function POST(
 ) {
   try {
     const { dealId } = await ctx.params;
-    const { userId } = await clerkAuth();
-    if (!userId) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok) return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
 
@@ -80,8 +78,8 @@ export async function POST(
         covenant_notes: body.covenant_notes ?? null,
         structure_notes: body.structure_notes ?? null,
         source: body.source ?? "banker",
-        created_by: userId,
-        updated_by: userId,
+        created_by: access.userId,
+        updated_by: access.userId,
       })
       .select("id")
       .single();
@@ -92,7 +90,7 @@ export async function POST(
     await sb.from("deal_audit_log").insert({
       deal_id: dealId,
       bank_id: access.bankId,
-      actor_id: userId,
+      actor_id: access.userId,
       event: "loan_request_created",
       payload: { loan_request_id: data.id },
     }).then(null, () => {});
@@ -109,16 +107,13 @@ export async function PATCH(
 ) {
   try {
     const { dealId } = await ctx.params;
-    const { userId } = await clerkAuth();
-    if (!userId) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok) return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
 
     const body = await req.json().catch(() => ({}));
     const sb = supabaseAdmin();
 
-    const updateData: Record<string, unknown> = { updated_by: userId, updated_at: new Date().toISOString() };
+    const updateData: Record<string, unknown> = { updated_by: access.userId, updated_at: new Date().toISOString() };
     const allowedFields = [
       "request_name", "loan_amount", "loan_purpose", "loan_type", "collateral_type",
       "collateral_description", "term_months", "amortization_months", "interest_type",
@@ -140,7 +135,7 @@ export async function PATCH(
     await sb.from("deal_audit_log").insert({
       deal_id: dealId,
       bank_id: access.bankId,
-      actor_id: userId,
+      actor_id: access.userId,
       event: "loan_request_updated",
       payload: { updated_fields: Object.keys(updateData).filter((k) => k !== "updated_by" && k !== "updated_at") },
     }).then(null, () => {});

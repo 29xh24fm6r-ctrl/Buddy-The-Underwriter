@@ -61,6 +61,24 @@ async function writeDealCanonical(
       });
     }
   }
+
+  // Also upsert loan_request record so hasLoanRequest blocker clears
+  if (data.loan_type || data.loan_purpose || data.requested_amount) {
+    const { error } = await sb.from("deal_loan_requests").upsert({
+      deal_id: dealId,
+      product_type: data.loan_type ?? null,
+      loan_purpose: data.loan_purpose ?? null,
+      loan_amount: data.requested_amount ?? null,
+    }, { onConflict: "deal_id" });
+    if (error) {
+      console.error("[builderCanonicalWrite] deal_loan_requests upsert failed", {
+        dealId,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      });
+    }
+  }
 }
 
 /** business section → deals.name (if not already set) */
