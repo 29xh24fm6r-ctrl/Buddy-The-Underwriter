@@ -118,10 +118,10 @@ export function CollateralModal({ open, onClose, item, onSave, onUpdate }: Props
           <select
             value={type}
             onChange={(e) => setType(e.target.value as CollateralType)}
-            className="w-full rounded-lg border border-white/15 bg-white px-3 py-2 text-sm text-gray-900"
+            className="w-full rounded-lg border border-white/15 bg-neutral-900 px-3 py-2 text-sm text-white"
           >
             {COLLATERAL_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>{t.label}</option>
+              <option key={t.value} value={t.value} className="bg-neutral-900 text-white">{t.label}</option>
             ))}
           </select>
         </div>
@@ -135,11 +135,11 @@ export function CollateralModal({ open, onClose, item, onSave, onUpdate }: Props
           <select
             value={valuationMethod}
             onChange={(e) => setValuationMethod(e.target.value as CollateralValuationMethod)}
-            className="w-full rounded-lg border border-white/15 bg-white px-3 py-2 text-sm text-gray-900"
+            className="w-full rounded-lg border border-white/15 bg-neutral-900 px-3 py-2 text-sm text-white"
           >
-            <option value="">Select method...</option>
+            <option value="" className="bg-neutral-900 text-white">Select method...</option>
             {VALUATION_METHODS.map((m) => (
-              <option key={m.value} value={m.value}>{m.label}</option>
+              <option key={m.value} value={m.value} className="bg-neutral-900 text-white">{m.label}</option>
             ))}
           </select>
         </div>
@@ -177,11 +177,11 @@ export function CollateralModal({ open, onClose, item, onSave, onUpdate }: Props
           <select
             value={lien}
             onChange={(e) => setLien(e.target.value)}
-            className="w-full rounded-lg border border-white/15 bg-white px-3 py-2 text-sm text-gray-900"
+            className="w-full rounded-lg border border-white/15 bg-neutral-900 px-3 py-2 text-sm text-white"
           >
-            <option value="1">1st</option>
-            <option value="2">2nd</option>
-            <option value="3">3rd</option>
+            <option value="1" className="bg-neutral-900 text-white">1st</option>
+            <option value="2" className="bg-neutral-900 text-white">2nd</option>
+            <option value="3" className="bg-neutral-900 text-white">3rd</option>
           </select>
         </div>
 

@@ -3,6 +3,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 10;
 
 type Ctx = { params: Promise<{ dealId: string }> };
 
@@ -35,7 +37,11 @@ export async function POST(req: Request, ctx: Ctx) {
   }
 
   const body = await req.json();
-  const { item_type, description, estimated_value, lien_position, appraisal_date, address } = body;
+  const {
+    item_type, description, estimated_value, lien_position,
+    appraisal_date, address, valuation_method,
+    valuation_source_note, advance_rate, net_lendable_value,
+  } = body;
 
   if (!item_type) {
     return NextResponse.json({ error: "item_type is required" }, { status: 400 });
@@ -52,6 +58,10 @@ export async function POST(req: Request, ctx: Ctx) {
       lien_position: lien_position ?? 1,
       appraisal_date: appraisal_date ?? null,
       address: address ?? null,
+      valuation_method: valuation_method ?? null,
+      valuation_source_note: valuation_source_note ?? null,
+      advance_rate: advance_rate ?? null,
+      net_lendable_value: net_lendable_value ?? null,
     })
     .select("*")
     .single();

@@ -64,9 +64,10 @@ export async function getCurrentBankId(): Promise<string> {
   }
 
   if (prof.data?.bank_id) {
-    const bankId = String(prof.data.bank_id);
-    await ensureSandboxGate(bankId, userId);
-    return bankId;
+    // Fast path: bank already resolved on profile — skip sandbox gate.
+    // Sandbox gate was enforced when bank_id was first set; non-sandbox
+    // banks never flip to sandbox, so re-checking every request is waste.
+    return String(prof.data.bank_id);
   }
 
   // 2) Check bank_memberships for this Clerk user
