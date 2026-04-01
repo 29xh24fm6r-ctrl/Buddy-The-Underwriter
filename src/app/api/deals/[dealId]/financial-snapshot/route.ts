@@ -1,5 +1,7 @@
 import "server-only";
 
+export const maxDuration = 15;
+
 import { NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";

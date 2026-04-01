@@ -91,7 +91,7 @@ function buildPulseEvent(row: LedgerRow, env: string): PulseEvent {
     source: "buddy",
     env,
     deal_id: row.deal_id,
-    bank_id: row.bank_id ?? null,
+    bank_id: row.bank_id ?? (row.payload as Record<string, unknown>)?.bank_id as string ?? (row.meta as Record<string, unknown>)?.bank_id as string ?? null,
     event_key: eventKey,
     created_at: row.created_at,
     trace_id: row.id,

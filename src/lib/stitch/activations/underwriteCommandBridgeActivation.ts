@@ -143,7 +143,6 @@ export async function getUnderwriteCommandBridgeActivationData(
         nickname: (deal as any).nickname ?? null,
         borrower_name: deal.borrower_name ?? null,
         name: deal.name ?? null,
-        legal_name: (deal as any).legal_name ?? null,
       });
       const name = labelResult.label;
       const amountLabel = formatMoney(deal.amount);

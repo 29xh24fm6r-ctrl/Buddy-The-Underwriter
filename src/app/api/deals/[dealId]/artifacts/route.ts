@@ -13,6 +13,8 @@
  */
 import "server-only";
 
+export const maxDuration = 15;
+
 import { NextRequest } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";

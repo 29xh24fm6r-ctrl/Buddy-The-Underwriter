@@ -1,3 +1,5 @@
+export const maxDuration = 15;
+
 import { NextResponse } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";

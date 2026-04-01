@@ -27,7 +27,7 @@ export async function getBorrowerControlRecordActivationData(
 
     const { data, error } = await sb
       .from("deals")
-      .select("id, display_name, nickname, borrower_name, name, legal_name, stage, updated_at")
+      .select("id, display_name, nickname, borrower_name, name, stage, updated_at")
       .eq("bank_id", bankId)
       .not("borrower_name", "is", null)
       .order("updated_at", { ascending: false })
@@ -50,7 +50,7 @@ export async function getBorrowerControlRecordActivationData(
       rows.push({
         dealId: String(d.id),
         borrowerName,
-        legalName: String((d as any).legal_name || borrowerName),
+        legalName: String((d as any).name || borrowerName),
         dealName,
         stage: String(d.stage || "-"),
         entityType: "Borrower",

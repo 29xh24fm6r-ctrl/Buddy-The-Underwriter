@@ -1,3 +1,5 @@
+export const maxDuration = 15;
+
 import { NextRequest, NextResponse } from "next/server";
 import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";

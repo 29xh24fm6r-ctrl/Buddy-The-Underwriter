@@ -10,7 +10,6 @@ type DealNameInlineEditorProps = {
   displayName?: string | null;
   nickname?: string | null;
   borrowerName?: string | null;
-  legalName?: string | null;
   size?: "sm" | "md" | "lg";
   tone?: "light" | "dark";
   onUpdated?: (next: { displayName: string | null; nickname: string | null }) => void;
@@ -21,7 +20,6 @@ export default function DealNameInlineEditor({
   displayName: initialDisplayName,
   nickname: initialNickname,
   borrowerName,
-  legalName,
   size = "md",
   tone = "light",
   onUpdated,
@@ -47,9 +45,8 @@ export default function DealNameInlineEditor({
         display_name: displayName ?? null,
         nickname: nickname ?? null,
         borrower_name: borrowerName ?? null,
-        legal_name: legalName ?? null,
       }),
-    [dealId, displayName, nickname, borrowerName, legalName]
+    [dealId, displayName, nickname, borrowerName]
   );
 
   const textSize =

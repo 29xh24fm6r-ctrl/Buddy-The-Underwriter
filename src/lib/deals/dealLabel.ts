@@ -4,12 +4,11 @@ export type DealNameFields = {
   nickname?: string | null;
   borrower_name?: string | null;
   name?: string | null;
-  legal_name?: string | null;
 };
 
 export type DealLabelResult = {
   label: string;
-  source: "display_name" | "nickname" | "borrower_name" | "name" | "legal_name" | "fallback";
+  source: "display_name" | "nickname" | "borrower_name" | "name" | "fallback";
   needsName: boolean;
 };
 
@@ -36,11 +35,6 @@ export function resolveDealLabel(fields: DealNameFields): DealLabelResult {
   const name = fields.name?.trim();
   if (name) {
     return { label: name, source: "name", needsName: false };
-  }
-
-  const legal = fields.legal_name?.trim();
-  if (legal) {
-    return { label: legal, source: "legal_name", needsName: false };
   }
 
   const suffix = fields.id ? String(fields.id).slice(0, 8) : "unknown";
