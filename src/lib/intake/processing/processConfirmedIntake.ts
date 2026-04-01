@@ -569,11 +569,63 @@ export async function processConfirmedIntake(
     }
   }
 
+  // ── POST-PROCESSING OUTPUT INVARIANT ─────────────────────────────
+  // SYSTEM GUARANTEE: After processing, at least ONE usable output must exist:
+  //   - document_artifacts.status = 'classified'
+  //   - OR deal_spreads rows
+  //   - OR deal_financial_facts rows
+  //   - OR canonical_memo_narratives rows
+  // If zero outputs → PROCESSING_FAILED_NO_OUTPUT (explicit failure, not silent empty).
+  if (runId) void stampProcessingHeartbeat(dealId, runId, "output_invariant_check");
+
+  let hasUsableOutput = false;
+  try {
+    const [artifacts, spreads, facts, memos] = await Promise.all([
+      sb.from("document_artifacts").select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId).eq("status", "classified"),
+      sb.from("deal_spreads").select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId),
+      sb.from("deal_financial_facts").select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId),
+      sb.from("canonical_memo_narratives").select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId),
+    ]);
+    hasUsableOutput =
+      (artifacts.count ?? 0) > 0 ||
+      (spreads.count ?? 0) > 0 ||
+      (facts.count ?? 0) > 0 ||
+      (memos.count ?? 0) > 0;
+
+    if (!hasUsableOutput) {
+      errors.push("no_processing_outputs: zero classified artifacts, spreads, facts, or memos");
+      void writeEvent({
+        dealId,
+        kind: "intake.processing_no_output",
+        scope: "intake",
+        meta: {
+          run_id: runId ?? null,
+          docs_processed: confirmedDocs.length,
+          artifacts_classified: artifacts.count ?? 0,
+          spreads: spreads.count ?? 0,
+          facts: facts.count ?? 0,
+          memos: memos.count ?? 0,
+          observability_version: PROCESSING_OBSERVABILITY_VERSION,
+        },
+      });
+    }
+  } catch (outputCheckErr: any) {
+    // Non-fatal — if we can't check, don't block phase transition
+    errors.push(`output_invariant_check:${outputCheckErr?.message}`);
+  }
+
   // 4. Transition to PROCESSING_COMPLETE (or PROCESSING_FAILED)
   if (runId) void stampProcessingHeartbeat(dealId, runId, "completing");
 
-  const finalPhase =
-    errors.length === 0 ? "PROCESSING_COMPLETE" : "PROCESSING_COMPLETE_WITH_ERRORS";
+  const finalPhase: string = !hasUsableOutput
+    ? "PROCESSING_COMPLETE_WITH_ERRORS"
+    : errors.length === 0
+      ? "PROCESSING_COMPLETE"
+      : "PROCESSING_COMPLETE_WITH_ERRORS";
 
   await transitionPhaseAndEmit(sb, dealId, finalPhase, {
     startMs,

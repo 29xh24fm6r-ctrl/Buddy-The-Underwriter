@@ -83,6 +83,8 @@ export type LifecycleBlockerCode =
   | "financial_snapshot_build_failed"
   // Critical risk flags blocker — emitted when unresolved critical flags exist
   | "critical_flags_unresolved"
+  // Borrower is REQUIRED for every deal — no cockpit without it
+  | "borrower_not_attached"
   // Pipeline stall blocker — emitted when artifacts stuck queued/processing
   | "artifacts_processing_stalled"
   // Generic fallbacks (use specific codes above when possible)

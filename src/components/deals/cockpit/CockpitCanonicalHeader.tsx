@@ -2,6 +2,7 @@
 
 import { useCockpitStateContext } from "@/hooks/useCockpitState";
 import { CockpitOmegaBadge } from "./CockpitOmegaBadge";
+import { formatStageLabel } from "@/lib/safe/safeString";
 
 /**
  * Cockpit header wired exclusively to cockpit-state canonical endpoint.
@@ -61,7 +62,7 @@ export function CockpitCanonicalHeader() {
             </span>
           )}
           <span className="text-xs text-white/40 capitalize">
-            {deal.lifecycleStage.replace(/_/g, " ")}
+            {formatStageLabel(deal.lifecycleStage)}
           </span>
           <CockpitOmegaBadge />
         </div>

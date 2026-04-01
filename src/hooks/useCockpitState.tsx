@@ -5,12 +5,20 @@ import type { ReactNode } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export type CockpitPhase =
+  | "INTAKE_INCOMPLETE"
+  | "PROCESSING"
+  | "PROCESSING_FAILED"
+  | "PROCESSING_NO_OUTPUT"
+  | "READY";
+
 export type CockpitStateDeal = {
   id: string;
   dealName: string;
   borrower: { id: string; legalName: string } | null;
   bank: { id: string; name: string } | null;
   lifecycleStage: string;
+  cockpitPhase: CockpitPhase;
 };
 
 export type CockpitStateRequirement = {

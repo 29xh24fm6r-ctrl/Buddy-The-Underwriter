@@ -104,7 +104,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     () =>
       sb
         .from("deals")
-        .select("id, bank_id, stage, ready_at, deal_mode")
+        .select("id, bank_id, stage, ready_at, deal_mode, borrower_id")
         .eq("id", dealId)
         .maybeSingle(),
     ctx
@@ -560,6 +560,15 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     } catch {
       // Non-fatal — stalled detection failure must never block lifecycle derivation
     }
+  }
+
+  // SYSTEM INVARIANT: Every deal MUST have a borrower.
+  // borrower_not_attached blocks advancement from intake stages.
+  if (!(deal as any).borrower_id) {
+    blockers.push({
+      code: "borrower_not_attached",
+      message: "A borrower must be attached to this deal before it can progress",
+    });
   }
 
   // Intake health gate — only active in docs_requested / docs_in_progress stages

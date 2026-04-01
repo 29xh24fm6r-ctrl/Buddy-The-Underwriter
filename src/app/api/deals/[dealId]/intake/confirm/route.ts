@@ -207,12 +207,22 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         },
       });
 
+      // Derive REQUIRED_ACTIONS from blocker summary so banker knows exactly what to fix
+      const requiredActions: string[] = [];
+      if (summary.needs_intake_review > 0) requiredActions.push(`Confirm ${summary.needs_intake_review} pending document(s) in intake review`);
+      if (summary.quality_not_passed > 0) requiredActions.push(`Re-upload ${summary.quality_not_passed} document(s) that failed quality checks`);
+      if (summary.segmented_parent > 0) requiredActions.push(`Wait for ${summary.segmented_parent} document(s) still being segmented`);
+      if (summary.unclassified > 0) requiredActions.push(`Classify ${summary.unclassified} unclassified document(s)`);
+      if (summary.entity_ambiguous > 0) requiredActions.push(`Assign entity for ${summary.entity_ambiguous} ambiguous document(s)`);
+      if (summary.missing_required_year > 0) requiredActions.push(`Set year for ${summary.missing_required_year} document(s) missing doc_year`);
+
       return NextResponse.json(
         {
           ok: false,
           error: "confirmation_blocked",
           blocked_documents,
           summary,
+          REQUIRED_ACTIONS: requiredActions,
         },
         { status: 422 },
       );

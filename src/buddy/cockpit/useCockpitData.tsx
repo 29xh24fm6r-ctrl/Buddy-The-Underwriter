@@ -231,10 +231,15 @@ export function useCockpitData(dealId: string | null, initialLifecycleState?: Li
   const isBusy = pipeline.isWorking || processingUploads > 0 || checklistSummary?.state === "processing" ||
     (artifactSummary?.processing ?? 0) > 0 || (artifactSummary?.queued ?? 0) > 0;
 
+  // SYSTEM INVARIANT: Stop polling once deal reaches a terminal stage.
+  // Terminal stages (closed, workout) have no transitions → no state changes → no poll needed.
+  const TERMINAL_STAGES: Set<LifecycleStage> = new Set(["closed", "workout"]);
+  const isTerminal = lifecycleState?.stage ? TERMINAL_STAGES.has(lifecycleState.stage) : false;
+
   // Determine polling interval based on busy state, visibility, and user activity
-  // Live when: isBusy OR user recently acted
-  const shouldBeLive = isBusy || userRecentlyActive;
-  const pollInterval = !isVisible ? NO_POLL : shouldBeLive ? BUSY_POLL_MS : IDLE_POLL_MS;
+  // Live when: isBusy OR user recently acted (and NOT terminal)
+  const shouldBeLive = !isTerminal && (isBusy || userRecentlyActive);
+  const pollInterval = !isVisible ? NO_POLL : isTerminal ? NO_POLL : shouldBeLive ? BUSY_POLL_MS : IDLE_POLL_MS;
   const isPolling = pollInterval > 0 && isVisible;
 
   const markUserAction = useCallback(() => {

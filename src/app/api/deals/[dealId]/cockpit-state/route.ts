@@ -44,7 +44,7 @@ export async function GET(
     // ── Deal + Borrower identity ──────────────────────────────────────────
     const { data: deal } = await sb
       .from("deals")
-      .select("id, name, borrower_name, borrower_id, bank_id, lifecycle_stage, deal_type")
+      .select("id, name, borrower_name, borrower_id, bank_id, lifecycle_stage, deal_type, intake_phase")
       .eq("id", dealId)
       .single();
 
@@ -218,6 +218,25 @@ export async function GET(
 
     const bankerExplanation = buildBankerExplanation(allBlockers);
 
+    // ── Derive cockpit phase (explicit, never empty) ──────────────────
+    const intakePhase = (deal as any).intake_phase as string | null;
+    type CockpitPhase =
+      | "INTAKE_INCOMPLETE"
+      | "PROCESSING"
+      | "PROCESSING_FAILED"
+      | "PROCESSING_NO_OUTPUT"
+      | "READY";
+    let cockpitPhase: CockpitPhase = "READY";
+    if (!intakePhase || intakePhase === "DRAFT" || intakePhase === "INTAKE_STARTED") {
+      cockpitPhase = "INTAKE_INCOMPLETE";
+    } else if (intakePhase === "CONFIRMED_READY_FOR_PROCESSING") {
+      cockpitPhase = "PROCESSING";
+    } else if (intakePhase === "PROCESSING_COMPLETE_WITH_ERRORS") {
+      cockpitPhase = allBlockers.length > 0 ? "PROCESSING_FAILED" : "PROCESSING_FAILED";
+    } else if (intakePhase === "PROCESSING_COMPLETE") {
+      cockpitPhase = "READY";
+    }
+
     return NextResponse.json({
       ok: true,
       deal: {
@@ -228,6 +247,7 @@ export async function GET(
           : null,
         bank: bank ? { id: bank.id, name: bank.name } : null,
         lifecycleStage: deal.lifecycle_stage,
+        cockpitPhase,
       },
       documentState: {
         requirements: reqState,

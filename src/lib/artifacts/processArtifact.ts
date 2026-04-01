@@ -1325,6 +1325,22 @@ export async function processArtifact(
             },
           });
 
+          // SYSTEM INVARIANT: No silent artifact failures — emit to deal_events
+          void writeEvent({
+            dealId,
+            kind: "artifact.failed",
+            scope: "classification",
+            meta: {
+              artifact_id: artifactId,
+              source_id,
+              failure_type: "stamp_failed",
+              error_message: stampResult.error.message?.slice(0, 200),
+              error_code: stampResult.error.code,
+              canonical_type: typingResult.canonical_type,
+              checklist_key: typingResult.checklist_key,
+            },
+          });
+
           return { ok: false, artifactId, error: "stamp_failed" };
         } else if (!stampResult.data) {
           console.error("[processArtifact] STAMP NO ROWS UPDATED", {
