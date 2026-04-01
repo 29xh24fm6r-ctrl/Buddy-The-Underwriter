@@ -240,7 +240,7 @@ export default function DealShell({
     } catch (e) {
       console.warn("[DealShell] Failed to store last active deal", e);
     }
-  }, [dealId, deal?.name, displayName, nickname, borrowerName, legalName]);
+  }, [dealId, deal?.name, displayName, nickname, borrowerName]);
 
   function handleCopyDealId() {
     if (!dealId) return;
