@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getDealReadiness } from "@/lib/deals/readiness";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -20,7 +19,6 @@ type Context = {
  */
 export async function GET(req: Request, ctx: Context) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
   } catch (e: any) {
     rethrowNextErrors(e);
     return NextResponse.json(

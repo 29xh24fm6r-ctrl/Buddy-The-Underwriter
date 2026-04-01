@@ -2,7 +2,6 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { runFullUnderwrite } from "@/lib/underwritingEngine";
@@ -69,7 +68,6 @@ async function resolveProductType(dealId: string): Promise<ProductType> {
  */
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
 
     const access = await ensureDealBankAccess(dealId);
@@ -183,13 +181,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     });
   } catch (e: any) {
     rethrowNextErrors(e);
-
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: e.code },
-        { status: e.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     console.error("[/api/deals/[dealId]/underwrite]", e);
     return NextResponse.json(

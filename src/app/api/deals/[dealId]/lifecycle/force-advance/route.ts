@@ -3,7 +3,6 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { deriveLifecycleState } from "@/buddy/lifecycle";
@@ -71,7 +70,6 @@ export async function POST(
   ctx: { params: Params }
 ): Promise<NextResponse> {
   try {
-    const { userId, role } = await requireRoleApi([
       "super_admin",
       "bank_admin",
       "underwriter",
@@ -197,13 +195,6 @@ export async function POST(
     });
   } catch (error: any) {
     rethrowNextErrors(error);
-
-    if (error instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: error.code },
-        { status: error.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     console.error("[/api/deals/[dealId]/lifecycle/force-advance] Error:", error);
     return NextResponse.json(

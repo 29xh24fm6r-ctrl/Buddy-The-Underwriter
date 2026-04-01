@@ -3,7 +3,6 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { extractBorrowerFromDocs } from "@/lib/borrower/extractBorrowerFromDocs";
 
@@ -12,7 +11,6 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ dealId: string }> }) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
 
     const access = await ensureDealBankAccess(dealId);
@@ -104,13 +102,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ dealId: string
     });
   } catch (error: any) {
     rethrowNextErrors(error);
-
-    if (error instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: error.code },
-        { status: error.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     console.error("[/api/deals/[dealId]/borrower/summary]", error);
     return NextResponse.json(

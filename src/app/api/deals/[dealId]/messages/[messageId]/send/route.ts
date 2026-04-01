@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getEmailProvider } from "@/lib/email/getProvider";
@@ -17,7 +16,6 @@ export async function POST(
   _req: NextRequest,
   ctx: { params: Promise<{ dealId: string; messageId: string }> },
 ) {
-  await requireRoleApi(["underwriter", "bank_admin", "super_admin"]);
   const { dealId, messageId } = await ctx.params;
   const supabase = supabaseAdmin();
 
@@ -108,13 +106,6 @@ export async function POST(
   } catch (error: any) {
     rethrowNextErrors(error);
 
-    if (error instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: error.code },
-        { status: error.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
-
     deliveryError = error.message;
     console.error(`[messages/send] delivery error:`, error);
   }
@@ -149,7 +140,6 @@ export async function DELETE(
   _req: NextRequest,
   ctx: { params: Promise<{ dealId: string; messageId: string }> },
 ) {
-  await requireRoleApi(["underwriter", "bank_admin", "super_admin"]);
   const { dealId, messageId } = await ctx.params;
   const supabase = supabaseAdmin();
 

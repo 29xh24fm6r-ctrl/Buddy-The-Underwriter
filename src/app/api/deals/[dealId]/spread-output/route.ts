@@ -1,7 +1,6 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -30,7 +29,6 @@ type Ctx = { params: Promise<{ dealId: string }> };
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
     const { dealId } = await ctx.params;
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
@@ -172,9 +170,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     });
   } catch (err: unknown) {
     rethrowNextErrors(err);
-    if (err instanceof AuthorizationError) {
-      return NextResponse.json({ error: err.message }, { status: 403 });
-    }
     console.error("[spread-output] GET error", {
       error: err instanceof Error ? err.message : String(err),
     });

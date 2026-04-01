@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { requireBorrowerOnDeal } from "@/lib/deals/participants";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -22,7 +21,6 @@ export async function GET(
 ) {
   const { dealId } = await ctx.params;
   try {
-    const { role } = await requireRoleApi([
       "borrower",
       "underwriter",
       "bank_admin",
@@ -53,13 +51,6 @@ export async function GET(
     return NextResponse.json({ ok: true, conditions: data ?? [] });
   } catch (err: any) {
     rethrowNextErrors(err);
-
-    if (err instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: err.code },
-        { status: err.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     const msg = String(err?.message ?? err);
     if (msg === "unauthorized") {

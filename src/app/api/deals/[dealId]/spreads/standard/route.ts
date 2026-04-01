@@ -2,7 +2,6 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { computeAuthoritativeEngine } from "@/lib/modelEngine/engineAuthority";
 import { emitV2Event, V2_EVENT_CODES } from "@/lib/modelEngine/events";
@@ -21,7 +20,6 @@ type Ctx = { params: Promise<{ dealId: string }> };
  */
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
 
     const { dealId } = await ctx.params;
     const access = await ensureDealBankAccess(dealId);
@@ -70,13 +68,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     });
   } catch (e: any) {
     rethrowNextErrors(e);
-
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: e.code },
-        { status: e.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     console.error("[/api/deals/[dealId]/spreads/standard]", e);
 

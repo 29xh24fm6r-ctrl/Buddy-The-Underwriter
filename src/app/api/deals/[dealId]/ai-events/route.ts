@@ -1,7 +1,6 @@
 // src/app/api/deals/[dealId]/ai-events/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -11,7 +10,6 @@ export async function GET(
   request: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
 
   const { dealId } = await ctx.params;
   const url = new URL(request.url);

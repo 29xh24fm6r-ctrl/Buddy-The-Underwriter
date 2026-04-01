@@ -10,7 +10,6 @@
  */
 
 import { NextResponse } from "next/server";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { getAIProvider } from "@/lib/ai/provider";
 import { logPipelineLedger } from "@/lib/pipeline/logPipelineLedger";
@@ -27,7 +26,6 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
@@ -215,13 +213,6 @@ export async function POST(
     return NextResponse.json({ ok: true, memo });
   } catch (error: any) {
     rethrowNextErrors(error);
-
-    if (error instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: error.code },
-        { status: error.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     // Log AI failure to pipeline ledger
     try {

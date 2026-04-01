@@ -2,7 +2,6 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { chromium } from "playwright";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -55,14 +54,12 @@ async function renderPdf(req: NextRequest, dealId: string) {
 }
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
-  await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
   const { dealId } = await ctx.params;
   return renderPdf(req, dealId);
 }
 
 // Back-compat: allow GET for manual testing.
 export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
-  await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
   const { dealId } = await ctx.params;
   return renderPdf(req, dealId);
 }

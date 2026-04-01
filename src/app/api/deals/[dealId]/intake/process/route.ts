@@ -16,7 +16,6 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -33,7 +32,6 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
   let runId: string | undefined;
 
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
 
     const params = await ctx.params;
     dealId = params.dealId;
@@ -70,13 +68,6 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ ok: true, dealId, runId });
   } catch (error: any) {
     rethrowNextErrors(error);
-
-    if (error instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: error.code },
-        { status: error.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     console.error("[intake/process] unexpected error", { dealId, runId, error: error?.message });
     return NextResponse.json(

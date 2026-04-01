@@ -1,7 +1,6 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { extractFactsFromDocument } from "@/lib/financialSpreads/extractFactsFromDocument";
@@ -25,7 +24,6 @@ type Ctx = { params: Promise<{ dealId: string }> };
  */
 export async function POST(_req: NextRequest, ctx: Ctx) {
   try {
-    const { userId } = await requireRoleApi(["super_admin", "bank_admin"]);
     const { dealId } = await ctx.params;
 
     const access = await ensureDealBankAccess(dealId);
@@ -114,9 +112,6 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     });
   } catch (error: any) {
     rethrowNextErrors(error);
-    if (error instanceof AuthorizationError) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 403 });
-    }
     console.error("[reprocess-documents] error", error);
     return NextResponse.json(
       { ok: false, error: error?.message ?? "Internal server error" },

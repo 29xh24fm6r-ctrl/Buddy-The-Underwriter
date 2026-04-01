@@ -13,7 +13,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { runMission } from "@/lib/research/runMission";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -31,7 +30,6 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
 
     if (!uuidRegex.test(dealId)) {
@@ -172,13 +170,6 @@ export async function POST(
     return NextResponse.json(result, { status: result.ok ? 200 : 500 });
   } catch (error: any) {
     rethrowNextErrors(error);
-
-    if (error instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: error.code },
-        { status: error.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     console.error("[/api/deals/[dealId]/research/run] Error:", error);
     return NextResponse.json(

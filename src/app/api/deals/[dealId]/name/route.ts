@@ -3,7 +3,6 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
@@ -18,7 +17,6 @@ function normalizeName(value: unknown): string | null {
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
 
     const body = await req.json().catch(() => ({}));
@@ -76,13 +74,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ dealId: s
     });
   } catch (error) {
     rethrowNextErrors(error);
-
-    if (error instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: error.code },
-        { status: error.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     console.error("[/api/deals/[dealId]/name]", error);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });

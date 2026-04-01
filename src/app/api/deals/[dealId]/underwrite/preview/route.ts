@@ -16,7 +16,6 @@ import "server-only";
 
 import { NextResponse, NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { runPolicyAwareUnderwriting } from "@/lib/underwrite/policyEngine";
@@ -52,7 +51,6 @@ export async function POST(
 
   try {
     // === Phase 1: Auth ===
-    const { userId, role } = await requireRoleApi([
       "super_admin",
       "bank_admin",
       "underwriter",
@@ -167,13 +165,6 @@ export async function POST(
     );
   } catch (error) {
     rethrowNextErrors(error);
-
-    if (error instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: error.code },
-        { status: error.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     // Fire-and-forget failure event
     if (dealId !== "unknown") {

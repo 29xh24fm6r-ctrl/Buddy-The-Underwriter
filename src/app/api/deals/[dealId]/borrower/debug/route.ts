@@ -3,7 +3,6 @@ import "server-only";
 import { NextResponse, NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import {
   respond200,
@@ -178,7 +177,6 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
   const headers = createHeaders(correlationId, ROUTE);
 
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
 
     const uuidCheck = validateUuidParam(dealId, "dealId");
@@ -196,13 +194,6 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
     return respond200({ ...result, meta: { dealId, correlationId, ts } } as any, headers);
   } catch (err) {
     rethrowNextErrors(err);
-
-    if (err instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: err.code },
-        { status: err.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     const safe = sanitizeError(err, "borrower_debug_failed");
     return respond200({ ok: false, error: safe, meta: { dealId: "unknown", correlationId, ts } }, headers);

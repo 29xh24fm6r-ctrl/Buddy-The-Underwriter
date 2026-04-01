@@ -14,7 +14,6 @@ import "server-only";
 
 import { NextResponse, NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { sanitizeErrorForEvidence } from "@/buddy/lifecycle/jsonSafe";
@@ -81,26 +80,8 @@ async function buildPayload(
     }
     dealId = rawDealId;
 
-    // === Phase 2: Role check ===
-    const roleResult = await safeWithTimeout(
-      requireRoleApi(["super_admin", "bank_admin", "underwriter"]),
-      8_000,
-      "requireRoleApi",
-      correlationId
-    );
-
-    if (!roleResult.ok) {
-      return {
-        ok: false,
-        dealId,
-        decision: null,
-        snapshot: null,
-        error: { code: "role_check_failed", message: roleResult.error },
-        meta: { dealId, correlationId, ts },
-      };
-    }
-
-    // === Phase 3: Check access ===
+    // === Phase 2: Check access ===
+    // ensureDealBankAccess is the canonical auth + tenant gate for this route.
     const accessResult = await safeWithTimeout(
       ensureDealBankAccess(dealId),
       10_000,
@@ -219,17 +200,6 @@ async function buildPayload(
     };
   } catch (unexpectedErr) {
     rethrowNextErrors(unexpectedErr);
-
-    if (unexpectedErr instanceof AuthorizationError) {
-      return {
-        ok: false,
-        dealId,
-        decision: null,
-        snapshot: null,
-        error: { code: unexpectedErr.code, message: unexpectedErr.message },
-        meta: { dealId, correlationId, ts },
-      };
-    }
 
     const errInfo = sanitizeErrorForEvidence(unexpectedErr);
     console.error(`[financial-snapshot/decision] correlationId=${correlationId} dealId=${dealId} UNEXPECTED: ${errInfo.message}`);

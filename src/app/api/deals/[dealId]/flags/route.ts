@@ -1,7 +1,6 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -64,7 +63,6 @@ type DbQuestion = {
 
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
 
     const access = await ensureDealBankAccess(dealId);
@@ -152,12 +150,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     });
   } catch (e: any) {
     rethrowNextErrors(e);
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: e.code },
-        { status: e.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
     console.error("[/api/deals/[dealId]/flags GET]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
@@ -176,7 +168,6 @@ const STATUS_TRANSITIONS: Record<string, { from: string[]; to: string }> = {
 
 export async function PATCH(req: NextRequest, ctx: Ctx) {
   try {
-    const auth = await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
     const { dealId } = await ctx.params;
 
     const access = await ensureDealBankAccess(dealId);
@@ -286,12 +277,6 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ ok: true, flag: updatedFlag });
   } catch (e: any) {
     rethrowNextErrors(e);
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: e.code },
-        { status: e.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
     console.error("[/api/deals/[dealId]/flags PATCH]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }

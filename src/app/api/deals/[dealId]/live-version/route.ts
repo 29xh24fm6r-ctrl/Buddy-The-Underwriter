@@ -1,7 +1,6 @@
 // src/app/api/deals/[dealId]/live-version/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -43,16 +42,8 @@ export async function GET(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
   } catch (e) {
     rethrowNextErrors(e);
-
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: e.code },
-        { status: e.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     // Graceful degradation for unauthorized requests
     return NextResponse.json({ ok: true, version: 0 }, { status: 200 });
@@ -79,13 +70,6 @@ export async function GET(
     return NextResponse.json({ ok: true, version });
   } catch (e: any) {
     rethrowNextErrors(e);
-
-    if (e instanceof AuthorizationError) {
-      return NextResponse.json(
-        { ok: false, error: e.code },
-        { status: e.code === "not_authenticated" ? 401 : 403 },
-      );
-    }
 
     console.warn("[live-version] Error (returning version:0):", e);
     return NextResponse.json({ ok: true, version: 0 });

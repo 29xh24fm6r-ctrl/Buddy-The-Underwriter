@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -10,7 +9,6 @@ export async function GET(
   _req: NextRequest,
   ctx: { params: Promise<{ dealId: string; attachmentId: string }> },
 ) {
-  await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
 
   const { dealId, attachmentId } = await ctx.params;
   const sb = supabaseAdmin();
