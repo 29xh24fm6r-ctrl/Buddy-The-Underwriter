@@ -6,7 +6,7 @@
  * - deal_status.stage (borrower-facing 8-stage model)
  * - deal_checklist_items (document satisfaction)
  * - decision_snapshots (decision presence)
- * - deal_truth_snapshots (financial snapshot)
+ * - financial_snapshots (financial snapshot)
  *
  * Computes blockers by composing existing guards:
  * - computeDealReadiness() for doc satisfaction
@@ -170,7 +170,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
       "snapshot",
       () =>
         sb
-          .from("deal_truth_snapshots")
+          .from("financial_snapshots")
           .select("id", { count: "exact", head: true })
           .eq("deal_id", dealId),
       ctx
