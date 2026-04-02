@@ -78,8 +78,6 @@ export async function POST(
         covenant_notes: body.covenant_notes ?? null,
         structure_notes: body.structure_notes ?? null,
         source: body.source ?? "banker",
-        created_by: access.userId,
-        updated_by: access.userId,
       })
       .select("id")
       .single();
