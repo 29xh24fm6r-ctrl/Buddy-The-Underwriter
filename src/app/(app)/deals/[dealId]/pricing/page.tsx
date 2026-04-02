@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 import DealPricingClient from "./DealPricingClient";
 import PricingScenariosPanel from "./PricingScenariosPanel";
@@ -204,29 +205,36 @@ export default async function Page(
   const pricing = pricingResult.data;
   const baseUrl = await getBaseUrl();
 
-  const [inputsRes, ratesRes, quotesRes] = await Promise.all([
-    fetch(`${baseUrl}/api/deals/${dealId}/pricing/inputs`, { cache: "no-store" }),
-    fetch(`${baseUrl}/api/rates/latest`, { cache: "no-store" }),
-    fetch(`${baseUrl}/api/deals/${dealId}/pricing/quotes`, { cache: "no-store" }),
-  ]);
-
   let inputs: PricingInputs | null = null;
   let latestRates: LatestRates | null = null;
   let quotes: QuoteRow[] = [];
 
-  if (inputsRes.ok) {
-    const payload = await inputsRes.json();
-    inputs = payload?.inputs ?? null;
-  }
+  try {
+    const [inputsRes, ratesRes, quotesRes] = await Promise.all([
+      fetch(`${baseUrl}/api/deals/${dealId}/pricing/inputs`, { cache: "no-store", signal: AbortSignal.timeout(8000) }),
+      fetch(`${baseUrl}/api/rates/latest`, { cache: "no-store", signal: AbortSignal.timeout(8000) }),
+      fetch(`${baseUrl}/api/deals/${dealId}/pricing/quotes`, { cache: "no-store", signal: AbortSignal.timeout(8000) }),
+    ]);
 
-  if (ratesRes.ok) {
-    const payload = await ratesRes.json();
-    latestRates = payload?.rates ?? null;
-  }
+    if (inputsRes.ok) {
+      const payload = await inputsRes.json();
+      inputs = payload?.inputs ?? null;
+    }
 
-  if (quotesRes.ok) {
-    const payload = await quotesRes.json();
-    quotes = payload?.quotes ?? [];
+    if (ratesRes.ok) {
+      const payload = await ratesRes.json();
+      latestRates = payload?.rates ?? null;
+    }
+
+    if (quotesRes.ok) {
+      const payload = await quotesRes.json();
+      quotes = payload?.quotes ?? [];
+    }
+  } catch (err) {
+    console.warn("[pricing] fetch timeout or network error — rendering with defaults", {
+      dealId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
   const indexCode = inputs?.index_code ?? "SOFR";
   const rateEntry = latestRates?.[indexCode] ?? latestRates?.SOFR ?? null;
