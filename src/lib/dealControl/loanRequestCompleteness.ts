@@ -4,12 +4,10 @@ import type { LoanRequest, LoanRequestStatus } from "./loanRequestTypes";
 /**
  * Determine loan request completeness status and missing fields.
  *
- * Minimum completeness:
+ * Minimum completeness (core intake fields):
  * - loan_amount
  * - loan_purpose
  * - loan_type
- * - facility_purpose
- * - collateral_type
  *
  * Conditional:
  * - collateral_type === "real_estate" → occupancy_type required
@@ -30,8 +28,7 @@ export function computeLoanRequestStatus(
   if (!request.loanAmount || request.loanAmount <= 0) missing.push("loan_amount");
   if (!request.loanPurpose?.trim()) missing.push("loan_purpose");
   if (!request.loanType?.trim()) missing.push("loan_type");
-  if (!request.facilityPurpose?.trim()) missing.push("facility_purpose");
-  if (!request.collateralType?.trim()) missing.push("collateral_type");
+  // facility_purpose and collateral_type are optional at intake — required only for formal submission
 
   // Conditional
   if (request.collateralType === "real_estate" && !request.occupancyType?.trim()) {
