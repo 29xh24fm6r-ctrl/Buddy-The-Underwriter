@@ -508,7 +508,7 @@ export default function DealPricingClient({
   const memoError = activeQuote?.id ? memoErrorByQuoteId[activeQuote.id] : "";
 
   return (
-    <main className="min-h-screen bg-white">
+    <main className="min-h-screen bg-white text-slate-900">
       <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
         <div className="flex items-start justify-between gap-4">
           <div>
