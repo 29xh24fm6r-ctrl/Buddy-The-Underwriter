@@ -109,7 +109,7 @@ export default function BuilderPageClient({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [lastSaved, setLastSaved] = useState<string | null>(null);
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debounceRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // Build current state object
   const readiness = computeBuilderReadiness(
@@ -133,9 +133,10 @@ export default function BuilderPageClient({
   // Debounced section save
   const saveSection = useCallback(
     (sectionKey: string, data: Record<string, unknown>) => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
+      const existing = debounceRef.current.get(sectionKey);
+      if (existing) clearTimeout(existing);
       setSaveState("saving");
-      debounceRef.current = setTimeout(async () => {
+      const timer = setTimeout(async () => {
         try {
           const res = await fetch(`/api/deals/${dealId}/builder/sections`, {
             method: "PATCH",
@@ -153,6 +154,7 @@ export default function BuilderPageClient({
           setSaveState("error");
         }
       }, 500);
+      debounceRef.current.set(sectionKey, timer);
     },
     [dealId],
   );
