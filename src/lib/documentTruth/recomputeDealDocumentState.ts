@@ -62,6 +62,14 @@ export async function recomputeDealDocumentState(dealId: string): Promise<void> 
     .select("id, deal_id, original_filename, checklist_key, canonical_type, ai_doc_type, ai_confidence, doc_year, ai_tax_year, assigned_owner_id, intake_status, intake_confirmed_at, created_at")
     .eq("deal_id", dealId);
 
+  // Auto-satisfy loan_request.summary when a structured loan request record exists
+  const { data: loanRequestRecord } = await sb
+    .from("deal_loan_requests")
+    .select("id")
+    .eq("deal_id", dealId)
+    .limit(1)
+    .maybeSingle();
+
   const dealType = (deal as Record<string, unknown>).deal_type as string ?? "conventional";
   const requirements = getRequirementsForDealType(dealType);
 
@@ -89,11 +97,10 @@ export async function recomputeDealDocumentState(dealId: string): Promise<void> 
     const year = yearFromDb ?? (yearMatch ? parseInt(yearMatch[1], 10) : null);
 
     // Derive reviewStatus from intake pipeline:
-    // "LOCKED_FOR_PROCESSING" with intake_confirmed_at set → banker confirmed → "confirmed"
-    // "LOCKED_FOR_PROCESSING" without intake_confirmed_at → auto-locked → "unreviewed"
+    // "LOCKED_FOR_PROCESSING" means banker approved the doc for the pipeline → "confirmed"
     // All other statuses → "unreviewed"
     const reviewStatus: ReviewStatus =
-      (doc.intake_status as string) === "LOCKED_FOR_PROCESSING" && doc.intake_confirmed_at
+      (doc.intake_status as string) === "LOCKED_FOR_PROCESSING"
         ? "confirmed"
         : "unreviewed";
 
@@ -115,6 +122,20 @@ export async function recomputeDealDocumentState(dealId: string): Promise<void> 
       subjectId: (doc.assigned_owner_id as string) ?? null,
       sourceFileName: (doc.original_filename as string) ?? null,
       reviewStatus,
+    });
+  }
+
+  if (loanRequestRecord) {
+    matchedItems.push({
+      documentId: loanRequestRecord.id,
+      requirementCode: "loan_request.summary" as RequirementCode,
+      checklistStatus: "satisfied",
+      readinessStatus: "complete",
+      classifiedType: "loan_request",
+      year: null,
+      subjectId: null,
+      sourceFileName: "Structured Loan Request",
+      reviewStatus: "confirmed",
     });
   }
 

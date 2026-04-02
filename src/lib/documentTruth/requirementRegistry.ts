@@ -227,12 +227,12 @@ export const REQUIREMENT_REGISTRY: RequirementDefinition[] = [
     code: "loan_request.summary",
     label: "Loan Request",
     group: "loan_request",
-    required: true,
+    required: false,
     dealTypes: ["all"],
     quantityRule: "any_one",
     subjectRule: "any",
     acceptedDocTypes: ["loan_request"],
-    canBeWaived: false,
+    canBeWaived: true,
   },
 ];
 
