@@ -1,3 +1,6 @@
+export const dynamic = "force-dynamic";
+export const maxDuration = 15;
+
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { getOmegaAdvisoryState } from "@/core/omega/OmegaAdvisoryAdapter";
