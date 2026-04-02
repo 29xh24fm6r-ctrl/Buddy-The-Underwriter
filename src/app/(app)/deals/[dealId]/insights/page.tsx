@@ -119,12 +119,16 @@ export default function BorrowerInsightsPage() {
   const loadInsights = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/deals/${dealId}/insights`);
+      const res = await fetch(`/api/deals/${dealId}/borrower-insights`);
       if (!res.ok) {
-        setError(`Failed to load insights: ${res.status}`);
+        setError(res.status === 404 ? "No borrower insights available yet" : `Failed to load insights: ${res.status}`);
         return;
       }
       const json = await res.json();
+      if (!json || !json.healthSummary || !json.whatMatters || !Array.isArray(json.bankabilityActions)) {
+        setError("Borrower insights payload is incomplete");
+        return;
+      }
       setData(json);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
