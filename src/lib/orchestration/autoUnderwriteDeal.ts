@@ -83,7 +83,7 @@ export async function autoUnderwriteDeal(
   // Load deal to determine type
   const { data: deal } = await sb
     .from("deals")
-    .select("id, deal_type, lifecycle_stage")
+    .select("id, deal_type, stage")
     .eq("id", dealId)
     .single();
 

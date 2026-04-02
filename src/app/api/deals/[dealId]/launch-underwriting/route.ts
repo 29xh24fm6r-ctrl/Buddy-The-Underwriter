@@ -99,7 +99,7 @@ export async function POST(
       launch_sequence: launchSequence,
       launched_by: userId,
       launched_at: now,
-      lifecycle_stage_at_launch: deal?.lifecycle_stage ?? deal?.stage ?? "underwriting",
+      lifecycle_stage_at_launch: deal?.stage ?? "underwriting",
       borrower_snapshot_json: borrower ?? {},
       deal_snapshot_json: { id: deal?.id, name: deal?.name, bank_id: deal?.bank_id },
       loan_request_snapshot_json: canonicalRequest,

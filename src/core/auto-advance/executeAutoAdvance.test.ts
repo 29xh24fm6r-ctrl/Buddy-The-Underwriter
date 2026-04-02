@@ -29,17 +29,17 @@ test("executeAutoAdvance is idempotent", () => {
     path.resolve(root, "src/core/auto-advance/executeAutoAdvance.ts"),
     "utf8",
   );
-  assert.ok(content.includes("lifecycle_stage"), "Must check current stage");
+  assert.ok(content.includes(".select(\"stage\")"), "Must check current stage");
   assert.ok(content.includes("fromStage"), "Must compare from-stage for idempotency");
 });
 
-test("executeAutoAdvance updates deals.lifecycle_stage", () => {
+test("executeAutoAdvance updates deals.stage", () => {
   const content = fs.readFileSync(
     path.resolve(root, "src/core/auto-advance/executeAutoAdvance.ts"),
     "utf8",
   );
   assert.ok(
-    content.includes("lifecycle_stage: evaluation.toStage"),
-    "Must update lifecycle_stage on deals table",
+    content.includes("stage: evaluation.toStage"),
+    "Must update stage on deals table",
   );
 });

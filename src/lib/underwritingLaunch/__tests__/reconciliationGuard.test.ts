@@ -22,11 +22,11 @@ describe("Launch API wraps ensureUnderwritingActivatedCore", () => {
     assert.ok(content.includes("ensureUnderwritingActivatedCore"));
   });
 
-  it("does NOT independently mutate lifecycle_stage", () => {
+  it("does NOT independently mutate stage", () => {
     const content = fs.readFileSync(LAUNCH_ROUTE, "utf-8");
-    // Should not have direct deals.update({ lifecycle_stage }) — activation core handles this
+    // Should not have direct deals.update({ stage }) — activation core handles this
     const lines = content.split("\n").filter(
-      (l) => !l.trim().startsWith("//") && l.includes("lifecycle_stage") && l.includes(".update"),
+      (l) => !l.trim().startsWith("//") && l.includes("stage") && l.includes(".update(") && l.includes("deals"),
     );
     assert.equal(lines.length, 0, "Launch should not directly mutate lifecycle — activation core does this");
   });

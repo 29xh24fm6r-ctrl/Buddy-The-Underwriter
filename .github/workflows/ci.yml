@@ -26,6 +26,8 @@ jobs:
         run: pnpm -s typecheck
       - name: Lint
         run: pnpm -s lint
+      - name: Architectural guards
+        run: pnpm -s guard:all
       - name: Unit tests (CI-blocking)
         run: pnpm -s test:unit
       - name: Check cockpit polling guardrail
