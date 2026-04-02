@@ -13,7 +13,7 @@ import type { TaskContract, HandoffType, HandoffResult } from "./agentTaskContra
 import { validateContract } from "./agentTaskContracts";
 import { canDelegate } from "./agentDelegationPolicy";
 import { buildHandoffBrief, type HandoffBrief } from "./agentBriefBuilder";
-import { agentHandoffRowToDomain, type AgentHandoffDomain } from "@/lib/contracts/phase66b66cRowMappers";
+import { agentHandoffRowToDomain, type AgentHandoffDomain, type AgentHandoffRow } from "@/lib/contracts/phase66b66cRowMappers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -135,6 +135,10 @@ export async function getHandoffsForDeal(
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false });
 
-  if (error || !data) return [];
-  return (data as any[]).map(agentHandoffRowToDomain);
+  if (error) {
+    console.error("[agentHandoff] getHandoffsForDeal failed", { dealId, error: error.message });
+    return [];
+  }
+  if (!data) return [];
+  return data.map((row: Record<string, unknown>) => agentHandoffRowToDomain(row as AgentHandoffRow));
 }
