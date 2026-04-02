@@ -37,9 +37,10 @@ export function deriveDealHeader(
     }
   }
 
-  // Phase 58A: If both are auto-generated but a name exists, use it over raw ID
-  if (displayName) return { title: displayName, needsName: true };
-  if (name) return { title: name, needsName: true };
+  // All candidates are either empty or auto-generated.
+  // If a non-blank field existed (but was auto-generated), show fallback
+  // with needsName=false — the field IS populated, just not meaningful.
+  if (hasName) return { title: fallback, needsName: false };
 
   return { title: fallback, needsName: true };
 }

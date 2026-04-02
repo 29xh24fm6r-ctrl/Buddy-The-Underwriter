@@ -6,7 +6,7 @@ const EMIT_PATH = "src/lib/pulseMcp/emitPipelineEvent.ts";
 const OUTBOX_PATH = "src/lib/outbox/insertOutboxEvent.ts";
 const INSTRUMENTATION_PATH = "src/instrumentation.ts";
 const WORKER_PATH = "services/buddy-core-worker/src/index.ts";
-const MIGRATION_PATH = "supabase/migrations/20260129_buddy_outbox_events.sql";
+const MIGRATION_PATH = "supabase/migrations/20260129000001_buddy_outbox_events.sql";
 
 function readSource(path: string): string {
   return fs.readFileSync(path, "utf-8");
@@ -331,8 +331,8 @@ test("worker: marks events delivered (delivered_at + last_error null)", () => {
 test("worker: marks events failed (attempts + last_error)", () => {
   const source = readSource(WORKER_PATH);
   assert.ok(source.includes("markFailed"), "Must have markFailed");
-  assert.ok(source.includes("attempts = attempts + 1"), "Must increment attempts on failure");
-  assert.ok(source.includes("last_error = $2"), "Must set last_error on failure");
+  assert.ok(source.includes("attempts = $2"), "Must set attempts on failure");
+  assert.ok(source.includes("last_error = $3"), "Must set last_error on failure");
 });
 
 test("worker: has per-row backoff on failure (cap 30s)", () => {

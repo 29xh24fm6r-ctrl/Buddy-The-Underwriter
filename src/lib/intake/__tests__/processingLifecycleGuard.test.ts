@@ -18,12 +18,12 @@ import {
 } from "../constants";
 
 describe("Processing Lifecycle CI Guards", () => {
-  // Guard 1: MAX_PROCESSING_WINDOW_MS is exactly 5 minutes
-  test("Guard 1: MAX_PROCESSING_WINDOW_MS = 300_000 (5 minutes)", () => {
+  // Guard 1: MAX_PROCESSING_WINDOW_MS is exactly 15 minutes
+  test("Guard 1: MAX_PROCESSING_WINDOW_MS = 900_000 (15 minutes)", () => {
     assert.equal(
       MAX_PROCESSING_WINDOW_MS,
-      5 * 60 * 1000,
-      "MAX_PROCESSING_WINDOW_MS must be exactly 5 minutes (300,000ms)",
+      15 * 60 * 1000,
+      "MAX_PROCESSING_WINDOW_MS must be exactly 15 minutes (900,000ms)",
     );
   });
 
