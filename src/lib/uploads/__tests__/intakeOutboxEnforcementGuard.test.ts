@@ -86,7 +86,7 @@ const phasePatchSrc = readSource(
 );
 
 const claimRpcSrc = readSource(
-  "supabase/migrations/20260226_claim_intake_outbox_rpc.sql",
+  "supabase/migrations/20260226000000_claim_intake_outbox_rpc.sql",
 );
 
 const constraintsSrc = readSource(

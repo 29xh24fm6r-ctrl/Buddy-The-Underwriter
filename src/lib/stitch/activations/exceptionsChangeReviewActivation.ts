@@ -76,7 +76,7 @@ export async function getExceptionsChangeReviewActivationData(
         };
       });
 
-      return { rows, totals: { count: rows.length, criticalCount: 0 } };
+      return { rows, totals: { count: rows.length, criticalCount: 0 }, history: [] };
     }
 
     // Fetch deal details
@@ -125,7 +125,7 @@ export async function getExceptionsChangeReviewActivationData(
     return { rows, totals: { count: rows.length, criticalCount }, history };
   } catch (err) {
     console.error("[exceptionsChangeReview activation] error:", err);
-    return { rows: [], totals: { count: 0, criticalCount: 0 }, error: String(err) };
+    return { rows: [], totals: { count: 0, criticalCount: 0 }, history: [], error: String(err) };
   }
 }
 
