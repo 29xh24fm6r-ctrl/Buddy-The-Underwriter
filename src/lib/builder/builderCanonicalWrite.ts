@@ -93,7 +93,7 @@ async function writeDealCanonical(
       product_type: mappedProductType,
       loan_purpose: data.loan_purpose ?? null,
       requested_amount: data.requested_amount ?? null,
-      source: "builder",
+      source: "banker",
       status: "draft",
     }, { onConflict: "deal_id,request_number" });
     if (error) {
