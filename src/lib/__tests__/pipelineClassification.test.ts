@@ -13,12 +13,26 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import path from "node:path";
 
 import { toCanonicalDocType, canonicalTypeToChecklistKeys } from "@/lib/documents/classify";
 import type { CanonicalDocumentType } from "@/lib/documents/classify";
 import { normalizeToCanonical } from "@/lib/documents/normalizeType";
-import { mapDocTypeToChecklistKeys } from "@/lib/artifacts/classifyDocument";
 import { isChecklistItemSatisfied, getSatisfiedRequired, getMissingRequired } from "@/lib/deals/checklistSatisfaction";
+
+// classifyDocument.ts has `import "server-only"` which throws in test context.
+// Use CJS require with patched resolution to bypass server-only guard.
+const require = createRequire(import.meta.url);
+const Module = require("module");
+const origResolve = Module._resolveFilename;
+Module._resolveFilename = function (request: string, ...args: any[]) {
+  if (request === "server-only") {
+    return path.join(process.cwd(), "node_modules/server-only/empty.js");
+  }
+  return origResolve.call(this, request, ...args);
+};
+const { mapDocTypeToChecklistKeys } = require("@/lib/artifacts/classifyDocument");
 
 // =============================================
 // 1. AI doc type → canonical type mapping

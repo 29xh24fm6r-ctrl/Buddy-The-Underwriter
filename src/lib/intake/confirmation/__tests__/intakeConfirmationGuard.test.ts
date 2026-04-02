@@ -144,8 +144,8 @@ test("[guard-6] snapshot hash computed when phase = CONFIRMED_READY_FOR_PROCESSI
     "confirm route must compute intake_snapshot_hash",
   );
   assert.ok(
-    src.includes("intake_snapshot_hash"),
-    "confirm route must store intake_snapshot_hash on deals",
+    src.includes("p_snapshot_hash") || src.includes("intake_snapshot_hash"),
+    "confirm route must store snapshot hash on deals (via RPC p_snapshot_hash or inline intake_snapshot_hash)",
   );
 });
 
@@ -314,8 +314,8 @@ test("[guard-17] confirm route stores intake_snapshot_version via INTAKE_SNAPSHO
     "confirm route must import and use INTAKE_SNAPSHOT_VERSION",
   );
   assert.ok(
-    src.includes("intake_snapshot_version"),
-    "confirm route must store intake_snapshot_version on deals",
+    src.includes("p_snapshot_version") || src.includes("intake_snapshot_version") || src.includes("snapshot_version"),
+    "confirm route must store snapshot version on deals (via RPC p_snapshot_version or inline)",
   );
 });
 
@@ -973,7 +973,8 @@ test("[guard-58] spreadsForDocType: T12→[T12], RENT_ROLL→[RENT_ROLL], PTR→
   const { spreadsForDocType } = await import(
     "@/lib/financialSpreads/docTypeToSpreadTypes"
   );
-  assert.deepStrictEqual(spreadsForDocType("T12"), ["T12"]);
+  // T12 is a spread type, not a document type — INCOME_STATEMENT maps to T12
+  assert.deepStrictEqual(spreadsForDocType("INCOME_STATEMENT"), ["T12"]);
   assert.deepStrictEqual(spreadsForDocType("RENT_ROLL"), ["RENT_ROLL"]);
   assert.deepStrictEqual(spreadsForDocType("PERSONAL_TAX_RETURN"), ["PERSONAL_INCOME", "GLOBAL_CASH_FLOW"]);
   assert.deepStrictEqual(spreadsForDocType("BALANCE_SHEET"), ["BALANCE_SHEET"]);
@@ -1201,20 +1202,20 @@ test("[guard-73] extractTaxYear clamps against future years in fallback", () => 
   );
 });
 
-// ── Guard 74: documents GET endpoint has try/catch error handler ───────
-test("[guard-74] documents GET endpoint has try/catch with AuthorizationError handling", () => {
+// ── Guard 74: documents GET endpoint uses requireDealCockpitAccess guard ───────
+test("[guard-74] documents GET endpoint uses requireDealCockpitAccess auth guard", () => {
   const src = readSource("src/app/api/deals/[dealId]/documents/route.ts");
   assert.ok(
-    src.includes("try {") && src.includes("catch"),
-    "documents GET must wrap handler in try/catch",
+    src.includes("requireDealCockpitAccess"),
+    "documents GET must use requireDealCockpitAccess guard",
   );
   assert.ok(
-    src.includes("AuthorizationError"),
-    "documents GET must handle AuthorizationError",
+    src.includes("auth.ok") || src.includes("!auth.ok"),
+    "documents GET must check auth.ok from guard result",
   );
   assert.ok(
-    src.includes("rethrowNextErrors"),
-    "documents GET must call rethrowNextErrors in catch block",
+    src.includes("COCKPIT_ROLES"),
+    "documents GET must pass COCKPIT_ROLES to access guard",
   );
 });
 
@@ -1415,7 +1416,7 @@ test("[guard-86] Shared extractFilenamePattern imported in both override surface
 
 // ── Processing Observability Structural Guards ──────────────────────
 
-test("[guard-87] Confirm route stamps run markers (run_id, queued_at, randomUUID)", () => {
+test("[guard-87] Confirm route stamps run markers (run_id via RPC, randomUUID)", () => {
   const src = readSource(
     "src/app/api/deals/[dealId]/intake/confirm/route.ts",
   );
@@ -1424,12 +1425,19 @@ test("[guard-87] Confirm route stamps run markers (run_id, queued_at, randomUUID
     "confirm route must generate runId via crypto.randomUUID()",
   );
   assert.ok(
-    src.includes("intake_processing_run_id: runId"),
-    "confirm route must stamp intake_processing_run_id on deals update",
+    src.includes("p_run_id: runId"),
+    "confirm route must pass p_run_id to finalization RPC",
+  );
+  const rpcSrc = readSource(
+    "supabase/migrations/20260225000001_finalize_intake_and_enqueue_rpc.sql",
   );
   assert.ok(
-    src.includes("intake_processing_queued_at: now"),
-    "confirm route must stamp intake_processing_queued_at on deals update",
+    rpcSrc.includes("intake_processing_run_id = p_run_id"),
+    "RPC must stamp intake_processing_run_id from p_run_id",
+  );
+  assert.ok(
+    rpcSrc.includes("intake_processing_queued_at"),
+    "RPC must stamp intake_processing_queued_at",
   );
 });
 

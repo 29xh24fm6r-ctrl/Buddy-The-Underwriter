@@ -94,15 +94,15 @@ test("ensureCoreDocumentSlots defines 11 baseline slots with correct structure",
 // ---------------------------------------------------------------------------
 
 test("migration adds slot_id column to deal_documents", () => {
-  // Check that the migration SQL exists in processArtifact's slot lookup
+  // Check that processArtifact references slot validation (slot_id is used via validateSlotAttachmentIfAny)
   const src = readFile("src/lib/artifacts/processArtifact.ts");
   assert.ok(
-    src.includes("lookupSlotDocType"),
-    "processArtifact must define lookupSlotDocType helper",
+    src.includes("validateSlotAttachmentIfAny"),
+    "processArtifact must call validateSlotAttachmentIfAny for slot validation",
   );
   assert.ok(
-    src.includes('"slot_id"') || src.includes("'slot_id'") || src.includes(".slot_id"),
-    "processArtifact must reference slot_id column",
+    src.includes("slot_id"),
+    "processArtifact must reference slot_id",
   );
 });
 
@@ -110,13 +110,13 @@ test("migration adds slot_id column to deal_documents", () => {
 // 3. processArtifact routing — gatekeeper drives, slots are telemetry only
 // ---------------------------------------------------------------------------
 
-test("processArtifact keeps lookupSlotDocType for telemetry but never uses it for routing", () => {
+test("processArtifact keeps validateSlotAttachmentIfAny for telemetry but never uses it for routing", () => {
   const src = readFile("src/lib/artifacts/processArtifact.ts");
 
-  // lookupSlotDocType still exists (for shadow comparison / telemetry)
+  // validateSlotAttachmentIfAny still exists (for slot validation / telemetry)
   assert.ok(
-    src.includes("lookupSlotDocType"),
-    "lookupSlotDocType must still exist for telemetry",
+    src.includes("validateSlotAttachmentIfAny"),
+    "validateSlotAttachmentIfAny must still exist for slot validation",
   );
 
   // effectiveDocType must NEVER be assigned from slotDocType
@@ -136,7 +136,7 @@ test("processArtifact keeps lookupSlotDocType for telemetry but never uses it fo
   );
 });
 
-test("processArtifact validates slot attachment after stamp", () => {
+test("processArtifact validates slot attachment after extraction", () => {
   const src = readFile("src/lib/artifacts/processArtifact.ts");
 
   assert.ok(
@@ -144,12 +144,12 @@ test("processArtifact validates slot attachment after stamp", () => {
     "processArtifact must call validateSlotAttachmentIfAny",
   );
 
-  // Validation must come before extraction
-  const validateIdx = src.indexOf("validateSlotAttachmentIfAny");
+  // Validation comes after extraction (slot validation needs classified doc type from extraction)
   const extractIdx = src.indexOf("6.5a. Structured extraction");
+  const validateIdx = src.indexOf("validateSlotAttachmentIfAny");
   assert.ok(
-    validateIdx < extractIdx,
-    "Slot validation must come before extraction step 6.5a",
+    extractIdx < validateIdx,
+    "Slot validation must come after extraction step 6.5a (needs classified doc type)",
   );
 });
 

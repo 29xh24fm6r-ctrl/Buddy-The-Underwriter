@@ -65,12 +65,12 @@ describe("computeShadowRoutingComparison", () => {
       gatekeeperRoute: "GOOGLE_DOC_AI_CORE",
       gatekeeperConfidence: 0.95,
     });
-    assert.equal(result.slotEngine, "DocAI");
-    assert.equal(result.gatekeeperEngine, "DocAI");
+    assert.equal(result.slotEngine, "GeminiStructured");
+    assert.equal(result.gatekeeperEngine, "GeminiStructured");
     assert.equal(result.divergentEngine, false);
   });
 
-  it("diverging engines (slot=DocAI, gk=Gemini) → divergentEngine=true", () => {
+  it("diverging engines (slot=GeminiStructured, gk=Gemini) → divergentEngine=true", () => {
     const result = computeShadowRoutingComparison({
       documentId: "doc-6",
       slotDocType: "BUSINESS_TAX_RETURN",
@@ -79,7 +79,7 @@ describe("computeShadowRoutingComparison", () => {
       gatekeeperRoute: "STANDARD",
       gatekeeperConfidence: 0.88,
     });
-    assert.equal(result.slotEngine, "DocAI");
+    assert.equal(result.slotEngine, "GeminiStructured");
     assert.equal(result.gatekeeperEngine, "Gemini");
     assert.equal(result.divergentEngine, true);
     assert.ok(result.reason?.includes("engine:"));
@@ -100,7 +100,7 @@ describe("computeShadowRoutingComparison", () => {
 
   // ── Engine mapping correctness ──────────────────────────────────────────
 
-  it("tax return slot → DocAI engine", () => {
+  it("tax return slot → GeminiStructured engine", () => {
     const result = computeShadowRoutingComparison({
       documentId: "doc-8",
       slotDocType: "PERSONAL_TAX_RETURN",
@@ -109,7 +109,7 @@ describe("computeShadowRoutingComparison", () => {
       gatekeeperRoute: "GOOGLE_DOC_AI_CORE",
       gatekeeperConfidence: 0.95,
     });
-    assert.equal(result.slotEngine, "DocAI");
+    assert.equal(result.slotEngine, "GeminiStructured");
   });
 
   it("bank statement slot → Gemini engine", () => {

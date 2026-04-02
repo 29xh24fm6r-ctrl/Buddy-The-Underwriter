@@ -64,8 +64,10 @@ describe("FIX 1A: Single doc confirm stamps quality + finalized", () => {
     );
   });
 
-  test("[fix1a-5] quality_status is set BEFORE the update call", () => {
-    // Verify quality_status appears in the patch object before .update()
+  test("[fix1a-5] quality_status is stamped in a separate update after reconcile", () => {
+    // quality_status + finalized_at are written in a SEPARATE update AFTER
+    // the main patch + reconcile, so the DB constraint
+    // finalized_doc_must_have_checklist_key is never violated.
     const patchIdx = docConfirmSrc.indexOf("const patch:");
     const updateIdx = docConfirmSrc.indexOf(".update(patch)");
     const qualityIdx = docConfirmSrc.indexOf('quality_status: "PASSED"');
@@ -73,8 +75,8 @@ describe("FIX 1A: Single doc confirm stamps quality + finalized", () => {
     assert.ok(updateIdx > 0, ".update(patch) call must exist");
     assert.ok(qualityIdx > 0, 'quality_status: "PASSED" must exist');
     assert.ok(
-      qualityIdx < updateIdx,
-      "quality_status must be set in patch BEFORE the .update() call",
+      qualityIdx > updateIdx,
+      "quality_status must be stamped AFTER the main .update(patch) call (separate update)",
     );
   });
 });
@@ -193,7 +195,7 @@ describe("INVARIANT: Confirm route atomic guarantees via RPC", () => {
     "src/app/api/deals/[dealId]/intake/confirm/route.ts",
   );
   const rpcSrc = readSource(
-    "supabase/migrations/20260225_finalize_intake_and_enqueue_rpc.sql",
+    "supabase/migrations/20260225000001_finalize_intake_and_enqueue_rpc.sql",
   );
 
   test("[inv-1] confirm route calls finalize_intake_and_enqueue_processing RPC", () => {

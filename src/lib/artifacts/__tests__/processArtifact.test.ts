@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 // They parse the source to confirm the integration exists without
 // requiring a full Supabase connection.
 
-test("processArtifact source includes matchAndStampDealDocument call", async () => {
+test("processArtifact source includes reconcileChecklistForDeal and recomputeDealReady calls", async () => {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
   const src = await fs.readFile(
@@ -15,8 +15,12 @@ test("processArtifact source includes matchAndStampDealDocument call", async () 
     "utf-8",
   );
   assert.ok(
-    src.includes("matchAndStampDealDocument"),
-    "processArtifact.ts must call matchAndStampDealDocument after classification",
+    src.includes("reconcileChecklistForDeal"),
+    "processArtifact.ts must call reconcileChecklistForDeal",
+  );
+  assert.ok(
+    src.includes("recomputeDealReady"),
+    "processArtifact.ts must call recomputeDealReady",
   );
 });
 
@@ -56,11 +60,11 @@ test("processArtifact stamps only deal_documents (not borrower_uploads)", async 
   // The stamp call is gated by source_table === "deal_documents"
   assert.ok(
     src.includes('source_table === "deal_documents"'),
-    "matchAndStampDealDocument must be gated to deal_documents source table",
+    "Classification stamp must be gated to deal_documents source table",
   );
 });
 
-test("processArtifact uses skip_filename_match for AI classification", async () => {
+test("processArtifact uses gatekeeper inline classification", async () => {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
   const src = await fs.readFile(
@@ -68,8 +72,8 @@ test("processArtifact uses skip_filename_match for AI classification", async () 
     "utf-8",
   );
   assert.ok(
-    src.includes("skip_filename_match: true"),
-    "AI classification should set skip_filename_match: true",
+    src.includes("isGatekeeperInlineEnabled"),
+    "processArtifact must check isGatekeeperInlineEnabled for classification path",
   );
 });
 
@@ -144,20 +148,17 @@ test("error payload guard calls mark_artifact_failed", async () => {
 
 // ── Ordering verification ────────────────────────────────────────────
 
-test("stamp → reconcile → readiness appears in correct order", async () => {
+test("reconcile → readiness appears in correct order", async () => {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
   const src = await fs.readFile(
     path.resolve(__dirname, "../processArtifact.ts"),
     "utf-8",
   );
-  const stampIdx = src.indexOf("matchAndStampDealDocument");
   const reconcileIdx = src.indexOf("reconcileChecklistForDeal");
   const readinessIdx = src.indexOf("recomputeDealReady");
 
-  assert.ok(stampIdx > 0, "matchAndStampDealDocument must be present");
   assert.ok(reconcileIdx > 0, "reconcileChecklistForDeal must be present");
   assert.ok(readinessIdx > 0, "recomputeDealReady must be present");
-  assert.ok(stampIdx < reconcileIdx, "stamp must come before reconcile");
   assert.ok(reconcileIdx < readinessIdx, "reconcile must come before readiness");
 });

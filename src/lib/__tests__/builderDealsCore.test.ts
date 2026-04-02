@@ -81,6 +81,7 @@ test("builder deal core can mint and make ready", async () => {
     deal_checklist_items: [],
     financial_snapshot_decisions: [],
     deal_pricing_quotes: [],
+    deal_pricing_inputs: [],
   };
 
   const ops = {
@@ -96,8 +97,8 @@ test("builder deal core can mint and make ready", async () => {
     ensureChecklist: async (dealId: string) => {
       if (!tables.deal_checklist_items.length) {
         tables.deal_checklist_items.push(
-          { deal_id: dealId, required: true, checklist_key: "PFS", received_at: null },
-          { deal_id: dealId, required: true, checklist_key: "TAX", received_at: null },
+          { deal_id: dealId, required: true, checklist_key: "PFS", received_at: null, status: "missing" },
+          { deal_id: dealId, required: true, checklist_key: "TAX", received_at: null, status: "missing" },
         );
       }
     },
@@ -105,6 +106,7 @@ test("builder deal core can mint and make ready", async () => {
       for (const item of tables.deal_checklist_items) {
         if (item.deal_id === dealId && item.required) {
           item.received_at = now();
+          item.status = "received";
         }
       }
     },
@@ -122,6 +124,10 @@ test("builder deal core can mint and make ready", async () => {
         deal_id: dealId,
         status: "locked",
         locked_at: now(),
+        created_at: now(),
+      });
+      tables.deal_pricing_inputs.push({
+        deal_id: dealId,
         created_at: now(),
       });
     },

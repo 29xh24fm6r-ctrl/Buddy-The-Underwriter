@@ -282,13 +282,13 @@ export const STITCH_SURFACES: StitchSurfaceConfig[] = [
   {
     key: "deals_command_bridge",
     route: "/deals/[dealId]/underwriter",
-    required: true,
+    required: false,
     owner: "banker",
     mode: "iframe",
     slug: "deals-command-bridge",
     activation: "dealId",
     pagePath: "src/app/(app)/deals/[dealId]/underwriter/page.tsx",
-    notes: "Legacy Stitch surface formerly at /deals/[dealId]/underwriter (route retired). Now embedded only inside canonical /deals/[dealId]/underwrite as transitional layer beneath AnalystWorkbench.",
+    notes: "RETIRED — Phase 57C. Route redirects to /deals/[dealId]/underwrite. No longer a required Stitch surface.",
   },
   {
     key: "borrower_task_inbox",
