@@ -20,6 +20,11 @@ import {
   type InvalidationPlan,
 } from "./invalidationPlanner";
 import { planReuse, type PriorComputationState, type ReusePlan } from "./reusePlanner";
+import {
+  scopeToMaterialityScore,
+  materialChangeRowToDomain,
+  type MaterialChangeDomain,
+} from "@/lib/contracts/phase66b66cRowMappers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,20 +48,7 @@ export interface MaterialChangeResult {
   reusePlan: ReusePlan;
 }
 
-export interface MaterialChangeEvent {
-  id: string;
-  deal_id: string;
-  bank_id: string;
-  mission_id: string | null;
-  change_type: ChangeType;
-  scope: ChangeScope;
-  materiality: string;
-  invalidation_plan: InvalidationPlan;
-  reuse_plan: ReusePlan;
-  old_fingerprint: string | null;
-  new_fingerprint: string | null;
-  created_at: string;
-}
+export type MaterialChangeEvent = MaterialChangeDomain;
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -108,16 +100,7 @@ function classifyScope(
 }
 
 function classifyMateriality(scope: ChangeScope): string {
-  switch (scope) {
-    case "trivial":
-      return "non_material";
-    case "localized":
-      return "minor";
-    case "material":
-      return "material";
-    case "mission_wide":
-      return "critical";
-  }
+  return scopeToMaterialityScore(scope);
 }
 
 function buildPriorComputationState(
@@ -171,12 +154,12 @@ export async function recordMaterialChange(
     .insert({
       deal_id: input.dealId,
       bank_id: input.bankId,
-      mission_id: input.missionId ?? null,
+      buddy_research_mission_id: input.missionId ?? null,
       change_type: input.changeType,
-      scope,
-      materiality,
-      invalidation_plan: invalidation,
-      reuse_plan: reuse,
+      change_scope: scope,
+      materiality_score: materiality,
+      affected_systems_json: invalidation,
+      reuse_plan_json: reuse,
       old_fingerprint: oldFp,
       new_fingerprint: newFp,
     })
@@ -219,5 +202,5 @@ export async function getRecentChanges(
     .limit(limit);
 
   if (error || !data) return [];
-  return data as MaterialChangeEvent[];
+  return (data as any[]).map(materialChangeRowToDomain);
 }

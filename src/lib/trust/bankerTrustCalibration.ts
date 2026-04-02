@@ -46,7 +46,7 @@ export async function recordTrustEvent(
     event_type: input.eventType,
     conclusion_key: input.conclusionKey ?? null,
     recommendation_id: input.recommendationId ?? null,
-    payload: input.payload ?? {},
+    payload_json: input.payload ?? {},
   });
 
   if (error) {
@@ -83,10 +83,10 @@ export async function getTrustEventSummary(
 
   for (const row of data) {
     switch (row.event_type) {
-      case "acceptance":
+      case "recommendation_accepted":
         summary.acceptances++;
         break;
-      case "rejection":
+      case "recommendation_rejected":
         summary.rejections++;
         break;
       case "override":

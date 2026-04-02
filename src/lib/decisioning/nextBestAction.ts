@@ -8,6 +8,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rankActions, type ActionCandidate } from "./actionPriorityEngine";
+import { actionRecommendationToRow } from "@/lib/contracts/phase66b66cRowMappers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -330,21 +331,7 @@ export async function persistRecommendations(
 ): Promise<void> {
   if (recs.length === 0) return;
 
-  const rows = recs.map((r) => ({
-    deal_id: dealId,
-    bank_id: bankId,
-    visibility: r.visibility,
-    actor: r.actor,
-    category: r.category,
-    title: r.title,
-    description: r.description,
-    rationale: r.rationale,
-    blocked_by: r.blockedBy,
-    expected_impact: r.expectedImpact,
-    priority_score: r.priorityScore,
-    urgency_score: r.urgencyScore,
-    confidence: r.confidence,
-  }));
+  const rows = recs.map((r) => actionRecommendationToRow(dealId, bankId, r));
 
   await sb.from("buddy_action_recommendations").insert(rows);
 }
