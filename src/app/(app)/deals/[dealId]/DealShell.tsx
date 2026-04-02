@@ -274,6 +274,7 @@ export default function DealShell({
     { label: "Financials", href: `${base}/financials` },
     { label: "Structure", href: `${base}/structure` },
     { label: "Risk", href: `${base}/risk` },
+    { label: "Pricing", href: `${base}/pricing` },
     { label: "Relationship", href: `${base}/relationship` },
     { label: "Committee", href: `${base}/committee-studio` },
     { label: "Borrower", href: `${base}/borrower` },
