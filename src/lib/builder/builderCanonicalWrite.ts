@@ -64,12 +64,20 @@ async function writeDealCanonical(
 
   // Also upsert loan_request record so hasLoanRequest blocker clears
   if (data.loan_type || data.loan_purpose || data.requested_amount) {
+    // Get bank_id for the deal (required column)
+    const { data: dealRow } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
+    const bankId = dealRow?.bank_id ?? null;
+
     const { error } = await sb.from("deal_loan_requests").upsert({
       deal_id: dealId,
+      bank_id: bankId,
+      request_number: 1,                          // canonical first request
       product_type: data.loan_type ?? null,
       loan_purpose: data.loan_purpose ?? null,
-      loan_amount: data.requested_amount ?? null,
-    }, { onConflict: "deal_id" });
+      requested_amount: data.requested_amount ?? null,
+      source: "builder",
+      status: "draft",
+    }, { onConflict: "deal_id,request_number" });
     if (error) {
       console.error("[builderCanonicalWrite] deal_loan_requests upsert failed", {
         dealId,
