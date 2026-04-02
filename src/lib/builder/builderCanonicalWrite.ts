@@ -68,11 +68,29 @@ async function writeDealCanonical(
     const { data: dealRow } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
     const bankId = dealRow?.bank_id ?? null;
 
+    // Builder uses lowercase loan_type keys; deal_loan_requests.product_type requires uppercase
+    const PRODUCT_TYPE_MAP: Record<string, string> = {
+      equipment: 'EQUIPMENT',
+      term_loan: 'TERM_SECURED',
+      line_of_credit: 'LINE_OF_CREDIT',
+      sba_7a: 'SBA_7A',
+      sba_504: 'SBA_504',
+      cre_mortgage: 'CRE_TERM',
+      ci_loan: 'C_AND_I_TERM',
+      construction: 'CONSTRUCTION',
+      vehicle: 'VEHICLE',
+      other: 'OTHER',
+    };
+
+    const mappedProductType = data.loan_type
+      ? (PRODUCT_TYPE_MAP[data.loan_type as string] ?? (data.loan_type as string).toUpperCase())
+      : null;
+
     const { error } = await sb.from("deal_loan_requests").upsert({
       deal_id: dealId,
       bank_id: bankId,
       request_number: 1,                          // canonical first request
-      product_type: data.loan_type ?? null,
+      product_type: mappedProductType,
       loan_purpose: data.loan_purpose ?? null,
       requested_amount: data.requested_amount ?? null,
       source: "builder",
