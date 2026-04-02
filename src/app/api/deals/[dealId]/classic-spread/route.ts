@@ -124,11 +124,13 @@ export async function GET(_req: Request, ctx: Ctx) {
           }
         }
 
-        const { buildDealFinancialSnapshotForBank } = await import("@/lib/deals/financialSnapshot");
-        const { persistFinancialSnapshot } = await import("@/lib/deals/financialSnapshotPersistence");
-        const freshSnapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
-        await persistFinancialSnapshot({ dealId, bankId, snapshot: freshSnapshot });
       }
+
+      // Always build + persist snapshot from whatever facts exist — not gated on ADS
+      const { buildDealFinancialSnapshotForBank } = await import("@/lib/deals/financialSnapshot");
+      const { persistFinancialSnapshot } = await import("@/lib/deals/financialSnapshotPersistence");
+      const freshSnapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
+      await persistFinancialSnapshot({ dealId, bankId, snapshot: freshSnapshot });
     } catch (bridgeErr: any) {
       console.warn("[classic-spread] bridge persist failed (non-fatal):", bridgeErr?.message);
     }
