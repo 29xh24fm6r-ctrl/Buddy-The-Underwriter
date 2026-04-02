@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { advanceDealLifecycle, forceAdvanceLifecycle, isStageAtOrBefore, STAGES_AT_OR_BEYOND } from "@/buddy/lifecycle";
 import type { LifecycleStage, ActorContext } from "@/buddy/lifecycle";
@@ -36,13 +36,14 @@ export async function POST(
     const { dealId } = await ctx.params;
 
     // Verify deal access
-    const access = await ensureDealBankAccess(dealId);
+    const access = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
     if (!access.ok) {
       return NextResponse.json(
         { ok: false, error: access.error },
-        { status: access.error === "deal_not_found" ? 404 : 403 }
+        { status: access.status }
       );
     }
+    const { userId, role } = access;
 
     // Parse request body
     const body = await req.json().catch(() => ({}));

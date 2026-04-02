@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { composeSpreadOutput } from "@/lib/spreadOutput/spreadOutputComposer";
@@ -25,10 +25,14 @@ type Ctx = { params: Promise<{ dealId: string }> };
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
     const { dealId } = await ctx.params;
-    const access = await ensureDealBankAccess(dealId);
+    const access = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
     if (!access.ok) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      return NextResponse.json(
+        { ok: false, error: access.error },
+        { status: access.status }
+      );
     }
+    const auth = access;
 
     const sb = supabaseAdmin();
 

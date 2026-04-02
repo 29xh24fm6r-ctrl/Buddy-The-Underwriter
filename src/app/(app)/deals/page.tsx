@@ -26,6 +26,7 @@ type DealRow = {
   nickname?: string | null;
   borrower_name?: string | null;
   name?: string | null;
+  legal_name?: string | null;
   amount?: number | string | null;
   stage?: string | null;
   created_at?: string | null;
@@ -159,7 +160,7 @@ export default async function DealsPage({
         nickname: d.nickname ?? null,
         borrower_name: d.borrower_name ?? null,
         name: d.name ?? null,
-        legal_name: (d as any).legal_name ?? null,
+        legal_name: d.legal_name ?? null,
       }),
       needsName: labelResult.needsName,
       borrower,

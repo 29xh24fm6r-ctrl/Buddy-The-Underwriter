@@ -17,7 +17,7 @@ import "server-only";
 import { NextResponse, NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { runPolicyAwareUnderwriting } from "@/lib/underwrite/policyEngine";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { LedgerEventType } from "@/buddy/lifecycle/events";
@@ -66,7 +66,7 @@ export async function POST(
     }
 
     // === Phase 3: Verify deal access ===
-    const access = await ensureDealBankAccess(dealId);
+    const access = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
     if (!access.ok) {
       return respond200(
         {
@@ -77,6 +77,7 @@ export async function POST(
         headers
       );
     }
+    const { userId } = access;
 
     // === Phase 4: Rate limiting ===
     const rl = rateLimit({ key: `underwrite-preview:${dealId}`, limit: 1, windowMs: 60_000 });
