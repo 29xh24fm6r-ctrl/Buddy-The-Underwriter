@@ -41,11 +41,26 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       .limit(20),
   ]);
 
+  // Surface query errors explicitly
+  const errors: string[] = [];
+  if (actionsRes.error) {
+    console.error("[borrower-progress] actions query failed", { dealId, error: actionsRes.error.message });
+    errors.push("actions");
+  }
+  if (upliftRes.error) {
+    console.error("[borrower-progress] uplift query failed", { dealId, error: upliftRes.error.message });
+    errors.push("uplift");
+  }
+
+  if (errors.length === 2) {
+    return NextResponse.json({ error: "Failed to load borrower progress data" }, { status: 500 });
+  }
+
   const actions = actionsRes.data ?? [];
   const uplift = upliftRes.data ?? [];
 
-  // Compute milestone rate: completed / total
-  const completed = actions.filter((a: any) => a.status === "completed").length;
+  // Compute milestone rate from typed action status
+  const completed = actions.filter((row) => row.status === "completed").length;
   const milestoneRate = {
     total: actions.length,
     completed,
@@ -56,5 +71,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     actions: actions.map(borrowerActionRowToApi),
     uplift: uplift.map(upliftRowToApi),
     milestoneRate,
+    ...(errors.length > 0 ? { partialFailure: errors } : {}),
   });
 }

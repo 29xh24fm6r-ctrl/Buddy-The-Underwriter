@@ -4,6 +4,7 @@
  * GET /api/deals/[dealId]/outcomes
  *   Returns aggregated outcome data for the banker outcome dashboard.
  *   Selects actual DB schema columns and maps through shared row mappers.
+ *   Surfaces query errors explicitly instead of silently returning empty arrays.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -60,10 +61,34 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         .limit(50),
     ]);
 
+  // Surface query errors explicitly
+  const errors: string[] = [];
+  if (recommendationsRes.error) {
+    console.error("[outcomes] recommendations query failed", { dealId, error: recommendationsRes.error.message });
+    errors.push("recommendations");
+  }
+  if (trustEventsRes.error) {
+    console.error("[outcomes] trustEvents query failed", { dealId, error: trustEventsRes.error.message });
+    errors.push("trustEvents");
+  }
+  if (upliftRes.error) {
+    console.error("[outcomes] uplift query failed", { dealId, error: upliftRes.error.message });
+    errors.push("uplift");
+  }
+  if (borrowerActionsRes.error) {
+    console.error("[outcomes] borrowerActions query failed", { dealId, error: borrowerActionsRes.error.message });
+    errors.push("borrowerActions");
+  }
+
+  if (errors.length === 4) {
+    return NextResponse.json({ error: "Failed to load outcome data" }, { status: 500 });
+  }
+
   return NextResponse.json({
     recommendations: (recommendationsRes.data ?? []).map(recOutcomeRowToApi),
     trustEvents: (trustEventsRes.data ?? []).map(trustEventRowToApi),
     uplift: (upliftRes.data ?? []).map(upliftRowToApi),
     borrowerActions: (borrowerActionsRes.data ?? []).map(borrowerActionRowToApi),
+    ...(errors.length > 0 ? { partialFailure: errors } : {}),
   });
 }

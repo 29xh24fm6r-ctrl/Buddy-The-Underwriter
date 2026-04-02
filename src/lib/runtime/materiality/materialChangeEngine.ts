@@ -24,6 +24,7 @@ import {
   scopeToMaterialityScore,
   materialChangeRowToDomain,
   type MaterialChangeDomain,
+  type MaterialChangeRow,
 } from "@/lib/contracts/phase66b66cRowMappers";
 
 // ---------------------------------------------------------------------------
@@ -201,6 +202,10 @@ export async function getRecentChanges(
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  if (error || !data) return [];
-  return (data as any[]).map(materialChangeRowToDomain);
+  if (error) {
+    console.error("[materialChangeEngine] getRecentChanges failed", { dealId, error: error.message });
+    return [];
+  }
+  if (!data) return [];
+  return data.map((row: Record<string, unknown>) => materialChangeRowToDomain(row as MaterialChangeRow));
 }
