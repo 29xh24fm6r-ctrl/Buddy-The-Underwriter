@@ -8,6 +8,7 @@
  */
 
 import { createHash } from "crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MissionType, MissionSubject, MissionDepth } from "./types";
 import { getMissionDefinition } from "./playbook";
 
@@ -241,23 +242,38 @@ export function createMissionEvent(
 /**
  * Check if a mission should be skipped due to existing active mission.
  * Returns the existing mission ID if one exists.
+ *
+ * Queries the unique index: buddy_research_missions_run_key_active_idx
+ * ON (deal_id, run_key) WHERE status IN ('queued', 'running', 'complete')
  */
 export async function checkExistingMission(
+  sb: SupabaseClient,
   dealId: string,
   runKey: string,
   forceRerun: boolean
 ): Promise<{ skip: boolean; existingMissionId?: string }> {
-  // This would normally query the database
-  // For now, return false (don't skip)
   if (forceRerun) {
     return { skip: false };
   }
 
-  // In production, this would check:
-  // SELECT id FROM buddy_research_missions
-  // WHERE deal_id = $1 AND run_key = $2
-  // AND status IN ('queued', 'running', 'complete')
-  // LIMIT 1
+  const { data, error } = await sb
+    .from("buddy_research_missions")
+    .select("id, status")
+    .eq("deal_id", dealId)
+    .eq("run_key", runKey)
+    .in("status", ["queued", "running", "complete"])
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[orchestration] checkExistingMission query failed", { dealId, runKey, error });
+    // Fail open — allow the mission to proceed
+    return { skip: false };
+  }
+
+  if (data) {
+    return { skip: true, existingMissionId: data.id };
+  }
 
   return { skip: false };
 }
