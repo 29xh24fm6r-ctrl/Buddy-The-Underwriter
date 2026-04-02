@@ -8,6 +8,7 @@ import { computeSpreadCompleteness } from "@/lib/financialIntelligence/spreadCom
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 type Ctx = { params: Promise<{ dealId: string }> };
 

@@ -13,6 +13,7 @@ import type { FlagEngineInput } from "@/lib/flagEngine/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 function toNumSafe(val: unknown): number | null {
   if (val === null || val === undefined) return null;
