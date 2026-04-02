@@ -52,7 +52,7 @@ export async function getCreditCommitteeViewActivationData(
 
     if (error) {
       console.error("[creditCommitteeView activation] query failed:", error);
-      return { rows: [], totals: { count: 0, pendingCount: 0 } };
+      return { rows: [], totals: { count: 0, pendingCount: 0 }, history: [] };
     }
 
     const rows: CommitteeActivationRow[] = (data ?? []).map((d: any) => {
@@ -95,7 +95,7 @@ export async function getCreditCommitteeViewActivationData(
     return { rows, totals: { count: rows.length, pendingCount }, history };
   } catch (err) {
     console.error("[creditCommitteeView activation] error:", err);
-    return { rows: [], totals: { count: 0, pendingCount: 0 }, error: String(err) };
+    return { rows: [], totals: { count: 0, pendingCount: 0 }, history: [], error: String(err) };
   }
 }
 

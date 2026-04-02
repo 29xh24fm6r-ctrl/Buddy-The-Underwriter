@@ -122,7 +122,7 @@ describe("Layer 1: Mapper contract — actionRecommendationToRow", () => {
     assert.equal(row.confidence_score, "high");
     assert.equal(row.rationale_json.title, "Request missing docs");
     assert.equal(row.rationale_json.description, "Tax returns are missing");
-    assert.equal(row.rationale_json.evidenceStrength, "high");
+    assert.equal((row.rationale_json as Record<string, unknown>).evidenceStrength, "high");
   });
 
   it("omits title/description from rationale_json when not provided", async () => {
