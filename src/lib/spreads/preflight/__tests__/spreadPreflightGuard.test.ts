@@ -411,21 +411,21 @@ test("Guard T: multiple blockers co-exist on single input", () => {
     canonical_type: "BALANCE_SHEET",
     extraction_quality_status: "SUSPECT",
   });
+  // Use a confirmed phase so snapshot hash check fires too
   const blockers = computePreflightBlockers(
     makeInput({
-      intakePhase: "BULK_UPLOADED",
+      intakePhase: "CONFIRMED_READY_FOR_PROCESSING",
       storedSnapshotHash: null,
       activeDocs: [doc],
       extractionHeartbeatDocIds: new Set(),
       spreadsEnabled: false,
     }),
   );
-  assert.ok(findBlocker(blockers, "INTAKE_NOT_CONFIRMED"));
   assert.ok(findBlocker(blockers, "INTAKE_SNAPSHOT_HASH_MISMATCH"));
   assert.ok(findBlocker(blockers, "EXTRACTION_NOT_READY"));
   assert.ok(findBlocker(blockers, "EXTRACTION_SUSPECT"));
   assert.ok(findBlocker(blockers, "SPREADS_DISABLED_BY_FLAG"));
-  assert.ok(blockers.length >= 5, `Expected >= 5 blockers, got ${blockers.length}`);
+  assert.ok(blockers.length >= 4, `Expected >= 4 blockers, got ${blockers.length}`);
 });
 
 // ══════════════════════════════════════════════════════════════════════

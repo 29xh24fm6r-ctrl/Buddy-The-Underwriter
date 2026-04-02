@@ -20,7 +20,7 @@ test("wiring ledger routes match registry routes", () => {
   const registryMap = new Map(STITCH_SURFACES.map((s) => [s.key, s.route]));
   const mismatches: string[] = [];
   for (const entry of SURFACE_WIRING_LEDGER) {
-    const regRoute = registryMap.get(entry.key);
+    const regRoute = registryMap.get(entry.key as typeof STITCH_SURFACES[number]["key"]);
     if (regRoute && regRoute !== entry.route) {
       mismatches.push(`${entry.key}: ledger=${entry.route} registry=${regRoute}`);
     }

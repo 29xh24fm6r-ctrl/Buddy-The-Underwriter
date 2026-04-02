@@ -325,7 +325,8 @@ function BorrowerProgressPanel({ actions }: { actions: BorrowerAction[] }) {
 // ============================================================================
 
 export default function OutcomesPage() {
-  const { dealId } = useParams<{ dealId: string }>();
+  const params = useParams<{ dealId: string }>();
+  const dealId = params?.dealId ?? "";
   const [data, setData] = useState<OutcomeData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

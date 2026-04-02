@@ -109,8 +109,8 @@ function GradeBadge({ grade, score }: { grade: HealthGrade; score: number }) {
 // ============================================================================
 
 export default function BorrowerInsightsPage() {
-  const params = useParams();
-  const dealId = params.dealId as string;
+  const params = useParams<{ dealId: string }>();
+  const dealId = params?.dealId ?? "";
 
   const [data, setData] = useState<InsightData | null>(null);
   const [loading, setLoading] = useState(true);

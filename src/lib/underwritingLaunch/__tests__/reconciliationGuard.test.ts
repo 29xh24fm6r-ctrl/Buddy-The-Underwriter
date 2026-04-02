@@ -60,7 +60,11 @@ describe("Cockpit-state canonical loan request", () => {
 
   it("Phase 55 loan_requests is fallback only", () => {
     const content = fs.readFileSync(COCKPIT_STATE_ROUTE, "utf-8");
-    assert.ok(content.includes("migration period only"));
+    // Phase 56R removed the legacy fallback entirely — canonical only
+    assert.ok(
+      content.includes("No fallback to legacy loan_requests") || content.includes("Canonical only"),
+      "cockpit-state must document that legacy loan_requests fallback is removed",
+    );
   });
 });
 
