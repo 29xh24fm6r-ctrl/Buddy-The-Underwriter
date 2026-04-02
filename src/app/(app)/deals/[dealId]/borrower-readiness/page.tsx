@@ -120,8 +120,8 @@ function CashStorySection({ story }: { story: CashStory }) {
 // ============================================================================
 
 export default function EnhancedBorrowerReadinessPage() {
-  const params = useParams();
-  const dealId = params.dealId as string;
+  const params = useParams<{ dealId: string }>();
+  const dealId = params?.dealId ?? "";
   const [data, setData] = useState<PageData | null>(null);
   const [loading, setLoading] = useState(true);
 

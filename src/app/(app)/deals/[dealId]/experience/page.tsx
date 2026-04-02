@@ -237,8 +237,8 @@ function MonitoringPanel({ signals }: { signals: MonitoringSignal[] }) {
 // ============================================================================
 
 export default function BankerExperiencePage() {
-  const params = useParams();
-  const dealId = params.dealId as string;
+  const params = useParams<{ dealId: string }>();
+  const dealId = params?.dealId ?? "";
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);

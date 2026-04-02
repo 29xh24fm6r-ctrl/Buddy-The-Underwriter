@@ -20,7 +20,7 @@ import type { OmegaAdvisoryState } from "./types";
 async function tryReadOmegaState(dealId: string): Promise<any> {
   try {
     const { readOmegaState } = await import("@/lib/omega/readOmegaState");
-    return await readOmegaState(dealId);
+    return await readOmegaState({ stateType: "underwriting_case", id: dealId, correlationId: dealId });
   } catch {
     return null;
   }
@@ -29,7 +29,7 @@ async function tryReadOmegaState(dealId: string): Promise<any> {
 async function tryEvaluateOmegaConfidence(dealId: string): Promise<any> {
   try {
     const { evaluateOmegaConfidence } = await import("@/lib/omega/evaluateOmegaConfidence");
-    return await evaluateOmegaConfidence(dealId);
+    return await evaluateOmegaConfidence({ underwritingCaseId: dealId, correlationId: dealId });
   } catch {
     return null;
   }
@@ -38,7 +38,7 @@ async function tryEvaluateOmegaConfidence(dealId: string): Promise<any> {
 async function tryReadOmegaTraces(dealId: string): Promise<any> {
   try {
     const { readOmegaTraces } = await import("@/lib/omega/readOmegaTraces");
-    return await readOmegaTraces(dealId);
+    return await readOmegaTraces({ sessionId: dealId, correlationId: dealId });
   } catch {
     return null;
   }

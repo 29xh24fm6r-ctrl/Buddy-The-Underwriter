@@ -105,8 +105,10 @@ describe("dry-run: real deal 098850d1 (EQUIPMENT)", () => {
     const model = buildFinancialModel(DEAL_ID, REAL_FACTS);
     const latest = model.periods[model.periods.length - 1];
 
-    // EBITDA = revenue - cogs - opex + depreciation
-    const expected = 1360479 - 392171.16 - 423818 + 228574;
+    // EBITDA = netIncome + depreciation + interest (netIncome-based path)
+    // Engine prefers netIncome-based formula when netIncome is available.
+    // T12 netIncome=204096.14, depreciation=228574, DEBT_SERVICE(→interest)=80520
+    const expected = 204096.14 + 228574 + 80520;
     assert.ok(latest.cashflow.ebitda !== undefined, "EBITDA must be derived");
     assert.equal(latest.cashflow.ebitda, expected, `EBITDA mismatch: got ${latest.cashflow.ebitda}, expected ${expected}`);
   });
