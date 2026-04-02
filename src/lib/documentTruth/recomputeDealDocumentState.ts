@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { matchDocumentToRequirement } from "./matchDocumentToRequirement";
 import { getRequirementsForDealType, lookupRequirement } from "./requirementRegistry";
 import type { RequirementCode } from "./requirementRegistry";
-import type { ChecklistStatus, ReadinessStatus } from "./matchDocumentToRequirement";
+import type { ChecklistStatus, ReadinessStatus, ReviewStatus } from "./matchDocumentToRequirement";
 
 type RequirementState = {
   code: RequirementCode;
@@ -59,7 +59,7 @@ export async function recomputeDealDocumentState(dealId: string): Promise<void> 
 
   const { data: documents } = await sb
     .from("deal_documents")
-    .select("id, deal_id, original_filename, checklist_key, canonical_type, ai_doc_type, ai_confidence, doc_year, ai_tax_year, assigned_owner_id, created_at")
+    .select("id, deal_id, original_filename, checklist_key, canonical_type, ai_doc_type, ai_confidence, doc_year, ai_tax_year, assigned_owner_id, intake_status, intake_confirmed_at, created_at")
     .eq("deal_id", dealId);
 
   const dealType = (deal as Record<string, unknown>).deal_type as string ?? "conventional";
@@ -75,6 +75,7 @@ export async function recomputeDealDocumentState(dealId: string): Promise<void> 
     year: number | null;
     subjectId: string | null;
     sourceFileName: string | null;
+    reviewStatus: ReviewStatus;
   }> = [];
 
   for (const doc of (documents ?? []) as Array<Record<string, unknown>>) {
@@ -87,12 +88,21 @@ export async function recomputeDealDocumentState(dealId: string): Promise<void> 
     const yearMatch = !yearFromDb ? (doc.original_filename as string)?.match(/(?:^|[^0-9])(20[0-3][0-9])(?:[^0-9]|$)/) : null;
     const year = yearFromDb ?? (yearMatch ? parseInt(yearMatch[1], 10) : null);
 
+    // Derive reviewStatus from intake pipeline:
+    // "LOCKED_FOR_PROCESSING" with intake_confirmed_at set → banker confirmed → "confirmed"
+    // "LOCKED_FOR_PROCESSING" without intake_confirmed_at → auto-locked → "unreviewed"
+    // All other statuses → "unreviewed"
+    const reviewStatus: ReviewStatus =
+      (doc.intake_status as string) === "LOCKED_FOR_PROCESSING" && doc.intake_confirmed_at
+        ? "confirmed"
+        : "unreviewed";
+
     const result = matchDocumentToRequirement({
       classifiedType,
       year,
       subjectId: (doc.assigned_owner_id as string) ?? null,
       partyScope: "business",
-      reviewStatus: "unreviewed",
+      reviewStatus,
     });
 
     matchedItems.push({
@@ -104,6 +114,7 @@ export async function recomputeDealDocumentState(dealId: string): Promise<void> 
       year,
       subjectId: (doc.assigned_owner_id as string) ?? null,
       sourceFileName: (doc.original_filename as string) ?? null,
+      reviewStatus,
     });
   }
 
@@ -125,7 +136,7 @@ export async function recomputeDealDocumentState(dealId: string): Promise<void> 
       uploaded_at: new Date().toISOString(),
       classified_at: m.classifiedType ? new Date().toISOString() : null,
       classified_type: m.classifiedType,
-      review_status: "unreviewed",
+      review_status: m.reviewStatus,
       validation_status: "pending",
       checklist_status: m.checklistStatus,
       readiness_status: m.readinessStatus,
@@ -183,7 +194,7 @@ export async function recomputeDealDocumentState(dealId: string): Promise<void> 
           year: i.year,
           subjectId: i.subjectId,
           partyScope: "business",
-          reviewStatus: "unreviewed",
+          reviewStatus: i.reviewStatus,
         });
         return result.reasons;
       }),
