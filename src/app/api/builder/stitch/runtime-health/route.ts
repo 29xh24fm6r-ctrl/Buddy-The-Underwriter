@@ -46,7 +46,6 @@ export async function GET(req: Request) {
       apiCallsExpected: entry.apiCallsExpected,
       writeActionsExpected: entry.writeActionsExpected,
       permissionModel: entry.permissionModel,
-      successCriteria: entry.successCriteria,
       notes: entry.notes,
     };
   });

@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument as PdfLibDocument } from "pdf-lib";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { renderDecisionPdf } from "@/lib/pdf/decisionPdf";
@@ -39,13 +39,14 @@ export async function POST(
     const { dealId } = await ctx.params;
 
     // Verify deal access
-    const access = await ensureDealBankAccess(dealId);
+    const access = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
     if (!access.ok) {
       return NextResponse.json(
         { ok: false, error: access.error },
-        { status: access.error === "deal_not_found" ? 404 : 403 }
+        { status: access.status }
       );
     }
+    const { userId } = access;
 
     const sb = supabaseAdmin();
 

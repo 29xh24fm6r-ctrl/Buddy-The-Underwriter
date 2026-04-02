@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { extractFactsFromDocument } from "@/lib/financialSpreads/extractFactsFromDocument";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
@@ -26,11 +26,14 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
   try {
     const { dealId } = await ctx.params;
 
-    const access = await ensureDealBankAccess(dealId);
+    const access = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
     if (!access.ok) {
-      const status = access.error === "deal_not_found" ? 404 : 403;
-      return NextResponse.json({ ok: false, error: access.error }, { status });
+      return NextResponse.json(
+        { ok: false, error: access.error },
+        { status: access.status }
+      );
     }
+    const { userId } = access;
 
     const sb = supabaseAdmin();
 

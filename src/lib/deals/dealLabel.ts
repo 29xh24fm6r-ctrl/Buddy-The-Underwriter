@@ -4,6 +4,7 @@ export type DealNameFields = {
   nickname?: string | null;
   borrower_name?: string | null;
   name?: string | null;
+  legal_name?: string | null;
 };
 
 export type DealLabelResult = {
