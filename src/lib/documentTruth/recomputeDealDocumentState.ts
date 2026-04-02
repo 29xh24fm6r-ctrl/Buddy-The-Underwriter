@@ -175,8 +175,9 @@ export async function recomputeDealDocumentState(dealId: string): Promise<void> 
   // Step 4: Aggregate requirement satisfaction
   const reqState: RequirementState[] = requirements.map((req) => {
     const items = matchedItems.filter((m) => m.requirementCode === req.code);
-    const satisfied = items.some(
-      (i) => i.checklistStatus === "satisfied" || i.checklistStatus === "received",
+    const anySatisfied = items.some((i) => i.checklistStatus === "satisfied");
+    const anyReceived = items.some(
+      (i) => i.checklistStatus === "received" || i.checklistStatus === "satisfied",
     );
 
     return {
@@ -184,8 +185,8 @@ export async function recomputeDealDocumentState(dealId: string): Promise<void> 
       label: req.label,
       group: req.group,
       required: req.required,
-      checklistStatus: satisfied ? "received" : "missing",
-      readinessStatus: satisfied ? "complete" : req.required ? "blocking" : "optional",
+      checklistStatus: anySatisfied ? "satisfied" : anyReceived ? "received" : "missing",
+      readinessStatus: anyReceived ? "complete" : req.required ? "blocking" : "optional",
       matchedDocumentIds: items.map((i) => i.documentId),
       matchedYears: items.filter((i) => i.year).map((i) => i.year!).sort(),
       reasons: items.flatMap((i) => {
