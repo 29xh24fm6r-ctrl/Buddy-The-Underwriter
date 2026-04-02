@@ -13,6 +13,7 @@ import type { TaskContract, HandoffType, HandoffResult } from "./agentTaskContra
 import { validateContract } from "./agentTaskContracts";
 import { canDelegate } from "./agentDelegationPolicy";
 import { buildHandoffBrief, type HandoffBrief } from "./agentBriefBuilder";
+import { agentHandoffRowToDomain, type AgentHandoffDomain } from "@/lib/contracts/phase66b66cRowMappers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,21 +30,7 @@ export interface HandoffInput {
   payload?: Record<string, unknown>;
 }
 
-export interface HandoffRecord {
-  id: string;
-  deal_id: string;
-  bank_id: string;
-  from_agent: string;
-  to_agent: string;
-  visibility: string;
-  handoff_type: HandoffType;
-  task_contract: TaskContract;
-  brief: HandoffBrief;
-  result: HandoffResult | null;
-  status: "pending" | "completed" | "failed" | "cancelled";
-  created_at: string;
-  completed_at: string | null;
-}
+export type HandoffRecord = AgentHandoffDomain;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -119,14 +106,17 @@ export async function executeHandoff(
   await sb.from("buddy_agent_handoffs").insert({
     deal_id: input.dealId,
     bank_id: input.bankId,
-    from_agent: input.fromAgent,
-    to_agent: input.toAgent,
-    visibility: input.visibility,
+    from_agent_type: input.fromAgent,
+    to_agent_type: input.toAgent,
+    visibility_scope: input.visibility,
     handoff_type: input.handoffType,
-    task_contract: input.taskContract,
-    brief,
-    result: handoffResult,
-    status: "completed",
+    status: "complete",
+    task_contract_json: {
+      ...input.taskContract,
+      brief,
+    },
+    result_summary_json: handoffResult.summary,
+    completed_at: new Date().toISOString(),
   });
 
   return handoffResult;
@@ -146,5 +136,5 @@ export async function getHandoffsForDeal(
     .order("created_at", { ascending: false });
 
   if (error || !data) return [];
-  return data as HandoffRecord[];
+  return (data as any[]).map(agentHandoffRowToDomain);
 }
