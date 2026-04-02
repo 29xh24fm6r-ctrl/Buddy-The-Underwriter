@@ -125,10 +125,10 @@ describe("Launch wrapper — structural guards", () => {
     assert.ok(content.includes("ensureUnderwritingActivatedCore"));
   });
 
-  it("launch route does NOT directly mutate lifecycle_stage", () => {
+  it("launch route does NOT directly mutate stage", () => {
     const content = fs.readFileSync(LAUNCH_PATH, "utf-8");
     const lines = content.split("\n").filter(
-      (l) => !l.trim().startsWith("//") && l.includes("lifecycle_stage") && l.includes(".update"),
+      (l) => !l.trim().startsWith("//") && l.includes("stage") && l.includes(".update(") && l.includes("deals"),
     );
     assert.equal(lines.length, 0, "Launch must not directly mutate lifecycle");
   });

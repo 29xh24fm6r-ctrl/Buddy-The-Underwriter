@@ -39,7 +39,7 @@ export async function executeAutoAdvance(
     // Check current stage — idempotent guard
     const { data: deal } = await sb
       .from("deals")
-      .select("lifecycle_stage")
+      .select("stage")
       .eq("id", dealId)
       .single();
 
@@ -48,11 +48,11 @@ export async function executeAutoAdvance(
     }
 
     // Already at or beyond target — noop
-    if (deal.lifecycle_stage !== evaluation.fromStage) {
+    if (deal.stage !== evaluation.fromStage) {
       return {
         ok: true,
         advanced: false,
-        fromStage: deal.lifecycle_stage,
+        fromStage: deal.stage,
         toStage: evaluation.toStage,
       };
     }
@@ -61,7 +61,7 @@ export async function executeAutoAdvance(
     await sb
       .from("deals")
       .update({
-        lifecycle_stage: evaluation.toStage,
+        stage: evaluation.toStage,
         updated_at: new Date().toISOString(),
       })
       .eq("id", dealId);

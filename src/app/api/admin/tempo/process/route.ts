@@ -36,8 +36,8 @@ export async function POST(req: NextRequest) {
     // Fetch active deals (not closed/workout)
     const { data: deals } = await sb
       .from("deals")
-      .select("id, bank_id, lifecycle_stage")
-      .not("lifecycle_stage", "in", '("closed","workout")')
+      .select("id, bank_id, stage")
+      .not("stage", "in", '("closed","workout")')
       .limit(200);
 
     if (!deals || deals.length === 0) {

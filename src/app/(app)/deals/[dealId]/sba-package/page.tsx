@@ -33,7 +33,7 @@ export default async function SBAPackagePage({
     .from("deals")
     .select("deal_type, loan_amount")
     .eq("id", dealId)
-    .single();
+    .maybeSingle();
 
   if (!deal || !SBA_TYPES.includes(deal.deal_type ?? "")) {
     redirect(`/deals/${dealId}/cockpit`);

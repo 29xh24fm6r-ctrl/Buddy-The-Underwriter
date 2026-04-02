@@ -27,7 +27,7 @@ export async function GET(
     const sb = supabaseAdmin();
 
     // Load deal + borrower + bank
-    const { data: deal } = await sb.from("deals").select("id, name, borrower_id, bank_id, lifecycle_stage").eq("id", dealId).single();
+    const { data: deal } = await sb.from("deals").select("id, name, borrower_id, bank_id, stage").eq("id", dealId).single();
     if (!deal) return NextResponse.json({ ok: false, error: "deal_not_found" }, { status: 404 });
 
     const { data: borrower } = await sb.from("borrowers").select("id, legal_name, entity_type").eq("id", deal.borrower_id).maybeSingle();
@@ -108,7 +108,7 @@ export async function GET(
         currentCanonicalLoanRequestId: currentRequest?.id ? String(currentRequest.id) : null,
         currentCanonicalLoanRequestUpdatedAt: currentRequest?.updated_at ? String(currentRequest.updated_at) : null,
         currentFinancialSnapshotId: currentFinSnap?.id ?? null,
-        currentLifecycleStage: deal.lifecycle_stage ?? "",
+        currentLifecycleStage: deal.stage ?? "",
         currentDocumentsReadinessPct: currentReadiness?.pct != null ? Number(currentReadiness.pct) : null,
         currentBlockerCount: 0,
         snapshotLoanAmount: loanReqSnap?.requested_amount ? Number(loanReqSnap.requested_amount) : null,
@@ -127,7 +127,7 @@ export async function GET(
         dealName: deal.name,
         borrowerLegalName: borrower?.legal_name ?? "",
         bankName: bank?.name ?? "",
-        lifecycleStage: deal.lifecycle_stage,
+        lifecycleStage: deal.stage,
       },
       workspace: workspace ? {
         id: workspace.id,
