@@ -10,7 +10,6 @@ import { dealLabel } from "@/lib/deals/dealLabel";
 import { ensureUnderwritingActivated } from "@/lib/deals/underwriting/ensureUnderwritingActivated";
 import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
 import { deriveLifecycleState, PageGuards, getBlockerExplanation, STAGE_LABELS } from "@/buddy/lifecycle";
-import StitchSurface from "@/stitch/StitchSurface";
 import { UnderwriteBlockedPanel } from "@/components/underwrite/UnderwriteBlockedPanel";
 import AnalystWorkbench from "@/components/underwrite/AnalystWorkbench";
 import Link from "next/link";
@@ -163,16 +162,8 @@ export default async function DealUnderwritePage({
 
   if (activated) {
     return (
-      <div className="mx-auto w-full max-w-6xl px-6 py-10 space-y-6">
-        {/* Phase 57A: Snapshot-aware analyst workbench */}
+      <div className="mx-auto w-full max-w-6xl px-6 py-10">
         <AnalystWorkbench dealId={dealId} />
-        {/* Transitional legacy Stitch layer:
-            Embed the retired /underwriter Stitch surface here via deals_command_bridge.
-            Canonical underwriting remains /deals/[dealId]/underwrite with AnalystWorkbench as primary.
-        */}
-        <div className="mt-8">
-          <StitchSurface surfaceKey="deals_command_bridge" dealId={dealId} title="Underwriter Command Bridge" mode="iframe" />
-        </div>
       </div>
     );
   }
