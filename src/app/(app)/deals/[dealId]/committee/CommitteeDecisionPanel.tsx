@@ -20,13 +20,25 @@ export default function CommitteeDecisionPanel({ dealId }: { dealId: string }) {
       });
 
       if (!res.ok) {
-        throw new Error(`Decision failed: ${res.status}`);
+        const body = await res.json().catch(() => ({}));
+        throw new Error(JSON.stringify(body));
       }
 
       setDecision(d);
       alert(`Deal ${d}d successfully`);
     } catch (e: any) {
-      alert(`Error: ${e?.message ?? e}`);
+      let message = e?.message ?? String(e);
+      try {
+        const parsed = JSON.parse(e?.message ?? "");
+        if (parsed?.code === "RECONCILIATION_NOT_RUN") {
+          message = "Reconciliation has not been run. Use the 'Run now' button in the reconciliation card before approving.";
+        } else if (parsed?.code === "RECONCILIATION_CONFLICTS") {
+          message = "This deal has cross-document conflicts that must be resolved before it can be approved.";
+        } else if (parsed?.error) {
+          message = parsed.error;
+        }
+      } catch {}
+      alert(`Cannot approve: ${message}`);
     } finally {
       setSubmitting(false);
     }

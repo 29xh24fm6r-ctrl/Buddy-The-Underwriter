@@ -121,12 +121,43 @@ export async function POST(
         // TODO: implement condition satisfaction logic
         break;
 
-      case "approve":
-        await sb
-          .from("deals")
-          .update({ stage: "approved" })
-          .eq("id", dealId);
+      case "approve": {
+        // Reconciliation gate — CONFLICTS block approve
+        const { data: reconRow } = await sb
+          .from("deal_reconciliation_results")
+          .select("overall_status")
+          .eq("deal_id", dealId)
+          .maybeSingle();
+
+        // NULL = never run → treat as not-ready
+        if (!reconRow) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: "Reconciliation has not been run for this deal. Run reconciliation before approving.",
+              code: "RECONCILIATION_NOT_RUN",
+            },
+            { status: 422 },
+          );
+        }
+
+        // CONFLICTS = hard cross-document failures → block approve
+        if (reconRow.overall_status === "CONFLICTS") {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: "This deal has unresolved cross-document conflicts. Resolve conflicts before approving.",
+              code: "RECONCILIATION_CONFLICTS",
+            },
+            { status: 422 },
+          );
+        }
+
+        // FLAGS = soft warnings → allow approve (banker judgment call)
+        // CLEAN = pass → allow approve
+        await sb.from("deals").update({ stage: "approved" }).eq("id", dealId);
         break;
+      }
 
       case "decline":
         await sb
