@@ -11,6 +11,7 @@ import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonica
 import GenerateNarrativesButton from "@/components/creditMemo/GenerateNarrativesButton";
 import RunResearchButton from "@/components/creditMemo/RunResearchButton";
 import MemoCompletionWizard from "@/components/creditMemo/MemoCompletionWizard";
+import MemoDataEntryCard from "@/components/creditMemo/MemoDataEntryCard";
 import TranscriptUploadPanel from "@/components/deals/TranscriptUploadPanel";
 import BankerVoicePanel from "@/components/deals/BankerVoicePanel";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -167,6 +168,16 @@ export default async function CanonicalCreditMemoPage(props: {
           <BankerVoicePanel dealId={dealId} />
         </div>
 
+        <MemoDataEntryCard
+          dealId={dealId}
+          readiness={res.memo.meta.readiness}
+          dataCoverage={res.memo.meta.data_completeness}
+          hints={{
+            bankLoanTotal: res.memo.key_metrics.loan_amount.value,
+            cashFlowAvailable: res.memo.financial_analysis.cash_flow_available.value,
+            annualDebtService: res.memo.financial_analysis.debt_service.value,
+          }}
+        />
         <CanonicalMemoTemplate memo={res.memo} />
 
         <SpreadsAppendix dealId={dealId} bankId={bankId} />

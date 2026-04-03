@@ -178,60 +178,10 @@ function IncomeStatementTable({ rows }: { rows: IncomeStatementRow[] }) {
 // ── Main Template ─────────────────────────────────────────────────────────
 
 export default function CanonicalMemoTemplate({ memo }: { memo: CanonicalCreditMemoV1 }) {
-  const readiness = memo.meta.readiness;
   const km = memo.key_metrics;
-
-  const readinessColor =
-    readiness.status === "ready" ? "bg-emerald-600" :
-    readiness.status === "partial" ? "bg-amber-500" :
-    readiness.status === "error" ? "bg-rose-600" :
-    "bg-slate-400";
-
-  const readinessPct =
-    readiness.status === "ready" ? "100%" :
-    readiness.status === "partial" ? "66%" :
-    readiness.status === "error" ? "100%" : "33%";
 
   return (
     <div className="text-gray-900 font-sans max-w-[900px] mx-auto bg-white">
-
-      {/* ── READINESS BAR ── */}
-      <div className="mb-4 border border-gray-200 rounded-md p-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-xs font-semibold uppercase text-gray-600">Memo Readiness</div>
-          <div className="text-xs text-gray-500">Last data: {readiness.last_generated_at ?? "—"}</div>
-        </div>
-        <div className="mt-2 flex items-center gap-3">
-          <div className="h-2 flex-1 rounded-full bg-gray-200 overflow-hidden">
-            <div className={`h-2 ${readinessColor}`} style={{ width: readinessPct }} />
-          </div>
-          <div className="text-xs font-semibold text-gray-800 capitalize">{readiness.status}</div>
-        </div>
-        {(readiness.missing_spreads.length > 0 || readiness.missing_metrics.length > 0) && (
-          <div className="mt-2 text-xs text-gray-500">
-            {readiness.missing_spreads.length > 0 && <div>Missing spreads: {readiness.missing_spreads.join(", ")}</div>}
-            {readiness.missing_metrics.length > 0 && <div>Missing metrics: {readiness.missing_metrics.join(", ")}</div>}
-          </div>
-        )}
-      </div>
-
-      {/* ── DATA COVERAGE ── */}
-      {memo.meta.data_completeness && (
-        <div className="mb-4 flex items-center gap-3 text-xs">
-          <span className="font-semibold text-gray-600 uppercase">Data Coverage:</span>
-          {(["deal", "personal", "global"] as const).map((tier) => {
-            const c = memo.meta.data_completeness[tier];
-            const icon = c.status === "complete" ? "✅" : c.status === "partial" ? "⚠️" : "❌";
-            return (
-              <span key={tier} className="inline-flex items-center gap-1">
-                <span>{icon}</span>
-                <span className="capitalize">{tier}</span>
-                <span className="text-gray-400">({c.populated}/{c.total})</span>
-              </span>
-            );
-          })}
-        </div>
-      )}
 
       {/* ── HEADER BOX ── */}
       <div className="border border-gray-300 p-4 mb-4">
