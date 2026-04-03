@@ -634,7 +634,7 @@ export const SURFACE_WIRING_LEDGER: SurfaceWiringEntry[] = [
     hasReflectionMap: false,
     interactiveType: "none",
     status: "visual_static",
-    notes: "Contains demo Beacon Capital data. Awaiting activation.",
+    notes: "Contains demo placeholder borrower data. Awaiting activation.",
   },
   {
     key: "deal_output_credit_memo_spreads",
@@ -654,7 +654,7 @@ export const SURFACE_WIRING_LEDGER: SurfaceWiringEntry[] = [
     hasReflectionMap: false,
     interactiveType: "none",
     status: "visual_static",
-    notes: "Contains demo Project Atlas data. Awaiting activation.",
+    notes: "Contains demo placeholder deal data. Awaiting activation.",
   },
 
   // ══════════════════════════════════════════════════════════════
