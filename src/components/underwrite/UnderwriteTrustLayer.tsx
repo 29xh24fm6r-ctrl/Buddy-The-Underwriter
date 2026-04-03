@@ -36,16 +36,49 @@ interface Props {
   trustLayer: TrustLayerState;
   onRegenerateMemo: () => void;
   onGeneratePacket: () => void;
-  onViewProvenance: () => void;
   regeneratingMemo?: boolean;
   generatingPacket?: boolean;
 }
 
+/**
+ * Derive a banker-facing recommended next action from trust layer state.
+ * Uses the same priority logic as the canonical next-step engine:
+ * financial validation → memo → packet, in that order.
+ */
+function deriveRecommendedAction(t: TrustLayerState): { text: string; href: string } | null {
+  // Financial validation blockers are highest priority
+  if (t.financialValidation.blockers.length > 0) {
+    return { text: "Resolve financial validation issues before proceeding", href: "" };
+  }
+  // Memo must exist before packet
+  if (t.memo.status === "missing") {
+    return { text: "Generate the credit memo to unlock committee preparation", href: "" };
+  }
+  if (t.memo.status === "stale") {
+    return { text: "Regenerate the credit memo — underlying data has changed", href: "" };
+  }
+  if (t.memo.status === "failed") {
+    return { text: "Retry credit memo generation — previous attempt failed", href: "" };
+  }
+  // Packet readiness
+  if (t.packet.status === "blocked") {
+    return { text: "Resolve packet blockers before committee submission", href: "" };
+  }
+  if (t.packet.status === "missing" && t.memo.status === "fresh") {
+    return { text: "Generate the committee packet for review", href: "" };
+  }
+  // Financial warnings (non-blocking)
+  if (!t.financialValidation.decisionSafe && t.financialValidation.memoSafe) {
+    return { text: "Review financial validation items to reach decision-safe status", href: "" };
+  }
+  return null;
+}
+
 export default function UnderwriteTrustLayer({
+  dealId,
   trustLayer,
   onRegenerateMemo,
   onGeneratePacket,
-  onViewProvenance,
   regeneratingMemo,
   generatingPacket,
 }: Props) {
@@ -57,6 +90,8 @@ export default function UnderwriteTrustLayer({
     (packet.status === "ready" || packet.status === "missing") &&
     financialValidation.memoSafe &&
     financialValidation.decisionSafe;
+
+  const recommendedAction = allGreen ? null : deriveRecommendedAction(trustLayer);
 
   return (
     <div className="space-y-2">
@@ -71,33 +106,45 @@ export default function UnderwriteTrustLayer({
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-3">
-          <MemoFreshnessCard
-            status={memo.status}
-            staleReasons={memo.staleReasons}
-            lastGeneratedAt={memo.lastGeneratedAt}
-            inputHash={memo.inputHash}
-            onRegenerate={onRegenerateMemo}
-            regenerating={regeneratingMemo}
-          />
-          <PacketReadinessCard
-            status={packet.status}
-            warnings={packet.warnings}
-            blockers={packet.blockers}
-            lastGeneratedAt={packet.lastGeneratedAt}
-            financialValidationStatus={packet.financialValidationStatus}
-            hasCanonicalMemoNarrative={packet.hasCanonicalMemoNarrative}
-            onGeneratePacket={onGeneratePacket}
-            generating={generatingPacket}
-          />
-          <FinancialValidationCard
-            memoSafe={financialValidation.memoSafe}
-            decisionSafe={financialValidation.decisionSafe}
-            blockers={financialValidation.blockers}
-            warnings={financialValidation.warnings}
-            snapshotId={financialValidation.snapshotId}
-            onViewProvenance={onViewProvenance}
-          />
+        <div className="space-y-3">
+          {recommendedAction && (
+            <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-4 py-2">
+              <div className="flex items-center gap-2 text-xs text-blue-300">
+                <span className="font-semibold">Recommended:</span>
+                {recommendedAction.text}
+              </div>
+            </div>
+          )}
+          <div className="grid grid-cols-3 gap-3">
+            <MemoFreshnessCard
+              dealId={dealId}
+              status={memo.status}
+              staleReasons={memo.staleReasons}
+              lastGeneratedAt={memo.lastGeneratedAt}
+              inputHash={memo.inputHash}
+              onRegenerate={onRegenerateMemo}
+              regenerating={regeneratingMemo}
+            />
+            <PacketReadinessCard
+              dealId={dealId}
+              status={packet.status}
+              warnings={packet.warnings}
+              blockers={packet.blockers}
+              lastGeneratedAt={packet.lastGeneratedAt}
+              financialValidationStatus={packet.financialValidationStatus}
+              hasCanonicalMemoNarrative={packet.hasCanonicalMemoNarrative}
+              onGeneratePacket={onGeneratePacket}
+              generating={generatingPacket}
+            />
+            <FinancialValidationCard
+              dealId={dealId}
+              memoSafe={financialValidation.memoSafe}
+              decisionSafe={financialValidation.decisionSafe}
+              blockers={financialValidation.blockers}
+              warnings={financialValidation.warnings}
+              snapshotId={financialValidation.snapshotId}
+            />
+          </div>
         </div>
       )}
     </div>

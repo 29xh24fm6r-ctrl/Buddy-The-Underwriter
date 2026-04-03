@@ -3,6 +3,7 @@
 type PacketStatus = "ready" | "warning" | "blocked" | "missing";
 
 interface Props {
+  dealId: string;
   status: PacketStatus;
   warnings: string[];
   blockers: string[];
@@ -21,7 +22,7 @@ const STATUS_CONFIG: Record<PacketStatus, { label: string; pill: string; border:
     bg: "bg-emerald-500/5",
   },
   warning: {
-    label: "Warning",
+    label: "Needs Attention",
     pill: "bg-amber-500/20 text-amber-300",
     border: "border-amber-500/30",
     bg: "bg-amber-500/5",
@@ -40,7 +41,30 @@ const STATUS_CONFIG: Record<PacketStatus, { label: string; pill: string; border:
   },
 };
 
+const STATUS_EXPLANATION: Record<PacketStatus, string> = {
+  ready: "All preflight checks pass. Packet can be generated for committee.",
+  warning: "Packet can be generated as a draft, but some items need attention.",
+  blocked: "Cannot generate packet until blocking issues are resolved.",
+  missing: "No committee packet has been generated yet.",
+};
+
+function humanizeBlocker(blocker: string): string {
+  if (blocker.includes("not decision-safe")) return "Financial validation must be decision-safe before generating a final packet.";
+  if (blocker.includes("snapshot is stale")) return "Financial snapshot is stale and needs to be rebuilt first.";
+  if (blocker.includes("not memo-safe")) return "Financial data is insufficient for even a draft packet.";
+  if (blocker.includes("Could not compute")) return "Unable to check packet readiness. Try refreshing.";
+  return blocker;
+}
+
+function humanizeWarning(warning: string): string {
+  if (warning.includes("DRAFT packet")) return "This will be a draft — financial validation is not yet decision-safe.";
+  if (warning.includes("unresolved financial conflict")) return warning;
+  if (warning.includes("low-confidence follow-up")) return warning;
+  return warning;
+}
+
 export default function PacketReadinessCard({
+  dealId,
   status,
   warnings,
   blockers,
@@ -61,6 +85,20 @@ export default function PacketReadinessCard({
       })
     : null;
 
+  // CTA logic: state-aware labels
+  let ctaLabel: string | null = null;
+  let ctaDisabled = false;
+  if (status === "blocked") {
+    ctaLabel = "Resolve Issues First";
+    ctaDisabled = true;
+  } else if (status === "missing" || (!formattedDate && status === "ready")) {
+    ctaLabel = "Generate Committee Packet";
+  } else if (status === "warning") {
+    ctaLabel = "Generate Draft Packet";
+  } else {
+    ctaLabel = "Regenerate Packet";
+  }
+
   return (
     <div className={`rounded-xl border ${cfg.border} ${cfg.bg} p-4 space-y-2`}>
       <div className="flex items-center justify-between">
@@ -70,20 +108,24 @@ export default function PacketReadinessCard({
         </span>
       </div>
 
-      <div className="space-y-1 text-xs text-white/50">
+      <p className="text-xs text-white/50">{STATUS_EXPLANATION[status]}</p>
+
+      <div className="space-y-1 text-xs text-white/40">
         {formattedDate && <div>Last generated {formattedDate}</div>}
         {financialValidationStatus && (
-          <div>Financial validation: {financialValidationStatus.replace(/_/g, " ")}</div>
+          <div>Financials: {financialValidationStatus.replace(/_/g, " ")}</div>
         )}
         <div>
-          Memo narrative: {hasCanonicalMemoNarrative ? "present" : "missing"}
+          Memo narrative: {hasCanonicalMemoNarrative
+            ? <span className="text-emerald-300/60">present</span>
+            : <span className="text-amber-300/60">missing — generate memo first</span>}
         </div>
       </div>
 
       {blockers.length > 0 && (
         <ul className="space-y-0.5">
           {blockers.map((b, i) => (
-            <li key={i} className="text-xs text-red-300/80">{b}</li>
+            <li key={i} className="text-xs text-red-300/80">{humanizeBlocker(b)}</li>
           ))}
         </ul>
       )}
@@ -91,20 +133,32 @@ export default function PacketReadinessCard({
       {warnings.length > 0 && (
         <ul className="space-y-0.5">
           {warnings.map((w, i) => (
-            <li key={i} className="text-xs text-amber-300/80">{w}</li>
+            <li key={i} className="text-xs text-amber-300/80">{humanizeWarning(w)}</li>
           ))}
         </ul>
       )}
 
-      {status !== "blocked" && (
+      <div className="flex gap-2">
         <button
           onClick={onGeneratePacket}
-          disabled={generating}
-          className="rounded-lg bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/15 disabled:opacity-50 w-full"
+          disabled={generating || ctaDisabled}
+          className={`rounded-lg px-3 py-1.5 text-xs flex-1 ${
+            ctaDisabled
+              ? "bg-white/5 text-white/30 cursor-not-allowed"
+              : "bg-white/10 text-white hover:bg-white/15 disabled:opacity-50"
+          }`}
         >
-          {generating ? "Generating..." : status === "missing" ? "Generate Packet" : "Regenerate Packet"}
+          {generating ? "Generating..." : ctaLabel}
         </button>
-      )}
+        {status === "blocked" && (
+          <a
+            href={`/deals/${dealId}/financial-validation`}
+            className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/60 hover:text-white hover:bg-white/5 text-center"
+          >
+            Fix Issues
+          </a>
+        )}
+      </div>
     </div>
   );
 }

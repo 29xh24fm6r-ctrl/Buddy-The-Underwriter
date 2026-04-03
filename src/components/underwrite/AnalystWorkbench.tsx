@@ -78,11 +78,6 @@ export default function AnalystWorkbench({ dealId }: Props) {
     }
   };
 
-  const handleViewProvenance = () => {
-    // Navigate to financial provenance within the deal's existing surfaces
-    window.location.href = `/deals/${dealId}/spreads/standard`;
-  };
-
   if (loading) return <div className="animate-pulse h-64 bg-white/5 rounded-xl" />;
 
   if (!state?.workspace || !state.activeSnapshot) {
@@ -143,7 +138,6 @@ export default function AnalystWorkbench({ dealId }: Props) {
           trustLayer={state.trustLayer}
           onRegenerateMemo={handleRegenerateMemo}
           onGeneratePacket={handleGeneratePacket}
-          onViewProvenance={handleViewProvenance}
           regeneratingMemo={regeneratingMemo}
           generatingPacket={generatingPacket}
         />

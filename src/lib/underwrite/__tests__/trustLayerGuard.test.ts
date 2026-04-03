@@ -163,9 +163,9 @@ describe("Trust layer UI components are presentation-only", () => {
   }
 });
 
-// ── 7. Memo card renders correct status states ──────────────────────────────
+// ── 7. Memo card — state-aware CTAs and explanations ────────────────────────
 
-describe("MemoFreshnessCard status rendering", () => {
+describe("MemoFreshnessCard UX polish", () => {
   const content = fs.readFileSync(MEMO_CARD_PATH, "utf-8");
 
   for (const status of ["fresh", "stale", "missing", "failed"]) {
@@ -174,14 +174,33 @@ describe("MemoFreshnessCard status rendering", () => {
     });
   }
 
-  it("shows regenerate button for stale/missing", () => {
-    assert.ok(content.includes("Regenerate Memo"));
+  it("has state-specific CTA labels", () => {
+    assert.ok(content.includes("Regenerate Credit Memo"), "Stale CTA");
+    assert.ok(content.includes("Generate Credit Memo"), "Missing CTA");
+    assert.ok(content.includes("Retry Credit Memo Generation"), "Failed CTA");
+  });
+
+  it("has banker-facing explanation text per status", () => {
+    assert.ok(content.includes("STATUS_EXPLANATION"));
+  });
+
+  it("humanizes raw stale reasons into plain-English", () => {
+    assert.ok(content.includes("humanizeReason"));
+  });
+
+  it("links to canonical memo view when memo exists", () => {
+    assert.ok(content.includes("/credit-memo/"));
+    assert.ok(content.includes("View Memo"));
+  });
+
+  it("accepts dealId prop for canonical routing", () => {
+    assert.ok(content.includes("dealId"));
   });
 });
 
-// ── 8. Packet card renders correct status states ────────────────────────────
+// ── 8. Packet card — state-aware CTAs and explanations ──────────────────────
 
-describe("PacketReadinessCard status rendering", () => {
+describe("PacketReadinessCard UX polish", () => {
   const content = fs.readFileSync(PACKET_CARD_PATH, "utf-8");
 
   for (const status of ["ready", "warning", "blocked", "missing"]) {
@@ -190,14 +209,38 @@ describe("PacketReadinessCard status rendering", () => {
     });
   }
 
-  it("shows generate button when not blocked", () => {
-    assert.ok(content.includes("Generate Packet"));
+  it("has state-specific CTA labels", () => {
+    assert.ok(content.includes("Generate Committee Packet"), "Missing/Ready CTA");
+    assert.ok(content.includes("Generate Draft Packet"), "Warning CTA");
+    assert.ok(content.includes("Resolve Issues First"), "Blocked CTA");
+  });
+
+  it("blocked state disables CTA and shows fix link", () => {
+    assert.ok(content.includes("ctaDisabled"));
+    assert.ok(content.includes("Fix Issues"));
+  });
+
+  it("links to canonical financial-validation for blocked state", () => {
+    assert.ok(content.includes("/financial-validation"));
+  });
+
+  it("has banker-facing explanation text per status", () => {
+    assert.ok(content.includes("STATUS_EXPLANATION"));
+  });
+
+  it("humanizes raw blocker/warning text", () => {
+    assert.ok(content.includes("humanizeBlocker"));
+    assert.ok(content.includes("humanizeWarning"));
+  });
+
+  it("accepts dealId prop for canonical routing", () => {
+    assert.ok(content.includes("dealId"));
   });
 });
 
-// ── 9. Financial card renders memoSafe/decisionSafe ─────────────────────────
+// ── 9. Financial card — explanation text and canonical links ─────────────────
 
-describe("FinancialValidationCard rendering", () => {
+describe("FinancialValidationCard UX polish", () => {
   const content = fs.readFileSync(FIN_CARD_PATH, "utf-8");
 
   it("renders memoSafe indicator", () => {
@@ -208,8 +251,50 @@ describe("FinancialValidationCard rendering", () => {
     assert.ok(content.includes("Decision-safe") || content.includes("decisionSafe"));
   });
 
-  it("provides view provenance action", () => {
-    assert.ok(content.includes("View Provenance"));
+  it("has contextual explanation text", () => {
+    assert.ok(content.includes("deriveExplanation"));
+  });
+
+  it("links to canonical financial-validation surface", () => {
+    assert.ok(content.includes("/financial-validation"));
+  });
+
+  it("CTA text varies by state", () => {
+    assert.ok(content.includes("Review & Resolve Issues"));
+    assert.ok(content.includes("View Financial Validation"));
+  });
+
+  it("accepts dealId prop for canonical routing", () => {
+    assert.ok(content.includes("dealId"));
+  });
+});
+
+// ── 9b. Trust layer shows recommended next action ───────────────────────────
+
+describe("UnderwriteTrustLayer recommended action", () => {
+  const content = fs.readFileSync(TRUST_LAYER_PATH, "utf-8");
+
+  it("derives recommended action from trust state", () => {
+    assert.ok(content.includes("deriveRecommendedAction"));
+  });
+
+  it("shows recommended action banner when not all-green", () => {
+    assert.ok(content.includes("Recommended:"));
+  });
+
+  it("recommended action prioritizes financial validation over memo over packet", () => {
+    // Financial validation blockers checked first
+    assert.ok(content.includes("financialValidation.blockers"));
+    // Then memo status
+    assert.ok(content.includes('memo.status === "missing"'));
+    assert.ok(content.includes('memo.status === "stale"'));
+    // Then packet
+    assert.ok(content.includes('packet.status === "blocked"'));
+  });
+
+  it("does not import next-step engine directly (presentation-only derivation)", () => {
+    assert.ok(!content.includes("nextAction"), "Must not import nextAction module");
+    assert.ok(!content.includes("getNextAction"), "Must not call getNextAction");
   });
 });
 
