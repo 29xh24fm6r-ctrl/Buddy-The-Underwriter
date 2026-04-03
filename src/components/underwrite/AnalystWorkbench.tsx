@@ -82,9 +82,24 @@ export default function AnalystWorkbench({ dealId }: Props) {
 
   if (!state?.workspace || !state.activeSnapshot) {
     return (
-      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center">
-        <p className="text-sm text-white/50">Underwriting has not been launched for this deal.</p>
-        <p className="text-xs text-white/30 mt-1">Return to Cockpit to launch underwriting.</p>
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center space-y-4">
+        <p className="text-sm text-white/60">
+          Underwriting workspace not yet initialized for this deal.
+        </p>
+        <button
+          onClick={async () => {
+            setLoading(true);
+            try {
+              await fetch(`/api/deals/${dealId}/underwrite/launch`, { method: "POST" });
+              await fetchState();
+            } catch {
+              setLoading(false);
+            }
+          }}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90"
+        >
+          Initialize Underwriting Workbench
+        </button>
       </div>
     );
   }
