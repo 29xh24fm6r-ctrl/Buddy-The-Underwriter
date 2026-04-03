@@ -169,10 +169,12 @@ describe("V1 Isolation — UI Page", () => {
     );
   });
 
-  it("standard UI page does NOT read json.spread", () => {
+  it("standard UI page does NOT read json.spread (V1 singular)", () => {
     const src = readSource("src/app/(app)/deals/[dealId]/spreads/standard/page.tsx");
+    // Match "json.spread" but NOT "json.spreads" (plural is V2 readiness status)
+    const hasV1Spread = /json\.spread(?!s)\b/.test(src);
     assert.ok(
-      !src.includes("json.spread"),
+      !hasV1Spread,
       "Standard UI page must not consume V1 spread from API",
     );
   });

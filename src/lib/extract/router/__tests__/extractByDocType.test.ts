@@ -157,10 +157,10 @@ test("RENT_ROLL → GEMINI_STANDARD", () => {
 
 // ─── GEMINI_STANDARD: Other Standard Types ──────────────────────────────────
 
-test("BANK_STATEMENT → GEMINI_STANDARD", () => {
+test("BANK_STATEMENT → GEMINI_STRUCTURED", () => {
   const r = resolveDocTypeRouting("BANK_STATEMENT");
   assert.equal(r.canonical_type, "BANK_STATEMENT");
-  assert.equal(r.routing_class, "GEMINI_STANDARD");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
 test("LEASE → GEMINI_STANDARD", () => {
@@ -288,9 +288,9 @@ test("RENT_ROLL does NOT route to GEMINI_STRUCTURED", () => {
   assert.notEqual(r.routing_class, "GEMINI_STRUCTURED");
 });
 
-test("BANK_STATEMENT does NOT route to GEMINI_STRUCTURED", () => {
+test("BANK_STATEMENT routes to GEMINI_STRUCTURED (upgraded for extraction)", () => {
   const r = resolveDocTypeRouting("BANK_STATEMENT");
-  assert.notEqual(r.routing_class, "GEMINI_STRUCTURED");
+  assert.equal(r.routing_class, "GEMINI_STRUCTURED");
 });
 
 test("FINANCIAL_STATEMENT (generic) does NOT route to GEMINI_STRUCTURED", () => {
@@ -300,13 +300,15 @@ test("FINANCIAL_STATEMENT (generic) does NOT route to GEMINI_STRUCTURED", () => 
 
 // ─── Scope Guardrails ───────────────────────────────────────────────────────
 
-test("exactly 5 canonical types route to GEMINI_STRUCTURED", () => {
+test("exactly 7 canonical types route to GEMINI_STRUCTURED", () => {
   const structuredTypes = [
     "BUSINESS_TAX_RETURN",
     "PERSONAL_TAX_RETURN",
     "INCOME_STATEMENT",
     "BALANCE_SHEET",
     "PFS",
+    "BANK_STATEMENT",
+    "DEBT_SCHEDULE",
   ];
 
   for (const t of structuredTypes) {
@@ -333,7 +335,6 @@ test("exactly 1 canonical type routes to GEMINI_PACKET", () => {
 test("remaining canonical types route to GEMINI_STANDARD", () => {
   const standardTypes = [
     "RENT_ROLL",
-    "BANK_STATEMENT",
     "LEASE",
     "INSURANCE",
     "APPRAISAL",
@@ -359,7 +360,7 @@ test("GEMINI_STRUCTURED types get structured assist", () => {
 });
 
 test("GEMINI_STANDARD types do not get structured assist", () => {
-  const r = resolveDocTypeRouting("BANK_STATEMENT");
+  const r = resolveDocTypeRouting("RENT_ROLL");
   assert.equal(isStructuredExtractionRoute(r.routing_class), false);
 });
 
