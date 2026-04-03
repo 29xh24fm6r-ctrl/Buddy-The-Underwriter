@@ -204,6 +204,13 @@ export default function DealPricingClient({
   const [quoting, setQuoting] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  // Auto-fetch rates on mount — avoids blocking SSR
+  useEffect(() => {
+    if (!rates) {
+      void handleRefreshRates();
+    }
+  }, []);
+
   const effectiveRate = useMemo(() => {
     if (!rates) return null;
     return rates[form.index_code] ?? rates.SOFR ?? null;

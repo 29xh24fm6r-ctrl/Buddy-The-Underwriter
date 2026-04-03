@@ -206,14 +206,13 @@ export default async function Page(
   const baseUrl = await getBaseUrl();
 
   let inputs: PricingInputs | null = null;
-  let latestRates: LatestRates | null = null;
+  let latestRates: LatestRates | null = null; // always null from SSR — loaded client-side
   let quotes: QuoteRow[] = [];
 
   try {
-    const [inputsRes, ratesRes, quotesRes] = await Promise.all([
-      fetch(`${baseUrl}/api/deals/${dealId}/pricing/inputs`, { cache: "no-store", signal: AbortSignal.timeout(8000) }),
-      fetch(`${baseUrl}/api/rates/latest`, { cache: "no-store", signal: AbortSignal.timeout(8000) }),
-      fetch(`${baseUrl}/api/deals/${dealId}/pricing/quotes`, { cache: "no-store", signal: AbortSignal.timeout(8000) }),
+    const [inputsRes, quotesRes] = await Promise.all([
+      fetch(`${baseUrl}/api/deals/${dealId}/pricing/inputs`, { cache: "no-store", signal: AbortSignal.timeout(5000) }),
+      fetch(`${baseUrl}/api/deals/${dealId}/pricing/quotes`, { cache: "no-store", signal: AbortSignal.timeout(5000) }),
     ]);
 
     if (inputsRes.ok) {
@@ -221,25 +220,16 @@ export default async function Page(
       inputs = payload?.inputs ?? null;
     }
 
-    if (ratesRes.ok) {
-      const payload = await ratesRes.json();
-      latestRates = payload?.rates ?? null;
-    }
-
     if (quotesRes.ok) {
       const payload = await quotesRes.json();
       quotes = payload?.quotes ?? [];
     }
   } catch (err) {
-    console.warn("[pricing] fetch timeout or network error — rendering with defaults", {
-      dealId,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    console.warn("[pricing] fetch timeout — rendering with defaults", { dealId });
   }
-  const indexCode = inputs?.index_code ?? "SOFR";
-  const rateEntry = latestRates?.[indexCode] ?? latestRates?.SOFR ?? null;
+  // Rates loaded client-side; SSR computes from inputs/pricing only
   const baseRatePct =
-    inputs?.base_rate_override_pct ?? rateEntry?.ratePct ?? pricing.quote.baseRate ?? 0;
+    inputs?.base_rate_override_pct ?? pricing.quote.baseRate ?? 0;
   const spreadBps = inputs?.spread_override_bps ?? pricing.quote.spreadBps ?? 0;
   const allInRatePct = baseRatePct + spreadBps / 100;
 
@@ -259,8 +249,8 @@ export default async function Page(
           baseRatePct,
           spreadBps,
           allInRatePct,
-          rateAsOf: rateEntry?.asOf ?? null,
-          rateSource: rateEntry?.source ?? null,
+          rateAsOf: null, // populated client-side after rates fetch
+          rateSource: null,
         }}
       />
     </div>

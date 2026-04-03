@@ -45,6 +45,10 @@ import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationG
 import { computeIntakeHealthScore } from "@/lib/intake/slo/computeIntakeHealthScore";
 import type { IntakeHealthInput } from "@/lib/intake/slo/computeIntakeHealthScore";
 
+// Short-lived cache to prevent redundant lifecycle queries on rapid re-renders
+const lifecycleCache = new Map<string, { expiresAt: number; value: LifecycleState }>();
+const LIFECYCLE_CACHE_TTL_MS = 30_000; // 30 seconds
+
 // Type for the internal lifecycle stage from deals table
 type DealLifecycleStage = "created" | "intake" | "collecting" | "underwriting" | "ready";
 
@@ -92,6 +96,9 @@ export async function deriveLifecycleState(dealId: string): Promise<LifecycleSta
  * Uses safeFetch wrapper for consistent error handling.
  */
 async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleState> {
+  const cached = lifecycleCache.get(dealId);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
   const sb = supabaseAdmin();
   const ctx: SafeFetchContext = { dealId };
   const runtimeBlockers: LifecycleBlocker[] = [];
@@ -642,12 +649,9 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     }
   }
 
-  return {
-    stage,
-    lastAdvancedAt,
-    blockers,
-    derived,
-  };
+  const result = { stage, lastAdvancedAt, blockers, derived };
+  lifecycleCache.set(dealId, { expiresAt: Date.now() + LIFECYCLE_CACHE_TTL_MS, value: result });
+  return result;
 }
 
 /**
