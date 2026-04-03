@@ -52,15 +52,26 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     }
 
     if (!pricingRow || pricingRow.annual_debt_service_est == null) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "pricing_assumptions_required",
-          message:
-            "Pricing assumptions must be saved before spreads can be generated. Set pricing on the Pricing tab first.",
-        },
-        { status: 422 },
-      );
+      // Fallback: if deal_pricing_inputs exists, proceed without ADS
+      // (DSCR shows as "—" until structural pricing is seeded)
+      const { data: inputsCheck } = await sb
+        .from("deal_pricing_inputs")
+        .select("deal_id")
+        .eq("deal_id", dealId)
+        .maybeSingle();
+
+      if (!inputsCheck) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "pricing_assumptions_required",
+            message:
+              "Pricing assumptions must be saved before spreads can be generated. Set pricing on the Pricing tab first.",
+          },
+          { status: 422 },
+        );
+      }
+      // Has pricing inputs — proceed; ADS injection skipped, DSCR will be "—"
     }
     // --- END PRICING GATE ---
 
@@ -79,7 +90,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       ]);
 
     // Inject ADS from pricing into facts for all years
-    const annualDebtService = toNumSafe(pricingRow.annual_debt_service_est);
+    const annualDebtService = pricingRow ? toNumSafe(pricingRow.annual_debt_service_est) : null;
     if (annualDebtService !== null) {
       for (const year of factsResult.years) {
         const adsKey = `cf_annual_debt_service_${year}`;
