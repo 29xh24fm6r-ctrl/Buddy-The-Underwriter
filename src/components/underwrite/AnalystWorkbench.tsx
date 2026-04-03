@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import SnapshotBanner from "./SnapshotBanner";
 import DriftBanner from "./DriftBanner";
 import WorkstreamCard from "./WorkstreamCard";
+import { OmegaAdvisoryBadge } from "@/components/deals/shared/OmegaAdvisoryBadge";
+import type { OmegaAdvisoryState } from "@/core/omega/types";
 import type { DriftSummary, SpreadSeedPackage, MemoSeedPackage } from "@/lib/underwritingLaunch/types";
 import UnderwriteTrustLayer, { type TrustLayerState } from "./UnderwriteTrustLayer";
 
@@ -33,6 +35,14 @@ export default function AnalystWorkbench({ dealId }: Props) {
   const [driftModalOpen, setDriftModalOpen] = useState(false);
   const [regeneratingMemo, setRegeneratingMemo] = useState(false);
   const [generatingPacket, setGeneratingPacket] = useState(false);
+  const [omegaState, setOmegaState] = useState<OmegaAdvisoryState | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/deals/${dealId}/state`)
+      .then(r => r.json())
+      .then(d => { if (d.ok && d.omega) setOmegaState(d.omega); })
+      .catch(() => {});
+  }, [dealId]);
 
   const fetchState = useCallback(async () => {
     setLoading(true);
@@ -114,13 +124,16 @@ export default function AnalystWorkbench({ dealId }: Props) {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div>
-        <h1 className="text-lg font-semibold text-white">{deal.dealName}</h1>
-        <div className="flex items-center gap-3 mt-1 text-sm text-white/60">
-          <span>{deal.borrowerLegalName}</span>
-          <span className="text-white/30">{deal.bankName}</span>
-          <span className="capitalize text-white/40">{deal.lifecycleStage?.replace(/_/g, " ")}</span>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-lg font-semibold text-white">{deal.dealName}</h1>
+          <div className="flex items-center gap-3 mt-1 text-sm text-white/60">
+            <span>{deal.borrowerLegalName}</span>
+            <span className="text-white/30">{deal.bankName}</span>
+            <span className="capitalize text-white/40">{deal.lifecycleStage?.replace(/_/g, " ")}</span>
+          </div>
         </div>
+        {omegaState && <OmegaAdvisoryBadge omega={omegaState} compact />}
       </div>
 
       {/* Snapshot Banner */}
