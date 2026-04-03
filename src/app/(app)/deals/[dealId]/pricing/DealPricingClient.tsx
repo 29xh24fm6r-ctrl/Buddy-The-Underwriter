@@ -1183,10 +1183,10 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="block space-y-1 text-sm text-slate-700">
-      <span className="font-medium text-slate-800">{label}</span>
+    <div className="block space-y-1 text-sm text-slate-700">
+      <div className="font-medium text-slate-800">{label}</div>
       {children}
-    </label>
+    </div>
   );
 }
 
