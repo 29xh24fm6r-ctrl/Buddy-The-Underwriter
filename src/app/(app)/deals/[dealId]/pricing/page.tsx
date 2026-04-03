@@ -1,7 +1,15 @@
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-import DealPricingClient from "./DealPricingClient";
+import nextDynamic from "next/dynamic";
+const DealPricingClient = nextDynamic(() => import("./DealPricingClient"), {
+  ssr: false,
+  loading: () => (
+    <div className="rounded-xl border p-8 text-center text-sm text-slate-500">
+      Loading pricing calculator...
+    </div>
+  ),
+});
 import PricingScenariosPanel from "./PricingScenariosPanel";
 import PricingAssumptionsCard from "@/components/deals/cockpit/panels/PricingAssumptionsCard";
 import { headers } from "next/headers";

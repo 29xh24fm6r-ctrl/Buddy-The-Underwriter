@@ -189,7 +189,7 @@ export default function PricingScenariosPanel({ dealId }: Props) {
 
       {decision && (
         <div className="p-3 text-sm bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg">
-          <span className="font-semibold">Pipeline cleared</span> — Pricing decision: {decision.decision} on {new Date(decision.decided_at).toLocaleDateString()}.
+          <span className="font-semibold">Pipeline cleared</span> — Pricing decision: {decision.decision} on {decision.decided_at.split("T")[0]}.
           Rationale: {decision.rationale}
         </div>
       )}
