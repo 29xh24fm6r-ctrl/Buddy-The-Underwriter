@@ -621,6 +621,22 @@ export default function DealPricingClient({
                   }
                 />
               </Field>
+
+              <Field label="Spread (bps)">
+                <input
+                  className="w-full rounded border px-3 py-2 text-sm"
+                  type="number"
+                  step="25"
+                  value={form.spread_override_bps ?? ""}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      spread_override_bps: parseNullableNumber(e.target.value),
+                    }))
+                  }
+                  placeholder="e.g. 300"
+                />
+              </Field>
             </div>
 
             <button
@@ -642,22 +658,6 @@ export default function DealPricingClient({
                       setForm((prev) => ({
                         ...prev,
                         base_rate_override_pct: parseNullableNumber(e.target.value),
-                      }))
-                    }
-                    placeholder="Optional"
-                  />
-                </Field>
-
-                <Field label="Spread Override (bps)">
-                  <input
-                    className="w-full rounded border px-3 py-2 text-sm"
-                    type="number"
-                    step="1"
-                    value={form.spread_override_bps ?? ""}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        spread_override_bps: parseNullableNumber(e.target.value),
                       }))
                     }
                     placeholder="Optional"
