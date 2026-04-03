@@ -23,7 +23,7 @@ async function fetchRatesViaGemini(): Promise<Record<IndexCode, IndexRate>> {
   const today = new Date().toISOString().split("T")[0];
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -43,7 +43,7 @@ All rates should be in percent (e.g. 5.33 not 0.0533).`
           }]
         }],
         tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0, responseMimeType: "application/json" }
+        generationConfig: { temperature: 0 }
       }),
       signal: AbortSignal.timeout(20000),
     }
