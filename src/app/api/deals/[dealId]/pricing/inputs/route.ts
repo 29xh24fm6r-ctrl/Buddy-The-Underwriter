@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 15;
 
 async function assertDealBank(
   sb: ReturnType<typeof supabaseAdmin>,

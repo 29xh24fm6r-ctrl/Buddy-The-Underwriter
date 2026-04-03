@@ -9,6 +9,7 @@ import { deriveLifecycleState } from "@/buddy/lifecycle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 function monthlyPaymentPI(principal: number, annualRatePct: number, nMonths: number) {
   const r = annualRatePct / 100 / 12;
