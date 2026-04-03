@@ -72,11 +72,21 @@ const KNOWN_LIFECYCLE_STAGES = new Set([
 ]);
 
 async function hasCreditSnapshot(sb: SupabaseClient, dealId: string) {
-  const { count } = await sb
+  // Primary: full decision pipeline (recompute route)
+  const { count: decisionCount } = await sb
     .from("financial_snapshot_decisions")
     .select("id", { count: "exact", head: true })
     .eq("deal_id", dealId);
-  return Boolean(count && count > 0);
+  if (decisionCount && decisionCount > 0) return true;
+
+  // Fallback: basic snapshot exists (pricing-assumptions PUT pipeline)
+  // financial_snapshots is written by both the full recompute pipeline
+  // and the pricing-assumptions PUT pipeline — sufficient to proceed
+  const { count: snapshotCount } = await sb
+    .from("financial_snapshots")
+    .select("id", { count: "exact", head: true })
+    .eq("deal_id", dealId);
+  return Boolean(snapshotCount && snapshotCount > 0);
 }
 
 async function fetchDeal(
