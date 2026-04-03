@@ -1,7 +1,7 @@
 import "server-only";
 
 import Link from "next/link";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireDealAccess } from "@/lib/auth/requireDealAccess";
 import { redirect } from "next/navigation";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
@@ -26,8 +26,8 @@ export const dynamic = "force-dynamic";
 export default async function CanonicalCreditMemoPage(props: {
   params: Promise<{ dealId: string }>;
 }) {
-  await requireRole(["super_admin", "bank_admin", "underwriter"]);
   const { dealId } = await props.params;
+  await requireDealAccess(dealId);
   const bankPick = await tryGetCurrentBankId();
   if (!bankPick.ok) redirect("/select-bank");
   const bankId = bankPick.bankId;
