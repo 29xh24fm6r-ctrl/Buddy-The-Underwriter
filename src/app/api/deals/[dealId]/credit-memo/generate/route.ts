@@ -15,6 +15,8 @@ import { getAIProvider } from "@/lib/ai/provider";
 import { logPipelineLedger } from "@/lib/pipeline/logPipelineLedger";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { writeEvent } from "@/lib/ledger/writeEvent";
+import { computeMemoInputHash } from "@/lib/creditMemo/canonical/memoProvenance";
 import type { RiskOutput } from "@/lib/ai/provider";
 
 export const runtime = "nodejs";
@@ -178,8 +180,38 @@ export async function POST(
       risk: riskOutput,
     });
 
-    // ── Step 6: Persist to canonical_memo_narratives ─────────────────────
-    const inputHash = `${dealId}_${Date.now()}`;
+    // ── Step 6: Compute provenance hash from canonical inputs ─────────────
+    // Fetch snapshot metadata for provenance
+    const { data: snapshotMeta } = await sb
+      .from("deal_financial_snapshots")
+      .select("id, updated_at")
+      .eq("deal_id", dealId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const { data: pricingMeta } = await sb
+      .from("pricing_decisions")
+      .select("id, updated_at")
+      .eq("deal_id", dealId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const latestFactUpdatedAt = facts.length > 0
+      ? (facts[0] as any).created_at ?? null
+      : null;
+
+    const inputHash = computeMemoInputHash({
+      snapshotId: snapshotMeta?.id ?? null,
+      snapshotUpdatedAt: snapshotMeta?.updated_at ?? null,
+      pricingDecisionId: pricingMeta?.id ?? null,
+      pricingUpdatedAt: pricingMeta?.updated_at ?? null,
+      factCount: facts.length,
+      latestFactUpdatedAt,
+    });
+
+    // ── Step 7: Persist to canonical_memo_narratives ─────────────────────
     const { error: upsertErr } = await sb
       .from("canonical_memo_narratives")
       .upsert(
@@ -196,7 +228,7 @@ export async function POST(
 
     if (upsertErr) throw upsertErr;
 
-    // ── Step 7: Log pipeline ledger ──────────────────────────────────────
+    // ── Step 8: Log pipeline ledger + observability event ────────────────
     await logPipelineLedger(sb, {
       bank_id: bankId,
       deal_id: dealId,
@@ -207,14 +239,33 @@ export async function POST(
         risk_run_id: riskRun.id,
         mission_id: mission.id,
         model: "gemini-3-flash-preview",
+        input_hash: inputHash,
       },
     });
 
-    return NextResponse.json({ ok: true, memo });
+    // Observability: memo generation completed
+    void writeEvent({
+      dealId,
+      kind: "memo.generation.completed",
+      scope: "memo",
+      action: "generate",
+      meta: {
+        input_hash: inputHash,
+        section_count: memo.sections.length,
+        risk_run_id: riskRun.id,
+        mission_id: mission.id,
+        model: "gemini-3-flash-preview",
+        snapshot_id: snapshotMeta?.id ?? null,
+        pricing_decision_id: pricingMeta?.id ?? null,
+        fact_count: facts.length,
+      },
+    });
+
+    return NextResponse.json({ ok: true, memo, inputHash });
   } catch (error: any) {
     rethrowNextErrors(error);
 
-    // Log AI failure to pipeline ledger
+    // Log AI failure to pipeline ledger + observability
     try {
       const bankId = await getCurrentBankId().catch(() => "");
       const { dealId } = await ctx.params;
@@ -227,6 +278,14 @@ export async function POST(
           payload: { error: error?.message ?? "unknown" },
         });
       }
+      // Observability: memo generation failed
+      void writeEvent({
+        dealId,
+        kind: "memo.generation.failed",
+        scope: "memo",
+        action: "generate",
+        meta: { error: error?.message ?? "unknown" },
+      });
     } catch {
       // Best-effort ledger logging
     }

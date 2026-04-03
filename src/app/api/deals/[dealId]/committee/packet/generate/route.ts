@@ -10,6 +10,7 @@ import { getActiveLetterhead, downloadLetterheadBuffer } from "@/lib/bank/letter
 import { getLatestLockedQuoteId } from "@/lib/pricing/getLatestLockedQuote";
 import { buildPricingMemoAppendixPdfBytes } from "@/app/api/deals/[dealId]/pricing/quote/[quoteId]/memo-pdf/route";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { buildCommitteeFinancialValidationSummary } from "@/lib/financialValidation/buildCommitteeFinancialValidationSummary";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,6 +75,37 @@ export async function POST(
       );
     }
 
+    // ── Canonical memo reference ──────────────────────────────────────────
+    // Packet must reference the same canonical memo that feeds the decision.
+    const { data: memoNarrative } = await sb
+      .from("canonical_memo_narratives")
+      .select("id, input_hash, generated_at")
+      .eq("deal_id", dealId)
+      .order("generated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // ── Financial validation preflight ────────────────────────────────────
+    // Committee packet must include financial validation state.
+    let financialValidation: Awaited<ReturnType<typeof buildCommitteeFinancialValidationSummary>> | null = null;
+    try {
+      financialValidation = await buildCommitteeFinancialValidationSummary(dealId);
+    } catch (err) {
+      console.warn("[committee/packet/generate] Financial validation summary failed (non-fatal):", err);
+    }
+
+    // Warn (but don't block) if financial validation is not decision-safe
+    const preflightWarnings: string[] = [];
+    if (financialValidation && !financialValidation.decisionSafe) {
+      preflightWarnings.push("Financial validation is not decision-safe");
+    }
+    if (financialValidation?.status === "stale") {
+      preflightWarnings.push("Financial validation summary is stale");
+    }
+    if (!memoNarrative) {
+      preflightWarnings.push("No canonical memo narrative found — packet may lack narrative context");
+    }
+
     // Fetch bank letterhead
     let letterheadBuffer: Buffer | null = null;
     try {
@@ -127,11 +159,41 @@ export async function POST(
       dealId,
       kind: "deal.committee.packet.generated",
       actorUserId: userId,
+      scope: "committee",
+      action: "packet_generate",
       meta: {
         snapshotId: snapshot.id,
         quoteId: appendixQuoteId,
         pdfSizeBytes: finalPdfBuffer.length,
         source: "one_click_cta",
+        // Canonical provenance references
+        memoNarrativeId: memoNarrative?.id ?? null,
+        memoInputHash: memoNarrative?.input_hash ?? null,
+        memoGeneratedAt: memoNarrative?.generated_at ?? null,
+        // Financial validation state at packet generation time
+        financialValidationStatus: financialValidation?.status ?? null,
+        financialValidationMemoSafe: financialValidation?.memoSafe ?? null,
+        financialValidationDecisionSafe: financialValidation?.decisionSafe ?? null,
+        preflightWarnings: preflightWarnings.length > 0 ? preflightWarnings : null,
+      },
+    });
+
+    // Observability: packet generation completed
+    void writeEvent({
+      dealId,
+      kind: "packet.generation.completed",
+      actorUserId: userId,
+      scope: "committee",
+      action: "packet_generate",
+      meta: {
+        snapshot_id: snapshot.id,
+        memo_narrative_id: memoNarrative?.id ?? null,
+        memo_input_hash: memoNarrative?.input_hash ?? null,
+        financial_validation_status: financialValidation?.status ?? null,
+        financial_validation_decision_safe: financialValidation?.decisionSafe ?? null,
+        preflight_warnings: preflightWarnings,
+        pdf_size_bytes: finalPdfBuffer.length,
+        has_appendix: !!appendixQuoteId,
       },
     });
 
@@ -140,11 +202,29 @@ export async function POST(
       snapshotId: snapshot.id,
       pdfSizeBytes: finalPdfBuffer.length,
       hasAppendix: !!appendixQuoteId,
+      memoInputHash: memoNarrative?.input_hash ?? null,
+      financialValidationStatus: financialValidation?.status ?? null,
+      preflightWarnings: preflightWarnings.length > 0 ? preflightWarnings : undefined,
     });
   } catch (error: any) {
     rethrowNextErrors(error);
 
     console.error("[/api/deals/[dealId]/committee/packet/generate] Error:", error);
+
+    // Observability: packet generation failed
+    try {
+      const { dealId } = await ctx.params;
+      void writeEvent({
+        dealId,
+        kind: "packet.generation.failed",
+        scope: "committee",
+        action: "packet_generate",
+        meta: { error: error?.message ?? "unknown" },
+      });
+    } catch {
+      // Best-effort
+    }
+
     return NextResponse.json(
       { ok: false, error: error?.message ?? "unexpected_error" },
       { status: 500 }
