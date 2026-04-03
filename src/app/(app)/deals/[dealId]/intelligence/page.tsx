@@ -6,7 +6,7 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { getOmegaAdvisoryState } from "@/core/omega/OmegaAdvisoryAdapter";
 import type { OmegaAdvisoryState } from "@/core/omega/types";
 import { OmegaAdvisoryPanel } from "@/components/deal/OmegaAdvisoryPanel";
-import IntelligenceClient from "./IntelligenceClient";
+import IntelligenceClient from "./IntelligenceClientLoader";
 
 type Props = {
   params: Promise<{ dealId: string }>;

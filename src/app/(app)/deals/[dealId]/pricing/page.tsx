@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 import DealPricingClient from "./DealPricingClientLoader";
-import PricingScenariosPanel from "./PricingScenariosPanel";
+import PricingScenariosPanel from "./PricingScenariosPanelLoader";
 import PricingAssumptionsCard from "@/components/deals/cockpit/panels/PricingAssumptionsCard";
 import { runDealRiskPricing } from "@/lib/pricing/runDealRiskPricing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
