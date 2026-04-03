@@ -80,63 +80,61 @@ export async function POST(
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  // Fire-and-forget: seed deal_structural_pricing so Intelligence tab gate passes
-  Promise.resolve().then(async () => {
-    try {
-      const { getLatestIndexRates } = await import("@/lib/rates/indexRates");
-      const rates = await getLatestIndexRates();
-      const indexCode = (patch.index_code ?? "SOFR") as "UST_5Y" | "SOFR" | "PRIME";
-      const liveRate = rates[indexCode];
-      const baseRatePct = patch.base_rate_override_pct ?? liveRate?.ratePct ?? 0;
-      const spreadBps = patch.spread_override_bps ?? 0;
-      const allInPct = baseRatePct + spreadBps / 100;
-      const principal = Number(patch.loan_amount ?? 0);
-      const n = Math.max(1, Number(patch.amort_months ?? 300));
-      const r = allInPct / 100 / 12;
-      const monthlyPI = r > 0 ? (principal * r) / (1 - Math.pow(1 + r, -n)) : principal / n;
-      const annualDebtService = monthlyPI * 12;
+  // Seed deal_structural_pricing synchronously (fire-and-forget fails in Vercel serverless)
+  try {
+    const { getLatestIndexRates } = await import("@/lib/rates/indexRates");
+    const rates = await getLatestIndexRates();
+    const indexCode = (patch.index_code ?? "SOFR") as "UST_5Y" | "SOFR" | "PRIME";
+    const liveRate = rates[indexCode];
+    const baseRatePct = patch.base_rate_override_pct ?? liveRate?.ratePct ?? 0;
+    const spreadBps = patch.spread_override_bps ?? 0;
+    const allInPct = baseRatePct + spreadBps / 100;
+    const principal = Number(patch.loan_amount ?? 0);
+    const n = Math.max(1, Number(patch.amort_months ?? 300));
+    const r = allInPct / 100 / 12;
+    const monthlyPI = r > 0 ? (principal * r) / (1 - Math.pow(1 + r, -n)) : principal / n;
+    const annualDebtService = monthlyPI * 12;
 
-      if (annualDebtService > 0 && principal > 0) {
-        const row = {
-          deal_id: dealId,
-          bank_id: bankId,
-          loan_request_id: null,
-          loan_amount: principal,
-          term_months: Number(patch.term_months ?? 120),
-          amort_months: n,
-          interest_only_months: Number(patch.interest_only_months ?? 0),
-          rate_index: indexCode,
-          requested_spread_bps: spreadBps,
-          structural_rate_pct: allInPct,
-          index_rate_pct: liveRate?.ratePct ?? null,
-          monthly_payment_est: monthlyPI,
-          annual_debt_service_est: annualDebtService,
-          floor_rate_pct: 0,
-          rate_type: "floating",
-          source: "pricing_inputs",
-          computed_at: new Date().toISOString(),
-        };
+    if (annualDebtService > 0 && principal > 0) {
+      const row = {
+        deal_id: dealId,
+        bank_id: bankId,
+        loan_request_id: null,
+        loan_amount: principal,
+        term_months: Number(patch.term_months ?? 120),
+        amort_months: n,
+        interest_only_months: Number(patch.interest_only_months ?? 0),
+        rate_index: indexCode,
+        requested_spread_bps: spreadBps,
+        structural_rate_pct: allInPct,
+        index_rate_pct: liveRate?.ratePct ?? null,
+        monthly_payment_est: monthlyPI,
+        annual_debt_service_est: annualDebtService,
+        floor_rate_pct: 0,
+        rate_type: "floating",
+        source: "pricing_inputs",
+        computed_at: new Date().toISOString(),
+      };
 
-        // Unique constraint is (deal_id, loan_request_id) but NULLs are distinct in PG,
-        // so do select-then-update/insert instead of upsert.
-        const { data: existing } = await sb
-          .from("deal_structural_pricing")
-          .select("id")
-          .eq("deal_id", dealId)
-          .is("loan_request_id", null)
-          .limit(1)
-          .maybeSingle();
+      // Unique constraint is (deal_id, loan_request_id) but NULLs are distinct in PG,
+      // so do select-then-update/insert instead of upsert.
+      const { data: existing } = await sb
+        .from("deal_structural_pricing")
+        .select("id")
+        .eq("deal_id", dealId)
+        .is("loan_request_id", null)
+        .limit(1)
+        .maybeSingle();
 
-        if (existing?.id) {
-          await sb.from("deal_structural_pricing").update(row).eq("id", existing.id);
-        } else {
-          await sb.from("deal_structural_pricing").insert(row);
-        }
+      if (existing?.id) {
+        await sb.from("deal_structural_pricing").update(row).eq("id", existing.id);
+      } else {
+        await sb.from("deal_structural_pricing").insert(row);
       }
-    } catch (err: any) {
-      console.warn("[pricing/inputs] structural pricing seed failed (non-fatal):", err?.message);
     }
-  }).catch(() => {});
+  } catch (err: any) {
+    console.warn("[pricing/inputs] structural pricing seed failed (non-fatal):", err?.message);
+  }
 
   return NextResponse.json({ ok: true, inputs: data });
 }
