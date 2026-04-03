@@ -2,7 +2,7 @@ import "server-only";
 
 import CanonicalMemoTemplate from "@/components/creditMemo/CanonicalMemoTemplate";
 import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireDealAccess } from "@/lib/auth/requireDealAccess";
 import { redirect } from "next/navigation";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { headers } from "next/headers";
@@ -29,7 +29,7 @@ export default async function CanonicalCreditMemoPrintPage(props: {
 
   // If token is present and matches, bypass Clerk entirely (used by Playwright server-side PDF export).
   if (!token || !secret || token !== secret) {
-    await requireRole(["super_admin", "bank_admin", "underwriter"]);
+    await requireDealAccess(dealId);
   }
 
   let bankId: string | undefined;
