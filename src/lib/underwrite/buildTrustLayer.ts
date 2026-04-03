@@ -14,6 +14,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { computeMemoInputHash, checkMemoStaleness } from "@/lib/creditMemo/canonical/memoProvenance";
+import { fetchMemoHashInputs } from "@/lib/creditMemo/canonical/fetchMemoHashInputs";
 import { buildCommitteeFinancialValidationSummary } from "@/lib/financialValidation/buildCommitteeFinancialValidationSummary";
 import { runPacketPreflight } from "@/lib/financialValidation/packetPreflight";
 
@@ -72,29 +73,10 @@ async function buildMemoTrust(dealId: string): Promise<TrustLayerMemo> {
   try {
     const sb = supabaseAdmin();
 
-    // Fetch current canonical state for input hash computation
-    const [snapshotRes, pricingRes, factsRes, memoRes] = await Promise.all([
-      sb.from("financial_snapshots_v2")
-        .select("id, updated_at")
-        .eq("deal_id", dealId)
-        .eq("is_active", true)
-        .maybeSingle(),
+    // Use canonical memo hash input assembly — same queries as memo generation route
+    const [hashInputs, memoRes] = await Promise.all([
+      fetchMemoHashInputs(sb, dealId),
 
-      sb.from("pricing_decisions")
-        .select("id, updated_at")
-        .eq("deal_id", dealId)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-
-      sb.from("deal_financial_facts")
-        .select("id, created_at")
-        .eq("deal_id", dealId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-
-      // Latest generated memo
       sb.from("canonical_memo_narratives")
         .select("input_hash, generated_at")
         .eq("deal_id", dealId)
@@ -103,7 +85,7 @@ async function buildMemoTrust(dealId: string): Promise<TrustLayerMemo> {
         .maybeSingle(),
     ]);
 
-    const snapshotId = snapshotRes.data?.id ?? null;
+    const snapshotId = hashInputs.snapshotId;
 
     // If no snapshot exists, memo can't be generated yet
     if (!snapshotId) {
@@ -116,19 +98,11 @@ async function buildMemoTrust(dealId: string): Promise<TrustLayerMemo> {
       };
     }
 
-    // Compute current input hash using canonical provenance function
-    const factCount = factsRes.data ? 1 : 0; // presence check — actual count not needed for hash
-    const currentHash = computeMemoInputHash({
-      snapshotId,
-      snapshotUpdatedAt: snapshotRes.data?.updated_at ?? null,
-      pricingDecisionId: pricingRes.data?.id ?? null,
-      pricingUpdatedAt: pricingRes.data?.updated_at ?? null,
-      factCount,
-      latestFactUpdatedAt: factsRes.data?.created_at ?? null,
-    });
+    // Compute current input hash using canonical provenance function + canonical inputs
+    const currentHash = computeMemoInputHash(hashInputs);
 
-    const memoHash = (memoRes.data as any)?.input_hash ?? null;
-    const lastGeneratedAt = (memoRes.data as any)?.generated_at ?? null;
+    const memoHash = memoRes.data?.input_hash ?? null;
+    const lastGeneratedAt = memoRes.data?.generated_at ?? null;
 
     if (!memoHash) {
       return {
@@ -179,11 +153,11 @@ async function buildPacketTrust(dealId: string): Promise<TrustLayerPacket> {
         .limit(1)
         .maybeSingle(),
 
-      // Latest packet generation event from ledger
+      // Latest packet generation event — canonical domain event from packet generation route
       sb.from("deal_events")
         .select("created_at")
         .eq("deal_id", dealId)
-        .eq("kind", "packet.generated")
+        .eq("kind", "deal.committee.packet.generated")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),

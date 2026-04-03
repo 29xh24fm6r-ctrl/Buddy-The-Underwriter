@@ -17,6 +17,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { computeMemoInputHash } from "@/lib/creditMemo/canonical/memoProvenance";
+import { fetchMemoHashInputs } from "@/lib/creditMemo/canonical/fetchMemoHashInputs";
 import type { RiskOutput } from "@/lib/ai/provider";
 
 export const runtime = "nodejs";
@@ -181,35 +182,9 @@ export async function POST(
     });
 
     // ── Step 6: Compute provenance hash from canonical inputs ─────────────
-    // Fetch snapshot metadata for provenance
-    const { data: snapshotMeta } = await sb
-      .from("deal_financial_snapshots")
-      .select("id, updated_at")
-      .eq("deal_id", dealId)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const { data: pricingMeta } = await sb
-      .from("pricing_decisions")
-      .select("id, updated_at")
-      .eq("deal_id", dealId)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const latestFactUpdatedAt = facts.length > 0
-      ? (facts[0] as any).created_at ?? null
-      : null;
-
-    const inputHash = computeMemoInputHash({
-      snapshotId: snapshotMeta?.id ?? null,
-      snapshotUpdatedAt: snapshotMeta?.updated_at ?? null,
-      pricingDecisionId: pricingMeta?.id ?? null,
-      pricingUpdatedAt: pricingMeta?.updated_at ?? null,
-      factCount: facts.length,
-      latestFactUpdatedAt,
-    });
+    // Uses shared canonical helper — same assembly as trust layer builder
+    const hashInputs = await fetchMemoHashInputs(sb, dealId);
+    const inputHash = computeMemoInputHash(hashInputs);
 
     // ── Step 7: Persist to canonical_memo_narratives ─────────────────────
     const { error: upsertErr } = await sb
@@ -255,9 +230,9 @@ export async function POST(
         risk_run_id: riskRun.id,
         mission_id: mission.id,
         model: "gemini-3-flash-preview",
-        snapshot_id: snapshotMeta?.id ?? null,
-        pricing_decision_id: pricingMeta?.id ?? null,
-        fact_count: facts.length,
+        snapshot_id: hashInputs.snapshotId,
+        pricing_decision_id: hashInputs.pricingDecisionId,
+        fact_count: hashInputs.factCount,
       },
     });
 

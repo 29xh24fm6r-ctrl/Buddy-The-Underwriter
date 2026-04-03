@@ -271,3 +271,140 @@ describe("Existing workspace render integrity", () => {
     assert.ok(content.includes('"Risk & Structure"'));
   });
 });
+
+// ── 13. Memo hash consistency — trust layer uses shared fetchMemoHashInputs ──
+
+const MEMO_GEN_ROUTE_PATH = path.resolve(
+  __dirname,
+  "../../../app/api/deals/[dealId]/credit-memo/generate/route.ts",
+);
+const FETCH_HASH_INPUTS_PATH = path.resolve(
+  __dirname,
+  "../../../lib/creditMemo/canonical/fetchMemoHashInputs.ts",
+);
+
+describe("Memo hash consistency", () => {
+  it("fetchMemoHashInputs.ts exists", () => {
+    assert.ok(fs.existsSync(FETCH_HASH_INPUTS_PATH));
+  });
+
+  it("fetchMemoHashInputs is server-only", () => {
+    const content = fs.readFileSync(FETCH_HASH_INPUTS_PATH, "utf-8");
+    assert.ok(content.includes('import "server-only"'));
+  });
+
+  it("trust layer builder uses fetchMemoHashInputs", () => {
+    const content = fs.readFileSync(BUILDER_PATH, "utf-8");
+    assert.ok(
+      content.includes("fetchMemoHashInputs"),
+      "Trust layer must use shared canonical hash input assembly",
+    );
+  });
+
+  it("memo generation route uses fetchMemoHashInputs", () => {
+    const content = fs.readFileSync(MEMO_GEN_ROUTE_PATH, "utf-8");
+    assert.ok(
+      content.includes("fetchMemoHashInputs"),
+      "Memo generation route must use shared canonical hash input assembly",
+    );
+  });
+
+  it("trust layer builder does NOT inline its own fact query for hash", () => {
+    const content = fs.readFileSync(BUILDER_PATH, "utf-8");
+    // Should not have the old presence-check pattern
+    assert.ok(
+      !content.includes("factCount = factsRes.data ? 1 : 0"),
+      "Trust layer must not use presence-check for factCount",
+    );
+  });
+
+  it("memo generation route does NOT inline its own hash input assembly", () => {
+    const content = fs.readFileSync(MEMO_GEN_ROUTE_PATH, "utf-8");
+    // Should not have the old inline snapshot/pricing fetch for hash
+    assert.ok(
+      !content.includes("deal_financial_snapshots"),
+      "Memo route must use fetchMemoHashInputs instead of inline snapshot query",
+    );
+  });
+
+  it("fetchMemoHashInputs uses facts.length for factCount", () => {
+    const content = fs.readFileSync(FETCH_HASH_INPUTS_PATH, "utf-8");
+    assert.ok(
+      content.includes("facts.length"),
+      "factCount must use actual count, not presence check",
+    );
+  });
+
+  it("computeMemoInputHash pure function determines hash from factCount", () => {
+    // Verify the pure function actually uses factCount in the hash
+    const { computeMemoInputHash } = require("@/lib/creditMemo/canonical/memoProvenance");
+    const hash1 = computeMemoInputHash({
+      snapshotId: "s1", snapshotUpdatedAt: "t1",
+      pricingDecisionId: "p1", pricingUpdatedAt: "t2",
+      factCount: 5, latestFactUpdatedAt: "t3",
+    });
+    const hash2 = computeMemoInputHash({
+      snapshotId: "s1", snapshotUpdatedAt: "t1",
+      pricingDecisionId: "p1", pricingUpdatedAt: "t2",
+      factCount: 10, latestFactUpdatedAt: "t3",
+    });
+    assert.notEqual(hash1, hash2, "Different factCounts must produce different hashes");
+  });
+});
+
+// ── 14. Packet event consistency — reads canonical domain event ──────────────
+
+describe("Packet event consistency", () => {
+  it("trust layer reads deal.committee.packet.generated event", () => {
+    const content = fs.readFileSync(BUILDER_PATH, "utf-8");
+    assert.ok(
+      content.includes("deal.committee.packet.generated"),
+      "Trust layer must read the canonical domain event for packet generation",
+    );
+  });
+
+  it("trust layer does NOT read the ghost 'packet.generated' event", () => {
+    const content = fs.readFileSync(BUILDER_PATH, "utf-8");
+    // The canonical name "deal.committee.packet.generated" contains "packet.generated"
+    // as a substring, so we check for the exact non-canonical standalone usage
+    const lines = content.split("\n");
+    const ghostUsages = lines.filter(
+      (l) => l.includes('"packet.generated"') && !l.includes("deal.committee.packet.generated"),
+    );
+    assert.equal(
+      ghostUsages.length,
+      0,
+      "Trust layer must not read the non-canonical 'packet.generated' event",
+    );
+  });
+
+  it("packet generation route writes deal.committee.packet.generated", () => {
+    const packetRoutePath = path.resolve(
+      __dirname,
+      "../../../app/api/deals/[dealId]/committee/packet/generate/route.ts",
+    );
+    const content = fs.readFileSync(packetRoutePath, "utf-8");
+    assert.ok(
+      content.includes("deal.committee.packet.generated"),
+      "Packet generation route must write canonical domain event",
+    );
+  });
+
+  it("lifecycle reads deal.committee.packet.generated", () => {
+    const lifecyclePath = path.resolve(__dirname, "../../../buddy/lifecycle/deriveLifecycleState.ts");
+    const content = fs.readFileSync(lifecyclePath, "utf-8");
+    assert.ok(
+      content.includes("deal.committee.packet.generated"),
+      "Lifecycle must read same canonical packet event as trust layer",
+    );
+  });
+
+  it("trust layer degrades gracefully when no packet event exists", () => {
+    const content = fs.readFileSync(BUILDER_PATH, "utf-8");
+    // packetEventRes.data can be null — lastGeneratedAt defaults to null
+    assert.ok(
+      content.includes("packetEventRes.data"),
+      "Must handle null packet event result",
+    );
+  });
+});
