@@ -12,6 +12,7 @@ import {
   computeSourcesUsesMetrics,
   computeLtvPct,
   computeReadiness,
+  getLatestSpread,
   type RequiredMetric,
 } from "@/lib/creditMemo/canonical/factsAdapter";
 import { buildDealFinancialSnapshotForBank } from "@/lib/deals/financialSnapshot";
@@ -241,7 +242,7 @@ export async function buildCanonicalCreditMemo(args: {
       ? await computeFinancialAnalysisMetrics({ dealId: args.dealId, bankId })
       : null;
 
-    const financial = {
+    let financial = {
       cashFlowAvailable: mergeMetric(snapshotFinancial.cashFlowAvailable, spreadFinancial?.cashFlowAvailable),
       annualDebtService: mergeMetric(snapshotFinancial.annualDebtService, spreadFinancial?.annualDebtService),
       excessCashFlow: mergeMetric(snapshotFinancial.excessCashFlow, spreadFinancial?.excessCashFlow),
@@ -254,6 +255,92 @@ export async function buildCanonicalCreditMemo(args: {
         return { value: stressedAds, source: `Computed:ADS*1.03 (300bps stress)`, updated_at: ads.updated_at };
       })(),
     };
+
+    // Tier 3: raw-input computation — when spread computed rows are null,
+    // read the underlying raw inputs directly and compute derived metrics.
+    // This covers deals where the GCF spread was built as a formula template
+    // but its inputs (FINANCIAL_ANALYSIS facts) were never written.
+    const needsTier3 =
+      financial.cashFlowAvailable.value === null ||
+      financial.annualDebtService.value === null;
+
+    if (needsTier3) {
+      // CFA: prefer T12 NOI row as proxy for operating cash flow
+      if (financial.cashFlowAvailable.value === null) {
+        try {
+          const t12 = await getLatestSpread({
+            dealId: args.dealId,
+            bankId,
+            spreadType: "T12",
+          });
+          if (t12?.rendered_json?.rows) {
+            const noiRow = t12.rendered_json.rows.find(
+              (r: any) => String(r.key).toUpperCase() === "NOI"
+            );
+            const rawCell = noiRow?.values?.[0];
+            const noiVal = typeof rawCell === "number" ? rawCell
+              : rawCell && typeof rawCell === "object" && "value" in rawCell ? Number(rawCell.value)
+              : null;
+            if (noiVal !== null && Number.isFinite(noiVal)) {
+              financial.cashFlowAvailable = {
+                value: noiVal,
+                source: "Spreads:T12.NOI",
+                updated_at: t12.updated_at,
+              };
+            }
+          }
+        } catch {
+          // non-fatal
+        }
+      }
+
+      // ADS: prefer structural pricing estimate when no spread or fact value exists
+      if (financial.annualDebtService.value === null && pricingRow?.annual_debt_service_est != null) {
+        financial.annualDebtService = {
+          value: Number(pricingRow.annual_debt_service_est),
+          source: "StructuralPricing:annual_debt_service_est",
+          updated_at: pricingRow.computed_at ?? null,
+        };
+      }
+
+      // Recompute derived metrics now that inputs may be available
+      if (financial.cashFlowAvailable.value !== null && financial.annualDebtService.value !== null) {
+        const cfa = financial.cashFlowAvailable.value;
+        const ads = financial.annualDebtService.value;
+
+        if (financial.excessCashFlow.value === null) {
+          financial.excessCashFlow = {
+            value: cfa - ads,
+            source: "Computed:CFA-ADS",
+            updated_at: null,
+          };
+        }
+
+        if (financial.dscrGlobal.value === null && ads > 0) {
+          financial.dscrGlobal = {
+            value: Math.round((cfa / ads) * 100) / 100,
+            source: `Computed:${financial.cashFlowAvailable.source}/${financial.annualDebtService.source}`,
+            updated_at: null,
+          };
+        }
+
+        if (financial.annualDebtServiceStressed300bps.value === null) {
+          financial.annualDebtServiceStressed300bps = {
+            value: ads * 1.03,
+            source: "Computed:ADS*1.03 (300bps stress)",
+            updated_at: financial.annualDebtService.updated_at,
+          };
+        }
+        if (financial.dscrStressed300bps.value === null && financial.annualDebtServiceStressed300bps.value !== null) {
+          const stressedAds = financial.annualDebtServiceStressed300bps.value;
+          financial.dscrStressed300bps = {
+            value: Math.round((cfa / stressedAds) * 100) / 100,
+            source: `Computed:${financial.cashFlowAvailable.source}/ADS_STRESSED`,
+            updated_at: null,
+          };
+        }
+      }
+    }
 
     const snapshotSourcesUses = {
       totalProjectCost: metricValueFromSnapshot({ snapshot, metric: "total_project_cost", label: "Total Project Cost" }),
