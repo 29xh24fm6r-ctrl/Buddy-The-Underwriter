@@ -6,105 +6,87 @@ export type IndexRate = {
   code: IndexCode;
   label: string;
   ratePct: number;
-  asOf: string; // date or ISO
+  asOf: string;
   source: "treasury" | "nyfed" | "fed_h15" | "fred";
   sourceUrl?: string;
   raw?: unknown;
 };
 
 type CacheEntry = { expiresAt: number; value: Record<IndexCode, IndexRate> };
-
 let cache: CacheEntry | null = null;
+const TTL_MS = 15 * 60 * 1000; // 15 min cache
 
-const TTL_MS = 15 * 60 * 1000;
-async function fetchJson(url: string) {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`fetch failed ${res.status} for ${url}`);
-  return res.json();
+async function fetchRatesViaGemini(): Promise<Record<IndexCode, IndexRate>> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY not set");
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: `Today is ${today}. Please look up the current values for these three US interest rate benchmarks and return ONLY a JSON object, no markdown, no explanation:
+{
+  "SOFR": { "rate": <number>, "asOf": "<YYYY-MM-DD>" },
+  "UST_5Y": { "rate": <number>, "asOf": "<YYYY-MM-DD>" },
+  "PRIME": { "rate": <number>, "asOf": "<YYYY-MM-DD>" }
 }
-
-async function fetchText(url: string) {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`fetch failed ${res.status} for ${url}`);
-  return res.text();
-}
-
-async function getSOFR(): Promise<IndexRate> {
-  const url = "https://markets.newyorkfed.org/api/rates/secured/sofr.json";
-  const data = await fetchJson(url);
-
-  const series = data?.refRates?.[0];
-  const obs = series?.observations;
-  const last = Array.isArray(obs) && obs.length ? obs[obs.length - 1] : null;
-  const rate = Number(last?.value);
-
-  if (!Number.isFinite(rate)) throw new Error("SOFR parse failed");
-
-  return {
-    code: "SOFR",
-    label: "SOFR (NY Fed)",
-    ratePct: rate,
-    asOf: last?.effectiveDate ?? last?.date ?? new Date().toISOString(),
-    source: "nyfed",
-    sourceUrl: url,
-    raw: { last },
-  };
-}
-async function getUST5Y(): Promise<IndexRate> {
-  const url =
-    "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/daily_treasury_yield_curve_rates" +
-    "?page[size]=1&sort=-record_date&fields=record_date,bc_5year";
-  const data = await fetchJson(url);
-  const row = data?.data?.[0];
-  const rate = Number(row?.bc_5year);
-
-  if (!Number.isFinite(rate)) throw new Error("UST 5Y parse failed");
-
-  return {
-    code: "UST_5Y",
-    label: "5Y Treasury (Daily)",
-    ratePct: rate,
-    asOf: row?.record_date ?? new Date().toISOString(),
-    source: "treasury",
-    sourceUrl: url,
-    raw: { row },
-  };
-}
-
-async function getPrime(): Promise<IndexRate> {
-  const url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DPRIME";
-  const csv = await fetchText(url);
-
-  const lines = csv.trim().split("\n");
-  for (let i = lines.length - 1; i >= 1; i--) {
-    const [date, value] = lines[i].split(",");
-    const rate = Number(value);
-    if (date && Number.isFinite(rate)) {
-      return {
-        code: "PRIME",
-        label: "Prime (Bank Prime Loan Rate)",
-        ratePct: rate,
-        asOf: date,
-        source: "fred",
-        sourceUrl: url,
-        raw: { date, value },
-      };
+SOFR = Secured Overnight Financing Rate (NY Fed)
+UST_5Y = 5-Year US Treasury yield (daily, from Treasury.gov)
+PRIME = Bank Prime Loan Rate (from Federal Reserve / FRED DPRIME)
+All rates should be in percent (e.g. 5.33 not 0.0533).`
+          }]
+        }],
+        tools: [{ google_search: {} }],
+        generationConfig: { temperature: 0, responseMimeType: "application/json" }
+      }),
+      signal: AbortSignal.timeout(20000),
     }
-  }
-  throw new Error("Prime parse failed");
+  );
+
+  if (!res.ok) throw new Error(`Gemini API error: ${res.status}`);
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const clean = text.replace(/```json|```/g, "").trim();
+  const parsed = JSON.parse(clean);
+
+  const now = new Date().toISOString().split("T")[0];
+
+  return {
+    SOFR: {
+      code: "SOFR",
+      label: "SOFR (NY Fed)",
+      ratePct: Number(parsed.SOFR.rate),
+      asOf: parsed.SOFR.asOf ?? now,
+      source: "nyfed",
+    },
+    UST_5Y: {
+      code: "UST_5Y",
+      label: "5Y Treasury",
+      ratePct: Number(parsed.UST_5Y.rate),
+      asOf: parsed.UST_5Y.asOf ?? now,
+      source: "treasury",
+    },
+    PRIME: {
+      code: "PRIME",
+      label: "Prime Rate",
+      ratePct: Number(parsed.PRIME.rate),
+      asOf: parsed.PRIME.asOf ?? now,
+      source: "fred",
+    },
+  };
 }
 
 export async function getLatestIndexRates(): Promise<Record<IndexCode, IndexRate>> {
   const t = Date.now();
   if (cache && cache.expiresAt > t) return cache.value;
 
-  const [ust5y, sofr, prime] = await Promise.all([getUST5Y(), getSOFR(), getPrime()]);
-  const value: Record<IndexCode, IndexRate> = {
-    UST_5Y: ust5y,
-    SOFR: sofr,
-    PRIME: prime,
-  };
-
+  const value = await fetchRatesViaGemini();
   cache = { expiresAt: t + TTL_MS, value };
   return value;
 }
