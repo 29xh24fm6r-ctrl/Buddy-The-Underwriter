@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { isPermittedOverrideKey } from "@/lib/creditMemo/overridePolicy";
+import { emitMemoOverrideSaved } from "@/lib/observability/underwriteEvents";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
@@ -33,6 +35,10 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ dealId:
     const body = await req.json();
     const { key, value } = body as { key: string; value: string };
     if (!key) return NextResponse.json({ ok: false, error: "missing key" }, { status: 400 });
+    if (!isPermittedOverrideKey(key)) {
+      emitMemoOverrideSaved({ dealId, actorUserId: auth.userId, key, rejected: true });
+      return NextResponse.json({ ok: false, error: `Override key "${key}" is not permitted — only qualitative narrative keys are allowed` }, { status: 422 });
+    }
     const sb = supabaseAdmin();
     const { data: existing } = await sb.from("deal_memo_overrides").select("id, overrides").eq("deal_id", dealId).eq("bank_id", auth.bankId).maybeSingle();
     const merged = { ...((existing as Record<string, unknown> | null)?.overrides as Record<string, unknown> ?? {}), [key]: value };
@@ -41,6 +47,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ dealId:
     } else {
       await sb.from("deal_memo_overrides").insert({ deal_id: dealId, bank_id: auth.bankId, overrides: merged });
     }
+    emitMemoOverrideSaved({ dealId, actorUserId: auth.userId, key, rejected: false });
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     rethrowNextErrors(e);

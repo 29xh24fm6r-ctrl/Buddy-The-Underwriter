@@ -46,6 +46,15 @@ export const PERMITTED_OVERRIDE_KEYS = new Set([
   "conditions_narrative",
   "covenant_narrative",
 
+  // Business detail (qualitative)
+  "revenue_mix",
+  "seasonality",
+
+  // Builder story mappings
+  "principal_background",
+  "key_weaknesses",
+  "key_strengths",
+
   // Other free-text
   "additional_notes",
   "guarantor_notes",

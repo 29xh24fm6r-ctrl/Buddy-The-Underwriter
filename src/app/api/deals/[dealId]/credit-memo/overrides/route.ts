@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { filterQualitativeOverrides } from "@/lib/creditMemo/overridePolicy";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
@@ -18,19 +19,22 @@ export async function POST(
     }
 
     const body = await req.json().catch(() => ({}));
-    const overrides = body?.overrides ?? {};
+    const rawOverrides = body?.overrides ?? {};
+
+    // Enforce override policy — only qualitative narrative keys are accepted
+    const { accepted, rejected } = filterQualitativeOverrides(rawOverrides);
 
     const sb = supabaseAdmin();
     const { error } = await sb
       .from("deal_memo_overrides")
       .upsert(
-        { deal_id: dealId, bank_id: auth.bankId, overrides, updated_at: new Date().toISOString() },
+        { deal_id: dealId, bank_id: auth.bankId, overrides: accepted, updated_at: new Date().toISOString() },
         { onConflict: "deal_id,bank_id" },
       );
 
     if (error) throw error;
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, rejected: rejected.length > 0 ? rejected : undefined });
   } catch (e: unknown) {
     rethrowNextErrors(e);
     console.error("[credit-memo/overrides POST]", e);
