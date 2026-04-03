@@ -1155,35 +1155,6 @@ export default function DealPricingClient({
           </Card>
         </section>
 
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Card title="Inputs Used">
-            <pre className="text-xs bg-slate-50 p-3 rounded overflow-auto">
-              {JSON.stringify({ form, computed: { baseRatePct, spreadBps, allInRatePct } }, null, 2)}
-            </pre>
-          </Card>
-
-          <Card title="Why This Price">
-            <ul className="text-sm space-y-2">
-              {(pricing?.explain ?? []).map((x, i) => (
-                <li key={i} className="flex gap-2">
-                  <span className="mt-[2px] inline-block w-2 h-2 rounded-full bg-slate-300" />
-                  <span>
-                    <span className="font-medium">{x.label}:</span> {x.detail}{" "}
-                    {x.deltaBps ? <span className="text-slate-600">({fmtBps(x.deltaBps)})</span> : null}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </section>
-
-        <section className="grid grid-cols-1 gap-4">
-          <Card title="Full Pricing Object (Debug)">
-            <pre className="text-xs bg-slate-50 p-3 rounded overflow-auto">
-              {JSON.stringify(pricing, null, 2)}
-            </pre>
-          </Card>
-        </section>
       </div>
     </main>
   );
