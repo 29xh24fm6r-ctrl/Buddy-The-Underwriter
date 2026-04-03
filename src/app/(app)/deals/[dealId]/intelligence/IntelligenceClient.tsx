@@ -35,21 +35,48 @@ function toNum(val: unknown): number | null {
   return isFinite(n) ? n : null;
 }
 
+// ─── Drill-down types ─────────────────────────────────────────────────────
+
+type DrillDownInput = {
+  label: string;
+  value: string;
+  source?: string;
+};
+type DrillDownData = {
+  metricId: string;
+  title: string;
+  formula?: string;
+  inputs: DrillDownInput[];
+  interpretation?: string;
+  benchmarks?: Array<{ label: string; threshold: string; status: "pass" | "warn" | "fail" }>;
+};
+
 // ─── Metric cell ───────────────────────────────────────────────────────────
 
 function MetricCell({
+  id,
   label,
   value,
   context,
   highlight,
+  drillDown,
+  selectedId,
+  onSelect,
 }: {
+  id: string;
   label: string;
   value: string;
   context?: string;
   highlight?: "critical" | "elevated" | "good" | null;
+  drillDown?: DrillDownData;
+  selectedId?: string | null;
+  onSelect?: (id: string | null) => void;
 }) {
+  const isSelected = selectedId === id;
   const borderColor =
-    highlight === "critical"
+    isSelected
+      ? "border-primary/60"
+      : highlight === "critical"
       ? "border-rose-500/50"
       : highlight === "elevated"
       ? "border-amber-500/50"
@@ -59,7 +86,8 @@ function MetricCell({
 
   return (
     <div
-      className={`bg-white/5 border ${borderColor} rounded-lg px-4 py-3 flex flex-col gap-0.5`}
+      className={`bg-white/5 border ${borderColor} rounded-lg px-4 py-3 flex flex-col gap-0.5 ${drillDown ? "cursor-pointer hover:bg-white/[0.08] transition-colors" : ""}`}
+      onClick={() => drillDown && onSelect?.(isSelected ? null : id)}
     >
       <span className="text-[10px] uppercase tracking-wide text-white/50">
         {label}
@@ -69,6 +97,59 @@ function MetricCell({
       </span>
       {context && (
         <span className="text-xs text-white/40 mt-0.5">{context}</span>
+      )}
+      {drillDown && (
+        <span className="text-[9px] text-primary/60 mt-1">{isSelected ? "▲ hide detail" : "▼ view source"}</span>
+      )}
+    </div>
+  );
+}
+
+// ─── Drill-down panel ─────────────────────────────────────────────────────
+
+function DrillDownPanel({ data, onClose }: { data: DrillDownData; onClose: () => void }) {
+  return (
+    <div className="col-span-full mt-1 rounded-xl border border-primary/20 bg-white/[0.04] px-5 py-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-white">{data.title}</div>
+        <button onClick={onClose} className="text-xs text-white/40 hover:text-white/70">✕ close</button>
+      </div>
+      {data.formula && (
+        <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wide text-white/40 mb-1">Formula</div>
+          <div className="font-mono text-xs text-primary/80">{data.formula}</div>
+        </div>
+      )}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-white/40 mb-2">Source Inputs</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {data.inputs.map((inp, i) => (
+            <div key={i} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+              <div className="text-[10px] text-white/40">{inp.label}</div>
+              <div className="text-sm font-semibold text-white mt-0.5">{inp.value}</div>
+              {inp.source && <div className="text-[9px] text-white/30 mt-0.5">src: {inp.source}</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+      {data.benchmarks && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-white/40 mb-2">Policy Benchmarks</div>
+          <div className="flex flex-wrap gap-2">
+            {data.benchmarks.map((b, i) => (
+              <div key={i} className={`rounded-full px-3 py-1 text-xs border ${
+                b.status === "pass" ? "border-emerald-500/30 bg-emerald-950/20 text-emerald-300"
+                : b.status === "warn" ? "border-amber-500/30 bg-amber-950/20 text-amber-300"
+                : "border-rose-500/30 bg-rose-950/20 text-rose-300"
+              }`}>
+                {b.label}: {b.threshold}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {data.interpretation && (
+        <div className="text-xs text-white/60 border-t border-white/5 pt-3">{data.interpretation}</div>
       )}
     </div>
   );
@@ -247,6 +328,7 @@ export default function IntelligenceClient({
   // Spread intelligence (DSCR reconciliation + completeness)
   const [dscrRecon, setDscrRecon] = useState<DscrReconciliationResult | null>(null);
   const [spreadCompleteness, setSpreadCompleteness] = useState<SpreadCompletenessResult | null>(null);
+  const [selectedMetricId, setSelectedMetricId] = useState<string | null>(null);
 
   const loadSpreadIntel = useCallback(async () => {
     try {
@@ -337,6 +419,106 @@ export default function IntelligenceClient({
       ? "Medium"
       : "Weak";
 
+  // ── Drill-down data ──────────────────────────────────────────────────────
+
+  const drillDowns: Record<string, DrillDownData> = {
+    exposure: {
+      metricId: "exposure",
+      title: "Loan Exposure",
+      inputs: [
+        { label: "Loan Amount", value: loanAmount != null ? fmtDollars(loanAmount) : "—", source: "deal_loan_requests" },
+      ],
+      interpretation: "Total requested exposure from the most recent loan request. Used as the denominator for LTV and debt yield calculations.",
+    },
+    dscrBase: {
+      metricId: "dscrBase",
+      title: "DSCR — Base Case",
+      formula: "DSCR = Net Cash Available for Debt Service (NCADS) ÷ Annual Debt Service (ADS)",
+      inputs: [
+        { label: "NCADS / EBITDA", value: ebitda != null ? fmtDollars(ebitda) : "—", source: `deal_financial_facts (${latestYear})` },
+        { label: "DSCR Result", value: dscr != null ? `${dscr.toFixed(2)}x` : "—", source: "derived" },
+      ],
+      benchmarks: [
+        { label: "Minimum", threshold: "1.25x", status: dscr != null && dscr >= 1.25 ? "pass" : "fail" },
+        { label: "Strong", threshold: "1.50x", status: dscr != null && dscr >= 1.50 ? "pass" : "warn" },
+        { label: "Excellent", threshold: "2.00x", status: dscr != null && dscr >= 2.00 ? "pass" : "warn" },
+      ],
+      interpretation: `DSCR of ${dscr != null ? dscr.toFixed(2) : "—"}x means the business generates ${dscr != null ? dscr.toFixed(2) : "—"} dollars of cash flow for every $1.00 of debt service. Policy minimum is 1.25x.`,
+    },
+    dscrDownside: {
+      metricId: "dscrDownside",
+      title: "DSCR — Downside Stress (-15% Revenue)",
+      formula: "DSCR Downside = DSCR Base × 0.85 (simplified revenue stress)",
+      inputs: [
+        { label: "Base DSCR", value: dscr != null ? `${dscr.toFixed(2)}x` : "—", source: "derived" },
+        { label: "Stress Factor", value: "−15% revenue", source: "policy standard" },
+        { label: "Stressed DSCR", value: dscrDownside != null ? `${dscrDownside.toFixed(2)}x` : "—", source: "derived" },
+      ],
+      benchmarks: [
+        { label: "Stressed minimum", threshold: "1.0x", status: dscrDownside != null && dscrDownside >= 1.0 ? "pass" : "fail" },
+      ],
+      interpretation: "A simplified 15% revenue stress applied to base DSCR. Full sensitivity analysis requires the V2 model engine with multi-scenario projections.",
+    },
+    covenantBreach: {
+      metricId: "covenantBreach",
+      title: "Revenue Covenant Breach Threshold",
+      formula: "Breach % = (1 − 1 ÷ DSCR) × 100",
+      inputs: [
+        { label: "Current DSCR", value: dscr != null ? `${dscr.toFixed(2)}x` : "—", source: "derived" },
+        { label: "NCADS", value: ebitda != null ? fmtDollars(ebitda) : "—", source: `deal_financial_facts (${latestYear})` },
+        { label: "Revenue to Break 1.0x", value: covenantBreachPct != null ? `${covenantBreachPct}% decline` : "—", source: "derived" },
+        { label: "Current Revenue", value: fmtDollars(revenue), source: `deal_financial_facts (${latestYear})` },
+      ],
+      benchmarks: [
+        { label: "Headroom (>20% safe)", threshold: covenantBreachPct != null ? `${covenantBreachPct}%` : "—", status: covenantBreachPct != null && covenantBreachPct >= 20 ? "pass" : covenantBreachPct != null && covenantBreachPct >= 10 ? "warn" : "fail" },
+      ],
+      interpretation: `Revenue must decline ${covenantBreachPct ?? "—"}% before DSCR breaks the 1.0x covenant floor. This ${covenantBreachPct != null && covenantBreachPct >= 20 ? "provides substantial headroom" : covenantBreachPct != null && covenantBreachPct >= 10 ? "provides moderate headroom" : "indicates limited headroom"} against a covenant breach.`,
+    },
+    treasuryWallet: {
+      metricId: "treasuryWallet",
+      title: "Treasury Wallet Tier",
+      formula: "HIGH: EBITDA > $500K AND rev growth > 5% | LOW: DSCR < 1.1x OR EBITDA < $150K | MED: otherwise",
+      inputs: [
+        { label: "EBITDA", value: ebitda != null ? fmtDollars(ebitda) : "—", source: `deal_financial_facts (${latestYear})` },
+        { label: "Revenue Growth", value: revGrowth != null ? fmtPct(revGrowth) : "—", source: "derived (YoY)" },
+        { label: "DSCR", value: dscr != null ? `${dscr.toFixed(2)}x` : "—", source: "derived" },
+        { label: "Tier Result", value: walletTier ?? "—", source: "derived" },
+      ],
+      interpretation: "Wallet tier is a deposit opportunity proxy. HIGH tier businesses are candidates for full treasury relationship; MED for partial; LOW for depository-only relationship.",
+    },
+    sponsorSupport: {
+      metricId: "sponsorSupport",
+      title: "Sponsor / Guarantor Support",
+      formula: "Strong: Net Worth ≥ 3× loan | Medium: Net Worth ≥ 1× loan | Weak: Net Worth < 1× loan",
+      inputs: [
+        { label: "Personal Net Worth", value: personalNetWorth != null ? fmtDollars(personalNetWorth) : "—", source: "deal_financial_facts (PFS)" },
+        { label: "Loan Amount", value: loanAmount != null ? fmtDollars(loanAmount) : "—", source: "deal_loan_requests" },
+        { label: "Coverage Ratio", value: personalNetWorth != null && loanAmount != null ? `${(personalNetWorth / loanAmount).toFixed(1)}×` : "—", source: "derived" },
+        { label: "Support Level", value: sponsorSupport ?? "—", source: "derived" },
+      ],
+      benchmarks: [
+        { label: "Strong (≥3×)", threshold: "3× loan", status: personalNetWorth != null && loanAmount != null && personalNetWorth >= loanAmount * 3 ? "pass" : "warn" },
+      ],
+      interpretation: "Personal guaranty coverage assessment based on Personal Financial Statement (PFS) net worth vs. proposed loan exposure. Requires PFS document extraction for accuracy.",
+    },
+    committeeReadiness: {
+      metricId: "committeeReadiness",
+      title: "Committee Readiness Score",
+      formula: "Score = DSCR Score (0–40) + Policy Score (0–30) + Evidence Score (0–30)",
+      inputs: [
+        { label: "DSCR Component", value: dscr != null && dscr >= 1.25 ? "40 / 40" : dscr != null && dscr >= 1.0 ? "20 / 40" : "0 / 40", source: "DSCR ≥ 1.25x = 40pts" },
+        { label: "Policy Component", value: policyExceptions === 0 ? "30 / 30" : policyExceptions <= 1 ? "15 / 30" : "0 / 30", source: "Zero exceptions = 30pts" },
+        { label: "Evidence Component", value: auditConfidence != null && auditConfidence >= 80 ? "30 / 30" : auditConfidence != null && auditConfidence >= 60 ? "15 / 30" : "0 / 30", source: "deal_document_audit_certificates" },
+        { label: "Total Score", value: `${readiness} / 100`, source: "derived" },
+      ],
+      benchmarks: [
+        { label: "Ready (≥70)", threshold: "70%", status: readiness >= 70 ? "pass" : "warn" },
+        { label: "Conditional (50–69)", threshold: "50–69%", status: readiness >= 50 && readiness < 70 ? "warn" : readiness >= 70 ? "pass" : "fail" },
+      ],
+      interpretation: `${readiness >= 70 ? "Deal is ready for committee submission." : readiness >= 50 ? "Deal can proceed to committee with conditions. Address open items before submission." : "Deal requires additional work before committee submission."}`,
+    },
+  };
+
   // Final narrative
   const finalNarrative =
     spread?.narrative_report?.final_narrative ?? null;
@@ -410,39 +592,54 @@ export default function IntelligenceClient({
       {/* ── Panel A: Metric Grid ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
         <MetricCell
+          id="exposure"
           label="Exposure"
           value={fmtDollars(loanAmount)}
           context="Loan amount"
+          drillDown={drillDowns.exposure}
+          selectedId={selectedMetricId}
+          onSelect={setSelectedMetricId}
         />
         <MetricCell
+          id="dscrBase"
           label="DSCR Base"
           value={fmtX(dscr)}
           context="Latest year"
           highlight={
             dscr == null ? null : dscr >= 1.25 ? "good" : dscr >= 1.0 ? "elevated" : "critical"
           }
+          drillDown={drillDowns.dscrBase}
+          selectedId={selectedMetricId}
+          onSelect={setSelectedMetricId}
         />
         <MetricCell
+          id="dscrDownside"
           label="DSCR Downside"
           value={fmtX(dscrDownside)}
           context="-15% rev stress"
           highlight={
             dscrDownside == null ? null : dscrDownside >= 1.25 ? "good" : dscrDownside >= 1.0 ? "elevated" : "critical"
           }
+          drillDown={drillDowns.dscrDownside}
+          selectedId={selectedMetricId}
+          onSelect={setSelectedMetricId}
         />
         <MetricCell
+          id="leverage"
           label="Leverage"
           value={leverage != null ? `${leverage.toFixed(1)}x` : "—"}
           context="Policy max 4.5x"
           highlight={leverage != null && leverage > 4.5 ? "elevated" : null}
         />
         <MetricCell
+          id="policyExceptions"
           label="Policy Exceptions"
           value={spread ? String(policyExceptions) : "—"}
           context="Open flags"
           highlight={policyExceptions > 0 ? (criticalCount > 0 ? "critical" : "elevated") : null}
         />
         <MetricCell
+          id="evidenceConfidence"
           label="Evidence Confidence"
           value={auditConfidence != null ? `${Math.round(auditConfidence)}%` : "—"}
           context="Document verification"
@@ -451,35 +648,53 @@ export default function IntelligenceClient({
           }
         />
         <MetricCell
+          id="treasuryWallet"
           label="Treasury Wallet"
           value={walletTier ?? "—"}
           context="Deposit + treasury"
           highlight={walletTier === "HIGH" ? "good" : walletTier === "LOW" ? "elevated" : null}
+          drillDown={drillDowns.treasuryWallet}
+          selectedId={selectedMetricId}
+          onSelect={setSelectedMetricId}
         />
         <MetricCell
+          id="sponsorSupport"
           label="Sponsor Support"
           value={sponsorSupport ?? "—"}
           context="Guaranty coverage"
+          drillDown={drillDowns.sponsorSupport}
+          selectedId={selectedMetricId}
+          onSelect={setSelectedMetricId}
         />
         <MetricCell
+          id="covenantBreach"
           label="Covenant Breach"
           value={covenantBreachPct != null ? `Rev \u2193${covenantBreachPct}%` : "—"}
           context="Breaks DSCR 1.0x"
           highlight={covenantBreachPct != null && covenantBreachPct < 15 ? "elevated" : null}
+          drillDown={drillDowns.covenantBreach}
+          selectedId={selectedMetricId}
+          onSelect={setSelectedMetricId}
         />
         <MetricCell
+          id="committeeReadiness"
           label="Committee Readiness"
           value={spread ? `${readiness}%` : "—"}
           context="Readiness score"
           highlight={readiness >= 70 ? "good" : readiness >= 50 ? "elevated" : "critical"}
+          drillDown={drillDowns.committeeReadiness}
+          selectedId={selectedMetricId}
+          onSelect={setSelectedMetricId}
         />
         <MetricCell
+          id="openIssues"
           label="Open Issues"
           value={spread ? String(openFlags.length) : "—"}
           context="Unresolved"
           highlight={openFlags.length > 0 ? (criticalCount > 0 ? "critical" : "elevated") : null}
         />
         <MetricCell
+          id="sbaEligibility"
           label="SBA Eligibility"
           value={
             sbaStatus === "eligible"
@@ -495,6 +710,12 @@ export default function IntelligenceClient({
             sbaStatus === "eligible" ? "good" : sbaStatus === "ineligible" ? "critical" : null
           }
         />
+        {selectedMetricId && drillDowns[selectedMetricId] && (
+          <DrillDownPanel
+            data={drillDowns[selectedMetricId]}
+            onClose={() => setSelectedMetricId(null)}
+          />
+        )}
       </div>
 
       {/* ── Panel B: Risk Signal Strip ───────────────────────────────────── */}
@@ -538,12 +759,12 @@ export default function IntelligenceClient({
             Financial Snapshot — {latestYear}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <MetricCell label="Revenue" value={fmtDollars(snapRevenue)} context={String(latestYear)} />
-            <MetricCell label="EBITDA" value={fmtDollars(snapEbitda)} context={String(latestYear)} />
-            <MetricCell label="EBITDA Margin" value={fmtPct(snapEbitdaMargin)} context={String(latestYear)} />
-            <MetricCell label="DSCR" value={fmtX(snapDscr)} context={String(latestYear)} />
-            <MetricCell label="Current Ratio" value={snapCurrentRatio != null ? `${snapCurrentRatio.toFixed(2)}x` : "—"} context="Liquidity" />
-            <MetricCell label="Working Capital" value={fmtDollars(snapWorkingCapital)} context="BS derived" />
+            <MetricCell id="snapRevenue" label="Revenue" value={fmtDollars(snapRevenue)} context={String(latestYear)} />
+            <MetricCell id="snapEbitda" label="EBITDA" value={fmtDollars(snapEbitda)} context={String(latestYear)} />
+            <MetricCell id="snapEbitdaMargin" label="EBITDA Margin" value={fmtPct(snapEbitdaMargin)} context={String(latestYear)} />
+            <MetricCell id="snapDscr" label="DSCR" value={fmtX(snapDscr)} context={String(latestYear)} />
+            <MetricCell id="snapCurrentRatio" label="Current Ratio" value={snapCurrentRatio != null ? `${snapCurrentRatio.toFixed(2)}x` : "—"} context="Liquidity" />
+            <MetricCell id="snapWorkingCapital" label="Working Capital" value={fmtDollars(snapWorkingCapital)} context="BS derived" />
           </div>
         </div>
       )}
