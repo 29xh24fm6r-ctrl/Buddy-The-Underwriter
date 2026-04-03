@@ -13,6 +13,9 @@ type Overrides = {
   revenue_mix?: string;
   seasonality?: string;
   collateral_description?: string;
+  collateral_address?: string;
+  competitive_advantages?: string;
+  vision?: string;
   [key: string]: string | undefined;
 };
 
@@ -209,6 +212,21 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
                 />
               </div>
 
+              {/* ── Collateral Address ───────────────────────────── */}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Collateral Address
+                </label>
+                <input
+                  type="text"
+                  value={overrides.collateral_address ?? ""}
+                  onChange={e => set("collateral_address", e.target.value)}
+                  placeholder="e.g. 123 Main St, Sag Harbor, NY 11963"
+                  className={baseCls}
+                  style={fieldStyle}
+                />
+              </div>
+
               {/* ── Management Qualifications ─────────────────── */}
               <div>
                 <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1">
@@ -237,6 +255,41 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
                       />
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* ── Business Strategy ────────────────────────────── */}
+              <div>
+                <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">
+                  Business Strategy
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Competitive Advantages
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={overrides.competitive_advantages ?? ""}
+                      onChange={e => set("competitive_advantages", e.target.value)}
+                      placeholder="e.g. Established brand in luxury Hamptons market, exclusive marina berthing agreements, repeat corporate clientele representing 40% of revenue"
+                      className={baseCls}
+                      style={fieldStyle}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Vision &amp; Growth Strategy
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={overrides.vision ?? ""}
+                      onChange={e => set("vision", e.target.value)}
+                      placeholder="e.g. Expand fleet by 3 vessels in 2025, launch electric-only charter premium tier targeting ESG-focused corporate events"
+                      className={baseCls}
+                      style={fieldStyle}
+                    />
+                  </div>
                 </div>
               </div>
             </div>

@@ -81,6 +81,16 @@ export default async function SpreadsAppendix({
 }) {
   const sb = supabaseAdmin();
 
+  // Fetch owner entity names for display
+  const { data: ownerRows } = await (sb as any)
+    .from("ownership_entities")
+    .select("id, display_name")
+    .eq("deal_id", dealId);
+
+  const ownerNames = new Map<string, string>(
+    (ownerRows ?? []).map((o: any) => [String(o.id), o.display_name ?? "Unknown"])
+  );
+
   const { data: spreadRows } = await (sb as any)
     .from("deal_spreads")
     .select("spread_type, status, owner_type, owner_entity_id, rendered_json, updated_at")
@@ -125,7 +135,7 @@ export default async function SpreadsAppendix({
 
           const label = SPREAD_LABELS[spread.spread_type] ?? spread.spread_type;
           const ownerSuffix = spread.owner_entity_id
-            ? ` (${String(spread.owner_entity_id).slice(0, 8)}...)`
+            ? ` — ${ownerNames.get(String(spread.owner_entity_id)) ?? "Unknown"}`
             : "";
 
           const hasColumns = json.columnsV2 && json.columnsV2.length > 0;

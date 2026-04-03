@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
 import { assembleNarratives, overlayNarratives } from "@/lib/creditMemo/canonical/narrativeAssembly";
@@ -13,16 +13,17 @@ export async function POST(
 ) {
   try {
     const { dealId } = await props.params;
-    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
-    if (!auth.ok) {
-      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
     }
+    const bankId = access.bankId;
 
     const body = await req.json().catch(() => ({}));
     const forceRegenerate = body?.force === true;
 
     // Build the deterministic memo first
-    const memoResult = await buildCanonicalCreditMemo({ dealId, bankId: auth.bankId });
+    const memoResult = await buildCanonicalCreditMemo({ dealId, bankId });
     if (!memoResult.ok) {
       return NextResponse.json({ ok: false, error: memoResult.error }, { status: 400 });
     }

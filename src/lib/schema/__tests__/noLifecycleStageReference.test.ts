@@ -23,6 +23,7 @@ const SELF = relative(SRC_ROOT, __filename);
  */
 const ALLOWED_FILES = new Set([
   "app/api/deals/[dealId]/launch-underwriting/route.ts",       // lifecycle_stage_at_launch column
+  "app/api/deals/[dealId]/underwrite/launch/route.ts",         // lifecycle_stage_at_launch column
   "app/api/deals/[dealId]/underwrite/state/route.ts",          // reads lifecycle_stage_at_launch
   "lib/__tests__/phase65ACanonicalBoundary.test.ts",           // FORBIDDEN-list assertion
 ]);

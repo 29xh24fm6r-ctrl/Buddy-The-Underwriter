@@ -153,7 +153,7 @@ export async function assembleNarratives(args: {
           narratives,
           generated_at: new Date().toISOString(),
         },
-        { onConflict: "deal_id,bank_id" },
+        { onConflict: "deal_id,bank_id,input_hash" },
       );
   } catch {
     // non-fatal

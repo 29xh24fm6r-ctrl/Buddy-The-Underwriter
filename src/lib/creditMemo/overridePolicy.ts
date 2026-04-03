@@ -32,6 +32,7 @@ export const PERMITTED_OVERRIDE_KEYS = new Set([
   // Collateral narrative
   "collateral_description",
   "collateral_narrative",
+  "collateral_address",
   "property_description",
 
   // Risk / mitigants
@@ -54,6 +55,10 @@ export const PERMITTED_OVERRIDE_KEYS = new Set([
   "principal_background",
   "key_weaknesses",
   "key_strengths",
+
+  // Business strategy
+  "competitive_advantages",
+  "vision",
 
   // Other free-text
   "additional_notes",

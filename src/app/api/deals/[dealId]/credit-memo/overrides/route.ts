@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { filterQualitativeOverrides } from "@/lib/creditMemo/overridePolicy";
@@ -13,10 +13,11 @@ export async function POST(
 ) {
   try {
     const { dealId } = await props.params;
-    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
-    if (!auth.ok) {
-      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
     }
+    const bankId = access.bankId;
 
     const body = await req.json().catch(() => ({}));
     const rawOverrides = body?.overrides ?? {};
@@ -28,7 +29,7 @@ export async function POST(
     const { error } = await sb
       .from("deal_memo_overrides")
       .upsert(
-        { deal_id: dealId, bank_id: auth.bankId, overrides: accepted, updated_at: new Date().toISOString() },
+        { deal_id: dealId, bank_id: bankId, overrides: accepted, updated_at: new Date().toISOString() },
         { onConflict: "deal_id,bank_id" },
       );
 
@@ -48,17 +49,18 @@ export async function GET(
 ) {
   try {
     const { dealId } = await props.params;
-    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
-    if (!auth.ok) {
-      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
     }
+    const bankId = access.bankId;
 
     const sb = supabaseAdmin();
     const { data } = await sb
       .from("deal_memo_overrides")
       .select("overrides")
       .eq("deal_id", dealId)
-      .eq("bank_id", auth.bankId)
+      .eq("bank_id", bankId)
       .maybeSingle();
 
     return NextResponse.json({ ok: true, overrides: data?.overrides ?? {} });

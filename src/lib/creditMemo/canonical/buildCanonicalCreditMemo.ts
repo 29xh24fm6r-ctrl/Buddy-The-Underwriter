@@ -8,6 +8,8 @@ import type { DebtCoverageRow, IncomeStatementRow, GuarantorBudget } from "@/lib
 import {
   computeCollateralValues,
   computeDiscountedCoverageRatio,
+  computeFinancialAnalysisMetrics,
+  computeSourcesUsesMetrics,
   computeLtvPct,
   computeReadiness,
   type RequiredMetric,
@@ -210,20 +212,67 @@ export async function buildCanonicalCreditMemo(args: {
       factsByPeriod[f.fact_period_end][f.fact_key] = Number(f.fact_value_num);
     }
 
-    const financial = {
+    // Pull metrics from snapshot first, then fall back to spread-derived facts
+    // when the snapshot hasn't been seeded from the FINANCIAL_ANALYSIS fact pipeline yet.
+    function mergeMetric(
+      fromSnapshot: { value: number | null; source: string; updated_at: string | null },
+      fromSpreads: { value: number | null; source: string; updated_at: string | null } | undefined,
+    ): { value: number | null; source: string; updated_at: string | null } {
+      if (fromSnapshot.value !== null) return fromSnapshot;
+      if (fromSpreads && fromSpreads.value !== null) return fromSpreads;
+      return fromSnapshot; // keep "Pending" source for readiness tracking
+    }
+
+    const snapshotFinancial = {
       cashFlowAvailable: metricValueFromSnapshot({ snapshot, metric: "cash_flow_available", label: "Cash Flow Available" }),
       annualDebtService: metricValueFromSnapshot({ snapshot, metric: "annual_debt_service", label: "Annual Debt Service" }),
-      annualDebtServiceStressed300bps: { value: null, source: "Pending", updated_at: null },
       excessCashFlow: metricValueFromSnapshot({ snapshot, metric: "excess_cash_flow", label: "Excess Cash Flow" }),
       dscrGlobal: metricValueFromSnapshot({ snapshot, metric: "dscr", label: "DSCR" }),
       dscrStressed300bps: metricValueFromSnapshot({ snapshot, metric: "dscr_stressed_300bps", label: "Stressed DSCR (+300bps)" }),
     };
 
-    const sourcesUses = {
+    // If any key metric is missing from the snapshot, fall back to spread-derived metrics.
+    const needsSpreadFallback =
+      snapshotFinancial.dscrGlobal.value === null ||
+      snapshotFinancial.annualDebtService.value === null ||
+      snapshotFinancial.cashFlowAvailable.value === null;
+
+    const spreadFinancial = needsSpreadFallback
+      ? await computeFinancialAnalysisMetrics({ dealId: args.dealId, bankId })
+      : null;
+
+    const financial = {
+      cashFlowAvailable: mergeMetric(snapshotFinancial.cashFlowAvailable, spreadFinancial?.cashFlowAvailable),
+      annualDebtService: mergeMetric(snapshotFinancial.annualDebtService, spreadFinancial?.annualDebtService),
+      excessCashFlow: mergeMetric(snapshotFinancial.excessCashFlow, spreadFinancial?.excessCashFlow),
+      dscrGlobal: mergeMetric(snapshotFinancial.dscrGlobal, spreadFinancial?.dscrGlobal),
+      dscrStressed300bps: mergeMetric(snapshotFinancial.dscrStressed300bps, spreadFinancial?.dscrStressed300bps),
+      annualDebtServiceStressed300bps: (() => {
+        const ads = mergeMetric(snapshotFinancial.annualDebtService, spreadFinancial?.annualDebtService);
+        if (ads.value === null) return { value: null, source: "Pending", updated_at: null };
+        const stressedAds = ads.value * 1.03;
+        return { value: stressedAds, source: `Computed:ADS*1.03 (300bps stress)`, updated_at: ads.updated_at };
+      })(),
+    };
+
+    const snapshotSourcesUses = {
       totalProjectCost: metricValueFromSnapshot({ snapshot, metric: "total_project_cost", label: "Total Project Cost" }),
       borrowerEquity: metricValueFromSnapshot({ snapshot, metric: "borrower_equity", label: "Borrower Equity" }),
       borrowerEquityPct: metricValueFromSnapshot({ snapshot, metric: "borrower_equity_pct", label: "Borrower Equity %" }),
       bankLoanTotal: metricValueFromSnapshot({ snapshot, metric: "bank_loan_total", label: "Bank Loan Total" }),
+    };
+
+    // Fallback: if bank_loan_total is missing from snapshot, read from facts directly
+    const needsSourcesFallback = snapshotSourcesUses.bankLoanTotal.value === null;
+    const spreadSourcesUses = needsSourcesFallback
+      ? await computeSourcesUsesMetrics({ dealId: args.dealId, bankId })
+      : null;
+
+    const sourcesUses = {
+      totalProjectCost: mergeMetric(snapshotSourcesUses.totalProjectCost, spreadSourcesUses?.totalProjectCost),
+      borrowerEquity: mergeMetric(snapshotSourcesUses.borrowerEquity, spreadSourcesUses?.borrowerEquity),
+      borrowerEquityPct: mergeMetric(snapshotSourcesUses.borrowerEquityPct, spreadSourcesUses?.borrowerEquityPct),
+      bankLoanTotal: mergeMetric(snapshotSourcesUses.bankLoanTotal, spreadSourcesUses?.bankLoanTotal),
     };
 
     const snapshotGross = metricValueFromSnapshot({ snapshot, metric: "collateral_gross_value", label: "Gross Collateral Value" });
@@ -744,7 +793,7 @@ export async function buildCanonicalCreditMemo(args: {
 
       collateral: {
         property_description: overrides.collateral_description || "Pending",
-        property_address: "",
+        property_address: overrides.collateral_address || "",
         line_items: collateralLineItems,
         total_gross: collateralFromSnapshot.grossValue.value,
         total_net: collateralFromSnapshot.netValue.value,
@@ -776,8 +825,8 @@ export async function buildCanonicalCreditMemo(args: {
         seasonality: overrides.seasonality || "Pending",
         geography: borrower?.city && borrower?.state ? `${borrower.city}, ${borrower.state}` : "Pending",
         marketing_channels: [],
-        competitive_advantages: "Pending",
-        vision: "Pending",
+        competitive_advantages: overrides.competitive_advantages || "Pending",
+        vision: overrides.vision || "Pending",
       },
 
       business_industry_analysis: researchData,
