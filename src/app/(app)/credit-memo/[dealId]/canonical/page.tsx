@@ -11,7 +11,6 @@ import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonica
 import GenerateNarrativesButton from "@/components/creditMemo/GenerateNarrativesButton";
 import RunResearchButton from "@/components/creditMemo/RunResearchButton";
 import MemoCompletionWizard from "@/components/creditMemo/MemoCompletionWizard";
-import DealHealthPanel from "@/components/deals/DealHealthPanel";
 import TranscriptUploadPanel from "@/components/deals/TranscriptUploadPanel";
 import BankerVoicePanel from "@/components/deals/BankerVoicePanel";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -22,6 +21,7 @@ import type { DealFinancialSnapshotV1 } from "@/lib/deals/financialSnapshotCore"
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 export default async function CanonicalCreditMemoPage(props: {
   params: Promise<{ dealId: string }>;
@@ -159,8 +159,7 @@ export default async function CanonicalCreditMemoPage(props: {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <DealHealthPanel dealId={dealId} />
+        <div className="mb-6">
           <TranscriptUploadPanel dealId={dealId} />
         </div>
 

@@ -6,6 +6,7 @@ import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 async function renderPdf(req: NextRequest, dealId: string) {
   const token = process.env.PDF_RENDER_SECRET;
