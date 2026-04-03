@@ -80,22 +80,19 @@ describe("dual pipeline guard", () => {
     );
   });
 
-  it("checklist-key endpoint triggers spread recompute on manual reclassification", () => {
+  it("checklist-key endpoint triggers spread orchestration on manual reclassification", () => {
     const checklistKeySrc = fs.readFileSync(
       "src/app/api/deals/[dealId]/documents/[attachmentId]/checklist-key/route.ts",
       "utf-8",
     );
+    // E2 architecture: orchestrateSpreads replaces direct enqueueSpreadRecompute
     assert.ok(
-      checklistKeySrc.includes("enqueueSpreadRecompute"),
-      "checklist-key endpoint must call enqueueSpreadRecompute for manual reclassification",
+      checklistKeySrc.includes("orchestrateSpreads"),
+      "checklist-key endpoint must call orchestrateSpreads for manual reclassification",
     );
     assert.ok(
-      checklistKeySrc.includes("spreadsForDocType"),
-      "checklist-key endpoint must use shared spreadsForDocType mapping",
-    );
-    assert.ok(
-      checklistKeySrc.includes("manual_reclassification"),
-      "checklist-key endpoint must tag meta with manual_reclassification source",
+      checklistKeySrc.includes('"doc_change"'),
+      "checklist-key endpoint must trigger orchestration with doc_change reason",
     );
   });
 

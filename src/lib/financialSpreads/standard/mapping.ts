@@ -1,7 +1,7 @@
 /**
  * Financial Analysis (Standard Spread) — MMAS Canonical Mapping
  *
- * Moody's MMAS format — the layout every commercial banker in America recognizes.
+ * Standard MMAS format — the layout every commercial banker in America recognizes.
  *
  * IMPORTANT:
  * - DO NOT reorder rows without coordinating with formula registry.

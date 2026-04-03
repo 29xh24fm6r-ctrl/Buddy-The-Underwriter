@@ -45,7 +45,7 @@ function makeInput(overrides: Partial<PreflightInput> = {}): PreflightInput {
 
 test("[guard-37a] Migration declares unique_fact_identity index", () => {
   const src = readFileSync(
-    resolve(__dirname, "../../../../supabase/migrations/20260304_financial_integrity_hardening.sql"),
+    resolve(__dirname, "../../../../supabase/migrations/20260304000002_financial_integrity_hardening.sql"),
     "utf-8",
   );
   assert.ok(
@@ -75,7 +75,7 @@ test("[guard-37b] writeFact.ts computes fact_identity_hash", () => {
 
 test("[guard-37c] compute_fact_identity_hash SQL function uses same algorithm", () => {
   const sql = readFileSync(
-    resolve(__dirname, "../../../../supabase/migrations/20260304_financial_integrity_hardening.sql"),
+    resolve(__dirname, "../../../../supabase/migrations/20260304000002_financial_integrity_hardening.sql"),
     "utf-8",
   );
   const ts = readFileSync(
@@ -131,7 +131,7 @@ test("[guard-38d] factLineageComplete=undefined skips FACT_LINEAGE_INCOMPLETE (b
 
 test("[guard-39a] Migration adds fact_version column", () => {
   const src = readFileSync(
-    resolve(__dirname, "../../../../supabase/migrations/20260304_financial_integrity_hardening.sql"),
+    resolve(__dirname, "../../../../supabase/migrations/20260304000002_financial_integrity_hardening.sql"),
     "utf-8",
   );
   assert.ok(
@@ -142,7 +142,7 @@ test("[guard-39a] Migration adds fact_version column", () => {
 
 test("[guard-39b] Migration adds is_superseded column", () => {
   const src = readFileSync(
-    resolve(__dirname, "../../../../supabase/migrations/20260304_financial_integrity_hardening.sql"),
+    resolve(__dirname, "../../../../supabase/migrations/20260304000002_financial_integrity_hardening.sql"),
     "utf-8",
   );
   assert.ok(
@@ -153,7 +153,7 @@ test("[guard-39b] Migration adds is_superseded column", () => {
 
 test("[guard-39c] Migration adds fact_snapshot_hash to deal_spread_runs", () => {
   const src = readFileSync(
-    resolve(__dirname, "../../../../supabase/migrations/20260304_financial_integrity_hardening.sql"),
+    resolve(__dirname, "../../../../supabase/migrations/20260304000002_financial_integrity_hardening.sql"),
     "utf-8",
   );
   assert.ok(
@@ -207,7 +207,7 @@ test("[guard-40c] Imbalanced BS → SUSPECT with BS_IMBALANCE", () => {
 
 test("[guard-40d] Migration adds reconciliation_status column", () => {
   const src = readFileSync(
-    resolve(__dirname, "../../../../supabase/migrations/20260304_financial_integrity_hardening.sql"),
+    resolve(__dirname, "../../../../supabase/migrations/20260304000002_financial_integrity_hardening.sql"),
     "utf-8",
   );
   assert.ok(
@@ -278,7 +278,7 @@ test("[guard-41c] writeFact.ts emits material drift event", () => {
 
 test("[guard-41d] Migration adds drift columns to deal_financial_facts", () => {
   const src = readFileSync(
-    resolve(__dirname, "../../../../supabase/migrations/20260304_financial_integrity_hardening.sql"),
+    resolve(__dirname, "../../../../supabase/migrations/20260304000002_financial_integrity_hardening.sql"),
     "utf-8",
   );
   assert.ok(
@@ -293,7 +293,7 @@ test("[guard-41d] Migration adds drift columns to deal_financial_facts", () => {
 
 test("[guard-41e] Phase 1B: fact_requires_document constraint exists", () => {
   const src = readFileSync(
-    resolve(__dirname, "../../../../supabase/migrations/20260304_financial_integrity_hardening.sql"),
+    resolve(__dirname, "../../../../supabase/migrations/20260304000002_financial_integrity_hardening.sql"),
     "utf-8",
   );
   assert.ok(
@@ -304,7 +304,7 @@ test("[guard-41e] Phase 1B: fact_requires_document constraint exists", () => {
 
 test("[guard-41f] Phase 2B: Entity isolation constraints exist", () => {
   const src = readFileSync(
-    resolve(__dirname, "../../../../supabase/migrations/20260304_financial_integrity_hardening.sql"),
+    resolve(__dirname, "../../../../supabase/migrations/20260304000002_financial_integrity_hardening.sql"),
     "utf-8",
   );
   assert.ok(
@@ -319,7 +319,7 @@ test("[guard-41f] Phase 2B: Entity isolation constraints exist", () => {
 
 test("[guard-41g] Phase 3: Spread run idempotency index exists", () => {
   const src = readFileSync(
-    resolve(__dirname, "../../../../supabase/migrations/20260304_financial_integrity_hardening.sql"),
+    resolve(__dirname, "../../../../supabase/migrations/20260304000002_financial_integrity_hardening.sql"),
     "utf-8",
   );
   assert.ok(
