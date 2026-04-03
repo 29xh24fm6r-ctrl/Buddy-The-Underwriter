@@ -78,6 +78,7 @@ function createFallbackState(
       structuralPricingReady: false,
       hasPricingAssumptions: false,
       hasSubmittedLoanRequest: false,
+      hasLoanRequestWithAmount: false,
       researchComplete: true,
       criticalFlagsResolved: true,
       correlationId,

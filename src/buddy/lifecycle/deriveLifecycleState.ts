@@ -408,10 +408,14 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   let hasSubmittedLoanRequest = false;
+  let hasLoanRequestWithAmount = false;
   if (loanRequestResult.ok && loanRequestResult.data) {
     const requests = loanRequestResult.data as Array<{ id: string; status: string; requested_amount: number | null }>;
     hasSubmittedLoanRequest = requests.some(
       (r) => r.status !== "draft" && r.requested_amount != null && r.requested_amount > 0,
+    );
+    hasLoanRequestWithAmount = requests.some(
+      (r) => r.requested_amount != null && Number(r.requested_amount) > 0,
     );
   }
 
@@ -504,6 +508,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     structuralPricingReady,
     hasPricingAssumptions,
     hasSubmittedLoanRequest,
+    hasLoanRequestWithAmount,
     researchComplete,
     criticalFlagsResolved,
     ...gatekeeperDerived,
@@ -675,13 +680,27 @@ function mapToUnifiedStage(
       return "docs_requested";
 
     case "collecting":
-      // Sub-stages based on document readiness (gatekeeper-authoritative)
-      if (!derived.documentsReady) {
-        return derived.documentsReadinessPct > 0 ? "docs_in_progress" : "docs_requested";
+      // Document readiness: primary gate is gatekeeper confirmation of all docs.
+      // BYPASS: if financialSnapshotExists = true, extraction already ran successfully —
+      // the pre-processing quality gate's purpose is served. Blocking here would
+      // prevent bankers from reviewing analysis that is already complete.
+      const effectiveDocsReady =
+        derived.documentsReady || derived.financialSnapshotExists;
+
+      if (!effectiveDocsReady) {
+        return derived.documentsReadinessPct > 0
+          ? "docs_in_progress"
+          : "docs_requested";
       }
-      // Docs satisfied - check if ready for underwrite
-      // Requires submitted loan request + pricing assumptions (NOT financial snapshot)
-      if (derived.hasSubmittedLoanRequest && derived.hasPricingAssumptions) {
+
+      // Loan request: primary gate is submitted status + amount.
+      // BYPASS: any request with a valid amount is sufficient — 'submitted' is a
+      // workflow state, not a data quality requirement for underwriting.
+      const effectiveLoanRequest =
+        derived.hasSubmittedLoanRequest ||
+        derived.hasLoanRequestWithAmount;
+
+      if (effectiveLoanRequest && derived.hasPricingAssumptions) {
         return "underwrite_ready";
       }
       return "docs_satisfied";
@@ -828,6 +847,7 @@ function createNotFoundState(): LifecycleState {
       structuralPricingReady: false,
       hasPricingAssumptions: false,
       hasSubmittedLoanRequest: false,
+      hasLoanRequestWithAmount: false,
       researchComplete: true,
       criticalFlagsResolved: true,
     },
@@ -864,6 +884,7 @@ function createErrorState(code: string, message: string): LifecycleState {
       structuralPricingReady: false,
       hasPricingAssumptions: false,
       hasSubmittedLoanRequest: false,
+      hasLoanRequestWithAmount: false,
       researchComplete: true,
       criticalFlagsResolved: true,
     },

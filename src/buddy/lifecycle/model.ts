@@ -142,6 +142,10 @@ export type LifecycleDerived = {
   hasPricingAssumptions: boolean;
   /** True if at least one loan request is non-draft with a requested_amount */
   hasSubmittedLoanRequest: boolean;
+  /** True if at least one loan request has a valid amount (regardless of draft/submitted status).
+   *  Broader than hasSubmittedLoanRequest — 'submitted' is a workflow state,
+   *  not a data quality requirement for underwriting. */
+  hasLoanRequestWithAmount: boolean;
   /** True if all research missions have completed (no queued/running missions) */
   researchComplete: boolean;
   /** True if no unresolved critical risk flags exist (fail-open on query failure) */

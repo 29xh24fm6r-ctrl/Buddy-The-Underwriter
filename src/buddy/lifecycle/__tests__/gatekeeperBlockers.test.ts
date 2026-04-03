@@ -35,6 +35,7 @@ function baseDerived(overrides: Partial<LifecycleDerived> = {}): LifecycleDerive
     structuralPricingReady: false,
     hasPricingAssumptions: false,
     hasSubmittedLoanRequest: false,
+    hasLoanRequestWithAmount: false,
     researchComplete: true,
     criticalFlagsResolved: true,
     ...overrides,
