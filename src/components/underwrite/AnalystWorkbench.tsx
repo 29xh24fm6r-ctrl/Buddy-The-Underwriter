@@ -5,6 +5,7 @@ import SnapshotBanner from "./SnapshotBanner";
 import DriftBanner from "./DriftBanner";
 import WorkstreamCard from "./WorkstreamCard";
 import type { DriftSummary, SpreadSeedPackage, MemoSeedPackage } from "@/lib/underwritingLaunch/types";
+import UnderwriteTrustLayer, { type TrustLayerState } from "./UnderwriteTrustLayer";
 
 interface WorkbenchState {
   deal: { id: string; dealName: string; borrowerLegalName: string; bankName: string; lifecycleStage: string };
@@ -19,6 +20,7 @@ interface WorkbenchState {
   drift: DriftSummary | null;
   spreadSeed: SpreadSeedPackage | null;
   memoSeed: MemoSeedPackage | null;
+  trustLayer: TrustLayerState | null;
 }
 
 interface Props {
@@ -29,6 +31,8 @@ export default function AnalystWorkbench({ dealId }: Props) {
   const [state, setState] = useState<WorkbenchState | null>(null);
   const [loading, setLoading] = useState(true);
   const [driftModalOpen, setDriftModalOpen] = useState(false);
+  const [regeneratingMemo, setRegeneratingMemo] = useState(false);
+  const [generatingPacket, setGeneratingPacket] = useState(false);
 
   const fetchState = useCallback(async () => {
     setLoading(true);
@@ -52,6 +56,31 @@ export default function AnalystWorkbench({ dealId }: Props) {
       body: JSON.stringify({ [field]: status }),
     });
     fetchState();
+  };
+
+  const handleRegenerateMemo = async () => {
+    setRegeneratingMemo(true);
+    try {
+      await fetch(`/api/deals/${dealId}/credit-memo/generate`, { method: "POST" });
+      fetchState();
+    } catch { /* silent */ } finally {
+      setRegeneratingMemo(false);
+    }
+  };
+
+  const handleGeneratePacket = async () => {
+    setGeneratingPacket(true);
+    try {
+      await fetch(`/api/deals/${dealId}/committee/packet/generate`, { method: "POST" });
+      fetchState();
+    } catch { /* silent */ } finally {
+      setGeneratingPacket(false);
+    }
+  };
+
+  const handleViewProvenance = () => {
+    // Navigate to financial provenance within the deal's existing surfaces
+    window.location.href = `/deals/${dealId}/spreads/standard`;
   };
 
   if (loading) return <div className="animate-pulse h-64 bg-white/5 rounded-xl" />;
@@ -104,6 +133,19 @@ export default function AnalystWorkbench({ dealId }: Props) {
             fetch(`/api/deals/${dealId}/underwriting/refresh`, { method: "POST" })
               .then(() => fetchState());
           }}
+        />
+      )}
+
+      {/* Trust Layer */}
+      {state.trustLayer && (
+        <UnderwriteTrustLayer
+          dealId={dealId}
+          trustLayer={state.trustLayer}
+          onRegenerateMemo={handleRegenerateMemo}
+          onGeneratePacket={handleGeneratePacket}
+          onViewProvenance={handleViewProvenance}
+          regeneratingMemo={regeneratingMemo}
+          generatingPacket={generatingPacket}
         />
       )}
 

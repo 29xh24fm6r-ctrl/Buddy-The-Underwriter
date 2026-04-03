@@ -6,6 +6,7 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { buildSpreadSeedPackage, buildMemoSeedPackage } from "@/lib/underwritingLaunch/buildSeedPackages";
 import { detectCanonicalDrift } from "@/lib/underwritingLaunch/detectCanonicalDrift";
 import { getCanonicalLoanRequestForUnderwriting } from "@/lib/underwritingLaunch/getCanonicalLoanRequest";
+import { buildTrustLayer } from "@/lib/underwrite/buildTrustLayer";
 
 export const runtime = "nodejs";
 
@@ -120,6 +121,14 @@ export async function GET(
       });
     }
 
+    // Trust layer — composed from canonical memo/packet/financial validation sources
+    let trustLayer = null;
+    try {
+      trustLayer = await buildTrustLayer(dealId);
+    } catch (err) {
+      console.warn("[underwrite/state] trust layer failed — degrading safely:", err);
+    }
+
     return NextResponse.json({
       ok: true,
       deal: {
@@ -152,6 +161,7 @@ export async function GET(
       drift,
       spreadSeed,
       memoSeed,
+      trustLayer,
       riskSummary: { notesCount: 0, openQuestionsCount: 0, exceptionsCount: 0 },
     });
   } catch (e: unknown) {
