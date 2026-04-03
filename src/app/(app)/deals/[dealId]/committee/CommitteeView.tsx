@@ -22,6 +22,15 @@ export function CommitteeView({ dealId, borrowerName, borrowerEntityType, snapsh
   const [data, setData] = useState<StateResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recon, setRecon] = useState<{
+    reconStatus: "CLEAN" | "FLAGS" | "CONFLICTS" | null;
+    checksRun?: number;
+    checksFailed?: number;
+    hardFailures?: Array<{ checkName: string; message: string }>;
+    softFlags?: Array<{ checkName: string; message: string }>;
+    reconciledAt?: string | null;
+  } | null>(null);
+  const [reconLoading, setReconLoading] = useState(true);
 
   useEffect(() => {
     fetch(`/api/deals/${dealId}/state`)
@@ -29,6 +38,14 @@ export function CommitteeView({ dealId, borrowerName, borrowerEntityType, snapsh
       .then((d: StateResponse) => { if (!d.ok) throw new Error("State fetch failed"); setData(d); })
       .catch(e => setError(e?.message ?? "Failed to load deal state"))
       .finally(() => setLoading(false));
+  }, [dealId]);
+
+  useEffect(() => {
+    fetch(`/api/deals/${dealId}/reconcile`)
+      .then((r) => r.json())
+      .then((d) => setRecon(d))
+      .catch(() => setRecon(null))
+      .finally(() => setReconLoading(false));
   }, [dealId]);
 
   return (
@@ -68,6 +85,57 @@ export function CommitteeView({ dealId, borrowerName, borrowerEntityType, snapsh
                 data.state.checklistReadiness.ready ? "Ready"
                 : `${data.state.checklistReadiness.satisfiedItems} / ${data.state.checklistReadiness.totalItems}`
               } />
+              {/* Reconciliation status card */}
+              <div
+                className={`rounded-xl border p-4 ${
+                  recon?.reconStatus === "CONFLICTS"
+                    ? "border-red-200 bg-red-50"
+                    : recon?.reconStatus === "FLAGS"
+                    ? "border-amber-200 bg-amber-50"
+                    : recon?.reconStatus === "CLEAN"
+                    ? "border-green-200 bg-green-50"
+                    : "border-gray-200 bg-white"
+                }`}
+              >
+                <div className="text-xs text-gray-500">Reconciliation</div>
+                <div
+                  className={`mt-1 text-sm font-semibold ${
+                    recon?.reconStatus === "CONFLICTS"
+                      ? "text-red-800"
+                      : recon?.reconStatus === "FLAGS"
+                      ? "text-amber-800"
+                      : recon?.reconStatus === "CLEAN"
+                      ? "text-green-800"
+                      : "text-gray-400"
+                  }`}
+                >
+                  {reconLoading
+                    ? "Loading\u2026"
+                    : recon?.reconStatus === null || !recon?.reconStatus
+                    ? "Not run"
+                    : recon.reconStatus}
+                </div>
+                {recon?.reconStatus === null && !reconLoading && (
+                  <button
+                    onClick={() => {
+                      setReconLoading(true);
+                      fetch(`/api/deals/${dealId}/reconcile`, { method: "POST" })
+                        .then((r) => r.json())
+                        .then((d) => setRecon(d))
+                        .catch(() => {})
+                        .finally(() => setReconLoading(false));
+                    }}
+                    className="mt-2 rounded bg-gray-100 px-2 py-1 text-xs text-gray-600 hover:bg-gray-200"
+                  >
+                    Run now
+                  </button>
+                )}
+                {recon?.reconciledAt && (
+                  <div className="mt-1 text-xs text-gray-400">
+                    {new Date(recon.reconciledAt).toLocaleString()}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="grid gap-4 lg:grid-cols-2">
               {data.explanation?.summary && (
@@ -88,6 +156,21 @@ export function CommitteeView({ dealId, borrowerName, borrowerEntityType, snapsh
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                 <div className="mb-2 text-sm font-semibold text-amber-900">Active blockers</div>
                 <ul className="space-y-1">{data.state.blockers.map((b, i) => <li key={i} className="text-xs text-amber-800">&middot; {String(b)}</li>)}</ul>
+              </div>
+            )}
+            {/* Hard reconciliation failures — shown alongside lifecycle blockers */}
+            {recon?.hardFailures && recon.hardFailures.length > 0 && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                <div className="mb-2 text-sm font-semibold text-red-900">
+                  Cross-document conflicts ({recon.hardFailures.length})
+                </div>
+                <ul className="space-y-1">
+                  {recon.hardFailures.map((f, i) => (
+                    <li key={i} className="text-xs text-red-800">
+                      &middot; {f.checkName}: {f.message}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </>

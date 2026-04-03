@@ -7,6 +7,7 @@ import { buildSpreadSeedPackage, buildMemoSeedPackage } from "@/lib/underwriting
 import { detectCanonicalDrift } from "@/lib/underwritingLaunch/detectCanonicalDrift";
 import { getCanonicalLoanRequestForUnderwriting } from "@/lib/underwritingLaunch/getCanonicalLoanRequest";
 import { buildTrustLayer } from "@/lib/underwrite/buildTrustLayer";
+import { reconcileDeal } from "@/lib/reconciliation/dealReconciliator";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -128,6 +129,20 @@ export async function GET(
       trustLayer = await buildTrustLayer(dealId);
     } catch (err) {
       console.warn("[underwrite/state] trust layer failed — degrading safely:", err);
+    }
+
+    // Fire-and-forget reconciliation trigger
+    // Only runs if no results exist yet — idempotent
+    const { data: existingRecon } = await sb
+      .from("deal_reconciliation_results")
+      .select("deal_id")
+      .eq("deal_id", dealId)
+      .maybeSingle();
+
+    if (!existingRecon) {
+      reconcileDeal(dealId).catch((err) =>
+        console.error("[underwrite] reconciliation trigger failed", { dealId, err })
+      );
     }
 
     return NextResponse.json({
