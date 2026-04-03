@@ -533,20 +533,32 @@ export default function DealPricingClient({
           <Card title="Deal Builder">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Field label="Index">
-                <select
-                  className="w-full rounded border px-3 py-2 text-sm"
-                  value={form.index_code}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      index_code: e.target.value as IndexCode,
-                    }))
-                  }
-                >
-                  <option value="SOFR">SOFR</option>
-                  <option value="UST_5Y">5Y Treasury</option>
-                  <option value="PRIME">Prime</option>
-                </select>
+                <div className="flex items-center gap-2">
+                  <select
+                    className="flex-1 rounded border px-3 py-2 text-sm"
+                    value={form.index_code}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        index_code: e.target.value as IndexCode,
+                      }))
+                    }
+                  >
+                    <option value="SOFR">SOFR</option>
+                    <option value="UST_5Y">5Y Treasury</option>
+                    <option value="PRIME">Prime</option>
+                  </select>
+                  <div className="shrink-0 rounded border bg-slate-50 px-3 py-2 text-sm text-center min-w-[90px]">
+                    {effectiveRate != null ? (
+                      <span className="font-semibold text-slate-800">{effectiveRate.ratePct.toFixed(3)}%</span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                    <div className="text-[10px] text-slate-400 leading-tight mt-0.5">
+                      {effectiveRate?.asOf ?? "no rate"}
+                    </div>
+                  </div>
+                </div>
               </Field>
 
               <Field label="Loan Amount">
