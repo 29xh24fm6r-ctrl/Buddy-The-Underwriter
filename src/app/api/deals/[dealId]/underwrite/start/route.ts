@@ -43,6 +43,7 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 const ROUTE = "/api/deals/[dealId]/underwrite/start";
 

@@ -9,6 +9,7 @@ import { getCanonicalLoanRequestForUnderwriting } from "@/lib/underwritingLaunch
 import { buildTrustLayer } from "@/lib/underwrite/buildTrustLayer";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 type Params = Promise<{ dealId: string }>;
 
