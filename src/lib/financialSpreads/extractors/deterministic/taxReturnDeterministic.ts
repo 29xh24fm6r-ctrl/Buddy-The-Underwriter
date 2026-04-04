@@ -29,6 +29,8 @@ import { extractForm1125A } from "./form1125aDeterministic";
 import { extractForm1125E } from "./form1125eDeterministic";
 import { extractK1 } from "./k1Deterministic";
 import { validateArithmetic } from "./arithmeticValidator";
+import { writeScheduleLFacts } from "@/lib/financialFacts/writeScheduleLFacts";
+import { writeK1BaseFacts } from "@/lib/financialFacts/writeK1BaseFacts";
 
 // ---------------------------------------------------------------------------
 // Canonical line item keys (same as original extractor)
@@ -286,6 +288,40 @@ export async function extractTaxReturnDeterministic(
   }
 
   factsWritten += k1Facts;
+
+  // Write Schedule L balance sheet facts as canonical keys (TOTAL_ASSETS, NET_WORTH, etc.)
+  // These supplement the SL_-prefixed keys written by writeScheduleFacts above
+  if (args.structuredJson) {
+    const entities = extractEntitiesFlat(args.structuredJson);
+    if (entities.length > 0) {
+      await writeScheduleLFacts({
+        dealId: args.dealId,
+        bankId: args.bankId,
+        documentId: args.documentId,
+        taxYear,
+        entities,
+      }).catch((err) =>
+        console.warn("[extractFacts] writeScheduleLFacts failed (non-fatal)", { documentId: args.documentId, err })
+      );
+    }
+  }
+
+  // Write K-1 approximation facts for single-owner pass-through entities
+  // OBI value comes from extracted items — find it from the written facts
+  const obiItem = items.find((i) => i.factKey === "ORDINARY_BUSINESS_INCOME");
+  const obiValue = obiItem?.value ?? null;
+  if (obiValue !== null) {
+    await writeK1BaseFacts({
+      dealId: args.dealId,
+      bankId: args.bankId,
+      documentId: args.documentId,
+      taxYear,
+      ordinaryBusinessIncome: obiValue,
+      ownerCount: 1, // Conservative default — single owner assumed if not parsed
+    }).catch((err) =>
+      console.warn("[extractFacts] writeK1BaseFacts failed (non-fatal)", { documentId: args.documentId, err })
+    );
+  }
 
   // Arithmetic validation — build facts snapshot from this extraction run
   const factsSnapshot: Record<string, number | null> = {};

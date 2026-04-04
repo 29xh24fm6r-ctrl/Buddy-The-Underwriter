@@ -112,9 +112,11 @@ export async function reconcileDeal(
     }
 
     // 4. BALANCE_SHEET
-    const totalAssets = allFacts["TOTAL_ASSETS"] ?? null;
-    const totalLiabilities = allFacts["TOTAL_LIABILITIES"] ?? null;
-    const totalEquity = allFacts["TOTAL_EQUITY"] ?? null;
+    // Canonical keys first, then SL_ (Schedule L) prefixed aliases from tax return extraction
+    const totalAssets = allFacts["TOTAL_ASSETS"] ?? allFacts["SL_TOTAL_ASSETS"] ?? null;
+    const totalLiabilities = allFacts["TOTAL_LIABILITIES"] ?? allFacts["SL_TOTAL_LIABILITIES"] ?? null;
+    // NET_WORTH is the canonical key; TOTAL_EQUITY and SL_TOTAL_EQUITY are aliases
+    const totalEquity = allFacts["NET_WORTH"] ?? allFacts["TOTAL_EQUITY"] ?? allFacts["SL_TOTAL_EQUITY"] ?? null;
 
     if (totalAssets !== null || totalLiabilities !== null || totalEquity !== null) {
       checks.push(
