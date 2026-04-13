@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { stageEvolutionIfNeeded } from "./evolutionStager";
 import type { CorrectionEvent } from "./types";
 
 /**
@@ -46,6 +47,9 @@ export async function logCorrection(
         correctionSource: event.correctionSource,
       },
     }).catch(() => {});
+
+    // Stage potential evolution if correction pattern warrants it (fire-and-forget)
+    stageEvolutionIfNeeded(event).catch(() => {});
   } catch {
     // Never throw — fire-and-forget
   }

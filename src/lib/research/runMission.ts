@@ -368,8 +368,27 @@ export async function runMission(
     // 10. Compile narrative
     const narrativeResult = compileNarrative(persistedFacts, persistedInferences, persistedSources);
 
-    // 11. Persist narrative
+    // 11. Validate and persist narrative
     if (narrativeResult.ok && narrativeResult.sections.length > 0) {
+      // Phase 74: validate narrative against output contract (non-fatal)
+      try {
+        const { validateResearchNarrative } = await import(
+          "@/lib/agentWorkflows/contracts/researchNarrative.contract"
+        );
+        const validation = validateResearchNarrative({
+          sections: narrativeResult.sections,
+          version: 1,
+        });
+        if (!validation.ok) {
+          console.warn(
+            `[runMission] narrative contract validation ${validation.severity}:`,
+            validation.errors?.issues?.map((i: any) => i.message).join("; "),
+          );
+        }
+      } catch {
+        // Contract validation must never block mission
+      }
+
       const narrativePersistResult = await persistNarrative(missionId, narrativeResult.sections);
       if (!narrativePersistResult.ok) {
         // Non-fatal: mission is still successful

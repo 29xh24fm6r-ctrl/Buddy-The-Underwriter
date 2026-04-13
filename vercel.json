@@ -31,6 +31,10 @@
     {
       "path": "/api/workers/doc-extraction?max=5",
       "schedule": "*/1 * * * *"
+    },
+    {
+      "path": "/api/workers/pulse-outbox?max=50",
+      "schedule": "*/2 * * * *"
     }
   ]
 }

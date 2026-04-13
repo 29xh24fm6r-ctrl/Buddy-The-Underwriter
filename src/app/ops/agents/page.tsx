@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   GlassShell,
   GlassPageHeader,
@@ -56,6 +57,7 @@ function StatusBadge({ status }: { status: string }) {
 // ── Main page ───────────────────────────────────────────────────────
 
 export default function OpsAgentRunsPage() {
+  const router = useRouter();
   const [runs, setRuns] = useState<AgentWorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -190,7 +192,8 @@ export default function OpsAgentRunsPage() {
               {runs.map((run) => (
                 <tr
                   key={`${run.workflow_code}-${run.id}`}
-                  className="border-b border-white/5 hover:bg-white/[0.02]"
+                  className="border-b border-white/5 hover:bg-white/[0.02] cursor-pointer"
+                  onClick={() => router.push(`/ops/agents/${run.id}?workflow_code=${encodeURIComponent(run.workflow_code)}`)}
                 >
                   <td className="px-4 py-3">
                     <span className="font-medium text-white/80">
