@@ -65,6 +65,15 @@ export async function processPulseOutbox(
   const claimOwner = `pulse-outbox-${Date.now()}`;
   const now = new Date().toISOString();
 
+  // ── Step 0: Reclaim stale claims (claimed > 10 min ago, never delivered) ──────
+  const staleThreshold = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  await (sb as any)
+    .from("buddy_outbox_events")
+    .update({ claimed_at: null, claim_owner: null })
+    .lt("claimed_at", staleThreshold)
+    .is("delivered_at", null)
+    .is("dead_lettered_at", null);
+
   // Select unclaimed, undelivered, non-intake events
   const { data: candidates, error: selectErr } = await (sb as any)
     .from("buddy_outbox_events")
