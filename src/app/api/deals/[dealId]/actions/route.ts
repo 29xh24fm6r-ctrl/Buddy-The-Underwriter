@@ -155,23 +155,42 @@ export async function POST(
 
         // FLAGS = soft warnings → allow approve (banker judgment call)
         // CLEAN = pass → allow approve
-        await sb.from("deals").update({ stage: "approved" }).eq("id", dealId);
+
+        // Write credit decision record (does NOT mutate deals.stage)
+        await sb.from("deal_decisions").insert({
+          deal_id: dealId,
+          bank_id: bankId,
+          decision: "approved",
+          decided_by: userId,
+          reconciliation_status: reconRow.overall_status,
+          evidence: { action: "approve", recon_status: reconRow.overall_status },
+        });
         break;
       }
 
-      case "decline":
-        await sb
-          .from("deals")
-          .update({ stage: "declined" })
-          .eq("id", dealId);
-        break;
+      case "decline": {
+        const { reason } = body as { action: string; reason?: string };
 
-      case "escalate":
-        await sb
-          .from("deals")
-          .update({ stage: "committee" })
-          .eq("id", dealId);
+        await sb.from("deal_decisions").insert({
+          deal_id: dealId,
+          bank_id: bankId,
+          decision: "declined",
+          decided_by: userId,
+          evidence: { action: "decline", rationale: reason ?? null },
+        });
         break;
+      }
+
+      case "escalate": {
+        await sb.from("deal_decisions").insert({
+          deal_id: dealId,
+          bank_id: bankId,
+          decision: "escalate",
+          decided_by: userId,
+          evidence: { action: "escalate" },
+        });
+        break;
+      }
 
       case "share":
         // TODO: implement share logic

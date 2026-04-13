@@ -180,6 +180,28 @@ export const WORKFLOW_REGISTRY = Object.freeze({
     triggerType: "system" as const,
     ownerSystem: "borrower",
   },
+  missing_items_followup: {
+    code: "missing_items_followup",
+    label: "Missing Items Follow-Up",
+    description:
+      "Generates draft borrower requests for missing documents by reading canonical state blockers and the deal gap queue.",
+    sourceTable: "draft_borrower_requests",
+    sourceIdColumn: "id",
+    statusColumn: "status",
+    statusValues: [
+      "pending_approval",
+      "approved",
+      "sent",
+      "rejected",
+    ] as const,
+    costMetrics: {
+      hasTokens: false,
+      hasCostUsd: false,
+    },
+    requiresCanonicalState: true,
+    triggerType: "user" as const,
+    ownerSystem: "borrower",
+  },
 } as const satisfies Record<string, WorkflowDefinition>);
 
 // ── Helpers ─────────────────────────────────────────────────────────

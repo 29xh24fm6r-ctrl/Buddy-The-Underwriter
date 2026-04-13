@@ -1029,6 +1029,26 @@ export async function buildCanonicalCreditMemo(args: {
       },
     };
 
+    // Phase 74: validate memo narrative contract (non-fatal, observability only)
+    try {
+      const { validateMemoNarrative } = await import(
+        "@/lib/agentWorkflows/contracts/memoSection.contract"
+      );
+      const narrativeForValidation = {
+        executiveSummary: memo.executive_summary?.narrative ?? "",
+        cashFlowAnalysis: (memo.financial_analysis as any)?.cash_flow_narrative ?? memo.financial_analysis?.income_analysis ?? "",
+        risks: memo.risk_factors?.map((r: any) => r.description ?? r.risk ?? "") ?? [],
+        mitigants: memo.recommendation?.mitigants ?? [],
+        recommendation: memo.recommendation?.headline ?? "",
+      };
+      const validation = validateMemoNarrative(narrativeForValidation);
+      if (!validation.ok && validation.severity === "block") {
+        console.warn("[buildCanonicalCreditMemo] memo narrative contract BLOCK:", validation.errors?.issues?.length, "issues");
+      }
+    } catch {
+      // Contract validation must never block memo generation
+    }
+
     return { ok: true, memo };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

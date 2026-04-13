@@ -127,7 +127,7 @@ describe("Guard 5: Entry completeness", () => {
     } = await import("../registry");
 
     const codes = getAllWorkflowCodes();
-    assert.ok(codes.length >= 6, `expected >= 6 entries, got ${codes.length}`);
+    assert.ok(codes.length >= 7, `expected >= 7 entries, got ${codes.length}`);
 
     const requiredKeys: (keyof typeof WORKFLOW_REGISTRY.research_bundle_generation)[] = [
       "code",
