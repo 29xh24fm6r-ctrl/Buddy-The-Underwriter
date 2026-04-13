@@ -13,7 +13,7 @@ import { forwardLedgerBatch } from "@/lib/pulse/forwardLedgerCore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 120;
 
 function isCronAuthorized(req: NextRequest): boolean {
   const auth = req.headers.get("authorization") ?? "";

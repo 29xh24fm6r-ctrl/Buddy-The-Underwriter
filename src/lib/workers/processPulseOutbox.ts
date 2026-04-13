@@ -18,7 +18,7 @@ const INTAKE_KINDS = new Set(["intake.process"]);
 const DEAD_LETTER_THRESHOLD = 10;
 const BACKOFF_BASE_SECONDS = 60;
 const BACKOFF_CAP_SECONDS = 3600;
-const INGEST_TIMEOUT_MS = 5000;
+const INGEST_TIMEOUT_MS = 20000;
 
 export type PulseOutboxResult = {
   claimed: number;

@@ -24,7 +24,7 @@ const MAX_DEFAULT = 50;
 const MAX_CEILING = 200;
 const CLAIM_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_ATTEMPTS = 10;
-const INGEST_TIMEOUT_MS = 5000;
+const INGEST_TIMEOUT_MS = 20000;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

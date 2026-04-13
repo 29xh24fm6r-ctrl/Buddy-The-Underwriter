@@ -13,7 +13,7 @@
       "schedule": "*/1 * * * *"
     },
     {
-      "path": "/api/pulse/cron-forward-ledger?max=8",
+      "path": "/api/pulse/cron-forward-ledger?max=5",
       "schedule": "*/2 * * * *"
     },
     {
