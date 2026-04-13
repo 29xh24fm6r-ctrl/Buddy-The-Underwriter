@@ -220,6 +220,7 @@ export async function finalizeExtractionRun(args: FinalizeRunArgs): Promise<void
   const sb = supabaseAdmin();
   const failureCode = normalizeFailureCode(args.failureCode ?? null);
 
+  const metrics = args.metrics ?? {};
   await (sb as any)
     .from("deal_extraction_runs")
     .update({
@@ -227,8 +228,12 @@ export async function finalizeExtractionRun(args: FinalizeRunArgs): Promise<void
       failure_code: failureCode,
       failure_detail: args.failureDetail ?? null,
       output_hash: args.outputHash ?? null,
-      metrics: args.metrics ?? {},
+      metrics,
       finalized_at: new Date().toISOString(),
+      // Phase 72C: promoted cost columns (tokens=durable, USD=audit snapshot)
+      cost_usd: (metrics as Record<string, unknown>).cost_estimate_usd ?? null,
+      input_tokens: (metrics as Record<string, unknown>).tokens_in ?? null,
+      output_tokens: (metrics as Record<string, unknown>).tokens_out ?? null,
     })
     .eq("id", args.runId);
 
