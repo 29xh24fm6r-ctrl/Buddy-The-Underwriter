@@ -1,4 +1,5 @@
 import "server-only";
+// v2 — corrected table/column names (deal_financial_snapshots→financial_snapshots, pricing_decisions.updated_at→decided_at)
 
 /**
  * Canonical memo hash input assembly.
