@@ -5,6 +5,8 @@ import { SafeBoundary } from "@/components/SafeBoundary";
 import DealHealthPanel from "@/components/deals/DealHealthPanel";
 import BankerVoicePanel from "@/components/deals/BankerVoicePanel";
 import TranscriptUploadPanel from "@/components/deals/TranscriptUploadPanel";
+import { OmegaAdvisoryPanel } from "@/components/deal/OmegaAdvisoryPanel";
+import type { OmegaAdvisoryState } from "@/core/omega/types";
 
 const STORY_FIELDS = [
   { key: "use_of_proceeds", label: "Use of Proceeds", placeholder: "What exactly will the loan proceeds purchase or fund? Be specific \u2014 equipment make/model, property address, working capital purpose." },
@@ -26,6 +28,7 @@ export default function StoryPanel({ dealId }: { dealId: string }) {
   const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [omega, setOmega] = useState<OmegaAdvisoryState | null>(null);
   const debounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   useEffect(() => {
@@ -33,6 +36,13 @@ export default function StoryPanel({ dealId }: { dealId: string }) {
       .then(r => r.json())
       .then(data => { if (data.ok) { setQuestions(data.questions ?? []); setHasResearch(data.hasResearch ?? false); } })
       .finally(() => setQuestionsLoading(false));
+  }, [dealId]);
+
+  useEffect(() => {
+    fetch(`/api/deals/${dealId}/state`)
+      .then(r => r.json())
+      .then(data => { if (data.ok && data.omega) setOmega(data.omega); })
+      .catch(() => {});
   }, [dealId]);
 
   useEffect(() => {
@@ -67,6 +77,9 @@ export default function StoryPanel({ dealId }: { dealId: string }) {
 
   return (
     <div className="space-y-4">
+      {/* Section 0: Omega Advisory */}
+      {omega && <SafeBoundary><OmegaAdvisoryPanel omega={omega} /></SafeBoundary>}
+
       {/* Section 1: Buddy's Questions */}
       <div className={glassSection}>
         <div className={sectionLabel}>Buddy&apos;s Questions</div>

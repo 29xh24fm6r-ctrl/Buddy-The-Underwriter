@@ -4,10 +4,12 @@ import { NextResponse } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { getBuddyCanonicalState } from "@/core/state/BuddyCanonicalStateAdapter";
-import { getOmegaAdvisoryState } from "@/core/omega/OmegaAdvisoryAdapter";
+import { getOmegaAdvisoryState, synthesizeAdvisoryFromRisk } from "@/core/omega/OmegaAdvisoryAdapter";
+import type { AiRiskResult } from "@/core/omega/OmegaAdvisoryAdapter";
 import { deriveBuddyExplanation } from "@/core/explanation/deriveBuddyExplanation";
 import { formatOmegaAdvisory } from "@/core/omega/formatOmegaAdvisory";
 import { deriveNextActions } from "@/core/actions/deriveNextActions";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,10 +31,30 @@ export async function GET(
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
-    const [state, omega] = await Promise.all([
+    const [state, omegaRaw] = await Promise.all([
       getBuddyCanonicalState(dealId),
       getOmegaAdvisoryState(dealId),
     ]);
+
+    // If Pulse returned stale, try local ai_risk_runs fallback
+    let omega = omegaRaw;
+    if (omega.stale) {
+      try {
+        const sb = supabaseAdmin();
+        const { data } = await sb
+          .from("ai_risk_runs")
+          .select("result_json")
+          .eq("deal_id", dealId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (data?.result_json) {
+          omega = synthesizeAdvisoryFromRisk(data.result_json as AiRiskResult);
+        }
+      } catch {
+        // Keep stale omega — fallback is best-effort
+      }
+    }
 
     // Derive explanation (Buddy explains state)
     const explanation = deriveBuddyExplanation(state);
