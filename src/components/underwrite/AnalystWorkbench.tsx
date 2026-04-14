@@ -8,9 +8,11 @@ import { OmegaAdvisoryBadge } from "@/components/deals/shared/OmegaAdvisoryBadge
 import type { OmegaAdvisoryState } from "@/core/omega/types";
 import type { DriftSummary, SpreadSeedPackage, MemoSeedPackage } from "@/lib/underwritingLaunch/types";
 import UnderwriteTrustLayer, { type TrustLayerState } from "./UnderwriteTrustLayer";
+import { QuickLookBanner } from "@/components/deals/quickLook/QuickLookBanner";
+import { QuickLookQuestionsPanel } from "@/components/deals/quickLook/QuickLookQuestionsPanel";
 
 interface WorkbenchState {
-  deal: { id: string; dealName: string; borrowerLegalName: string; bankName: string; lifecycleStage: string };
+  deal: { id: string; dealName: string; borrowerLegalName: string; bankName: string; lifecycleStage: string; dealMode: "quick_look" | "full_underwrite"; isQuickLook: boolean };
   workspace: {
     id: string; status: string; spreadStatus: string; memoStatus: string; riskStatus: string;
     assignedAnalystId: string | null; refreshRequired: boolean; launchedAt: string; launchedBy: string;
@@ -115,6 +117,7 @@ export default function AnalystWorkbench({ dealId }: Props) {
   }
 
   const { deal, workspace, activeSnapshot, drift, spreadSeed, memoSeed } = state;
+  const isQuickLook = deal.isQuickLook ?? false;
   const snapshotLabel = `Snapshot ${activeSnapshot.launchSequence}`;
   const hasDrift = drift?.hasDrift ?? false;
   const isMaterialDrift = drift?.severity === "material";
@@ -123,6 +126,9 @@ export default function AnalystWorkbench({ dealId }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* Quick Look Banner */}
+      {isQuickLook && <QuickLookBanner dealId={dealId} onUpgraded={fetchState} />}
+
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -170,6 +176,9 @@ export default function AnalystWorkbench({ dealId }: Props) {
           generatingPacket={generatingPacket}
         />
       )}
+
+      {/* Quick Look Questions */}
+      {isQuickLook && <QuickLookQuestionsPanel dealId={dealId} />}
 
       {/* Workstream Cards */}
       <div className="grid grid-cols-3 gap-4">

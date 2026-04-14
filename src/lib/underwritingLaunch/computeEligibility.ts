@@ -8,6 +8,12 @@ const BLOCKING_BLOCKER_CODES = new Set([
   "required_documents_missing",
 ]);
 
+const QUICK_LOOK_BLOCKING_CODES = new Set([
+  "loan_request_missing",
+  "loan_request_incomplete",
+  "documents_require_review",
+]);
+
 /**
  * Determine whether a deal is eligible for underwriting launch.
  * Derives purely from canonical truth.
@@ -19,8 +25,10 @@ export function computeUnderwritingEligibility(
   const warnings: string[] = [];
 
   // Check for blocking blockers
+  const effectiveCodes =
+    input.dealMode === "quick_look" ? QUICK_LOOK_BLOCKING_CODES : BLOCKING_BLOCKER_CODES;
   const blockingBlockers = input.blockers.filter((b) =>
-    BLOCKING_BLOCKER_CODES.has(b.code),
+    effectiveCodes.has(b.code),
   );
   if (blockingBlockers.length > 0) {
     for (const b of blockingBlockers) {

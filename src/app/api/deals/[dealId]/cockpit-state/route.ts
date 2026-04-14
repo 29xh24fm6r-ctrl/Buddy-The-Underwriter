@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { recomputeDealDocumentState } from "@/lib/documentTruth/recomputeDealDocumentState";
 import { computeReadinessAndBlockers } from "@/lib/documentTruth/computeReadinessAndBlockers";
-import { getRequirementsForDealType } from "@/lib/documentTruth/requirementRegistry";
+import { getRequirementsForDealMode } from "@/lib/documentTruth/requirementRegistry";
 import {
   computeLoanRequestStatus,
   deriveLoanRequestBlocker,
@@ -44,7 +44,7 @@ export async function GET(
     // ── Deal + Borrower identity ──────────────────────────────────────────
     const { data: deal, error: dealError } = await sb
       .from("deals")
-      .select("id, name, borrower_name, borrower_id, bank_id, stage, deal_type, intake_phase")
+      .select("id, name, borrower_name, borrower_id, bank_id, stage, deal_type, deal_mode, intake_phase")
       .eq("id", dealId)
       .single();
 
@@ -137,7 +137,8 @@ export async function GET(
     }>;
 
     const dealType = (deal as Record<string, unknown>).deal_type as string ?? "conventional";
-    const applicableRequirements = getRequirementsForDealType(dealType);
+    const dealMode = (deal as any).deal_mode as string | null ?? null;
+    const applicableRequirements = getRequirementsForDealMode(dealType, dealMode);
     const applicableCodes = new Set<string>(applicableRequirements.map((r) => r.code));
 
     const readinessInput = {
@@ -252,6 +253,8 @@ export async function GET(
         bank: bank ? { id: bank.id, name: bank.name } : null,
         lifecycleStage: (deal as any).stage ?? (deal as any).intake_phase ?? "draft",
         cockpitPhase,
+        dealMode: dealMode ?? "full_underwrite",
+        isQuickLook: dealMode === "quick_look",
       },
       documentState: {
         requirements: reqState,

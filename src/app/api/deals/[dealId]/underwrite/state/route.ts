@@ -30,7 +30,7 @@ export async function GET(
     const sb = supabaseAdmin();
 
     // Load deal + borrower + bank
-    const { data: deal } = await sb.from("deals").select("id, name, borrower_id, bank_id, stage").eq("id", dealId).single();
+    const { data: deal } = await sb.from("deals").select("id, name, borrower_id, bank_id, stage, deal_mode").eq("id", dealId).single();
     if (!deal) return NextResponse.json({ ok: false, error: "deal_not_found" }, { status: 404 });
 
     const { data: borrower } = await sb.from("borrowers").select("id, legal_name, entity_type").eq("id", deal.borrower_id).maybeSingle();
@@ -153,6 +153,8 @@ export async function GET(
         borrowerLegalName: borrower?.legal_name ?? "",
         bankName: bank?.name ?? "",
         lifecycleStage: deal.stage,
+        dealMode: (deal as any).deal_mode ?? "full_underwrite",
+        isQuickLook: (deal as any).deal_mode === "quick_look",
       },
       workspace: workspace ? {
         id: workspace.id,
