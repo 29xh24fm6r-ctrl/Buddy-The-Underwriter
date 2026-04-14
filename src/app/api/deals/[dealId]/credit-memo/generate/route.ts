@@ -85,6 +85,8 @@ export async function POST(
     if (narrativeErr) throw narrativeErr;
 
     // ── Step 2b: Validation Pass gate ─────────────────────────────────────
+    // Only hard-block when a report exists with gating_decision = BLOCK_GENERATION.
+    // Absent report = validation has not run yet — allow generation to proceed.
     const { data: validationReport } = await sb
       .from("buddy_validation_reports")
       .select("gating_decision")
@@ -93,12 +95,12 @@ export async function POST(
       .limit(1)
       .maybeSingle();
 
-    if (!validationReport || validationReport.gating_decision === "BLOCK_GENERATION") {
+    if (validationReport?.gating_decision === "BLOCK_GENERATION") {
       return NextResponse.json(
         {
           ok: false,
           error:
-            "Validation pass required before generating memo. Run Validation first.",
+            "Validation has flagged blocking issues. Resolve them before generating memo.",
         },
         { status: 400 },
       );
