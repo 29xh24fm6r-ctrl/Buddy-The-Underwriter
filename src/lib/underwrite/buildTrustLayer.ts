@@ -206,13 +206,15 @@ async function buildFinancialValidationTrust(dealId: string): Promise<TrustLayer
     const sb = supabaseAdmin();
 
     // Use canonical committee validation summary — no re-implementation
+    // NOTE: financial_snapshots_v2.is_active does not exist — use financial_snapshots instead
     const [summary, snapshotRes] = await Promise.all([
       buildCommitteeFinancialValidationSummary(dealId),
 
-      sb.from("financial_snapshots_v2")
+      sb.from("financial_snapshots")
         .select("id")
         .eq("deal_id", dealId)
-        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle(),
     ]);
 
