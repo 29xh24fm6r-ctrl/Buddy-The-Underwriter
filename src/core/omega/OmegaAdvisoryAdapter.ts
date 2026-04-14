@@ -9,14 +9,20 @@ import "server-only";
  * RULES:
  * - NEVER throws
  * - NEVER mutates deal state
+ * - NEVER reads/writes DB directly (guard-enforced)
  * - Returns stale=true if unavailable
  * - All calls use sealed OmegaResult pattern
+ *
+ * The ai_risk_runs fallback lives in the state API route, not here.
+ * This adapter only talks to Pulse state view or returns stale.
  */
 
 import type { OmegaAdvisoryState } from "./types";
 
-// Dynamic import to avoid hard dependency on Omega modules
-// These may not exist in all environments
+// ---------------------------------------------------------------------------
+// Pulse state view helpers (dynamic imports — may not exist in all envs)
+// ---------------------------------------------------------------------------
+
 async function tryReadOmegaState(dealId: string): Promise<any> {
   try {
     const { readOmegaState } = await import("@/lib/omega/readOmegaState");
@@ -44,17 +50,76 @@ async function tryReadOmegaTraces(dealId: string): Promise<any> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// ai_risk_runs synthesis — pure function, no DB access
+// ---------------------------------------------------------------------------
+
+export interface AiRiskFactor {
+  label: string;
+  direction: "positive" | "negative" | "neutral";
+  rationale: string;
+  confidence?: number;
+}
+
+export interface AiRiskResult {
+  grade?: string;
+  factors?: AiRiskFactor[];
+  baseRateBps?: number;
+  riskPremiumBps?: number;
+}
+
 /**
- * Get advisory state from Omega.
- * NEVER throws. Returns stale if Omega is unavailable.
+ * Synthesize OmegaAdvisoryState from a local ai_risk_runs result.
+ * Pure function — caller is responsible for DB read.
+ */
+export function synthesizeAdvisoryFromRisk(risk: AiRiskResult): OmegaAdvisoryState {
+  const grade = risk.grade ?? "Ungraded";
+  const factors = risk.factors ?? [];
+
+  const negatives = factors.filter((f) => f.direction === "negative");
+  const positives = factors.filter((f) => f.direction === "positive");
+
+  const parts: string[] = [`Risk grade: ${grade}.`];
+  if (positives.length > 0) {
+    parts.push(`Strengths: ${positives.map((f) => f.label).join(", ")}.`);
+  }
+  if (negatives.length > 0) {
+    parts.push(`Watch: ${negatives.map((f) => f.label).join(", ")}.`);
+  }
+
+  const riskEmphasis = negatives.map((f) => f.label);
+
+  const confidences = factors.map((f) => f.confidence ?? 0.5);
+  const avgConf = confidences.length > 0
+    ? Math.round((confidences.reduce((a, b) => a + b, 0) / confidences.length) * 100)
+    : -1;
+
+  return {
+    confidence: avgConf,
+    advisory: parts.join(" "),
+    riskEmphasis,
+    traceRef: null,
+    stale: false,
+    staleReason: undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Get advisory state from Omega Pulse.
+ * NEVER throws. Returns stale if Pulse is unavailable.
+ * The state API route handles ai_risk_runs fallback separately.
  */
 export async function getOmegaAdvisoryState(
   dealId: string,
 ): Promise<OmegaAdvisoryState> {
-  const isEnabled = process.env.OMEGA_MCP_ENABLED === "true"
-    && process.env.OMEGA_MCP_KILL_SWITCH !== "true";
+  const pulseEnabled = process.env.OMEGA_MCP_ENABLED === "1"
+    && process.env.OMEGA_MCP_KILL_SWITCH !== "1";
 
-  if (!isEnabled) {
+  if (!pulseEnabled) {
     return {
       confidence: -1,
       advisory: "",
@@ -76,7 +141,6 @@ export async function getOmegaAdvisoryState(
     const conf = confidence.status === "fulfilled" ? confidence.value : null;
     const tr = trace.status === "fulfilled" ? trace.value : null;
 
-    // Check if Omega returned meaningful data
     const hasData = state?.ok || conf?.ok;
 
     return {
