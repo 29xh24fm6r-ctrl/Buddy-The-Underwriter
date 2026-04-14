@@ -107,6 +107,7 @@ export async function POST(
     }
 
     // ── Step 3: Build deal snapshot ──────────────────────────────────────
+    // NOTE: deal_financial_facts uses fact_period_end, not period_end
     const [dealResult, factsResult] = await Promise.all([
       sb
         .from("deals")
@@ -115,10 +116,10 @@ export async function POST(
         .maybeSingle(),
       sb
         .from("deal_financial_facts")
-        .select("fact_key, fact_value_num, period_end")
+        .select("fact_key, fact_value_num, fact_period_end")
         .eq("deal_id", dealId)
         .not("fact_value_num", "is", null)
-        .order("period_end", { ascending: false }),
+        .order("fact_period_end", { ascending: false }),
     ]);
 
     if (dealResult.error) throw dealResult.error;
@@ -184,7 +185,6 @@ export async function POST(
     });
 
     // ── Step 6: Compute provenance hash from canonical inputs ─────────────
-    // Uses shared canonical helper — same assembly as trust layer builder
     const hashInputs = await fetchMemoHashInputs(sb, dealId);
     const inputHash = computeMemoInputHash(hashInputs);
 
@@ -220,7 +220,6 @@ export async function POST(
       },
     });
 
-    // Observability: memo generation completed
     void writeEvent({
       dealId,
       kind: "memo.generation.completed",
@@ -242,7 +241,6 @@ export async function POST(
   } catch (error: any) {
     rethrowNextErrors(error);
 
-    // Log AI failure to pipeline ledger + observability
     try {
       const bankId = await getCurrentBankId().catch(() => "");
       const { dealId } = await ctx.params;
@@ -255,7 +253,6 @@ export async function POST(
           payload: { error: error?.message ?? "unknown" },
         });
       }
-      // Observability: memo generation failed
       void writeEvent({
         dealId,
         kind: "memo.generation.failed",
