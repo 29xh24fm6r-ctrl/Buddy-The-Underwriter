@@ -104,6 +104,33 @@ const ROWS: RowRegistryItem[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// SL_ key alias map — Schedule L (tax return) keys → template row keys
+// ---------------------------------------------------------------------------
+
+const SL_KEY_ALIAS: Record<string, BalanceSheetRowKey> = {
+  SL_CASH: "CASH_AND_EQUIVALENTS",
+  SL_AR_GROSS: "ACCOUNTS_RECEIVABLE",
+  SL_INVENTORY: "INVENTORY",
+  SL_OTHER_CURRENT_ASSETS: "OTHER_CURRENT_ASSETS",
+  SL_PPE_GROSS: "PROPERTY_PLANT_EQUIPMENT",
+  SL_ACCUMULATED_DEPRECIATION: "ACCUMULATED_DEPRECIATION",
+  SL_LAND: "PROPERTY_PLANT_EQUIPMENT", // land rolls into PP&E
+  SL_INTANGIBLES_GROSS: "INTANGIBLE_ASSETS",
+  SL_OTHER_ASSETS: "OTHER_NON_CURRENT_ASSETS",
+  SL_TOTAL_ASSETS: "TOTAL_ASSETS",
+  SL_ACCOUNTS_PAYABLE: "ACCOUNTS_PAYABLE",
+  SL_WAGES_PAYABLE: "ACCRUED_EXPENSES",
+  SL_OPERATING_CURRENT_LIABILITIES: "OTHER_CURRENT_LIABILITIES",
+  SL_MORTGAGES_NOTES_BONDS: "LONG_TERM_DEBT",
+  SL_LOANS_FROM_SHAREHOLDERS: "OTHER_NON_CURRENT_LIABILITIES",
+  SL_OTHER_LIABILITIES: "OTHER_NON_CURRENT_LIABILITIES",
+  SL_TOTAL_LIABILITIES: "TOTAL_LIABILITIES",
+  SL_CAPITAL_STOCK: "COMMON_STOCK",
+  SL_RETAINED_EARNINGS: "RETAINED_EARNINGS",
+  SL_TOTAL_EQUITY: "TOTAL_EQUITY",
+};
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -166,10 +193,18 @@ function formatRatio(v: number): string {
 // Template
 // ---------------------------------------------------------------------------
 
+const BS_FACT_TYPES = new Set(["BALANCE_SHEET", "TAX_RETURN"]);
+
+function isBsFact(f: FinancialFact): boolean {
+  if (f.fact_type === "BALANCE_SHEET") return true;
+  if (f.fact_type === "TAX_RETURN" && f.fact_key in SL_KEY_ALIAS) return true;
+  return false;
+}
+
 function deriveAsOfDates(facts: FinancialFact[]): string[] {
   const dates = new Set<string>();
   for (const f of facts) {
-    if (f.fact_type !== "BALANCE_SHEET") continue;
+    if (!isBsFact(f)) continue;
     const d = factAsOfDate(f) ?? f.fact_period_end;
     if (d && /^\d{4}-\d{2}-\d{2}/.test(String(d))) {
       dates.add(String(d).slice(0, 10));
@@ -192,7 +227,7 @@ export function balanceSheetTemplate(): SpreadTemplate {
     }),
     columns: ["Line Item", "Value"],
     render: (args): RenderedSpread => {
-      const bsFacts = args.facts.filter((f) => f.fact_type === "BALANCE_SHEET");
+      const bsFacts = args.facts.filter(isBsFact);
       const asOfDates = deriveAsOfDates(args.facts);
 
       // Build columns: one per as-of date
@@ -218,9 +253,9 @@ export function balanceSheetTemplate(): SpreadTemplate {
         provenanceByRow[r.key] = {};
       }
 
-      // Map facts to cells
+      // Map facts to cells — resolve SL_ aliases to template row keys
       for (const fact of bsFacts) {
-        const rowKey = fact.fact_key;
+        const rowKey = (SL_KEY_ALIAS[fact.fact_key] ?? fact.fact_key) as string;
         if (!valuesByRow[rowKey]) continue;
         if (typeof fact.fact_value_num !== "number") continue;
 

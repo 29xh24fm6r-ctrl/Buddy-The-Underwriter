@@ -7,7 +7,8 @@ import WorkstreamCard from "./WorkstreamCard";
 import { OmegaAdvisoryBadge } from "@/components/deals/shared/OmegaAdvisoryBadge";
 import type { OmegaAdvisoryState } from "@/core/omega/types";
 import type { DriftSummary, SpreadSeedPackage, MemoSeedPackage } from "@/lib/underwritingLaunch/types";
-import UnderwriteTrustLayer, { type TrustLayerState } from "./UnderwriteTrustLayer";
+import type { TrustLayerState } from "./UnderwriteTrustLayer";
+import UnderwritingPipelineRail from "./UnderwritingPipelineRail";
 import { QuickLookBanner } from "@/components/deals/quickLook/QuickLookBanner";
 import { QuickLookQuestionsPanel } from "@/components/deals/quickLook/QuickLookQuestionsPanel";
 
@@ -35,8 +36,6 @@ export default function AnalystWorkbench({ dealId }: Props) {
   const [state, setState] = useState<WorkbenchState | null>(null);
   const [loading, setLoading] = useState(true);
   const [driftModalOpen, setDriftModalOpen] = useState(false);
-  const [regeneratingMemo, setRegeneratingMemo] = useState(false);
-  const [generatingPacket, setGeneratingPacket] = useState(false);
   const [omegaState, setOmegaState] = useState<OmegaAdvisoryState | null>(null);
 
   useEffect(() => {
@@ -70,25 +69,6 @@ export default function AnalystWorkbench({ dealId }: Props) {
     fetchState();
   };
 
-  const handleRegenerateMemo = async () => {
-    setRegeneratingMemo(true);
-    try {
-      await fetch(`/api/deals/${dealId}/credit-memo/generate`, { method: "POST" });
-      fetchState();
-    } catch { /* silent */ } finally {
-      setRegeneratingMemo(false);
-    }
-  };
-
-  const handleGeneratePacket = async () => {
-    setGeneratingPacket(true);
-    try {
-      await fetch(`/api/deals/${dealId}/committee/packet/generate`, { method: "POST" });
-      fetchState();
-    } catch { /* silent */ } finally {
-      setGeneratingPacket(false);
-    }
-  };
 
   if (loading) return <div className="animate-pulse h-64 bg-white/5 rounded-xl" />;
 
@@ -165,17 +145,8 @@ export default function AnalystWorkbench({ dealId }: Props) {
         />
       )}
 
-      {/* Trust Layer */}
-      {state.trustLayer && (
-        <UnderwriteTrustLayer
-          dealId={dealId}
-          trustLayer={state.trustLayer}
-          onRegenerateMemo={handleRegenerateMemo}
-          onGeneratePacket={handleGeneratePacket}
-          regeneratingMemo={regeneratingMemo}
-          generatingPacket={generatingPacket}
-        />
-      )}
+      {/* Pipeline Rail */}
+      <UnderwritingPipelineRail dealId={dealId} onMemoGenerated={fetchState} />
 
       {/* Quick Look Questions */}
       {isQuickLook && <QuickLookQuestionsPanel dealId={dealId} />}

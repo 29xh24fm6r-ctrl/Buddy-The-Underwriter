@@ -2,6 +2,7 @@ import "server-only";
 
 import React from "react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import DebtServiceCoverageSection from "./DebtServiceCoverageSection";
 
 type SpreadRow = {
   key: string;
@@ -64,7 +65,6 @@ function rowClassName(kind: ReturnType<typeof classifyRowKind>): string {
 }
 
 const SPREAD_LABELS: Record<string, string> = {
-  T12: "Operating Performance",
   BALANCE_SHEET: "Balance Sheet",
   RENT_ROLL: "Rent Roll Summary",
   GLOBAL_CASH_FLOW: "Global Cash Flow",
@@ -100,7 +100,10 @@ export default async function SpreadsAppendix({
     .order("updated_at", { ascending: false })
     .limit(20);
 
-  const spreads = (spreadRows ?? []) as RenderedSpread[];
+  // Filter out T12 — no longer rendered in the credit memo appendix
+  const spreads = ((spreadRows ?? []) as RenderedSpread[]).filter(
+    (s) => s.spread_type !== "T12",
+  );
 
   if (spreads.length === 0) {
     return null;
@@ -117,7 +120,7 @@ export default async function SpreadsAppendix({
   }
 
   // Sort: DEAL first, then PERSONAL, then GLOBAL
-  const typeOrder = ["T12", "BALANCE_SHEET", "RENT_ROLL", "PERSONAL_INCOME", "PERSONAL_FINANCIAL_STATEMENT", "GLOBAL_CASH_FLOW"];
+  const typeOrder = ["BALANCE_SHEET", "RENT_ROLL", "PERSONAL_INCOME", "PERSONAL_FINANCIAL_STATEMENT", "GLOBAL_CASH_FLOW"];
   uniqueSpreads.sort((a, b) => {
     const ai = typeOrder.indexOf(a.spread_type);
     const bi = typeOrder.indexOf(b.spread_type);
@@ -129,6 +132,8 @@ export default async function SpreadsAppendix({
       <div className="text-xs font-semibold uppercase text-gray-600 mb-3">Appendix: Financial Spreads</div>
 
       <div className="space-y-4">
+        <DebtServiceCoverageSection dealId={dealId} />
+
         {uniqueSpreads.map((spread, si) => {
           const json = spread.rendered_json;
           if (!json?.rows?.length) return null;
