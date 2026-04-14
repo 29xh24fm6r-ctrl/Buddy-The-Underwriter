@@ -1,55 +1,84 @@
-# Phase: Quick Look — Wire Completion
+# Phase: Quick Look — Wire Completion (v2)
 
-## Audit Summary
-
-Quick Look is ~60% built. The intake UI toggle, API passthrough, `deals.deal_mode` DB column, and reduced checklist ruleset are all production-ready. The wire goes dead at three independent requirement tracking systems that still block or mis-score Quick Look deals.
-
-**Do NOT touch:**
-- `src/app/(app)/deals/new/NewDealClient.tsx` — UI toggle complete
-- `src/lib/api/uploads.ts` / `createUploadSessionApi.ts` — passthrough working
-- `deals.deal_mode` DB column — exists, defaults to `'full_underwrite'`
-- `src/lib/checklist/rules.ts` — `QUICK_LOOK_ITEMS` ruleset correct
-- `src/lib/checklist/engine.ts` — routes to QUICK_LOOK ruleset correctly
-- Spread extraction pipeline — fires independently of readiness
-
-**DB state:** 165 production deals, all `full_underwrite`. No Quick Look deals have ever been created.
+> Revised after full repo audit. Corrects five structural errors in v1:
+> (1) AnalystWorkbench has no tab strip — questions panel is a conditional body card
+> (2) WorkbenchState type must be extended to carry dealMode + isQuickLook
+> (3) deal-mode PATCH must block downgrade after underwriting workspace exists
+> (4) AI question generation must be formally non-blocking
+> (5) Gemini wrapper must be discovered from repo, not assumed
 
 ---
 
-## Three Dead Wires to Fix
+## What is already built — DO NOT TOUCH
 
-### Dead Wire 1: `gatekeeper/requirements.ts`
-Feeds the gatekeeper readiness % shown in the document readiness header. Always generates 3-BTR + personal + PFS requirements regardless of `deal_mode`. Quick Look deals show ~28% readiness when they should show 100%.
+- `src/app/(app)/deals/new/NewDealClient.tsx` — UI toggle complete and working
+- `src/lib/api/uploads.ts` + `createUploadSessionApi.ts` — `dealMode` passthrough to DB working
+- `deals.deal_mode` column — exists, TEXT, defaults to `'full_underwrite'`
+- `src/lib/checklist/rules.ts` — `QUICK_LOOK_ITEMS` ruleset defined correctly
+- `src/lib/checklist/engine.ts` — routes to `QUICK_LOOK` ruleset when `deal_mode = 'quick_look'`
+- All spread extraction — fires on any document regardless of readiness state
 
-### Dead Wire 2: `documentTruth/requirementRegistry.ts` → `cockpit-state`
-The cockpit blocker system uses a completely separate requirement registry (`getRequirementsForDealType`) that reads `deal.deal_type`, not `deal.deal_mode`. It will fire `required_documents_missing` for Quick Look deals because they will never satisfy 3 BTRs + 3 personal + PFS. This is the blocker that prevents the cockpit from showing a clean state.
-
-### Dead Wire 3: `underwrite/state` + `cockpit-state` — no `deal_mode` in response
-Neither response includes `deal_mode` or `isQuickLook`. No surface downstream can render the Quick Look banner or restrict the questions panel.
+**DB state:** 165 production deals, all `full_underwrite`. No Quick Look deal has ever been created.
 
 ---
 
-## Changes Required
+## AnalystWorkbench structure — verified from repo
 
-### CHANGE 1 — `src/lib/gatekeeper/requirements.ts`
+`src/components/underwrite/AnalystWorkbench.tsx` is a **single linear layout**. There is no tab strip, no `activeTab` state, and no tab navigation of any kind. The component renders in this order:
 
-Add `dealMode` parameter. When `'quick_look'`: 2 BTR years (most recent 2), no personal, no PFS.
+1. Header (deal name, borrower, bank, lifecycle stage)
+2. `<SnapshotBanner>`
+3. `<DriftBanner>` (conditional)
+4. `<UnderwriteTrustLayer>` (conditional)
+5. Three `<WorkstreamCard>` components in a 3-column grid: Spreads, Credit Memo, Risk & Structure
+
+The `WorkbenchState` interface currently has:
 
 ```typescript
-// FULL FILE — replace existing content
+interface WorkbenchState {
+  deal: {
+    id: string;
+    dealName: string;
+    borrowerLegalName: string;
+    bankName: string;
+    lifecycleStage: string;
+    // dealMode and isQuickLook are MISSING — must be added
+  };
+  workspace: { ... } | null;
+  activeSnapshot: { ... } | null;
+  drift: DriftSummary | null;
+  spreadSeed: SpreadSeedPackage | null;
+  memoSeed: MemoSeedPackage | null;
+  trustLayer: TrustLayerState | null;
+}
+```
 
+---
+
+## The three dead wires
+
+### Dead Wire 1 — `gatekeeper/requirements.ts`
+Always generates 3-BTR + personal + PFS requirements. Quick Look deals show ~28% readiness when they should show 100% after uploading 2 BTRs + YTD.
+
+### Dead Wire 2 — `documentTruth/requirementRegistry.ts` → `cockpit-state`
+The cockpit blocker engine reads `deal.deal_type`, not `deal.deal_mode`. For any Quick Look deal it fires `required_documents_missing` because 3 BTRs + 3 personal returns + PFS are never present. This is the blocker preventing the cockpit from reaching a clean state.
+
+### Dead Wire 3 — `underwrite/state` + `cockpit-state` return no mode flags
+Neither API response carries `dealMode` or `isQuickLook`. No downstream component can branch on Quick Look behavior.
+
+---
+
+## Changes — backend (Steps 1–7)
+
+### STEP 1 — Replace `src/lib/gatekeeper/requirements.ts`
+
+Replace the entire file:
+
+```typescript
 /**
  * Gatekeeper Readiness — Scenario Requirements (PURE)
- *
- * Derives what documents are required to underwrite a deal,
- * based on the intake scenario, current date, and deal mode.
- *
- * SLOT-INDEPENDENT: Requirements derive directly from scenario fields
- * + computeTaxYears(), NOT from generateSlotsForScenario().
- *
  * No DB, no IO, no side effects. Fully testable.
  */
-
 import type { IntakeScenario } from "@/lib/intake/slots/types";
 import { computeTaxYears } from "@/lib/intake/slots/taxYears";
 
@@ -63,17 +92,11 @@ export type ScenarioRequirements = {
 /**
  * Derive document requirements from an intake scenario.
  *
- * When dealMode === 'quick_look':
- *   - businessTaxYears: 2 most recent filed years only
- *   - personalTaxYears: [] (optional, not required)
- *   - requiresFinancialStatements: true (YTD required)
- *   - requiresPFS: false (optional)
+ * Quick Look: 2 most recent BTR years, no personal, no PFS, YTD required.
+ * Full Underwrite (default): 3 BTR years, 3 personal, PFS, per-scenario financials.
  *
- * When dealMode === 'full_underwrite' (or omitted):
- *   - businessTaxYears: 3 consecutive years
- *   - personalTaxYears: 3 consecutive years (always required)
- *   - requiresFinancialStatements: per scenario
- *   - requiresPFS: true
+ * NOTE: Quick Look is a lower document threshold for preliminary analysis —
+ * NOT a lower credit standard. The distinction matters for memo language and audit.
  */
 export function deriveScenarioRequirements(params: {
   scenario: IntakeScenario;
@@ -84,9 +107,8 @@ export function deriveScenarioRequirements(params: {
   const taxYears = computeTaxYears(now);
 
   if (dealMode === "quick_look") {
-    const quickLookYears = taxYears.slice(0, 2); // [mostRecent, mostRecent - 1]
     return {
-      businessTaxYears: scenario.has_business_tax_returns ? quickLookYears : [],
+      businessTaxYears: scenario.has_business_tax_returns ? taxYears.slice(0, 2) : [],
       personalTaxYears: [],
       requiresFinancialStatements: true,
       requiresPFS: false,
@@ -104,56 +126,58 @@ export function deriveScenarioRequirements(params: {
 
 ---
 
-### CHANGE 2 — `src/lib/gatekeeper/readinessServer.ts`
+### STEP 2 — Edit `src/lib/gatekeeper/readinessServer.ts`
 
-Load `deal_mode` from the `deals` table and pass to `deriveScenarioRequirements`.
-
-In `computeGatekeeperDocReadiness`, **after** `const effectiveScenario = scenario ?? CONVENTIONAL_FALLBACK;` add:
-
+In `computeGatekeeperDocReadiness`, immediately after:
 ```typescript
-// Load deal_mode for Quick Look requirement adjustment
+const effectiveScenario = scenario ?? CONVENTIONAL_FALLBACK;
+```
+
+Add:
+```typescript
+// Load deal_mode so Quick Look gets reduced requirements
 const { data: dealRow } = await (sb as any)
   .from("deals")
   .select("deal_mode")
   .eq("id", dealId)
   .maybeSingle();
-const dealMode = (dealRow?.deal_mode as "quick_look" | "full_underwrite" | null) ?? null;
+const dealMode =
+  (dealRow?.deal_mode as "quick_look" | "full_underwrite" | null) ?? null;
 ```
 
-Then update the `deriveScenarioRequirements` call:
-
+Then change the `deriveScenarioRequirements` call to:
 ```typescript
 const requirements = deriveScenarioRequirements({
   scenario: effectiveScenario,
-  dealMode, // ← ADD
+  dealMode,
 });
 ```
 
 ---
 
-### CHANGE 3 — `src/lib/documentTruth/requirementRegistry.ts`
+### STEP 3 — Edit `src/lib/documentTruth/requirementRegistry.ts`
 
-Add a `getRequirementsForDealMode` function that returns a reduced set for Quick Look. This is the fix for the cockpit blocker system.
-
-Add at the bottom of the file (after the existing `getRequirementsForDealType` function):
+Add this function at the bottom of the file, after the existing `getRequirementsForDealType`:
 
 ```typescript
 /**
- * Get applicable requirements based on deal mode.
- * Quick Look uses a reduced set — only 2 BTR years and YTD financials required.
- * All other requirements become optional.
+ * Get applicable requirements adjusted for deal mode.
+ *
+ * Quick Look reduces required document threshold — not credit standards.
+ * Personal tax returns and PFS become optional.
+ * Business tax return requirement reduces to 2 years.
+ * All other requirements are unchanged.
+ *
+ * For full_underwrite (or null/undefined), delegates to getRequirementsForDealType
+ * unchanged — no behavioral difference for existing deals.
  */
 export function getRequirementsForDealMode(
   dealType: string,
   dealMode: string | null | undefined,
 ): RequirementDefinition[] {
   const base = getRequirementsForDealType(dealType);
-
   if (dealMode !== "quick_look") return base;
 
-  // Quick Look: make personal_tax_returns and personal_financial_statement optional.
-  // Reduce business_tax_returns to 2-year requirement.
-  // Everything else is unchanged.
   return base.map((r) => {
     if (
       r.code === "financials.personal_tax_returns" ||
@@ -162,7 +186,12 @@ export function getRequirementsForDealMode(
       return { ...r, required: false };
     }
     if (r.code === "financials.business_tax_returns") {
-      return { ...r, requiredCount: 2, yearCount: 2, label: "Business Tax Returns (2 years)" };
+      return {
+        ...r,
+        requiredCount: 2,
+        yearCount: 2,
+        label: "Business Tax Returns (2 years — Quick Look)",
+      };
     }
     return r;
   });
@@ -171,95 +200,66 @@ export function getRequirementsForDealMode(
 
 ---
 
-### CHANGE 4 — `src/app/api/deals/[dealId]/cockpit-state/route.ts`
+### STEP 4 — Edit `src/app/api/deals/[dealId]/cockpit-state/route.ts`
 
-**Problem:** Reads `deal.deal_type` but not `deal.deal_mode`. Passes wrong requirements to `computeReadinessAndBlockers`, generates wrong blockers.
-
-**Two changes in this file:**
-
-**4a.** Add `deal_mode` to the deal select:
-```typescript
-// BEFORE
-const { data: deal } = await sb
-  .from("deals")
-  .select("id, name, borrower_name, borrower_id, bank_id, stage, deal_type, intake_phase")
-  .eq("id", dealId)
-  .single();
-
-// AFTER
-const { data: deal } = await sb
-  .from("deals")
-  .select("id, name, borrower_name, borrower_id, bank_id, stage, deal_type, intake_phase, deal_mode")
-  .eq("id", dealId)
-  .single();
-```
-
-**4b.** Replace `getRequirementsForDealType` call with `getRequirementsForDealMode`:
-
+**4a.** Change the import:
 ```typescript
 // BEFORE
 import { getRequirementsForDealType } from "@/lib/documentTruth/requirementRegistry";
-// ...
-const applicableRequirements = getRequirementsForDealType(dealType);
-
 // AFTER
 import { getRequirementsForDealMode } from "@/lib/documentTruth/requirementRegistry";
-// ...
-const dealMode = (deal as any).deal_mode as string | null;
+```
+
+**4b.** Add `deal_mode` to the deal select:
+```typescript
+// BEFORE
+.select("id, name, borrower_name, borrower_id, bank_id, stage, deal_type, intake_phase")
+// AFTER
+.select("id, name, borrower_name, borrower_id, bank_id, stage, deal_type, intake_phase, deal_mode")
+```
+
+**4c.** After `const dealType = ...`, add:
+```typescript
+const dealMode = (deal as any).deal_mode as string | null ?? null;
+```
+
+**4d.** Change the requirements lookup:
+```typescript
+// BEFORE
+const applicableRequirements = getRequirementsForDealType(dealType);
+// AFTER
 const applicableRequirements = getRequirementsForDealMode(dealType, dealMode);
 ```
 
-**4c.** Add `dealMode` and `isQuickLook` to the response `deal` object:
+**4e.** In the return payload, add two fields to the `deal:` object:
 ```typescript
-deal: {
-  id: deal.id,
-  dealName: deal.name,
-  borrower: borrower ? { id: borrower.id, legalName: borrower.legal_name } : null,
-  bank: bank ? { id: bank.id, name: bank.name } : null,
-  lifecycleStage: (deal as any).stage ?? (deal as any).intake_phase ?? "draft",
-  cockpitPhase,
-  dealMode: dealMode ?? "full_underwrite",   // ← ADD
-  isQuickLook: dealMode === "quick_look",     // ← ADD
-},
+dealMode: dealMode ?? "full_underwrite",
+isQuickLook: dealMode === "quick_look",
 ```
 
 ---
 
-### CHANGE 5 — `src/app/api/deals/[dealId]/underwrite/state/route.ts`
+### STEP 5 — Edit `src/app/api/deals/[dealId]/underwrite/state/route.ts`
 
-Add `deal_mode` to deal query and expose in response.
-
+**5a.** Add `deal_mode` to the deal select:
 ```typescript
 // BEFORE
-const { data: deal } = await sb.from("deals")
-  .select("id, name, borrower_id, bank_id, stage")
-  .eq("id", dealId).single();
-
+.select("id, name, borrower_id, bank_id, stage")
 // AFTER
-const { data: deal } = await sb.from("deals")
-  .select("id, name, borrower_id, bank_id, stage, deal_mode")
-  .eq("id", dealId).single();
+.select("id, name, borrower_id, bank_id, stage, deal_mode")
 ```
 
-In the return payload:
+**5b.** In the return payload, add to the `deal:` object:
 ```typescript
-deal: {
-  id: deal.id,
-  dealName: deal.name,
-  borrowerLegalName: borrower?.legal_name ?? "",
-  bankName: bank?.name ?? "",
-  lifecycleStage: deal.stage,
-  dealMode: (deal as any).deal_mode ?? "full_underwrite",  // ← ADD
-  isQuickLook: (deal as any).deal_mode === "quick_look",   // ← ADD
-},
+dealMode: (deal as any).deal_mode ?? "full_underwrite",
+isQuickLook: (deal as any).deal_mode === "quick_look",
 ```
 
 ---
 
-### CHANGE 6 — `src/lib/underwritingLaunch/types.ts`
+### STEP 6 — Edit `src/lib/underwritingLaunch/types.ts`
 
 Add `dealMode` to `EligibilityInput`:
-
 ```typescript
 export type EligibilityInput = {
   blockers: Array<{ code: string }>;
@@ -277,62 +277,49 @@ export type EligibilityInput = {
 
 ---
 
-### CHANGE 7 — `src/lib/underwritingLaunch/computeEligibility.ts`
+### STEP 7 — Edit `src/lib/underwritingLaunch/computeEligibility.ts`
 
-For Quick Look deals, exclude `required_documents_missing` from blocking. The checklist engine already enforces reduced requirements correctly.
-
+**7a.** After the existing `BLOCKING_BLOCKER_CODES` Set, add:
 ```typescript
-// BEFORE
-const BLOCKING_BLOCKER_CODES = new Set([
-  "loan_request_missing",
-  "loan_request_incomplete",
-  "documents_require_review",
-  "required_documents_missing",
-]);
-
-export function computeUnderwritingEligibility(
-  input: EligibilityInput,
-): UnderwritingEligibility {
-  const blockingBlockers = input.blockers.filter((b) =>
-    BLOCKING_BLOCKER_CODES.has(b.code),
-  );
-
-// AFTER
-const BLOCKING_BLOCKER_CODES = new Set([
-  "loan_request_missing",
-  "loan_request_incomplete",
-  "documents_require_review",
-  "required_documents_missing",
-]);
-
-// Quick Look never blocks on required_documents_missing — the checklist engine
-// enforces reduced requirements (2 BTRs + YTD). Trust checklist satisfaction.
+// Quick Look never hard-blocks on required_documents_missing.
+// The checklist engine already enforces the reduced requirement set.
+// This is a phase-safe fix; future cleanup should derive blocking entirely
+// from canonical applicable requirements rather than manual exception sets.
 const QUICK_LOOK_BLOCKING_CODES = new Set([
   "loan_request_missing",
   "loan_request_incomplete",
   "documents_require_review",
 ]);
-
-export function computeUnderwritingEligibility(
-  input: EligibilityInput,
-): UnderwritingEligibility {
-  const effectiveCodes =
-    input.dealMode === "quick_look" ? QUICK_LOOK_BLOCKING_CODES : BLOCKING_BLOCKER_CODES;
-
-  const blockingBlockers = input.blockers.filter((b) =>
-    effectiveCodes.has(b.code),
-  );
 ```
 
-**Additionally:** Find all call sites of `computeUnderwritingEligibility` in the codebase (grep for the function name). At each call site, read `deals.deal_mode` and pass it as `dealMode` in the input object. There should be 1-3 call sites, likely in cockpit-state assembly or a dedicated eligibility endpoint.
+**7b.** In `computeUnderwritingEligibility`, change:
+```typescript
+const blockingBlockers = input.blockers.filter((b) =>
+  BLOCKING_BLOCKER_CODES.has(b.code),
+);
+```
+To:
+```typescript
+const effectiveCodes =
+  input.dealMode === "quick_look"
+    ? QUICK_LOOK_BLOCKING_CODES
+    : BLOCKING_BLOCKER_CODES;
+const blockingBlockers = input.blockers.filter((b) =>
+  effectiveCodes.has(b.code),
+);
+```
+
+**7c.** Find every call site of `computeUnderwritingEligibility` in the codebase:
+```bash
+grep -r "computeUnderwritingEligibility" src/ --include="*.ts" --include="*.tsx" -l
+```
+At each call site, read `deals.deal_mode` for the deal and pass it as `dealMode` in the input object.
 
 ---
 
-## New Files to Create
+## New files — API (Steps 8–9)
 
-### NEW FILE 1 — `src/app/api/deals/[dealId]/deal-mode/route.ts`
-
-PATCH endpoint to upgrade Quick Look → Full Underwrite (and downgrade if needed). Called by the banner.
+### STEP 8 — Create `src/app/api/deals/[dealId]/deal-mode/route.ts`
 
 ```typescript
 import "server-only";
@@ -357,6 +344,31 @@ export async function PATCH(req: NextRequest, ctx: { params: Params }) {
   }
 
   const sb = supabaseAdmin();
+
+  // Downgrade guard: prevent quick_look downgrade once an underwriting workspace exists.
+  // Upgrade (quick_look → full_underwrite) is always allowed.
+  // Downgrade (full_underwrite → quick_look) is blocked after formal underwriting launch.
+  if (newMode === "quick_look") {
+    const { data: workspace } = await sb
+      .from("underwriting_workspaces")
+      .select("id")
+      .eq("deal_id", dealId)
+      .maybeSingle();
+
+    if (workspace) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "downgrade_blocked",
+          reason:
+            "Cannot change to Quick Look after underwriting has been formally launched. " +
+            "The underwriting workspace must remain in Full Underwrite mode for audit integrity.",
+        },
+        { status: 409 },
+      );
+    }
+  }
+
   const { error } = await sb
     .from("deals")
     .update({ deal_mode: newMode })
@@ -364,7 +376,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Params }) {
 
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
-  // Re-seed checklist for new mode so required items adjust immediately
+  // Re-seed checklist so required items adjust immediately to new mode
   const { reconcileDealChecklist } = await import("@/lib/checklist/engine");
   await reconcileDealChecklist(dealId);
 
@@ -374,7 +386,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Params }) {
     eventKey: "deal.mode.changed",
     uiState: "done",
     uiMessage: `Deal mode changed to ${newMode}`,
-    meta: { new_mode: newMode },
+    meta: { new_mode: newMode, previous_mode: body.previous_mode ?? null },
   });
 
   return NextResponse.json({ ok: true, deal_mode: newMode });
@@ -383,9 +395,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Params }) {
 
 ---
 
-### NEW FILE 2 — `src/app/api/deals/[dealId]/quick-look/questions/route.ts`
+### STEP 9 — Create `src/app/api/deals/[dealId]/quick-look/questions/route.ts`
 
-Generates the borrower meeting question set from available facts + gaps + anomalies.
+**PRE-FLIGHT REQUIRED — run before implementing:**
+```bash
+grep -r "export.*function\|export const\|export default" src/lib/ai/ --include="*.ts" | head -20
+```
+Identify the exact Gemini function name and import path. Use it in the route. Do not create a new wrapper or a second Gemini client abstraction.
 
 ```typescript
 import "server-only";
@@ -393,6 +409,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { computeGatekeeperDocReadiness } from "@/lib/gatekeeper/readinessServer";
+// ⚠️ REPLACE THIS IMPORT with the actual Gemini wrapper found in pre-flight grep:
+// import { generateContent } from "@/lib/ai/gemini";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -406,6 +424,18 @@ export type QuickLookQuestion = {
   priority: "high" | "medium";
 };
 
+export type QuickLookQuestionsResponse = {
+  ok: true;
+  borrowerName: string;
+  dealMode: "quick_look";
+  readinessPct: number;
+  missingDocs: string[];
+  /** Always present. Empty array when generation fails — never a 500. */
+  questions: QuickLookQuestion[];
+  generationStatus: "success" | "failed" | "empty";
+  generatedAt: string;
+};
+
 export async function GET(_req: NextRequest, ctx: { params: Params }) {
   const { dealId } = await ctx.params;
   const access = await ensureDealBankAccess(dealId);
@@ -413,7 +443,6 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
 
   const sb = supabaseAdmin();
 
-  // Load deal + borrower
   const { data: deal } = await sb
     .from("deals")
     .select("name, deal_mode, borrower_id")
@@ -433,7 +462,7 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
     .eq("id", deal.borrower_id)
     .maybeSingle();
 
-  // Load key financial facts (most recent period)
+  // Load financial facts for context
   const { data: facts } = await sb
     .from("deal_financial_facts")
     .select("fact_key, fact_value_num, fact_period_end, confidence")
@@ -452,105 +481,96 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
     readiness.missing.pfsMissing ? "Personal Financial Statement" : null,
   ].filter(Boolean) as string[];
 
-  // Build facts summary — group by period for trend context
-  const factsByPeriod = new Map<string, Array<{ key: string; value: number; confidence: number }>>();
+  // Build facts summary grouped by period
+  const factsByPeriod = new Map<string, string[]>();
   for (const f of facts ?? []) {
     const period = f.fact_period_end ?? "unknown";
     if (!factsByPeriod.has(period)) factsByPeriod.set(period, []);
-    factsByPeriod.get(period)!.push({
-      key: f.fact_key,
-      value: Number(f.fact_value_num),
-      confidence: Number(f.confidence ?? 0),
-    });
+    factsByPeriod
+      .get(period)!
+      .push(
+        `  ${f.fact_key}: ${Number(f.fact_value_num).toLocaleString("en-US", { maximumFractionDigits: 0 })} (conf: ${Math.round(Number(f.confidence ?? 0) * 100)}%)`,
+      );
   }
 
   const factsSummary = Array.from(factsByPeriod.entries())
     .slice(0, 3)
-    .map(([period, periodFacts]) => {
-      const lines = periodFacts
-        .slice(0, 10)
-        .map((f) => `  ${f.key}: ${f.value.toLocaleString("en-US", { maximumFractionDigits: 0 })} (conf: ${Math.round(f.confidence * 100)}%)`);
-      return `Period ${period}:\n${lines.join("\n")}`;
-    })
+    .map(([p, lines]) => `Period ${p}:\n${lines.slice(0, 10).join("\n")}`)
     .join("\n\n");
 
-  const missingDocsSummary =
-    missingDocs.length > 0 ? missingDocs.join(", ") : "None";
-
-  // Use Gemini via the existing AI wrapper.
-  // IMPORTANT: Find the correct import path for the Gemini wrapper in src/lib/ai/.
-  // Common names: generateContent, callGemini, geminiGenerate, generateWithGemini.
-  // Do NOT create a new wrapper. Import whatever exists.
   const prompt = `You are a senior commercial banking credit officer preparing for a borrower meeting.
-You have completed a Quick Look (preliminary) analysis of ${borrower?.legal_name ?? "the borrower"}.
+You have completed a preliminary (Quick Look) analysis of ${borrower?.legal_name ?? "the borrower"}.
+This is an incomplete package — the full underwriting package has not yet been assembled.
 
 AVAILABLE FINANCIAL DATA:
 ${factsSummary || "No financial facts extracted yet — documents may still be processing."}
 
-MISSING DOCUMENTS THAT STILL NEED TO BE COLLECTED:
-${missingDocsSummary}
+DOCUMENTS STILL MISSING FROM PACKAGE:
+${missingDocs.length > 0 ? missingDocs.join(", ") : "None identified"}
 
-CONTEXT: This is a Quick Look analysis — a preliminary assessment before the full underwriting package is assembled. The purpose of the borrower meeting is to:
-1. Clarify anomalies visible in the partial data
-2. Understand why documents are missing and get commitment to provide them
-3. Surface credit concerns early so they can be addressed before full underwriting
+MEETING PURPOSE: Clarify anomalies in partial data, get commitments on missing documents, surface credit concerns early.
 
-Generate exactly 9-12 targeted questions for the borrower meeting. Categorize them:
+Generate exactly 9-12 targeted questions. Categorize as:
 
-FINANCIAL_CLARITY (3-4 questions): Reference specific numbers or trends visible in the extracted data. Ask the borrower to explain unusual items, revenue changes, specific expense categories, or anything that stands out. Be concrete — use actual numbers when available.
+FINANCIAL_CLARITY (3-4): Reference specific numbers from the data. Ask about anomalies, revenue changes, unusual expenses. If no facts are available, ask about general business performance.
 
-DATA_GAPS (2-3 questions): Ask about missing documents specifically. Ask why they are missing and get a commitment timeline. For each missing item, understand if there is a reason it might not be available.
+DATA_GAPS (2-3): Ask specifically about each missing document — why it is unavailable and when it will be provided.
 
-RISK_FACTORS (3-4 questions): Forward-looking credit questions — key person dependency, customer concentration, debt obligations not visible in the package, contingent liabilities, personal financial capacity to guarantee, business continuity.
+RISK_FACTORS (3-4): Forward-looking credit questions — key person risk, customer concentration, debt obligations not visible in this package, contingent liabilities, guarantor capacity.
 
-Requirements:
-- Every question must be specific, not generic
-- Financial clarity questions MUST reference actual numbers if facts are available
-- Risk factor questions should reflect the specific industry/business type if inferrable from the data
-- Write as if you are actually going to ask this in a meeting — natural, direct language
+Rules:
+- Every question must be specific. Generic questions are not acceptable.
+- Financial clarity questions must reference actual dollar amounts or percentages when facts are available.
+- Write as if you are speaking directly in the meeting.
+- Questions about the incomplete package should convey urgency without being adversarial.
 
-Respond ONLY with a valid JSON array. No markdown, no preamble, no explanation. Schema:
+Respond ONLY with a valid JSON array. No markdown, no preamble. Schema:
 [{
   "category": "financial_clarity" | "data_gaps" | "risk_factors",
-  "question": "The exact question to ask",
-  "context": "One sentence explaining why this question matters for credit analysis",
+  "question": "Exact question text",
+  "context": "One sentence explaining the credit relevance",
   "priority": "high" | "medium"
 }]`;
 
+  // Generation is non-blocking. A failure returns ok:true with empty questions.
   let questions: QuickLookQuestion[] = [];
+  let generationStatus: "success" | "failed" | "empty" = "empty";
+
   try {
-    // Find and import the existing Gemini wrapper from src/lib/ai/
-    // Replace this import with whatever the actual wrapper export is
+    // Replace the import below with the actual Gemini wrapper discovered in pre-flight grep
     const { generateContent } = await import("@/lib/ai/gemini");
     const raw = await generateContent({ prompt, maxTokens: 2000 });
     const cleaned = (raw ?? "").replace(/```json|```/g, "").trim();
     if (cleaned.startsWith("[")) {
       questions = JSON.parse(cleaned);
+      generationStatus = questions.length > 0 ? "success" : "empty";
     }
   } catch (e) {
-    console.error("[quick-look/questions] generation failed:", e);
-    // Return empty questions rather than error — generation is additive, not blocking
+    console.error("[quick-look/questions] Gemini generation failed (non-fatal):", e);
+    generationStatus = "failed";
+    // Return ok:true with empty questions — never fail the workbench surface
   }
 
-  return NextResponse.json({
+  const response: QuickLookQuestionsResponse = {
     ok: true,
     borrowerName: borrower?.legal_name ?? "",
     dealMode: "quick_look",
     readinessPct: readiness.readinessPct,
     missingDocs,
     questions,
+    generationStatus,
     generatedAt: new Date().toISOString(),
-  });
+  };
+
+  return NextResponse.json(response);
 }
 ```
 
-**NOTE on Gemini import:** Before implementing, check `src/lib/ai/` for the existing wrapper file. Use whatever export exists there. Do NOT create a new wrapper or a new file in `src/lib/ai/`.
-
 ---
 
-### NEW FILE 3 — `src/components/deals/quickLook/QuickLookBanner.tsx`
+## New files — components (Steps 10–11)
 
-Amber banner rendered at the top of the AnalystWorkbench when `isQuickLook === true`.
+### STEP 10 — Create `src/components/deals/quickLook/QuickLookBanner.tsx`
 
 ```tsx
 "use client";
@@ -586,16 +606,18 @@ export function QuickLookBanner({ dealId, onUpgraded }: QuickLookBannerProps) {
   if (upgraded) return null;
 
   return (
-    <div className="flex items-center justify-between gap-4 px-5 py-2.5 bg-amber-500/10 border-b border-amber-500/25">
+    <div className="flex items-center justify-between gap-4 px-5 py-2.5
+                    bg-amber-500/10 border border-amber-500/25 rounded-xl">
       <div className="flex items-center gap-2.5">
         <span className="material-symbols-outlined text-amber-400 text-[18px] flex-shrink-0">
           preview
         </span>
-        <span className="text-sm font-semibold text-amber-300">Quick Look</span>
-        <span className="text-sm text-amber-200/60">
-          Preliminary analysis — spreads and insights are available, but this deal cannot advance
-          to committee until upgraded to Full Underwrite.
-        </span>
+        <div>
+          <span className="text-sm font-semibold text-amber-300">Quick Look — Incomplete Package</span>
+          <span className="text-sm text-amber-200/60 ml-2">
+            Preliminary analysis available. Not committee-ready until upgraded to Full Underwrite.
+          </span>
+        </div>
       </div>
       <button
         onClick={handleUpgrade}
@@ -614,9 +636,7 @@ export function QuickLookBanner({ dealId, onUpgraded }: QuickLookBannerProps) {
 
 ---
 
-### NEW FILE 4 — `src/components/deals/quickLook/QuickLookQuestionsPanel.tsx`
-
-Renders the generated question set. Belongs as a tab in the AnalystWorkbench (only visible when `isQuickLook === true`).
+### STEP 11 — Create `src/components/deals/quickLook/QuickLookQuestionsPanel.tsx`
 
 ```tsx
 "use client";
@@ -662,24 +682,22 @@ interface QuestionsData {
   missingDocs: string[];
   readinessPct: number;
   borrowerName: string;
+  generationStatus: "success" | "failed" | "empty";
 }
 
 export function QuickLookQuestionsPanel({ dealId }: QuickLookQuestionsPanelProps) {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<QuestionsData | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const generate = async () => {
     setLoading(true);
-    setError(null);
     try {
       const res = await fetch(`/api/deals/${dealId}/quick-look/questions`);
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error ?? "Generation failed");
-      setData(json);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      if (json.ok) setData(json);
+    } catch {
+      // silent — non-blocking
     } finally {
       setLoading(false);
     }
@@ -687,7 +705,7 @@ export function QuickLookQuestionsPanel({ dealId }: QuickLookQuestionsPanelProps
 
   const copyAll = () => {
     if (!data?.questions?.length) return;
-    const sections = (Object.keys(CATEGORIES) as CategoryKey[])
+    const text = (Object.keys(CATEGORIES) as CategoryKey[])
       .map((cat) => {
         const qs = data.questions.filter((q) => q.category === cat);
         if (!qs.length) return "";
@@ -695,36 +713,36 @@ export function QuickLookQuestionsPanel({ dealId }: QuickLookQuestionsPanelProps
       })
       .filter(Boolean)
       .join("\n\n");
-    navigator.clipboard.writeText(sections);
+    navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div className="space-y-5 py-4">
-      {/* Header row */}
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5 space-y-4">
+      {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-sm font-semibold text-white">Borrower Meeting Questions</h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Targeted questions generated from available data and document gaps
+          <p className="text-xs text-white/40 mt-0.5">
+            Targeted questions from available financial data and document gaps
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {data && (
+          {data?.questions?.length ? (
             <button
               onClick={copyAll}
-              className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-700
-                         text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
+              className="px-3 py-1.5 text-xs font-medium rounded-md border border-white/10
+                         text-white/50 hover:text-white hover:border-white/20 transition-colors"
             >
               {copied ? "Copied!" : "Copy All"}
             </button>
-          )}
+          ) : null}
           <button
             onClick={generate}
             disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md
-                       bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50"
+                       bg-primary hover:bg-primary/90 text-white transition-colors disabled:opacity-50"
           >
             {loading && (
               <span className="animate-spin material-symbols-outlined text-[14px]">
@@ -738,8 +756,8 @@ export function QuickLookQuestionsPanel({ dealId }: QuickLookQuestionsPanelProps
 
       {/* Context bar */}
       {data && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 rounded-lg
-                        bg-gray-800/40 border border-gray-700/50 text-xs text-gray-400">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 px-3 py-2 rounded-lg
+                        bg-white/[0.03] border border-white/[0.06] text-xs text-white/50">
           <span>
             Package readiness:{" "}
             <span className="text-white font-medium">{data.readinessPct}%</span>
@@ -750,18 +768,14 @@ export function QuickLookQuestionsPanel({ dealId }: QuickLookQuestionsPanelProps
               <span className="text-amber-300">{data.missingDocs.join(", ")}</span>
             </span>
           )}
-        </div>
-      )}
-
-      {/* Error state */}
-      {error && (
-        <div className="px-4 py-3 rounded-lg bg-rose-500/10 border border-rose-500/25 text-xs text-rose-300">
-          {error}
+          {data.generationStatus === "failed" && (
+            <span className="text-rose-300/70">AI generation failed — retry to try again</span>
+          )}
         </div>
       )}
 
       {/* Question sections */}
-      {data?.questions && (
+      {data?.questions?.length ? (
         <div className="space-y-4">
           {(Object.keys(CATEGORIES) as CategoryKey[]).map((cat) => {
             const qs = data.questions.filter((q) => q.category === cat);
@@ -791,7 +805,7 @@ export function QuickLookQuestionsPanel({ dealId }: QuickLookQuestionsPanelProps
                         )}
                         <p className="text-sm text-white leading-snug">{q.question}</p>
                       </div>
-                      <p className="text-xs text-gray-600 leading-snug pl-5">{q.context}</p>
+                      <p className="text-xs text-white/30 leading-snug pl-5">{q.context}</p>
                     </div>
                   ))}
                 </div>
@@ -799,16 +813,21 @@ export function QuickLookQuestionsPanel({ dealId }: QuickLookQuestionsPanelProps
             );
           })}
         </div>
-      )}
+      ) : data && !loading ? (
+        <p className="text-xs text-white/40 text-center py-4">
+          {data.generationStatus === "failed"
+            ? "Question generation failed. Click Regenerate to try again."
+            : "No questions generated. Click Regenerate to try again."}
+        </p>
+      ) : null}
 
-      {/* Empty state */}
-      {!data && !loading && !error && (
-        <div className="flex flex-col items-center justify-center py-16 text-center space-y-2">
-          <span className="material-symbols-outlined text-[32px] text-gray-700">quiz</span>
-          <p className="text-sm text-gray-400">Prepare for your borrower meeting</p>
-          <p className="text-xs text-gray-600 max-w-xs">
-            Buddy analyzes your available financial data and document gaps to generate the right
-            questions to ask before submitting the full package.
+      {/* Empty state — before first generation */}
+      {!data && !loading && (
+        <div className="flex flex-col items-center justify-center py-10 text-center space-y-2">
+          <span className="material-symbols-outlined text-[28px] text-white/20">quiz</span>
+          <p className="text-sm text-white/40">Prepare for your borrower meeting</p>
+          <p className="text-xs text-white/20 max-w-xs">
+            Buddy analyzes available financial data and document gaps to generate targeted questions.
           </p>
         </div>
       )}
@@ -819,64 +838,97 @@ export function QuickLookQuestionsPanel({ dealId }: QuickLookQuestionsPanelProps
 
 ---
 
-## Wiring Instructions for AnalystWorkbench
+## STEP 12 — Wire into `AnalystWorkbench.tsx`
 
-After creating the components above, find the AnalystWorkbench component (under `src/app/(app)/deals/[dealId]/underwrite/`). Make two additions:
+This is a targeted edit to `src/components/underwrite/AnalystWorkbench.tsx`.
 
-**1. Quick Look Banner** — Render at the very top of the workbench, before any tab strip, when `isQuickLook === true`:
-```tsx
+**12a. Extend the `WorkbenchState` interface** — add `dealMode` and `isQuickLook` to the `deal` sub-type:
+
+```typescript
+interface WorkbenchState {
+  deal: {
+    id: string;
+    dealName: string;
+    borrowerLegalName: string;
+    bankName: string;
+    lifecycleStage: string;
+    dealMode: "quick_look" | "full_underwrite";   // ← ADD
+    isQuickLook: boolean;                          // ← ADD
+  };
+  // ...rest unchanged
+}
+```
+
+**12b. Add the imports** at the top of the file:
+
+```typescript
 import { QuickLookBanner } from "@/components/deals/quickLook/QuickLookBanner";
-// ...
-{stateData?.deal?.isQuickLook && (
-  <QuickLookBanner dealId={dealId} onUpgraded={() => router.refresh()} />
+import { QuickLookQuestionsPanel } from "@/components/deals/quickLook/QuickLookQuestionsPanel";
+```
+
+**12c. Add `isQuickLook` derived variable** after the existing destructuring block:
+
+```typescript
+const { deal, workspace, activeSnapshot, drift, spreadSeed, memoSeed } = state;
+const isQuickLook = deal.isQuickLook ?? false;  // ← ADD
+```
+
+**12d. Render the Quick Look Banner** as the first element inside the top-level `<div className="space-y-4">`, before the header block:
+
+```tsx
+{/* Quick Look mode indicator — renders above header when package is incomplete */}
+{isQuickLook && (
+  <QuickLookBanner
+    dealId={dealId}
+    onUpgraded={fetchState}
+  />
 )}
 ```
 
-**2. Questions Tab** — Add a "Questions" tab to the workbench tab strip, only when `isQuickLook === true`. When selected, render:
+**12e. Render the Questions Panel** as a new card after the Trust Layer and before the Workstream Cards grid:
+
 ```tsx
-import { QuickLookQuestionsPanel } from "@/components/deals/quickLook/QuickLookQuestionsPanel";
-// ...
-{activeTab === "questions" && <QuickLookQuestionsPanel dealId={dealId} />}
+{/* Quick Look Meeting Prep — only visible for preliminary analysis deals */}
+{isQuickLook && (
+  <QuickLookQuestionsPanel dealId={dealId} />
+)}
+
+{/* Workstream Cards */}
+<div className="grid grid-cols-3 gap-4">
+  ...existing cards unchanged...
+</div>
 ```
+
+The final AnalystWorkbench render order for a Quick Look deal will be:
+1. QuickLookBanner (amber, with upgrade action)
+2. Header (deal name, borrower, bank, stage)
+3. SnapshotBanner
+4. DriftBanner (conditional)
+5. UnderwriteTrustLayer (conditional)
+6. **QuickLookQuestionsPanel** ← new, Quick Look only
+7. Workstream Cards grid (unchanged)
 
 ---
 
-## Gemini Wrapper Discovery
+## Verification checklist
 
-Before implementing `quick-look/questions/route.ts`, run the following to identify the correct import:
+Run these checks after all files are saved. Do not mark complete until every item passes.
 
-```bash
-# In the repo root, find the existing Gemini wrapper
-find src/lib/ai -type f -name "*.ts" | head -20
-grep -r "export.*function.*gemini\|export.*function.*generate\|export.*function.*callGemini" src/lib/ai/ --include="*.ts" -l
-```
-
-Use whatever function you find. Do not create a new one.
+- [ ] **TypeScript:** `npx tsc --noEmit` — zero errors in all changed files
+- [ ] **DB write:** Create a deal at `/deals/new` with Quick Look selected → `SELECT deal_mode FROM deals ORDER BY created_at DESC LIMIT 1` returns `'quick_look'`
+- [ ] **Checklist seed:** `SELECT checklist_key, required FROM deal_checklist_items WHERE deal_id = '<id>'` → exactly 4 rows: `IRS_BUSINESS_2Y` (required=true), `FIN_STMT_YTD` (required=true), `IRS_PERSONAL_3Y` (required=false), `PFS_CURRENT` (required=false)
+- [ ] **Readiness %:** Upload 2023 + 2024 BTR + YTD P&L → `GET /api/deals/<id>/gatekeeper-readiness` shows readiness at or near 100%, not 33%
+- [ ] **No false cockpit blocker:** `GET /api/deals/<id>/cockpit-state` returns no `required_documents_missing` blocker once Quick Look required items are received
+- [ ] **Mode flags in responses:** Both `GET /api/deals/<id>/cockpit-state` and `GET /api/deals/<id>/underwrite/state` return `dealMode: "quick_look"` and `isQuickLook: true`
+- [ ] **Quick Look Banner renders:** AnalystWorkbench shows amber banner for Quick Look deals — above the header
+- [ ] **Upgrade works:** Clicking "Upgrade to Full Underwrite" → `deal_mode` changes to `full_underwrite` in DB → checklist re-seeds to `UNIVERSAL_V1` → banner disappears on re-fetch
+- [ ] **Downgrade blocked after launch:** For a deal with `underwriting_workspaces` row, `PATCH /api/deals/<id>/deal-mode` with `{ deal_mode: "quick_look" }` returns 409 with `downgrade_blocked`
+- [ ] **Questions Panel renders:** `GET /api/deals/<id>/quick-look/questions` returns `{ ok: true, questions: [...] }` — questions array present
+- [ ] **Non-blocking generation:** If Gemini fails, response is still `{ ok: true, questions: [], generationStatus: "failed" }` — never a 500
+- [ ] **Full Underwrite unaffected:** Create a standard Full Underwrite deal — all behavior identical to pre-change. Run existing regression tests.
 
 ---
 
-## Verification Checklist
+## Full Underwrite regression guard
 
-Run each of these after implementation. Do not mark complete until all pass.
-
-- [ ] **DB write:** Create new deal with Quick Look → confirm `SELECT deal_mode FROM deals WHERE id = '<id>'` returns `'quick_look'`
-- [ ] **Checklist seed:** Confirm `deal_checklist_items` for the deal has exactly 4 rows: `IRS_BUSINESS_2Y` (required=true), `FIN_STMT_YTD` (required=true), `IRS_PERSONAL_3Y` (required=false), `PFS_CURRENT` (required=false)
-- [ ] **Readiness % correct:** Upload 2023 + 2024 BTR + YTD P&L. Gatekeeper readiness should reach 100%, not 33%
-- [ ] **Cockpit no false blocker:** Cockpit-state should NOT show `required_documents_missing` when Quick Look required items are satisfied
-- [ ] **Activation succeeds:** Quick Look deal with 2 BTRs + YTD received should allow underwriting activation without block
-- [ ] **`deal_mode` in API responses:** `GET /api/deals/[id]/cockpit-state` and `GET /api/deals/[id]/underwrite/state` both return `dealMode: "quick_look"` and `isQuickLook: true`
-- [ ] **Quick Look banner visible:** AnalystWorkbench shows amber banner for Quick Look deals
-- [ ] **Upgrade works:** Clicking "Upgrade to Full Underwrite" in the banner → deal_mode changes to `full_underwrite` → checklist re-seeds to `UNIVERSAL_V1` → banner disappears
-- [ ] **Questions generate:** `GET /api/deals/[id]/quick-look/questions` returns structured questions with all three categories
-- [ ] **Full Underwrite unaffected:** Create a standard Full Underwrite deal and confirm all behavior is identical to pre-change
-
-## Full Underwrite Regression Guard
-
-The only files that change existing behavior for Full Underwrite deals are:
-- `requirements.ts` — only branches on `dealMode === 'quick_look'`, otherwise identical
-- `readinessServer.ts` — passes `null` for Full Underwrite deals (same behavior)  
-- `requirementRegistry.ts` — `getRequirementsForDealMode` delegates to `getRequirementsForDealType` when not Quick Look
-- `cockpit-state` — uses `getRequirementsForDealMode` which is identical to `getRequirementsForDealType` for non-Quick-Look
-- `computeEligibility.ts` — only branches when `dealMode === 'quick_look'`, otherwise identical
-
-If any existing tests fail for Full Underwrite scenarios, the branching logic has a bug.
+Every backend change is guarded by `if (dealMode !== "quick_look") return base;` or equivalent. The behavioral branches only activate when `deal.deal_mode = 'quick_look'` is explicitly set. The default for all 165 existing deals is `'full_underwrite'`. No existing deal should be affected.
