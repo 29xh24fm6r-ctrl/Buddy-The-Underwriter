@@ -107,4 +107,5 @@ export type EligibilityInput = {
   applicableRequiredTotalCount: number;
   hasExistingWorkspace: boolean;
   hasDrift: boolean;
+  dealMode?: "quick_look" | "full_underwrite" | null;
 };

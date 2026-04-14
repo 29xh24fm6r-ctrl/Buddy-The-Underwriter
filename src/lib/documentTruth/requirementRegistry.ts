@@ -250,3 +250,24 @@ export function getRequirementsForDealType(dealType: string): RequirementDefinit
     (r) => r.dealTypes.includes("all") || r.dealTypes.includes(dealType as DealType),
   );
 }
+
+export function getRequirementsForDealMode(
+  dealType: string,
+  dealMode: string | null | undefined,
+): RequirementDefinition[] {
+  const base = getRequirementsForDealType(dealType);
+  if (dealMode !== "quick_look") return base;
+
+  return base.map((r) => {
+    if (
+      r.code === "financials.personal_tax_returns" ||
+      r.code === "financials.personal_financial_statement"
+    ) {
+      return { ...r, required: false };
+    }
+    if (r.code === "financials.business_tax_returns") {
+      return { ...r, requiredCount: 2, yearCount: 2, label: "Business Tax Returns (2 years — Quick Look)" };
+    }
+    return r;
+  });
+}

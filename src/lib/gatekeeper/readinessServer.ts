@@ -90,9 +90,19 @@ export async function computeGatekeeperDocReadiness(
   const scenario = await loadIntakeScenario(dealId);
   const effectiveScenario = scenario ?? CONVENTIONAL_FALLBACK;
 
+  // 1b. Load deal mode
+  const { data: dealRow } = await (sb as any)
+    .from("deals")
+    .select("deal_mode")
+    .eq("id", dealId)
+    .maybeSingle();
+  const dealMode =
+    (dealRow?.deal_mode as "quick_look" | "full_underwrite" | null) ?? null;
+
   // 2. Derive requirements
   const requirements = deriveScenarioRequirements({
     scenario: effectiveScenario,
+    dealMode,
   });
 
   // 3. Query all classified OR confirmed docs
