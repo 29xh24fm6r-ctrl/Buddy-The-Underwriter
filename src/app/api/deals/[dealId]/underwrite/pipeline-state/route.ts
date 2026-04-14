@@ -36,6 +36,10 @@ type Params = Promise<{ dealId: string }>;
  *
  * Returns the ordered pipeline steps for the underwriting rail.
  * Each step queries its canonical source table and derives status.
+ *
+ * Ghost column corrections (verified against DB schema):
+ * - financial_snapshots_v2.is_active does not exist → use financial_snapshots (latest by created_at)
+ * - ai_risk_runs.status does not exist → column removed; row presence = complete
  */
 export async function GET(
   _req: NextRequest,
@@ -65,16 +69,19 @@ export async function GET(
         .eq("deal_id", dealId)
         .maybeSingle(),
 
-      // 2. Financial snapshot
-      sb.from("financial_snapshots_v2")
-        .select("id, created_at, is_active")
+      // 2. Financial snapshot — financial_snapshots is the correct table.
+      //    financial_snapshots_v2.is_active does NOT exist; use latest by created_at.
+      sb.from("financial_snapshots")
+        .select("id, created_at")
         .eq("deal_id", dealId)
-        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle(),
 
-      // 3. AI risk run — latest
+      // 3. AI risk run — ai_risk_runs.status does NOT exist.
+      //    Row presence = assessment completed. grade is the meaningful output.
       sb.from("ai_risk_runs")
-        .select("id, grade, created_at, status")
+        .select("id, grade, created_at")
         .eq("deal_id", dealId)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -174,7 +181,7 @@ function buildSpreadStep(
 }
 
 function buildSnapshotStep(
-  snapshot: { id: string; created_at: string; is_active: boolean } | null,
+  snapshot: { id: string; created_at: string } | null,
 ): PipelineStep {
   const hasSnapshot = !!snapshot;
 
@@ -194,23 +201,15 @@ function buildSnapshotStep(
 
 function buildRiskStep(
   dealId: string,
-  riskRun: { id: string; grade: string; created_at: string; status: string } | null,
+  // ai_risk_runs.status does not exist — row presence = complete, grade = summary
+  riskRun: { id: string; grade: string; created_at: string } | null,
 ): PipelineStep {
   let status: PipelineStepStatus;
   let detail: string | null = null;
 
   if (riskRun) {
-    const runStatus = riskRun.status ?? "completed";
-    if (runStatus === "failed" || runStatus === "error") {
-      status = "error";
-      detail = "Risk assessment failed — retry available";
-    } else if (runStatus === "running" || runStatus === "pending") {
-      status = "in_progress";
-      detail = "Risk assessment running…";
-    } else {
-      status = "complete";
-      detail = riskRun.grade ? `Grade: ${riskRun.grade}` : "Risk assessment complete";
-    }
+    status = "complete";
+    detail = riskRun.grade ? `Grade: ${riskRun.grade}` : "Risk assessment complete";
   } else {
     status = "pending";
     detail = "AI risk assessment not yet run";
