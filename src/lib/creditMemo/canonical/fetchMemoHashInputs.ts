@@ -24,27 +24,30 @@ export type MemoHashInputs = {
 /**
  * Fetch canonical memo hash inputs from the database.
  *
- * Uses the same queries and semantics as the memo generation route:
- * - snapshot from `deal_financial_snapshots` (latest by updated_at)
- * - pricing decision from `pricing_decisions` (latest by updated_at)
- * - facts from `deal_financial_facts` (count of non-null numeric facts, latest created_at)
+ * Column corrections (verified against DB schema):
+ * - financial_snapshots (not deal_financial_snapshots — that table does not exist)
+ * - financial_snapshots.created_at (no updated_at column)
+ * - pricing_decisions.decided_at (not updated_at — that column does not exist)
  */
 export async function fetchMemoHashInputs(
   sb: SupabaseClient,
   dealId: string,
 ): Promise<MemoHashInputs> {
   const [snapshotRes, pricingRes, factsRes] = await Promise.all([
-    sb.from("deal_financial_snapshots")
-      .select("id, updated_at")
+    // financial_snapshots is the correct table (deal_financial_snapshots does not exist)
+    // ordered by created_at (no updated_at column)
+    sb.from("financial_snapshots")
+      .select("id, created_at")
       .eq("deal_id", dealId)
-      .order("updated_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
 
+    // pricing_decisions.decided_at is the correct column (updated_at does not exist)
     sb.from("pricing_decisions")
-      .select("id, updated_at")
+      .select("id, decided_at")
       .eq("deal_id", dealId)
-      .order("updated_at", { ascending: false })
+      .order("decided_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
 
@@ -59,9 +62,9 @@ export async function fetchMemoHashInputs(
 
   return {
     snapshotId: snapshotRes.data?.id ?? null,
-    snapshotUpdatedAt: snapshotRes.data?.updated_at ?? null,
+    snapshotUpdatedAt: snapshotRes.data?.created_at ?? null,
     pricingDecisionId: pricingRes.data?.id ?? null,
-    pricingUpdatedAt: pricingRes.data?.updated_at ?? null,
+    pricingUpdatedAt: pricingRes.data?.decided_at ?? null,
     factCount: facts.length,
     latestFactUpdatedAt: facts.length > 0 ? (facts[0] as any).created_at ?? null : null,
   };
