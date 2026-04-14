@@ -75,12 +75,13 @@ export async function POST(
     if (snapErr) return NextResponse.json({ ok: false, error: snapErr.message }, { status: 500 });
 
     // Create workspace
+    // status constraint (uw_workspaces_status_ck): not_started | in_progress | needs_refresh | completed
     const { data: workspace, error: wsErr } = await sb
       .from("underwriting_workspaces")
       .insert({
         deal_id: dealId,
         active_snapshot_id: snapshot.id,
-        status: "active",
+        status: "in_progress",
         launched_at: new Date().toISOString(),
         launched_by: userId,
         spread_status: "not_started",
