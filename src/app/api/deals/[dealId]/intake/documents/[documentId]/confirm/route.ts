@@ -365,7 +365,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         .eq("deal_id", dealId)
         .maybeSingle();
 
-      if (!freshDoc?.checklist_key) {
+      // Types that legitimately have no checklist key — exempt from finalization block
+      const CHECKLIST_KEY_EXEMPT = new Set([
+        "CREDIT_MEMO",
+        "COMMERCIAL_LEASE",
+        "OTHER",
+      ]);
+
+      if (!freshDoc?.checklist_key && !CHECKLIST_KEY_EXEMPT.has(effectiveCanonicalType ?? "")) {
         // Fail closed — do NOT set finalized_at without checklist_key
         void writeEvent({
           dealId,
