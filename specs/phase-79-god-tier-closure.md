@@ -1,125 +1,121 @@
 # Phase 79 — God Tier Closure
+## Implementation Spec
 
-**Status:** Spec ready for implementation
+**Status:** Ready for implementation
 **Priority:** Critical — closes all remaining God Tier system items
 **Authored:** 2026-04-15
-**Scope:** 4 system items + 1 roadmap correction
+**Scope:** 5 file changes + 2 new files + env vars
 
 ---
 
-## Pre-Implementation Facts (verified from codebase)
+## Codebase Facts (verified before authoring)
 
-### Item A — Model Engine V2: ALREADY DONE (no code needed)
-`src/lib/modelEngine/modeSelector.ts` line 34: `if (!ctx?.isOpsOverride) { return { mode: "v2_primary", reason: "enforced" }; }`
+**Model Engine V2:** Already enforced. `modeSelector.ts:34` — `if (!ctx?.isOpsOverride) return { mode: "v2_primary", reason: "enforced" }`. No code needed. Roadmap update only.
 
-V2 is already enforced for all non-ops contexts since Phase 11. The roadmap entry "feature flag disabled" is stale. **This item requires only a roadmap update, zero code.**
+**Omega advisory:** `src/lib/omega/invokeOmega.ts` is complete — kill switch, MCP transport, ledger, timeout. Reads `OMEGA_MCP_ENABLED` from env. Not set in Vercel → all calls silently return `{ ok: false, error: "disabled" }`. `redaction.server.ts` exports `redactPayload(profileName, payload)` but does NOT export `redactForOmega`. `underwrite/state/route.ts` already calls `buildTrustLayer` — that is the insertion point.
 
-### Item B — Omega Advisory: Infrastructure built, surface wiring missing
-`src/lib/omega/invokeOmega.ts` is complete with kill switch, timeout, ledger, MCP transport. It reads `OMEGA_MCP_ENABLED` and `OMEGA_MCP_URL` from env. `OMEGA_MCP_ENABLED` is not set in Vercel → all calls return `{ ok: false, error: "disabled" }` silently. The underwrite state route already calls `buildTrustLayer` — that is the correct insertion point.
+**Spread completeness:** No measurement exists. `pipeline-state/route.ts` shows only `N spreads ready`. The recompute route (`spreads/recompute/route.ts`) is async — it enqueues a job and returns immediately; the actual computation runs via `deal_spread_jobs`. Correctapproach: compute completeness on-demand from `deal_financial_facts` (pure read, no persistence required).
 
-### Item C — Spread Completeness: No measurement function exists
-No function computes `SPREAD_COMPLETENESS_PCT`. Pipeline Step 1 shows only `N spreads ready` with no percentage. `classicSpreadLoader.ts` shows 12 critical IS/BS fact keys needed for committee-grade output.
+**Voice auto-complete:** `dispatch/route.ts` resolves gaps and writes events but has no completeness check or memo trigger. `bankId` comes from request body (not `ensureDealBankAccess`). The route responds before the auto-complete check should fire — use fire-and-forget.
 
-### Item D — Voice → Memo Auto-complete: Loop not wired
-Voice dispatch confirms facts and calls `computeDealGaps`, but does not check spread completeness or trigger memo regeneration. The God Tier #67 scenario ("10-minute voice session → memo auto-completes") requires this final closure.
-
-### Item E — Phase 79 BIE Calibration Panel: No new AI calls needed
-`buddy_research_quality_gates` has all data. This is a pure query + display. No re-running any research.
+**Research quality route:** Does not exist. `buddy_research_quality_gates` and `buddy_research_evidence` tables exist with data from Phase 78. The evidence query must use two sequential reads (Supabase client does not support subquery syntax for `.eq()`).
 
 ---
 
 ## Implementation Order
 
-1. **Part A** — Vercel env vars (2 minutes, no code)
-2. **Part B** — `computeSpreadCompleteness.ts` — new file
-3. **Part C** — Wire completeness into spread recompute
-4. **Part D** — Omega advisory wiring into underwrite state
-5. **Part E** — Voice → memo loop closure in dispatch route
-6. **Part F** — BIE calibration panel in pipeline-state + new admin route
-7. **Part G** — Roadmap update
+1. **Part A** — Vercel env vars (no code, do first)
+2. **Part B** — New file: `src/lib/classicSpread/computeSpreadCompleteness.ts`
+3. **Part C** — New file: `src/app/api/deals/[dealId]/research/quality/route.ts`
+4. **Part D** — Add `redactForOmega` to `src/lib/omega/redaction.server.ts`
+5. **Part E** — Update `src/app/api/deals/[dealId]/underwrite/state/route.ts`
+6. **Part F** — Update `src/app/api/deals/[dealId]/underwrite/pipeline-state/route.ts`
+7. **Part G** — Update `src/app/api/deals/[dealId]/banker-session/dispatch/route.ts`
 
 ---
 
 ## Part A — Vercel Environment Variables
 
-Set these in Vercel production + preview:
+Set in Vercel → Settings → Environment Variables for **Production** and **Preview**:
 
-```
-OMEGA_MCP_ENABLED=1
-OMEGA_MCP_URL=https://pulse-mcp-651478110010.us-central1.run.app
-OMEGA_MCP_API_KEY=<BUDDY_INGEST_TOKEN value>
-OMEGA_MCP_TIMEOUT_MS=4000
-```
+| Variable | Value |
+|----------|-------|
+| `OMEGA_MCP_ENABLED` | `1` |
+| `OMEGA_MCP_URL` | `https://pulse-mcp-651478110010.us-central1.run.app` |
+| `OMEGA_MCP_API_KEY` | `<value of BUDDY_INGEST_TOKEN>` |
+| `OMEGA_MCP_TIMEOUT_MS` | `4000` |
 
-No code changes. After setting, `invokeOmega` will route to Pulse and ledger every call.
+No code changes. After setting, `invokeOmega` routes to Pulse and ledgers every call.
 
 ---
 
 ## Part B — New File: `src/lib/classicSpread/computeSpreadCompleteness.ts`
 
+**Complete file contents:**
+
 ```typescript
 /**
  * Spread Completeness Score
  *
- * Computes what percentage of the 12 critical financial fact keys are
- * populated in deal_financial_facts for this deal across at least one period.
+ * Computes what percentage of 12 critical financial fact keys are populated
+ * in deal_financial_facts for a deal (any period, any non-null value).
  *
  * Used by:
- * - God Tier #66: spread completeness ≥80% check
- * - God Tier #67: voice dispatch auto-complete trigger
- * - Pipeline Step 1: detail badge
+ *   - God Tier #66: pipeline Step 1 completeness badge
+ *   - God Tier #67: voice dispatch auto-complete trigger
  *
- * Returns a score 0–100 and a breakdown of which keys are missing.
- * NEVER throws. Returns null on error.
+ * Pure read — never writes. Never throws — returns null on error.
  */
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { upsertDealFinancialFact } from "@/lib/financialFacts/upsertDealFinancialFact";
 
 /**
- * Critical financial fact keys required for committee-grade spread.
- * These map to the rows that underwriters rely on — revenue, income,
- * balance sheet anchors, and coverage metrics.
+ * The 12 critical keys. Presence of any non-null value for ANY period
+ * counts as populated. Fallback chains handle extraction key variants.
  */
 export const CRITICAL_SPREAD_KEYS = [
-  // Income Statement (5 keys)
-  "GROSS_RECEIPTS",           // Revenue — primary key; fallback handled by loader
-  "NET_INCOME",               // Bottom line — fallback: ORDINARY_BUSINESS_INCOME
-  "DEPRECIATION",             // D&A add-back required for DSCR
-  "INTEREST_EXPENSE",         // Required for coverage ratios
-  "COST_OF_GOODS_SOLD",       // Needed for gross margin
+  // Income Statement
+  "GROSS_RECEIPTS",       // Revenue (fallback: TOTAL_REVENUE, TOTAL_INCOME)
+  "NET_INCOME",           // Bottom line (fallback: ORDINARY_BUSINESS_INCOME)
+  "DEPRECIATION",         // D&A add-back
+  "INTEREST_EXPENSE",     // Coverage ratios
+  "COST_OF_GOODS_SOLD",   // Gross margin
 
-  // Balance Sheet (4 keys)
-  "SL_TOTAL_ASSETS",          // Balance sheet anchor
-  "SL_CASH",                  // Liquidity
-  "SL_AR_GROSS",              // Receivables
+  // Balance Sheet
+  "SL_TOTAL_ASSETS",      // Anchor
+  "SL_CASH",              // Liquidity
+  "SL_AR_GROSS",          // Receivables
 
-  // Structural / Derived (3 keys)
-  "ADS",                      // Annual Debt Service — written after spread compute
-  "DSCR",                     // Coverage ratio — written after spread compute
-  "EBITDA",                   // Derived — written after spread compute
+  // Structural / Derived (written by spread engine after computation)
+  "ADS",                  // Annual Debt Service (fallback: ANNUAL_DEBT_SERVICE, ANNUAL_DEBT_SERVICE_PROPOSED)
+  "DSCR",                 // Coverage ratio (fallback: GCF_DSCR)
+  "EBITDA",               // Derived
+  "NET_WORTH",            // Equity anchor (fallback: SL_TOTAL_EQUITY, SL_RETAINED_EARNINGS)
 ] as const;
 
-// Fallback chains — if primary key is missing, check these alternatives
-const FALLBACK_CHAINS: Record<string, string[]> = {
-  GROSS_RECEIPTS: ["TOTAL_REVENUE", "TOTAL_INCOME"],
-  NET_INCOME: ["ORDINARY_BUSINESS_INCOME"],
-  ADS: ["ANNUAL_DEBT_SERVICE", "ANNUAL_DEBT_SERVICE_PROPOSED"],
-  DSCR: ["GCF_DSCR", "DSCR_GLOBAL"],
+// Fallback chains — checked if primary key is absent
+const FALLBACKS: Record<string, string[]> = {
+  GROSS_RECEIPTS:  ["TOTAL_REVENUE", "TOTAL_INCOME"],
+  NET_INCOME:      ["ORDINARY_BUSINESS_INCOME"],
+  ADS:             ["ANNUAL_DEBT_SERVICE", "ANNUAL_DEBT_SERVICE_PROPOSED"],
+  DSCR:            ["GCF_DSCR"],
+  NET_WORTH:       ["SL_TOTAL_EQUITY", "SL_RETAINED_EARNINGS"],
 };
 
 export type SpreadCompletenessResult = {
-  score: number;           // 0–100
-  populated: number;       // count of populated critical keys
-  total: number;           // always 11
-  missing: string[];       // which critical keys have no value
-  isGodTier: boolean;      // score >= 80
+  /** 0–100 rounded integer */
+  score: number;
+  populated: number;
+  total: number;
+  /** Primary key names that are absent (with all fallbacks also absent) */
+  missing: string[];
+  /** true when score >= 80 — God Tier threshold */
+  isGodTier: boolean;
 };
 
 /**
  * Compute spread completeness for a deal.
- * Reads from deal_financial_facts (non-superseded, non-rejected, non-null).
- * Returns null on DB error.
+ * Returns null on DB error (non-fatal).
  */
 export async function computeSpreadCompleteness(
   dealId: string,
@@ -127,34 +123,33 @@ export async function computeSpreadCompleteness(
   try {
     const sb = supabaseAdmin();
 
-    // Fetch all non-null, non-superseded facts for this deal
-    const allKeys = CRITICAL_SPREAD_KEYS.flatMap((k) => [k, ...(FALLBACK_CHAINS[k] ?? [])]);
-    const uniqueKeys = [...new Set(allKeys)];
+    // Build the full set of keys to check (primary + all fallbacks)
+    const allKeys = [...new Set(
+      CRITICAL_SPREAD_KEYS.flatMap((k) => [k, ...(FALLBACKS[k] ?? [])]),
+    )];
 
     const { data: facts, error } = await sb
       .from("deal_financial_facts")
-      .select("fact_key, fact_value_num")
+      .select("fact_key")
       .eq("deal_id", dealId)
       .eq("is_superseded", false)
       .neq("resolution_status", "rejected")
       .not("fact_value_num", "is", null)
-      .in("fact_key", uniqueKeys);
+      .in("fact_key", allKeys);
 
     if (error) {
       console.error("[computeSpreadCompleteness] query failed:", error.message);
       return null;
     }
 
-    const presentKeys = new Set((facts ?? []).map((f) => f.fact_key));
+    const present = new Set((facts ?? []).map((f) => f.fact_key));
 
-    // Check each critical key (with fallback chain)
     const missing: string[] = [];
     let populated = 0;
 
     for (const key of CRITICAL_SPREAD_KEYS) {
-      const toCheck = [key, ...(FALLBACK_CHAINS[key] ?? [])];
-      const found = toCheck.some((k) => presentKeys.has(k));
-      if (found) {
+      const toCheck = [key, ...(FALLBACKS[key] ?? [])];
+      if (toCheck.some((k) => present.has(k))) {
         populated++;
       } else {
         missing.push(key);
@@ -170,286 +165,15 @@ export async function computeSpreadCompleteness(
     return null;
   }
 }
-
-/**
- * Compute spread completeness and persist as SPREAD_COMPLETENESS_PCT fact.
- * Call this after every spread recompute.
- * Non-fatal — failure is logged but never throws.
- */
-export async function persistSpreadCompleteness(
-  dealId: string,
-  bankId: string,
-): Promise<SpreadCompletenessResult | null> {
-  const result = await computeSpreadCompleteness(dealId);
-  if (!result) return null;
-
-  try {
-    await upsertDealFinancialFact({
-      dealId,
-      bankId,
-      factKey: "SPREAD_COMPLETENESS_PCT",
-      factValueNum: result.score,
-      factType: "COMPUTED",
-      sourceType: "COMPUTED",
-      confidence: 1.0,
-      periodEnd: new Date().toISOString().slice(0, 10),
-      meta: { populated: result.populated, total: result.total, missing: result.missing },
-    });
-  } catch (err) {
-    console.error("[persistSpreadCompleteness] upsert failed:", err);
-  }
-
-  return result;
-}
 ```
 
 ---
 
-## Part C — Wire Completeness into Spread Recompute
+## Part C — New File: `src/app/api/deals/[dealId]/research/quality/route.ts`
 
-### File: `src/app/api/deals/[dealId]/spreads/recompute/route.ts`
+Create the directory `src/app/api/deals/[dealId]/research/quality/` and add:
 
-Find the line that returns the success response after spread recompute completes. Insert immediately before the return:
-
-```typescript
-// Persist spread completeness score (non-fatal)
-try {
-  const { persistSpreadCompleteness } = await import(
-    "@/lib/classicSpread/computeSpreadCompleteness"
-  );
-  await persistSpreadCompleteness(dealId, access.bankId);
-} catch (err) {
-  console.warn("[spreads/recompute] completeness persist failed (non-fatal):", err);
-}
-```
-
-### File: `src/app/api/deals/[dealId]/underwrite/pipeline-state/route.ts`
-
-In `buildSpreadStep`, after computing `count` and `latestAt`, add completeness read:
-
-```typescript
-// Read SPREAD_COMPLETENESS_PCT from deal_financial_facts
-const { data: completenessRow } = await sb
-  .from("deal_financial_facts")
-  .select("fact_value_num")
-  .eq("deal_id", dealId)
-  .eq("fact_key", "SPREAD_COMPLETENESS_PCT")
-  .order("created_at", { ascending: false })
-  .limit(1)
-  .maybeSingle();
-
-const completenessScore = completenessRow?.fact_value_num ?? null;
-```
-
-Update the `detail` string in the complete branch:
-
-```typescript
-// Before (existing):
-detail = `${count} spread${count !== 1 ? "s" : ""} ready`;
-
-// After:
-detail = completenessScore !== null
-  ? `${count} spread${count !== 1 ? "s" : ""} ready · ${Math.round(completenessScore)}% complete${completenessScore >= 80 ? " ✓" : ""}`
-  : `${count} spread${count !== 1 ? "s" : ""} ready`;
-```
-
-**Note:** `buildSpreadStep` currently doesn't have access to `sb` (it's a pure function receiving pre-fetched data). Add `completenessScore: number | null` to the function signature and pass the pre-fetched value from the parallel query block.
-
-The parallel query block already runs 8 queries. Add a 9th:
-
-```typescript
-// 9. Spread completeness score
-sb.from("deal_financial_facts")
-  .select("fact_value_num")
-  .eq("deal_id", dealId)
-  .eq("fact_key", "SPREAD_COMPLETENESS_PCT")
-  .order("created_at", { ascending: false })
-  .limit(1)
-  .maybeSingle(),
-```
-
-Destructure as `completenessRes` and pass `completenessRes.data?.fact_value_num ?? null` to `buildSpreadStep`.
-
----
-
-## Part D — Omega Advisory Wiring into Underwrite State
-
-### File: `src/app/api/deals/[dealId]/underwrite/state/route.ts`
-
-The route already builds a `trustLayer`. Omega advisory annotates the trust layer with confidence scores and risk emphasis — it does NOT override or mutate canonical state (OCC SR 11-7 boundary).
-
-After the `trustLayer` is built, add:
-
-```typescript
-// Omega advisory annotation (non-fatal, annotates only — never overrides canonical state)
-let omegaAdvisory: {
-  confidence: number;
-  risk_emphasis: string[];
-  recommended_focus: string | null;
-  advisory_grade: string | null;
-} | null = null;
-
-try {
-  const { invokeOmega } = await import("@/lib/omega/invokeOmega");
-  const { redactForOmega } = await import("@/lib/omega/redaction.server");
-
-  const redacted = redactForOmega({
-    dealId,
-    bankId: deal.bank_id,
-    trustLayer,
-    lifecycleStage: deal.stage,
-  });
-
-  const result = await invokeOmega<{
-    confidence: number;
-    risk_emphasis: string[];
-    recommended_focus: string | null;
-    advisory_grade: string | null;
-  }>({
-    resource: "omega://advisory/deal-focus",
-    correlationId: `state:${dealId}:${Date.now()}`,
-    payload: redacted,
-    timeoutMs: 3500, // tight timeout — never blocks the state route
-  });
-
-  if (result.ok) {
-    omegaAdvisory = result.data;
-  }
-} catch {
-  // Omega is non-fatal — if it's not connected, the route continues normally
-}
-```
-
-Add `omegaAdvisory` to the return JSON:
-
-```typescript
-return NextResponse.json({
-  ok: true,
-  // ... existing fields ...
-  omegaAdvisory,  // null if Omega unavailable or disabled
-});
-```
-
-**OCC SR 11-7 compliance note:** `omegaAdvisory` is rendered as advisory annotation in the UI. It never writes to `deal_financial_facts`, never mutates lifecycle, and is always labeled as "Advisory" to the banker. Canonical values (DSCR, grade, stage) are unaffected.
-
-### File: `src/lib/omega/redaction.server.ts`
-
-Verify this file already exports `redactForOmega`. It exists at `src/lib/omega/redaction.server.ts` (8 files in `src/lib/omega/`). If the function signature doesn't accept `trustLayer`, add it as an optional param:
-
-```typescript
-export function redactForOmega(input: {
-  dealId: string;
-  bankId: string | null;
-  trustLayer?: unknown;
-  lifecycleStage?: string | null;
-}): Record<string, unknown> {
-  // existing implementation — add trustLayer serialization
-  return {
-    deal_id: input.dealId,
-    bank_id: input.bankId,
-    lifecycle_stage: input.lifecycleStage ?? null,
-    // Redact trust layer — include only aggregate scores, never raw facts
-    trust_summary: input.trustLayer
-      ? {
-          overall_confidence: (input.trustLayer as any)?.overallConfidence ?? null,
-          flags: ((input.trustLayer as any)?.flags ?? []).map((f: any) => ({
-            code: f.code,
-            severity: f.severity,
-          })),
-        }
-      : null,
-  };
-}
-```
-
----
-
-## Part E — Voice Dispatch → Memo Auto-complete Loop
-
-### File: `src/app/api/deals/[dealId]/banker-session/dispatch/route.ts`
-
-At the end of the successful fact confirmation block (after `resolveDealGap` and `computeDealGaps` fire), add:
-
-```typescript
-// God Tier #67: Check if voice session has unlocked memo auto-complete
-// Only trigger if: (1) a fact was just confirmed, (2) spread completeness ≥80%,
-// (3) no critical open gaps remain, (4) no memo was generated in last 5 minutes
-try {
-  const { computeSpreadCompleteness } = await import(
-    "@/lib/classicSpread/computeSpreadCompleteness"
-  );
-  const completeness = await computeSpreadCompleteness(dealId);
-
-  if (completeness?.isGodTier) {
-    // Check for open critical gaps
-    const { data: openGaps } = await sb
-      .from("deal_gap_queue")
-      .select("id")
-      .eq("deal_id", dealId)
-      .eq("status", "open")
-      .eq("gap_type", "missing_fact")
-      .limit(1);
-
-    const hasOpenGaps = (openGaps ?? []).length > 0;
-
-    if (!hasOpenGaps) {
-      // Check if memo was generated recently (within 5 minutes)
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-      const { data: recentMemo } = await sb
-        .from("canonical_memo_narratives")
-        .select("id")
-        .eq("deal_id", dealId)
-        .gt("generated_at", fiveMinutesAgo)
-        .limit(1)
-        .maybeSingle();
-
-      if (!recentMemo) {
-        // Fire memo regeneration (fire-and-forget — voice session must complete first)
-        const memoTriggerUrl = `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : ""}/api/deals/${dealId}/credit-memo/generate`;
-        
-        // Get bank auth headers
-        const authHeader = req.headers.get("authorization");
-        
-        fetch(memoTriggerUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(authHeader ? { authorization: authHeader } : {}),
-            "x-auto-trigger": "voice-completion",
-          },
-          body: JSON.stringify({ trigger: "voice_session_complete", completeness_score: completeness.score }),
-        }).catch((err) => {
-          console.warn("[dispatch] memo auto-trigger failed (non-fatal):", err);
-        });
-
-        // Emit milestone event
-        const { emitDealMilestone } = await import("@/lib/telemetry/emitDealMilestone");
-        await emitDealMilestone({
-          eventKey: "voice.memo_auto_complete_triggered",
-          dealId,
-          bankId: access.bankId,
-          status: "ok",
-          payload: { completeness_score: completeness.score, trigger: "voice_dispatch" },
-          mirrorToObservability: true,
-        }).catch(() => {});
-      }
-    }
-  }
-} catch (err) {
-  // Auto-complete trigger is non-fatal — never block the dispatch response
-  console.warn("[dispatch] auto-complete check failed (non-fatal):", err);
-}
-```
-
-**Important:** This block must execute AFTER the dispatch response has been sent (fire-and-forget pattern), or be placed before the response if the latency impact is acceptable. Use the existing pattern in the dispatch route for fire-and-forget.
-
----
-
-## Part F — BIE Research Quality Panel
-
-No new AI calls. Pure query over existing `buddy_research_quality_gates` data.
-
-### New File: `src/app/api/deals/[dealId]/research/quality/route.ts`
+**Complete file contents:**
 
 ```typescript
 import "server-only";
@@ -462,174 +186,614 @@ export const maxDuration = 10;
 
 type Params = Promise<{ dealId: string }>;
 
+/**
+ * GET /api/deals/[dealId]/research/quality
+ *
+ * Returns the latest BIE trust gate result and evidence summary for a deal.
+ * No AI calls. Pure read from buddy_research_quality_gates + buddy_research_evidence.
+ * Used by the AnalystWorkbench for the research quality panel.
+ */
 export async function GET(_req: NextRequest, ctx: { params: Params }) {
-  const { dealId } = await ctx.params;
-  const access = await ensureDealBankAccess(dealId);
-  if (!access.ok) return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
+  try {
+    const { dealId } = await ctx.params;
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
+    }
 
-  const sb = supabaseAdmin();
+    const sb = supabaseAdmin();
 
-  const [gateRes, evidenceRes] = await Promise.all([
-    // Latest quality gate result
-    sb.from("buddy_research_quality_gates")
+    // 1. Latest quality gate for this deal
+    const { data: gate } = await sb
+      .from("buddy_research_quality_gates")
       .select("*")
       .eq("deal_id", dealId)
       .order("evaluated_at", { ascending: false })
       .limit(1)
-      .maybeSingle(),
+      .maybeSingle();
 
-    // Evidence summary — count by thread_origin + claim_layer
-    sb.from("buddy_research_evidence")
-      .select("thread_origin, claim_layer, confidence, source_types")
-      .eq("mission_id",
-        // Subquery: get latest mission_id for this deal
-        sb.from("buddy_research_missions")
-          .select("id")
-          .eq("deal_id", dealId)
-          .order("created_at", { ascending: false })
-          .limit(1)
-      ),
-  ]);
+    // 2. Latest mission_id for this deal (needed to join evidence)
+    const { data: mission } = await sb
+      .from("buddy_research_missions")
+      .select("id")
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  const gate = gateRes.data;
-  const evidence = evidenceRes.data ?? [];
+    // 3. Evidence claims for that mission (if any)
+    let evidence: Array<{
+      thread_origin: string | null;
+      claim_layer: string | null;
+      confidence: number | null;
+    }> = [];
 
-  // Aggregate evidence by thread
-  const threadCounts: Record<string, { total: number; fact: number; inference: number; narrative: number }> = {};
-  for (const row of evidence) {
-    const t = row.thread_origin ?? "unknown";
-    if (!threadCounts[t]) threadCounts[t] = { total: 0, fact: 0, inference: 0, narrative: 0 };
-    threadCounts[t].total++;
-    if (row.claim_layer === "fact") threadCounts[t].fact++;
-    if (row.claim_layer === "inference") threadCounts[t].inference++;
-    if (row.claim_layer === "narrative") threadCounts[t].narrative++;
+    if (mission?.id) {
+      const { data: ev } = await sb
+        .from("buddy_research_evidence")
+        .select("thread_origin, claim_layer, confidence")
+        .eq("mission_id", mission.id);
+      evidence = ev ?? [];
+    }
+
+    // Aggregate evidence counts by thread
+    type ThreadCount = { total: number; fact: number; inference: number; narrative: number };
+    const byThread: Record<string, ThreadCount> = {};
+
+    for (const row of evidence) {
+      const t = row.thread_origin ?? "unknown";
+      if (!byThread[t]) byThread[t] = { total: 0, fact: 0, inference: 0, narrative: 0 };
+      byThread[t].total++;
+      if (row.claim_layer === "fact")      byThread[t].fact++;
+      if (row.claim_layer === "inference") byThread[t].inference++;
+      if (row.claim_layer === "narrative") byThread[t].narrative++;
+    }
+
+    return NextResponse.json({
+      ok: true,
+      gate: gate
+        ? {
+            trust_grade:                  gate.trust_grade,
+            gate_passed:                  gate.gate_passed,
+            quality_score:                gate.quality_score,
+            evaluated_at:                 gate.evaluated_at,
+            entity_lock_check:            gate.entity_lock_check,
+            entity_confidence:            gate.entity_confidence,
+            thread_coverage_check:        gate.thread_coverage_check,
+            threads_succeeded:            gate.threads_succeeded,
+            threads_failed:               gate.threads_failed,
+            source_diversity_check:       gate.source_diversity_check,
+            source_count:                 gate.source_count,
+            management_validation_check:  gate.management_validation_check,
+            principals_confirmed:         gate.principals_confirmed,
+            principals_unconfirmed:       gate.principals_unconfirmed,
+            synthesis_check:              gate.synthesis_check,
+            contradictions_found:         gate.contradictions_found,
+            underwriting_questions_found: gate.underwriting_questions_found,
+            gate_failures:                gate.gate_failures ?? [],
+            thread_results:               gate.thread_results ?? {},
+          }
+        : null,
+      evidence_summary: {
+        total_claims: evidence.length,
+        by_thread: byThread,
+      },
+    });
+  } catch (e: unknown) {
+    return NextResponse.json(
+      { ok: false, error: e instanceof Error ? e.message : "unexpected_error" },
+      { status: 500 },
+    );
   }
-
-  // Classify gate checks by status
-  const checks = (gate?.gate_failures ?? []) as Array<{ gate_id: string; reason: string; severity: string }>;
-
-  return NextResponse.json({
-    ok: true,
-    gate: gate ? {
-      trust_grade: gate.trust_grade,
-      gate_passed: gate.gate_passed,
-      quality_score: gate.quality_score,
-      evaluated_at: gate.evaluated_at,
-      entity_lock_check: gate.entity_lock_check,
-      entity_confidence: gate.entity_confidence,
-      thread_coverage_check: gate.thread_coverage_check,
-      threads_succeeded: gate.threads_succeeded,
-      threads_failed: gate.threads_failed,
-      source_diversity_check: gate.source_diversity_check,
-      source_count: gate.source_count,
-      management_validation_check: gate.management_validation_check,
-      principals_confirmed: gate.principals_confirmed,
-      principals_unconfirmed: gate.principals_unconfirmed,
-      synthesis_check: gate.synthesis_check,
-      contradictions_found: gate.contradictions_found,
-      underwriting_questions_found: gate.underwriting_questions_found,
-      failures: checks,
-      thread_results: gate.thread_results,
-    } : null,
-    evidence_summary: {
-      total_claims: evidence.length,
-      by_thread: threadCounts,
-    },
-  });
 }
 ```
 
-### Surface in pipeline-state
+---
 
-In `buildResearchStep` in `pipeline-state/route.ts`, the `qualityGate` is already fetched and surfaced. Add `quality_score` to the detail string if below committee-grade:
+## Part D — Add `redactForOmega` to `src/lib/omega/redaction.server.ts`
+
+### Exact insertion point
+
+Find this line near the bottom of the file:
+```typescript
+  return result;
+}
+```
+(the closing brace of `applyRedaction`)
+
+After that closing brace, append the following **before the end of the file**:
 
 ```typescript
-// Existing:
-const grade = qualityGate.trust_grade === "committee_grade" ? "Committee-grade ✓"
-  : qualityGate.trust_grade === "preliminary" ? "Preliminary"
-  : qualityGate.trust_grade === "manual_review_required" ? "Manual review required"
-  : "Research failed";
-detail = `${grade} · Quality: ${qualityGate.quality_score}/100`;
 
-// No change needed — already correct from Phase 78.
+// ---------------------------------------------------------------------------
+// Omega advisory payload builder (deny-by-default, aggregate only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a safe advisory payload for Omega.
+ *
+ * Strips all raw financial values, document content, and PII.
+ * Sends only aggregate trust-layer scores and lifecycle metadata.
+ * This is the ONLY function that should construct Omega advisory payloads.
+ */
+export function redactForOmega(input: {
+  dealId: string;
+  bankId: string | null;
+  lifecycleStage?: string | null;
+  trustLayer?: {
+    memo?: { status: string; staleReasons?: string[] };
+    packet?: { status: string; blockers?: string[]; warnings?: string[] };
+    financialValidation?: { memoSafe: boolean; decisionSafe: boolean; blockers?: string[]; warnings?: string[] };
+  } | null;
+}): Record<string, unknown> {
+  return {
+    deal_id:          hashId(input.dealId),       // hashed — never raw UUID to Omega
+    bank_id:          input.bankId ? hashId(input.bankId) : null,
+    lifecycle_stage:  input.lifecycleStage ?? null,
+    trust_summary:    input.trustLayer
+      ? {
+          memo_status:         input.trustLayer.memo?.status ?? null,
+          memo_stale_reasons:  input.trustLayer.memo?.staleReasons?.length ?? 0,
+          packet_status:       input.trustLayer.packet?.status ?? null,
+          packet_blockers:     input.trustLayer.packet?.blockers?.length ?? 0,
+          financial_memo_safe: input.trustLayer.financialValidation?.memoSafe ?? null,
+          financial_decision_safe: input.trustLayer.financialValidation?.decisionSafe ?? null,
+          financial_blockers:  input.trustLayer.financialValidation?.blockers?.length ?? 0,
+        }
+      : null,
+  };
+}
 ```
-
-The new `/research/quality` route gives the AnalystWorkbench a dedicated endpoint for the full gate breakdown, without adding complexity to pipeline-state.
 
 ---
 
-## Part G — Roadmap Update
+## Part E — Update `src/app/api/deals/[dealId]/underwrite/state/route.ts`
 
-Update `BUDDY_PROJECT_ROADMAP.md`:
+### Change 1: Add import at top (after existing imports)
 
-1. Change `Last Updated: March 30, 2026` → `Last Updated: April 15, 2026`
+Find this existing import block:
+```typescript
+import { buildTrustLayer } from "@/lib/underwrite/buildTrustLayer";
+import { reconcileDeal } from "@/lib/reconciliation/dealReconciliator";
+```
 
-2. Update status line to include phases 66–78:
-   ```
-   Status: ... + Phase 78 (BIE Trust Layer) + Phase 79 (God Tier Closure)
-   ```
+No change to imports — Omega is dynamically imported inside the route to keep it non-fatal.
 
-3. In **Definition of Done — God Tier**, update status:
-   ```
-   63. 🔴 Ialacci bio retyped (one-time manual task — not a system item)
-   64. 🔴 Reconciliation — Committee Approve signal (blocked on deal data, not code)
-   65. ✅ Borrower Intake wired
-   66. ✅ Spread completeness measured — SPREAD_COMPLETENESS_PCT written after every recompute (Phase 79)
-   67. ✅ Voice → completeness check → memo auto-complete loop wired (Phase 79)
-   ```
+### Change 2: Insert Omega advisory block after trust layer
 
-4. Add to progress tracker table:
-   ```
-   | Phase 78 | BIE Trust Layer — sourcePolicy, completionGate, claimLedger, 3 migrations | ✅ Complete | 39c7cb86 |
-   | Phase 79 | God Tier Closure — spread completeness, Omega wiring, voice loop, BIE quality route | ✅ Complete | [SHA] |
-   ```
+Find this existing block:
+```typescript
+    // Trust layer — composed from canonical memo/packet/financial validation sources
+    let trustLayer = null;
+    try {
+      trustLayer = await buildTrustLayer(dealId);
+    } catch (err) {
+      console.warn("[underwrite/state] trust layer failed — degrading safely:", err);
+    }
+```
 
-5. In **Next Phases**, remove "Model Engine V2" — it's already enforced (Phase 11). Add:
-   ```
-   1. **Reconciliation** — deal-specific, not a system build item
-   2. **Phase 79 eval harness** (formerly "golden-set") — aggregate BIE trust grade reporting
-   3. **Corpus Expansion** — 10+ verified docs for bank confidence
-   ```
+**Replace it with:**
+
+```typescript
+    // Trust layer — composed from canonical memo/packet/financial validation sources
+    let trustLayer = null;
+    try {
+      trustLayer = await buildTrustLayer(dealId);
+    } catch (err) {
+      console.warn("[underwrite/state] trust layer failed — degrading safely:", err);
+    }
+
+    // Omega advisory annotation — annotates trust layer, NEVER mutates canonical state
+    // OCC SR 11-7: Omega is advisory only. It never writes facts, lifecycle, or grade.
+    let omegaAdvisory: {
+      confidence: number;
+      risk_emphasis: string[];
+      recommended_focus: string | null;
+      advisory_grade: string | null;
+    } | null = null;
+
+    try {
+      const { invokeOmega } = await import("@/lib/omega/invokeOmega");
+      const { redactForOmega } = await import("@/lib/omega/redaction.server");
+
+      const payload = redactForOmega({
+        dealId,
+        bankId: deal.bank_id,
+        lifecycleStage: deal.stage,
+        trustLayer: trustLayer as any,
+      });
+
+      const omegaResult = await invokeOmega<{
+        confidence: number;
+        risk_emphasis: string[];
+        recommended_focus: string | null;
+        advisory_grade: string | null;
+      }>({
+        resource: "omega://advisory/deal-focus",
+        correlationId: `state:${dealId}:${Date.now()}`,
+        payload,
+        timeoutMs: 3500,
+      });
+
+      if (omegaResult.ok) {
+        omegaAdvisory = omegaResult.data;
+      }
+    } catch {
+      // Omega is non-fatal — never blocks the state route
+    }
+```
+
+### Change 3: Add `omegaAdvisory` to the return JSON
+
+Find the return statement:
+```typescript
+    return NextResponse.json({
+      ok: true,
+      deal: {
+```
+
+**Replace with:**
+
+```typescript
+    return NextResponse.json({
+      ok: true,
+      omegaAdvisory,          // null when Omega is disabled or unavailable
+      deal: {
+```
+
+---
+
+## Part F — Update `src/app/api/deals/[dealId]/underwrite/pipeline-state/route.ts`
+
+### Change 1: Add completeness query to the parallel block
+
+Find this in the `Promise.all` array (the last query before the closing `]`):
+
+```typescript
+      // 7. Phase 78: Research quality gate
+      sb.from("buddy_research_quality_gates")
+        .select("trust_grade, quality_score")
+        .eq("deal_id", dealId)
+        .order("evaluated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+```
+
+**Replace with:**
+
+```typescript
+      // 7. Phase 78: Research quality gate
+      sb.from("buddy_research_quality_gates")
+        .select("trust_grade, quality_score")
+        .eq("deal_id", dealId)
+        .order("evaluated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+
+      // 8. Phase 79: Spread completeness score
+      sb.from("deal_financial_facts")
+        .select("fact_key")
+        .eq("deal_id", dealId)
+        .eq("is_superseded", false)
+        .neq("resolution_status", "rejected")
+        .not("fact_value_num", "is", null)
+        .in("fact_key", [
+          "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME",
+          "NET_INCOME", "ORDINARY_BUSINESS_INCOME",
+          "DEPRECIATION", "INTEREST_EXPENSE", "COST_OF_GOODS_SOLD",
+          "SL_TOTAL_ASSETS", "SL_CASH", "SL_AR_GROSS",
+          "ADS", "ANNUAL_DEBT_SERVICE", "ANNUAL_DEBT_SERVICE_PROPOSED",
+          "DSCR", "GCF_DSCR",
+          "EBITDA",
+          "NET_WORTH", "SL_TOTAL_EQUITY", "SL_RETAINED_EARNINGS",
+        ]),
+    ]);
+```
+
+### Change 2: Destructure the new result
+
+Find:
+```typescript
+    const readySpreads = spreadsRes.data ?? [];
+    const snapshot = snapshotRes.data;
+    const riskRun = riskRunRes.data;
+    const memo = memoRes.data;
+    const research = researchRes.data;
+    const packetEvent = packetEventRes.data;
+    const decisionSnapshot = decisionSnapshotRes.data;
+    const qualityGate = qualityGateRes.data as { trust_grade: string; quality_score: number } | null;
+```
+
+**Replace with:**
+
+```typescript
+    const readySpreads = spreadsRes.data ?? [];
+    const snapshot = snapshotRes.data;
+    const riskRun = riskRunRes.data;
+    const memo = memoRes.data;
+    const research = researchRes.data;
+    const packetEvent = packetEventRes.data;
+    const decisionSnapshot = decisionSnapshotRes.data;
+    const qualityGate = qualityGateRes.data as { trust_grade: string; quality_score: number } | null;
+
+    // Compute spread completeness score from the fact keys returned
+    const spreadFactKeys = new Set(
+      (completenessFactsRes.data ?? []).map((f: { fact_key: string }) => f.fact_key),
+    );
+    const CRITICAL_PRIMARY = [
+      "GROSS_RECEIPTS", "NET_INCOME", "DEPRECIATION",
+      "INTEREST_EXPENSE", "COST_OF_GOODS_SOLD",
+      "SL_TOTAL_ASSETS", "SL_CASH", "SL_AR_GROSS",
+      "ADS", "DSCR", "EBITDA", "NET_WORTH",
+    ] as const;
+    const CRITICAL_FALLBACKS: Record<string, string[]> = {
+      GROSS_RECEIPTS: ["TOTAL_REVENUE", "TOTAL_INCOME"],
+      NET_INCOME:     ["ORDINARY_BUSINESS_INCOME"],
+      ADS:            ["ANNUAL_DEBT_SERVICE", "ANNUAL_DEBT_SERVICE_PROPOSED"],
+      DSCR:           ["GCF_DSCR"],
+      NET_WORTH:      ["SL_TOTAL_EQUITY", "SL_RETAINED_EARNINGS"],
+    };
+    let spreadCompletenessScore: number | null = null;
+    if ((completenessFactsRes.data ?? []).length >= 0) {
+      let populated = 0;
+      for (const key of CRITICAL_PRIMARY) {
+        const toCheck = [key, ...(CRITICAL_FALLBACKS[key] ?? [])];
+        if (toCheck.some((k) => spreadFactKeys.has(k))) populated++;
+      }
+      spreadCompletenessScore = Math.round((populated / CRITICAL_PRIMARY.length) * 100);
+    }
+```
+
+**Note:** also add `completenessFactsRes` to the destructure at the top of the `Promise.all`. The existing destructure looks like:
+
+```typescript
+    const [
+      spreadsRes,
+      snapshotRes,
+      riskRunRes,
+      memoRes,
+      researchRes,
+      packetEventRes,
+      decisionSnapshotRes,
+      qualityGateRes,
+    ] = await Promise.all([
+```
+
+**Replace with:**
+
+```typescript
+    const [
+      spreadsRes,
+      snapshotRes,
+      riskRunRes,
+      memoRes,
+      researchRes,
+      packetEventRes,
+      decisionSnapshotRes,
+      qualityGateRes,
+      completenessFactsRes,
+    ] = await Promise.all([
+```
+
+### Change 3: Update `buildSpreadStep` to accept and show completeness
+
+Find:
+```typescript
+    const steps: PipelineStep[] = [
+      buildSpreadStep(dealId, readySpreads),
+```
+
+**Replace with:**
+
+```typescript
+    const steps: PipelineStep[] = [
+      buildSpreadStep(dealId, readySpreads, spreadCompletenessScore),
+```
+
+Find the `buildSpreadStep` function signature:
+```typescript
+function buildSpreadStep(
+  dealId: string,
+  readySpreads: Array<{ spread_type: string; status: string; updated_at: string | null }>,
+): PipelineStep {
+```
+
+**Replace with:**
+
+```typescript
+function buildSpreadStep(
+  dealId: string,
+  readySpreads: Array<{ spread_type: string; status: string; updated_at: string | null }>,
+  completenessScore: number | null,
+): PipelineStep {
+```
+
+Find inside `buildSpreadStep`:
+```typescript
+  if (count > 0) {
+    status = "complete";
+    detail = `${count} spread${count !== 1 ? "s" : ""} ready`;
+```
+
+**Replace with:**
+
+```typescript
+  if (count > 0) {
+    status = "complete";
+    if (completenessScore !== null) {
+      const pct = Math.round(completenessScore);
+      detail = `${count} spread${count !== 1 ? "s" : ""} ready · ${pct}% complete${pct >= 80 ? " ✓" : ""}`;
+    } else {
+      detail = `${count} spread${count !== 1 ? "s" : ""} ready`;
+    }
+```
+
+---
+
+## Part G — Update `src/app/api/deals/[dealId]/banker-session/dispatch/route.ts`
+
+### Change: Add auto-complete check after successful gap resolution
+
+Find this existing block (near the end of the `if (gapId && value && factKey)` branch):
+
+```typescript
+      const result = await resolveDealGap({
+        action: "provide_value",
+        gapId,
+        factType: "FINANCIAL",
+        factKey,
+        value: resolvedValue,
+        userId,
+        dealId,
+        bankId,
+      });
+
+      return NextResponse.json({
+        ok: result.ok,
+        message: result.ok
+          ? `Confirmed: ${factKey} = ${value}`
+          : "Recorded for review",
+        intent,
+      });
+```
+
+**Replace with:**
+
+```typescript
+      const result = await resolveDealGap({
+        action: "provide_value",
+        gapId,
+        factType: "FINANCIAL",
+        factKey,
+        value: resolvedValue,
+        userId,
+        dealId,
+        bankId,
+      });
+
+      // God Tier #67 — after a fact is confirmed, check if we can auto-trigger memo
+      // Fire-and-forget: never delay the dispatch response
+      if (result.ok) {
+        Promise.resolve().then(async () => {
+          try {
+            const { computeSpreadCompleteness } = await import(
+              "@/lib/classicSpread/computeSpreadCompleteness"
+            );
+            const completeness = await computeSpreadCompleteness(dealId);
+            if (!completeness?.isGodTier) return;
+
+            // No open missing-fact gaps
+            const { data: openGaps } = await sb
+              .from("deal_gap_queue")
+              .select("id")
+              .eq("deal_id", dealId)
+              .eq("status", "open")
+              .eq("gap_type", "missing_fact")
+              .limit(1);
+            if ((openGaps ?? []).length > 0) return;
+
+            // No memo generated in the last 5 minutes
+            const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+            const { data: recentMemo } = await sb
+              .from("canonical_memo_narratives")
+              .select("id")
+              .eq("deal_id", dealId)
+              .gt("generated_at", fiveMinAgo)
+              .limit(1)
+              .maybeSingle();
+            if (recentMemo) return;
+
+            // Trigger memo regeneration
+            const baseUrl = process.env.VERCEL_URL
+              ? `https://${process.env.VERCEL_URL}`
+              : process.env.NEXT_PUBLIC_APP_URL ?? "";
+            if (!baseUrl) return;
+
+            await fetch(`${baseUrl}/api/deals/${dealId}/credit-memo/generate`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-auto-trigger": "voice-completion",
+                // Carry internal trust — gateway secret already verified at top of route
+                "x-gateway-secret": process.env.BUDDY_GATEWAY_SECRET ?? "",
+              },
+              body: JSON.stringify({
+                trigger: "voice_session_complete",
+                completeness_score: completeness.score,
+              }),
+            }).catch(() => {});
+
+            // Emit telemetry milestone
+            const { emitDealMilestone } = await import("@/lib/telemetry/emitDealMilestone");
+            await emitDealMilestone({
+              eventKey: "voice.memo_auto_complete_triggered",
+              dealId,
+              bankId: bankId ?? "",
+              status: "ok",
+              payload: {
+                completeness_score: completeness.score,
+                trigger: "voice_dispatch",
+                fact_key: factKey,
+              },
+              mirrorToObservability: true,
+            }).catch(() => {});
+          } catch {
+            // Always non-fatal — never let auto-complete block dispatch
+          }
+        }).catch(() => {});
+      }
+
+      return NextResponse.json({
+        ok: result.ok,
+        message: result.ok
+          ? `Confirmed: ${factKey} = ${value}`
+          : "Recorded for review",
+        intent,
+      });
+```
 
 ---
 
 ## Verification Checklist
 
-After implementation, verify:
+After implementation, verify each item:
 
-- [ ] `OMEGA_MCP_ENABLED=1` set in Vercel — `invokeOmega` no longer returns `{ ok: false, error: "disabled" }`
-- [ ] After spread recompute: `SPREAD_COMPLETENESS_PCT` row exists in `deal_financial_facts`
-- [ ] Pipeline Step 1 shows `N spreads ready · XX% complete` (with ✓ if ≥80%)
-- [ ] Underwrite state route returns `omegaAdvisory` field (may be null if Pulse unavailable)
-- [ ] Voice dispatch route: after fact confirmation, auto-complete check runs (verify in logs)
-- [ ] GET `/api/deals/[dealId]/research/quality` returns `{ ok: true, gate: {...}, evidence_summary: {...} }`
-- [ ] `tsc --noEmit` clean
+- [ ] **Env vars:** GET `/api/deals/[dealId]/underwrite/state` — `omegaAdvisory` field appears (not missing key). May be `null` if Pulse endpoint doesn't yet handle `omega://advisory/deal-focus` — that is expected; the field must exist.
+- [ ] **Spread completeness:** Pipeline Step 1 detail shows `· XX% complete` after a deal has `deal_financial_facts` rows. Use the Samaritus test deal (`ffcc9733`).
+- [ ] **Pipeline step structure:** `pipeline-state` route response has 6 steps, Step 1 has `detail` containing `· XX% complete`.
+- [ ] **Research quality route:** `GET /api/deals/ffcc9733/research/quality` returns `{ ok: true, gate: {...}, evidence_summary: {...} }`.
+- [ ] **Voice auto-complete:** After a `POST` to `dispatch` with a valid `gapId + factKey + value`, logs show `[voice.memo_auto_complete_triggered]` OR silence (if completeness < 80% — expected). No errors.
+- [ ] **TypeScript:** `tsc --noEmit` clean on all 5 changed files.
+- [ ] **`redactForOmega` export:** `src/lib/omega/redaction.server.ts` exports `redactForOmega` — confirm via `grep -n "redactForOmega" src/lib/omega/redaction.server.ts`.
 
 ---
 
-## What This Does NOT Include
+## What This Spec Does NOT Cover
 
-- **Reconciliation signal** — This is blocked on deal-level data correctness (Samaritus `recon_status`), not on missing system code. The reconciliation engine is built and working.
-- **Ialacci bio** — One-time manual data entry, not a system item.
+- **Roadmap update** — Do this manually via git CLI (too large for GitHub API from browser).
+- **Reconciliation signal** — No code gap. Blocked on Samaritus deal data (`recon_status` NULL), not on missing system code.
+- **Ialacci bio** — One-time data entry, not a system item.
+- **Omega `omega://advisory/deal-focus` handler in Pulse** — Pulse must register this resource. The Buddy side is wired. If Pulse doesn't handle it, `invokeOmega` returns `{ ok: false }` and `omegaAdvisory` is `null` — fully graceful.
 - **Corpus expansion** — Data acquisition, not code.
-- **Phase 79 golden-set eval harness** — This is now properly scoped as a reporting layer over existing `buddy_research_quality_gates` data. The new `/research/quality` route in this spec is the foundation. A dedicated UI panel for multi-deal aggregate views is a separate small spec.
 
 ---
 
-## God Tier Completion State After Phase 79
+## God Tier System Completion State After Phase 79
 
-| Item | Status |
-|------|--------|
-| Model Engine V2 primary everywhere | ✅ (Phase 11, confirmed) |
-| Spread completeness ≥80% measured | ✅ (Phase 79) |
-| Voice → memo auto-complete loop | ✅ (Phase 79) |
-| Omega advisory annotations in underwrite state | ✅ (Phase 79) |
-| BIE trust grade in pipeline Step 5 | ✅ (Phase 78) |
-| Claim-level provenance for all research | ✅ (Phase 78) |
-| Committee packet generation | ✅ (Phase 54–57) |
-| Borrower Intake → Deal Builder | ✅ (Phase 53A) |
-| Reconciliation engine built | ✅ (Phase 69–70) |
+| System Item | Status |
+|-------------|--------|
+| Model Engine V2 primary everywhere | ✅ Phase 11 (confirmed) |
+| Spread completeness ≥80% measured in pipeline | ✅ Phase 79 |
+| Voice → completeness → memo auto-complete | ✅ Phase 79 |
+| Omega advisory annotations in underwrite state | ✅ Phase 79 |
+| BIE research quality endpoint | ✅ Phase 79 |
+| BIE trust grade in pipeline Step 5 | ✅ Phase 78 |
+| Claim-level provenance for all research | ✅ Phase 78 |
+| Committee packet generation | ✅ Phase 54–57 |
+| Borrower Intake → Deal Builder | ✅ Phase 53A |
+| Reconciliation engine | ✅ Phase 69–70 |
 | Reconciliation signal cleared (Samaritus) | 🔴 Data item |
-| Ialacci bio entered | 🔴 Data item |
+| Ialacci bio | 🔴 Data item |
 
-The only remaining God Tier blockers are **data items on a specific deal**, not missing system code.
+**The only remaining God Tier blockers are data items on a specific deal, not missing system code.**
