@@ -7,8 +7,6 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 export const runtime = "nodejs";
 export const maxDuration = 15;
 
-// ── Types ──────────────────────────────────────────────────────────────────
-
 export type PipelineStepStatus =
   | "complete"
   | "in_progress"
@@ -31,19 +29,6 @@ export type PipelineStep = {
 
 type Params = Promise<{ dealId: string }>;
 
-/**
- * GET /api/deals/[dealId]/underwrite/pipeline-state
- *
- * Returns the ordered pipeline steps for the underwriting rail.
- * Each step queries its canonical source table and derives status.
- *
- * Ghost column corrections (verified against DB schema):
- * - financial_snapshots_v2.is_active does not exist → use financial_snapshots (latest by created_at)
- * - ai_risk_runs.status does not exist → column removed; row presence = complete
- *
- * Step 6 (Committee Packet) requires decision_snapshots row — packet generate
- * route returns 400 without one. Surface this as a blocker in the UI.
- */
 export async function GET(
   _req: NextRequest,
   ctx: { params: Params },
@@ -57,9 +42,8 @@ export async function GET(
 
     const sb = supabaseAdmin();
 
-    // ── Parallel queries ─────────────────────────────────────────────────
     const [
-      workspaceRes,
+      spreadsRes,
       snapshotRes,
       riskRunRes,
       memoRes,
@@ -67,14 +51,15 @@ export async function GET(
       packetEventRes,
       decisionSnapshotRes,
     ] = await Promise.all([
-      // 1. Workspace — spread status
-      sb.from("underwriting_workspaces")
-        .select("spread_status, memo_status, risk_status")
+      // 1. Actual deal_spreads rows — use real data, not workspace status field.
+      //    Count populated rows (rows with at least one non-null value) to determine completion.
+      sb.from("deal_spreads")
+        .select("spread_type, status, updated_at")
         .eq("deal_id", dealId)
-        .maybeSingle(),
+        .eq("status", "ready")
+        .neq("spread_type", "T12"),
 
-      // 2. Financial snapshot — financial_snapshots is the correct table.
-      //    financial_snapshots_v2.is_active does NOT exist; use latest by created_at.
+      // 2. Financial snapshot — financial_snapshots (not financial_snapshots_v2)
       sb.from("financial_snapshots")
         .select("id, created_at")
         .eq("deal_id", dealId)
@@ -82,8 +67,7 @@ export async function GET(
         .limit(1)
         .maybeSingle(),
 
-      // 3. AI risk run — ai_risk_runs.status does NOT exist.
-      //    Row presence = assessment completed. grade is the meaningful output.
+      // 3. AI risk run — ai_risk_runs.status does NOT exist; row presence = complete
       sb.from("ai_risk_runs")
         .select("id, grade, created_at")
         .eq("deal_id", dealId)
@@ -91,7 +75,7 @@ export async function GET(
         .limit(1)
         .maybeSingle(),
 
-      // 4. Credit memo — latest canonical narrative
+      // 4. Credit memo
       sb.from("canonical_memo_narratives")
         .select("id, generated_at, input_hash")
         .eq("deal_id", dealId)
@@ -99,7 +83,7 @@ export async function GET(
         .limit(1)
         .maybeSingle(),
 
-      // 5. Research — latest mission
+      // 5. Research
       sb.from("buddy_research_missions")
         .select("id, status, created_at, completed_at")
         .eq("deal_id", dealId)
@@ -107,7 +91,7 @@ export async function GET(
         .limit(1)
         .maybeSingle(),
 
-      // 6a. Committee packet — latest generation event
+      // 6a. Committee packet event
       sb.from("deal_events")
         .select("created_at")
         .eq("deal_id", dealId)
@@ -116,8 +100,7 @@ export async function GET(
         .limit(1)
         .maybeSingle(),
 
-      // 6b. Decision snapshot — required by packet generate route.
-      //     Without this, the packet endpoint returns 400.
+      // 6b. Decision snapshot — required by packet generate route
       sb.from("decision_snapshots")
         .select("id, created_at")
         .eq("deal_id", dealId)
@@ -126,7 +109,7 @@ export async function GET(
         .maybeSingle(),
     ]);
 
-    const workspace = workspaceRes.data;
+    const readySpreads = spreadsRes.data ?? [];
     const snapshot = snapshotRes.data;
     const riskRun = riskRunRes.data;
     const memo = memoRes.data;
@@ -134,10 +117,8 @@ export async function GET(
     const packetEvent = packetEventRes.data;
     const decisionSnapshot = decisionSnapshotRes.data;
 
-    // ── Build steps ──────────────────────────────────────────────────────
-
     const steps: PipelineStep[] = [
-      buildSpreadStep(dealId, workspace),
+      buildSpreadStep(dealId, readySpreads),
       buildSnapshotStep(snapshot),
       buildRiskStep(dealId, riskRun),
       buildMemoStep(dealId, memo, snapshot),
@@ -154,30 +135,26 @@ export async function GET(
   }
 }
 
-// ── Step builders ────────────────────────────────────────────────────────
-
 function buildSpreadStep(
   dealId: string,
-  workspace: { spread_status: string; memo_status: string; risk_status: string } | null,
+  readySpreads: Array<{ spread_type: string; status: string; updated_at: string | null }>,
 ): PipelineStep {
-  const spreadStatus = workspace?.spread_status ?? "not_started";
+  const count = readySpreads.length;
+  const latestAt = readySpreads
+    .map(s => s.updated_at)
+    .filter(Boolean)
+    .sort()
+    .slice(-1)[0] ?? null;
 
   let status: PipelineStepStatus;
-  let detail: string | null = null;
+  let detail: string | null;
 
-  switch (spreadStatus) {
-    case "complete":
-    case "completed":
-      status = "complete";
-      detail = "Spreads completed";
-      break;
-    case "in_progress":
-      status = "in_progress";
-      detail = "Spreads in progress";
-      break;
-    default:
-      status = "pending";
-      detail = "Financial spreads not started";
+  if (count > 0) {
+    status = "complete";
+    detail = `${count} spread${count !== 1 ? "s" : ""} ready`;
+  } else {
+    status = "pending";
+    detail = "Financial spreads not yet generated";
   }
 
   return {
@@ -187,10 +164,11 @@ function buildSpreadStep(
     status,
     detail,
     blockerMessage: null,
-    actionApi: null,
-    actionLabel: null,
-    actionMethod: null,
-    completedAt: null,
+    // Wire the real recompute endpoint — this actually regenerates spreads from facts
+    actionApi: `/api/deals/${dealId}/spreads/recompute`,
+    actionLabel: count > 0 ? "Recompute Spreads" : "Generate Spreads",
+    actionMethod: "POST",
+    completedAt: latestAt,
   };
 }
 
@@ -198,7 +176,6 @@ function buildSnapshotStep(
   snapshot: { id: string; created_at: string } | null,
 ): PipelineStep {
   const hasSnapshot = !!snapshot;
-
   return {
     stepNumber: 2,
     key: "snapshot",
@@ -215,26 +192,16 @@ function buildSnapshotStep(
 
 function buildRiskStep(
   dealId: string,
-  // ai_risk_runs.status does not exist — row presence = complete, grade = summary
   riskRun: { id: string; grade: string; created_at: string } | null,
 ): PipelineStep {
-  let status: PipelineStepStatus;
-  let detail: string | null = null;
-
-  if (riskRun) {
-    status = "complete";
-    detail = riskRun.grade ? `Grade: ${riskRun.grade}` : "Risk assessment complete";
-  } else {
-    status = "pending";
-    detail = "AI risk assessment not yet run";
-  }
-
   return {
     stepNumber: 3,
     key: "risk",
     label: "AI Risk Assessment",
-    status,
-    detail,
+    status: riskRun ? "complete" : "pending",
+    detail: riskRun
+      ? (riskRun.grade ? `Grade: ${riskRun.grade}` : "Risk assessment complete")
+      : "AI risk assessment not yet run",
     blockerMessage: null,
     actionApi: `/api/deals/${dealId}/ai-risk`,
     actionLabel: riskRun ? "Re-run Risk Assessment" : "Run Risk Assessment",
@@ -286,11 +253,11 @@ function buildResearchStep(
   let detail: string | null = null;
 
   if (research) {
-    const missionStatus = research.status ?? "completed";
-    if (missionStatus === "failed" || missionStatus === "error") {
+    const s = research.status ?? "completed";
+    if (s === "failed" || s === "error") {
       status = "error";
       detail = "Research mission failed — retry available";
-    } else if (missionStatus === "running" || missionStatus === "queued" || missionStatus === "pending") {
+    } else if (s === "running" || s === "queued" || s === "pending") {
       status = "in_progress";
       detail = "Research mission in progress…";
     } else {
@@ -334,8 +301,6 @@ function buildPacketStep(
     detail = "Waiting for credit memo";
     blockerMessage = "Generate the credit memo before creating the committee packet";
   } else if (!decisionSnapshot) {
-    // Packet generate route requires a decision_snapshots row — surface this
-    // as a clear blocker rather than letting the button 400 silently.
     status = "blocked";
     detail = "Credit decision required";
     blockerMessage = "Record a credit decision on the Committee tab to unlock packet generation";
@@ -351,7 +316,6 @@ function buildPacketStep(
     status,
     detail,
     blockerMessage,
-    // Only expose the action button when the packet can actually be generated
     actionApi: memo && decisionSnapshot ? `/api/deals/${dealId}/committee/packet/generate` : null,
     actionLabel: packetEvent ? "Regenerate Packet" : (memo && decisionSnapshot ? "Generate Committee Packet" : null),
     actionMethod: memo && decisionSnapshot ? "POST" : null,
