@@ -23,6 +23,7 @@ import { CONDITION_RULES, EXPECTED_DOCS, type LoanProductType as ConditionsProdu
 import { computeUnderwritingVerdict } from "@/lib/finance/underwriting/computeVerdict";
 import type { UnderwritingResults } from "@/lib/finance/underwriting/results";
 import { loadResearchForMemo } from "@/lib/creditMemo/canonical/loadResearchForMemo";
+import { buildBalanceSheetTable } from "@/lib/creditMemo/canonical/buildBalanceSheetTable";
 
 function metricValueFromSnapshot(args: {
   snapshot: DealFinancialSnapshotV1;
@@ -719,6 +720,12 @@ export async function buildCanonicalCreditMemo(args: {
       });
     }
 
+    // ===== Phase BS: Build balance sheet table (permanent fix) =====
+    // Reads directly from SL_ keyed facts in deal_financial_facts.
+    // Fully independent of the BALANCE_SHEET spread row in deal_spreads —
+    // will always populate as long as documents have been extracted.
+    const balanceSheetTable = await buildBalanceSheetTable({ dealId: args.dealId, bankId });
+
     // ===== Phase 33: Build strengths & weaknesses =====
     const strengths: Array<{ point: string; detail: string | null }> = [];
     const weaknesses: Array<{ point: string; mitigant: string | null }> = [];
@@ -958,6 +965,7 @@ export async function buildCanonicalCreditMemo(args: {
         debt_to_equity: metricValueFromSnapshot({ snapshot, metric: "debt_to_equity", label: "Debt-to-Equity" }),
         debt_coverage_table: debtCoverageTable,
         income_statement_table: incomeStatementTable,
+        balance_sheet_table: balanceSheetTable,
         ratio_analysis: [],
         breakeven: {
           required_revenue: null,
