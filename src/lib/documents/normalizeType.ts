@@ -74,5 +74,8 @@ export function normalizeToCanonical(
   )
     return "ENTITY_DOCS";
 
+  if (upper === "COMMERCIAL_LEASE") return "COMMERCIAL_LEASE";
+  if (upper === "CREDIT_MEMO") return "CREDIT_MEMO";
+
   return "OTHER";
 }

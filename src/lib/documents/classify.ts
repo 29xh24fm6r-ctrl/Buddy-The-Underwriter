@@ -22,6 +22,8 @@ export type CanonicalDocumentType =
   | "INSURANCE"
   | "APPRAISAL"
   | "ENTITY_DOCS"
+  | "COMMERCIAL_LEASE"
+  | "CREDIT_MEMO"
   | "OTHER";
 
 /**
@@ -82,6 +84,11 @@ export function toCanonicalDocType(aiDocType: string): CanonicalDocumentType {
     case "BUSINESS_LICENSE":
     case "DRIVERS_LICENSE":
       return "ENTITY_DOCS";
+
+    case "COMMERCIAL_LEASE":
+      return "COMMERCIAL_LEASE";
+    case "CREDIT_MEMO":
+      return "CREDIT_MEMO";
 
     default:
       return "OTHER";
