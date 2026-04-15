@@ -45,7 +45,7 @@ test("toCanonicalDocType maps AI types to canonical enum", () => {
   assert.equal(toCanonicalDocType("T12"), "FINANCIAL_STATEMENT");
   assert.equal(toCanonicalDocType("BANK_STATEMENT"), "BANK_STATEMENT");
   assert.equal(toCanonicalDocType("RENT_ROLL"), "RENT_ROLL");
-  assert.equal(toCanonicalDocType("LEASE"), "LEASE");
+  assert.equal(toCanonicalDocType("LEASE"), "COMMERCIAL_LEASE");
   assert.equal(toCanonicalDocType("INSURANCE"), "INSURANCE");
   assert.equal(toCanonicalDocType("APPRAISAL"), "APPRAISAL");
   assert.equal(toCanonicalDocType("ARTICLES"), "ENTITY_DOCS");
@@ -92,7 +92,7 @@ test("canonicalTypeToChecklistKeys maps all canonical types", () => {
   const allTypes: CanonicalDocumentType[] = [
     "BUSINESS_TAX_RETURN", "PERSONAL_TAX_RETURN", "PFS",
     "FINANCIAL_STATEMENT", "BANK_STATEMENT", "RENT_ROLL",
-    "LEASE", "INSURANCE", "APPRAISAL", "ENTITY_DOCS", "OTHER",
+    "INSURANCE", "APPRAISAL", "ENTITY_DOCS", "COMMERCIAL_LEASE", "CREDIT_MEMO", "OTHER",
   ];
 
   for (const t of allTypes) {
@@ -216,9 +216,9 @@ test("BANK_STATEMENT maps to BANK_STMT_3M checklist key (core mapping fix)", () 
   assert.ok(keys.includes("BANK_STMT_3M"), "BANK_STATEMENT should map to BANK_STMT_3M");
 });
 
-test("LEASE maps to LEASES_TOP checklist key", () => {
-  const keys = mapDocTypeToChecklistKeys("LEASE", null);
-  assert.ok(keys.includes("LEASES_TOP"), "LEASE should map to LEASES_TOP");
+test("COMMERCIAL_LEASE maps to LEASES_TOP checklist key", () => {
+  const keys = mapDocTypeToChecklistKeys("COMMERCIAL_LEASE", null);
+  assert.ok(keys.includes("LEASES_TOP"), "COMMERCIAL_LEASE should map to LEASES_TOP");
 });
 
 test("INSURANCE maps to PROPERTY_INSURANCE checklist key", () => {
@@ -275,7 +275,7 @@ test("normalizeToCanonical handles exact AI classifier types", () => {
   assert.equal(normalizeToCanonical("T12"), "FINANCIAL_STATEMENT");
   assert.equal(normalizeToCanonical("BANK_STATEMENT"), "BANK_STATEMENT");
   assert.equal(normalizeToCanonical("RENT_ROLL"), "RENT_ROLL");
-  assert.equal(normalizeToCanonical("LEASE"), "LEASE");
+  assert.equal(normalizeToCanonical("LEASE"), "COMMERCIAL_LEASE");
   assert.equal(normalizeToCanonical("INSURANCE"), "INSURANCE");
   assert.equal(normalizeToCanonical("APPRAISAL"), "APPRAISAL");
   assert.equal(normalizeToCanonical("ARTICLES"), "ENTITY_DOCS");

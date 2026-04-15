@@ -19,10 +19,11 @@ const DOC_TYPE_LABELS: Record<CanonicalDocumentType, string> = {
   FINANCIAL_STATEMENT: "Financial Statement",
   BANK_STATEMENT: "Bank Statement",
   RENT_ROLL: "Rent Roll",
-  LEASE: "Lease",
   INSURANCE: "Insurance",
   APPRAISAL: "Appraisal",
   ENTITY_DOCS: "Entity Documents",
+  COMMERCIAL_LEASE: "Commercial Lease",
+  CREDIT_MEMO: "Credit Memo",
   OTHER: "Document",
 };
 

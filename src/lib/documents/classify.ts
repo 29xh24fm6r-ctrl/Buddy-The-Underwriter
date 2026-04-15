@@ -18,7 +18,6 @@ export type CanonicalDocumentType =
   | "FINANCIAL_STATEMENT"
   | "BANK_STATEMENT"
   | "RENT_ROLL"
-  | "LEASE"
   | "INSURANCE"
   | "APPRAISAL"
   | "ENTITY_DOCS"
@@ -68,7 +67,7 @@ export function toCanonicalDocType(aiDocType: string): CanonicalDocumentType {
       return "RENT_ROLL";
 
     case "LEASE":
-      return "LEASE";
+      return "COMMERCIAL_LEASE";
 
     case "INSURANCE":
       return "INSURANCE";
@@ -115,8 +114,6 @@ export function canonicalTypeToChecklistKeys(
       return ["BANK_STMT_3M"];
     case "RENT_ROLL":
       return ["RENT_ROLL"];
-    case "LEASE":
-      return ["LEASES_TOP"];
     case "INSURANCE":
       return ["PROPERTY_INSURANCE"];
     case "APPRAISAL":

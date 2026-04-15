@@ -58,7 +58,7 @@ export function normalizeToCanonical(
 
   if (upper === "BANK_STATEMENT") return "BANK_STATEMENT";
   if (upper === "RENT_ROLL") return "RENT_ROLL";
-  if (upper === "LEASE") return "LEASE";
+  if (upper === "LEASE") return "COMMERCIAL_LEASE";
   if (["INSURANCE", "COI", "INSURANCE_CERT"].includes(upper))
     return "INSURANCE";
   if (upper === "APPRAISAL") return "APPRAISAL";
