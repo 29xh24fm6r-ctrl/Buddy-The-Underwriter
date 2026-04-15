@@ -54,6 +54,38 @@ export type IncomeStatementRow = {
   is_projection: boolean;
 };
 
+// ── Balance Sheet Row (one period) ────────────────────────────────────────
+// Built from SL_ prefixed facts in deal_financial_facts.
+// Source: Schedule L (tax returns) or direct balance sheet extraction.
+// This type is intentionally flat — all fields are nullable so partial
+// extraction (e.g. only total assets / total liabilities) still renders.
+export type BalanceSheetRow = {
+  period_end: string;           // "2024-12-31"
+  // Assets
+  cash_and_equivalents: CanonicalMemoNumber;
+  accounts_receivable: CanonicalMemoNumber;
+  inventory: CanonicalMemoNumber;
+  other_current_assets: CanonicalMemoNumber;
+  total_current_assets: CanonicalMemoNumber;
+  ppe_gross: CanonicalMemoNumber;
+  accumulated_depreciation: CanonicalMemoNumber;
+  ppe_net: CanonicalMemoNumber;   // derived: ppe_gross - accumulated_depreciation
+  other_assets: CanonicalMemoNumber;
+  total_assets: CanonicalMemoNumber;
+  // Liabilities
+  accounts_payable: CanonicalMemoNumber;
+  other_current_liabilities: CanonicalMemoNumber;
+  total_current_liabilities: CanonicalMemoNumber;
+  mortgages_notes_bonds: CanonicalMemoNumber;   // long-term debt / notes payable
+  other_long_term_liabilities: CanonicalMemoNumber;
+  total_liabilities: CanonicalMemoNumber;
+  // Equity
+  retained_earnings: CanonicalMemoNumber;
+  total_equity: CanonicalMemoNumber;
+  // Balancing check: total_liabilities + total_equity (should equal total_assets)
+  liabilities_plus_equity: CanonicalMemoNumber;
+};
+
 // ── Ratio Analysis Row ────────────────────────────────────────────────────
 export type RatioAnalysisRow = {
   metric: string;
@@ -313,9 +345,13 @@ export type CanonicalCreditMemoV1 = {
     working_capital: CanonicalMetricValue;
     current_ratio: CanonicalMetricValue;
     debt_to_equity: CanonicalMetricValue;
-    // Multi-period tables
+    // Multi-period tables — all built from deal_financial_facts (spread-independent)
     debt_coverage_table: DebtCoverageRow[];
     income_statement_table: IncomeStatementRow[];
+    // Balance sheet: built from SL_ keyed facts (Schedule L / balance sheet extraction)
+    // Always populated as long as documents have been extracted — never requires
+    // the BALANCE_SHEET spread row in deal_spreads to exist.
+    balance_sheet_table: BalanceSheetRow[];
     ratio_analysis: RatioAnalysisRow[];
     // Breakeven
     breakeven: {
