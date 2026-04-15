@@ -35,5 +35,18 @@ export const SOP_REFS: Record<string, SopReference> = {
     code: "BUSINESS_NAME_MISMATCH",
     title: "Consistency of borrower information",
     citation: "SOP 50 10 7.1, Subpart B, Chapter 5"
-  }
+  },
+
+  SBA_504_OWNER_OCCUPIED_REQUIRED: {
+    code: "SBA_504_OWNER_OCCUPIED_REQUIRED",
+    title: "SBA 504 owner-occupancy requirement",
+    citation: "SOP 50 10 7.1, Subpart B, Chapter 4, Section B — 504 Eligibility",
+    url: "https://www.sba.gov/document/sop-50-10",
+  },
+
+  SBA_504_INVESTMENT_PROPERTY_INELIGIBLE: {
+    code: "SBA_504_INVESTMENT_PROPERTY_INELIGIBLE",
+    title: "Investment properties are ineligible for SBA 504",
+    citation: "SOP 50 10 7.1, Subpart B, Chapter 4 — the 504 program requires at least 51% owner-occupancy by the operating company",
+  },
 };

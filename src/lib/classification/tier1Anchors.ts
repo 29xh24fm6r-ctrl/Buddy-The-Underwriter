@@ -243,6 +243,40 @@ const STRUCTURAL_ANCHORS: AnchorRule[] = [
     secondaryPatterns: [/(?:ending|closing)\s+balance/i],
     // Ending balance required
   },
+
+  // --- v2.2 additions ---
+
+  {
+    anchorId: "COMMERCIAL_LEASE_STRUCTURAL",
+    pattern: /(?:lease\s+agreement|amendment\s+to\s+lease|professional\s+office\s+lease|commercial\s+lease)/i,
+    docType: "COMMERCIAL_LEASE",
+    confidence: 0.93,
+    entityType: null,
+    formNumber: null,
+    secondaryPatterns: [
+      /(?:landlord|lessor)/i,
+      /(?:tenant|lessee)/i,
+      /(?:monthly\s+rent|annual\s+rent|\$[\d,]+\s*\/?\s*(?:mo|month|per\s+month))/i,
+      /(?:commencement|lease\s+term|term\s+of\s+(?:this\s+)?lease)/i,
+    ],
+    secondaryMinMatch: 2,
+  },
+
+  {
+    anchorId: "CREDIT_MEMO_STRUCTURAL",
+    pattern: /(?:loan\s+worksheet|officer\s+narrative|credit\s+memo(?:randum)?|credit\s+approval)/i,
+    docType: "CREDIT_MEMO",
+    confidence: 0.93,
+    entityType: null,
+    formNumber: null,
+    secondaryPatterns: [
+      /(?:debt\s+service\s+coverage|dscr)/i,
+      /(?:collateral\s+description|collateral\s+offered)/i,
+      /(?:recommend(?:ation)?|approve|approval)/i,
+      /(?:loan\s+amount|loan\s+term|interest\s+rate)/i,
+    ],
+    secondaryMinMatch: 2,
+  },
 ];
 
 // K-1 priority: must be checked before 1065 to avoid misclassifying

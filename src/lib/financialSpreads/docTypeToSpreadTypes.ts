@@ -16,5 +16,9 @@ export function spreadsForDocType(docTypeRaw: string): SpreadType[] {
   if (["IRS_1040", "IRS_PERSONAL", "PERSONAL_TAX_RETURN"].includes(dt)) return ["PERSONAL_INCOME", "GLOBAL_CASH_FLOW"];
   if (["PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413"].includes(dt)) return ["PERSONAL_FINANCIAL_STATEMENT", "GLOBAL_CASH_FLOW"];
 
+  if (dt === "COMMERCIAL_LEASE") return ["RENT_ROLL"];
+  // Credit memo facts feed GLOBAL_CASH_FLOW via PRIOR_TOTAL_ANNUAL_DS
+  if (dt === "CREDIT_MEMO") return ["GLOBAL_CASH_FLOW"];
+
   return [];
 }

@@ -21,6 +21,8 @@ import { extractTaxReturnDeterministic } from "@/lib/financialSpreads/extractors
 import { extractRentRollDeterministic } from "@/lib/financialSpreads/extractors/deterministic/rentRollDeterministic";
 import { extractPersonalIncomeDeterministic } from "@/lib/financialSpreads/extractors/deterministic/personalIncomeDeterministic";
 import { extractPfsDeterministic } from "@/lib/financialSpreads/extractors/deterministic/pfsDeterministic";
+import { extractCommercialLeaseDeterministic } from "@/lib/financialSpreads/extractors/deterministic/commercialLeaseExtractor";
+import { extractCreditMemoDeterministic } from "@/lib/financialSpreads/extractors/deterministic/creditMemoExtractor";
 import { resolveDocTaxYear } from "@/lib/financialSpreads/extractors/deterministic/parseUtils";
 import { isGeminiPrimaryExtractionEnabled } from "@/lib/flags/geminiPrimaryExtraction";
 
@@ -566,6 +568,42 @@ export async function extractFactsFromDocument(args: {
       extractionPath = "gemini_primary";
     }
     // No deterministic fallback for debt schedules — Gemini primary only
+  }
+
+  // ── Commercial Lease ───────────────────────────────────────────────────
+  if (extractedText && normDocType === "COMMERCIAL_LEASE") {
+    extractorRan = true;
+    const gp = await attemptGeminiPrimary("COMMERCIAL_LEASE");
+    if (gp.succeeded) {
+      factsWritten += gp.factsWritten;
+      extractionPath = "gemini_primary";
+    } else {
+      try {
+        const result = await extractCommercialLeaseDeterministic(deterministicArgs);
+        factsWritten += result.factsWritten;
+        extractionPath = result.extractionPath;
+      } catch (err) {
+        console.error("[extractFactsFromDocument] commercialLease failed:", err);
+      }
+    }
+  }
+
+  // ── Credit Memo (prior loan / existing relationship) ───────────────────
+  if (extractedText && normDocType === "CREDIT_MEMO") {
+    extractorRan = true;
+    const gp = await attemptGeminiPrimary("CREDIT_MEMO");
+    if (gp.succeeded) {
+      factsWritten += gp.factsWritten;
+      extractionPath = "gemini_primary";
+    } else {
+      try {
+        const result = await extractCreditMemoDeterministic(deterministicArgs);
+        factsWritten += result.factsWritten;
+        extractionPath = result.extractionPath;
+      } catch (err) {
+        console.error("[extractFactsFromDocument] creditMemo failed:", err);
+      }
+    }
   }
 
   // ── Rule-based extractors (existing) ───────────────────────────────────
