@@ -103,19 +103,28 @@ export async function POST(
       .limit(1)
       .maybeSingle();
 
-    // Load ownership entities for principal names
+    // Load ownership entities for principal names.
+    // CRITICAL: ownership_entities uses display_name (not entity_name or name).
+    // Principals must be populated correctly so the BIE can validate its management
+    // intelligence output against the deal's actual owners.
     const { data: ownersData } = await (sb as any)
       .from("ownership_entities")
-      .select("entity_name, title, ownership_pct")
+      .select("display_name, title, ownership_pct")
       .eq("deal_id", dealId)
       .limit(10);
 
     const principals = ((ownersData ?? []) as any[])
       .map((o: any) => ({
-        name: (o.entity_name ?? o.name ?? "") as string,
+        name: (o.display_name ?? "") as string,
         title: (o.title ?? null) as string | null,
       }))
       .filter((p) => p.name.trim().length > 1);
+
+    if (principals.length > 0) {
+      console.log(`[research/run] Deal ${dealId}: ${principals.length} principal(s) loaded for BIE context`);
+    } else {
+      console.warn(`[research/run] Deal ${dealId}: no principals found in ownership_entities — BIE will run without management context`);
+    }
 
     // Load annual revenue from financial facts
     const { data: revFact } = await (sb as any)
