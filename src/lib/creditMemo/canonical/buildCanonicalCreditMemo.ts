@@ -188,10 +188,12 @@ export async function buildCanonicalCreditMemo(args: {
         .in("fact_key", [
           "TOTAL_REVENUE", "NET_INCOME", "DEPRECIATION", "INTEREST_EXPENSE", "RENT_EXPENSE",
           "COST_OF_GOODS_SOLD", "GROSS_PROFIT", "TOTAL_OPERATING_EXPENSES", "OPERATING_INCOME", "EBITDA",
+          // Tax return aliases (IRS terminology → accounting terminology)
+          "GROSS_RECEIPTS", "ORDINARY_BUSINESS_INCOME", "M2_NET_INCOME", "SK_ORDINARY_INCOME",
         ])
         .not("fact_value_num", "is", null)
         .order("fact_period_end", { ascending: false })
-        .limit(60),
+        .limit(100),
       (sb as any)
         .from("deal_memo_overrides")
         .select("overrides")
@@ -206,11 +208,28 @@ export async function buildCanonicalCreditMemo(args: {
     const aiRisk = aiRiskResult.data as any | null;
     const pricingRow = structuralPricingResult.data as any | null;
 
+    // Tax return key aliases: IRS terminology → canonical accounting keys.
+    // Priority: INCOME_STATEMENT facts win — aliases only fill gaps.
+    const TAX_RETURN_KEY_ALIASES: Record<string, string> = {
+      GROSS_RECEIPTS: "TOTAL_REVENUE",
+      ORDINARY_BUSINESS_INCOME: "NET_INCOME",
+      M2_NET_INCOME: "NET_INCOME",
+      SK_ORDINARY_INCOME: "NET_INCOME",
+    };
+
     // Group period facts by period_end
     const factsByPeriod: Record<string, Record<string, number>> = {};
     for (const f of ((periodFactsResult.data ?? []) as any[])) {
       if (!factsByPeriod[f.fact_period_end]) factsByPeriod[f.fact_period_end] = {};
-      factsByPeriod[f.fact_period_end][f.fact_key] = Number(f.fact_value_num);
+      const canonicalKey = TAX_RETURN_KEY_ALIASES[f.fact_key as string];
+      if (canonicalKey) {
+        // Only set alias if canonical key not already populated (INCOME_STATEMENT wins)
+        if (factsByPeriod[f.fact_period_end][canonicalKey] === undefined) {
+          factsByPeriod[f.fact_period_end][canonicalKey] = Number(f.fact_value_num);
+        }
+      } else {
+        factsByPeriod[f.fact_period_end][f.fact_key] = Number(f.fact_value_num);
+      }
     }
 
     // Pull metrics from snapshot first, then fall back to spread-derived facts
@@ -672,9 +691,10 @@ export async function buildCanonicalCreditMemo(args: {
       const opex = facts["TOTAL_OPERATING_EXPENSES"] ?? null;
       const opinc = facts["OPERATING_INCOME"] ?? (gp !== null && opex !== null ? gp - opex : null);
       const ni = facts["NET_INCOME"] ?? null;
-      const ebitda = facts["EBITDA"] ?? null;
       const dep = facts["DEPRECIATION"] ?? null;
       const interest = facts["INTEREST_EXPENSE"] ?? null;
+      // Derive EBITDA from NI + Depreciation + Interest when fact is missing
+      const ebitda = facts["EBITDA"] ?? (ni !== null ? ni + (dep ?? 0) + (interest ?? 0) : null);
 
       incomeStatementTable.push({
         label: period.slice(0, 10),
