@@ -108,8 +108,8 @@ export async function loadResearchForMemo(args: {
 
   const missionIds = [missions[0].id];
 
-  // Load facts, inferences, sources, and BIE narrative in parallel
-  const [factsRes, inferencesRes, sourcesRes, narrativeRes] = await Promise.all([
+  // Load facts, inferences, sources, BIE narrative, and ownership entities in parallel
+  const [factsRes, inferencesRes, sourcesRes, narrativeRes, ownersRes] = await Promise.all([
     (sb as any).from("buddy_research_facts").select("*").in("mission_id", missionIds),
     (sb as any).from("buddy_research_inferences").select("*").in("mission_id", missionIds),
     (sb as any).from("buddy_research_sources").select("*").in("mission_id", missionIds),
@@ -121,6 +121,13 @@ export async function loadResearchForMemo(args: {
       .eq("version", 3)
       .limit(1)
       .maybeSingle(),
+    // Layer 3 guard: load actual owners for management intelligence validation
+    // CRITICAL: ownership_entities uses display_name (not name or entity_name)
+    (sb as any)
+      .from("ownership_entities")
+      .select("display_name")
+      .eq("deal_id", args.dealId)
+      .limit(10),
   ]);
 
   const allFacts = (factsRes.data ?? []) as any[];
@@ -130,6 +137,13 @@ export async function loadResearchForMemo(args: {
     sections: Array<{ title: string; sentences: Array<{ text: string; citations: unknown[] }> }>;
     version: number;
   } | null;
+
+  // Build the set of known owner last names for management intelligence validation
+  const knownOwnerLastNames = new Set(
+    ((ownersRes.data ?? []) as any[])
+      .map((o: any) => String(o.display_name ?? "").trim().split(/\s+/).pop()?.toLowerCase())
+      .filter((s): s is string => typeof s === "string" && s.length > 1)
+  );
 
   if (allFacts.length === 0) return null;
 
@@ -211,6 +225,11 @@ export async function loadResearchForMemo(args: {
     }
   }
 
+  const rawManagementIntelligence =
+    findSection("Management Intelligence") !== "Pending"
+      ? findSection("Management Intelligence")
+      : undefined;
+
   const memoData: MemoResearchData = {
     // Core BRE/BIE fields — BIE takes priority when version 3 narrative exists
     industry_overview: hasBIE
@@ -259,21 +278,11 @@ export async function loadResearchForMemo(args: {
             .split("\n")
             .filter(Boolean)
         : undefined,
-    monitoring_triggers:
-      findSection("Monitoring Triggers") !== "Pending"
-        ? findSection("Monitoring Triggers")
-            .split("\n")
-            .filter(Boolean)
-        : undefined,
     contradictions:
       findSection("Contradictions") !== "Pending"
         ? findSection("Contradictions")
             .split("\n")
             .filter(Boolean)
-        : undefined,
-    management_intelligence:
-      findSection("Management Intelligence") !== "Pending"
-        ? findSection("Management Intelligence")
         : undefined,
     litigation_and_risk:
       findSection("Litigation and Risk") !== "Pending"
@@ -289,7 +298,69 @@ export async function loadResearchForMemo(args: {
         : undefined,
     research_quality_score: bieQualityScore,
     sources_count_bie: bieSourcesCount,
+    // management_intelligence and monitoring_triggers are set below after validation
+    management_intelligence: undefined,
+    monitoring_triggers: undefined,
   };
+
+  // ── Layer 3: Management Intelligence Render Guard ───────────────────────────
+  // Last-line-of-defense check at memo render time. Even if bad data made it
+  // to storage (e.g., if Layer 2 was bypassed or not yet deployed), this
+  // prevents hallucinated management profiles from appearing in credit memos.
+  //
+  // Logic: check whether the Management Intelligence text mentions any last
+  // names from the deal's actual ownership_entities. If no match and we have
+  // known owners, suppress the field entirely. Credit officers should never
+  // see unverified management profiles for a deal.
+  //
+  // The Monitoring Triggers section is paired: it often references specific
+  // management names (e.g. "departure of [Person]") — suppress it too when
+  // Management Intelligence is suppressed.
+  if (rawManagementIntelligence) {
+    const mgmtTextLower = rawManagementIntelligence.toLowerCase();
+
+    if (knownOwnerLastNames.size > 0) {
+      // We have known owners — validate the section against them
+      const anyKnownOwnerMentioned = [...knownOwnerLastNames].some((lastName) =>
+        mgmtTextLower.includes(lastName)
+      );
+
+      if (anyKnownOwnerMentioned) {
+        // Section is grounded in actual deal owners — safe to display
+        memoData.management_intelligence = rawManagementIntelligence;
+        const rawTriggers = findSection("Monitoring Triggers");
+        if (rawTriggers !== "Pending") {
+          memoData.monitoring_triggers = rawTriggers.split("\n").filter(Boolean);
+        }
+      } else {
+        // Section names people not in the deal's ownership entities.
+        // This is the hallucination pattern (e.g., web-scraped executive
+        // profiles from a real company with a similar name). Suppress.
+        console.warn(
+          `[loadResearchForMemo] Layer 3 guard: Management Intelligence suppressed for deal ` +
+          `${args.dealId}. Known owner last names: [${[...knownOwnerLastNames].join(", ")}]. ` +
+          `None found in management intelligence text — likely hallucinated profiles.`
+        );
+        // management_intelligence and monitoring_triggers remain undefined (suppressed)
+      }
+    } else {
+      // No ownership entities on file — cannot validate.
+      // Suppress rather than display potentially hallucinated content.
+      console.warn(
+        `[loadResearchForMemo] Layer 3 guard: Management Intelligence suppressed for deal ` +
+        `${args.dealId} — no ownership_entities found so output cannot be validated. ` +
+        `Add ownership entities to enable management intelligence rendering.`
+      );
+      // management_intelligence and monitoring_triggers remain undefined (suppressed)
+    }
+  } else {
+    // No management intelligence in storage — check Monitoring Triggers independently
+    const rawTriggers = findSection("Monitoring Triggers");
+    if (rawTriggers !== "Pending") {
+      memoData.monitoring_triggers = rawTriggers.split("\n").filter(Boolean);
+    }
+  }
+  // ── End Layer 3 Guard ────────────────────────────────────────────────────────
 
   return memoData;
 }
