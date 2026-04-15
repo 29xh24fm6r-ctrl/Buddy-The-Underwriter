@@ -123,6 +123,10 @@ export function canonicalTypeToChecklistKeys(
       return ["APPRAISAL_IF_AVAILABLE"];
     case "ENTITY_DOCS":
       return ["ENTITY_DOCS"];
+    case "COMMERCIAL_LEASE":
+      return ["LEASES_TOP"];
+    case "CREDIT_MEMO":
+      return [];
     case "OTHER":
       return [];
   }
