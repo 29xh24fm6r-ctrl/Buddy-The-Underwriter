@@ -13,7 +13,7 @@ import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanoni
 import { requireDealAccess } from "@/lib/auth/requireDealAccess";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow } from "@/lib/creditMemo/canonical/types";
+import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, BalanceSheetRow } from "@/lib/creditMemo/canonical/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -152,9 +152,9 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
     const km = memo.key_metrics;
     const col1 = [
       ["Loan Amount",   pendingNum(km.loan_amount.value, fmt$)],
-      ["Product",       pending(km.product)],
-      ["Rate",          pending(km.rate_summary)],
-      ["Term",          km.term_months ? `${km.term_months} months` : "Pending"],
+      ["Product",        pending(km.product)],
+      ["Rate",           pending(km.rate_summary)],
+      ["Term",           km.term_months ? `${km.term_months} months` : "Pending"],
       ["Amortization",  km.amort_months ? `${km.amort_months} months` : "Pending"],
       ["Monthly Pmt",   pendingNum(km.monthly_payment, fmt$)],
     ];
@@ -308,15 +308,15 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
 
       const dcRows = memo.financial_analysis.debt_coverage_table;
       const dcCols: Array<{ label: string; fn: (r: DebtCoverageRow) => string; w: number }> = [
-        { label: "Period",    fn: r => r.period_end,                        w: 62 },
-        { label: "Revenue",   fn: r => fmt$(r.revenue),                     w: 60 },
-        { label: "Net Inc",   fn: r => fmt$(r.net_income),                  w: 60 },
-        { label: "+Dep",      fn: r => fmt$(r.addback_depreciation),        w: 48 },
-        { label: "+Int",      fn: r => fmt$(r.addback_interest),            w: 48 },
-        { label: "CF Avail",  fn: r => fmt$(r.cash_flow_available),         w: 58 },
-        { label: "Debt Svc",  fn: r => fmt$(r.debt_service),                w: 56 },
-        { label: "DSCR",      fn: r => fmtRatio(r.dscr),                   w: 42 },
-        { label: "Stress",    fn: r => fmtRatio(r.dscr_stressed),           w: 42 },
+        { label: "Period",    fn: r => r.period_end,                          w: 62 },
+        { label: "Revenue",   fn: r => fmt$(r.revenue),                       w: 60 },
+        { label: "Net Inc",   fn: r => fmt$(r.net_income),                    w: 60 },
+        { label: "+Dep",      fn: r => fmt$(r.addback_depreciation),          w: 48 },
+        { label: "+Int",      fn: r => fmt$(r.addback_interest),              w: 48 },
+        { label: "CF Avail",  fn: r => fmt$(r.cash_flow_available),           w: 58 },
+        { label: "Debt Svc",  fn: r => fmt$(r.debt_service),                  w: 56 },
+        { label: "DSCR",      fn: r => fmtRatio(r.dscr),                     w: 42 },
+        { label: "Stress",    fn: r => fmtRatio(r.dscr_stressed),             w: 42 },
       ];
 
       // Header row
@@ -395,6 +395,58 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       doc.moveDown(0.4);
     }
 
+    // Balance Sheet Table (permanent fix — from SL_ facts, spread-independent)
+    const bsRows = (memo.financial_analysis as any).balance_sheet_table as BalanceSheetRow[] | undefined ?? [];
+    if (bsRows.length) {
+      checkPageBreak(80);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Balance Sheet (Multi-Period)", L, doc.y);
+      doc.moveDown(0.3);
+
+      const bsMetrics: Array<{ label: string; fn: (r: BalanceSheetRow) => string; bold?: boolean }> = [
+        { label: "Cash & Equivalents",  fn: r => fmt$(r.cash_and_equivalents) },
+        { label: "Total Current Assets",fn: r => fmt$(r.total_current_assets) },
+        { label: "PP&E (Gross)",         fn: r => fmt$(r.ppe_gross) },
+        { label: "Accum. Depreciation", fn: r => fmt$(r.accumulated_depreciation) },
+        { label: "Total Assets",        fn: r => fmt$(r.total_assets),        bold: true },
+        { label: "Accounts Payable",    fn: r => fmt$(r.accounts_payable) },
+        { label: "Notes / Mortgages",   fn: r => fmt$(r.mortgages_notes_bonds) },
+        { label: "Total Liabilities",   fn: r => fmt$(r.total_liabilities),   bold: true },
+        { label: "Retained Earnings",   fn: r => fmt$(r.retained_earnings) },
+        { label: "Total Equity",        fn: r => fmt$(r.total_equity),        bold: true },
+        { label: "L + E (check)",       fn: r => fmt$(r.liabilities_plus_equity) },
+      ];
+
+      const bsLabelW = 130;
+      const bsDataW = Math.min(72, (pageWidth - bsLabelW) / bsRows.length);
+
+      // Header
+      const bsHY = doc.y;
+      doc.rect(L, bsHY, pageWidth, 13).fill(COLORS.sectionBg);
+      doc.fontSize(6.5).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Item", L + 2, bsHY + 3, { width: bsLabelW - 4 });
+      bsRows.forEach((r, ci) => {
+        doc.text(r.period_end, L + bsLabelW + ci * bsDataW + 2, bsHY + 3,
+          { width: bsDataW - 4, align: "right" });
+      });
+      doc.y = bsHY + 15;
+
+      bsMetrics.forEach((m, mi) => {
+        checkPageBreak(13);
+        const mY = doc.y;
+        if (mi % 2 === 0) doc.rect(L, mY, pageWidth, 13).fill("#FAFAFA");
+        const fontFace = m.bold ? "Helvetica-Bold" : "Helvetica";
+        doc.fontSize(7).font(fontFace).fillColor(COLORS.black)
+          .text(m.label, L + 2, mY + 3, { width: bsLabelW - 4 });
+        bsRows.forEach((r, ci) => {
+          doc.font(fontFace).text(m.fn(r), L + bsLabelW + ci * bsDataW + 2, mY + 3,
+            { width: bsDataW - 4, align: "right" });
+        });
+        doc.y = mY + 14;
+      });
+      doc.moveDown(0.4);
+    }
+
     // Global Cash Flow summary line
     const gcf = memo.global_cash_flow;
     if (gcf.cash_available.value !== null || gcf.total_obligations.value !== null) {
@@ -460,7 +512,7 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       sw.weaknesses.slice(0, 6).forEach((w) => {
         checkPageBreak(12);
         doc.fontSize(7.5).font("Helvetica").fillColor(COLORS.black)
-          .text(`− ${w.point}`, L + swHalf + 12, swStartY + wyOffset, { width: swHalf, lineGap: 1 });
+          .text(`⊒ ${w.point}`, L + swHalf + 12, swStartY + wyOffset, { width: swHalf, lineGap: 1 });
         wyOffset += 14;
       });
 
