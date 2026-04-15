@@ -1,75 +1,112 @@
 # Phase 81 — Classification Supremacy
 
-**Status:** Spec ready for implementation  
-**Scope:** 5 file edits — classification spine overhaul  
+**Status:** Spec ready for implementation
+**Scope:** 5 file edits
 **Problem:** Document misclassification has been a persistent failure since day one.
 
 ---
 
-## Root Cause Analysis (from full code audit)
+## What Was Audited
 
-Eight distinct failure modes were identified by reading every file in `src/lib/classification/`:
-
-| # | Cause | File | Since |
-|---|-------|------|-------|
-| 1 | Tier 1 is first-match-wins, not best-match | tier1Anchors.ts | Day 1 |
-| 2 | AnchorRule has no exclusion mechanism | types.ts | Day 1 |
-| 3 | PFS has never existed in Tier 1 | tier1Anchors.ts | Day 1 |
-| 4 | CREDIT_MEMO anchor searches firstTwoPages — wrong scope for 17-page docs | tier1Anchors.ts | Phase 80 |
-| 5 | CREDIT_MEMO anchor positioned AFTER anchors it can conflict with | tier1Anchors.ts | Phase 80 |
-| 6 | Tier 3 LLM prompt doesn't know about CREDIT_MEMO or COMMERCIAL_LEASE | tier3LLM.ts | Phase 80 |
-| 7 | Tier 3 model falls back to gemini-2.0-flash (retired) | tier3LLM.ts | Day 1 |
-| 8 | confusionExamples.json has 5 stale examples, none for new doc types | confusionExamples.json | Day 1 |
+Every file in `src/lib/classification/` was read, plus `src/lib/documents/docTypeRouting.ts`. The
+analysis below reflects the **actual current state of main** — not assumptions.
 
 ---
 
-## The Core Architectural Flaw (Cause 1 + 2)
+## Root Cause Analysis
 
-`runTier1Anchors` iterates `PRIORITY_SORTED_ANCHORS` and returns the FIRST anchor that fires.
-There is no disambiguation when multiple anchors could match the same document.
+| # | Cause | File | Confirmed in code |
+|---|-------|------|-------------------|
+| 1 | PFS has never existed in Tier 1 — only in Tier 2 | tier1Anchors.ts | `STRUCTURAL_ANCHORS` has no PFS entry |
+| 2 | `AnchorRule` has no `excludePatterns` field | types.ts | Field absent from type |
+| 3 | CREDIT_MEMO_STRUCTURAL searches `firstTwoPagesText` | tier1Anchors.ts | `formNumber: null` → `doc.firstTwoPagesText` branch in `runTier1Anchors` |
+| 4 | CREDIT_MEMO_STRUCTURAL positioned AFTER BALANCE_SHEET and INCOME_STMT | tier1Anchors.ts | Array order: BS → IS → BANK → COMMERCIAL_LEASE → **CREDIT_MEMO** |
+| 5 | Tier 3 model falls back to `gemini-2.0-flash` (retired) | tier3LLM.ts | `getClassifierModel()` fallback confirmed |
+| 6 | Tier 3 SYSTEM_PROMPT uses `LEASE` not `COMMERCIAL_LEASE`, no `CREDIT_MEMO` | tier3LLM.ts | Prompt text confirmed |
+| 7 | `confusionExamples.json` has 5 examples, none for CREDIT_MEMO or COMMERCIAL_LEASE | confusionExamples.json | File contents confirmed |
+| 8 | `docTypeRouting.ts` has no mapping for CREDIT_MEMO or COMMERCIAL_LEASE | docTypeRouting.ts | Neither appears in `normalizeToExtendedCanonical` or `ExtendedCanonicalType` |
 
-**The OGB PFS failure:**
-- The OGB Personal Financial Statement form contains a section literally titled "Section 3 – Balance Sheet"
-- BALANCE_SHEET_STRUCTURAL fires on "balance sheet" + "total assets" + "total liabilities"
-- Classification locks as BALANCE_SHEET before PFS is ever evaluated
-- This has happened on EVERY OGB PFS since day one
+### The OGB PFS failure (Cause 1 + 2)
 
-**The Credit Memo failure:**
-- Credit memos contain financial analysis tables (income, expenses, assets, liabilities)
-- Those tables trigger INCOME_STMT_STRUCTURAL or BALANCE_SHEET_STRUCTURAL
-- CREDIT_MEMO anchor is positioned after both of those in the array
-- Additionally, the critical signals (DSCR, recommendation, collateral) are on pages 3-6, outside firstTwoPagesText
+The OGB Personal Financial Statement form contains a section literally titled
+"Section 3 – Balance Sheet" with "total assets" and "total liabilities" rows.
+`BALANCE_SHEET_STRUCTURAL` fires on this. Since PFS has no Tier 1 anchor, the document
+is locked as BALANCE_SHEET before PFS is ever evaluated. This has happened on every
+OGB PFS since day one.
+
+**Fix:** Add `PERSONAL_FINANCIAL_STMT_STRUCTURAL` to `STRUCTURAL_ANCHORS` **before**
+`BALANCE_SHEET_STRUCTURAL`, and add `excludePatterns` to `BALANCE_SHEET_STRUCTURAL`
+as belt-and-suspenders.
+
+### The Credit Memo failure (Causes 3 + 4)
+
+`CREDIT_MEMO_STRUCTURAL` has `formNumber: null`. In `runTier1Anchors`, the search text
+is selected as `rule.formNumber ? doc.fullText : doc.firstTwoPagesText`. So CREDIT_MEMO
+searches only the first ~6000 chars. For a 17-page OGB loan worksheet, DSCR calculations
+and the recommendation section are on pages 3–6 — outside that window.
+
+Additionally, the anchor is positioned last in `STRUCTURAL_ANCHORS`, after
+`BALANCE_SHEET_STRUCTURAL` and `INCOME_STMT_STRUCTURAL`. Financial tables in credit memos
+fire those anchors first.
+
+**Fix:** Add `searchScope: "fullText"` to the anchor rule and respect it in
+`runTier1Anchors`. Move CREDIT_MEMO_STRUCTURAL to position 2 (after PFS, before
+BALANCE_SHEET).
+
+### The downstream routing gap (Cause 8)
+
+`docTypeRouting.ts` → `normalizeToExtendedCanonical()` has no case for `CREDIT_MEMO`
+or `COMMERCIAL_LEASE`. Both fall through to `return "OTHER"`. This means any document
+classified as `CREDIT_MEMO` or `COMMERCIAL_LEASE` in the AI tier is stored with
+`canonical_type = "OTHER"` in the `orchestrateIntake` code path — losing the
+classification. `ExtendedCanonicalType` also lacks both types.
+
+Note: `resolveChecklistKey("CREDIT_MEMO")` already returns `null` (Phase 72 fix) so
+CREDIT_MEMO docs will not trigger the reconcile invariant regardless of canonical_type.
+But the type should still round-trip correctly.
 
 ---
 
 ## The Fix — 5 Files
 
+---
+
 ### Edit 1: `src/lib/classification/types.ts`
 
-**Add two new optional fields to `AnchorRule`:**
-
-Find the `AnchorRule` type and add after `secondaryMinMatch`:
+**1a — Add two optional fields to `AnchorRule`, after `secondaryMinMatch`:**
 
 ```typescript
-/**
- * Exclusion patterns — if ANY of these match the search text,
- * this anchor is suppressed even if primary + secondary patterns match.
- * Used to prevent false positives on documents with shared vocabulary.
- */
-excludePatterns?: RegExp[];
+// BEFORE (end of AnchorRule type):
+  /** Minimum number of secondary patterns that must match (default: all) */
+  secondaryMinMatch?: number;
+};
 
-/**
- * Search scope for this anchor.
- * "firstTwoPages" — searches firstTwoPagesText (~6000 chars). Default.
- * "fullText" — searches fullText. Use for multi-page docs where signals
- *              appear beyond page 2 (e.g., credit memos, appraisals).
- */
-searchScope?: "firstTwoPages" | "fullText";
+// AFTER:
+  /** Minimum number of secondary patterns that must match (default: all) */
+  secondaryMinMatch?: number;
+  /**
+   * Exclusion patterns — if ANY of these match the search text,
+   * this anchor is suppressed even if primary + secondary patterns match.
+   * Used to prevent false positives on documents with shared vocabulary.
+   */
+  excludePatterns?: RegExp[];
+  /**
+   * Search scope for this anchor.
+   * "firstTwoPages" — searches firstTwoPagesText (~6000 chars). Default.
+   * "fullText"      — searches fullText. Required for multi-page docs where
+   *                   key signals appear beyond page 2 (e.g. credit memos).
+   */
+  searchScope?: "firstTwoPages" | "fullText";
+};
 ```
 
-**Also bump the schema version:**
+**1b — Bump schema version:**
 
 ```typescript
+// BEFORE:
+export const CLASSIFICATION_SCHEMA_VERSION = "v2.1";
+
+// AFTER:
 export const CLASSIFICATION_SCHEMA_VERSION = "v2.2";
 ```
 
@@ -77,108 +114,87 @@ export const CLASSIFICATION_SCHEMA_VERSION = "v2.2";
 
 ### Edit 2: `src/lib/classification/tier1Anchors.ts`
 
-This is the most important edit. Four changes:
+Three sub-changes. Read the file first, then apply all three atomically.
 
-#### 2a — Update `matchAnchor` to support excludePatterns and searchScope
+#### 2a — Update `matchAnchor` to support `excludePatterns`
 
-Replace the existing `matchAnchor` function with this version:
+The function signature stays `(rule: AnchorRule, text: string)` — do NOT change
+the signature. Add exclusion check after the primary pattern match:
 
 ```typescript
+// BEFORE:
 function matchAnchor(
   rule: AnchorRule,
-  doc: NormalizedDocument,
+  text: string,
 ): EvidenceItem | null {
-  // Resolve search text based on scope
-  const searchText = rule.searchScope === "fullText"
-    ? doc.fullText
-    : rule.formNumber
-      ? doc.fullText          // form number anchors always search fullText
-      : doc.firstTwoPagesText; // structural anchors default to firstTwoPages
+  const match = text.match(rule.pattern);
+  if (!match) return null;
 
-  const match = searchText.match(rule.pattern);
+  // Check secondary patterns if present
+  if (rule.secondaryPatterns && rule.secondaryPatterns.length > 0) {
+
+// AFTER:
+function matchAnchor(
+  rule: AnchorRule,
+  text: string,
+): EvidenceItem | null {
+  const match = text.match(rule.pattern);
   if (!match) return null;
 
   // Check exclusion patterns — if any match, suppress this anchor
   if (rule.excludePatterns && rule.excludePatterns.length > 0) {
     for (const ep of rule.excludePatterns) {
-      if (ep.test(searchText)) return null;
+      if (ep.test(text)) return null;
     }
   }
 
   // Check secondary patterns if present
   if (rule.secondaryPatterns && rule.secondaryPatterns.length > 0) {
-    const minMatch = rule.secondaryMinMatch ?? rule.secondaryPatterns.length;
-    let secondaryHits = 0;
-    for (const sp of rule.secondaryPatterns) {
-      if (sp.test(searchText)) secondaryHits++;
-    }
-    if (secondaryHits < minMatch) return null;
-  }
-
-  return {
-    type: rule.formNumber ? "form_match" : "structural_match",
-    anchorId: rule.anchorId,
-    matchedText: match[0],
-    confidence: rule.confidence,
-  };
-}
 ```
 
-**IMPORTANT:** The old `matchAnchor(rule, text)` signature takes a string. The new one takes `(rule, doc)`. Update `runTier1Anchors` accordingly — pass `doc` instead of `searchText`.
+#### 2b — Update `runTier1Anchors` to respect `searchScope`
 
-#### 2b — Update `runTier1Anchors` to pass doc instead of text
-
-Replace the loop inside `runTier1Anchors`:
-
+The existing search text selection is:
 ```typescript
-export function runTier1Anchors(doc: NormalizedDocument): Tier1Result {
-  for (const rule of PRIORITY_SORTED_ANCHORS) {
-    const evidence = matchAnchor(rule, doc);  // pass doc, not text
-
-    if (evidence) {
-      const formNumbers = extractFormNumbers(doc.fullText);
-      const taxYear =
-        rule.entityType === "personal" || rule.entityType === "business"
-          ? extractTaxYear(doc.fullText)
-          : null;
-
-      return {
-        matched: true,
-        docType: rule.docType,
-        confidence: rule.confidence,
-        anchorId: rule.anchorId,
-        evidence: [evidence],
-        formNumbers: formNumbers.length > 0 ? formNumbers : null,
-        taxYear,
-        entityType: rule.entityType,
-      };
-    }
-  }
-
-  return {
-    matched: false,
-    docType: null,
-    confidence: 0,
-    anchorId: null,
-    evidence: [],
-    formNumbers: null,
-    taxYear: null,
-    entityType: null,
-  };
-}
+const searchText = rule.formNumber ? doc.fullText : doc.firstTwoPagesText;
 ```
 
-#### 2c — Replace STRUCTURAL_ANCHORS with the corrected version
+Replace with:
+```typescript
+const searchText =
+  rule.searchScope === "fullText"
+    ? doc.fullText
+    : rule.formNumber
+      ? doc.fullText
+      : doc.firstTwoPagesText;
+```
 
-Replace the entire `STRUCTURAL_ANCHORS` array with this:
+The full updated loop looks like this (only the `searchText` line changes):
+```typescript
+  for (const rule of PRIORITY_SORTED_ANCHORS) {
+    const searchText =
+      rule.searchScope === "fullText"
+        ? doc.fullText
+        : rule.formNumber
+          ? doc.fullText
+          : doc.firstTwoPagesText;
+    const evidence = matchAnchor(rule, searchText);
+```
+
+#### 2c — Replace the entire `STRUCTURAL_ANCHORS` array
+
+Replace everything from `const STRUCTURAL_ANCHORS: AnchorRule[] = [` through
+the matching `];` with this:
 
 ```typescript
 const STRUCTURAL_ANCHORS: AnchorRule[] = [
 
   // ── PERSONAL FINANCIAL STATEMENT ────────────────────────────────────────
   // MUST come before BALANCE_SHEET_STRUCTURAL.
-  // The OGB PFS form contains "Section 3 – Balance Sheet" as a section header,
-  // which would trigger BALANCE_SHEET_STRUCTURAL without this guard.
+  // The OGB PFS form contains "Section 3 – Balance Sheet" as a section header
+  // with "total assets" and "total liabilities" rows — exactly what
+  // BALANCE_SHEET_STRUCTURAL fires on. Without this anchor firing first,
+  // every OGB PFS is misclassified as BALANCE_SHEET.
   {
     anchorId: "PERSONAL_FINANCIAL_STMT_STRUCTURAL",
     pattern: /personal\s+financial\s+statement/i,
@@ -195,10 +211,14 @@ const STRUCTURAL_ANCHORS: AnchorRule[] = [
 
   // ── CREDIT MEMO ─────────────────────────────────────────────────────────
   // MUST come before BALANCE_SHEET and INCOME_STATEMENT.
-  // Credit memos contain financial analysis tables (assets, liabilities, revenue)
-  // that would trigger those anchors if CREDIT_MEMO is positioned after them.
-  // searchScope: "fullText" because DSCR, collateral, and recommendation language
-  // typically appear on pages 3-6 of a 15-20 page credit memo, outside firstTwoPages.
+  // Credit memos contain financial analysis tables (assets, liabilities,
+  // revenue, expenses) that trigger those anchors if CREDIT_MEMO is
+  // positioned after them.
+  //
+  // searchScope: "fullText" is required. Credit memos are 15–20 pages.
+  // The firstTwoPagesText window (~6000 chars) reaches the cover and
+  // executive summary, but DSCR calculations, collateral description, and
+  // the banker recommendation section appear on pages 3–6.
   {
     anchorId: "CREDIT_MEMO_STRUCTURAL",
     pattern: /(?:loan\s+worksheet|officer\s+narrative|credit\s+memo(?:randum)?|credit\s+approval)/i,
@@ -234,10 +254,10 @@ const STRUCTURAL_ANCHORS: AnchorRule[] = [
   },
 
   // ── BALANCE SHEET ───────────────────────────────────────────────────────
-  // excludePatterns: suppressed when personal financial statement language
-  // is present — prevents PFS from being locked as BALANCE_SHEET.
-  // (Belt-and-suspenders: PERSONAL_FINANCIAL_STMT_STRUCTURAL fires first,
-  // but this exclusion catches edge cases where OCR garbles the PFS header.)
+  // excludePatterns: belt-and-suspenders against the OGB PFS failure mode.
+  // PERSONAL_FINANCIAL_STMT_STRUCTURAL fires first so BALANCE_SHEET_STRUCTURAL
+  // should not reach a PFS document. But if OCR garbles the PFS header,
+  // the exclusion catches it.
   {
     anchorId: "BALANCE_SHEET_STRUCTURAL",
     pattern: /balance\s+sheet|statement\s+of\s+financial\s+position/i,
@@ -251,6 +271,7 @@ const STRUCTURAL_ANCHORS: AnchorRule[] = [
       /net\s+worth.*personal/i,
     ],
     secondaryPatterns: [/total\s+assets/i, /total\s+liabilities/i],
+    // Both secondary patterns required (default: all)
   },
 
   // ── INCOME STATEMENT ────────────────────────────────────────────────────
@@ -278,6 +299,7 @@ const STRUCTURAL_ANCHORS: AnchorRule[] = [
     entityType: null,
     formNumber: null,
     secondaryPatterns: [/(?:ending|closing)\s+balance/i],
+    // Ending balance required (default: all)
   },
 ];
 ```
@@ -288,20 +310,24 @@ const STRUCTURAL_ANCHORS: AnchorRule[] = [
 
 Two changes:
 
-#### 3a — Fix the model fallback
+#### 3a — Fix the retired model fallback
 
-In `getClassifierModel()`, change the fallback:
 ```typescript
 // BEFORE:
-"gemini-2.0-flash"
+    process.env.GEMINI_CLASSIFIER_MODEL ||
+    process.env.GEMINI_MODEL ||
+    "gemini-2.0-flash"
 
 // AFTER:
-"gemini-2.5-flash"
+    process.env.GEMINI_CLASSIFIER_MODEL ||
+    process.env.GEMINI_MODEL ||
+    "gemini-2.5-flash"
 ```
 
 #### 3b — Replace the SYSTEM_PROMPT constant
 
-Replace the entire `SYSTEM_PROMPT` string with this:
+Replace the entire `const SYSTEM_PROMPT = \`...\`` string (from the backtick open
+through the closing backtick) with this:
 
 ```typescript
 const SYSTEM_PROMPT = `You are a document classifier for a commercial bank underwriting pipeline.
@@ -338,7 +364,7 @@ CRITICAL CONFUSION PAIRS (pay careful attention to these):
 2. PFS vs BALANCE_SHEET:
    - PFS = personal individual guarantor document. Has: personal real estate, vehicles, retirement accounts, life insurance cash value, net worth, personal income/expenses. Titled "Personal Financial Statement."
    - BALANCE_SHEET = business entity document. Has: business equipment, accounts receivable, inventory, retained earnings. Titled with a company name.
-   - KEY: A PFS may contain a section called "Balance Sheet" or "Statement of Financial Condition" — this does NOT make it a BALANCE_SHEET. Look at the overall document.
+   - KEY: A PFS may contain a section called "Balance Sheet" or "Statement of Financial Condition" — this does NOT make it a BALANCE_SHEET. Look at the overall document header.
    - If the document mentions an individual by name with personal assets → PFS
    - If the document mentions a company name with business assets → BALANCE_SHEET
 
@@ -387,7 +413,7 @@ Required JSON output:
 
 ### Edit 4: `src/lib/classification/confusionExamples.json`
 
-Replace the entire file with this expanded set:
+Replace the entire file contents with this:
 
 ```json
 [
@@ -474,7 +500,7 @@ Replace the entire file with this expanded set:
     "original_type": "LEASE",
     "corrected_type": "COMMERCIAL_LEASE",
     "signals": [
-      "this is the correct type — LEASE is deprecated, use COMMERCIAL_LEASE",
+      "LEASE is a deprecated type — always use COMMERCIAL_LEASE",
       "all lease documents should be classified as COMMERCIAL_LEASE"
     ]
   },
@@ -499,10 +525,10 @@ Replace the entire file with this expanded set:
   },
   {
     "original_type": "BALANCE_SHEET",
-    "corrected_type": "BALANCE_SHEET",
+    "corrected_type": "PFS",
     "signals": [
       "NOTE: OGB Personal Financial Statement form has a section titled 'Section 3 – Balance Sheet'",
-      "This does NOT make it a BALANCE_SHEET — look for 'Personal Financial Statement' in the header",
+      "This does NOT make it a BALANCE_SHEET — look for 'Personal Financial Statement' in the document header",
       "If the overall document header says 'Personal Financial Statement', classify as PFS"
     ]
   }
@@ -511,9 +537,139 @@ Replace the entire file with this expanded set:
 
 ---
 
-### Edit 5: `src/lib/classification/index.ts`
+### Edit 5: `src/lib/documents/docTypeRouting.ts`
 
-No changes needed here — verify it exports `classifyDocumentSpine`.
+Three sub-changes to this file. Read it first.
+
+#### 5a — Add to `ExtendedCanonicalType` union
+
+```typescript
+// BEFORE:
+export type ExtendedCanonicalType =
+  | "BUSINESS_TAX_RETURN"
+  | "PERSONAL_TAX_RETURN"
+  | "INCOME_STATEMENT"
+  | "BALANCE_SHEET"
+  | "PFS"
+  | "FINANCIAL_STATEMENT"
+  | "BANK_STATEMENT"
+  | "RENT_ROLL"
+  | "LEASE"
+  | "INSURANCE"
+  | "APPRAISAL"
+  | "ENTITY_DOCS"
+  | "DEBT_SCHEDULE"
+  | "OTHER";
+
+// AFTER:
+export type ExtendedCanonicalType =
+  | "BUSINESS_TAX_RETURN"
+  | "PERSONAL_TAX_RETURN"
+  | "INCOME_STATEMENT"
+  | "BALANCE_SHEET"
+  | "PFS"
+  | "FINANCIAL_STATEMENT"
+  | "BANK_STATEMENT"
+  | "RENT_ROLL"
+  | "LEASE"
+  | "COMMERCIAL_LEASE"
+  | "CREDIT_MEMO"
+  | "INSURANCE"
+  | "APPRAISAL"
+  | "ENTITY_DOCS"
+  | "DEBT_SCHEDULE"
+  | "OTHER";
+```
+
+#### 5b — Add normalization cases in `normalizeToExtendedCanonical`
+
+Add before the final `return "OTHER"`:
+
+```typescript
+// BEFORE (end of function):
+  return "OTHER";
+}
+
+// AFTER:
+  if (upper === "COMMERCIAL_LEASE" || upper === "LEASE_AGREEMENT")
+    return "COMMERCIAL_LEASE";
+
+  if (["CREDIT_MEMO", "LOAN_WORKSHEET", "OFFICER_NARRATIVE"].includes(upper))
+    return "CREDIT_MEMO";
+
+  return "OTHER";
+}
+```
+
+Note: the existing `if (upper === "LEASE") return "LEASE"` line stays unchanged —
+`LEASE` remains its own type for backward compat with older deal_documents rows.
+
+#### 5c — Add to `ROUTING_CLASS_MAP`
+
+```typescript
+// BEFORE:
+  // GEMINI_STANDARD: Standard single-pass OCR
+  RENT_ROLL: "GEMINI_STANDARD",
+  LEASE: "GEMINI_STANDARD",
+
+// AFTER:
+  // GEMINI_STANDARD: Standard single-pass OCR
+  RENT_ROLL: "GEMINI_STANDARD",
+  LEASE: "GEMINI_STANDARD",
+  COMMERCIAL_LEASE: "GEMINI_STANDARD",
+  CREDIT_MEMO: "GEMINI_STANDARD",
+```
+
+---
+
+## Implementation Notes
+
+1. **No signature change to `matchAnchor`.** The function stays `(rule: AnchorRule, text: string)`.
+   The original spec incorrectly proposed changing it to take `NormalizedDocument`. That's
+   unnecessary — `runTier1Anchors` already handles text selection before calling `matchAnchor`.
+
+2. **CREDIT_MEMO_STRUCTURAL already existed** in the Phase 80 code. Edit 2c replaces the
+   entire `STRUCTURAL_ANCHORS` array. Do not attempt a targeted patch — replace the whole block
+   to ensure correct ordering.
+
+3. **`searchScope: "fullText"`** on `CREDIT_MEMO_STRUCTURAL` works because Edit 2b adds the
+   scope check in `runTier1Anchors`. Without Edit 2b, the field would be silently ignored.
+
+4. **`resolveChecklistKey("CREDIT_MEMO")` returns `null`** (Phase 72 fix). Adding CREDIT_MEMO
+   to `docTypeRouting.ts` does NOT re-introduce the Phase 72 invariant. The reconcile check
+   only fires when `resolveChecklistKey` returns a non-null key — which it no longer does for
+   CREDIT_MEMO.
+
+5. **TypeScript**: After adding `COMMERCIAL_LEASE` and `CREDIT_MEMO` to `ExtendedCanonicalType`,
+   TypeScript will require both to appear in `ROUTING_CLASS_MAP`. Edit 5c satisfies this.
+   Run `npx tsc --noEmit` after all edits to confirm 0 errors.
+
+6. **Do NOT add filename-based classification at any tier.** Filenames are untrusted client
+   input. Classification must be content-based only.
+
+---
+
+## Verification Checklist
+
+After all 5 edits, Claude Code must confirm:
+
+- [ ] `CLASSIFICATION_SCHEMA_VERSION` is `"v2.2"` in `types.ts`
+- [ ] `AnchorRule` type has `excludePatterns?: RegExp[]` and `searchScope?: "firstTwoPages" | "fullText"`
+- [ ] `matchAnchor(rule, text: string)` — signature unchanged, but now checks `rule.excludePatterns`
+- [ ] `runTier1Anchors` selects search text using `rule.searchScope === "fullText"` check
+- [ ] `STRUCTURAL_ANCHORS` array order: PFS → CREDIT_MEMO → COMMERCIAL_LEASE → BALANCE_SHEET → INCOME_STMT → BANK_STMT
+- [ ] `CREDIT_MEMO_STRUCTURAL` has `searchScope: "fullText"`
+- [ ] `BALANCE_SHEET_STRUCTURAL` has `excludePatterns` array
+- [ ] `PERSONAL_FINANCIAL_STMT_STRUCTURAL` is in the array (it was not there before)
+- [ ] `tier3LLM.ts` fallback is `"gemini-2.5-flash"` not `"gemini-2.0-flash"`
+- [ ] `SYSTEM_PROMPT` contains `COMMERCIAL_LEASE` and `CREDIT_MEMO` as doc types
+- [ ] `SYSTEM_PROMPT` does NOT contain `LEASE` as a standalone doc type
+- [ ] `confusionExamples.json` has 12 examples (was 5)
+- [ ] `ExtendedCanonicalType` includes `COMMERCIAL_LEASE` and `CREDIT_MEMO`
+- [ ] `normalizeToExtendedCanonical("CREDIT_MEMO")` returns `"CREDIT_MEMO"`
+- [ ] `normalizeToExtendedCanonical("COMMERCIAL_LEASE")` returns `"COMMERCIAL_LEASE"`
+- [ ] `ROUTING_CLASS_MAP` has entries for both
+- [ ] `npx tsc --noEmit` — 0 new errors
 
 ---
 
@@ -524,24 +680,10 @@ After implementation, the following documents must classify correctly:
 | Document | Expected Type | Key Signals |
 |----------|--------------|-------------|
 | OGB Personal Financial Statement | PFS | "Personal Financial Statement" header despite containing "Section 3 – Balance Sheet" |
-| OGB Loan Worksheet / Credit Memo | CREDIT_MEMO | "Loan Worksheet" header + DSCR + Recommendation |
+| OGB Loan Worksheet / Credit Memo | CREDIT_MEMO | "Loan Worksheet" header + DSCR + Recommendation (signals on pages 3–6, requires fullText search) |
 | Road Star First Amendment to Lease | COMMERCIAL_LEASE | "Amendment to Lease" + Landlord/Tenant + rent schedule |
 | Ellmann & Ellmann P&L (accrual) | INCOME_STATEMENT | Revenue/expenses/net income structure |
 | BTR 2024 Ellmann | IRS_BUSINESS | Business tax return signals |
 | PTR 2023 Ellmann | IRS_PERSONAL | Personal tax return signals |
 
-## Schema Version
-
-Bump `CLASSIFICATION_SCHEMA_VERSION` in `types.ts` to `"v2.2"` after all edits are complete.
-
-## Implementation Notes
-
-1. The `matchAnchor` function signature change (string → NormalizedDocument) is the only breaking change. The function is private to tier1Anchors.ts so no external callers are affected.
-
-2. The `searchScope: "fullText"` on CREDIT_MEMO_STRUCTURAL is intentional and necessary. Credit memos are 15-20 pages. The firstTwoPagesText window (~6000 chars) catches the header but misses DSCR, collateral, and recommendation language on later pages.
-
-3. The `excludePatterns` on BALANCE_SHEET_STRUCTURAL is belt-and-suspenders. The PFS anchor fires first, so BALANCE_SHEET should rarely reach excludePatterns check on a PFS document. But if OCR garbles the "Personal Financial Statement" header, the exclusion catches it.
-
-4. Do NOT add filename-based classification at any tier. Filenames are untrusted client input. Architecture decision: classification must be content-based only.
-
-5. TypeScript exhaustiveness: after adding `searchScope` and `excludePatterns` as optional fields to `AnchorRule`, no existing usage breaks since both are optional.
+Write the AAR confirming which test cases pass before starting Phase 82.
