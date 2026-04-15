@@ -425,7 +425,91 @@ export async function runMission(
         const bieResult = await runBuddyIntelligenceEngine(bieInput);
 
         if (bieResult.research_quality !== "minimal") {
-          const bieSections = buildBIENarrativeSections(bieResult);
+          // Build BIE sections — mutable so we can apply the hallucination guard below
+          let bieSections = buildBIENarrativeSections(bieResult);
+
+          // ── Layer 2: Management Intelligence Hallucination Guard ────────────────
+          // Before storing, validate that the Management Intelligence section only
+          // names principals who appear in the deal's actual ownership_entities.
+          //
+          // Root cause being defended against: Gemini searches the web for the
+          // company_name and may find similarly-named real-world companies, then
+          // generates management profiles for those companies' actual executives.
+          // Those profiles get stored under the deal as if they're the borrower's
+          // management team — a critical trust violation for a regulated platform.
+          //
+          // Defense: extract last names from known principals, scan the section
+          // text for them. If zero match AND we have known principals on file,
+          // strip the section before storage (log it for observability).
+          //
+          // Note: Layer 1 (root cause prevention) is the display_name fix in
+          // research/run/route.ts which ensures principals are populated correctly.
+          // Layer 3 is the memo render guard in loadResearchForMemo.ts.
+          const knownPrincipals: Array<{ name: string; title: string | null }> =
+            (subject as any).principals ?? [];
+
+          if (knownPrincipals.length > 0) {
+            // Build a set of last names (lowercased) for fuzzy matching
+            const knownLastNames = new Set(
+              knownPrincipals
+                .map((p) => p.name.trim().split(/\s+/).pop()?.toLowerCase())
+                .filter((s): s is string => typeof s === "string" && s.length > 1)
+            );
+
+            const mgmtSectionIdx = bieSections.findIndex(
+              (s: any) => (s.title as string) === "Management Intelligence"
+            );
+
+            if (mgmtSectionIdx !== -1) {
+              const mgmtSection = bieSections[mgmtSectionIdx] as any;
+              const sectionText = (mgmtSection.sentences ?? [])
+                .map((s: any) => String(s.text ?? ""))
+                .join(" ")
+                .toLowerCase();
+
+              const anyKnownPrincipalMentioned = [...knownLastNames].some((lastName) =>
+                sectionText.includes(lastName)
+              );
+
+              if (!anyKnownPrincipalMentioned) {
+                // The section names people we don't recognize — strip it.
+                // The Monitoring Triggers section often references the same management
+                // names (e.g. "departure of Tim J. Shrout"), so scrub that too.
+                const SCRUB_TITLES = new Set(["Management Intelligence", "Monitoring Triggers"]);
+                bieSections = bieSections.filter((s: any) => !SCRUB_TITLES.has(s.title as string));
+
+                console.warn(
+                  `[runMission] HALLUCINATION GUARD: BIE Management Intelligence section ` +
+                  `scrubbed for deal ${dealId}. Known principals: [${[...knownLastNames].join(", ")}]. ` +
+                  `None found in generated output — likely web-scraped profiles from a ` +
+                  `similarly-named real-world company. Section removed before DB storage.`
+                );
+              } else {
+                console.log(
+                  `[runMission] BIE Management Intelligence validated for deal ${dealId}: ` +
+                  `known principal(s) confirmed in output text.`
+                );
+              }
+            }
+          } else {
+            // No known principals on file — we have nothing to validate against.
+            // Strip Management Intelligence entirely as a safety measure: without
+            // ground-truth owners we cannot tell if the output is accurate.
+            const hasMgmtSection = bieSections.some(
+              (s: any) => (s.title as string) === "Management Intelligence"
+            );
+            if (hasMgmtSection) {
+              const SCRUB_TITLES = new Set(["Management Intelligence", "Monitoring Triggers"]);
+              bieSections = bieSections.filter((s: any) => !SCRUB_TITLES.has(s.title as string));
+              console.warn(
+                `[runMission] HALLUCINATION GUARD: Management Intelligence section scrubbed ` +
+                `for deal ${dealId} — no ownership_entities found for this deal so output ` +
+                `cannot be validated against actual owners. Section removed before DB storage.`
+              );
+            }
+          }
+          // ── End Management Intelligence Hallucination Guard ─────────────────────
+
           const sb2 = supabaseAdmin();
           const { error: bieUpsertErr } = await (sb2 as any)
             .from("buddy_research_narratives")
@@ -437,7 +521,7 @@ export async function runMission(
             console.warn("[runMission] BIE narrative upsert failed:", bieUpsertErr.message);
           } else {
             console.log(
-              `[runMission] BIE complete: quality=${bieResult.research_quality}, sources=${bieResult.sources_used.length}`,
+              `[runMission] BIE complete: quality=${bieResult.research_quality}, sources=${bieResult.sources_used.length}, sections=${bieSections.length}`,
             );
           }
         } else {
