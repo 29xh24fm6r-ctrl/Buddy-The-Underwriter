@@ -49,7 +49,7 @@ function getClassifierModel(): string {
   return (
     process.env.GEMINI_CLASSIFIER_MODEL ||
     process.env.GEMINI_MODEL ||
-    "gemini-2.0-flash"
+    "gemini-2.5-flash"
   );
 }
 
@@ -99,12 +99,12 @@ Given a document (text), classify it into exactly one doc_type.
 Return ONLY valid JSON matching the schema below.
 
 DOCUMENT TYPES (choose the most specific match):
-- IRS_BUSINESS: Business tax returns (Form 1120, 1120S, 1065, and their schedules — NOT K-1)
+- IRS_BUSINESS: Business tax returns (Form 1120, 1120S, 1065 and schedules — NOT K-1)
 - IRS_PERSONAL: Personal tax returns (Form 1040 and schedules — NOT K-1, NOT W-2, NOT 1099)
-- PFS: Personal Financial Statement / SBA Form 413 / guarantor statement showing personal assets, liabilities, net worth
+- PFS: Personal Financial Statement / SBA Form 413 — an INDIVIDUAL GUARANTOR'S personal assets, liabilities, and net worth. NOT a business balance sheet.
 - RENT_ROLL: Rent roll / tenant list showing tenants, units, rents, expirations
 - INCOME_STATEMENT: Income statement, P&L, operating statement, monthly financials
-- BALANCE_SHEET: Balance sheet / statement of financial position (business)
+- BALANCE_SHEET: Balance sheet / statement of financial position for a BUSINESS ENTITY (not a person)
 - BANK_STATEMENT: Bank account statement with transactions
 - K1: Schedule K-1 (from 1065, 1120-S, or trust)
 - W2: W-2 wage and tax statement
@@ -114,31 +114,42 @@ DOCUMENT TYPES (choose the most specific match):
 - OPERATING_AGREEMENT: LLC operating agreement
 - INSURANCE: Insurance certificate or policy
 - APPRAISAL: Property appraisal report
-- LEASE: Commercial lease agreement
+- COMMERCIAL_LEASE: Commercial lease agreement, lease amendment, NNN lease, or office/retail lease with a rent schedule and defined Landlord/Tenant parties
+- CREDIT_MEMO: Internal bank credit memo, loan worksheet, officer narrative, or prior-approved credit package. Contains DSCR calculations, collateral descriptions, and a banker recommendation/approval section.
 - OTHER: Cannot determine type
 
-CRITICAL CONFUSION PAIRS (pay careful attention):
+CRITICAL CONFUSION PAIRS (pay careful attention to these):
 
 1. Form 1065 vs Schedule K-1:
-   - Form 1065 is the PARTNERSHIP RETURN itself (classify as IRS_BUSINESS)
-   - Schedule K-1 is a PARTNER'S DISTRIBUTIVE SHARE (classify as K1)
-   - If you see "Schedule K-1 (Form 1065)" — this is a K-1, NOT a 1065
+   - Form 1065 is the PARTNERSHIP RETURN (IRS_BUSINESS)
+   - Schedule K-1 is a PARTNER'S SHARE statement (K1)
+   - "Schedule K-1 (Form 1065)" → K1, not IRS_BUSINESS
 
-2. PFS vs Balance Sheet:
-   - PFS has PERSONAL assets/liabilities/net worth for an INDIVIDUAL guarantor
-   - Balance Sheet is a BUSINESS financial statement with business assets/liabilities
-   - If it mentions a person's name with personal real estate, bank accounts → PFS
-   - If it mentions a company with business equipment, accounts receivable → BALANCE_SHEET
+2. PFS vs BALANCE_SHEET:
+   - PFS = personal individual guarantor document. Has: personal real estate, vehicles, retirement accounts, life insurance cash value, net worth, personal income/expenses. Titled "Personal Financial Statement."
+   - BALANCE_SHEET = business entity document. Has: business equipment, accounts receivable, inventory, retained earnings. Titled with a company name.
+   - KEY: A PFS may contain a section called "Balance Sheet" or "Statement of Financial Condition" — this does NOT make it a BALANCE_SHEET. Look at the overall document.
+   - If the document mentions an individual by name with personal assets → PFS
+   - If the document mentions a company name with business assets → BALANCE_SHEET
 
-3. YTD P&L vs Annual P&L:
-   - Both are INCOME_STATEMENT (not different types)
-   - Check period dates to determine partial vs full year
+3. CREDIT_MEMO vs BALANCE_SHEET / INCOME_STATEMENT:
+   - Credit memos contain financial analysis tables (income, expenses, assets) but that is NOT the document's primary purpose
+   - Credit memos are identified by: "Loan Worksheet", "Officer Narrative", "DSCR", "Debt Service Coverage Ratio", "Collateral Description", "Recommendation", banker approval signatures
+   - If you see DSCR calculations AND a banker recommendation → CREDIT_MEMO
+   - Do not let the presence of financial tables override these primary signals
 
-4. Bank Statement vs Transaction Export:
-   - Bank statements have bank branding, account numbers, running balances
-   - CSV/Excel exports with just transactions are still BANK_STATEMENT
+4. COMMERCIAL_LEASE vs OTHER:
+   - Commercial leases have: defined Landlord and Tenant parties, a rent schedule with dollar amounts per period, commencement and expiration dates, lease term in months
+   - "First Amendment to Lease", "NNN", "plus utilities" are strong lease signals
+   - If a document has a rent table and defined Landlord/Tenant → COMMERCIAL_LEASE
 
-IMPORTANT: Do NOT classify any document as T12. Use INCOME_STATEMENT for P&L and operating statement documents.
+5. YTD P&L vs Annual P&L:
+   - Both → INCOME_STATEMENT. Not different types.
+
+6. Bank Statement vs Transaction Export:
+   - Both → BANK_STATEMENT
+
+IMPORTANT: Do NOT classify any document as T12 or LEASE. Use INCOME_STATEMENT for P&L. Use COMMERCIAL_LEASE for leases.
 
 CONFIDENCE RULES:
 - 0.85+: High confidence (clear signals)

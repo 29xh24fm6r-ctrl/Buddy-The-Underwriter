@@ -30,9 +30,11 @@
     "original_type": "BALANCE_SHEET",
     "corrected_type": "PFS",
     "signals": [
-      "titled 'Personal Financial Statement' or 'Statement of Personal Assets'",
-      "lists personal real estate, vehicles, retirement accounts",
-      "signed by individual not corporate officer"
+      "titled 'Personal Financial Statement'",
+      "lists personal real estate, vehicles, retirement accounts, life insurance cash value",
+      "signed by individual — not a corporate officer signing on behalf of entity",
+      "contains personal income and expense section",
+      "has 'net worth' as primary bottom-line figure"
     ]
   },
   {
@@ -42,6 +44,74 @@
       "Form 1120S or 1065 header present",
       "shows corporate or partnership income",
       "EIN present, not SSN"
+    ]
+  },
+  {
+    "original_type": "BALANCE_SHEET",
+    "corrected_type": "CREDIT_MEMO",
+    "signals": [
+      "document is an internal bank loan worksheet or officer narrative",
+      "contains DSCR (Debt Service Coverage Ratio) calculation",
+      "has a 'Recommendation' or 'Approval' section with banker signatures",
+      "financial tables are supporting analysis, not the primary content",
+      "collateral description and LTV ratio present"
+    ]
+  },
+  {
+    "original_type": "INCOME_STATEMENT",
+    "corrected_type": "CREDIT_MEMO",
+    "signals": [
+      "document contains 'Officer Narrative' or 'Executive Summary' section",
+      "DSCR and annual debt service calculations present",
+      "recommendation to approve or decline a loan request",
+      "income statement data is embedded analysis, not the standalone document"
+    ]
+  },
+  {
+    "original_type": "OTHER",
+    "corrected_type": "COMMERCIAL_LEASE",
+    "signals": [
+      "document defines Landlord and Tenant as named parties",
+      "contains a rent schedule with monthly dollar amounts per period",
+      "has commencement date and expiration date",
+      "titled 'Lease Agreement', 'First Amendment to Lease', or similar",
+      "'NNN' or 'plus utilities' language present"
+    ]
+  },
+  {
+    "original_type": "LEASE",
+    "corrected_type": "COMMERCIAL_LEASE",
+    "signals": [
+      "this is the correct type — LEASE is deprecated, use COMMERCIAL_LEASE",
+      "all lease documents should be classified as COMMERCIAL_LEASE"
+    ]
+  },
+  {
+    "original_type": "INCOME_STATEMENT",
+    "corrected_type": "COMMERCIAL_LEASE",
+    "signals": [
+      "document has periodic payment table that looks like P&L",
+      "but parties are named Landlord and Tenant, not income/expense categories",
+      "dollar amounts represent rent payments, not revenue"
+    ]
+  },
+  {
+    "original_type": "PFS",
+    "corrected_type": "BALANCE_SHEET",
+    "signals": [
+      "document is for a business entity, not an individual",
+      "lists business equipment, accounts receivable, inventory",
+      "retained earnings present instead of personal net worth",
+      "no personal real estate or vehicles listed for an individual"
+    ]
+  },
+  {
+    "original_type": "BALANCE_SHEET",
+    "corrected_type": "BALANCE_SHEET",
+    "signals": [
+      "NOTE: OGB Personal Financial Statement form has a section titled 'Section 3 – Balance Sheet'",
+      "This does NOT make it a BALANCE_SHEET — look for 'Personal Financial Statement' in the header",
+      "If the overall document header says 'Personal Financial Statement', classify as PFS"
     ]
   }
 ]

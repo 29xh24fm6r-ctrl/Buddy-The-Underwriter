@@ -209,43 +209,49 @@ const FORM_ANCHORS: AnchorRule[] = [
 
 /** Structural anchors — require multiple signals */
 const STRUCTURAL_ANCHORS: AnchorRule[] = [
+
+  // ── PERSONAL FINANCIAL STATEMENT ────────────────────────────────────────
+  // MUST come before BALANCE_SHEET_STRUCTURAL.
+  // The OGB PFS form contains "Section 3 – Balance Sheet" as a section header,
+  // which would trigger BALANCE_SHEET_STRUCTURAL without this guard.
   {
-    anchorId: "BALANCE_SHEET_STRUCTURAL",
-    pattern: /balance\s+sheet|statement\s+of\s+financial\s+position/i,
-    docType: "BALANCE_SHEET",
+    anchorId: "PERSONAL_FINANCIAL_STMT_STRUCTURAL",
+    pattern: /personal\s+financial\s+statement/i,
+    docType: "PFS",
+    confidence: 0.94,
+    entityType: "personal",
+    formNumber: null,
+    secondaryPatterns: [
+      /net\s+worth/i,
+      /(?:total\s+assets|total\s+liabilities)/i,
+    ],
+    secondaryMinMatch: 2,
+  },
+
+  // ── CREDIT MEMO ─────────────────────────────────────────────────────────
+  // MUST come before BALANCE_SHEET and INCOME_STATEMENT.
+  // Credit memos contain financial analysis tables (assets, liabilities, revenue)
+  // that would trigger those anchors if CREDIT_MEMO is positioned after them.
+  // searchScope: "fullText" because DSCR, collateral, and recommendation language
+  // typically appear on pages 3-6 of a 15-20 page credit memo, outside firstTwoPages.
+  {
+    anchorId: "CREDIT_MEMO_STRUCTURAL",
+    pattern: /(?:loan\s+worksheet|officer\s+narrative|credit\s+memo(?:randum)?|credit\s+approval)/i,
+    docType: "CREDIT_MEMO",
     confidence: 0.93,
     entityType: null,
     formNumber: null,
-    secondaryPatterns: [/total\s+assets/i, /total\s+liabilities/i],
-    // Both secondary patterns required
-  },
-  {
-    anchorId: "INCOME_STMT_STRUCTURAL",
-    pattern: /income\s+statement|profit\s+and\s+loss|profit\s*&\s*loss|statement\s+of\s+operations|operating\s+results|income\s+summary/i,
-    docType: "INCOME_STATEMENT",
-    confidence: 0.92,
-    entityType: null,
-    formNumber: null,
+    searchScope: "fullText",
     secondaryPatterns: [
-      /(?:total\s+)?(?:revenue|sales|income)/i,
-      /(?:total\s+)?(?:expenses?|operating\s+expenses?)/i,
-      /net\s+(?:income|loss|profit)/i,
+      /(?:debt\s+service\s+coverage|dscr)/i,
+      /(?:collateral\s+description|collateral\s+offered)/i,
+      /(?:recommend(?:ation)?|approve|approval)/i,
+      /(?:loan\s+amount|loan\s+term|interest\s+rate)/i,
     ],
-    secondaryMinMatch: 2, // At least 2 of 3
-  },
-  {
-    anchorId: "BANK_STMT_STRUCTURAL",
-    pattern: /(?:beginning|opening)\s+balance/i,
-    docType: "BANK_STATEMENT",
-    confidence: 0.91,
-    entityType: null,
-    formNumber: null,
-    secondaryPatterns: [/(?:ending|closing)\s+balance/i],
-    // Ending balance required
+    secondaryMinMatch: 2,
   },
 
-  // --- v2.2 additions ---
-
+  // ── COMMERCIAL LEASE ────────────────────────────────────────────────────
   {
     anchorId: "COMMERCIAL_LEASE_STRUCTURAL",
     pattern: /(?:lease\s+agreement|amendment\s+to\s+lease|professional\s+office\s+lease|commercial\s+lease)/i,
@@ -262,20 +268,51 @@ const STRUCTURAL_ANCHORS: AnchorRule[] = [
     secondaryMinMatch: 2,
   },
 
+  // ── BALANCE SHEET ───────────────────────────────────────────────────────
+  // excludePatterns: suppressed when personal financial statement language
+  // is present — prevents PFS from being locked as BALANCE_SHEET.
+  // (Belt-and-suspenders: PERSONAL_FINANCIAL_STMT_STRUCTURAL fires first,
+  // but this exclusion catches edge cases where OCR garbles the PFS header.)
   {
-    anchorId: "CREDIT_MEMO_STRUCTURAL",
-    pattern: /(?:loan\s+worksheet|officer\s+narrative|credit\s+memo(?:randum)?|credit\s+approval)/i,
-    docType: "CREDIT_MEMO",
+    anchorId: "BALANCE_SHEET_STRUCTURAL",
+    pattern: /balance\s+sheet|statement\s+of\s+financial\s+position/i,
+    docType: "BALANCE_SHEET",
     confidence: 0.93,
     entityType: null,
     formNumber: null,
+    excludePatterns: [
+      /personal\s+financial\s+statement/i,
+      /statement\s+of\s+personal/i,
+      /net\s+worth.*personal/i,
+    ],
+    secondaryPatterns: [/total\s+assets/i, /total\s+liabilities/i],
+  },
+
+  // ── INCOME STATEMENT ────────────────────────────────────────────────────
+  {
+    anchorId: "INCOME_STMT_STRUCTURAL",
+    pattern: /income\s+statement|profit\s+and\s+loss|profit\s*&\s*loss|statement\s+of\s+operations|operating\s+results|income\s+summary/i,
+    docType: "INCOME_STATEMENT",
+    confidence: 0.92,
+    entityType: null,
+    formNumber: null,
     secondaryPatterns: [
-      /(?:debt\s+service\s+coverage|dscr)/i,
-      /(?:collateral\s+description|collateral\s+offered)/i,
-      /(?:recommend(?:ation)?|approve|approval)/i,
-      /(?:loan\s+amount|loan\s+term|interest\s+rate)/i,
+      /(?:total\s+)?(?:revenue|sales|income)/i,
+      /(?:total\s+)?(?:expenses?|operating\s+expenses?)/i,
+      /net\s+(?:income|loss|profit)/i,
     ],
     secondaryMinMatch: 2,
+  },
+
+  // ── BANK STATEMENT ──────────────────────────────────────────────────────
+  {
+    anchorId: "BANK_STMT_STRUCTURAL",
+    pattern: /(?:beginning|opening)\s+balance/i,
+    docType: "BANK_STATEMENT",
+    confidence: 0.91,
+    entityType: null,
+    formNumber: null,
+    secondaryPatterns: [/(?:ending|closing)\s+balance/i],
   },
 ];
 
@@ -296,17 +333,31 @@ const PRIORITY_SORTED_ANCHORS: AnchorRule[] = [
 
 function matchAnchor(
   rule: AnchorRule,
-  text: string,
+  doc: NormalizedDocument,
 ): EvidenceItem | null {
-  const match = text.match(rule.pattern);
+  // Resolve search text based on scope
+  const searchText = rule.searchScope === "fullText"
+    ? doc.fullText
+    : rule.formNumber
+      ? doc.fullText          // form number anchors always search fullText
+      : doc.firstTwoPagesText; // structural anchors default to firstTwoPages
+
+  const match = searchText.match(rule.pattern);
   if (!match) return null;
+
+  // Check exclusion patterns — if any match, suppress this anchor
+  if (rule.excludePatterns && rule.excludePatterns.length > 0) {
+    for (const ep of rule.excludePatterns) {
+      if (ep.test(searchText)) return null;
+    }
+  }
 
   // Check secondary patterns if present
   if (rule.secondaryPatterns && rule.secondaryPatterns.length > 0) {
     const minMatch = rule.secondaryMinMatch ?? rule.secondaryPatterns.length;
     let secondaryHits = 0;
     for (const sp of rule.secondaryPatterns) {
-      if (sp.test(text)) secondaryHits++;
+      if (sp.test(searchText)) secondaryHits++;
     }
     if (secondaryHits < minMatch) return null;
   }
@@ -329,11 +380,8 @@ function matchAnchor(
  * If matched → classification is LOCKED. Tier 2 and Tier 3 cannot override.
  */
 export function runTier1Anchors(doc: NormalizedDocument): Tier1Result {
-  // Search full text for form anchors (form numbers can appear anywhere)
-  // Use firstTwoPagesText for structural anchors (header signals are early)
   for (const rule of PRIORITY_SORTED_ANCHORS) {
-    const searchText = rule.formNumber ? doc.fullText : doc.firstTwoPagesText;
-    const evidence = matchAnchor(rule, searchText);
+    const evidence = matchAnchor(rule, doc);  // pass doc, not text
 
     if (evidence) {
       const formNumbers = extractFormNumbers(doc.fullText);

@@ -14,7 +14,7 @@ export type { ClassificationTier, DocAiSignals } from "@/lib/artifacts/classifyD
 // ---------------------------------------------------------------------------
 
 /** Bump on any anchor/pattern/prompt change. No silent behavior shifts. */
-export const CLASSIFICATION_SCHEMA_VERSION = "v2.1";
+export const CLASSIFICATION_SCHEMA_VERSION = "v2.2";
 
 // ---------------------------------------------------------------------------
 // Spine Classification Tier
@@ -73,6 +73,19 @@ export type AnchorRule = {
   secondaryPatterns?: RegExp[];
   /** Minimum number of secondary patterns that must match (default: all) */
   secondaryMinMatch?: number;
+  /**
+   * Exclusion patterns — if ANY of these match the search text,
+   * this anchor is suppressed even if primary + secondary patterns match.
+   * Used to prevent false positives on documents with shared vocabulary.
+   */
+  excludePatterns?: RegExp[];
+  /**
+   * Search scope for this anchor.
+   * "firstTwoPages" — searches firstTwoPagesText (~6000 chars). Default.
+   * "fullText" — searches fullText. Use for multi-page docs where signals
+   *              appear beyond page 2 (e.g., credit memos, appraisals).
+   */
+  searchScope?: "firstTwoPages" | "fullText";
 };
 
 // ---------------------------------------------------------------------------

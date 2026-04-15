@@ -40,11 +40,12 @@ export type ExtendedCanonicalType =
   | "FINANCIAL_STATEMENT"
   | "BANK_STATEMENT"
   | "RENT_ROLL"
-  | "LEASE"
   | "INSURANCE"
   | "APPRAISAL"
   | "ENTITY_DOCS"
   | "DEBT_SCHEDULE"
+  | "COMMERCIAL_LEASE"
+  | "CREDIT_MEMO"
   | "OTHER";
 
 export type DocTypeRoutingResult = {
@@ -122,7 +123,8 @@ function normalizeToExtendedCanonical(raw: string): ExtendedCanonicalType {
   // ─── Standard Types ───────────────────────────────────────
   if (upper === "BANK_STATEMENT") return "BANK_STATEMENT";
   if (upper === "RENT_ROLL") return "RENT_ROLL";
-  if (upper === "LEASE") return "LEASE";
+  if (upper === "LEASE" || upper === "COMMERCIAL_LEASE") return "COMMERCIAL_LEASE";
+  if (upper === "CREDIT_MEMO") return "CREDIT_MEMO";
   if (["INSURANCE", "COI", "INSURANCE_CERT"].includes(upper))
     return "INSURANCE";
   if (["APPRAISAL", "ENVIRONMENTAL", "SCHEDULE_OF_RE"].includes(upper))
@@ -175,7 +177,8 @@ const ROUTING_CLASS_MAP: Record<ExtendedCanonicalType, RoutingClass> = {
 
   // GEMINI_STANDARD: Standard single-pass OCR
   RENT_ROLL: "GEMINI_STANDARD",
-  LEASE: "GEMINI_STANDARD",
+  COMMERCIAL_LEASE: "GEMINI_STANDARD",
+  CREDIT_MEMO: "GEMINI_STANDARD",
   INSURANCE: "GEMINI_STANDARD",
   APPRAISAL: "GEMINI_STANDARD",
   ENTITY_DOCS: "GEMINI_STANDARD",
