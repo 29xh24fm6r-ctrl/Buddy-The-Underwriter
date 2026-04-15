@@ -40,6 +40,9 @@ type Params = Promise<{ dealId: string }>;
  * Ghost column corrections (verified against DB schema):
  * - financial_snapshots_v2.is_active does not exist → use financial_snapshots (latest by created_at)
  * - ai_risk_runs.status does not exist → column removed; row presence = complete
+ *
+ * Step 6 (Committee Packet) requires decision_snapshots row — packet generate
+ * route returns 400 without one. Surface this as a blocker in the UI.
  */
 export async function GET(
   _req: NextRequest,
@@ -62,6 +65,7 @@ export async function GET(
       memoRes,
       researchRes,
       packetEventRes,
+      decisionSnapshotRes,
     ] = await Promise.all([
       // 1. Workspace — spread status
       sb.from("underwriting_workspaces")
@@ -103,11 +107,20 @@ export async function GET(
         .limit(1)
         .maybeSingle(),
 
-      // 6. Committee packet — latest generation event
+      // 6a. Committee packet — latest generation event
       sb.from("deal_events")
         .select("created_at")
         .eq("deal_id", dealId)
         .eq("kind", "deal.committee.packet.generated")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+
+      // 6b. Decision snapshot — required by packet generate route.
+      //     Without this, the packet endpoint returns 400.
+      sb.from("decision_snapshots")
+        .select("id, created_at")
+        .eq("deal_id", dealId)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
@@ -119,6 +132,7 @@ export async function GET(
     const memo = memoRes.data;
     const research = researchRes.data;
     const packetEvent = packetEventRes.data;
+    const decisionSnapshot = decisionSnapshotRes.data;
 
     // ── Build steps ──────────────────────────────────────────────────────
 
@@ -128,7 +142,7 @@ export async function GET(
       buildRiskStep(dealId, riskRun),
       buildMemoStep(dealId, memo, snapshot),
       buildResearchStep(dealId, research),
-      buildPacketStep(dealId, packetEvent, memo),
+      buildPacketStep(dealId, packetEvent, memo, decisionSnapshot),
     ];
 
     return NextResponse.json({ ok: true, steps });
@@ -306,6 +320,7 @@ function buildPacketStep(
   dealId: string,
   packetEvent: { created_at: string } | null,
   memo: { id: string } | null,
+  decisionSnapshot: { id: string; created_at: string } | null,
 ): PipelineStep {
   let status: PipelineStepStatus;
   let detail: string | null = null;
@@ -318,6 +333,12 @@ function buildPacketStep(
     status = "blocked";
     detail = "Waiting for credit memo";
     blockerMessage = "Generate the credit memo before creating the committee packet";
+  } else if (!decisionSnapshot) {
+    // Packet generate route requires a decision_snapshots row — surface this
+    // as a clear blocker rather than letting the button 400 silently.
+    status = "blocked";
+    detail = "Credit decision required";
+    blockerMessage = "Record a credit decision on the Committee tab to unlock packet generation";
   } else {
     status = "pending";
     detail = "Committee packet not yet generated";
@@ -330,9 +351,10 @@ function buildPacketStep(
     status,
     detail,
     blockerMessage,
-    actionApi: `/api/deals/${dealId}/committee/packet/generate`,
-    actionLabel: packetEvent ? "Regenerate Packet" : "Generate Committee Packet",
-    actionMethod: "POST",
+    // Only expose the action button when the packet can actually be generated
+    actionApi: memo && decisionSnapshot ? `/api/deals/${dealId}/committee/packet/generate` : null,
+    actionLabel: packetEvent ? "Regenerate Packet" : (memo && decisionSnapshot ? "Generate Committee Packet" : null),
+    actionMethod: memo && decisionSnapshot ? "POST" : null,
     completedAt: (packetEvent as any)?.created_at ?? null,
   };
 }
