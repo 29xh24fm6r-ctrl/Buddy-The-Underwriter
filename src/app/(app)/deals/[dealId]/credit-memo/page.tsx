@@ -18,6 +18,7 @@ import SpreadsAppendix from "@/components/creditMemo/SpreadsAppendix";
 import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonicalMemoPdfButton";
 import GenerateNarrativesButton from "@/components/creditMemo/GenerateNarrativesButton";
 import RunResearchButton from "@/components/creditMemo/RunResearchButton";
+import RegenerateMemoButton from "@/components/creditMemo/RegenerateMemoButton";
 import MemoCompletionWizard from "@/components/creditMemo/MemoCompletionWizard";
 import MemoDataEntryCard from "@/components/creditMemo/MemoDataEntryCard";
 import TranscriptUploadPanel from "@/components/deals/TranscriptUploadPanel";
@@ -149,7 +150,7 @@ export default async function DealCreditMemoPage(props: {
             <h1 className="text-lg font-semibold text-[#111418]">Credit Memo</h1>
             <div className="text-xs text-gray-500">Canonical v1 (deterministic)</div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Link
               href={`/credit-memo/${dealId}/canonical/print`}
               className="inline-flex items-center rounded-md border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50"
@@ -166,6 +167,8 @@ export default async function DealCreditMemoPage(props: {
             />
             <RunResearchButton dealId={dealId} />
             <GenerateNarrativesButton dealId={dealId} />
+            {/* Regenerates full memo data (picks up new spreads/facts) */}
+            <RegenerateMemoButton dealId={dealId} />
             <ExportCanonicalMemoPdfButton dealId={dealId} />
           </div>
         </div>
