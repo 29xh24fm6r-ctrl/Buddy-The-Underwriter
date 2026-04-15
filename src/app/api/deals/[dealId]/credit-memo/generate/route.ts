@@ -2,9 +2,13 @@
  * POST /api/deals/[dealId]/credit-memo/generate
  *
  * Generates a credit memo using the Gemini 3 Flash provider.
- * Requires:
+ * Hard requires:
  *   1. A completed AI risk assessment (ai_risk_runs)
+ *
+ * Soft requires (proceeds gracefully when absent):
  *   2. A completed research mission with narrative (buddy_research_missions)
+ *      If no research exists, researchNarrative is empty and memo is generated
+ *      from financial facts + risk assessment alone.
  *
  * Returns the generated memo persisted to canonical_memo_narratives.
  */
@@ -33,7 +37,7 @@ export async function POST(
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
 
-    // ── Step 1: Fetch AI risk assessment ──────────────────────────────────
+    // ── Step 1: Fetch AI risk assessment (hard required) ──────────────────
     const { data: riskRun, error: riskErr } = await sb
       .from("ai_risk_runs")
       .select("id, grade, base_rate_bps, risk_premium_bps, result_json, created_at")
@@ -54,7 +58,13 @@ export async function POST(
       );
     }
 
-    // ── Step 2: Fetch research narrative ──────────────────────────────────
+    // ── Step 2: Fetch research narrative (soft — proceed if absent) ───────
+    // Research is NOT a hard gate. If no completed research mission exists
+    // (e.g., it was deleted, not yet run, or is still in progress), we
+    // proceed with an empty research narrative. The memo will be generated
+    // from financial facts and the risk assessment alone. This prevents
+    // blocking memo generation when research was deliberately cleared
+    // (e.g., to remove contaminated data) or simply hasn't been run yet.
     const { data: mission, error: missionErr } = await sb
       .from("buddy_research_missions")
       .select("id")
@@ -65,24 +75,19 @@ export async function POST(
       .maybeSingle();
 
     if (missionErr) throw missionErr;
-    if (!mission) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "Institutional research required before generating memo. Run Research first.",
-        },
-        { status: 400 },
-      );
+    // Note: mission may be null — that is expected and handled below
+
+    let narrative: { sections: any[] } | null = null;
+    if (mission) {
+      const { data: narrativeData, error: narrativeErr } = await sb
+        .from("buddy_research_narratives")
+        .select("sections")
+        .eq("mission_id", mission.id)
+        .maybeSingle();
+
+      if (narrativeErr) throw narrativeErr;
+      narrative = narrativeData;
     }
-
-    const { data: narrative, error: narrativeErr } = await sb
-      .from("buddy_research_narratives")
-      .select("sections")
-      .eq("mission_id", mission.id)
-      .maybeSingle();
-
-    if (narrativeErr) throw narrativeErr;
 
     // ── Step 2b: Validation Pass gate ─────────────────────────────────────
     // Only hard-block when a report exists with gating_decision = BLOCK_GENERATION.
@@ -129,7 +134,7 @@ export async function POST(
     const facts = factsResult.data ?? [];
     const borrower = (deal?.borrowers as any) ?? {};
 
-    // Build research narrative text
+    // Build research narrative text (empty string when no research exists)
     let researchNarrative = "";
     if (narrative?.sections) {
       const sections = Array.isArray(narrative.sections)
@@ -214,7 +219,8 @@ export async function POST(
       payload: {
         section_count: memo.sections.length,
         risk_run_id: riskRun.id,
-        mission_id: mission.id,
+        mission_id: mission?.id ?? null,
+        has_research: !!mission,
         model: "gemini-3-flash-preview",
         input_hash: inputHash,
       },
@@ -229,7 +235,8 @@ export async function POST(
         input_hash: inputHash,
         section_count: memo.sections.length,
         risk_run_id: riskRun.id,
-        mission_id: mission.id,
+        mission_id: mission?.id ?? null,
+        has_research: !!mission,
         model: "gemini-3-flash-preview",
         snapshot_id: hashInputs.snapshotId,
         pricing_decision_id: hashInputs.pricingDecisionId,
