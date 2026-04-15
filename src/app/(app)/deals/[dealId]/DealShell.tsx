@@ -277,6 +277,8 @@ export default function DealShell({
     { label: "Pricing", href: `${base}/pricing` },
     { label: "Relationship", href: `${base}/relationship` },
     { label: "Committee", href: `${base}/committee-studio` },
+    // Credit Memo is a first-class tab — opens inside the deal shell with full nav
+    { label: "Credit Memo", href: `${base}/credit-memo` },
     { label: "Borrower", href: `${base}/borrower` },
     { label: "Portal", href: `${base}/portal-inbox` },
     { label: "Post-Close", href: `${base}/post-close` },
@@ -343,10 +345,10 @@ export default function DealShell({
               </div>
             </div>
 
-            {/* Right: Key actions (responsive) */}
+            {/* Right: Key actions — Credit Memo button now points to in-shell route */}
             <div className="flex items-center gap-2 shrink-0">
               <Link
-                href={`/credit-memo/${dealId}/canonical`}
+                href={`${base}/credit-memo`}
                 className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-white bg-primary hover:bg-primary/90"
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
