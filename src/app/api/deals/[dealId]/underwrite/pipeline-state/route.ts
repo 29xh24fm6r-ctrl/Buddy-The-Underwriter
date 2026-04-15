@@ -50,6 +50,7 @@ export async function GET(
       researchRes,
       packetEventRes,
       decisionSnapshotRes,
+      qualityGateRes,
     ] = await Promise.all([
       // 1. Actual deal_spreads rows — use real data, not workspace status field.
       //    Count populated rows (rows with at least one non-null value) to determine completion.
@@ -107,6 +108,14 @@ export async function GET(
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+
+      // 7. Phase 78: Research quality gate
+      sb.from("buddy_research_quality_gates")
+        .select("trust_grade, quality_score")
+        .eq("deal_id", dealId)
+        .order("evaluated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
     const readySpreads = spreadsRes.data ?? [];
@@ -116,13 +125,14 @@ export async function GET(
     const research = researchRes.data;
     const packetEvent = packetEventRes.data;
     const decisionSnapshot = decisionSnapshotRes.data;
+    const qualityGate = qualityGateRes.data as { trust_grade: string; quality_score: number } | null;
 
     const steps: PipelineStep[] = [
       buildSpreadStep(dealId, readySpreads),
       buildSnapshotStep(snapshot),
       buildRiskStep(dealId, riskRun),
       buildMemoStep(dealId, memo, snapshot),
-      buildResearchStep(dealId, research),
+      buildResearchStep(dealId, research, qualityGate),
       buildPacketStep(dealId, packetEvent, memo, decisionSnapshot),
     ];
 
@@ -248,6 +258,7 @@ function buildMemoStep(
 function buildResearchStep(
   dealId: string,
   research: { id: string; status: string; created_at: string; completed_at: string | null } | null,
+  qualityGate: { trust_grade: string; quality_score: number } | null = null,
 ): PipelineStep {
   let status: PipelineStepStatus;
   let detail: string | null = null;
@@ -262,7 +273,15 @@ function buildResearchStep(
       detail = "Research mission in progress…";
     } else {
       status = "complete";
-      detail = "Research complete";
+      if (qualityGate) {
+        const grade = qualityGate.trust_grade === "committee_grade" ? "Committee-grade \u2713"
+          : qualityGate.trust_grade === "preliminary" ? "Preliminary"
+          : qualityGate.trust_grade === "manual_review_required" ? "Manual review required"
+          : "Research failed";
+        detail = `${grade} \u00b7 Quality: ${qualityGate.quality_score}/100`;
+      } else {
+        detail = "Research complete";
+      }
     }
   } else {
     status = "pending";

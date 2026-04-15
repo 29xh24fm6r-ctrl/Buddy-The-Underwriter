@@ -38,6 +38,12 @@ export type MemoResearchData = {
   three_five_year_outlook?: string;
   research_quality_score?: "Strong" | "Moderate" | "Limited";
   sources_count_bie?: number;
+  // Phase 78: Trust layer fields
+  trust_grade?: "committee_grade" | "preliminary" | "manual_review_required" | "research_failed";
+  quality_score?: number;
+  entity_confirmed_name?: string | null;
+  entity_confidence?: number;
+  claims_count?: number;
 };
 
 const SECTION_MAP: Record<
@@ -109,7 +115,7 @@ export async function loadResearchForMemo(args: {
   const missionIds = [missions[0].id];
 
   // Load facts, inferences, sources, BIE narrative, and ownership entities in parallel
-  const [factsRes, inferencesRes, sourcesRes, narrativeRes, ownersRes] = await Promise.all([
+  const [factsRes, inferencesRes, sourcesRes, narrativeRes, ownersRes, qualityGateRes] = await Promise.all([
     (sb as any).from("buddy_research_facts").select("*").in("mission_id", missionIds),
     (sb as any).from("buddy_research_inferences").select("*").in("mission_id", missionIds),
     (sb as any).from("buddy_research_sources").select("*").in("mission_id", missionIds),
@@ -128,6 +134,12 @@ export async function loadResearchForMemo(args: {
       .select("display_name")
       .eq("deal_id", args.dealId)
       .limit(10),
+    // Phase 78: quality gate for trust grade
+    (sb as any)
+      .from("buddy_research_quality_gates")
+      .select("trust_grade, quality_score, entity_confidence")
+      .eq("mission_id", missions[0].id)
+      .maybeSingle(),
   ]);
 
   const allFacts = (factsRes.data ?? []) as any[];
@@ -298,6 +310,11 @@ export async function loadResearchForMemo(args: {
         : undefined,
     research_quality_score: bieQualityScore,
     sources_count_bie: bieSourcesCount,
+    // Phase 78: trust layer fields from quality gate
+    trust_grade: qualityGateRes?.data?.trust_grade ?? undefined,
+    quality_score: qualityGateRes?.data?.quality_score ?? undefined,
+    entity_confidence: qualityGateRes?.data?.entity_confidence ?? undefined,
+    entity_confirmed_name: missions[0].entity_confirmed_name ?? undefined,
     // management_intelligence and monitoring_triggers are set below after validation
     management_intelligence: undefined,
     monitoring_triggers: undefined,

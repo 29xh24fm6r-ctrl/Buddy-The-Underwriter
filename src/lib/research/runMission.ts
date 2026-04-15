@@ -524,6 +524,78 @@ export async function runMission(
               `[runMission] BIE complete: quality=${bieResult.research_quality}, sources=${bieResult.sources_used.length}, sections=${bieSections.length}`,
             );
           }
+
+          // ── Claim Ledger + Completion Gate ──────────────────────────────────
+          try {
+            const { persistClaimLedger } = await import("./claimLedger");
+            const { evaluateCompletionGate } = await import("./completionGate");
+
+            // 1. Write structured claims to buddy_research_evidence
+            const claimResult = await persistClaimLedger(missionId, bieResult);
+            console.log(`[runMission] claim ledger: ${claimResult.claims_written} claims written`);
+
+            // 2. Run deterministic completion gate
+            const gateResult = evaluateCompletionGate(bieResult, missionId);
+            console.log(
+              `[runMission] completion gate: trust_grade=${gateResult.trust_grade}, ` +
+              `quality=${gateResult.quality_score}/100, entity_confidence=${Math.round(gateResult.entity_confidence * 100)}%`
+            );
+
+            // 3. Persist gate result
+            await sb2.from("buddy_research_quality_gates").upsert({
+              mission_id: missionId,
+              deal_id: dealId,
+              trust_grade: gateResult.trust_grade,
+              gate_passed: gateResult.gate_passed,
+              quality_score: gateResult.quality_score,
+              entity_lock_check: gateResult.checks.find(c => c.gate_id === "entity_lock")?.status ?? "not_run",
+              entity_confidence: gateResult.entity_confidence,
+              thread_coverage_check: gateResult.checks.find(c => c.gate_id === "thread_coverage")?.status ?? "not_run",
+              threads_succeeded: gateResult.threads_succeeded,
+              threads_failed: gateResult.threads_failed,
+              source_diversity_check: gateResult.checks.find(c => c.gate_id === "source_diversity")?.status ?? "not_run",
+              source_count: gateResult.source_count,
+              management_validation_check: gateResult.checks.find(c => c.gate_id === "management_validation")?.status ?? "not_run",
+              principals_confirmed: gateResult.principals_confirmed,
+              principals_unconfirmed: gateResult.principals_unconfirmed,
+              synthesis_check: gateResult.checks.find(c => c.gate_id === "synthesis")?.status ?? "not_run",
+              contradictions_found: gateResult.contradictions_found,
+              underwriting_questions_found: gateResult.underwriting_questions_found,
+              gate_failures: gateResult.checks.filter(c => c.status !== "pass").map(c => ({
+                gate_id: c.gate_id, reason: c.reason, severity: c.severity,
+              })),
+              thread_results: {
+                borrower: bieResult.borrower ? "ok" : "null",
+                management: bieResult.management ? "ok" : "null",
+                competitive: bieResult.competitive ? "ok" : "null",
+                market: bieResult.market ? "ok" : "null",
+                industry: bieResult.industry ? "ok" : "null",
+                transaction: bieResult.transaction ? "ok" : "null",
+                synthesis: bieResult.synthesis ? "ok" : "null",
+              },
+              evaluated_at: gateResult.evaluated_at,
+            }, { onConflict: "mission_id" });
+
+            // 4. Update mission with trust metadata
+            await sb2.from("buddy_research_missions").update({
+              trust_grade: gateResult.trust_grade,
+              completion_gate_status: gateResult.gate_passed ? "passed" : "failed",
+              completion_gate_failures: gateResult.checks.filter(c => c.status !== "pass"),
+              entity_confidence: gateResult.entity_confidence,
+              entity_confirmed_name: bieResult.entity_lock?.confirmed_name ?? null,
+              entity_lock_json: bieResult.entity_lock ?? null,
+              threads_succeeded: gateResult.threads_succeeded,
+              threads_failed: gateResult.threads_failed,
+              management_profiles_validated: bieResult.synthesis?.management_profiles_validated ?? null,
+              entity_validation_passed: bieResult.synthesis?.entity_validation_passed ?? null,
+              research_quality_computed: gateResult.trust_grade === "committee_grade" ? "Strong"
+                : gateResult.trust_grade === "preliminary" ? "Moderate" : "Limited",
+            }).eq("id", missionId);
+
+          } catch (trustErr: any) {
+            // Non-fatal — claim ledger and gate failures must never block mission completion
+            console.warn("[runMission] trust layer failed (non-fatal):", trustErr?.message);
+          }
         } else {
           console.log("[runMission] BIE skipped: minimal quality (no usable company name or NAICS)");
         }

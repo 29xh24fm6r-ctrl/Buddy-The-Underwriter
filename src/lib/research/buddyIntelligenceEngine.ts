@@ -371,6 +371,14 @@ Research this specific company using web search. Find:
 6. Customer base — who they serve, geographic reach, signs of customer concentration or diversification
 7. Trend direction — is this business's public profile improving, stable, or deteriorating?
 
+CLAIM LAYER DISCIPLINE:
+Every statement in your output falls into exactly one of three layers:
+- FACT: A verifiable claim traceable to a specific public record or source (court filing, news article, company website, government data). State only what you found, not what you inferred.
+- INFERENCE: An analytical conclusion you drew from one or more facts. Clearly signal with language like "suggests", "indicates", "implies", "based on [source]".
+- NARRATIVE: Synthesized prose for credit memo readability — clearly marked as analysis, not raw fact.
+For this thread, the target composition is: 60% FACT, 30% INFERENCE, 10% NARRATIVE.
+Do NOT blend them without signaling. Never state an inference as a fact.
+
 Return ONLY valid JSON:
 {
   "entity_confirmation": "State exactly which entity your research covers, e.g. 'Research covers [Company Name] at [location], [industry]. Excluded: [any similarly-named companies found].'",
@@ -447,6 +455,14 @@ For each CONFIRMED principal, find:
 - Adverse events — lawsuits, judgments, liens, bankruptcies, criminal matters (public record only), regulatory sanctions. Distinguish allegations from adjudicated outcomes. Cite source for any adverse finding.
 - Governance signals — affiliated entities, ownership changes
 
+CLAIM LAYER DISCIPLINE:
+Every statement in your output falls into exactly one of three layers:
+- FACT: A verifiable claim traceable to a specific public record or source (court filing, news article, company website, government data). State only what you found, not what you inferred.
+- INFERENCE: An analytical conclusion you drew from one or more facts. Clearly signal with language like "suggests", "indicates", "implies", "based on [source]".
+- NARRATIVE: Synthesized prose for credit memo readability — clearly marked as analysis, not raw fact.
+For this thread, the target composition is: 60% FACT, 30% INFERENCE, 10% NARRATIVE.
+Do NOT blend them without signaling. Never state an inference as a fact.
+
 Return ONLY valid JSON:
 {
   "principal_profiles": [
@@ -499,6 +515,14 @@ Research the competitive landscape using web search:
 5. Pricing environment — commodity pricing or pricing power, direction of margin pressure
 6. Competitive threats — funded national players, PE-backed rollups, technology disruptors entering this market
 
+CLAIM LAYER DISCIPLINE:
+Every statement in your output falls into exactly one of three layers:
+- FACT: A verifiable claim traceable to a specific public record or source (court filing, news article, company website, government data). State only what you found, not what you inferred.
+- INFERENCE: An analytical conclusion you drew from one or more facts. Clearly signal with language like "suggests", "indicates", "implies", "based on [source]".
+- NARRATIVE: Synthesized prose for credit memo readability — clearly marked as analysis, not raw fact.
+For this thread, the target composition is: 60% FACT, 30% INFERENCE, 10% NARRATIVE.
+Do NOT blend them without signaling. Never state an inference as a fact.
+
 Return ONLY valid JSON:
 {
   "direct_competitors": [
@@ -548,6 +572,14 @@ Research local market conditions using web search:
 5. Demand drivers — what drives demand for ${input.naics_description || "this type of business"} specifically in this location
 6. Area risks — natural disaster exposure, economic concentration, infrastructure, crime trends
 
+CLAIM LAYER DISCIPLINE:
+Every statement in your output falls into exactly one of three layers:
+- FACT: A verifiable claim traceable to a specific public record or source (court filing, news article, company website, government data). State only what you found, not what you inferred.
+- INFERENCE: An analytical conclusion you drew from one or more facts. Clearly signal with language like "suggests", "indicates", "implies", "based on [source]".
+- NARRATIVE: Synthesized prose for credit memo readability — clearly marked as analysis, not raw fact.
+For this thread, the target composition is: 50% FACT, 30% INFERENCE, 20% NARRATIVE.
+Do NOT blend them without signaling. Never state an inference as a fact.
+
 Return ONLY valid JSON:
 {
   "local_economic_conditions": "paragraph: economic health, employment, major employers",
@@ -587,6 +619,14 @@ Write a comprehensive industry analysis using web search for current data:
 5. Regulatory landscape — primary federal and state regulations, significant changes in last 24 months, pending rules
 6. 5-year outlook — growth, consolidation, disruption, or decline
 7. Credit risk profile — how this industry has performed through economic downturns (2008, 2020), typical default patterns, cyclicality
+
+CLAIM LAYER DISCIPLINE:
+Every statement in your output falls into exactly one of three layers:
+- FACT: A verifiable claim traceable to a specific public record or source (court filing, news article, company website, government data). State only what you found, not what you inferred.
+- INFERENCE: An analytical conclusion you drew from one or more facts. Clearly signal with language like "suggests", "indicates", "implies", "based on [source]".
+- NARRATIVE: Synthesized prose for credit memo readability — clearly marked as analysis, not raw fact.
+For this thread, the target composition is: 50% FACT, 30% INFERENCE, 20% NARRATIVE.
+Do NOT blend them without signaling. Never state an inference as a fact.
 
 Return ONLY valid JSON:
 {
@@ -648,6 +688,14 @@ Analyze the repayment structure and risk of this specific loan:
 6. Collateral adequacy — realistic recovery in default given market conditions
 7. Downside case — if top 2 risks materialize, impact on DSCR and repayment
 8. Stress scenario — the most plausible bad outcome narrative over the loan term
+
+CLAIM LAYER DISCIPLINE:
+Every statement in your output falls into exactly one of three layers:
+- FACT: A verifiable claim traceable to a specific public record or source (court filing, news article, company website, government data). State only what you found, not what you inferred.
+- INFERENCE: An analytical conclusion you drew from one or more facts. Clearly signal with language like "suggests", "indicates", "implies", "based on [source]".
+- NARRATIVE: Synthesized prose for credit memo readability — clearly marked as analysis, not raw fact.
+For this thread, the target composition is: 20% FACT, 40% INFERENCE, 40% NARRATIVE.
+Do NOT blend them without signaling. Never state an inference as a fact.
 
 Return ONLY valid JSON:
 {
@@ -727,6 +775,20 @@ Are all competitive intelligence findings geographically relevant to: ${location
 If competitors found are in different markets, note in contradictions_and_uncertainties.
 
 === END VALIDATION PASS ===
+
+ADVERSARIAL CONTRADICTION CHECKS (mandatory):
+Run each check and flag findings in contradictions_and_uncertainties:
+
+CHECK A — Name/entity mismatch: Does the legal name of the borrower match what the management research found?
+CHECK B — Revenue plausibility: Does the stated annual revenue (~$${input.annual_revenue ? (input.annual_revenue / 1_000_000).toFixed(1) : "?"}M) make sense given the described business scale and head count?
+CHECK C — Geographic mismatch: Do the named competitors operate in ${location}? Are any actually in different markets?
+CHECK D — Reputation vs growth story: Does the review sentiment (positive/neutral/negative) align with the claimed growth trajectory?
+CHECK E — Management history vs loan purpose: Does any principal's prior venture history create concern about this specific loan purpose?
+CHECK F — Industry cyclicality vs loan term: Is the loan term appropriate given the industry's cyclicality and downturn history?
+CHECK G — Digital presence vs claimed scale: Does the borrower's digital footprint (website quality, social following) match the described scale of operations?
+CHECK H — Regulatory burden vs claimed margins: Does the regulatory environment described impose costs that would compress the margins implied by the financial profile?
+
+For each check: if a contradiction is found, report: "CHECK [X]: [finding]". If no contradiction found, skip. Do not include passing checks.
 
 Return ONLY valid JSON:
 {
