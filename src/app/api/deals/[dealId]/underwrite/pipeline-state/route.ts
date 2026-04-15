@@ -51,6 +51,7 @@ export async function GET(
       packetEventRes,
       decisionSnapshotRes,
       qualityGateRes,
+      completenessFactsRes,
     ] = await Promise.all([
       // 1. Actual deal_spreads rows — use real data, not workspace status field.
       //    Count populated rows (rows with at least one non-null value) to determine completion.
@@ -116,6 +117,24 @@ export async function GET(
         .order("evaluated_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+
+      // 8. Phase 79: Spread completeness — presence of critical fact keys
+      sb.from("deal_financial_facts")
+        .select("fact_key")
+        .eq("deal_id", dealId)
+        .eq("is_superseded", false)
+        .neq("resolution_status", "rejected")
+        .not("fact_value_num", "is", null)
+        .in("fact_key", [
+          "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME",
+          "NET_INCOME", "ORDINARY_BUSINESS_INCOME",
+          "DEPRECIATION", "INTEREST_EXPENSE", "COST_OF_GOODS_SOLD",
+          "SL_TOTAL_ASSETS", "SL_CASH", "SL_AR_GROSS",
+          "ADS", "ANNUAL_DEBT_SERVICE", "ANNUAL_DEBT_SERVICE_PROPOSED",
+          "DSCR", "GCF_DSCR",
+          "EBITDA",
+          "NET_WORTH", "SL_TOTAL_EQUITY", "SL_RETAINED_EARNINGS",
+        ]),
     ]);
 
     const readySpreads = spreadsRes.data ?? [];
@@ -127,8 +146,35 @@ export async function GET(
     const decisionSnapshot = decisionSnapshotRes.data;
     const qualityGate = qualityGateRes.data as { trust_grade: string; quality_score: number } | null;
 
+    // Compute spread completeness from returned fact keys
+    const CRITICAL_PRIMARY = [
+      "GROSS_RECEIPTS", "NET_INCOME", "DEPRECIATION",
+      "INTEREST_EXPENSE", "COST_OF_GOODS_SOLD",
+      "SL_TOTAL_ASSETS", "SL_CASH", "SL_AR_GROSS",
+      "ADS", "DSCR", "EBITDA", "NET_WORTH",
+    ] as const;
+    const CRITICAL_FALLBACKS: Record<string, string[]> = {
+      GROSS_RECEIPTS: ["TOTAL_REVENUE", "TOTAL_INCOME"],
+      NET_INCOME:     ["ORDINARY_BUSINESS_INCOME"],
+      ADS:            ["ANNUAL_DEBT_SERVICE", "ANNUAL_DEBT_SERVICE_PROPOSED"],
+      DSCR:           ["GCF_DSCR"],
+      NET_WORTH:      ["SL_TOTAL_EQUITY", "SL_RETAINED_EARNINGS"],
+    };
+    const presentFactKeys = new Set(
+      (completenessFactsRes.data ?? []).map((f: { fact_key: string }) => f.fact_key),
+    );
+    let spreadCompletenessScore: number | null = null;
+    {
+      let populated = 0;
+      for (const key of CRITICAL_PRIMARY) {
+        const toCheck = [key, ...(CRITICAL_FALLBACKS[key] ?? [])];
+        if (toCheck.some((k) => presentFactKeys.has(k))) populated++;
+      }
+      spreadCompletenessScore = Math.round((populated / CRITICAL_PRIMARY.length) * 100);
+    }
+
     const steps: PipelineStep[] = [
-      buildSpreadStep(dealId, readySpreads),
+      buildSpreadStep(dealId, readySpreads, spreadCompletenessScore),
       buildSnapshotStep(snapshot),
       buildRiskStep(dealId, riskRun),
       buildMemoStep(dealId, memo, snapshot),
@@ -148,6 +194,7 @@ export async function GET(
 function buildSpreadStep(
   dealId: string,
   readySpreads: Array<{ spread_type: string; status: string; updated_at: string | null }>,
+  completenessScore: number | null,
 ): PipelineStep {
   const count = readySpreads.length;
   const latestAt = readySpreads
@@ -161,7 +208,12 @@ function buildSpreadStep(
 
   if (count > 0) {
     status = "complete";
-    detail = `${count} spread${count !== 1 ? "s" : ""} ready`;
+    if (completenessScore !== null) {
+      const pct = Math.round(completenessScore);
+      detail = `${count} spread${count !== 1 ? "s" : ""} ready \u00b7 ${pct}% complete${pct >= 80 ? " \u2713" : ""}`;
+    } else {
+      detail = `${count} spread${count !== 1 ? "s" : ""} ready`;
+    }
   } else {
     status = "pending";
     detail = "Financial spreads not yet generated";

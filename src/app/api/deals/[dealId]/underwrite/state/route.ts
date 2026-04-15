@@ -131,6 +131,43 @@ export async function GET(
       console.warn("[underwrite/state] trust layer failed — degrading safely:", err);
     }
 
+    // Omega advisory annotation — Phase 79
+    // OCC SR 11-7 boundary: Omega NEVER mutates canonical state. Advisory only.
+    let omegaAdvisory: {
+      confidence: number;
+      risk_emphasis: string[];
+      recommended_focus: string | null;
+      advisory_grade: string | null;
+    } | null = null;
+
+    try {
+      const { invokeOmega } = await import("@/lib/omega/invokeOmega");
+      const { redactForOmega } = await import("@/lib/omega/redaction.server");
+
+      const omegaResult = await invokeOmega<{
+        confidence: number;
+        risk_emphasis: string[];
+        recommended_focus: string | null;
+        advisory_grade: string | null;
+      }>({
+        resource: "omega://advisory/deal-focus",
+        correlationId: `state:${dealId}:${Date.now()}`,
+        payload: redactForOmega({
+          dealId,
+          bankId: deal.bank_id,
+          lifecycleStage: deal.stage,
+          trustLayer: trustLayer as any,
+        }),
+        timeoutMs: 3500,
+      });
+
+      if (omegaResult.ok) {
+        omegaAdvisory = omegaResult.data;
+      }
+    } catch {
+      // Non-fatal — Omega unavailable does not block this route
+    }
+
     // Fire-and-forget reconciliation trigger
     // Only runs if no results exist yet — idempotent
     const { data: existingRecon } = await sb
@@ -147,6 +184,7 @@ export async function GET(
 
     return NextResponse.json({
       ok: true,
+      omegaAdvisory,
       deal: {
         id: deal.id,
         dealName: deal.name,

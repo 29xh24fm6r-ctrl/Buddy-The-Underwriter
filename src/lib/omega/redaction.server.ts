@@ -133,3 +133,47 @@ function applyRedaction(
 
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Omega advisory payload builder — Phase 79
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a safe advisory payload for the Omega MCP advisory resource.
+ *
+ * Sends only aggregate trust-layer scores and hashed identifiers.
+ * No raw financial values, no document content, no PII.
+ * This is the only function that constructs Omega advisory payloads.
+ */
+export function redactForOmega(input: {
+  dealId: string;
+  bankId: string | null;
+  lifecycleStage?: string | null;
+  trustLayer?: {
+    memo?: { status: string; staleReasons?: string[] };
+    packet?: { status: string; blockers?: string[]; warnings?: string[] };
+    financialValidation?: {
+      memoSafe: boolean;
+      decisionSafe: boolean;
+      blockers?: string[];
+      warnings?: string[];
+    };
+  } | null;
+}): Record<string, unknown> {
+  return {
+    deal_id:         hashId(input.dealId),
+    bank_id:         input.bankId ? hashId(input.bankId) : null,
+    lifecycle_stage: input.lifecycleStage ?? null,
+    trust_summary:   input.trustLayer
+      ? {
+          memo_status:             input.trustLayer.memo?.status ?? null,
+          memo_stale_count:        input.trustLayer.memo?.staleReasons?.length ?? 0,
+          packet_status:           input.trustLayer.packet?.status ?? null,
+          packet_blocker_count:    input.trustLayer.packet?.blockers?.length ?? 0,
+          financial_memo_safe:     input.trustLayer.financialValidation?.memoSafe ?? null,
+          financial_decision_safe: input.trustLayer.financialValidation?.decisionSafe ?? null,
+          financial_blocker_count: input.trustLayer.financialValidation?.blockers?.length ?? 0,
+        }
+      : null,
+  };
+}

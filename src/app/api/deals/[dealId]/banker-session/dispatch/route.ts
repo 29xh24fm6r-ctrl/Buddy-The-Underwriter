@@ -60,6 +60,76 @@ export async function POST(
         bankId,
       });
 
+      // God Tier #67 — fire-and-forget auto-complete check after fact confirmation
+      if (result.ok) {
+        Promise.resolve().then(async () => {
+          try {
+            const { computeSpreadCompleteness } = await import(
+              "@/lib/classicSpread/computeSpreadCompleteness"
+            );
+            const completeness = await computeSpreadCompleteness(dealId);
+            if (!completeness?.isGodTier) return;
+
+            // Check for open missing-fact gaps
+            const { data: openGaps } = await sb
+              .from("deal_gap_queue")
+              .select("id")
+              .eq("deal_id", dealId)
+              .eq("status", "open")
+              .eq("gap_type", "missing_fact")
+              .limit(1);
+            if ((openGaps ?? []).length > 0) return;
+
+            // Check that no memo was generated in the last 5 minutes
+            const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+            const { data: recentMemo } = await sb
+              .from("canonical_memo_narratives")
+              .select("id")
+              .eq("deal_id", dealId)
+              .gt("generated_at", fiveMinAgo)
+              .limit(1)
+              .maybeSingle();
+            if (recentMemo) return;
+
+            // Trigger memo regeneration
+            const baseUrl = process.env.VERCEL_URL
+              ? `https://${process.env.VERCEL_URL}`
+              : process.env.NEXT_PUBLIC_APP_URL ?? "";
+            if (!baseUrl) return;
+
+            await fetch(`${baseUrl}/api/deals/${dealId}/credit-memo/generate`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-auto-trigger": "voice-completion",
+                "x-gateway-secret": process.env.BUDDY_GATEWAY_SECRET ?? "",
+              },
+              body: JSON.stringify({
+                trigger: "voice_session_complete",
+                completeness_score: completeness.score,
+              }),
+            }).catch(() => {});
+
+            // Emit observability milestone
+            const { emitDealMilestone } = await import("@/lib/telemetry/emitDealMilestone");
+            await emitDealMilestone({
+              eventKey: "voice.memo_auto_complete_triggered",
+              dealId,
+              bankId: bankId ?? "",
+              status: "ok",
+              payload: {
+                completeness_score: completeness.score,
+                trigger: "voice_dispatch",
+                fact_key: factKey,
+              },
+              mirrorToObservability: true,
+            }).catch(() => {});
+          } catch {
+            // Always non-fatal
+          }
+        }).catch(() => {});
+      }
+
       return NextResponse.json({
         ok: result.ok,
         message: result.ok
