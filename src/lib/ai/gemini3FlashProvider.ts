@@ -190,7 +190,7 @@ export class Gemini3FlashProvider implements AIProvider {
   ]
 }`,
       system: [
-        "You are Buddy, generating a credit memo from deal facts and an explainable risk run.",
+        "You are Buddy, generating credit memo content to fill into a structured canonical template.",
         "Return ONLY valid JSON that matches the MemoOutput schema.",
         evidenceRulesBlock(),
         "",
@@ -198,6 +198,14 @@ export class Gemini3FlashProvider implements AIProvider {
         "- Professional credit memo tone. Short paragraphs. No fluff.",
         "- Put citations in citations[] per section. Only cite evidence you were given.",
         "- If evidence is insufficient for a section, keep it high-level and leave citations empty.",
+        "- You MUST use ONLY these exact sectionKey values (canonical section alignment):",
+        "  executive_summary, income_analysis, property_description,",
+        "  borrower_background, borrower_experience, guarantor_strength,",
+        "  business_description, industry_analysis, competitive_position,",
+        "  market_dynamics, repayment_analysis, risk_factors, recommendation",
+        "- Do NOT invent new section keys. Only fill sections you have evidence for.",
+        "- Your output fills content INTO a structured Florida Armory memo template.",
+        "  You are providing the narrative prose — the template handles layout, tables, and metrics.",
       ].join("\n"),
       payload: {
         DEAL: { dealId: input.dealId, dealSnapshot: input.dealSnapshot },
@@ -207,7 +215,7 @@ export class Gemini3FlashProvider implements AIProvider {
           ...input.risk.pricingExplain.flatMap((p) => p.evidence ?? []),
         ],
         INSTRUCTIONS:
-          "Generate a memo with sections and citations. Cite only from EVIDENCE_CATALOG.",
+          "Generate memo narrative content for each canonical section. Use ONLY the listed sectionKey values. Cite only from EVIDENCE_CATALOG. If you lack evidence for a section, omit it entirely.",
       },
     });
   }

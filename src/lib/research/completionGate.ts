@@ -70,8 +70,24 @@ const THRESHOLDS = {
 export function evaluateCompletionGate(
   bieResult: BIEResult,
   missionId: string,
+  opts?: { naicsCode?: string | null },
 ): CompletionGateResult {
   const checks: GateCheckResult[] = [];
+
+  // ── Gate 0 (Phase 80): NAICS Placeholder Guard ──────────────────────────
+  const naics = opts?.naicsCode ?? null;
+  const naicsIsPlaceholder = !naics || naics === "999999";
+  if (naicsIsPlaceholder) {
+    checks.push({
+      gate_id: "naics_guard",
+      label: "Industry Classification",
+      status: "warn",
+      reason: naics === "999999"
+        ? "NAICS 999999 (placeholder) — industry research may be unreliable. Max trust: preliminary."
+        : "NAICS not provided — industry research may be unreliable.",
+      severity: "warn",
+    });
+  }
 
   // ── Gate 1: Entity Lock ──────────────────────────────────────────────────
   const entityConfidence = bieResult.entity_lock?.entity_confidence ?? 0;
@@ -198,6 +214,7 @@ export function evaluateCompletionGate(
     (profiles.length === 0 || confirmedCount === profiles.length) &&
     !!synthesis &&
     entityValidationPassed &&
+    !naicsIsPlaceholder &&  // Phase 80: NAICS 999999 can never reach committee_grade
     failCount === 0 &&
     warnCount <= 1
   ) {

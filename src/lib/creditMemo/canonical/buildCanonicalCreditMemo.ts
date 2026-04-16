@@ -25,6 +25,30 @@ import type { UnderwritingResults } from "@/lib/finance/underwriting/results";
 import { loadResearchForMemo } from "@/lib/creditMemo/canonical/loadResearchForMemo";
 import { buildBalanceSheetTable } from "@/lib/creditMemo/canonical/buildBalanceSheetTable";
 
+// ---------------------------------------------------------------------------
+// Phase 80: Render Mode — committee vs diagnostic
+// ---------------------------------------------------------------------------
+
+export type MemoRenderMode = "committee" | "internal_diagnostic";
+
+/**
+ * In committee mode, replace "Pending" placeholders with blocker text.
+ * In diagnostic mode, allow raw "Pending" through for debugging.
+ */
+function renderValue(
+  value: string | null | undefined,
+  fallback: string,
+  mode: MemoRenderMode,
+): string {
+  if (value && value.trim().length > 0 && !value.startsWith("Pending")) {
+    return value;
+  }
+  if (mode === "committee") {
+    return `⚠ Data unavailable — ${fallback.replace(/^Pending\s*[-—]?\s*/i, "").trim() || "required data not yet provided"}`;
+  }
+  return value ?? fallback;
+}
+
 function metricValueFromSnapshot(args: {
   snapshot: DealFinancialSnapshotV1;
   metric: SnapshotMetricName;
@@ -79,8 +103,10 @@ export async function buildCanonicalCreditMemo(args: {
   dealId: string;
   bankId?: string;
   preparedBy?: string;
+  renderMode?: MemoRenderMode;
 }): Promise<{ ok: true; memo: CanonicalCreditMemoV1 } | { ok: false; error: string }> {
   try {
+    const mode: MemoRenderMode = args.renderMode ?? "internal_diagnostic";
     const sb = supabaseAdmin();
 
     let bankId = args.bankId;
@@ -932,15 +958,15 @@ export async function buildCanonicalCreditMemo(args: {
       },
 
       business_summary: {
-        business_description: overrides.business_description || "Pending — complete borrower intake to populate business description.",
+        business_description: renderValue(overrides.business_description, "Pending — complete borrower intake to populate business description.", mode),
         date_established: null,
         years_in_operation: null,
-        revenue_mix: overrides.revenue_mix || "Pending",
-        seasonality: overrides.seasonality || "Pending",
-        geography: borrower?.city && borrower?.state ? `${borrower.city}, ${borrower.state}` : "Pending",
+        revenue_mix: renderValue(overrides.revenue_mix, "Pending", mode),
+        seasonality: renderValue(overrides.seasonality, "Pending", mode),
+        geography: borrower?.city && borrower?.state ? `${borrower.city}, ${borrower.state}` : renderValue(null, "Pending — geography required", mode),
         marketing_channels: [],
-        competitive_advantages: overrides.competitive_advantages || "Pending",
-        vision: overrides.vision || "Pending",
+        competitive_advantages: renderValue(overrides.competitive_advantages, "Pending", mode),
+        vision: renderValue(overrides.vision, "Pending", mode),
       },
 
       business_industry_analysis: researchData,
@@ -948,7 +974,7 @@ export async function buildCanonicalCreditMemo(args: {
       management_qualifications: managementQualifications,
 
       financial_analysis: {
-        income_analysis: "Pending",
+        income_analysis: renderValue(null, "Pending — financial spreads required", mode),
         noi: metricValueFromSnapshot({ snapshot, metric: "noi_ttm", label: "NOI TTM" }),
         debt_service: financial.annualDebtService,
         cash_flow_available: financial.cashFlowAvailable,
@@ -992,8 +1018,9 @@ export async function buildCanonicalCreditMemo(args: {
       personal_financial_statements: personalFinancialStatements,
 
       executive_summary: {
-        narrative:
-          "Canonical credit memo (deterministic) is now live. Missing values render as Pending and will auto-fill as spreads/facts land.",
+        narrative: mode === "committee"
+          ? "⚠ Executive summary not yet generated — run AI narrative generation."
+          : "Canonical credit memo (deterministic) is now live. Missing values render as Pending and will auto-fill as spreads/facts land.",
       },
 
       transaction_overview: {
@@ -1006,9 +1033,9 @@ export async function buildCanonicalCreditMemo(args: {
       },
 
       borrower_sponsor: {
-        background: "Pending",
-        experience: "Pending",
-        guarantor_strength: "Pending",
+        background: renderValue(null, "Pending — complete borrower interview", mode),
+        experience: renderValue(null, "Pending — complete borrower interview", mode),
+        guarantor_strength: renderValue(null, "Pending — guarantor analysis required", mode),
         sponsors: bindings.sponsors.map((s) => ({
           owner_entity_id: s.ownerEntityId,
           name: s.name,

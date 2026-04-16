@@ -93,7 +93,7 @@ export default async function CanonicalCreditMemoPage(props: {
       })
     : null;
 
-  const res = await buildCanonicalCreditMemo({ dealId, bankId });
+  const res = await buildCanonicalCreditMemo({ dealId, bankId, renderMode: "committee" });
   if (res.ok) {
     // Check for cached narratives and overlay them
     const { data: cachedNarrative } = await sb
@@ -107,12 +107,48 @@ export default async function CanonicalCreditMemoPage(props: {
 
     if (cachedNarrative?.narratives) {
       const n = cachedNarrative.narratives as any;
+
+      // Phase 80: Support both legacy flat format and new sections[] format
+      // Legacy flat format (backward compat)
       if (n.executive_summary) res.memo.executive_summary.narrative = n.executive_summary;
       if (n.income_analysis) res.memo.financial_analysis.income_analysis = n.income_analysis;
       if (n.property_description) res.memo.collateral.property_description = n.property_description;
       if (n.borrower_background) res.memo.borrower_sponsor.background = n.borrower_background;
       if (n.borrower_experience) res.memo.borrower_sponsor.experience = n.borrower_experience;
       if (n.guarantor_strength) res.memo.borrower_sponsor.guarantor_strength = n.guarantor_strength;
+
+      // New sections[] format from Phase 80 aligned AI output
+      if (Array.isArray(n.sections)) {
+        for (const sec of n.sections as Array<{ sectionKey: string; content: string }>) {
+          if (!sec.sectionKey || !sec.content) continue;
+          switch (sec.sectionKey) {
+            case "executive_summary":
+              res.memo.executive_summary.narrative = sec.content;
+              break;
+            case "income_analysis":
+              res.memo.financial_analysis.income_analysis = sec.content;
+              break;
+            case "property_description":
+              res.memo.collateral.property_description = sec.content;
+              break;
+            case "borrower_background":
+              res.memo.borrower_sponsor.background = sec.content;
+              break;
+            case "borrower_experience":
+              res.memo.borrower_sponsor.experience = sec.content;
+              break;
+            case "guarantor_strength":
+              res.memo.borrower_sponsor.guarantor_strength = sec.content;
+              break;
+            case "business_description":
+              res.memo.business_summary.business_description = sec.content;
+              break;
+            case "repayment_analysis":
+              res.memo.financial_analysis.projection_feasibility = sec.content;
+              break;
+          }
+        }
+      }
     }
   }
   if (!res.ok) {

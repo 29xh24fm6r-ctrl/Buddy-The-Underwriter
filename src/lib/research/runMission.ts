@@ -401,10 +401,50 @@ export async function runMission(
 
     // 12b. Buddy Intelligence Engine — runs after mission is marked complete (non-fatal)
     try {
+      // Phase 80: Pre-research subject lock — validate entity is sufficiently identified
+      const { validateSubjectLock } = await import("./subjectLock");
+      const subjectLockResult = validateSubjectLock({
+        company_name: subject.company_name,
+        naics_code: subject.naics_code,
+        naics_description: (subject as any).naics_description,
+        business_description: (subject as any).business_description,
+        city: (subject as any).city,
+        state: (subject as any).state,
+        geography: subject.geography,
+        website: (subject as any).website,
+        dba: (subject as any).dba,
+        banker_summary: (subject as any).banker_summary,
+        banker_override: (subject as any).banker_override,
+      });
+
+      if (!subjectLockResult.ok) {
+        console.warn(
+          `[runMission] Subject lock failed for deal ${dealId}: ${subjectLockResult.reasons.join("; ")}. Skipping BIE.`,
+        );
+        // Persist the subject lock failure as a quality gate event
+        try {
+          const sbLock = supabaseAdmin();
+          await (sbLock as any).from("buddy_research_quality_gates").upsert({
+            mission_id: missionId,
+            deal_id: dealId,
+            trust_grade: "manual_review_required",
+            gate_passed: false,
+            quality_score: 0,
+            gate_failures: subjectLockResult.reasons.map((r) => ({
+              gate_id: "subject_lock",
+              reason: r,
+            })),
+            evaluated_at: new Date().toISOString(),
+          }, { onConflict: "mission_id" });
+        } catch {
+          // Non-fatal — quality gate persistence failure
+        }
+      }
+
       const hasCompany = !!(subject.company_name && subject.company_name.trim().length > 2);
       const hasNaics = !!(subject.naics_code && subject.naics_code !== "999999");
 
-      if (hasCompany || hasNaics) {
+      if (subjectLockResult.ok && (hasCompany || hasNaics)) {
         const { runBuddyIntelligenceEngine, buildBIENarrativeSections } = await import(
           "./buddyIntelligenceEngine"
         );
@@ -535,7 +575,9 @@ export async function runMission(
             console.log(`[runMission] claim ledger: ${claimResult.claims_written} claims written`);
 
             // 2. Run deterministic completion gate
-            const gateResult = evaluateCompletionGate(bieResult, missionId);
+            const gateResult = evaluateCompletionGate(bieResult, missionId, {
+              naicsCode: subject.naics_code,
+            });
             console.log(
               `[runMission] completion gate: trust_grade=${gateResult.trust_grade}, ` +
               `quality=${gateResult.quality_score}/100, entity_confidence=${Math.round(gateResult.entity_confidence * 100)}%`
