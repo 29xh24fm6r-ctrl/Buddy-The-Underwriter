@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { MemoQualitativeForm } from "@/components/creditMemo/MemoQualitativeForm";
 import type { QualitativeOverrides } from "@/components/creditMemo/MemoQualitativeForm";
 
@@ -111,6 +112,9 @@ export function IgniteWizard({
     ownersFixed?: number;
     hasContext?: boolean;
   }>({});
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     fetch(`/api/deals/${dealId}/recovery/status`)
@@ -278,16 +282,19 @@ export function IgniteWizard({
 
   // ─── Render ────────────────────────────────────────────────
   if (loading) {
-    return (
+    if (!mounted) return null;
+    return createPortal(
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
         <div className="text-white/50 text-sm animate-pulse">Loading deal state...</div>
-      </div>
+      </div>,
+      document.body
     );
   }
 
   const malformedPrincipals = status?.principals.filter(p => p.isMalformed) ?? [];
 
-  return (
+  if (!mounted) return null;
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
       <div
         className="bg-[#0f1117] border border-white/10 rounded-2xl w-full shadow-2xl flex overflow-hidden"
@@ -751,6 +758,7 @@ export function IgniteWizard({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
