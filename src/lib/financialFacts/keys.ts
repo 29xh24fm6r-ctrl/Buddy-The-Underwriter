@@ -278,6 +278,29 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
   DEBT_TO_EQUITY: { canonical_key: "DEBT_TO_EQUITY", fact_type: "BALANCE_SHEET", fact_key: "DEBT_TO_EQUITY" },
 };
 
+// ---------------------------------------------------------------------------
+// Phase 82: Joint filer detection keys — string-valued facts (not numeric)
+// Stored in deal_financial_facts.fact_value_text by the deterministic extractors.
+// ---------------------------------------------------------------------------
+
+/** Personal income (1040) joint filer detection */
+export const JOINT_FILER_PTR_KEYS = [
+  "PTR_FILING_STATUS",       // "MFJ" | "MFS" | "SINGLE" | "HOH" | "QW"
+  "PTR_SPOUSE_NAME",         // co-filer name extracted from Form 1040 spouse line
+] as const;
+
+/** Personal Financial Statement joint detection */
+export const JOINT_FILER_PFS_KEYS = [
+  "PFS_IS_JOINT",            // "true" | "false" — two signatories at same address
+  "PFS_CO_APPLICANT_NAME",   // second signatory name on joint PFS
+] as const;
+
+/** All joint filer fact keys */
+export const JOINT_FILER_FACT_KEYS = [
+  ...JOINT_FILER_PTR_KEYS,
+  ...JOINT_FILER_PFS_KEYS,
+] as const;
+
 export const REQUIRED_CANONICAL_FACT_KEYS: Array<CanonicalFact["canonical_key"]> = [
   "CASH_FLOW_AVAILABLE",
   "ANNUAL_DEBT_SERVICE",

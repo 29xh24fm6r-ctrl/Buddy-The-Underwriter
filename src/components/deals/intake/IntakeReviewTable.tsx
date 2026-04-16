@@ -37,6 +37,15 @@ type IntakeDoc = {
   intake_locked_at: string | null;
   created_at: string | null;
   statement_period: string | null;
+  // Phase 82: Joint filer fields
+  subject_id: string | null;
+  subject_ids: string[] | null;
+  joint_filer_confirmed: boolean | null;
+  joint_filer_detection_source: string | null;
+  ptr_filing_status: string | null;
+  ptr_spouse_name: string | null;
+  pfs_is_joint: boolean | null;
+  pfs_co_applicant_name: string | null;
 };
 
 type ProcessingMarkers = {
@@ -137,6 +146,137 @@ function extractStuckReason(error: string | null): StuckReason | null {
     : null;
 }
 
+// ── Phase 82: Joint Filer Detection ───────────────────────────────────
+
+type Guarantor = { id: string; legal_name: string | null; name: string; entity_kind: string };
+
+type JointFilingSignal = {
+  shouldSuggest: boolean;
+  reason: "mfj_detected" | "joint_pfs_detected" | "same_lastname_guarantors" | null;
+  spouseName: string | null;
+  coApplicantName: string | null;
+};
+
+function detectJointFilingSignal(
+  doc: IntakeDoc,
+  guarantors: Guarantor[],
+): JointFilingSignal {
+  // Signal 1: MFJ explicitly detected by extraction pipeline
+  if (doc.ptr_filing_status === "MFJ") {
+    return {
+      shouldSuggest: true,
+      reason: "mfj_detected",
+      spouseName: doc.ptr_spouse_name,
+      coApplicantName: null,
+    };
+  }
+
+  // Signal 2: Joint PFS detected (two signatories)
+  if (doc.pfs_is_joint === true) {
+    return {
+      shouldSuggest: true,
+      reason: "joint_pfs_detected",
+      spouseName: null,
+      coApplicantName: doc.pfs_co_applicant_name,
+    };
+  }
+
+  // Signal 3: Two personal guarantors share the same last name AND
+  // this is a PTR or PFS document with only one binding
+  const isPtrOrPfs =
+    doc.canonical_type === "PERSONAL_TAX_RETURN" ||
+    doc.canonical_type === "PERSONAL_FINANCIAL_STATEMENT";
+
+  if (isPtrOrPfs && guarantors.length >= 2) {
+    const personalGuarantors = guarantors.filter(g => g.entity_kind === "PERSON");
+    if (personalGuarantors.length >= 2) {
+      const lastNames = personalGuarantors.map(g => {
+        const name = g.legal_name ?? g.name;
+        const parts = name.trim().split(/\s+/);
+        return parts[parts.length - 1].toLowerCase();
+      });
+      const uniqueLastNames = new Set(lastNames);
+      if (uniqueLastNames.size === 1) {
+        return {
+          shouldSuggest: true,
+          reason: "same_lastname_guarantors",
+          spouseName: null,
+          coApplicantName: null,
+        };
+      }
+    }
+  }
+
+  return { shouldSuggest: false, reason: null, spouseName: null, coApplicantName: null };
+}
+
+function JointFilingBanner({
+  doc,
+  signal,
+  guarantors,
+  onConfirm,
+  onDeny,
+  onDismiss,
+}: {
+  doc: IntakeDoc;
+  signal: JointFilingSignal;
+  guarantors: Guarantor[];
+  onConfirm: () => void;
+  onDeny: () => void;
+  onDismiss: () => void;
+}) {
+  const personalGuarantors = guarantors.filter(g => g.entity_kind === "PERSON");
+
+  const bannerText = (() => {
+    if (signal.reason === "mfj_detected") {
+      const spousePart = signal.spouseName ? ` (${signal.spouseName})` : "";
+      return `Buddy detected "Married Filing Jointly" on this return${spousePart}. Should it cover both guarantors?`;
+    }
+    if (signal.reason === "joint_pfs_detected") {
+      const coPart = signal.coApplicantName ? ` and ${signal.coApplicantName}` : "";
+      return `This PFS appears to have two signatories${coPart}. Should it cover both guarantors?`;
+    }
+    if (signal.reason === "same_lastname_guarantors" && personalGuarantors.length >= 2) {
+      const names = personalGuarantors.map(g => g.legal_name ?? g.name).join(" and ");
+      return `${names} share the same last name. Do they file jointly and share personal documents?`;
+    }
+    return "This document may cover multiple guarantors. Does it apply to both?";
+  })();
+
+  return (
+    <tr>
+      <td colSpan={6} className="px-2 pb-2">
+        <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2.5 flex items-center gap-3">
+          <span className="material-symbols-outlined text-blue-400 text-[16px] flex-shrink-0">
+            family_restroom
+          </span>
+          <p className="text-xs text-white/60 flex-1">{bannerText}</p>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={onDeny}
+              className="text-[10px] px-2 py-1 rounded border border-white/10 text-white/40 hover:bg-white/5"
+            >
+              No
+            </button>
+            <button
+              onClick={onConfirm}
+              className="text-[10px] px-2 py-1 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 font-medium"
+            >
+              Yes, covers both
+            </button>
+            <button
+              onClick={onDismiss}
+              className="text-[10px] text-white/25 hover:text-white/40"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────────
 
 export function IntakeReviewTable({
@@ -171,6 +311,11 @@ export function IntakeReviewTable({
   // Phase C: Entity-binding readiness — surfaced from processing-status
   const [entityBindingRequired, setEntityBindingRequired] = useState(false);
   const [unboundEntityScopedSlotCount, setUnboundEntityScopedSlotCount] = useState(0);
+
+  // Phase 82: Joint filer banner state
+  const [guarantors, setGuarantors] = useState<Guarantor[]>([]);
+  const [dismissedJointBanners, setDismissedJointBanners] = useState<Set<string>>(new Set());
+  const [jointBindingInFlight, setJointBindingInFlight] = useState<Set<string>>(new Set());
 
   // Safety: attempt scoping (Step A) — monotonic counter to invalidate stale async paths
   const attemptRef = useRef(0);
@@ -312,6 +457,14 @@ export function IntakeReviewTable({
 
   // Step B: Abort in-flight submit fetches on unmount
   useEffect(() => () => { abortRef.current?.abort(); }, []);
+
+  // Phase 82: Fetch personal guarantors for joint filer detection
+  useEffect(() => {
+    fetch(`/api/deals/${dealId}/entities?type=personal`)
+      .then(r => r.json())
+      .then(data => { if (data.ok) setGuarantors(data.entities ?? []); })
+      .catch(() => {});
+  }, [dealId]);
 
   const filteredDocs = useMemo(() => {
     if (!data?.documents) return [];
@@ -917,8 +1070,8 @@ export function IntakeReviewTable({
               const isEditing = editingDoc === doc.id;
 
               return (
+                <React.Fragment key={doc.id}>
                 <tr
-                  key={doc.id}
                   className="border-b border-white/5 hover:bg-white/[0.02]"
                 >
                   <td className="py-2 px-2 text-white/70 max-w-[200px] truncate">
@@ -1125,6 +1278,80 @@ export function IntakeReviewTable({
                     )}
                   </td>
                 </tr>
+                {/* Phase 82: Joint filer suggestion banner */}
+                {(() => {
+                  const isPtrOrPfs =
+                    doc.canonical_type === "PERSONAL_TAX_RETURN" ||
+                    doc.canonical_type === "PERSONAL_FINANCIAL_STATEMENT";
+                  if (!isPtrOrPfs) return null;
+                  if (doc.joint_filer_confirmed !== null) return null;
+                  if (dismissedJointBanners.has(doc.id)) return null;
+                  if (jointBindingInFlight.has(doc.id)) return null;
+                  if (guarantors.filter(g => g.entity_kind === "PERSON").length < 2) return null;
+
+                  const signal = detectJointFilingSignal(doc, guarantors);
+                  if (!signal.shouldSuggest) return null;
+
+                  return (
+                    <JointFilingBanner
+                      doc={doc}
+                      signal={signal}
+                      guarantors={guarantors}
+                      onDismiss={() => setDismissedJointBanners(prev => new Set([...prev, doc.id]))}
+                      onDeny={async () => {
+                        setJointBindingInFlight(prev => new Set([...prev, doc.id]));
+                        try {
+                          await fetch(`/api/deals/${dealId}/intake/documents/${doc.id}/joint-bind`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              subject_ids: [doc.subject_id].filter(Boolean),
+                              confirmed: false,
+                              detection_source: "banker_denied",
+                            }),
+                          });
+                          await refresh();
+                        } finally {
+                          setJointBindingInFlight(prev => {
+                            const next = new Set(prev);
+                            next.delete(doc.id);
+                            return next;
+                          });
+                        }
+                      }}
+                      onConfirm={async () => {
+                        setJointBindingInFlight(prev => new Set([...prev, doc.id]));
+                        const personalGuarantorIds = guarantors
+                          .filter(g => g.entity_kind === "PERSON")
+                          .map(g => g.id)
+                          .slice(0, 2);
+                        try {
+                          await fetch(`/api/deals/${dealId}/intake/documents/${doc.id}/joint-bind`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              subject_ids: personalGuarantorIds,
+                              confirmed: true,
+                              detection_source: signal.reason === "mfj_detected"
+                                ? "auto_mfj"
+                                : signal.reason === "joint_pfs_detected"
+                                ? "auto_joint_pfs"
+                                : "banker_confirmed",
+                            }),
+                          });
+                          await refresh();
+                        } finally {
+                          setJointBindingInFlight(prev => {
+                            const next = new Set(prev);
+                            next.delete(doc.id);
+                            return next;
+                          });
+                        }
+                      }}
+                    />
+                  );
+                })()}
+                </React.Fragment>
               );
             })}
             {filteredDocs.length === 0 && (

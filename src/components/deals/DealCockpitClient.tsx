@@ -69,8 +69,8 @@ function CockpitBorrowerIdentity() {
 
   if (!deal.borrower || !deal.borrower.legalName) {
     return (
-      <span className="text-xs text-red-400 font-medium">
-        Borrower data unavailable — contact support
+      <span className="text-xs text-white/30 font-medium">
+        Borrower not yet linked
       </span>
     );
   }

@@ -418,12 +418,12 @@ export async function reconcileDealChecklist(dealId: string) {
   {
     const attempt = await sb
       .from("deal_documents")
-      .select("id, checklist_key, doc_year, doc_years, document_type")
+      .select("id, checklist_key, doc_year, doc_years, document_type, assigned_owner_id, subject_ids, joint_filer_confirmed")
       .eq("deal_id", dealId);
 
     if (attempt.error) {
       const msg = String(attempt.error.message || "");
-      if (msg.toLowerCase().includes("does not exist") && (msg.includes("doc_years") || msg.includes("document_type"))) {
+      if (msg.toLowerCase().includes("does not exist") && (msg.includes("doc_years") || msg.includes("document_type") || msg.includes("subject_ids") || msg.includes("joint_filer_confirmed"))) {
         const fallback = await sb
           .from("deal_documents")
           .select("id, checklist_key, doc_year")
@@ -470,6 +470,17 @@ export async function reconcileDealChecklist(dealId: string) {
   const docsByKey = new Map<string, any[]>();
   const docsByType = new Map<string, any[]>();
   for (const d of matchedDocs || []) {
+    // Phase 82: A document with joint_filer_confirmed=true + subject_ids
+    // has valid entity binding even if assigned_owner_id is null.
+    // Normalize: if joint-confirmed, ensure assigned_owner_id fallback exists.
+    const isJointBound =
+      (d as any).joint_filer_confirmed === true &&
+      Array.isArray((d as any).subject_ids) &&
+      ((d as any).subject_ids as string[]).length > 0;
+    if (isJointBound && !(d as any).assigned_owner_id) {
+      (d as any).assigned_owner_id = ((d as any).subject_ids as string[])[0];
+    }
+
     const key = String((d as any)?.checklist_key || "").trim();
     if (key) {
       const arr = docsByKey.get(key) ?? [];

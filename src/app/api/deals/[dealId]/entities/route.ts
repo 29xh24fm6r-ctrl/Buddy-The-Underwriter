@@ -31,13 +31,21 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
     const supabase = await getSupabaseClient();
 
+    // Phase 82: Support ?type=personal|business filter for joint filer UI
+    const typeFilter = req.nextUrl.searchParams.get("type");
+
     if (supabase) {
       // Production: Use Supabase
-      const { data, error } = await supabase
+      let query = supabase
         .from("deal_entities")
         .select("*")
-        .eq("deal_id", dealId)
-        .order("created_at", { ascending: true });
+        .eq("deal_id", dealId);
+
+      // Map API type param → entity_kind values
+      if (typeFilter === "personal") query = query.eq("entity_kind", "PERSON");
+      else if (typeFilter === "business") query = query.in("entity_kind", ["OPCO", "PROPCO", "HOLDCO"]);
+
+      const { data, error } = await query.order("created_at", { ascending: true });
 
       if (error) {
         console.error("[entities] GET error:", error);

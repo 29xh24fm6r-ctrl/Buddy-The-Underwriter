@@ -13,6 +13,7 @@ import {
   extractEntitiesFlat,
   entityToMoney,
 } from "./structuredJsonParser";
+import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
 
 // ---------------------------------------------------------------------------
 // Canonical line item keys (same as original extractor)
@@ -25,6 +26,8 @@ const VALID_LINE_KEYS = new Set([
   "PFS_CONTINGENT", "PFS_OTHER_LIABILITIES", "PFS_TOTAL_LIABILITIES",
   "PFS_NET_WORTH",
   "PFS_ANNUAL_DEBT_SERVICE", "PFS_LIVING_EXPENSES",
+  // Phase 82: Joint PFS detection keys (string-valued)
+  "PFS_IS_JOINT", "PFS_CO_APPLICANT_NAME",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -244,6 +247,9 @@ export async function extractPfsDeterministic(
     ownerEntityId: args.ownerEntityId ?? null,
   });
 
+  // Phase 82: Detect joint PFS and write string facts
+  await writeJointPfsStringFacts(args, path);
+
   return { ...result, extractionPath: path };
 }
 
@@ -321,6 +327,73 @@ function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
   }
 
   return items;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 82: Joint PFS detection — string facts
+// ---------------------------------------------------------------------------
+
+function detectJointPfs(ocrText: string): { isJoint: boolean; coApplicantName: string | null } {
+  const coApplicantPatterns = [
+    /co[\s-]?applicant(?:'s)?\s+(?:name|signature)[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i,
+    /joint\s+applicant[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i,
+    /(?:and|&)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s*(?:\(spouse\)|co-?applicant)/i,
+    // Two signature lines with names — look for second "Print Name:" or "Printed Name:"
+    /print(?:ed)?\s+name[:\s]+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+[\s\S]{0,200}print(?:ed)?\s+name[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i,
+  ];
+
+  for (const pattern of coApplicantPatterns) {
+    const match = ocrText.match(pattern);
+    if (match?.[1]) {
+      return { isJoint: true, coApplicantName: match[1].trim() };
+    }
+  }
+
+  return { isJoint: false, coApplicantName: null };
+}
+
+async function writeJointPfsStringFacts(
+  args: DeterministicExtractorArgs,
+  path: ExtractionPath,
+): Promise<void> {
+  const { isJoint, coApplicantName } = detectJointPfs(args.ocrText);
+
+  const dateStr = resolveDocDate(args.ocrText, args.docYear);
+  const { start: periodStart, end: periodEnd } = normalizePeriod(dateStr);
+
+  await upsertDealFinancialFact({
+    dealId: args.dealId,
+    bankId: args.bankId,
+    sourceDocumentId: args.documentId,
+    factType: "PERSONAL_FINANCIAL_STATEMENT",
+    factKey: "PFS_IS_JOINT",
+    factValueNum: null,
+    factValueText: isJoint ? "true" : "false",
+    confidence: isJoint ? 0.85 : 0.60,
+    factPeriodStart: periodStart,
+    factPeriodEnd: periodEnd,
+    provenance: makeProvenance(args.documentId, periodEnd, isJoint ? 0.85 : 0.60, `pfs_is_joint=${isJoint}`, path),
+    ownerType: "PERSONAL",
+    ownerEntityId: args.ownerEntityId ?? null,
+  });
+
+  if (coApplicantName) {
+    await upsertDealFinancialFact({
+      dealId: args.dealId,
+      bankId: args.bankId,
+      sourceDocumentId: args.documentId,
+      factType: "PERSONAL_FINANCIAL_STATEMENT",
+      factKey: "PFS_CO_APPLICANT_NAME",
+      factValueNum: null,
+      factValueText: coApplicantName,
+      confidence: 0.75,
+      factPeriodStart: periodStart,
+      factPeriodEnd: periodEnd,
+      provenance: makeProvenance(args.documentId, periodEnd, 0.75, `co_applicant=${coApplicantName}`, path),
+      ownerType: "PERSONAL",
+      ownerEntityId: args.ownerEntityId ?? null,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ import {
   extractEntitiesFlat,
   entityToMoney,
 } from "./structuredJsonParser";
+import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
 
 // ---------------------------------------------------------------------------
 // Canonical line item keys (same as original extractor)
@@ -79,6 +80,9 @@ const VALID_LINE_KEYS = new Set([
   // Legacy keys — keep for backward compat
   "INTEREST_INCOME",
   "DIVIDEND_INCOME",
+  // Phase 82: Joint filer detection keys (string-valued)
+  "PTR_FILING_STATUS",
+  "PTR_SPOUSE_NAME",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -110,6 +114,10 @@ const LABEL_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "F4562_TOTAL_DEPRECIATION", pattern: /(?:total\s+(?:depreciation|amortization)\s+(?:and|or)\s+amortization|line\s+22\b).*?(\$?[\d,]+(?:\.\d{2})?)/i },
   { key: "F8825_TOTAL_GROSS_RENTS", pattern: /(?:total\s+gross\s+rents|form\s+8825.*?rents?).*?(\$?[\d,]+(?:\.\d{2})?)/i },
   { key: "F8825_NET_INCOME_LOSS", pattern: /(?:form\s+8825.*?net\s+(?:income|loss)).*?(\$?[\d,]+(?:\.\d{2})?)/i },
+  // Phase 82: Filing status — captures the status text, not a dollar amount (handled separately)
+  { key: "PTR_FILING_STATUS", pattern: /(?:filing\s+status|line\s+[12345])\s*(?:\[.{0,3}\]|✓|✗|x|■)?\s*(single|married\s+filing\s+jointly|married\s+filing\s+separately|head\s+of\s+household|qualifying\s+(?:widow|surviving\s+spouse))/i },
+  // Phase 82: Spouse name from joint return header
+  { key: "PTR_SPOUSE_NAME", pattern: /(?:spouse(?:'s)?\s+(?:first\s+)?name|if\s+joint\s+return)[,:\s]+([A-Z][a-z]+(?:\s+[A-Z]\.?)?\s+[A-Z][a-z]+)/i },
 ];
 
 // ---------------------------------------------------------------------------
@@ -189,6 +197,11 @@ const ENTITY_MAP: Record<string, string> = {
   f8825_total_expenses: "F8825_TOTAL_EXPENSES",
   f8825_depreciation: "F8825_DEPRECIATION",
   f8825_net_income_loss: "F8825_NET_INCOME_LOSS",
+  // Phase 82: Joint filer detection
+  filing_status: "PTR_FILING_STATUS",
+  ptr_filing_status: "PTR_FILING_STATUS",
+  spouse_name: "PTR_SPOUSE_NAME",
+  ptr_spouse_name: "PTR_SPOUSE_NAME",
 };
 
 // ---------------------------------------------------------------------------
@@ -231,6 +244,9 @@ export async function extractPersonalIncomeDeterministic(
     ownerType: "PERSONAL",
     ownerEntityId: args.ownerEntityId ?? null,
   });
+
+  // Phase 82: Write joint filer string facts (filing status + spouse name)
+  await writeJointFilerStringFacts(args, path);
 
   return { ...result, extractionPath: path };
 }
@@ -299,6 +315,96 @@ function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
   }
 
   return items;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 82: Joint filer detection — string facts
+// ---------------------------------------------------------------------------
+
+const MFJ_SHORTCUT = /\bmarried\s+filing\s+jointly\b/i;
+
+const FILING_STATUS_NORMALIZE: Record<string, string> = {
+  single: "SINGLE",
+  "married filing jointly": "MFJ",
+  "married filing separately": "MFS",
+  "head of household": "HOH",
+  "qualifying widow": "QW",
+  "qualifying surviving spouse": "QW",
+};
+
+function detectFilingStatus(ocrText: string): { status: string | null; spouseName: string | null } {
+  // Shortcut: MFJ checkbox anywhere in the first ~3 pages (~6000 chars)
+  const first3Pages = ocrText.slice(0, 6000);
+  if (MFJ_SHORTCUT.test(first3Pages)) {
+    // Also try to get spouse name
+    const spouseMatch = ocrText.match(
+      /(?:spouse(?:'s)?\s+(?:first\s+)?name|if\s+joint\s+return)[,:\s]+([A-Z][a-z]+(?:\s+[A-Z]\.?)?\s+[A-Z][a-z]+)/i,
+    );
+    return { status: "MFJ", spouseName: spouseMatch?.[1]?.trim() ?? null };
+  }
+
+  // Full pattern: filing status line
+  const fsMatch = ocrText.match(
+    /(?:filing\s+status|line\s+[12345])\s*(?:\[.{0,3}\]|✓|✗|x|■)?\s*(single|married\s+filing\s+jointly|married\s+filing\s+separately|head\s+of\s+household|qualifying\s+(?:widow|surviving\s+spouse))/i,
+  );
+  if (fsMatch?.[1]) {
+    const normalized = FILING_STATUS_NORMALIZE[fsMatch[1].toLowerCase()] ?? fsMatch[1].toUpperCase();
+    const spouseMatch = ocrText.match(
+      /(?:spouse(?:'s)?\s+(?:first\s+)?name|if\s+joint\s+return)[,:\s]+([A-Z][a-z]+(?:\s+[A-Z]\.?)?\s+[A-Z][a-z]+)/i,
+    );
+    return { status: normalized, spouseName: normalized === "MFJ" ? (spouseMatch?.[1]?.trim() ?? null) : null };
+  }
+
+  return { status: null, spouseName: null };
+}
+
+async function writeJointFilerStringFacts(
+  args: DeterministicExtractorArgs,
+  path: ExtractionPath,
+): Promise<void> {
+  const { status, spouseName } = detectFilingStatus(args.ocrText);
+  if (!status) return;
+
+  const taxYear = resolveDocTaxYear(args.ocrText, args.docYear);
+  const period = taxYear ? `FY${taxYear}` : null;
+  const { start: periodStart, end: periodEnd } = normalizePeriod(period);
+  const confidence = status === "MFJ" && MFJ_SHORTCUT.test(args.ocrText.slice(0, 6000)) ? 0.90 : 0.70;
+
+  const prov = makeProvenance(args.documentId, periodEnd, confidence, `filing_status=${status}`, path);
+
+  await upsertDealFinancialFact({
+    dealId: args.dealId,
+    bankId: args.bankId,
+    sourceDocumentId: args.documentId,
+    factType: "PERSONAL_INCOME",
+    factKey: "PTR_FILING_STATUS",
+    factValueNum: null,
+    factValueText: status,
+    confidence,
+    factPeriodStart: periodStart,
+    factPeriodEnd: periodEnd,
+    provenance: prov,
+    ownerType: "PERSONAL",
+    ownerEntityId: args.ownerEntityId ?? null,
+  });
+
+  if (spouseName) {
+    await upsertDealFinancialFact({
+      dealId: args.dealId,
+      bankId: args.bankId,
+      sourceDocumentId: args.documentId,
+      factType: "PERSONAL_INCOME",
+      factKey: "PTR_SPOUSE_NAME",
+      factValueNum: null,
+      factValueText: spouseName,
+      confidence: 0.70,
+      factPeriodStart: periodStart,
+      factPeriodEnd: periodEnd,
+      provenance: makeProvenance(args.documentId, periodEnd, 0.70, `spouse_name=${spouseName}`, path),
+      ownerType: "PERSONAL",
+      ownerEntityId: args.ownerEntityId ?? null,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
