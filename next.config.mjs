@@ -41,6 +41,29 @@ const nextConfig = {
   async headers() {
     return [
       {
+        // Force browser re-validation of all Next.js JS/CSS chunks on every load.
+        // Without this, users on active sessions after a new deployment get 404s
+        // on stale chunk URLs that no longer exist in the new build.
+        source: "/_next/static/(.*)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      {
+        // HTML pages must never be cached — always fetch fresh so chunk URLs
+        // always match the current deployment.
+        source: "/((?!_next/static|_next/image|favicon.ico).*)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "no-cache, no-store, must-revalidate",
+          },
+        ],
+      },
+      {
         // Global security headers — microphone blocked by default
         source: "/(.*)",
         headers: [
