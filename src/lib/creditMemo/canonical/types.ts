@@ -164,12 +164,17 @@ export type GuarantorBudget = {
 };
 
 // Phase 81: Committee certification status
+// Phase 82: Evidence coverage fields added
 export type CommitteeCertification = {
   isCommitteeEligible: boolean;
   trustGrade: string | null;
   subjectLocked: boolean;
   renderMode: "committee" | "internal_diagnostic";
   blockers: string[];
+  /** Phase 82: 0.0–1.0 ratio of sections with at least one evidence row; null if no memo generated yet */
+  evidenceSupportRatio: number | null;
+  /** Phase 82: section_keys with evidence_count === 0 */
+  unsupportedSections: string[];
 };
 
 export type CanonicalCreditMemoV1 = {

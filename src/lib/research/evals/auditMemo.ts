@@ -1,183 +1,111 @@
-import "server-only";
-
 /**
- * Phase 82 — Memo Truth Audit CLI
- *
- * Inspects a deal's memo evidence quality in one shot:
- *   - Evidence coverage (support ratio, unsupported sections)
- *   - Contradiction strength (per-check strong/weak/none)
- *   - Inference-heavy sections
- *   - Starting → memo-time trust grade (with downgrade reasons)
+ * Phase 82: Memo Truth Audit CLI
  *
  * Usage:
- *   npx tsx src/lib/research/evals/auditMemo.ts <dealId>
+ *   npx tsx src/lib/research/evals/auditMemo.ts <dealId> <bankId>
+ *   npm run audit:memo <dealId> <bankId>
  *
- * Exit codes:
- *   0  → audit succeeded (memo meets committee bar OR meets expected state)
- *   1  → audit surfaced a hard failure (e.g., memo trust = research_failed)
- *   2  → audit could not run (no mission, bad dealId)
+ * Outputs a structured diagnostic:
+ *   - Trust grade
+ *   - Evidence coverage by section
+ *   - Inference-dominated sections
+ *   - Memo lint results
+ *   - Committee certification state
+ *   - Golden set match (if applicable)
  */
 
-import { buildMemoEvidenceAggregate } from "../memoEvidenceAggregate";
-import { loadTrustGradeForDeal } from "../trustEnforcement";
-import {
-  applyMemoEvidenceGate,
-  REQUIRED_CONTRADICTION_CHECKS,
-  type TrustGrade,
-} from "../completionGate";
+import { computeEvidenceCoverage } from "@/lib/research/evidenceCoverage";
+import { loadTrustGradeForDeal } from "@/lib/research/trustEnforcement";
+import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
+import { lintCanonicalMemo } from "@/lib/creditMemo/memoLint";
+import { GOLDEN_SET } from "./goldenSet";
 
-export type AuditMemoReport = {
-  dealId: string;
-  hasMission: boolean;
-  startingTrustGrade: TrustGrade | null;
-  memoTrustGrade: TrustGrade;
-  downgraded: boolean;
-  downgradeReasons: string[];
-  evidenceCoverage: {
-    totalSections: number;
-    unsupportedSections: number;
-    weakSections: number;
-    supportRatio: number | null;
-  };
-  contradictionStrength: {
-    strongCount: number;
-    weakCount: number;
-    noneCount: number;
-    strongRatio: number | null;
-    perCheck: Record<string, "strong" | "weak" | "none">;
-  };
-  inferenceHeavySections: Array<{ section: string; ratio: number; inference: number; total: number }>;
-  sourceUrlCount: number;
-};
+async function auditMemo(dealId: string, bankId: string) {
+  const divider = "─".repeat(50);
+  console.log(`\n${divider}`);
+  console.log(`BUDDY MEMO TRUTH AUDIT`);
+  console.log(`Deal:  ${dealId}`);
+  console.log(`Bank:  ${bankId}`);
+  console.log(`Time:  ${new Date().toISOString()}`);
+  console.log(divider);
 
-const INFERENCE_HEAVY_THRESHOLD = 0.5;
+  // 1. Trust grade
+  const trustGrade = await loadTrustGradeForDeal(dealId).catch(() => null);
+  const trustIcon =
+    trustGrade === "committee_grade" ? "✓" :
+    trustGrade === "preliminary" ? "~" :
+    trustGrade ? "✗" : "?";
+  console.log(`\n[${trustIcon}] Trust Grade: ${trustGrade ?? "not run"}`);
 
-export async function auditMemo(dealId: string): Promise<AuditMemoReport> {
-  const [aggregate, startingGrade] = await Promise.all([
-    buildMemoEvidenceAggregate(dealId),
-    loadTrustGradeForDeal(dealId),
-  ]);
-
-  const baseGrade: TrustGrade = (startingGrade ?? "manual_review_required") as TrustGrade;
-  const gate = applyMemoEvidenceGate(baseGrade, {
-    evidenceSupportRatio: aggregate.coverage.supportRatio,
-    contradictionStrongRatio: aggregate.contradictionStrength.strongRatio,
-  });
-
-  const inferenceHeavy: AuditMemoReport["inferenceHeavySections"] = [];
-  for (const [section, v] of Object.entries(aggregate.inferenceBySection)) {
-    if (v.total > 0 && (v.ratio ?? 0) >= INFERENCE_HEAVY_THRESHOLD) {
-      inferenceHeavy.push({
-        section,
-        ratio: v.ratio ?? 0,
-        inference: v.inference,
-        total: v.total,
-      });
+  // 2. Evidence coverage
+  const coverage = await computeEvidenceCoverage(dealId, bankId).catch(() => null);
+  if (coverage) {
+    const pct = Math.round(coverage.supportRatio * 100);
+    const coverageIcon = pct >= 85 ? "✓" : pct >= 70 ? "~" : "✗";
+    console.log(`\n[${coverageIcon}] Evidence Coverage: ${pct}% (${coverage.supportedSections}/${coverage.totalSections} sections)`);
+    for (const s of coverage.sectionBreakdown) {
+      const icon = s.supported ? "  ✓" : "  ✗";
+      console.log(`${icon} ${s.sectionKey}: ${s.evidenceCount} row${s.evidenceCount !== 1 ? "s" : ""}`);
     }
-  }
-  inferenceHeavy.sort((a, b) => b.ratio - a.ratio);
-
-  return {
-    dealId,
-    hasMission: aggregate.hasMission,
-    startingTrustGrade: (startingGrade ?? null) as TrustGrade | null,
-    memoTrustGrade: gate.trustGrade,
-    downgraded: gate.downgraded,
-    downgradeReasons: gate.reasons,
-    evidenceCoverage: aggregate.coverage,
-    contradictionStrength: {
-      strongCount: aggregate.contradictionStrength.strongCount,
-      weakCount: aggregate.contradictionStrength.weakCount,
-      noneCount: aggregate.contradictionStrength.noneCount,
-      strongRatio: aggregate.contradictionStrength.strongRatio,
-      perCheck: aggregate.contradictionStrength.perCheck,
-    },
-    inferenceHeavySections: inferenceHeavy,
-    sourceUrlCount: aggregate.sourceUrls.length,
-  };
-}
-
-function formatRatio(r: number | null): string {
-  return r === null ? "—" : `${(r * 100).toFixed(0)}%`;
-}
-
-export function renderAuditReport(report: AuditMemoReport): string {
-  const lines: string[] = [];
-  lines.push("");
-  lines.push(`=== Memo Truth Audit — ${report.dealId} ===`);
-  lines.push("");
-
-  if (!report.hasMission) {
-    lines.push("No completed research mission for this deal.");
-    lines.push("Audit values below reflect an empty evidence base.");
-    lines.push("");
-  }
-
-  lines.push(`Evidence Coverage: ${formatRatio(report.evidenceCoverage.supportRatio)}`);
-  lines.push(`  Total Sections:       ${report.evidenceCoverage.totalSections}`);
-  lines.push(`  Unsupported Sections: ${report.evidenceCoverage.unsupportedSections}`);
-  lines.push(`  Weak Sections (<3):   ${report.evidenceCoverage.weakSections}`);
-  lines.push("");
-
-  lines.push("Contradiction Strength:");
-  lines.push(`  strong: ${report.contradictionStrength.strongCount}  `
-    + `weak: ${report.contradictionStrength.weakCount}  `
-    + `none: ${report.contradictionStrength.noneCount}  `
-    + `(required: ${REQUIRED_CONTRADICTION_CHECKS.length})`);
-  for (const key of REQUIRED_CONTRADICTION_CHECKS) {
-    const s = report.contradictionStrength.perCheck[key] ?? "none";
-    lines.push(`  - ${key}: ${s}`);
-  }
-  lines.push("");
-
-  if (report.inferenceHeavySections.length === 0) {
-    lines.push("Inference-heavy sections: none (all sections ≤ 50% inference)");
   } else {
-    lines.push("Inference-heavy sections:");
-    for (const s of report.inferenceHeavySections) {
-      lines.push(`  - ${s.section} (${Math.round(s.ratio * 100)}% inference, ${s.inference}/${s.total})`);
-    }
-  }
-  lines.push("");
-
-  lines.push(`Sources in pool: ${report.sourceUrlCount}`);
-  lines.push("");
-
-  lines.push(`Starting Trust Grade: ${report.startingTrustGrade ?? "—"}`);
-  lines.push(`Memo Trust Grade:     ${report.memoTrustGrade}`
-    + (report.downgraded ? "  (downgraded)" : ""));
-  if (report.downgradeReasons.length > 0) {
-    lines.push("Downgrade reasons:");
-    for (const r of report.downgradeReasons) lines.push(`  - ${r}`);
-  }
-  lines.push("");
-
-  return lines.join("\n");
-}
-
-// CLI entrypoint
-const isCli =
-  typeof process !== "undefined" &&
-  typeof process.argv?.[1] === "string" &&
-  process.argv[1].includes("auditMemo");
-
-if (isCli) {
-  const dealId = process.argv[2];
-  if (!dealId) {
-    console.error("Usage: npx tsx src/lib/research/evals/auditMemo.ts <dealId>");
-    process.exit(2);
+    console.log(`\n[?] Evidence Coverage: no memo generated yet`);
   }
 
-  auditMemo(dealId)
-    .then((report) => {
-      console.log(renderAuditReport(report));
-      if (report.memoTrustGrade === "research_failed") {
-        process.exit(1);
+  // 3. Memo build + lint
+  const memoResult = await buildCanonicalCreditMemo({ dealId, bankId }).catch(() => null);
+  if (memoResult?.ok) {
+    const lint = lintCanonicalMemo(memoResult.memo);
+    const lintIcon = lint.passed ? "✓" : "✗";
+    console.log(`\n[${lintIcon}] Memo Lint: ${lint.passed ? "PASS" : "FAIL"} (${lint.errorCount} errors, ${lint.warningCount} warnings)`);
+    if (lint.issues.length > 0) {
+      for (const issue of lint.issues) {
+        const icon = issue.severity === "error" ? "  ✗" : "  ⚠";
+        console.log(`${icon} [${issue.section}] ${issue.message}`);
       }
-      process.exit(0);
-    })
-    .catch((err) => {
-      console.error(`[auditMemo] failed: ${err?.message ?? err}`);
-      process.exit(2);
-    });
+    }
+
+    // 4. Committee certification
+    const cert = (memoResult.memo as any).committee_certification ?? (memoResult.memo as any).certification;
+    if (cert) {
+      const certIcon = cert.isCommitteeEligible ? "✓" : "✗";
+      console.log(`\n[${certIcon}] Committee Eligible: ${cert.isCommitteeEligible ? "YES" : "NO"}`);
+      if (!cert.isCommitteeEligible) {
+        const blockers: string[] = cert.reasonsBlocked ?? cert.blockers ?? [];
+        for (const b of blockers) {
+          console.log(`     • ${b}`);
+        }
+      }
+      if (cert.evidenceSupportRatio !== null && cert.evidenceSupportRatio !== undefined) {
+        console.log(`     Evidence: ${Math.round(cert.evidenceSupportRatio * 100)}%`);
+      }
+    }
+  } else {
+    console.log(`\n[✗] Memo build failed`);
+  }
+
+  // 5. Golden set check
+  const goldenCase = GOLDEN_SET.find(
+    c => c.id === dealId ||
+    (c.subject.company_name && !c.subject.company_name.startsWith("POPULATE") && c.subject.company_name === dealId)
+  );
+  if (goldenCase) {
+    console.log(`\n[★] Golden Set Match: ${goldenCase.name}`);
+    console.log(`     Expected trust: ${goldenCase.expected.maxTrustGrade}`);
+    console.log(`     Expected committee: ${goldenCase.expected.memoShouldBeCommitteeEligible}`);
+    console.log(`     Note: ${goldenCase.expected.notes}`);
+  }
+
+  console.log(`\n${divider}\n`);
 }
+
+const [,, dealId, bankId] = process.argv;
+if (!dealId || !bankId) {
+  console.error("Usage: npx tsx auditMemo.ts <dealId> <bankId>");
+  console.error("   or: npm run audit:memo <dealId> <bankId>");
+  process.exit(1);
+}
+
+auditMemo(dealId, bankId).catch((err) => {
+  console.error("Audit failed:", err);
+  process.exit(1);
+});

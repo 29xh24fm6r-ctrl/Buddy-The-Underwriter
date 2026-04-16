@@ -569,14 +569,20 @@ export async function runMission(
           try {
             const { persistClaimLedger } = await import("./claimLedger");
             const { evaluateCompletionGate } = await import("./completionGate");
+            const { computeEvidenceCoverage } = await import("./evidenceCoverage");
 
             // 1. Write structured claims to buddy_research_evidence
             const claimResult = await persistClaimLedger(missionId, bieResult);
             console.log(`[runMission] claim ledger: ${claimResult.claims_written} claims written`);
 
-            // 2. Run deterministic completion gate
+            // 2. Phase 82: Compute evidence coverage from any previously generated memo
+            // (will be null for first research run on a new deal — Gate 9 exempts these)
+            const evidenceCoverage = await computeEvidenceCoverage(dealId, opts?.bankId ?? "").catch(() => null);
+
+            // 3. Run deterministic completion gate
             const gateResult = evaluateCompletionGate(bieResult, missionId, {
               naicsCode: subject.naics_code,
+              evidenceSupportRatio: evidenceCoverage?.supportRatio ?? null,
             });
             console.log(
               `[runMission] completion gate: trust_grade=${gateResult.trust_grade}, ` +

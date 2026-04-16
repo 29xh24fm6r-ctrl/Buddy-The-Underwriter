@@ -1,66 +1,61 @@
-/**
- * Phase 82: Proof of Truth — Section-Level Evidence Coverage
- *
- * Pure function. No DB, no server-only. Operates on the research_trace_json
- * shape already built by buildResearchTrace() in memoEvidenceResolver.ts.
- *
- * Strategy: use section-level evidence counts as the measurable proxy for
- * "Is this memo actually supported?". We do NOT attempt sentence-level claim
- * matching — the system is already section-aware, and that granularity gives
- * ~90% of the value with a small fraction of the complexity.
- */
+import "server-only";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
-export type ResearchTraceSection = {
-  section_key: string;
-  claim_ids: string[];
-  evidence_count: number;
-};
-
-export type ResearchTraceJson = {
-  sections: ResearchTraceSection[];
-};
-
-export type EvidenceCoverage = {
+export type EvidenceCoverageResult = {
   totalSections: number;
+  supportedSections: number;
   unsupportedSections: number;
-  weakSections: number;
-  /** null iff no sections exist (new deal — must not be penalized) */
-  supportRatio: number | null;
+  supportRatio: number; // 0.0–1.0
+  sectionBreakdown: Array<{
+    sectionKey: string;
+    evidenceCount: number;
+    supported: boolean;
+  }>;
 };
 
-const WEAK_SECTION_THRESHOLD = 3;
+/**
+ * Compute evidence coverage from research_trace_json on the latest generated memo.
+ * Uses section-level evidence counts — no NLP sentence matching required.
+ * Returns null when no memo has been generated yet (new deals).
+ */
+export async function computeEvidenceCoverage(
+  dealId: string,
+  bankId: string,
+): Promise<EvidenceCoverageResult | null> {
+  const sb = supabaseAdmin();
 
-export function computeEvidenceCoverage(
-  researchTrace: ResearchTraceJson | null | undefined,
-): EvidenceCoverage {
-  if (!researchTrace || !Array.isArray(researchTrace.sections)) {
-    return {
-      totalSections: 0,
-      unsupportedSections: 0,
-      weakSections: 0,
-      supportRatio: null,
-    };
-  }
+  const { data } = await (sb as any)
+    .from("canonical_memo_narratives")
+    .select("research_trace_json")
+    .eq("deal_id", dealId)
+    .eq("bank_id", bankId)
+    .order("generated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  const sections = researchTrace.sections;
-  const totalSections = sections.length;
+  if (!data?.research_trace_json) return null;
 
-  const unsupportedSections = sections.filter(
-    (s) => (s?.evidence_count ?? 0) === 0,
-  ).length;
+  const trace = data.research_trace_json as {
+    sections: Array<{ section_key: string; claim_ids: string[]; evidence_count: number }>;
+  };
 
-  const weakSections = sections.filter((s) => {
-    const n = s?.evidence_count ?? 0;
-    return n > 0 && n < WEAK_SECTION_THRESHOLD;
-  }).length;
+  if (!trace.sections?.length) return null;
 
-  const supportRatio =
-    totalSections === 0 ? null : 1 - unsupportedSections / totalSections;
+  const MIN_EVIDENCE_FOR_SUPPORTED = 1;
+  const breakdown = trace.sections.map((s) => ({
+    sectionKey: s.section_key,
+    evidenceCount: s.evidence_count,
+    supported: s.evidence_count >= MIN_EVIDENCE_FOR_SUPPORTED,
+  }));
+
+  const totalSections = breakdown.length;
+  const supportedSections = breakdown.filter((s) => s.supported).length;
 
   return {
     totalSections,
-    unsupportedSections,
-    weakSections,
-    supportRatio,
+    supportedSections,
+    unsupportedSections: totalSections - supportedSections,
+    supportRatio: totalSections > 0 ? supportedSections / totalSections : 0,
+    sectionBreakdown: breakdown,
   };
 }

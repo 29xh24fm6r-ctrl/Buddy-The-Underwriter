@@ -24,6 +24,7 @@ import { computeUnderwritingVerdict } from "@/lib/finance/underwriting/computeVe
 import type { UnderwritingResults } from "@/lib/finance/underwriting/results";
 import { loadResearchForMemo } from "@/lib/creditMemo/canonical/loadResearchForMemo";
 import { buildBalanceSheetTable } from "@/lib/creditMemo/canonical/buildBalanceSheetTable";
+import { computeEvidenceCoverage } from "@/lib/research/evidenceCoverage";
 
 // ---------------------------------------------------------------------------
 // Phase 80: Render Mode — committee vs diagnostic
@@ -1073,6 +1074,7 @@ export async function buildCanonicalCreditMemo(args: {
       recommendation,
 
       // Phase 81: Committee certification
+      // Phase 82: evidence coverage density from research_trace_json
       certification: await (async () => {
         try {
           const { loadTrustGradeForDeal } = await import("@/lib/research/trustEnforcement");
@@ -1083,12 +1085,27 @@ export async function buildCanonicalCreditMemo(args: {
           else if (trustGrade === "manual_review_required") blockers.push("Research requires manual review");
           else if (trustGrade === "preliminary") blockers.push("Research is preliminary — not committee-grade");
           if (readiness.status !== "ready") blockers.push("Financial data incomplete");
+
+          // Phase 82: evidence coverage from latest research_trace_json
+          const evidenceCoverage = await computeEvidenceCoverage(args.dealId, bankId).catch(() => null);
+          const evidenceSupportRatio = evidenceCoverage?.supportRatio ?? null;
+          const unsupportedSectionKeys = evidenceCoverage
+            ? evidenceCoverage.sectionBreakdown.filter((s) => !s.supported).map((s) => s.sectionKey)
+            : [];
+          if (evidenceSupportRatio !== null && evidenceSupportRatio < 0.70) {
+            blockers.push(
+              `Evidence support is ${Math.round(evidenceSupportRatio * 100)}% — 70% minimum required`,
+            );
+          }
+
           return {
             isCommitteeEligible: trustGrade === "committee_grade" && readiness.status === "ready" && blockers.length === 0,
             trustGrade,
             subjectLocked: !!borrower?.legal_name && !!borrower?.naics_code && borrower.naics_code !== "999999",
             renderMode: mode,
             blockers,
+            evidenceSupportRatio,
+            unsupportedSections: unsupportedSectionKeys,
           };
         } catch {
           return {
@@ -1097,6 +1114,8 @@ export async function buildCanonicalCreditMemo(args: {
             subjectLocked: false,
             renderMode: mode,
             blockers: ["Unable to determine certification status"],
+            evidenceSupportRatio: null,
+            unsupportedSections: [],
           };
         }
       })(),

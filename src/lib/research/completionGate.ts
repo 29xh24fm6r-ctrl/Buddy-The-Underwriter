@@ -75,7 +75,11 @@ const THRESHOLDS = {
 export function evaluateCompletionGate(
   bieResult: BIEResult,
   missionId: string,
-  opts?: { naicsCode?: string | null },
+  opts?: {
+    naicsCode?: string | null;
+    /** Phase 82: evidence coverage ratio from latest memo (null when no memo exists yet) */
+    evidenceSupportRatio?: number | null;
+  },
 ): CompletionGateResult {
   const checks: GateCheckResult[] = [];
 
@@ -208,6 +212,24 @@ export function evaluateCompletionGate(
   const sectionSourceCheck = evaluateSectionSourceCoverage(bieResult);
   checks.push(sectionSourceCheck.check);
 
+  // ── Gate 9 (Phase 82): Evidence Coverage Density ─────────────────────────
+  // Only fires when a research trace exists (memo has been generated).
+  // New deals with no memo are exempt — evidenceSupportRatio will be null.
+  const evidenceRatio = opts?.evidenceSupportRatio ?? null;
+  if (evidenceRatio !== null) {
+    checks.push({
+      gate_id: "evidence_coverage",
+      label: "Evidence Coverage Density",
+      status: evidenceRatio >= 0.85 ? "pass" : evidenceRatio >= 0.70 ? "warn" : "fail",
+      reason: evidenceRatio >= 0.85
+        ? `Strong evidence coverage — ${Math.round(evidenceRatio * 100)}% of sections backed by evidence`
+        : evidenceRatio >= 0.70
+          ? `Moderate evidence coverage (${Math.round(evidenceRatio * 100)}%) — 85% required for committee_grade`
+          : `Weak evidence coverage — only ${Math.round(evidenceRatio * 100)}% of sections have evidence rows`,
+      severity: evidenceRatio < 0.70 ? "warn" : "info",
+    });
+  }
+
   // ── Grade Assignment ──────────────────────────────────────────────────────
   const failCount = checks.filter((c) => c.status === "fail").length;
   const warnCount = checks.filter((c) => c.status === "warn").length;
@@ -227,6 +249,7 @@ export function evaluateCompletionGate(
     !!synthesis &&
     entityValidationPassed &&
     !naicsIsPlaceholder &&  // Phase 80: NAICS 999999 can never reach committee_grade
+    (evidenceRatio === null || evidenceRatio >= 0.85) &&  // Phase 82: Gate 9 — must pass when a memo exists
     failCount === 0 &&
     warnCount <= 1
   ) {
@@ -366,7 +389,68 @@ const CHECK_PATTERNS: Record<ContradictionCheckKey, RegExp[]> = {
   ],
 };
 
-export function evaluateContradictionCoverage(
+// ---------------------------------------------------------------------------
+// Phase 82: Contradiction Strength Scoring
+// ---------------------------------------------------------------------------
+//
+// Gate 7 proves that a contradiction was addressed in synthesis. Phase 82
+// asks *how well* — is there an authoritative source in the BIE thread the
+// contradiction maps to? Strength is informational only; it does NOT add a
+// new hard blocker. The existing warn/fail severity logic already handles
+// the legitimate-deal protection.
+
+const emptyThreadSources = {
+  borrower: [] as string[],
+  management: [] as string[],
+  competitive: [] as string[],
+  market: [] as string[],
+  industry: [] as string[],
+  transaction: [] as string[],
+  entity_lock: [] as string[],
+};
+
+const THREAD_FOR_CONTRADICTION_CHECK: Record<
+  ContradictionCheckKey,
+  keyof typeof emptyThreadSources
+> = {
+  identity_mismatch: "borrower",
+  dba_mismatch: "borrower",
+  geography_mismatch: "market",
+  scale_plausibility: "borrower",
+  management_history_conflict: "management",
+  regulatory_vs_margin: "industry",
+  competitive_position_conflict: "competitive",
+  repayment_story_conflict: "transaction",
+};
+
+const PRIMARY_SOURCE_TYPES_FOR_STRENGTH = new Set<SourceType>([
+  "court_record",
+  "regulatory_filing",
+  "government_data",
+  "company_primary",
+  "news_primary",
+  "market_research",
+  "trade_publication",
+]);
+
+function computeContradictionStrength(
+  checkKey: ContradictionCheckKey,
+  threadSources: BIEResult["thread_sources"],
+): "strong" | "weak" | "none" {
+  const thread = THREAD_FOR_CONTRADICTION_CHECK[checkKey];
+  const urls: string[] = (threadSources as any)?.[thread] ?? [];
+  if (urls.length === 0) return "none";
+
+  const primaryCount = urls.filter((url) =>
+    PRIMARY_SOURCE_TYPES_FOR_STRENGTH.has(classifySourceUrl(url)),
+  ).length;
+
+  if (primaryCount >= 2) return "strong";
+  if (primaryCount >= 1) return "weak";
+  return "none";
+}
+
+function evaluateContradictionCoverage(
   bieResult: BIEResult,
 ): { check: GateCheckResult; coveredChecks: ContradictionCheckKey[]; missingChecks: ContradictionCheckKey[] } {
   const contradictions = bieResult.synthesis?.contradictions_and_uncertainties ?? [];
@@ -387,13 +471,27 @@ export function evaluateContradictionCoverage(
 
   const coverageRate = covered.length / REQUIRED_CONTRADICTION_CHECKS.length;
 
+  // Phase 82: grade each covered check by source strength. Strong = ≥2 primary
+  // sources in the mapped BIE thread. Weak = 1 primary. None = no sources or
+  // only low-weight sources (e.g., review_platform). This is informational —
+  // no new hard-fail severity, the quality score absorbs weak coverage.
+  const strengthByCheck: Record<string, "strong" | "weak" | "none"> = {};
+  let strongCount = 0;
+  let weakOrNoneCount = 0;
+  for (const checkKey of covered) {
+    const strength = computeContradictionStrength(checkKey, bieResult.thread_sources);
+    strengthByCheck[checkKey] = strength;
+    if (strength === "strong") strongCount++;
+    else weakOrNoneCount++;
+  }
+
   const check: GateCheckResult = {
     gate_id: "contradiction_coverage",
     label: "Adversarial Contradiction Coverage",
     status: missing.length === 0 ? "pass" : missing.length <= 3 ? "warn" : "fail",
     reason: missing.length === 0
-      ? `All ${REQUIRED_CONTRADICTION_CHECKS.length} required contradiction checks addressed`
-      : `${covered.length}/${REQUIRED_CONTRADICTION_CHECKS.length} checks addressed — missing: ${missing.join(", ")}`,
+      ? `All ${REQUIRED_CONTRADICTION_CHECKS.length} checks addressed (${strongCount} strong, ${weakOrNoneCount} weak/none)`
+      : `${covered.length}/${REQUIRED_CONTRADICTION_CHECKS.length} checks addressed (${strongCount} strong, ${weakOrNoneCount} weak/none) — missing: ${missing.join(", ")}`,
     severity: missing.length > 3 ? "warn" : "info",
   };
 
@@ -446,108 +544,4 @@ function evaluateSectionSourceCoverage(
   };
 
   return { check, failedSections };
-}
-
-// ---------------------------------------------------------------------------
-// Phase 82: Proof of Truth — Memo-Time Evidence Gates (Gate 9 + 10)
-// ---------------------------------------------------------------------------
-//
-// Applied at memo generation time (not mission completion). The mission's
-// research trust_grade is the *starting* grade; these gates downgrade it
-// based on evidence support for the specific memo being generated.
-//
-// Gate 9: Evidence coverage — unsupported sections reduce trust
-// Gate 10: Contradiction strength — weak adversarial checks reduce trust
-//
-// Invariants:
-//   - Never UPGRADES trust (only downgrades or leaves unchanged)
-//   - New-deal guard: ratio === null ⇒ no downgrade (do not penalize absent data)
-//   - Applied after research is complete, at the narrative persistence point
-
-const TRUST_GRADE_RANK: Record<TrustGrade, number> = {
-  committee_grade: 3,
-  preliminary: 2,
-  manual_review_required: 1,
-  research_failed: 0,
-};
-
-/** Downgrade `current` to `floor` only if `floor` is strictly lower. */
-export function downgradeTrust(
-  current: TrustGrade,
-  floor: TrustGrade,
-): TrustGrade {
-  return TRUST_GRADE_RANK[floor] < TRUST_GRADE_RANK[current] ? floor : current;
-}
-
-export type MemoEvidenceGateInput = {
-  /** From computeEvidenceCoverage(researchTrace) — supportRatio is null for new deals */
-  evidenceSupportRatio: number | null;
-  /** From computeContradictionStrengthSummary — null when no required checks */
-  contradictionStrongRatio: number | null;
-};
-
-export type MemoEvidenceGateResult = {
-  trustGrade: TrustGrade;
-  downgraded: boolean;
-  reasons: string[];
-};
-
-/**
- * Evidence coverage threshold for Gate 9.
- * Below this ratio of supported sections, memo cannot hold committee_grade.
- */
-export const EVIDENCE_COVERAGE_THRESHOLD = 0.85;
-
-/**
- * Contradiction strength threshold for Gate 10.
- * Below this fraction of adversarial checks backed by primary sources,
- * memo is routed to manual review.
- */
-export const CONTRADICTION_STRENGTH_THRESHOLD = 0.7;
-
-/**
- * Apply Phase 82 memo-time evidence gates to a research trust grade.
- *
- * Pure function. Safe to call from any memo generation or audit path.
- */
-export function applyMemoEvidenceGate(
-  currentTrustGrade: TrustGrade,
-  input: MemoEvidenceGateInput,
-): MemoEvidenceGateResult {
-  let grade = currentTrustGrade;
-  const reasons: string[] = [];
-
-  // ── Gate 9: Evidence Coverage ──────────────────────────────────────────
-  if (
-    input.evidenceSupportRatio !== null &&
-    input.evidenceSupportRatio < EVIDENCE_COVERAGE_THRESHOLD
-  ) {
-    const next = downgradeTrust(grade, "preliminary");
-    if (next !== grade) {
-      reasons.push(
-        `evidence_coverage_below_threshold (${(input.evidenceSupportRatio * 100).toFixed(0)}% < ${EVIDENCE_COVERAGE_THRESHOLD * 100}%)`,
-      );
-      grade = next;
-    }
-  }
-
-  // ── Gate 10: Contradiction Strength ────────────────────────────────────
-  if (
-    input.contradictionStrongRatio !== null &&
-    input.contradictionStrongRatio < CONTRADICTION_STRENGTH_THRESHOLD
-  ) {
-    const next = downgradeTrust(grade, "manual_review_required");
-    if (next !== grade) {
-      reasons.push(
-        `contradiction_strength_below_threshold (${(input.contradictionStrongRatio * 100).toFixed(0)}% strong < ${CONTRADICTION_STRENGTH_THRESHOLD * 100}%)`,
-      );
-      grade = next;
-    }
-  }
-
-  return {
-    trustGrade: grade,
-    downgraded: grade !== currentTrustGrade,
-    reasons,
-  };
 }

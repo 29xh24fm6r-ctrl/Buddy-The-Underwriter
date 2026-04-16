@@ -1,6 +1,67 @@
 import React from "react";
 import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow } from "@/lib/creditMemo/canonical/types";
 
+// ── Phase 82: Research Trace types ────────────────────────────────────────
+
+export type ResearchTraceSection = {
+  section_key: string;
+  claim_ids: string[];
+  evidence_count: number;
+  /** Phase 82: proportion of claims in this section with layer=inference (0..1) */
+  inferenceRatio?: number;
+  /** Phase 82: true when inferenceRatio > 0.6 */
+  isInferenceDominated?: boolean;
+};
+
+export type ResearchTrace = {
+  sections?: ResearchTraceSection[];
+};
+
+// ── EvidenceTag — Phase 82 inference-dominated surfacing ───────────────────
+
+function EvidenceTag({
+  sectionKey,
+  trace,
+}: {
+  sectionKey: string;
+  trace?: ResearchTrace | null;
+}) {
+  if (!trace) return null;
+  const section = trace.sections?.find((s) => s.section_key === sectionKey);
+  if (!section) {
+    return <span className="text-[10px] text-gray-300 ml-2">No evidence</span>;
+  }
+
+  const isInferenceDominated = section.isInferenceDominated ?? false;
+
+  return (
+    <details className="inline-block ml-2 relative">
+      <summary
+        className={`text-[10px] cursor-pointer hover:opacity-80 ${
+          isInferenceDominated ? "text-amber-500" : "text-sky-500"
+        }`}
+      >
+        {section.evidence_count} evidence{isInferenceDominated && " · inference"}
+      </summary>
+      <div className="absolute z-10 mt-1 w-64 rounded border border-gray-200 bg-white shadow-lg p-2.5 text-xs">
+        <div className="font-medium text-gray-700 mb-1">{sectionKey}</div>
+        <div className="text-gray-500">{section.evidence_count} evidence rows</div>
+        {isInferenceDominated && (
+          <div className="text-amber-700 text-[10px] mt-1.5 border-t border-amber-100 pt-1">
+            Primarily analyst inference — not directly verifiable public record.
+          </div>
+        )}
+        {section.claim_ids.length > 0 && (
+          <div className="text-gray-400 text-[9px] mt-1 font-mono truncate">
+            {section.claim_ids.slice(0, 2).join(", ")}
+            {section.claim_ids.length > 2 && ` +${section.claim_ids.length - 2}`}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 // ── Formatting helpers ────────────────────────────────────────────────────
 
 function fmt$(val: number | null): string {
@@ -175,63 +236,16 @@ function IncomeStatementTable({ rows }: { rows: IncomeStatementRow[] }) {
   );
 }
 
-// ── Phase 82: Inference Transparency ──────────────────────────────────────
-
-/**
- * Per-memo-section inference ratio from buddy_research_evidence.
- * Keyed by evidence section (e.g. "Management Intelligence", "Borrower Profile").
- * ratio is inference-layer claims / total claims in [0,1], or null when empty.
- */
-export type SectionInferenceMap = Record<
-  string,
-  { inference: number; total: number; ratio: number | null }
->;
-
-const INFERENCE_HEAVY_THRESHOLD = 0.5;
-
-function InferenceTransparencyPanel({ map }: { map: SectionInferenceMap }) {
-  const heavy = Object.entries(map)
-    .filter(([, v]) => v.total > 0 && (v.ratio ?? 0) >= INFERENCE_HEAVY_THRESHOLD)
-    .sort(([, a], [, b]) => (b.ratio ?? 0) - (a.ratio ?? 0));
-
-  if (heavy.length === 0) return null;
-
-  return (
-    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 print:border-gray-300">
-      <div className="text-sm font-semibold text-amber-900">
-        ⚠ Analyst inference based on available evidence
-      </div>
-      <div className="text-xs text-amber-800 mt-1">
-        These sections rely on analyst inference more than direct source claims.
-        Facts and inferences are distinct layers — verify before relying on
-        these for committee-grade decisions.
-      </div>
-      <ul className="mt-2 text-xs text-amber-900 space-y-0.5">
-        {heavy.map(([section, v]) => (
-          <li key={section} className="flex justify-between">
-            <span>{section}</span>
-            <span className="font-mono">
-              {Math.round((v.ratio ?? 0) * 100)}% inference · {v.inference}/{v.total}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 // ── Main Template ─────────────────────────────────────────────────────────
-
-export type CanonicalMemoTemplateProps = {
-  memo: CanonicalCreditMemoV1;
-  /** Phase 82: optional per-section inference ratio for transparency panel */
-  inferenceBySection?: SectionInferenceMap;
-};
 
 export default function CanonicalMemoTemplate({
   memo,
-  inferenceBySection,
-}: CanonicalMemoTemplateProps) {
+  trace,
+}: {
+  memo: CanonicalCreditMemoV1;
+  /** Phase 82: research_trace_json (optionally merged with section inference stats) */
+  trace?: ResearchTrace | null;
+}) {
   const km = memo.key_metrics;
 
   return (
@@ -264,6 +278,27 @@ export default function CanonicalMemoTemplate({
                 {memo.certification.blockers.join(" · ")}
               </div>
             )}
+            {/* Phase 82: Evidence coverage — compact line in green branch, detailed in amber */}
+            {memo.certification.isCommitteeEligible
+              ? memo.certification.evidenceSupportRatio !== null && (
+                  <span className="text-xs text-emerald-600 ml-2">
+                    Evidence: {Math.round(memo.certification.evidenceSupportRatio * 100)}%
+                  </span>
+                )
+              : memo.certification.evidenceSupportRatio !== null && (
+                  <div className="text-xs text-amber-700 mt-1">
+                    Evidence coverage: {Math.round(memo.certification.evidenceSupportRatio * 100)}%
+                    {memo.certification.unsupportedSections.length > 0 && (
+                      <span className="ml-1">
+                        ({memo.certification.unsupportedSections.length} section
+                        {memo.certification.unsupportedSections.length !== 1 ? "s" : ""} with no evidence:
+                        {" "}{memo.certification.unsupportedSections.slice(0, 3).join(", ")}
+                        {memo.certification.unsupportedSections.length > 3 &&
+                          ` +${memo.certification.unsupportedSections.length - 3} more`})
+                      </span>
+                    )}
+                  </div>
+                )}
           </div>
           {memo.certification.trustGrade && (
             <div className="text-xs text-gray-500 flex-shrink-0">
@@ -272,9 +307,6 @@ export default function CanonicalMemoTemplate({
           )}
         </div>
       )}
-
-      {/* ── Phase 82: INFERENCE TRANSPARENCY ── */}
-      {inferenceBySection && <InferenceTransparencyPanel map={inferenceBySection} />}
 
       {/* ── HEADER BOX ── */}
       <div className="border border-gray-300 p-4 mb-4">
@@ -552,7 +584,10 @@ export default function CanonicalMemoTemplate({
           {/* Credit Thesis */}
           {memo.business_industry_analysis.credit_thesis && (
             <div className="mt-4 border-l-4 border-sky-400 pl-3 py-1">
-              <div className="text-xs font-semibold text-sky-700 mb-1 uppercase tracking-wide">Credit Thesis</div>
+              <div className="text-xs font-semibold text-sky-700 mb-1 uppercase tracking-wide">
+                Credit Thesis
+                <EvidenceTag sectionKey="credit_thesis" trace={trace} />
+              </div>
               <div className="text-sm text-gray-800 leading-5 whitespace-pre-wrap">
                 {memo.business_industry_analysis.credit_thesis}
               </div>
@@ -562,7 +597,10 @@ export default function CanonicalMemoTemplate({
           {/* Transaction Analysis */}
           {memo.business_industry_analysis.transaction_analysis && (
             <div className="mt-3">
-              <div className="text-xs font-semibold text-gray-600 mb-1">Transaction &amp; Repayment Analysis</div>
+              <div className="text-xs font-semibold text-gray-600 mb-1">
+                Transaction &amp; Repayment Analysis
+                <EvidenceTag sectionKey="transaction_analysis" trace={trace} />
+              </div>
               <div className="text-sm text-gray-700 whitespace-pre-wrap leading-5">
                 {memo.business_industry_analysis.transaction_analysis}
               </div>
@@ -572,7 +610,10 @@ export default function CanonicalMemoTemplate({
           {/* Structure Implications */}
           {(memo.business_industry_analysis.structure_implications?.length ?? 0) > 0 && (
             <div className="mt-3 border border-amber-200 rounded p-3 bg-amber-50">
-              <div className="text-xs font-semibold text-amber-800 mb-2 uppercase tracking-wide">Structure Implications</div>
+              <div className="text-xs font-semibold text-amber-800 mb-2 uppercase tracking-wide">
+                Structure Implications
+                <EvidenceTag sectionKey="structure_implications" trace={trace} />
+              </div>
               <ul className="space-y-1">
                 {memo.business_industry_analysis.structure_implications!.map((item, i) => (
                   <li key={`si-${i}`} className="text-sm text-amber-900 flex items-start gap-2">
@@ -587,7 +628,10 @@ export default function CanonicalMemoTemplate({
           {/* Underwriting Questions */}
           {(memo.business_industry_analysis.underwriting_questions?.length ?? 0) > 0 && (
             <div className="mt-3 border border-rose-200 rounded p-3 bg-rose-50">
-              <div className="text-xs font-semibold text-rose-800 mb-2 uppercase tracking-wide">Key Underwriting Questions</div>
+              <div className="text-xs font-semibold text-rose-800 mb-2 uppercase tracking-wide">
+                Key Underwriting Questions
+                <EvidenceTag sectionKey="underwriting_questions" trace={trace} />
+              </div>
               <ul className="space-y-1">
                 {memo.business_industry_analysis.underwriting_questions!.map((q, i) => (
                   <li key={`uq-${i}`} className="text-sm text-rose-900 flex items-start gap-2">

@@ -103,18 +103,16 @@ export default async function DealCreditMemoPage(props: {
     : null;
 
   const res = await buildCanonicalCreditMemo({ dealId, bankId });
-  let memoMetadata: any = null;
   if (res.ok) {
     const { data: cachedNarrative } = await sb
       .from("canonical_memo_narratives")
-      .select("narratives, metadata_json")
+      .select("narratives")
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
       .order("generated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    memoMetadata = (cachedNarrative as any)?.metadata_json ?? null;
     if (cachedNarrative?.narratives) {
       const n = cachedNarrative.narratives as any;
       if (n.executive_summary) res.memo.executive_summary.narrative = n.executive_summary;
@@ -193,10 +191,7 @@ export default async function DealCreditMemoPage(props: {
             annualDebtService: res.memo.financial_analysis.debt_service.value,
           }}
         />
-        <CanonicalMemoTemplate
-          memo={res.memo}
-          inferenceBySection={memoMetadata?.inferenceBySection ?? undefined}
-        />
+        <CanonicalMemoTemplate memo={res.memo} />
 
         <SpreadsAppendix dealId={dealId} bankId={bankId} />
 

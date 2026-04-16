@@ -47,11 +47,30 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       grouped[sectionKey] = rows;
     }
 
+    // Phase 82: per-section inference ratio for the memo UI.
+    // evidence_type === "inference" comes from buddy_research_evidence, which is
+    // surfaced as `layer` on MemoEvidenceRow by the resolver.
+    const sectionStats = Object.entries(grouped).map(([section, rows]) => {
+      const total = (rows as any[]).length;
+      const inferences = (rows as any[]).filter(
+        (r: any) => r?.layer === "inference" || r?.evidence_type === "inference",
+      ).length;
+      const inferenceRatio = total > 0 ? inferences / total : 0;
+      return {
+        section,
+        total,
+        inferences,
+        inferenceRatio,
+        isInferenceDominated: total > 0 && inferenceRatio > 0.6,
+      };
+    });
+
     return NextResponse.json({
       ok: true,
       evidence: grouped,
       section_count: allEvidence.size,
       total_claims: [...allEvidence.values()].reduce((sum, rows) => sum + rows.length, 0),
+      sectionStats,
     });
   } catch (e: any) {
     rethrowNextErrors(e);
