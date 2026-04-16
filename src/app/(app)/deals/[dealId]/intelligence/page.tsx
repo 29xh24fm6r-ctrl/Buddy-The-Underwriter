@@ -6,6 +6,7 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { getOmegaAdvisoryState } from "@/core/omega/OmegaAdvisoryAdapter";
 import type { OmegaAdvisoryState } from "@/core/omega/types";
 import { OmegaAdvisoryPanel } from "@/components/deal/OmegaAdvisoryPanel";
+import { IntelligenceRecoveryBanner } from "@/components/deals/IntelligenceRecoveryBanner";
 import IntelligenceClient from "./IntelligenceClientLoader";
 
 type Props = {
@@ -84,6 +85,9 @@ export default async function IntelligencePage({ params }: Props) {
 
   return (
     <div className="space-y-6">
+      {/* Phase 83: Recovery banner — shows when research failed or needs review */}
+      <IntelligenceRecoveryBanner dealId={dealId} />
+
       {/* Omega Advisory — annotation only, never canonical state */}
       {omegaState && <OmegaAdvisoryPanel omega={omegaState} />}
 

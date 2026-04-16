@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { MemoQualitativeForm } from "./MemoQualitativeForm";
+import type { QualitativeOverrides } from "./MemoQualitativeForm";
 
 type WizardProps = {
   dealId: string;
@@ -8,28 +10,7 @@ type WizardProps = {
   missingMetrics: string[];
 };
 
-type Overrides = {
-  business_description?: string;
-  revenue_mix?: string;
-  seasonality?: string;
-  collateral_description?: string;
-  collateral_address?: string;
-  competitive_advantages?: string;
-  vision?: string;
-  [key: string]: string | undefined;
-};
-
-// Tailwind text/bg classes are overridden by the app's global CSS in this
-// context. Use inline styles on every input/textarea — these cannot be
-// overridden by stylesheets.
-const fieldStyle: React.CSSProperties = {
-  color: "#111827",
-  backgroundColor: "#ffffff",
-};
-
-const baseCls =
-  "w-full text-sm border border-gray-300 rounded-md px-3 py-2 " +
-  "placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-400 resize-none";
+type Overrides = QualitativeOverrides;
 
 export default function MemoCompletionWizard({ dealId, principals, missingMetrics }: WizardProps) {
   const [open, setOpen] = useState(false);
@@ -138,160 +119,12 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
                 </div>
               )}
 
-              {/* ── Business Profile ─────────────────────────── */}
-              <div>
-                <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">
-                  Business Profile
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Business Operations &amp; History
-                    </label>
-                    <p className="text-xs text-gray-400 mb-1.5">
-                      Who is the borrower, what do they do, how long have they been operating?
-                    </p>
-                    <textarea
-                      rows={5}
-                      value={overrides.business_description ?? ""}
-                      onChange={e => set("business_description", e.target.value)}
-                      placeholder="e.g. Samaritus Management LLC operates Yacht Hampton, a luxury boat charter and rental business founded in 2017 in Sag Harbor, NY. The company operates a modern fleet of 25–30 vessels including electric yachts, serving affluent leisure and corporate event customers in the Hamptons market..."
-                      className={baseCls}
-                      style={fieldStyle}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Revenue Mix
-                      </label>
-                      <p className="text-xs text-gray-400 mb-1.5">Breakdown of revenue streams</p>
-                      <textarea
-                        rows={3}
-                        value={overrides.revenue_mix ?? ""}
-                        onChange={e => set("revenue_mix", e.target.value)}
-                        placeholder="e.g. 60% boat rentals, 30% corporate events, 10% sailing lessons"
-                        className={baseCls}
-                        style={fieldStyle}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Seasonality
-                      </label>
-                      <p className="text-xs text-gray-400 mb-1.5">Peak and off-peak periods</p>
-                      <textarea
-                        rows={3}
-                        value={overrides.seasonality ?? ""}
-                        onChange={e => set("seasonality", e.target.value)}
-                        placeholder="e.g. Peak May–Sep (85% of revenue), minimal Oct–Apr"
-                        className={baseCls}
-                        style={fieldStyle}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* ── Collateral Description ────────────────────── */}
-              <div>
-                <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1">
-                  Collateral Description
-                </div>
-                <p className="text-xs text-gray-400 mb-2">
-                  Describe the collateral in plain language (assets, condition, location)
-                </p>
-                <textarea
-                  rows={3}
-                  value={overrides.collateral_description ?? ""}
-                  onChange={e => set("collateral_description", e.target.value)}
-                  placeholder="e.g. Modern marine vessel fleet including 2023 Aquila 36 catamaran, 640 Galeon motor yacht, and Lilybaeum 27 electric vessel. Fleet maintained at Sag Harbor Marina."
-                  className={baseCls}
-                  style={fieldStyle}
-                />
-              </div>
-
-              {/* ── Collateral Address ───────────────────────────── */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Collateral Address
-                </label>
-                <input
-                  type="text"
-                  value={overrides.collateral_address ?? ""}
-                  onChange={e => set("collateral_address", e.target.value)}
-                  placeholder="e.g. 123 Main St, Sag Harbor, NY 11963"
-                  className={baseCls}
-                  style={fieldStyle}
-                />
-              </div>
-
-              {/* ── Management Qualifications ─────────────────── */}
-              <div>
-                <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1">
-                  Management Qualifications
-                </div>
-                <p className="text-xs text-gray-400 mb-3">
-                  Career background, industry experience, and track record for each principal
-                </p>
-                <div className="space-y-4">
-                  {mgmtEntries.map(p => (
-                    <div key={p.id}>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        {p.name}
-                      </label>
-                      <textarea
-                        rows={4}
-                        value={overrides[`principal_bio_${p.id}`] ?? ""}
-                        onChange={e => set(`principal_bio_${p.id}`, e.target.value)}
-                        placeholder={
-                          p.id === "general"
-                            ? "Career background, industry experience, other ventures, and track record for the management team..."
-                            : `Career background, industry experience, other ventures, and track record for ${p.name}...`
-                        }
-                        className={baseCls}
-                        style={fieldStyle}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* ── Business Strategy ────────────────────────────── */}
-              <div>
-                <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">
-                  Business Strategy
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Competitive Advantages
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={overrides.competitive_advantages ?? ""}
-                      onChange={e => set("competitive_advantages", e.target.value)}
-                      placeholder="e.g. Established brand in luxury Hamptons market, exclusive marina berthing agreements, repeat corporate clientele representing 40% of revenue"
-                      className={baseCls}
-                      style={fieldStyle}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Vision &amp; Growth Strategy
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={overrides.vision ?? ""}
-                      onChange={e => set("vision", e.target.value)}
-                      placeholder="e.g. Expand fleet by 3 vessels in 2025, launch electric-only charter premium tier targeting ESG-focused corporate events"
-                      className={baseCls}
-                      style={fieldStyle}
-                    />
-                  </div>
-                </div>
-              </div>
+              <MemoQualitativeForm
+                overrides={overrides}
+                onChange={set}
+                principals={mgmtEntries}
+                theme="light"
+              />
             </div>
 
             {/* Footer */}

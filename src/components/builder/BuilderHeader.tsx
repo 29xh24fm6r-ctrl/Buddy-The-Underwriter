@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { MilestoneChip } from "./MilestoneChip";
+import { FixWithBuddyButton } from "@/components/deals/FixWithBuddyButton";
 import type { BuilderReadiness, LoanType } from "@/lib/builder/builderTypes";
 
 type Props = {
@@ -80,6 +81,7 @@ export function BuilderHeader({
         >
           Run Analysis
         </Link>
+        <FixWithBuddyButton dealId={dealId} />
         <Link
           href={`/credit-memo/${dealId}/canonical`}
           className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary/90"

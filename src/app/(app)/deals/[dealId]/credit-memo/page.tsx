@@ -20,6 +20,7 @@ import GenerateNarrativesButton from "@/components/creditMemo/GenerateNarratives
 import RunResearchButton from "@/components/creditMemo/RunResearchButton";
 import RegenerateMemoButton from "@/components/creditMemo/RegenerateMemoButton";
 import MemoCompletionWizard from "@/components/creditMemo/MemoCompletionWizard";
+import BlockedMemoRecoveryPanel from "@/components/creditMemo/BlockedMemoRecoveryPanel";
 import MemoDataEntryCard from "@/components/creditMemo/MemoDataEntryCard";
 import TranscriptUploadPanel from "@/components/deals/TranscriptUploadPanel";
 import BankerVoicePanel from "@/components/deals/BankerVoicePanel";
@@ -172,6 +173,8 @@ export default async function DealCreditMemoPage(props: {
             <ExportCanonicalMemoPdfButton dealId={dealId} />
           </div>
         </div>
+
+        <BlockedMemoRecoveryPanel dealId={dealId} />
 
         <div className="mb-6">
           <TranscriptUploadPanel dealId={dealId} />
