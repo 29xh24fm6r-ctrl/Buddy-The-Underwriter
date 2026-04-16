@@ -174,6 +174,12 @@ export function evaluateCompletionGate(
     severity: entityValidationPassed ? "info" : "warn",
   });
 
+  // ── Gate 7 (Phase 79): Contradiction Coverage ────────────────────────────
+  // Required adversarial checks — each must be present in the synthesis
+  // contradictions or addressed by the research threads.
+  const contradictionCoverage = evaluateContradictionCoverage(bieResult);
+  checks.push(contradictionCoverage.check);
+
   // ── Grade Assignment ──────────────────────────────────────────────────────
   const failCount = checks.filter((c) => c.status === "fail").length;
   const warnCount = checks.filter((c) => c.status === "warn").length;
@@ -269,4 +275,98 @@ function computeQualityScore(params: {
   score -= params.warnCount * 2;
   score -= params.failCount * 8;
   return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 79: Contradiction Coverage Enforcement
+// ---------------------------------------------------------------------------
+
+/**
+ * Required adversarial contradiction checks.
+ * Each check must be addressed (clear, flagged, or insufficient_evidence)
+ * in the synthesis contradictions for committee-grade research.
+ */
+export const REQUIRED_CONTRADICTION_CHECKS = [
+  "identity_mismatch",
+  "dba_mismatch",
+  "geography_mismatch",
+  "scale_plausibility",
+  "management_history_conflict",
+  "regulatory_vs_margin",
+  "competitive_position_conflict",
+  "repayment_story_conflict",
+] as const;
+
+export type ContradictionCheckKey = typeof REQUIRED_CONTRADICTION_CHECKS[number];
+
+/**
+ * Pattern-based detection of which required checks are covered in the
+ * free-text contradictions from BIE synthesis.
+ */
+const CHECK_PATTERNS: Record<ContradictionCheckKey, RegExp[]> = {
+  identity_mismatch: [
+    /\bname.*mismatch\b/i, /\bentity.*mismatch\b/i, /\blegal\s+name\b/i,
+    /\bidentity\b/i, /\bUNVALIDATED_MANAGEMENT_PROFILE\b/,
+  ],
+  dba_mismatch: [
+    /\bdba\b/i, /\bdoing\s+business\s+as\b/i, /\btrade\s*name\b/i,
+  ],
+  geography_mismatch: [
+    /\bgeograph/i, /\blocation\b/i, /\bmarket.*different\b/i,
+    /\bcompetitor.*different\s+market\b/i,
+  ],
+  scale_plausibility: [
+    /\bscale\b/i, /\brevenue.*plausib/i, /\bhead\s*count\b/i,
+    /\bsize.*inconsist/i, /\brevenue\b.*\bmatch\b/i,
+  ],
+  management_history_conflict: [
+    /\bmanagement\b/i, /\bprincipal\b/i, /\bbackground\b/i,
+    /\bhistory.*conflict\b/i, /\bexperience\b/i,
+  ],
+  regulatory_vs_margin: [
+    /\bregulat/i, /\bcompliance\b/i, /\bmargin\b/i,
+    /\blicens/i, /\benforcement\b/i,
+  ],
+  competitive_position_conflict: [
+    /\bcompetit/i, /\bmarket\s*share\b/i, /\bposition/i,
+    /\badvantage\b/i,
+  ],
+  repayment_story_conflict: [
+    /\brepayment\b/i, /\bcash\s*flow\b/i, /\bdebt\s*service\b/i,
+    /\bDSCR\b/i, /\bability\s+to\s+repay\b/i,
+  ],
+};
+
+function evaluateContradictionCoverage(
+  bieResult: BIEResult,
+): { check: GateCheckResult; coveredChecks: ContradictionCheckKey[]; missingChecks: ContradictionCheckKey[] } {
+  const contradictions = bieResult.synthesis?.contradictions_and_uncertainties ?? [];
+  const allText = contradictions.join(" ");
+
+  const covered: ContradictionCheckKey[] = [];
+  const missing: ContradictionCheckKey[] = [];
+
+  for (const checkKey of REQUIRED_CONTRADICTION_CHECKS) {
+    const patterns = CHECK_PATTERNS[checkKey];
+    const isAddressed = patterns.some((p) => p.test(allText));
+    if (isAddressed) {
+      covered.push(checkKey);
+    } else {
+      missing.push(checkKey);
+    }
+  }
+
+  const coverageRate = covered.length / REQUIRED_CONTRADICTION_CHECKS.length;
+
+  const check: GateCheckResult = {
+    gate_id: "contradiction_coverage",
+    label: "Adversarial Contradiction Coverage",
+    status: missing.length === 0 ? "pass" : missing.length <= 3 ? "warn" : "fail",
+    reason: missing.length === 0
+      ? `All ${REQUIRED_CONTRADICTION_CHECKS.length} required contradiction checks addressed`
+      : `${covered.length}/${REQUIRED_CONTRADICTION_CHECKS.length} checks addressed — missing: ${missing.join(", ")}`,
+    severity: missing.length > 3 ? "warn" : "info",
+  };
+
+  return { check, coveredChecks: covered, missingChecks: missing };
 }

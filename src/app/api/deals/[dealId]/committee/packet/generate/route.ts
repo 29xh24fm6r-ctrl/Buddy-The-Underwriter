@@ -11,6 +11,7 @@ import { getLatestLockedQuoteId } from "@/lib/pricing/getLatestLockedQuote";
 import { buildPricingMemoAppendixPdfBytes } from "@/app/api/deals/[dealId]/pricing/quote/[quoteId]/memo-pdf/route";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { buildCommitteeFinancialValidationSummary } from "@/lib/financialValidation/buildCommitteeFinancialValidationSummary";
+import { loadAndEnforceResearchTrust } from "@/lib/research/trustEnforcement";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +49,15 @@ export async function POST(
       );
     }
     const { userId } = access;
+
+    // Phase 79: Trust grade enforcement — committee packet requires committee-grade research
+    const trustCheck = await loadAndEnforceResearchTrust(dealId, "committee_packet");
+    if (!trustCheck.allowed) {
+      return NextResponse.json(
+        { ok: false, error: trustCheck.reason },
+        { status: 400 },
+      );
+    }
 
     const sb = supabaseAdmin();
 

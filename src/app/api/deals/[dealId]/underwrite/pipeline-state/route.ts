@@ -110,9 +110,9 @@ export async function GET(
         .limit(1)
         .maybeSingle(),
 
-      // 7. Phase 78: Research quality gate
+      // 7. Phase 78/79: Research quality gate — expanded for trust clarity
       sb.from("buddy_research_quality_gates")
-        .select("trust_grade, quality_score")
+        .select("trust_grade, quality_score, gate_failures, threads_failed, threads_succeeded, source_count, contradictions_found")
         .eq("deal_id", dealId)
         .order("evaluated_at", { ascending: false })
         .limit(1)
@@ -144,7 +144,15 @@ export async function GET(
     const research = researchRes.data;
     const packetEvent = packetEventRes.data;
     const decisionSnapshot = decisionSnapshotRes.data;
-    const qualityGate = qualityGateRes.data as { trust_grade: string; quality_score: number } | null;
+    const qualityGate = qualityGateRes.data as {
+      trust_grade: string;
+      quality_score: number;
+      gate_failures: any[] | null;
+      threads_failed: number | null;
+      threads_succeeded: number | null;
+      source_count: number | null;
+      contradictions_found: number | null;
+    } | null;
 
     // Compute spread completeness from returned fact keys
     const CRITICAL_PRIMARY = [
@@ -179,7 +187,7 @@ export async function GET(
       buildRiskStep(dealId, riskRun),
       buildMemoStep(dealId, memo, snapshot),
       buildResearchStep(dealId, research, qualityGate),
-      buildPacketStep(dealId, packetEvent, memo, decisionSnapshot),
+      buildPacketStep(dealId, packetEvent, memo, decisionSnapshot, qualityGate),
     ];
 
     return NextResponse.json({ ok: true, steps });
@@ -310,10 +318,19 @@ function buildMemoStep(
 function buildResearchStep(
   dealId: string,
   research: { id: string; status: string; created_at: string; completed_at: string | null } | null,
-  qualityGate: { trust_grade: string; quality_score: number } | null = null,
+  qualityGate: {
+    trust_grade: string;
+    quality_score: number;
+    gate_failures: any[] | null;
+    threads_failed: number | null;
+    threads_succeeded: number | null;
+    source_count: number | null;
+    contradictions_found: number | null;
+  } | null = null,
 ): PipelineStep {
   let status: PipelineStepStatus;
   let detail: string | null = null;
+  let blockerMessage: string | null = null;
 
   if (research) {
     const s = research.status ?? "completed";
@@ -324,14 +341,31 @@ function buildResearchStep(
       status = "in_progress";
       detail = "Research mission in progress…";
     } else {
-      status = "complete";
+      // Phase 79: Map trust grade to pipeline status with degraded reasons
       if (qualityGate) {
-        const grade = qualityGate.trust_grade === "committee_grade" ? "Committee-grade \u2713"
-          : qualityGate.trust_grade === "preliminary" ? "Preliminary"
-          : qualityGate.trust_grade === "manual_review_required" ? "Manual review required"
+        const grade = qualityGate.trust_grade;
+        const gradeLabel = grade === "committee_grade" ? "Committee-grade ✓"
+          : grade === "preliminary" ? "Preliminary"
+          : grade === "manual_review_required" ? "Manual review required"
           : "Research failed";
-        detail = `${grade} \u00b7 Quality: ${qualityGate.quality_score}/100`;
+        detail = `${gradeLabel} · Quality: ${qualityGate.quality_score}/100`;
+
+        if (grade === "research_failed") {
+          status = "error";
+          blockerMessage = buildDegradedReasons(qualityGate);
+        } else if (grade === "manual_review_required") {
+          status = "blocked";
+          blockerMessage = buildDegradedReasons(qualityGate);
+        } else if (grade === "preliminary") {
+          status = "complete";
+          // Append degraded reasons to detail for visibility
+          const reasons = buildDegradedReasons(qualityGate);
+          if (reasons) detail += ` — ${reasons}`;
+        } else {
+          status = "complete";
+        }
       } else {
+        status = "complete";
         detail = "Research complete";
       }
     }
@@ -346,7 +380,7 @@ function buildResearchStep(
     label: "Buddy Research",
     status,
     detail,
-    blockerMessage: null,
+    blockerMessage,
     actionApi: `/api/deals/${dealId}/research/run`,
     actionLabel: research ? "Re-run Research" : "Run Research",
     actionMethod: "POST",
@@ -354,15 +388,55 @@ function buildResearchStep(
   };
 }
 
+/** Phase 79: Build human-readable degraded reasons from quality gate data. */
+function buildDegradedReasons(gate: {
+  trust_grade: string;
+  threads_failed: number | null;
+  threads_succeeded: number | null;
+  source_count: number | null;
+  contradictions_found: number | null;
+  gate_failures: any[] | null;
+}): string | null {
+  const reasons: string[] = [];
+
+  if ((gate.threads_failed ?? 0) > 0) {
+    reasons.push(`${gate.threads_failed} thread(s) failed`);
+  }
+  if ((gate.threads_succeeded ?? 0) < 4) {
+    reasons.push(`only ${gate.threads_succeeded ?? 0}/6 threads completed`);
+  }
+  if ((gate.source_count ?? 0) < 5) {
+    reasons.push(`weak source coverage (${gate.source_count ?? 0} sources)`);
+  }
+
+  // Parse gate_failures JSONB for specific failure reasons
+  if (Array.isArray(gate.gate_failures)) {
+    for (const f of gate.gate_failures) {
+      const reason = typeof f === "string" ? f : (f as any)?.reason ?? (f as any)?.gate_id;
+      if (reason && !reasons.some((r) => r.includes(reason))) {
+        reasons.push(reason);
+      }
+    }
+  }
+
+  return reasons.length > 0 ? reasons.join("; ") : null;
+}
+
 function buildPacketStep(
   dealId: string,
   packetEvent: { created_at: string } | null,
   memo: { id: string } | null,
   decisionSnapshot: { id: string; created_at: string } | null,
+  qualityGate: { trust_grade: string; quality_score: number } | null = null,
 ): PipelineStep {
   let status: PipelineStepStatus;
   let detail: string | null = null;
   let blockerMessage: string | null = null;
+
+  // Phase 79: Block committee packet when research isn't committee-grade
+  const trustGrade = qualityGate?.trust_grade ?? null;
+  const researchBlocksPacket =
+    trustGrade !== null && trustGrade !== "committee_grade";
 
   if (packetEvent) {
     status = "complete";
@@ -375,10 +449,16 @@ function buildPacketStep(
     status = "blocked";
     detail = "Credit decision required";
     blockerMessage = "Record a credit decision on the Committee tab to unlock packet generation";
+  } else if (researchBlocksPacket) {
+    status = "blocked";
+    detail = `Research grade: ${trustGrade} — committee-grade required`;
+    blockerMessage = `Committee packet requires committee-grade research. Current grade: ${trustGrade}. Re-run or improve research quality.`;
   } else {
     status = "pending";
     detail = "Committee packet not yet generated";
   }
+
+  const canAct = memo && decisionSnapshot && !researchBlocksPacket;
 
   return {
     stepNumber: 6,
@@ -387,9 +467,9 @@ function buildPacketStep(
     status,
     detail,
     blockerMessage,
-    actionApi: memo && decisionSnapshot ? `/api/deals/${dealId}/committee/packet/generate` : null,
-    actionLabel: packetEvent ? "Regenerate Packet" : (memo && decisionSnapshot ? "Generate Committee Packet" : null),
-    actionMethod: memo && decisionSnapshot ? "POST" : null,
+    actionApi: canAct ? `/api/deals/${dealId}/committee/packet/generate` : null,
+    actionLabel: packetEvent ? "Regenerate Packet" : (canAct ? "Generate Committee Packet" : null),
+    actionMethod: canAct ? "POST" : null,
     completedAt: (packetEvent as any)?.created_at ?? null,
   };
 }

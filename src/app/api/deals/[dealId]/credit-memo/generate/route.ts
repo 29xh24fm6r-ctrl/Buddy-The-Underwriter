@@ -22,6 +22,8 @@ import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { computeMemoInputHash } from "@/lib/creditMemo/canonical/memoProvenance";
 import { fetchMemoHashInputs } from "@/lib/creditMemo/canonical/fetchMemoHashInputs";
+import { loadAndEnforceResearchTrust, loadTrustGradeForDeal } from "@/lib/research/trustEnforcement";
+import { buildResearchTrace } from "@/lib/research/memoEvidenceResolver";
 import type { RiskOutput } from "@/lib/ai/provider";
 
 export const runtime = "nodejs";
@@ -54,6 +56,17 @@ export async function POST(
           error:
             "AI risk assessment required before generating memo. Run AI Assessment first.",
         },
+        { status: 400 },
+      );
+    }
+
+    // ── Step 1b: Phase 79 — Trust grade enforcement (soft gate for memo) ──
+    // Block memo generation when research explicitly failed.
+    // Missing/absent research is allowed (memo proceeds without it).
+    const trustCheck = await loadAndEnforceResearchTrust(dealId, "memo");
+    if (!trustCheck.allowed) {
+      return NextResponse.json(
+        { ok: false, error: trustCheck.reason },
         { status: 400 },
       );
     }
@@ -193,6 +206,12 @@ export async function POST(
     const hashInputs = await fetchMemoHashInputs(sb, dealId);
     const inputHash = computeMemoInputHash(hashInputs);
 
+    // ── Step 6b: Phase 79 — Build research evidence trace + trust grade ──
+    const [researchTrace, currentTrustGrade] = await Promise.all([
+      buildResearchTrace(dealId),
+      loadTrustGradeForDeal(dealId),
+    ]);
+
     // ── Step 7: Persist to canonical_memo_narratives ─────────────────────
     const { error: upsertErr } = await sb
       .from("canonical_memo_narratives")
@@ -204,7 +223,9 @@ export async function POST(
           narratives: memo as any,
           model: "gemini-3-flash-preview",
           generated_at: new Date().toISOString(),
-        },
+          research_trace_json: researchTrace,
+          research_trust_grade: currentTrustGrade,
+        } as any,
         { onConflict: "deal_id,bank_id,input_hash" },
       );
 
