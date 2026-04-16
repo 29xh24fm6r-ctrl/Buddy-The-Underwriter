@@ -221,7 +221,10 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       blockers,
       hasCriticalBlockers: criticalBlockers.length > 0,
       // Trigger wizard for critical blockers OR manual_review_required
-      shouldShowWizard: criticalBlockers.length > 0 || trustGrade === "manual_review_required",
+      // manual_review_required after research has run is an Intelligence tab concern,
+      // not a wizard concern. Only show wizard for that grade if research hasn't run yet.
+      shouldShowWizard: criticalBlockers.length > 0 ||
+        (trustGrade === "manual_review_required" && !mission),
       isReadyForResearch: criticalBlockers.length === 0,
       borrower: {
         legalName: borrower?.legal_name ?? null,

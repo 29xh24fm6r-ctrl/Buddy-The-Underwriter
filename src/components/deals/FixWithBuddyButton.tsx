@@ -37,9 +37,6 @@ export function FixWithBuddyButton({ dealId }: { dealId: string }) {
       {open && (
         <IgniteWizard
           dealId={dealId}
-          onComplete={() => {
-            if (typeof window !== "undefined") window.location.reload();
-          }}
           onClose={() => setOpen(false)}
         />
       )}
