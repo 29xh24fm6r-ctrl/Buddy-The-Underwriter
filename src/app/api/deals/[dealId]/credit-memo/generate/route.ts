@@ -23,7 +23,9 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 import { computeMemoInputHash } from "@/lib/creditMemo/canonical/memoProvenance";
 import { fetchMemoHashInputs } from "@/lib/creditMemo/canonical/fetchMemoHashInputs";
 import { loadAndEnforceResearchTrust, loadTrustGradeForDeal } from "@/lib/research/trustEnforcement";
-import { buildResearchTrace } from "@/lib/research/memoEvidenceResolver";
+import { buildMemoEvidenceAggregate } from "@/lib/research/memoEvidenceAggregate";
+import { applyMemoEvidenceGate } from "@/lib/research/completionGate";
+import type { TrustGrade } from "@/lib/research/completionGate";
 import type { RiskOutput } from "@/lib/ai/provider";
 
 export const runtime = "nodejs";
@@ -206,11 +208,36 @@ export async function POST(
     const hashInputs = await fetchMemoHashInputs(sb, dealId);
     const inputHash = computeMemoInputHash(hashInputs);
 
-    // ── Step 6b: Phase 79 — Build research evidence trace + trust grade ──
-    const [researchTrace, currentTrustGrade] = await Promise.all([
-      buildResearchTrace(dealId),
+    // ── Step 6b: Phase 79/82 — Evidence aggregate + memo-time trust gates ─
+    const [evidenceAggregate, researchTrustGrade] = await Promise.all([
+      buildMemoEvidenceAggregate(dealId),
       loadTrustGradeForDeal(dealId),
     ]);
+
+    const researchTrace = evidenceAggregate.researchTrace;
+    const startingGrade: TrustGrade = (researchTrustGrade ?? "manual_review_required") as TrustGrade;
+    const memoGate = applyMemoEvidenceGate(startingGrade, {
+      evidenceSupportRatio: evidenceAggregate.coverage.supportRatio,
+      contradictionStrongRatio: evidenceAggregate.contradictionStrength.strongRatio,
+    });
+
+    const metadataJson = {
+      evidenceSupportRatio: evidenceAggregate.coverage.supportRatio,
+      totalSections: evidenceAggregate.coverage.totalSections,
+      unsupportedSections: evidenceAggregate.coverage.unsupportedSections,
+      weakSections: evidenceAggregate.coverage.weakSections,
+      contradictionStrongRatio: evidenceAggregate.contradictionStrength.strongRatio,
+      contradictionStrongCount: evidenceAggregate.contradictionStrength.strongCount,
+      contradictionWeakCount: evidenceAggregate.contradictionStrength.weakCount,
+      contradictionNoneCount: evidenceAggregate.contradictionStrength.noneCount,
+      contradictionPerCheck: evidenceAggregate.contradictionStrength.perCheck,
+      inferenceBySection: evidenceAggregate.inferenceBySection,
+      startingTrustGrade: researchTrustGrade ?? null,
+      memoTrustGrade: memoGate.trustGrade,
+      downgraded: memoGate.downgraded,
+      downgradeReasons: memoGate.reasons,
+      evaluatedAt: new Date().toISOString(),
+    };
 
     // ── Step 7: Persist to canonical_memo_narratives ─────────────────────
     const { error: upsertErr } = await sb
@@ -224,7 +251,8 @@ export async function POST(
           model: "gemini-3-flash-preview",
           generated_at: new Date().toISOString(),
           research_trace_json: researchTrace,
-          research_trust_grade: currentTrustGrade,
+          research_trust_grade: memoGate.trustGrade,
+          metadata_json: metadataJson,
         } as any,
         { onConflict: "deal_id,bank_id,input_hash" },
       );
@@ -262,6 +290,12 @@ export async function POST(
         snapshot_id: hashInputs.snapshotId,
         pricing_decision_id: hashInputs.pricingDecisionId,
         fact_count: hashInputs.factCount,
+        // Phase 82: memo-time evidence gate outcome
+        evidence_support_ratio: evidenceAggregate.coverage.supportRatio,
+        contradiction_strong_ratio: evidenceAggregate.contradictionStrength.strongRatio,
+        memo_trust_grade: memoGate.trustGrade,
+        memo_trust_downgraded: memoGate.downgraded,
+        memo_trust_downgrade_reasons: memoGate.reasons,
       },
     });
 

@@ -20,18 +20,44 @@ type EvalResult = {
   subjectLockMatch: boolean;
   reasons: string[];
   notes: string;
+  skipped?: boolean;
 };
+
+/**
+ * Phase 82: A placeholder is a golden-set entry that reserves a slot in the
+ * regression runner but has no real subject data yet. We identify them by a
+ * null company_name AND no populated dealId. These are skipped until ops
+ * copies production deal data in.
+ */
+function isPlaceholderCase(c: { subject: { company_name: string | null }; dealId?: string | null }): boolean {
+  return c.subject.company_name === null && !c.dealId;
+}
 
 export function runGoldenSetEval(): {
   results: EvalResult[];
   passed: number;
   failed: number;
+  skipped: number;
   regressions: string[];
 } {
   const results: EvalResult[] = [];
   const regressions: string[] = [];
 
   for (const testCase of GOLDEN_SET) {
+    if (isPlaceholderCase(testCase)) {
+      results.push({
+        id: testCase.id,
+        name: testCase.name,
+        subjectLockPassed: false,
+        expectedSubjectLockPasses: testCase.expected.subjectLockPasses,
+        subjectLockMatch: true, // skipped does not count as regression
+        reasons: [],
+        notes: `SKIPPED (placeholder — populate dealId from production)`,
+        skipped: true,
+      });
+      continue;
+    }
+
     const lockResult = validateSubjectLock({
       company_name: testCase.subject.company_name,
       naics_code: testCase.subject.naics_code,
@@ -64,20 +90,21 @@ export function runGoldenSetEval(): {
     });
   }
 
-  const passed = results.filter((r) => r.subjectLockMatch).length;
+  const skipped = results.filter((r) => r.skipped).length;
+  const passed = results.filter((r) => r.subjectLockMatch && !r.skipped).length;
   const failed = results.filter((r) => !r.subjectLockMatch).length;
 
-  return { results, passed, failed, regressions };
+  return { results, passed, failed, skipped, regressions };
 }
 
 // CLI runner
 if (typeof process !== "undefined" && process.argv[1]?.includes("runGoldenSetEval")) {
-  const { results, passed, failed, regressions } = runGoldenSetEval();
+  const { results, passed, failed, skipped, regressions } = runGoldenSetEval();
 
-  console.log("\n=== Phase 81: Golden-Set Evaluation ===\n");
+  console.log("\n=== Phase 81/82: Golden-Set Evaluation ===\n");
   for (const r of results) {
-    const icon = r.subjectLockMatch ? "✓" : "✗";
-    const lockIcon = r.subjectLockPassed ? "🔓" : "🔒";
+    const icon = r.skipped ? "·" : r.subjectLockMatch ? "✓" : "✗";
+    const lockIcon = r.skipped ? "  " : r.subjectLockPassed ? "🔓" : "🔒";
     console.log(`${icon} ${lockIcon} ${r.name}`);
     if (r.reasons.length > 0) {
       console.log(`     Reasons: ${r.reasons.join("; ")}`);
@@ -85,7 +112,7 @@ if (typeof process !== "undefined" && process.argv[1]?.includes("runGoldenSetEva
     console.log(`     ${r.notes}`);
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
+  console.log(`\n${passed} passed, ${failed} failed, ${skipped} skipped (placeholders)`);
 
   if (regressions.length > 0) {
     console.error("\n❌ REGRESSIONS DETECTED:");

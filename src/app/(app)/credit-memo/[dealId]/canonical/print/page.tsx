@@ -39,18 +39,20 @@ export default async function CanonicalCreditMemoPrintPage(props: {
     bankId = bankPick.bankId;
   }
   const res = await buildCanonicalCreditMemo({ dealId, bankId });
+  let memoMetadata: any = null;
 
   if (res.ok && bankId) {
     const sb = supabaseAdmin();
     const { data: cachedNarrative } = await sb
       .from("canonical_memo_narratives")
-      .select("narratives")
+      .select("narratives, metadata_json")
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
       .order("generated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
+    memoMetadata = (cachedNarrative as any)?.metadata_json ?? null;
     if (cachedNarrative?.narratives) {
       const n = cachedNarrative.narratives as any;
       if (n.executive_summary) res.memo.executive_summary.narrative = n.executive_summary;
@@ -88,7 +90,10 @@ export default async function CanonicalCreditMemoPrintPage(props: {
       </head>
       <body className="bg-white">
         <div className="mx-auto max-w-[900px] min-h-[1100px] p-[40px]">
-          <CanonicalMemoTemplate memo={res.memo} />
+          <CanonicalMemoTemplate
+            memo={res.memo}
+            inferenceBySection={memoMetadata?.inferenceBySection ?? undefined}
+          />
           {bankId && <SpreadsAppendix dealId={dealId} bankId={bankId} />}
         </div>
       </body>

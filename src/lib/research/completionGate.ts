@@ -366,7 +366,7 @@ const CHECK_PATTERNS: Record<ContradictionCheckKey, RegExp[]> = {
   ],
 };
 
-function evaluateContradictionCoverage(
+export function evaluateContradictionCoverage(
   bieResult: BIEResult,
 ): { check: GateCheckResult; coveredChecks: ContradictionCheckKey[]; missingChecks: ContradictionCheckKey[] } {
   const contradictions = bieResult.synthesis?.contradictions_and_uncertainties ?? [];
@@ -446,4 +446,108 @@ function evaluateSectionSourceCoverage(
   };
 
   return { check, failedSections };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 82: Proof of Truth — Memo-Time Evidence Gates (Gate 9 + 10)
+// ---------------------------------------------------------------------------
+//
+// Applied at memo generation time (not mission completion). The mission's
+// research trust_grade is the *starting* grade; these gates downgrade it
+// based on evidence support for the specific memo being generated.
+//
+// Gate 9: Evidence coverage — unsupported sections reduce trust
+// Gate 10: Contradiction strength — weak adversarial checks reduce trust
+//
+// Invariants:
+//   - Never UPGRADES trust (only downgrades or leaves unchanged)
+//   - New-deal guard: ratio === null ⇒ no downgrade (do not penalize absent data)
+//   - Applied after research is complete, at the narrative persistence point
+
+const TRUST_GRADE_RANK: Record<TrustGrade, number> = {
+  committee_grade: 3,
+  preliminary: 2,
+  manual_review_required: 1,
+  research_failed: 0,
+};
+
+/** Downgrade `current` to `floor` only if `floor` is strictly lower. */
+export function downgradeTrust(
+  current: TrustGrade,
+  floor: TrustGrade,
+): TrustGrade {
+  return TRUST_GRADE_RANK[floor] < TRUST_GRADE_RANK[current] ? floor : current;
+}
+
+export type MemoEvidenceGateInput = {
+  /** From computeEvidenceCoverage(researchTrace) — supportRatio is null for new deals */
+  evidenceSupportRatio: number | null;
+  /** From computeContradictionStrengthSummary — null when no required checks */
+  contradictionStrongRatio: number | null;
+};
+
+export type MemoEvidenceGateResult = {
+  trustGrade: TrustGrade;
+  downgraded: boolean;
+  reasons: string[];
+};
+
+/**
+ * Evidence coverage threshold for Gate 9.
+ * Below this ratio of supported sections, memo cannot hold committee_grade.
+ */
+export const EVIDENCE_COVERAGE_THRESHOLD = 0.85;
+
+/**
+ * Contradiction strength threshold for Gate 10.
+ * Below this fraction of adversarial checks backed by primary sources,
+ * memo is routed to manual review.
+ */
+export const CONTRADICTION_STRENGTH_THRESHOLD = 0.7;
+
+/**
+ * Apply Phase 82 memo-time evidence gates to a research trust grade.
+ *
+ * Pure function. Safe to call from any memo generation or audit path.
+ */
+export function applyMemoEvidenceGate(
+  currentTrustGrade: TrustGrade,
+  input: MemoEvidenceGateInput,
+): MemoEvidenceGateResult {
+  let grade = currentTrustGrade;
+  const reasons: string[] = [];
+
+  // ── Gate 9: Evidence Coverage ──────────────────────────────────────────
+  if (
+    input.evidenceSupportRatio !== null &&
+    input.evidenceSupportRatio < EVIDENCE_COVERAGE_THRESHOLD
+  ) {
+    const next = downgradeTrust(grade, "preliminary");
+    if (next !== grade) {
+      reasons.push(
+        `evidence_coverage_below_threshold (${(input.evidenceSupportRatio * 100).toFixed(0)}% < ${EVIDENCE_COVERAGE_THRESHOLD * 100}%)`,
+      );
+      grade = next;
+    }
+  }
+
+  // ── Gate 10: Contradiction Strength ────────────────────────────────────
+  if (
+    input.contradictionStrongRatio !== null &&
+    input.contradictionStrongRatio < CONTRADICTION_STRENGTH_THRESHOLD
+  ) {
+    const next = downgradeTrust(grade, "manual_review_required");
+    if (next !== grade) {
+      reasons.push(
+        `contradiction_strength_below_threshold (${(input.contradictionStrongRatio * 100).toFixed(0)}% strong < ${CONTRADICTION_STRENGTH_THRESHOLD * 100}%)`,
+      );
+      grade = next;
+    }
+  }
+
+  return {
+    trustGrade: grade,
+    downgraded: grade !== currentTrustGrade,
+    reasons,
+  };
 }

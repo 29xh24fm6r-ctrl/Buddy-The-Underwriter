@@ -21,8 +21,35 @@ export type MemoEvidenceRow = {
   source_types: string[];
   confidence: number | null;
   memo_field: string | null;
+  adversarial_check_id: string | null;
   created_at: string;
 };
+
+/**
+ * Normalize a raw buddy_research_evidence row into a MemoEvidenceRow.
+ *
+ * Physical schema: evidence_type (enum) + supporting_data (JSONB) hold the
+ * fields the application model exposes as flat properties. This reader
+ * unpacks supporting_data so callers see the logical shape regardless of
+ * storage layout.
+ */
+function normalizeEvidenceRow(raw: any): MemoEvidenceRow {
+  const sd = (raw?.supporting_data ?? {}) as Record<string, unknown>;
+  return {
+    id: String(raw?.id ?? ""),
+    mission_id: String(raw?.mission_id ?? ""),
+    section: (sd.section as string | undefined) ?? "",
+    claim_text: String(raw?.claim ?? ""),
+    layer: String(raw?.evidence_type ?? ""),
+    thread_origin: (sd.thread_origin as string | undefined) ?? "",
+    source_uris: Array.isArray(sd.source_uris) ? (sd.source_uris as string[]) : [],
+    source_types: Array.isArray(sd.source_types) ? (sd.source_types as string[]) : [],
+    confidence: typeof raw?.confidence === "number" ? raw.confidence : null,
+    memo_field: (sd.memo_field as string | undefined) ?? null,
+    adversarial_check_id: (sd.adversarial_check_id as string | undefined) ?? null,
+    created_at: String(raw?.created_at ?? ""),
+  };
+}
 
 /**
  * Load evidence rows for a specific memo section.
@@ -31,28 +58,8 @@ export async function loadEvidenceForMemoSection(
   dealId: string,
   sectionKey: string,
 ): Promise<MemoEvidenceRow[]> {
-  const sb = supabaseAdmin();
-
-  // Find latest completed mission for this deal
-  const { data: mission } = await (sb as any)
-    .from("buddy_research_missions")
-    .select("id")
-    .eq("deal_id", dealId)
-    .eq("status", "complete")
-    .order("completed_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!mission) return [];
-
-  const { data, error } = await (sb as any)
-    .from("buddy_research_evidence")
-    .select("*")
-    .eq("mission_id", mission.id)
-    .eq("section", sectionKey);
-
-  if (error || !data) return [];
-  return data as MemoEvidenceRow[];
+  const all = await loadAllEvidenceForDeal(dealId);
+  return all.get(sectionKey) ?? [];
 }
 
 /**
@@ -84,7 +91,9 @@ export async function loadAllEvidenceForDeal(
   if (error || !data) return new Map();
 
   const grouped = new Map<string, MemoEvidenceRow[]>();
-  for (const row of data as MemoEvidenceRow[]) {
+  for (const raw of data as any[]) {
+    const row = normalizeEvidenceRow(raw);
+    if (!row.section) continue;
     const arr = grouped.get(row.section) ?? [];
     arr.push(row);
     grouped.set(row.section, arr);

@@ -175,9 +175,63 @@ function IncomeStatementTable({ rows }: { rows: IncomeStatementRow[] }) {
   );
 }
 
+// ── Phase 82: Inference Transparency ──────────────────────────────────────
+
+/**
+ * Per-memo-section inference ratio from buddy_research_evidence.
+ * Keyed by evidence section (e.g. "Management Intelligence", "Borrower Profile").
+ * ratio is inference-layer claims / total claims in [0,1], or null when empty.
+ */
+export type SectionInferenceMap = Record<
+  string,
+  { inference: number; total: number; ratio: number | null }
+>;
+
+const INFERENCE_HEAVY_THRESHOLD = 0.5;
+
+function InferenceTransparencyPanel({ map }: { map: SectionInferenceMap }) {
+  const heavy = Object.entries(map)
+    .filter(([, v]) => v.total > 0 && (v.ratio ?? 0) >= INFERENCE_HEAVY_THRESHOLD)
+    .sort(([, a], [, b]) => (b.ratio ?? 0) - (a.ratio ?? 0));
+
+  if (heavy.length === 0) return null;
+
+  return (
+    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 print:border-gray-300">
+      <div className="text-sm font-semibold text-amber-900">
+        ⚠ Analyst inference based on available evidence
+      </div>
+      <div className="text-xs text-amber-800 mt-1">
+        These sections rely on analyst inference more than direct source claims.
+        Facts and inferences are distinct layers — verify before relying on
+        these for committee-grade decisions.
+      </div>
+      <ul className="mt-2 text-xs text-amber-900 space-y-0.5">
+        {heavy.map(([section, v]) => (
+          <li key={section} className="flex justify-between">
+            <span>{section}</span>
+            <span className="font-mono">
+              {Math.round((v.ratio ?? 0) * 100)}% inference · {v.inference}/{v.total}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // ── Main Template ─────────────────────────────────────────────────────────
 
-export default function CanonicalMemoTemplate({ memo }: { memo: CanonicalCreditMemoV1 }) {
+export type CanonicalMemoTemplateProps = {
+  memo: CanonicalCreditMemoV1;
+  /** Phase 82: optional per-section inference ratio for transparency panel */
+  inferenceBySection?: SectionInferenceMap;
+};
+
+export default function CanonicalMemoTemplate({
+  memo,
+  inferenceBySection,
+}: CanonicalMemoTemplateProps) {
   const km = memo.key_metrics;
 
   return (
@@ -218,6 +272,9 @@ export default function CanonicalMemoTemplate({ memo }: { memo: CanonicalCreditM
           )}
         </div>
       )}
+
+      {/* ── Phase 82: INFERENCE TRANSPARENCY ── */}
+      {inferenceBySection && <InferenceTransparencyPanel map={inferenceBySection} />}
 
       {/* ── HEADER BOX ── */}
       <div className="border border-gray-300 p-4 mb-4">
