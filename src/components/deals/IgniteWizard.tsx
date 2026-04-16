@@ -160,17 +160,24 @@ export function IgniteWizard({
 
   const saveAndAdvance = useCallback(async (body: Record<string, unknown>) => {
     setSaving(true);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     try {
       const res = await fetch(`/api/deals/${dealId}/borrower/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
       const data = await res.json();
       if (!data.ok) { setError(data.error ?? "Save failed"); return; }
       advance();
-    } catch { setError("Network error"); }
-    finally { setSaving(false); }
+    } catch (err: any) {
+      setError(err?.name === "AbortError" ? "Save timed out — please try again" : "Network error");
+    } finally {
+      clearTimeout(timeout);
+      setSaving(false);
+    }
   }, [dealId, advance]);
 
   const lookupNaics = useCallback(async () => {
@@ -197,6 +204,8 @@ export function IgniteWizard({
 
   const savePrincipals = useCallback(async () => {
     setSaving(true);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     try {
       const actions = Object.entries(principalActions).map(([id, v]) => ({
         id, action: v.action, new_name: v.action === "rename" ? v.newName : undefined,
@@ -205,28 +214,41 @@ export function IgniteWizard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ actions }),
+        signal: controller.signal,
       });
       const fixed = actions.filter(a => a.action === "rename").length;
       setSavedSummary(prev => ({ ...prev, ownersFixed: fixed }));
       advance();
-    } catch { setError("Network error"); }
-    finally { setSaving(false); }
+    } catch (err: any) {
+      setError(err?.name === "AbortError" ? "Save timed out — please try again" : "Network error");
+    } finally {
+      clearTimeout(timeout);
+      setSaving(false);
+    }
   }, [principalActions, dealId, advance]);
 
   const saveContext = useCallback(async () => {
     setSaving(true);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     try {
       await fetch(`/api/deals/${dealId}/borrower/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(overrides),
+        signal: controller.signal,
       });
       setSavedSummary(prev => ({
         ...prev,
         hasContext: typeof overrides.business_description === "string" && overrides.business_description.length > 20,
       }));
-    } catch {}
-    finally { setSaving(false); }
+    } catch (err: any) {
+      // Context is optional — surface timeout but still advance
+      if (err?.name === "AbortError") setError("Save timed out — context not saved, but you can continue");
+    } finally {
+      clearTimeout(timeout);
+      setSaving(false);
+    }
     advance();
   }, [overrides, dealId, advance]);
 
