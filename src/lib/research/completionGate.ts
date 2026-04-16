@@ -12,7 +12,12 @@
  */
 
 import type { BIEResult, EntityLock } from "./buddyIntelligenceEngine";
-import { computeSourceQualityScore, classifySourceUrl } from "./sourcePolicy";
+import {
+  computeSourceQualityScore,
+  classifySourceUrl,
+  SECTION_SOURCE_REQUIREMENTS,
+  type SourceType,
+} from "./sourcePolicy";
 
 export type TrustGrade =
   | "committee_grade"
@@ -195,6 +200,13 @@ export function evaluateCompletionGate(
   // contradictions or addressed by the research threads.
   const contradictionCoverage = evaluateContradictionCoverage(bieResult);
   checks.push(contradictionCoverage.check);
+
+  // ── Gate 8 (Phase 81): Section-Level Source Enforcement ──────────────────
+  // sourcePolicy.ts defines per-section minimum source requirements.
+  // Global source quality may pass while individual sections rely on
+  // weak sources (e.g., 30 Yelp reviews). This gate enforces section-level.
+  const sectionSourceCheck = evaluateSectionSourceCoverage(bieResult);
+  checks.push(sectionSourceCheck.check);
 
   // ── Grade Assignment ──────────────────────────────────────────────────────
   const failCount = checks.filter((c) => c.status === "fail").length;
@@ -386,4 +398,52 @@ function evaluateContradictionCoverage(
   };
 
   return { check, coveredChecks: covered, missingChecks: missing };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 81: Section-Level Source Enforcement
+// ---------------------------------------------------------------------------
+
+/** Map BIE thread names to sourcePolicy section names */
+const THREAD_TO_SECTION: Record<string, string> = {
+  management: "Management Intelligence",
+  borrower: "Borrower Profile",
+  competitive: "Competitive Landscape",
+  market: "Market Intelligence",
+  industry: "Industry Overview",
+};
+
+function evaluateSectionSourceCoverage(
+  bieResult: BIEResult,
+): { check: GateCheckResult; failedSections: string[] } {
+  const allUrls = bieResult.sources_used ?? [];
+  const classifiedSources = allUrls.map((url) => ({
+    url,
+    type: classifySourceUrl(url),
+  }));
+
+  const failedSections: string[] = [];
+
+  for (const req of SECTION_SOURCE_REQUIREMENTS) {
+    // Find sources that match required types for this section
+    const qualifyingSources = classifiedSources.filter((s) =>
+      req.required_source_types.includes(s.type),
+    );
+
+    if (qualifyingSources.length < req.minimum_sources) {
+      failedSections.push(req.section);
+    }
+  }
+
+  const check: GateCheckResult = {
+    gate_id: "section_source_coverage",
+    label: "Section-Level Source Requirements",
+    status: failedSections.length === 0 ? "pass" : failedSections.length <= 2 ? "warn" : "fail",
+    reason: failedSections.length === 0
+      ? `All ${SECTION_SOURCE_REQUIREMENTS.length} section source requirements met`
+      : `${SECTION_SOURCE_REQUIREMENTS.length - failedSections.length}/${SECTION_SOURCE_REQUIREMENTS.length} sections meet source requirements — deficient: ${failedSections.join(", ")}`,
+    severity: failedSections.length > 2 ? "warn" : "info",
+  };
+
+  return { check, failedSections };
 }

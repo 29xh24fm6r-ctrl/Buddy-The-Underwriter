@@ -163,11 +163,22 @@ export type GuarantorBudget = {
   net_discretionary_income: CanonicalMemoNumber;
 };
 
+// Phase 81: Committee certification status
+export type CommitteeCertification = {
+  isCommitteeEligible: boolean;
+  trustGrade: string | null;
+  subjectLocked: boolean;
+  renderMode: "committee" | "internal_diagnostic";
+  blockers: string[];
+};
+
 export type CanonicalCreditMemoV1 = {
   version: "canonical_v1";
   deal_id: string;
   bank_id: string;
   generated_at: string;
+  // Phase 81: Committee certification
+  certification?: CommitteeCertification;
 
   // ── HEADER ──────────────────────────────────────────────────────────────
   header: {

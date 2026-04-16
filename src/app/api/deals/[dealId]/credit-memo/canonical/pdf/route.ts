@@ -671,6 +671,16 @@ async function handlePdfRequest(dealId: string) {
       return NextResponse.json({ ok: false, error: "no_bank_selected" }, { status: 401 });
     }
 
+    // Phase 81: Trust enforcement — PDF export requires committee-grade research
+    const { loadAndEnforceResearchTrust } = await import("@/lib/research/trustEnforcement");
+    const trustCheck = await loadAndEnforceResearchTrust(dealId, "committee_packet");
+    if (!trustCheck.allowed) {
+      return NextResponse.json(
+        { ok: false, error: trustCheck.reason },
+        { status: 400 },
+      );
+    }
+
     const res = await buildCanonicalCreditMemo({ dealId, bankId: bankPick.bankId });
     if (!res.ok) {
       return NextResponse.json({ ok: false, error: res.error }, { status: 400 });

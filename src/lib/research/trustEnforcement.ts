@@ -84,7 +84,28 @@ export async function loadAndEnforceResearchTrust(
   action: TrustAction,
 ): Promise<TrustEnforcementResult> {
   const grade = await loadTrustGradeForDeal(dealId);
-  return enforceResearchTrust(grade, action);
+  const result = enforceResearchTrust(grade, action);
+
+  // Phase 81 (Sprint 9): Observability — emit ledger events for blocked actions
+  if (!result.allowed) {
+    try {
+      const { writeEvent } = await import("@/lib/ledger/writeEvent");
+      void writeEvent({
+        dealId,
+        kind: `research.trust_enforcement_blocked`,
+        scope: "research",
+        meta: {
+          action,
+          trust_grade: grade,
+          reason: result.reason,
+        },
+      });
+    } catch {
+      // Non-fatal — observability failure must never block enforcement
+    }
+  }
+
+  return result;
 }
 
 /**

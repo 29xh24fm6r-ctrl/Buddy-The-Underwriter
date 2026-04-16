@@ -34,6 +34,16 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     }
     const auth = access;
 
+    // Phase 81: Trust enforcement — export requires committee-grade research
+    const { loadAndEnforceResearchTrust } = await import("@/lib/research/trustEnforcement");
+    const trustCheck = await loadAndEnforceResearchTrust(dealId, "committee_packet");
+    if (!trustCheck.allowed) {
+      return NextResponse.json(
+        { ok: false, error: trustCheck.reason },
+        { status: 400 },
+      );
+    }
+
     const sb = supabaseAdmin();
 
     // Parallel data loads

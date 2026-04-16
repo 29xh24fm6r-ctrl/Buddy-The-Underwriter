@@ -84,6 +84,17 @@ function renderCreditMemoPdf(intel: Awaited<ReturnType<typeof buildDealIntellige
 
 export async function GET(_: Request, ctx: { params: Promise<{ dealId: string }> }) {
   const { dealId } = await ctx.params;
+
+  // Phase 81: Trust enforcement — block committee-looking PDFs for non-committee research
+  const { loadAndEnforceResearchTrust } = await import("@/lib/research/trustEnforcement");
+  const trustCheck = await loadAndEnforceResearchTrust(dealId, "committee_packet");
+  if (!trustCheck.allowed) {
+    return NextResponse.json(
+      { ok: false, error: trustCheck.reason },
+      { status: 400 },
+    );
+  }
+
   const intelligence = await buildDealIntelligence(dealId);
   const pdf = await renderCreditMemoPdf(intelligence);
 

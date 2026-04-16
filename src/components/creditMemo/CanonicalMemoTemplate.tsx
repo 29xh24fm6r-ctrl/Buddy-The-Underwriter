@@ -183,6 +183,42 @@ export default function CanonicalMemoTemplate({ memo }: { memo: CanonicalCreditM
   return (
     <div className="text-gray-900 font-sans max-w-[900px] mx-auto bg-white">
 
+      {/* ── Phase 81: COMMITTEE CERTIFICATION BANNER ── */}
+      {memo.certification && (
+        <div className={`mb-4 rounded-lg border px-4 py-3 flex items-center gap-3 print:border-gray-300 ${
+          memo.certification.isCommitteeEligible
+            ? "border-emerald-300 bg-emerald-50"
+            : memo.certification.trustGrade === "research_failed"
+            ? "border-red-300 bg-red-50"
+            : "border-amber-300 bg-amber-50"
+        }`}>
+          <span className="text-lg flex-shrink-0">
+            {memo.certification.isCommitteeEligible ? "🟢" : memo.certification.trustGrade === "research_failed" ? "🔴" : "🟡"}
+          </span>
+          <div className="flex-1">
+            <div className={`text-sm font-semibold ${
+              memo.certification.isCommitteeEligible ? "text-emerald-800" : memo.certification.trustGrade === "research_failed" ? "text-red-800" : "text-amber-800"
+            }`}>
+              {memo.certification.isCommitteeEligible
+                ? "Committee Certified"
+                : memo.certification.trustGrade === "research_failed"
+                ? "Blocked — Action Required"
+                : "Preliminary — Not Committee Eligible"}
+            </div>
+            {memo.certification.blockers.length > 0 && (
+              <div className="text-xs text-gray-600 mt-0.5">
+                {memo.certification.blockers.join(" · ")}
+              </div>
+            )}
+          </div>
+          {memo.certification.trustGrade && (
+            <div className="text-xs text-gray-500 flex-shrink-0">
+              Trust: {memo.certification.trustGrade.replace(/_/g, " ")}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── HEADER BOX ── */}
       <div className="border border-gray-300 p-4 mb-4">
         <div className="flex justify-between items-start">
@@ -624,11 +660,23 @@ export default function CanonicalMemoTemplate({ memo }: { memo: CanonicalCreditM
         <div className="text-xs text-gray-400 italic">Pending — ownership entities required.</div>
       )}
 
+      {/* ── Phase 81: EXHIBIT INDEX ── */}
+      <SectionHeader>Financial Exhibits</SectionHeader>
+      <div className="text-xs text-gray-600 mb-3 space-y-0.5">
+        <div><span className="font-semibold">Exhibit A</span> — Debt Coverage Analysis (DSCR)</div>
+        <div><span className="font-semibold">Exhibit B</span> — Income Statement Summary</div>
+        <div><span className="font-semibold">Exhibit C</span> — Balance Sheet</div>
+        <div><span className="font-semibold">Exhibit D</span> — Global Cash Flow</div>
+        {(memo.personal_financial_statements?.length ?? 0) > 0 && (
+          <div><span className="font-semibold">Exhibit E</span> — Personal Financial Statements</div>
+        )}
+      </div>
+
       {/* ── FINANCIAL ANALYSIS ── */}
       <SectionHeader>Financial Analysis</SectionHeader>
 
-      {/* Debt Coverage Table */}
-      <div className="text-xs font-semibold text-gray-700 mb-1">Debt Coverage Analysis</div>
+      {/* Exhibit A: Debt Coverage Table */}
+      <div className="text-xs font-semibold text-gray-700 mb-1">Exhibit A — Debt Coverage Analysis</div>
       <DebtCoverageTable rows={memo.financial_analysis.debt_coverage_table} />
 
       {/* New Debt Table */}
@@ -715,7 +763,7 @@ export default function CanonicalMemoTemplate({ memo }: { memo: CanonicalCreditM
       )}
 
       {/* Income Statement Table */}
-      <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">Income Statement (Multi-Period)</div>
+      <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">Exhibit B — Income Statement (Multi-Period)</div>
       <IncomeStatementTable rows={memo.financial_analysis.income_statement_table} />
 
       {/* Repayment Ability */}

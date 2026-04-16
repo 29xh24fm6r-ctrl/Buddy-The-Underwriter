@@ -1072,6 +1072,35 @@ export async function buildCanonicalCreditMemo(args: {
 
       recommendation,
 
+      // Phase 81: Committee certification
+      certification: await (async () => {
+        try {
+          const { loadTrustGradeForDeal } = await import("@/lib/research/trustEnforcement");
+          const trustGrade = await loadTrustGradeForDeal(args.dealId);
+          const blockers: string[] = [];
+          if (!trustGrade) blockers.push("Research not yet run");
+          else if (trustGrade === "research_failed") blockers.push("Research failed");
+          else if (trustGrade === "manual_review_required") blockers.push("Research requires manual review");
+          else if (trustGrade === "preliminary") blockers.push("Research is preliminary — not committee-grade");
+          if (readiness.status !== "ready") blockers.push("Financial data incomplete");
+          return {
+            isCommitteeEligible: trustGrade === "committee_grade" && readiness.status === "ready" && blockers.length === 0,
+            trustGrade,
+            subjectLocked: !!borrower?.legal_name && !!borrower?.naics_code && borrower.naics_code !== "999999",
+            renderMode: mode,
+            blockers,
+          };
+        } catch {
+          return {
+            isCommitteeEligible: false,
+            trustGrade: null,
+            subjectLocked: false,
+            renderMode: mode,
+            blockers: ["Unable to determine certification status"],
+          };
+        }
+      })(),
+
       meta: {
         notes: [],
         readiness,
