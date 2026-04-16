@@ -8,6 +8,7 @@ import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 function normalizeName(value: unknown): string | null {
   if (typeof value !== "string") return null;

@@ -79,7 +79,7 @@ export default function DealNameInlineEditor({
     setDisplayName(payload.display_name);
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
+    const timeout = setTimeout(() => controller.abort(), 25_000);
     try {
       const res = await fetch(`/api/deals/${dealId}/name`, {
         method: "PATCH",
