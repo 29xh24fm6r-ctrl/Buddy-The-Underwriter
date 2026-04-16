@@ -63,7 +63,8 @@ function extractFirstJsonObject(text: string): string | null {
   return null;
 }
 
-const GEMINI_MODEL = "gemini-2.0-flash";
+// gemini-2.0-flash is retired — use gemini-3-flash-preview
+const GEMINI_MODEL = "gemini-3-flash-preview";
 
 function geminiUrl(apiKey: string) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
