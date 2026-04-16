@@ -1,70 +1,69 @@
-# Phase 83 — Ignite Wizard (Combined Best Spec)
+# Phase 83 — Ignite Wizard (True Final Combined Spec)
 # Intelligent Research Readiness + Recovery Flow
 
-**Synthesized from:** My `IGNITE_WIZARD_SPEC.md` + ChatGPT Phase 83 spec  
-**Winner by section noted inline.**
+**v3 — This is the definitive implementation spec.**
 
----
+**What each spec contributed:**
 
-## What Each Spec Got Right
+| My Spec | ChatGPT Spec |
+|---------|-------------|
+| Complete working code for all routes and components | Don't fork MemoCompletionWizard — extract and share it |
+| Verified production borrowers table schema | `recovery/complete` atomic validation gate before research fires |
+| Auth via `ensureDealBankAccess`, zod validation, writeEvent telemetry | Principal cleanup step for malformed ownership entities |
+| Per-step auto-save (resilient to mid-wizard close) | "Review" summary step before launch |
+| NAICS manual entry fallback | Auto-trigger on `manual_review_required` (not just critical blockers) |
+| Back navigation between steps | "Fix with Buddy" button copy for builder surface |
+| Dark cockpit UI with exact color values | `suggestedActions[]` in status response |
+| Full Anthropic API NAICS lookup implementation | Intelligence tab as third surface |
 
-**My spec:** Complete working component code, dark cockpit UI, full AI NAICS lookup
-implementation via Anthropic API, correct borrower table field names, working API routes.
-
-**ChatGPT spec:** Architecturally correct reuse principle (don't fork MemoCompletionWizard —
-extract and share it), principal cleanup step for malformed entities, recovery/status normalized
-blocker API, recovery/complete orchestration endpoint, "Continue Analysis" single button,
-auto-trigger on blockers, banker-friendly copy philosophy.
-
-**Combined:** ChatGPT's architecture + my working code + both specs' feature sets.
+**Combined:** ChatGPT's product architecture + my working implementation code + both specs' features.
 
 ---
 
 ## Non-Negotiable Rules
 
-1. **Do NOT create a third wizard system.** The existing `MemoCompletionWizard` is the qualitative
-   stopgap. This builds on it, not beside it.
+1. **Do NOT create a third wizard system.** `MemoCompletionWizard` is the qualitative stopgap.
+   This is a wrapper and extension layer, not a rebuild.
 
-2. **Never ask the banker for numeric underwriting metrics** (DSCR, LTV, collateral values,
-   financial ratios). Those come from documents only.
+2. **Never ask the banker for numeric underwriting metrics.** No DSCR, LTV, collateral values,
+   financial ratios. Those come from documents only.
 
-3. **Writes go to source-of-truth tables first.** Borrower record → ownership entities → deal name
-   → then memo overrides for purely qualitative prose.
+3. **Per-step auto-save, not batch-on-submit.** Each wizard step saves immediately so partial
+   progress survives a mid-wizard close. `recovery/complete` is a validation gate only,
+   not a data write path.
 
-4. **No destructive actions without explicit banker confirmation.** Principal merges, record
-   deletions — all require explicit confirm UI.
+4. **Writes go to source-of-truth tables first.** `borrowers` → `ownership_entities` → `deals`
+   → then `deal_memo_overrides` for purely qualitative prose (website, dba, banker_summary).
+
+5. **No destructive principal actions without explicit confirmation.**
 
 ---
 
 ## What Already Exists — Do Not Rebuild
 
-- `src/components/creditMemo/MemoCompletionWizard.tsx` — qualitative form with business
-  description, revenue mix, seasonality, collateral, principal bios. **Extract its form body
-  into `MemoQualitativeForm.tsx` (Sprint 6) and wire both wizard and new recovery component
-  through that shared form.**
-
-- `src/app/api/deals/[dealId]/research/flight-deck/route.ts` — already returns blockers.
-  Sprint 1's `recovery/status` route replaces this as the wizard's data source with a
-  richer normalized payload.
-
+- `src/components/creditMemo/MemoCompletionWizard.tsx` — qualitative form. Extract its body
+  into `MemoQualitativeForm.tsx`. Both wizards share that extracted component.
+- `src/app/api/deals/[dealId]/research/flight-deck/route.ts` — superseded by `recovery/status`.
 - `RunResearchButton`, `GenerateNarrativesButton`, `RegenerateMemoButton` on the credit memo
-  page — the "Continue Analysis" button orchestrates these three in sequence, not beside them.
+  page — "Continue Analysis" orchestrates these in sequence. Do not add separate buttons.
 
 ---
 
-## Verified Data — Borrowers Table Schema
+## Verified Production Schema
 
-The `borrowers` table (confirmed from production) has these columns:  
-`legal_name`, `naics_code`, `naics_description`, `city`, `state`, `address_line1`, `zip`,
-`entity_type`, `state_of_formation`
+The `borrowers` table has: `legal_name`, `naics_code`, `naics_description`, `city`, `state`,
+`address_line1`, `zip`, `entity_type`, `state_of_formation`.
 
-No `website` or `dba` column exists → those go to `deal_memo_overrides`.
+**No `website` or `dba` column exists** → those go to `deal_memo_overrides.overrides`.
 
 ---
 
-## Part 1 — `recovery/status` Route (ChatGPT Sprint 2, with my implementation)
+## Part 1 — `recovery/status` Route
 
 **File: `src/app/api/deals/[dealId]/recovery/status/route.ts`**
+
+This is the single normalized source of truth for the wizard. It determines which steps to show,
+pre-fills existing values, and flags both critical errors and recoverable warnings.
 
 ```typescript
 import "server-only";
@@ -86,6 +85,7 @@ type BlockerKey =
   | "malformed_principal"
   | "placeholder_deal_name"
   | "research_failed"
+  | "manual_review_required"
   | "research_not_run";
 
 type Blocker = {
@@ -107,12 +107,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
     const sb = supabaseAdmin();
 
-    const [
-      dealRes,
-      missionRes,
-      trustGrade,
-      overridesRes,
-    ] = await Promise.all([
+    const [dealRes, missionRes, trustGrade, overridesRes] = await Promise.all([
       (sb as any)
         .from("deals")
         .select("id, display_name, nickname, borrower_name, borrower_id")
@@ -138,7 +133,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     const mission = missionRes.data;
     const overrides = (overridesRes.data?.overrides ?? {}) as Record<string, unknown>;
 
-    // Load borrower
+    // Borrower
     let borrower: {
       legal_name: string | null;
       naics_code: string | null;
@@ -156,7 +151,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       borrower = b ?? null;
     }
 
-    // Load ownership entities — flag malformed ones
+    // Ownership entities — flag malformed
     const { data: ownersData } = await (sb as any)
       .from("ownership_entities")
       .select("id, display_name, title, ownership_pct")
@@ -168,8 +163,10 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     const principals = ((ownersData ?? []) as any[]).map((o: any) => {
       const raw = String(o.display_name ?? "").trim();
       const isMalformed = MALFORMED_PATTERNS.test(raw) || raw.length < 2;
-      // Normalized candidate: take only the first line, strip junk
-      const normalized = raw.split(/\n/)[0].trim().replace(/\s+/g, " ").replace(/Taxpayer.*$/i, "").trim();
+      const normalized = raw.split(/\n/)[0].trim()
+        .replace(/\s+/g, " ")
+        .replace(/Taxpayer.*$/i, "")
+        .trim();
       return {
         id: String(o.id),
         displayName: raw,
@@ -178,10 +175,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       };
     });
 
-    // ── Build blocker list ──────────────────────────────────────────────────
+    // ── Blocker list ────────────────────────────────────────────────────────
     const blockers: Blocker[] = [];
 
-    // NAICS
     const hasNaics = !!borrower?.naics_code && borrower.naics_code !== "999999";
     if (!hasNaics) {
       blockers.push({
@@ -194,7 +190,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       });
     }
 
-    // Geography
     const hasGeo = !!(borrower?.city?.trim() || borrower?.state?.trim());
     if (!hasGeo) {
       blockers.push({
@@ -205,7 +200,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       });
     }
 
-    // Business description
     const hasDesc = typeof overrides.business_description === "string" &&
       (overrides.business_description as string).trim().length > 20;
     if (!hasDesc) {
@@ -217,7 +211,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       });
     }
 
-    // Identifying anchor
     const hasBankerSummary = typeof overrides.banker_summary === "string" &&
       (overrides.banker_summary as string).trim().length > 20;
     const hasWebsite = typeof overrides.website === "string" &&
@@ -231,18 +224,16 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       });
     }
 
-    // Malformed principals
     const malformedPrincipals = principals.filter(p => p.isMalformed);
     if (malformedPrincipals.length > 0) {
       blockers.push({
         key: "malformed_principal",
         severity: "warn",
         label: `${malformedPrincipals.length} owner record${malformedPrincipals.length > 1 ? "s need" : " needs"} cleanup`,
-        detail: `Malformed name(s): ${malformedPrincipals.map(p => p.displayName.slice(0, 40)).join(", ")}. This will cause management research to fail.`,
+        detail: `Malformed name(s): ${malformedPrincipals.map(p => p.displayName.slice(0, 40)).join(", ")}.`,
       });
     }
 
-    // Placeholder deal name
     const dealName = deal?.display_name || deal?.nickname || deal?.borrower_name || "";
     const PLACEHOLDER_PATTERNS = /^(chatgpt|fix|test|deal \d|new deal|untitled|draft)/i;
     if (PLACEHOLDER_PATTERNS.test(dealName.trim())) {
@@ -250,11 +241,10 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         key: "placeholder_deal_name",
         severity: "warn",
         label: "Placeholder deal name",
-        detail: `"${dealName}" looks like a test name. Rename it to something meaningful.`,
+        detail: `"${dealName}" looks like a test name — rename it.`,
       });
     }
 
-    // Research state
     if (!mission) {
       blockers.push({
         key: "research_not_run",
@@ -267,13 +257,26 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         key: "research_failed",
         severity: "error",
         label: "Research failed",
-        detail: "The last research run could not confirm the entity. Resolve the blockers above and re-run.",
+        detail: "The last run could not confirm the entity. Resolve blockers above and re-run.",
+      });
+    } else if (trustGrade === "manual_review_required") {
+      blockers.push({
+        key: "manual_review_required",
+        severity: "warn",
+        label: "Research needs manual review",
+        detail: "Research completed with gaps. Adding more context and re-running may improve trust grade.",
       });
     }
 
-    // Suggested actions (ordered by priority)
     const criticalBlockers = blockers.filter(b => b.severity === "error");
-    const allClear = criticalBlockers.length === 0;
+
+    // suggestedActions (ChatGPT Sprint 2 shape)
+    const suggestedActions: Array<{ key: string; label: string }> = [];
+    if (!hasNaics) suggestedActions.push({ key: "set_naics", label: "Set industry code" });
+    if (!hasGeo) suggestedActions.push({ key: "set_geography", label: "Add location" });
+    if (malformedPrincipals.length > 0) suggestedActions.push({ key: "fix_principals", label: "Clean up owner records" });
+    if (!hasDesc) suggestedActions.push({ key: "add_description", label: "Describe the business" });
+    suggestedActions.push({ key: "run_research", label: "Run research" });
 
     return NextResponse.json({
       ok: true,
@@ -285,16 +288,21 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       },
       blockers,
       hasCriticalBlockers: criticalBlockers.length > 0,
-      isReadyForResearch: allClear,
+      // Trigger wizard for critical blockers OR manual_review_required
+      shouldShowWizard: criticalBlockers.length > 0 || trustGrade === "manual_review_required",
+      isReadyForResearch: criticalBlockers.length === 0,
       borrower: {
         legalName: borrower?.legal_name ?? null,
         naicsCode: borrower?.naics_code ?? null,
         naicsDescription: borrower?.naics_description ?? null,
         city: borrower?.city ?? null,
         state: borrower?.state ?? null,
+        // website has no borrowers column — read from overrides
+        website: typeof overrides.website === "string" ? overrides.website : null,
       },
       principals,
       overrides,
+      suggestedActions,
       trustGrade,
       researchStatus: mission?.status ?? null,
     });
@@ -307,9 +315,12 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
 ---
 
-## Part 2 — `borrower/update` Route (from my spec, field-verified)
+## Part 2 — `borrower/update` Route
 
 **File: `src/app/api/deals/[dealId]/borrower/update/route.ts`**
+
+Per-step save. Called after each wizard step. Does NOT need to be called atomically —
+data is written immediately on step confirmation for resilience.
 
 ```typescript
 import "server-only";
@@ -325,20 +336,27 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 15;
 
 const BodySchema = z.object({
-  // Borrower table fields (verified schema: legal_name, naics_code, naics_description, city, state, address_line1)
+  // borrowers table (verified schema — no website or dba column)
   naics_code: z.string().min(2).max(10).optional(),
   naics_description: z.string().min(2).max(300).optional(),
   city: z.string().max(100).optional(),
   state: z.string().max(50).optional(),
   legal_name: z.string().min(2).max(200).optional(),
   address_line1: z.string().max(300).optional(),
-  // These have no column in borrowers — stored in deal_memo_overrides
+  // deal_memo_overrides (no column in borrowers)
   banker_summary: z.string().max(3000).optional(),
   website: z.string().max(500).optional(),
   dba: z.string().max(200).optional(),
-  // Deal name
+  business_description: z.string().max(3000).optional(),
+  revenue_mix: z.string().max(1000).optional(),
+  seasonality: z.string().max(500).optional(),
+  collateral_description: z.string().max(1000).optional(),
+  collateral_address: z.string().max(300).optional(),
+  competitive_advantages: z.string().max(1000).optional(),
+  vision: z.string().max(1000).optional(),
+  // deal name
   deal_name: z.string().max(200).optional(),
-});
+}).passthrough(); // allow principal_bio_* keys
 
 type Ctx = { params: Promise<{ dealId: string }> };
 
@@ -350,16 +368,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
     }
 
-    let body: z.infer<typeof BodySchema>;
+    let body: Record<string, unknown>;
     try {
-      body = BodySchema.parse(await req.json());
+      body = BodySchema.parse(await req.json()) as Record<string, unknown>;
     } catch {
       return NextResponse.json({ ok: false, error: "invalid_body" }, { status: 400 });
     }
 
     const sb = supabaseAdmin();
 
-    // Resolve borrower_id from deal
     const { data: deal } = await (sb as any)
       .from("deals")
       .select("borrower_id")
@@ -370,13 +387,12 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: "no_borrower_linked" }, { status: 400 });
     }
 
+    // Borrower table patch (only verified columns)
+    const BORROWER_COLUMNS = ["naics_code", "naics_description", "city", "state", "legal_name", "address_line1"];
     const borrowerPatch: Record<string, string> = {};
-    if (body.naics_code !== undefined) borrowerPatch.naics_code = body.naics_code;
-    if (body.naics_description !== undefined) borrowerPatch.naics_description = body.naics_description;
-    if (body.city !== undefined) borrowerPatch.city = body.city;
-    if (body.state !== undefined) borrowerPatch.state = body.state;
-    if (body.legal_name !== undefined) borrowerPatch.legal_name = body.legal_name;
-    if (body.address_line1 !== undefined) borrowerPatch.address_line1 = body.address_line1;
+    for (const col of BORROWER_COLUMNS) {
+      if (body[col] !== undefined) borrowerPatch[col] = body[col] as string;
+    }
 
     if (Object.keys(borrowerPatch).length > 0) {
       const { error } = await (sb as any)
@@ -388,14 +404,16 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       }
     }
 
-    // Overrides patch (no borrower column: website, dba, banker_summary)
+    // Overrides patch: everything that isn't a borrower column or deal_name
+    const OVERRIDE_SKIP = new Set([...BORROWER_COLUMNS, "deal_name"]);
     const overridesPatch: Record<string, unknown> = {};
-    if (body.banker_summary !== undefined) overridesPatch.banker_summary = body.banker_summary;
-    if (body.website !== undefined) overridesPatch.website = body.website;
-    if (body.dba !== undefined) overridesPatch.dba = body.dba;
+    for (const [k, v] of Object.entries(body)) {
+      if (!OVERRIDE_SKIP.has(k) && v !== undefined) {
+        overridesPatch[k] = v;
+      }
+    }
 
     if (Object.keys(overridesPatch).length > 0) {
-      // Merge with existing overrides
       const { data: existing } = await (sb as any)
         .from("deal_memo_overrides")
         .select("overrides")
@@ -412,11 +430,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         );
     }
 
-    // Deal name update
-    if (body.deal_name !== undefined) {
+    if (typeof body.deal_name === "string") {
       await (sb as any)
         .from("deals")
-        .update({ display_name: body.deal_name.trim() })
+        .update({ display_name: (body.deal_name as string).trim() })
         .eq("id", dealId);
     }
 
@@ -432,14 +449,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       },
     });
 
-    return NextResponse.json({
-      ok: true,
-      updated: {
-        borrower: Object.keys(borrowerPatch),
-        overrides: Object.keys(overridesPatch),
-        deal_name: body.deal_name !== undefined,
-      },
-    });
+    return NextResponse.json({ ok: true, updated: { borrower: Object.keys(borrowerPatch), overrides: Object.keys(overridesPatch) } });
   } catch (e: any) {
     rethrowNextErrors(e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
@@ -449,7 +459,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
 ---
 
-## Part 3 — `recovery/naics-suggest` Route (my implementation, ChatGPT's shape)
+## Part 3 — `recovery/naics-suggest` Route
 
 **File: `src/app/api/deals/[dealId]/recovery/naics-suggest/route.ts`**
 
@@ -472,7 +482,7 @@ const BodySchema = z.object({
 type NaicsSuggestion = {
   naics_code: string;
   naics_description: string;
-  confidence: number;     // 0.0–1.0
+  confidence: number;
   rationale: string;
 };
 
@@ -498,13 +508,13 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: "no_api_key" }, { status: 500 });
     }
 
-    const prompt = `You are a commercial bank underwriter. Given this business description, return the
-3 most likely NAICS codes. Use real 6-digit codes from the 2022 NAICS manual.
+    const prompt = `You are a commercial bank underwriter. Return the 3 most likely 6-digit NAICS codes
+for the following business. Use only real codes from the 2022 NAICS manual.
 
 Company: ${body.company_name ?? "Not specified"}
 Description: ${body.business_description}
 
-Return ONLY valid JSON — no markdown, no preamble:
+Return ONLY valid JSON — no markdown, no preamble, no explanation outside the JSON:
 {
   "suggestions": [
     {
@@ -517,9 +527,9 @@ Return ONLY valid JSON — no markdown, no preamble:
 }
 
 Rules:
-- Exactly 3 suggestions, best-first
-- confidence 0.0–1.0 (not a string label)
-- rationale: one sentence max, plain English`;
+- Exactly 3 suggestions ordered best-first
+- confidence is 0.0–1.0 (decimal, not a string label)
+- rationale is one plain-English sentence`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -559,7 +569,7 @@ Rules:
 
 ---
 
-## Part 4 — `recovery/principals` Route (ChatGPT Sprint 5)
+## Part 4 — `recovery/principals` Route
 
 **File: `src/app/api/deals/[dealId]/recovery/principals/route.ts`**
 
@@ -609,7 +619,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           .from("ownership_entities")
           .update({ display_name: item.new_name.trim() })
           .eq("id", item.id)
-          .eq("deal_id", dealId);  // Safety: only update if belongs to this deal
+          .eq("deal_id", dealId); // Safety: only update if belongs to this deal
         results.push({ id: item.id, action: "rename", ok: !error });
       } else {
         results.push({ id: item.id, action: "keep", ok: true });
@@ -626,21 +636,113 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
 ---
 
-## Part 5 — Extract `MemoQualitativeForm` (ChatGPT Sprint 6)
+## Part 5 — `recovery/complete` Route (ChatGPT Sprint 7)
+
+**File: `src/app/api/deals/[dealId]/recovery/complete/route.ts`**
+
+This is a **validation gate**, not a data write path. Called by the wizard on the Review/Launch
+step before research fires. It reads current DB state (data was already written per-step) and
+returns whether required fields are present and what should run next.
+
+```typescript
+import "server-only";
+import { NextRequest, NextResponse } from "next/server";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 15;
+
+type Ctx = { params: Promise<{ dealId: string }> };
+
+export async function POST(_req: NextRequest, ctx: Ctx) {
+  try {
+    const { dealId } = await ctx.params;
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
+    }
+
+    const sb = supabaseAdmin();
+
+    // Read current state from DB — don't trust request body
+    const [dealRes, overridesRes] = await Promise.all([
+      (sb as any)
+        .from("deals")
+        .select("borrower_id")
+        .eq("id", dealId)
+        .maybeSingle(),
+      (sb as any)
+        .from("deal_memo_overrides")
+        .select("overrides")
+        .eq("deal_id", dealId)
+        .eq("bank_id", access.bankId)
+        .maybeSingle(),
+    ]);
+
+    const overrides = (overridesRes.data?.overrides ?? {}) as Record<string, unknown>;
+
+    let borrower: { naics_code: string | null; city: string | null; state: string | null } | null = null;
+    if (dealRes.data?.borrower_id) {
+      const { data: b } = await (sb as any)
+        .from("borrowers")
+        .select("naics_code, city, state")
+        .eq("id", dealRes.data.borrower_id)
+        .maybeSingle();
+      borrower = b ?? null;
+    }
+
+    const hasNaics = !!borrower?.naics_code && borrower.naics_code !== "999999";
+    const hasGeo = !!(borrower?.city?.trim() || borrower?.state?.trim());
+
+    const validationErrors: string[] = [];
+    if (!hasNaics) validationErrors.push("Industry code is still missing — complete the Industry step.");
+    if (!hasGeo) validationErrors.push("Location is still missing — complete the Location step.");
+
+    if (validationErrors.length > 0) {
+      return NextResponse.json({ ok: false, validation_errors: validationErrors }, { status: 422 });
+    }
+
+    const hasDesc = typeof overrides.business_description === "string" &&
+      (overrides.business_description as string).trim().length > 20;
+
+    const actionsTaken: string[] = ["borrower_verified", "overrides_verified"];
+
+    return NextResponse.json({
+      ok: true,
+      actions_taken: actionsTaken,
+      next: {
+        should_run_research: true,
+        should_regenerate_memo: true,
+        should_run_risk: false,
+        has_business_description: hasDesc,
+      },
+    });
+  } catch (e: any) {
+    rethrowNextErrors(e);
+    return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
+  }
+}
+```
+
+---
+
+## Part 6 — Extract `MemoQualitativeForm`
 
 **File: `src/components/creditMemo/MemoQualitativeForm.tsx`**
 
-Extract the form body from `MemoCompletionWizard.tsx` into this standalone component.
-Both `MemoCompletionWizard` and `IgniteWizard` (Step 4: Business Context) use this.
+Extracted from `MemoCompletionWizard`. Both the wizard and the existing memo wizard share this.
 
 ```tsx
 "use client";
 
 import React from "react";
 
-const fieldStyle: React.CSSProperties = { color: "#111827", backgroundColor: "#ffffff" };
+const fieldStyleLight: React.CSSProperties = { color: "#111827", backgroundColor: "#ffffff" };
 
-const baseCls =
+const baseLightCls =
   "w-full text-sm border border-gray-300 rounded-md px-3 py-2 " +
   "placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-400 resize-none";
 
@@ -659,108 +761,91 @@ type Props = {
   overrides: QualitativeOverrides;
   onChange: (key: string, value: string) => void;
   principals: Array<{ id: string; name: string }>;
-  /** "dark" for the IgniteWizard, "light" for the existing MemoCompletionWizard */
   theme?: "dark" | "light";
 };
 
 export function MemoQualitativeForm({ overrides, onChange, principals, theme = "light" }: Props) {
-  const mgmtEntries = principals.length > 0
-    ? principals
-    : [{ id: "general", name: "Management Team" }];
+  const isDark = theme === "dark";
+  const mgmtEntries = principals.length > 0 ? principals : [{ id: "general", name: "Management Team" }];
 
-  const inputCls = theme === "dark"
+  const inputCls = isDark
     ? "w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-sky-500/50 resize-none leading-relaxed"
-    : baseCls;
-
-  const labelCls = theme === "dark"
-    ? "block text-xs font-medium text-white/60 mb-1"
-    : "block text-xs font-medium text-gray-700 mb-1";
-
-  const hintCls = theme === "dark"
-    ? "text-xs text-white/30 mb-2"
-    : "text-xs text-gray-400 mb-2";
-
-  const sectionHeaderCls = theme === "dark"
-    ? "text-xs font-semibold text-white/40 uppercase tracking-widest mb-3"
-    : "text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3";
+    : baseLightCls;
+  const labelCls = isDark ? "block text-xs font-medium text-white/60 mb-1" : "block text-xs font-medium text-gray-700 mb-1";
+  const hintCls = isDark ? "text-xs text-white/30 mb-2" : "text-xs text-gray-400 mb-2";
+  const headCls = isDark ? "text-xs font-semibold text-white/40 uppercase tracking-widest mb-3" : "text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3";
+  const style = isDark ? undefined : fieldStyleLight;
 
   return (
     <div className="space-y-5">
-      {/* Business Profile */}
       <div>
-        <div className={sectionHeaderCls}>Business Profile</div>
+        <div className={headCls}>Business Profile</div>
         <div className="space-y-4">
           <div>
             <label className={labelCls}>Business Operations & History</label>
             <p className={hintCls}>Who is the borrower, what do they do, how long have they operated?</p>
-            <textarea
-              rows={4}
-              value={overrides.business_description ?? ""}
-              onChange={e => onChange("business_description", e.target.value)}
+            <textarea rows={4} value={overrides.business_description ?? ""} onChange={e => onChange("business_description", e.target.value)}
               placeholder="e.g. Samaritus Management LLC operates Yacht Hampton, a luxury boat charter business founded in 2017 in Sag Harbor, NY..."
-              className={inputCls}
-              style={theme === "light" ? fieldStyle : undefined}
-            />
+              className={inputCls} style={style} />
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className={labelCls}>Revenue Mix</label>
-              <textarea rows={3} value={overrides.revenue_mix ?? ""} onChange={e => onChange("revenue_mix", e.target.value)} placeholder="e.g. 60% boat rentals, 30% corporate events, 10% sailing lessons" className={inputCls} style={theme === "light" ? fieldStyle : undefined} />
+              <textarea rows={3} value={overrides.revenue_mix ?? ""} onChange={e => onChange("revenue_mix", e.target.value)}
+                placeholder="e.g. 60% boat rentals, 30% corporate events, 10% sailing lessons" className={inputCls} style={style} />
             </div>
             <div>
               <label className={labelCls}>Seasonality</label>
-              <textarea rows={3} value={overrides.seasonality ?? ""} onChange={e => onChange("seasonality", e.target.value)} placeholder="e.g. Peak May–Sep (85% of revenue)" className={inputCls} style={theme === "light" ? fieldStyle : undefined} />
+              <textarea rows={3} value={overrides.seasonality ?? ""} onChange={e => onChange("seasonality", e.target.value)}
+                placeholder="e.g. Peak May–Sep (85% of revenue)" className={inputCls} style={style} />
             </div>
           </div>
         </div>
       </div>
 
-      {/* Collateral */}
       <div>
-        <div className={sectionHeaderCls}>Collateral</div>
+        <div className={headCls}>Collateral</div>
         <div className="space-y-3">
           <div>
             <label className={labelCls}>Collateral Description</label>
-            <textarea rows={3} value={overrides.collateral_description ?? ""} onChange={e => onChange("collateral_description", e.target.value)} placeholder="e.g. 2023 Aquila 36 catamaran and Galeon 640 motor yacht maintained at Sag Harbor Marina..." className={inputCls} style={theme === "light" ? fieldStyle : undefined} />
+            <textarea rows={3} value={overrides.collateral_description ?? ""} onChange={e => onChange("collateral_description", e.target.value)}
+              placeholder="e.g. 2023 Aquila 36 catamaran maintained at Sag Harbor Marina..." className={inputCls} style={style} />
           </div>
           <div>
             <label className={labelCls}>Collateral Address</label>
-            <input type="text" value={overrides.collateral_address ?? ""} onChange={e => onChange("collateral_address", e.target.value)} placeholder="e.g. 31 Bay St, Sag Harbor, NY 11963" className={inputCls} style={theme === "light" ? fieldStyle : undefined} />
+            <input type="text" value={overrides.collateral_address ?? ""} onChange={e => onChange("collateral_address", e.target.value)}
+              placeholder="e.g. 31 Bay St, Sag Harbor, NY 11963" className={inputCls} style={style} />
           </div>
         </div>
       </div>
 
-      {/* Management */}
       <div>
-        <div className={sectionHeaderCls}>Management Qualifications</div>
+        <div className={headCls}>Management Qualifications</div>
         <div className="space-y-4">
           {mgmtEntries.map(p => (
             <div key={p.id}>
               <label className={labelCls}>{p.name}</label>
-              <textarea
-                rows={4}
-                value={overrides[`principal_bio_${p.id}`] ?? ""}
+              <textarea rows={4} value={overrides[`principal_bio_${p.id}`] ?? ""}
                 onChange={e => onChange(`principal_bio_${p.id}`, e.target.value)}
-                placeholder={`Career background, industry experience, and track record for ${p.name}...`}
-                className={inputCls}
-                style={theme === "light" ? fieldStyle : undefined}
-              />
+                placeholder={`Career background, industry experience, track record for ${p.name}...`}
+                className={inputCls} style={style} />
             </div>
           ))}
         </div>
       </div>
 
-      {/* Strategy */}
       <div>
-        <div className={sectionHeaderCls}>Business Strategy</div>
+        <div className={headCls}>Business Strategy</div>
         <div className="space-y-4">
           <div>
             <label className={labelCls}>Competitive Advantages</label>
-            <textarea rows={3} value={overrides.competitive_advantages ?? ""} onChange={e => onChange("competitive_advantages", e.target.value)} placeholder="e.g. Exclusive marina berthing, repeat corporate clientele representing 40% of revenue" className={inputCls} style={theme === "light" ? fieldStyle : undefined} />
+            <textarea rows={3} value={overrides.competitive_advantages ?? ""} onChange={e => onChange("competitive_advantages", e.target.value)}
+              placeholder="e.g. Exclusive marina berthing, repeat corporate clientele" className={inputCls} style={style} />
           </div>
           <div>
             <label className={labelCls}>Vision & Growth Strategy</label>
-            <textarea rows={3} value={overrides.vision ?? ""} onChange={e => onChange("vision", e.target.value)} placeholder="e.g. Expand fleet by 3 vessels, launch electric-only premium charter tier" className={inputCls} style={theme === "light" ? fieldStyle : undefined} />
+            <textarea rows={3} value={overrides.vision ?? ""} onChange={e => onChange("vision", e.target.value)}
+              placeholder="e.g. Expand fleet by 3 vessels, launch electric-only charter tier" className={inputCls} style={style} />
           </div>
         </div>
       </div>
@@ -769,18 +854,19 @@ export function MemoQualitativeForm({ overrides, onChange, principals, theme = "
 }
 ```
 
-**Then update `MemoCompletionWizard.tsx`** to use this component for its form body instead of
-the inline JSX. The wizard's state management and save/close logic stays in the wizard.
+**Then update `MemoCompletionWizard.tsx`**: import `MemoQualitativeForm`, replace form body
+with `<MemoQualitativeForm overrides={overrides} onChange={set} principals={mgmtEntries} theme="light" />`.
+Keep all save/close/header/footer logic unchanged.
 
 ---
 
-## Part 6 — `IgniteWizard` Component (my UI + ChatGPT's extra steps)
+## Part 7 — `IgniteWizard` Component
 
 **File: `src/components/deals/IgniteWizard.tsx`**
 
-Complete dark-themed multi-step modal. Steps are built dynamically from the recovery/status
-response. The component handles: NAICS suggestion, geography, deal name, principal cleanup,
-business context (using `MemoQualitativeForm`), and launch.
+Complete dark-themed multi-step modal. Steps built dynamically from `recovery/status`.
+Includes: Industry, Location, Deal Name (conditional), Owners (conditional), Business Context,
+**Review** (summary), Continue Analysis.
 
 ```tsx
 "use client";
@@ -789,10 +875,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { MemoQualitativeForm } from "@/components/creditMemo/MemoQualitativeForm";
 import type { QualitativeOverrides } from "@/components/creditMemo/MemoQualitativeForm";
 
-// ─────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────
-
+// ─── Types ────────────────────────────────────────────────────
 type NaicsSuggestion = {
   naics_code: string;
   naics_description: string;
@@ -819,46 +902,46 @@ type RecoveryStatus = {
   deal: { id: string; name: string | null; borrowerName: string | null };
   blockers: Array<{ key: string; severity: string; label: string; detail: string }>;
   hasCriticalBlockers: boolean;
-  isReadyForResearch: boolean;
-  borrower: { legalName: string | null; naicsCode: string | null; city: string | null; state: string | null };
+  shouldShowWizard: boolean;
+  borrower: {
+    legalName: string | null;
+    naicsCode: string | null;
+    naicsDescription: string | null;
+    city: string | null;
+    state: string | null;
+    website: string | null;
+  };
   principals: Principal[];
   overrides: Record<string, unknown>;
   trustGrade: string | null;
-  researchStatus: string | null;
 };
 
-// ─────────────────────────────────────────────────────────────
-// Step builder
-// ─────────────────────────────────────────────────────────────
-
+// ─── Step builder ─────────────────────────────────────────────
 function buildSteps(status: RecoveryStatus): WizardStep[] {
   const steps: WizardStep[] = [];
-  const blockerKeys = new Set(status.blockers.map(b => b.key));
+  const keys = new Set(status.blockers.map(b => b.key));
 
-  if (blockerKeys.has("missing_naics")) {
+  if (keys.has("missing_naics")) {
     steps.push({ id: "industry", label: "Industry", icon: "category", status: "pending", required: true });
   }
-  if (blockerKeys.has("missing_geography")) {
+  if (keys.has("missing_geography")) {
     steps.push({ id: "location", label: "Location", icon: "location_on", status: "pending", required: true });
   }
-  if (blockerKeys.has("placeholder_deal_name")) {
+  if (keys.has("placeholder_deal_name")) {
     steps.push({ id: "name", label: "Deal Name", icon: "edit", status: "pending", required: false });
   }
-  if (blockerKeys.has("malformed_principal")) {
+  if (keys.has("malformed_principal")) {
     steps.push({ id: "owners", label: "Owners", icon: "people", status: "pending", required: true });
   }
-  // Business context always included — reuses MemoQualitativeForm
+  // Business context and review are always included
   steps.push({ id: "context", label: "Business Context", icon: "description", status: "pending", required: false });
-  // Launch is always last
+  steps.push({ id: "review", label: "Review", icon: "fact_check", status: "pending", required: true });
   steps.push({ id: "launch", label: "Continue Analysis", icon: "rocket_launch", status: "pending", required: true });
 
   return steps.map((s, i) => ({ ...s, status: i === 0 ? "active" : "pending" }));
 }
 
-// ─────────────────────────────────────────────────────────────
-// Main Component
-// ─────────────────────────────────────────────────────────────
-
+// ─── Main Component ───────────────────────────────────────────
 export function IgniteWizard({
   dealId,
   onComplete,
@@ -874,7 +957,7 @@ export function IgniteWizard({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [phase, setPhase] = useState<"idle" | "running_research" | "generating_memo" | "done">("idle");
+  const [phase, setPhase] = useState<"idle" | "validating" | "running_research" | "generating_memo" | "done">("idle");
 
   // Per-step state
   const [businessDescription, setBusinessDescription] = useState("");
@@ -886,12 +969,21 @@ export function IgniteWizard({
   const [city, setCity] = useState("");
   const [stateVal, setStateVal] = useState("");
   const [dealName, setDealName] = useState("");
-  const [principalActions, setPrincipalActions] = useState<Record<string, { action: "rename" | "keep"; newName: string }>>({});
+  const [principalActions, setPrincipalActions] = useState<
+    Record<string, { action: "rename" | "keep"; newName: string }>
+  >({});
   const [overrides, setOverrides] = useState<QualitativeOverrides>({});
 
-  // Load recovery status
+  // Track what was saved per-step for the Review summary
+  const [savedSummary, setSavedSummary] = useState<{
+    naics?: string;
+    naicsDesc?: string;
+    location?: string;
+    ownersFixed?: number;
+    hasContext?: boolean;
+  }>({});
+
   useEffect(() => {
-    setLoading(true);
     fetch(`/api/deals/${dealId}/recovery/status`)
       .then(r => r.json())
       .then(data => {
@@ -902,7 +994,6 @@ export function IgniteWizard({
           setStateVal(data.borrower.state ?? "");
           setDealName(data.deal.name ?? "");
           setOverrides((data.overrides ?? {}) as QualitativeOverrides);
-          // Pre-init principal actions to "keep"
           const acts: Record<string, { action: "rename" | "keep"; newName: string }> = {};
           for (const p of data.principals) {
             acts[p.id] = {
@@ -920,12 +1011,10 @@ export function IgniteWizard({
   }, [dealId]);
 
   const currentStep = steps[stepIdx];
-
   const progress = steps.length > 0
     ? Math.round((steps.filter(s => s.status === "done").length / steps.length) * 100)
     : 0;
 
-  // Advance to next step
   const advance = useCallback(() => {
     setSteps(prev => prev.map((s, i) => {
       if (i === stepIdx) return { ...s, status: "done" };
@@ -936,7 +1025,6 @@ export function IgniteWizard({
     setError(null);
   }, [stepIdx]);
 
-  // Save and advance helper
   const saveAndAdvance = useCallback(async (body: Record<string, unknown>) => {
     setSaving(true);
     try {
@@ -952,7 +1040,6 @@ export function IgniteWizard({
     finally { setSaving(false); }
   }, [dealId, advance]);
 
-  // AI NAICS lookup
   const lookupNaics = useCallback(async () => {
     if (businessDescription.trim().length < 15) { setError("Describe the business in a bit more detail"); return; }
     setNaicsLoading(true);
@@ -975,26 +1062,24 @@ export function IgniteWizard({
     finally { setNaicsLoading(false); }
   }, [businessDescription, dealId, status]);
 
-  // Save principals
   const savePrincipals = useCallback(async () => {
     setSaving(true);
     try {
       const actions = Object.entries(principalActions).map(([id, v]) => ({
-        id,
-        action: v.action,
-        new_name: v.action === "rename" ? v.newName : undefined,
+        id, action: v.action, new_name: v.action === "rename" ? v.newName : undefined,
       }));
       await fetch(`/api/deals/${dealId}/recovery/principals`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ actions }),
       });
+      const fixed = actions.filter(a => a.action === "rename").length;
+      setSavedSummary(prev => ({ ...prev, ownersFixed: fixed }));
       advance();
     } catch { setError("Network error"); }
     finally { setSaving(false); }
   }, [principalActions, dealId, advance]);
 
-  // Save overrides (context step)
   const saveContext = useCallback(async () => {
     setSaving(true);
     try {
@@ -1003,16 +1088,36 @@ export function IgniteWizard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(overrides),
       });
+      setSavedSummary(prev => ({
+        ...prev,
+        hasContext: typeof overrides.business_description === "string" && overrides.business_description.length > 20,
+      }));
     } catch {}
     finally { setSaving(false); }
     advance();
   }, [overrides, dealId, advance]);
 
-  // "Continue Analysis" — orchestrated: research → memo
+  // "Continue Analysis": validate → research → memo
   const continueAnalysis = useCallback(async () => {
-    setPhase("running_research");
+    setPhase("validating");
     setError(null);
     try {
+      // Step 1: server-side validation gate (ChatGPT Sprint 7)
+      const validateRes = await fetch(`/api/deals/${dealId}/recovery/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const validateData = await validateRes.json();
+      if (!validateData.ok) {
+        const errs: string[] = validateData.validation_errors ?? [validateData.error ?? "Validation failed"];
+        setError(errs.join(" · "));
+        setPhase("idle");
+        return;
+      }
+
+      // Step 2: fire research
+      setPhase("running_research");
       const researchRes = await fetch(`/api/deals/${dealId}/research/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1025,8 +1130,8 @@ export function IgniteWizard({
         return;
       }
 
+      // Step 3: non-blocking memo regenerate
       setPhase("generating_memo");
-      // Non-blocking memo regenerate — don't wait
       fetch(`/api/deals/${dealId}/credit-memo/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1043,7 +1148,6 @@ export function IgniteWizard({
   }, [dealId, stepIdx, onComplete, onClose]);
 
   // ─── Render ────────────────────────────────────────────────
-
   if (loading) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
@@ -1071,26 +1175,18 @@ export function IgniteWizard({
               const isActive = i === stepIdx;
               const isDone = step.status === "done";
               return (
-                <div
-                  key={step.id}
-                  className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all ${
-                    isActive ? "bg-sky-500/15 border border-sky-500/30"
-                    : isDone ? "opacity-50" : "opacity-25"
-                  }`}
-                >
+                <div key={step.id} className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all ${
+                  isActive ? "bg-sky-500/15 border border-sky-500/30" : isDone ? "opacity-50" : "opacity-25"
+                }`}>
                   <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold ${
-                    isDone ? "bg-emerald-500 text-white"
-                    : isActive ? "bg-sky-500 text-white"
-                    : "bg-white/10 text-white/40"
+                    isDone ? "bg-emerald-500 text-white" : isActive ? "bg-sky-500 text-white" : "bg-white/10 text-white/40"
                   }`}>
                     {isDone ? "✓" : isActive
                       ? <span className="material-symbols-outlined text-[12px]">{step.icon}</span>
                       : i + 1}
                   </div>
-                  <div>
-                    <div className={`text-xs font-medium ${isActive ? "text-white" : "text-white/50"}`}>
-                      {step.label}
-                    </div>
+                  <div className={`text-xs font-medium ${isActive ? "text-white" : "text-white/50"}`}>
+                    {step.label}
                   </div>
                 </div>
               );
@@ -1101,10 +1197,8 @@ export function IgniteWizard({
               <span>Progress</span><span>{progress}%</span>
             </div>
             <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-sky-500 to-emerald-500 transition-all duration-700"
-                style={{ width: `${progress}%` }}
-              />
+              <div className="h-full bg-gradient-to-r from-sky-500 to-emerald-500 transition-all duration-700"
+                style={{ width: `${progress}%` }} />
             </div>
           </div>
         </div>
@@ -1113,9 +1207,7 @@ export function IgniteWizard({
         <div className="flex-1 flex flex-col min-h-0">
           <div className="flex items-center justify-between px-8 py-5 border-b border-white/[0.06]">
             <div>
-              <div className="text-base font-semibold text-white">
-                {currentStep?.label ?? "Complete"}
-              </div>
+              <div className="text-base font-semibold text-white">{currentStep?.label ?? "Complete"}</div>
               <div className="text-xs text-white/40 mt-0.5">
                 {status?.deal.borrowerName ?? status?.deal.name ?? dealId} ·
                 Step {Math.min(stepIdx + 1, steps.length)} of {steps.length}
@@ -1126,31 +1218,26 @@ export function IgniteWizard({
 
           <div className="flex-1 overflow-y-auto px-8 py-6">
             {error && (
-              <div className="mb-4 text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+              <div className="mb-4 text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
                 {error}
               </div>
             )}
 
-            {/* ── Industry Step ────────────────────────────────── */}
+            {/* ── Industry ───────────────────────────────────── */}
             {currentStep?.id === "industry" && (
               <div className="space-y-5">
                 <div>
-                  <div className="text-sm font-medium text-white mb-1">
-                    Tell Buddy what this business does
-                  </div>
+                  <div className="text-sm font-medium text-white mb-1">Tell Buddy what this business does</div>
                   <div className="text-xs text-white/40 mb-3">
                     Write a sentence or two in plain English — Buddy finds the right industry code.
                   </div>
-                  <textarea
-                    rows={4}
-                    value={businessDescription}
+                  <textarea rows={4} value={businessDescription}
                     onChange={e => { setBusinessDescription(e.target.value); setNaicsSuggestions([]); setSelectedNaics(null); }}
-                    placeholder="e.g. Luxury yacht charter and boat rental business serving corporate and leisure clients in the Hamptons, NY. Operates a fleet of motor yachts and sailing vessels."
+                    placeholder="e.g. Luxury yacht charter and boat rental business serving corporate and leisure clients in the Hamptons, NY..."
                     className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-sky-500/50 resize-none leading-relaxed"
                   />
                 </div>
-                <button
-                  onClick={lookupNaics}
+                <button onClick={lookupNaics}
                   disabled={naicsLoading || businessDescription.trim().length < 15}
                   className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                     naicsLoading ? "bg-white/5 text-white/30 cursor-wait"
@@ -1160,22 +1247,19 @@ export function IgniteWizard({
                 >
                   {naicsLoading
                     ? <><span className="animate-spin material-symbols-outlined text-[16px]">progress_activity</span> Buddy is thinking...</>
-                    : <><span className="material-symbols-outlined text-[16px]">auto_awesome</span> Find Industry Code</>
-                  }
+                    : <><span className="material-symbols-outlined text-[16px]">auto_awesome</span> Find Industry Code</>}
                 </button>
+
                 {naicsSuggestions.length > 0 && (
                   <div className="space-y-2">
                     <div className="text-[10px] text-white/30 uppercase tracking-widest font-semibold">
                       Buddy's suggestions — pick one
                     </div>
                     {naicsSuggestions.map(s => (
-                      <button
-                        key={s.naics_code}
-                        onClick={() => setSelectedNaics(s)}
+                      <button key={s.naics_code} onClick={() => setSelectedNaics(s)}
                         className={`w-full text-left px-4 py-3.5 rounded-xl border transition-all ${
                           selectedNaics?.naics_code === s.naics_code
-                            ? "border-sky-500/60 bg-sky-500/10"
-                            : "border-white/10 bg-white/[0.02] hover:border-white/20"
+                            ? "border-sky-500/60 bg-sky-500/10" : "border-white/10 bg-white/[0.02] hover:border-white/20"
                         }`}
                       >
                         <div className="flex items-center justify-between">
@@ -1195,33 +1279,32 @@ export function IgniteWizard({
                         <div className="text-xs text-white/40 mt-1.5 leading-relaxed">{s.rationale}</div>
                       </button>
                     ))}
-                    <button
-                      onClick={() => setSelectedNaics({ naics_code: "", naics_description: "", confidence: 0, rationale: "" })}
-                      className="text-xs text-white/30 hover:text-white/50 mt-1 transition-colors"
-                    >
+                    <button onClick={() => setSelectedNaics({ naics_code: "", naics_description: "", confidence: 0, rationale: "" })}
+                      className="text-xs text-white/30 hover:text-white/50 mt-1 transition-colors">
                       Enter a code manually instead →
                     </button>
                   </div>
                 )}
+
                 {selectedNaics?.naics_code === "" && (
                   <div className="flex gap-3">
-                    <input type="text" maxLength={6} placeholder="6-digit code" value={manualNaicsCode} onChange={e => setManualNaicsCode(e.target.value)}
+                    <input type="text" maxLength={6} placeholder="6-digit code" value={manualNaicsCode}
+                      onChange={e => setManualNaicsCode(e.target.value)}
                       className="w-32 bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-sky-500/50" />
-                    <input type="text" placeholder="Industry description" value={manualNaicsDesc} onChange={e => setManualNaicsDesc(e.target.value)}
+                    <input type="text" placeholder="Industry description" value={manualNaicsDesc}
+                      onChange={e => setManualNaicsDesc(e.target.value)}
                       className="flex-1 bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-sky-500/50" />
                   </div>
                 )}
               </div>
             )}
 
-            {/* ── Location Step ─────────────────────────────────── */}
+            {/* ── Location ───────────────────────────────────── */}
             {currentStep?.id === "location" && (
               <div className="space-y-5">
                 <div>
                   <div className="text-sm font-medium text-white mb-1">Where does this business operate?</div>
-                  <div className="text-xs text-white/40 mb-4">
-                    Buddy needs a market to run local economic and competitive research.
-                  </div>
+                  <div className="text-xs text-white/40 mb-4">Buddy needs a market location to run local economic and competitive research.</div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs text-white/50 font-medium mb-1.5 block">City</label>
@@ -1238,24 +1321,25 @@ export function IgniteWizard({
                 <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4 text-xs text-white/40 leading-relaxed">
                   <span className="text-white/60 font-medium">Why this matters: </span>
                   Without a market location, Buddy cannot analyze competitive dynamics, identify
-                  local economic conditions, or benchmark real estate collateral markets.
+                  local employment conditions, or benchmark real estate collateral markets.
                 </div>
               </div>
             )}
 
-            {/* ── Deal Name Step ────────────────────────────────── */}
+            {/* ── Deal Name ──────────────────────────────────── */}
             {currentStep?.id === "name" && (
               <div className="space-y-5">
                 <div>
                   <div className="text-sm font-medium text-white mb-1">Give this deal a real name</div>
-                  <div className="text-xs text-white/40 mb-4">Current name looks like a test artifact. Use the borrower name or a meaningful descriptor.</div>
-                  <input type="text" value={dealName} onChange={e => setDealName(e.target.value)} placeholder="e.g. SAMARITUS MANAGEMENT LLC — $500K Equipment"
+                  <div className="text-xs text-white/40 mb-4">Current name looks like a test artifact. Use the borrower name or a short descriptor.</div>
+                  <input type="text" value={dealName} onChange={e => setDealName(e.target.value)}
+                    placeholder="e.g. SAMARITUS MANAGEMENT LLC — $500K Equipment"
                     className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-sky-500/50" />
                 </div>
               </div>
             )}
 
-            {/* ── Owners Step ───────────────────────────────────── */}
+            {/* ── Owners ─────────────────────────────────────── */}
             {currentStep?.id === "owners" && (
               <div className="space-y-4">
                 <div>
@@ -1266,30 +1350,22 @@ export function IgniteWizard({
                 </div>
                 {malformedPrincipals.map(p => (
                   <div key={p.id} className="border border-amber-500/20 bg-amber-500/5 rounded-xl p-4">
-                    <div className="text-xs text-amber-400 font-semibold mb-2 uppercase tracking-wide">
-                      ⚠ Malformed record
-                    </div>
+                    <div className="text-xs text-amber-400 font-semibold mb-2 uppercase tracking-wide">⚠ Malformed record</div>
                     <div className="text-xs text-white/30 font-mono mb-3 line-through">
                       {p.displayName.slice(0, 80)}{p.displayName.length > 80 ? "..." : ""}
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs text-white/50 font-medium block">Corrected name</label>
-                      <input
-                        type="text"
+                      <input type="text"
                         value={principalActions[p.id]?.newName ?? p.normalizedCandidate ?? ""}
                         onChange={e => setPrincipalActions(prev => ({
-                          ...prev,
-                          [p.id]: { action: "rename", newName: e.target.value }
+                          ...prev, [p.id]: { action: "rename", newName: e.target.value }
                         }))}
                         className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-sky-500/50"
                       />
-                      <button
-                        onClick={() => setPrincipalActions(prev => ({
-                          ...prev,
-                          [p.id]: { action: "keep", newName: p.displayName }
-                        }))}
-                        className="text-xs text-white/25 hover:text-white/40 transition-colors"
-                      >
+                      <button onClick={() => setPrincipalActions(prev => ({
+                        ...prev, [p.id]: { action: "keep", newName: p.displayName }
+                      }))} className="text-xs text-white/25 hover:text-white/40 transition-colors">
                         Keep original (not recommended)
                       </button>
                     </div>
@@ -1298,14 +1374,13 @@ export function IgniteWizard({
               </div>
             )}
 
-            {/* ── Business Context Step ─────────────────────────── */}
+            {/* ── Business Context ───────────────────────────── */}
             {currentStep?.id === "context" && (
               <div className="space-y-4">
                 <div>
                   <div className="text-sm font-medium text-white mb-1">Add context Buddy can't get from documents</div>
                   <div className="text-xs text-white/40 mb-4">
-                    Optional but makes research dramatically better. No financial metrics needed —
-                    just what you know from conversations with the borrower.
+                    Optional but makes research dramatically better. No financial metrics — just what you know from conversations.
                   </div>
                 </div>
                 <MemoQualitativeForm
@@ -1319,38 +1394,101 @@ export function IgniteWizard({
               </div>
             )}
 
-            {/* ── Launch Step ───────────────────────────────────── */}
+            {/* ── Review (ChatGPT Sprint 10) ──────────────────── */}
+            {currentStep?.id === "review" && (
+              <div className="space-y-4">
+                <div>
+                  <div className="text-sm font-medium text-white mb-1">Looking good — here's what Buddy knows</div>
+                  <div className="text-xs text-white/40 mb-4">
+                    Review what was collected, then launch research.
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {/* Industry */}
+                  {savedSummary.naics ? (
+                    <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                      <span className="text-emerald-400 material-symbols-outlined text-[16px] mt-0.5">check_circle</span>
+                      <div>
+                        <div className="text-xs font-semibold text-white">Industry</div>
+                        <div className="text-xs text-white/50">{savedSummary.naics} — {savedSummary.naicsDesc}</div>
+                      </div>
+                    </div>
+                  ) : status?.borrower.naicsCode && status.borrower.naicsCode !== "999999" ? (
+                    <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                      <span className="text-emerald-400 material-symbols-outlined text-[16px] mt-0.5">check_circle</span>
+                      <div>
+                        <div className="text-xs font-semibold text-white">Industry</div>
+                        <div className="text-xs text-white/50">{status.borrower.naicsCode} — {status.borrower.naicsDescription ?? "Industry classified"}</div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Location */}
+                  {(city || stateVal || status?.borrower.city || status?.borrower.state) && (
+                    <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                      <span className="text-emerald-400 material-symbols-outlined text-[16px] mt-0.5">check_circle</span>
+                      <div>
+                        <div className="text-xs font-semibold text-white">Location</div>
+                        <div className="text-xs text-white/50">
+                          {city || status?.borrower.city}, {stateVal || status?.borrower.state}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Owners */}
+                  {(savedSummary.ownersFixed ?? 0) > 0 && (
+                    <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                      <span className="text-emerald-400 material-symbols-outlined text-[16px] mt-0.5">check_circle</span>
+                      <div>
+                        <div className="text-xs font-semibold text-white">Owner Records</div>
+                        <div className="text-xs text-white/50">{savedSummary.ownersFixed} record{(savedSummary.ownersFixed ?? 0) > 1 ? "s" : ""} cleaned up</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Context */}
+                  <div className={`flex items-start gap-3 px-4 py-3 rounded-xl bg-white/[0.03] border ${savedSummary.hasContext ? "border-white/[0.06]" : "border-white/[0.04]"}`}>
+                    <span className={`material-symbols-outlined text-[16px] mt-0.5 ${savedSummary.hasContext ? "text-emerald-400" : "text-white/20"}`}>
+                      {savedSummary.hasContext ? "check_circle" : "radio_button_unchecked"}
+                    </span>
+                    <div>
+                      <div className={`text-xs font-semibold ${savedSummary.hasContext ? "text-white" : "text-white/40"}`}>Business Context</div>
+                      <div className="text-xs text-white/40">
+                        {savedSummary.hasContext ? "Business description added" : "Skipped — research will use documents only"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4 text-xs text-white/40 leading-relaxed space-y-1">
+                  <div className="text-white/60 font-medium mb-1.5">What Buddy will do next:</div>
+                  <div>→ Confirm entity identity for {status?.borrower.legalName ?? "borrower"}</div>
+                  <div>→ 6 parallel intelligence threads (borrower, management, competitive, market, industry, transaction)</div>
+                  <div>→ Synthesis + 8 adversarial contradiction checks</div>
+                  <div>→ Trust grade across 9 gates · Memo regenerated</div>
+                  <div className="text-white/30 mt-2">~60–90 seconds. Results appear in the Intelligence tab.</div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Launch ─────────────────────────────────────── */}
             {currentStep?.id === "launch" && (
               <div className="space-y-5">
                 {phase === "done" ? (
                   <div className="text-center py-10">
                     <div className="text-5xl mb-4">🚀</div>
                     <div className="text-lg font-bold text-white mb-2">Research Launched!</div>
-                    <div className="text-sm text-white/40">
-                      Buddy is running 8 intelligence threads. Check the Intelligence tab in about 60–90 seconds.
-                    </div>
+                    <div className="text-sm text-white/40">Check the Intelligence tab in about 60–90 seconds.</div>
                   </div>
                 ) : (
                   <>
-                    <div className="bg-gradient-to-br from-sky-500/10 to-violet-500/10 border border-sky-500/20 rounded-2xl p-6">
-                      <div className="text-sm font-bold text-white mb-3">Ready to launch ✓</div>
-                      <div className="space-y-1.5">
-                        {steps.filter(s => s.status === "done").map(s => (
-                          <div key={s.id} className="flex items-center gap-2 text-xs text-white/60">
-                            <span className="text-emerald-400 material-symbols-outlined text-[14px]">check_circle</span>
-                            {s.label}
-                          </div>
-                        ))}
+                    {phase === "validating" && (
+                      <div className="flex items-center gap-2 text-sm text-white/50">
+                        <span className="animate-spin material-symbols-outlined text-[16px]">progress_activity</span>
+                        Validating readiness...
                       </div>
-                    </div>
-                    <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4 text-xs text-white/40 leading-relaxed space-y-1">
-                      <div className="text-white/60 font-medium mb-1">What happens:</div>
-                      <div>→ BIE confirms entity identity for {status?.borrower.legalName ?? "borrower"}</div>
-                      <div>→ 6 parallel intelligence threads (borrower, management, competitive, market, industry, transaction)</div>
-                      <div>→ Synthesis + 8 adversarial contradiction checks</div>
-                      <div>→ Trust grade computed across 9 gates</div>
-                      <div>→ Memo regenerated with updated research</div>
-                    </div>
+                    )}
                     {phase === "running_research" && (
                       <div className="flex items-center gap-2 text-sm text-sky-400">
                         <span className="animate-spin material-symbols-outlined text-[16px]">progress_activity</span>
@@ -1389,24 +1527,21 @@ export function IgniteWizard({
                 ← Back
               </button>
               <div className="flex items-center gap-3">
-                {currentStep && !currentStep.required && currentStep.id !== "launch" && (
+                {currentStep && !currentStep.required && !["launch", "review"].includes(currentStep.id) && (
                   <button onClick={advance} className="text-xs text-white/30 hover:text-white/50 px-3 py-2 transition-colors">
                     Skip for now
                   </button>
                 )}
 
-                {/* Industry CTA */}
                 {currentStep?.id === "industry" && (
                   <button
                     onClick={() => {
                       const code = selectedNaics?.naics_code === "" ? manualNaicsCode : selectedNaics?.naics_code;
                       const desc = selectedNaics?.naics_code === "" ? manualNaicsDesc : selectedNaics?.naics_description;
                       if (!code) { setError("Select or enter an industry code"); return; }
-                      saveAndAdvance({
-                        naics_code: code,
-                        naics_description: desc ?? "",
-                        banker_summary: businessDescription.length > 20 ? businessDescription : undefined,
-                      });
+                      setSavedSummary(prev => ({ ...prev, naics: code, naicsDesc: desc ?? "" }));
+                      saveAndAdvance({ naics_code: code, naics_description: desc ?? "",
+                        banker_summary: businessDescription.length > 20 ? businessDescription : undefined });
                     }}
                     disabled={(!selectedNaics && !manualNaicsCode) || saving}
                     className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
@@ -1423,6 +1558,7 @@ export function IgniteWizard({
                   <button
                     onClick={() => {
                       if (!city.trim() && !stateVal.trim()) { setError("Enter at least a city or state"); return; }
+                      setSavedSummary(prev => ({ ...prev }));
                       saveAndAdvance({ city: city.trim(), state: stateVal.trim() });
                     }}
                     disabled={(!city.trim() && !stateVal.trim()) || saving}
@@ -1454,30 +1590,29 @@ export function IgniteWizard({
                 )}
 
                 {currentStep?.id === "owners" && (
-                  <button
-                    onClick={savePrincipals}
-                    disabled={saving}
-                    className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-sky-500 hover:bg-sky-400 text-white shadow-lg shadow-sky-500/20 transition-all"
-                  >
+                  <button onClick={savePrincipals} disabled={saving}
+                    className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-sky-500 hover:bg-sky-400 text-white shadow-lg shadow-sky-500/20 transition-all">
                     {saving ? "Saving..." : "Fix Owner Records →"}
                   </button>
                 )}
 
                 {currentStep?.id === "context" && (
-                  <button
-                    onClick={saveContext}
-                    disabled={saving}
-                    className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-sky-500 hover:bg-sky-400 text-white shadow-lg shadow-sky-500/20 transition-all"
-                  >
+                  <button onClick={saveContext} disabled={saving}
+                    className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-sky-500 hover:bg-sky-400 text-white shadow-lg shadow-sky-500/20 transition-all">
                     {saving ? "Saving..." : "Save & Continue →"}
                   </button>
                 )}
 
+                {currentStep?.id === "review" && (
+                  <button onClick={advance}
+                    className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-sky-500 hover:bg-sky-400 text-white shadow-lg shadow-sky-500/20 transition-all">
+                    Looks good — continue →
+                  </button>
+                )}
+
                 {currentStep?.id === "launch" && phase === "idle" && (
-                  <button
-                    onClick={continueAnalysis}
-                    className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold bg-gradient-to-r from-sky-500 to-violet-500 hover:from-sky-400 hover:to-violet-400 text-white shadow-xl shadow-sky-500/25 transition-all"
-                  >
+                  <button onClick={continueAnalysis}
+                    className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold bg-gradient-to-r from-sky-500 to-violet-500 hover:from-sky-400 hover:to-violet-400 text-white shadow-xl shadow-sky-500/25 transition-all">
                     <span className="material-symbols-outlined text-[16px]">rocket_launch</span>
                     Continue Analysis
                   </button>
@@ -1494,28 +1629,25 @@ export function IgniteWizard({
 
 ---
 
-## Part 7 — Wire Into Existing UI (ChatGPT Sprint 9)
+## Part 8 — Wire Into Existing UI
 
-### Auto-trigger logic
+### Auto-trigger (ChatGPT Sprint 9 + fix)
 
-The wizard should appear automatically when critical blockers exist. In the Builder page
-and Credit Memo page, add a `useEffect` that fetches `recovery/status` on mount and
-auto-opens the wizard when `hasCriticalBlockers === true`.
-
-**Add to the builder page AND the credit memo page:**
+Use `shouldShowWizard` from `recovery/status` — fires on critical blockers **or**
+`manual_review_required`. Add to **Builder page**, **Credit Memo page**, and optionally
+**Intelligence tab**.
 
 ```typescript
 import { IgniteWizard } from "@/components/deals/IgniteWizard";
 
-// In the component:
 const [igniteOpen, setIgniteOpen] = useState(false);
 
 useEffect(() => {
-  // Auto-check blockers on load; show wizard if critical ones exist
   fetch(`/api/deals/${dealId}/recovery/status`)
     .then(r => r.json())
     .then(d => {
-      if (d.ok && d.hasCriticalBlockers) {
+      // shouldShowWizard = hasCriticalBlockers OR trustGrade === "manual_review_required"
+      if (d.ok && d.shouldShowWizard) {
         setIgniteOpen(true);
       }
     })
@@ -1523,9 +1655,10 @@ useEffect(() => {
 }, [dealId]);
 ```
 
-### Builder page button
+### Builder page — "Fix with Buddy" button (ChatGPT copy)
 
-Find the component containing the "Run Analysis" button. Add next to it:
+Search for `RunResearchButton` or `"Run Analysis"` to find the correct component file.
+Add next to Run Analysis:
 
 ```tsx
 <button
@@ -1533,7 +1666,7 @@ Find the component containing the "Run Analysis" button. Add next to it:
   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-sky-500/20 to-violet-500/20 border border-sky-500/30 text-sky-400 hover:from-sky-500/30 hover:to-violet-500/30 text-xs font-semibold transition-all"
 >
   <span className="material-symbols-outlined text-[14px]">rocket_launch</span>
-  Ignite
+  Fix with Buddy
 </button>
 
 {igniteOpen && (
@@ -1545,9 +1678,10 @@ Find the component containing the "Run Analysis" button. Add next to it:
 )}
 ```
 
-### Credit Memo page — replace BlockedMemoRecoveryPanel CTA
+### Credit Memo page — `BlockedMemoRecoveryPanel`
 
-In `src/components/creditMemo/BlockedMemoRecoveryPanel.tsx`, replace the "Run Research" button:
+In `src/components/creditMemo/BlockedMemoRecoveryPanel.tsx`, replace the current
+"Run Research" button:
 
 ```tsx
 <button
@@ -1559,15 +1693,41 @@ In `src/components/creditMemo/BlockedMemoRecoveryPanel.tsx`, replace the "Run Re
 </button>
 ```
 
+### Intelligence tab (ChatGPT Sprint 9 — third surface)
+
+Find the Intelligence tab component (search for `IntelligenceTab` or
+`src/app/(app)/deals/[dealId]/intelligence`). When the research trust grade is
+`research_failed` or `manual_review_required`, show:
+
+```tsx
+{(trustGrade === "research_failed" || trustGrade === "manual_review_required") && (
+  <div className="mb-4 flex items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+    <span className="material-symbols-outlined text-amber-400 text-[18px]">warning</span>
+    <div className="flex-1 text-xs text-amber-300">
+      {trustGrade === "research_failed"
+        ? "Research failed — entity could not be confirmed."
+        : "Research returned with gaps — consider re-running after adding more context."}
+    </div>
+    <button
+      onClick={() => setIgniteOpen(true)}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 text-xs font-semibold hover:bg-amber-500/30 transition-colors"
+    >
+      <span className="material-symbols-outlined text-[13px]">rocket_launch</span>
+      Fix with Buddy
+    </button>
+  </div>
+)}
+```
+
 ---
 
-## Part 8 — Update `MemoCompletionWizard` to Use Shared Form
+## Part 9 — Update `MemoCompletionWizard`
 
-After creating `MemoQualitativeForm.tsx`, update `MemoCompletionWizard.tsx` to:
+After creating `MemoQualitativeForm.tsx`:
 
-1. Import `MemoQualitativeForm`
-2. Replace its form body with `<MemoQualitativeForm overrides={overrides} onChange={set} principals={mgmtEntries} theme="light" />`
-3. Keep all save/close/header/footer logic unchanged
+1. Import: `import { MemoQualitativeForm } from "@/components/creditMemo/MemoQualitativeForm";`
+2. Replace form body JSX with: `<MemoQualitativeForm overrides={overrides} onChange={set} principals={mgmtEntries} theme="light" />`
+3. Keep all save/close/header/footer logic unchanged.
 
 ---
 
@@ -1577,33 +1737,52 @@ After every part:
 ```bash
 npx tsc --noEmit 2>&1 | grep -v "pdf/route.ts"
 ```
-Zero new errors before proceeding.
+Zero new errors required before proceeding to next part.
 
 ---
 
-## Implementation Order (strict)
+## Implementation Order (strict — do not reorder)
 
 1. `MemoQualitativeForm.tsx` — extract from MemoCompletionWizard
 2. Update `MemoCompletionWizard.tsx` to use the shared form
-3. `recovery/status/route.ts` — normalized blocker API
-4. `borrower/update/route.ts` — update borrower fields + deal name
-5. `recovery/naics-suggest/route.ts` — AI NAICS lookup
-6. `recovery/principals/route.ts` — principal cleanup actions
-7. `IgniteWizard.tsx` — full wizard component
-8. Wire auto-trigger into builder page
-9. Wire into credit memo page (BlockedMemoRecoveryPanel)
-10. `npx tsc --noEmit` — zero errors
-11. Test on deal `0279ed32-c25c-4919-b231-5790050331dd` (SAMARITUS MANAGEMENT LLC)
-12. Commit and push
+3. `recovery/status/route.ts`
+4. `borrower/update/route.ts`
+5. `recovery/naics-suggest/route.ts`
+6. `recovery/principals/route.ts`
+7. `recovery/complete/route.ts` — validation gate
+8. `IgniteWizard.tsx` — full wizard component
+9. Wire auto-trigger + "Fix with Buddy" button into builder page
+10. Wire into credit memo page (`BlockedMemoRecoveryPanel`)
+11. Wire into Intelligence tab (conditional warning banner)
+12. `npx tsc --noEmit` — zero errors
+13. Test on deal `0279ed32-c25c-4919-b231-5790050331dd` (SAMARITUS MANAGEMENT LLC)
+14. Commit and push
+
+---
+
+## Files to Read Before Implementing
+
+(From ChatGPT's paste-to-builder prompt — Claude Code should read these before starting)
+
+- `src/app/(app)/deals/[dealId]/credit-memo/page.tsx`
+- `src/components/creditMemo/MemoCompletionWizard.tsx`
+- `src/app/api/deals/[dealId]/research/run/route.ts`
+- `src/components/creditMemo/BlockedMemoRecoveryPanel.tsx`
+- Search codebase for `"Run Analysis"` to find builder page component file
 
 ---
 
 ## Banker Experience (Target)
 
-Open deal → wizard auto-appears (critical blockers detected) → step 1: type "luxury yacht
-charter Hamptons" → Buddy suggests NAICS 713990 → click it → step 2: enter "Sag Harbor" +
-"NY" → step 3: Buddy shows malformed "MICHAEL NEWMARK\nTaxpayer address" → confirm
-"MICHAEL NEWMARK" → step 4: add one paragraph about the business → click Continue Analysis
-→ research fires → wizard closes → Intelligence tab updates in 60–90 seconds.
+Open deal → wizard auto-appears (`shouldShowWizard: true`) →
+**Step 1** "Industry": type "luxury yacht charter Hamptons" → click "Find Industry Code"
+  → Buddy suggests NAICS 713990 → click it → "Confirm Industry" →
+**Step 2** "Location": enter "Sag Harbor" + "NY" → "Confirm Location" →
+**Step 3** "Owners": Buddy shows malformed "MICHAEL NEWMARK\nTaxpayer address" → confirm
+  "MICHAEL NEWMARK" → "Fix Owner Records" →
+**Step 4** "Business Context": add one paragraph (optional, skip if no time) →
+**Step 5** "Review": see everything collected in a clean summary → "Looks good — continue" →
+**Step 6** "Continue Analysis": validation passes → research fires → wizard closes →
+Intelligence tab updates in ~60–90 seconds.
 
-Total banker effort: **under 90 seconds**.
+Total banker effort: **under 2 minutes for the first time, under 30 seconds for re-runs.**
