@@ -78,11 +78,14 @@ export default function DealNameInlineEditor({
     const prev = { displayName };
     setDisplayName(payload.display_name);
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
       const res = await fetch(`/api/deals/${dealId}/name`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
       const json = await res.json().catch(() => null);
@@ -96,9 +99,13 @@ export default function DealNameInlineEditor({
       onUpdated?.({ displayName: json.display_name ?? null, nickname: null });
     } catch (err: any) {
       setDisplayName(prev.displayName ?? null);
-      setError(err?.message ?? "Failed to update deal name");
-      toast({ title: "Couldn't update deal name", detail: err?.message ?? "Please try again." });
+      const msg = err?.name === "AbortError"
+        ? "Save timed out — please try again"
+        : (err?.message ?? "Failed to update deal name");
+      setError(msg);
+      toast({ title: "Couldn't update deal name", detail: msg });
     } finally {
+      clearTimeout(timeout);
       setSaving(false);
     }
   }
