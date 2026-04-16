@@ -1,18 +1,11 @@
-/**
- * GET /api/buddy/degraded
- *
- * Returns recent degraded API responses for a deal.
- * Used by Builder Observer to show reliability issues.
- *
- * Query params:
- * - dealId: (required) The deal to check
- * - limit: (optional) Max items to return (default: 10)
- */
+import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 15;
 
 export async function GET(req: NextRequest) {
   try {
@@ -24,16 +17,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "dealId required" }, { status: 400 });
     }
 
-    const bankId = await getCurrentBankId();
-    const sb = supabaseAdmin();
+    // Use ensureDealBankAccess — resolves bankId + verifies tenant isolation.
+    // Also adds runtime/maxDuration exports above to prevent 504 timeouts.
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
+    }
 
-    // Get degraded events from the last hour
+    const sb = supabaseAdmin();
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
     const { data, error } = await sb
       .from("buddy_signal_ledger")
       .select("id, created_at, source, payload")
-      .eq("bank_id", bankId)
+      .eq("bank_id", access.bankId)
       .eq("deal_id", dealId)
       .eq("type", "api.degraded")
       .gte("created_at", oneHourAgo)
@@ -53,12 +50,7 @@ export async function GET(req: NextRequest) {
       correlationId: (r.payload as any)?.correlationId ?? "",
     }));
 
-    return NextResponse.json({
-      ok: true,
-      degraded: items.length > 0,
-      items,
-      dealId,
-    });
+    return NextResponse.json({ ok: true, degraded: items.length > 0, items, dealId });
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e?.message || "unhandled_error" },
