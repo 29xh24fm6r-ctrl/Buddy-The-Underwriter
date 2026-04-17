@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { AIPilotResponse, type AIPilotResponseT } from "./schemas";
+import { OPENAI_MINI } from "./models";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -43,7 +44,7 @@ Return JSON with keys: summary, plan, actions, confidence, evidence, warnings
 
   // Attempt 1: normal
   const r1 = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: OPENAI_MINI,
     temperature: 0.2,
     messages: [
       { role: "system", content: system.trim() },
@@ -61,7 +62,7 @@ Return JSON with keys: summary, plan, actions, confidence, evidence, warnings
 
   // Attempt 2: "fix to schema"
   const r2 = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: OPENAI_MINI,
     temperature: 0,
     messages: [
       { role: "system", content: system.trim() },

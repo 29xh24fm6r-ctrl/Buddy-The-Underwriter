@@ -18,6 +18,7 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { getAIProvider } from "@/lib/ai/provider";
 import { logPipelineLedger } from "@/lib/pipeline/logPipelineLedger";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { GEMINI_FLASH } from "@/lib/ai/models";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { computeMemoInputHash } from "@/lib/creditMemo/canonical/memoProvenance";
@@ -221,7 +222,7 @@ export async function POST(
           bank_id: bankId,
           input_hash: inputHash,
           narratives: memo as any,
-          model: "gemini-3-flash-preview",
+          model: GEMINI_FLASH,
           generated_at: new Date().toISOString(),
           research_trace_json: researchTrace,
           research_trust_grade: currentTrustGrade,
@@ -242,7 +243,7 @@ export async function POST(
         risk_run_id: riskRun.id,
         mission_id: mission?.id ?? null,
         has_research: !!mission,
-        model: "gemini-3-flash-preview",
+        model: GEMINI_FLASH,
         input_hash: inputHash,
       },
     });
@@ -258,7 +259,7 @@ export async function POST(
         risk_run_id: riskRun.id,
         mission_id: mission?.id ?? null,
         has_research: !!mission,
-        model: "gemini-3-flash-preview",
+        model: GEMINI_FLASH,
         snapshot_id: hashInputs.snapshotId,
         pricing_decision_id: hashInputs.pricingDecisionId,
         fact_count: hashInputs.factCount,

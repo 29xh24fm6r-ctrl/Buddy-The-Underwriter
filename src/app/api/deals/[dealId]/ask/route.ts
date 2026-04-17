@@ -3,6 +3,7 @@ import { getOpenAI } from "@/lib/ai/openaiClient";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { retrieveDealChunks } from "@/lib/retrieval/deal";
 import { retrieveBankPolicyChunks } from "@/lib/retrieval/policy";
+import { OPENAI_MINI, OPENAI_EMBEDDINGS } from "@/lib/ai/models";
 
 type Params = Promise<{ dealId: string }>;
 
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest, context: { params: Params }) {
 
     // 1) Embed question (1536)
     const embResp = await openai.embeddings.create({
-      model: "text-embedding-3-small",
+      model: OPENAI_EMBEDDINGS,
       input: question,
     });
     const q = embResp.data[0]?.embedding ?? [];
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest, context: { params: Params }) {
     ];
 
     // 4) Answer with structured citations
-    const model = "gpt-4o-mini";
+    const model = OPENAI_MINI;
     const completion = await openai.chat.completions.create({
       model,
       temperature: 0.2,

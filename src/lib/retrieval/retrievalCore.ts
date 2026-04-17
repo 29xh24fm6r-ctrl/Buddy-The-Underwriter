@@ -15,6 +15,7 @@
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import OpenAI from "openai";
+import { OPENAI_EMBEDDINGS, OPENAI_MINI } from "@/lib/ai/models";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -64,7 +65,7 @@ export interface RetrievalResult {
 
 async function embedQuery(text: string): Promise<number[]> {
   const response = await openai.embeddings.create({
-    model: "text-embedding-3-small",
+    model: OPENAI_EMBEDDINGS,
     input: text,
     dimensions: 1536,
   });
@@ -176,7 +177,7 @@ ${allChunks.map((c, i) => `[${i}] ${c.content.slice(0, 200)}...`).join("\n\n")}
 Return ONLY a JSON array of scores: [score0, score1, ...]`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: OPENAI_MINI,
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
     });
@@ -230,7 +231,7 @@ export async function retrieveEvidence(
   if (includeRerank && allChunks.length > topK) {
     const reranked = await rerankChunks(queryText, allChunks, topK);
     finalChunks = reranked.map((r) => r.source);
-    rerankInfo = { model: "gpt-4o-mini", kept: reranked.length };
+    rerankInfo = { model: OPENAI_MINI, kept: reranked.length };
   }
 
   // 5) Convert to structured citations

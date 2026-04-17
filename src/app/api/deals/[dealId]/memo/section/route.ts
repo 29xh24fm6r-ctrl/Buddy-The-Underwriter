@@ -3,6 +3,7 @@ import { retrieveTopChunks } from "@/lib/retrieval/retrieve";
 import { committeeAnswer } from "@/lib/retrieval/committee";
 import { insertAiEvent, insertAiCitations } from "@/lib/ai/trace";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { OPENAI_CHAT } from "@/lib/ai/models";
 
 type Params = Promise<{ dealId: string }>;
 
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest, context: { params: Params }) {
     const aiEventId = await insertAiEvent({
       deal_id: dealId,
       kind: "memo.section",
-      model: process.env.OPENAI_CHAT_MODEL || "gpt-4o",
+      model: process.env.OPENAI_CHAT_MODEL || OPENAI_CHAT,
       input: { dealId, sectionKey, question },
       output: memoResult,
       meta: { retrieved_k: retrieved.length },

@@ -1,7 +1,8 @@
 import { getOpenAI } from "@/lib/ai/openaiClient";
+import { OPENAI_EMBEDDINGS } from "@/lib/ai/models";
 
 const EMBEDDING_MODEL =
-  process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small"; // 1536 dims
+  process.env.OPENAI_EMBEDDING_MODEL || OPENAI_EMBEDDINGS; // 1536 dims
 
 /**
  * Generate embedding vector for text using OpenAI embeddings API

@@ -15,6 +15,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { classifyDocumentSpine } from "@/lib/classification/classifyDocumentSpine";
 import type { SpineClassificationResult, DocAiSignals } from "@/lib/classification/types";
 import { CLASSIFICATION_SCHEMA_VERSION } from "@/lib/classification/types";
+import { GEMINI_FLASH } from "@/lib/ai/models";
 import {
   mapDocTypeToChecklistKeys,
 } from "./classifyDocument";
@@ -1252,7 +1253,7 @@ export async function processArtifact(
           aiFields: {
             docType: classification.docType,
             confidence: classification.confidence,
-            model: classification.model ?? "gemini-2.0-flash",
+            model: classification.model ?? GEMINI_FLASH,
             reason: classification.reason,
             formNumbers: classification.formNumbers,
             issuer: classification.issuer,

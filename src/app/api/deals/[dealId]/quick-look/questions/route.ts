@@ -3,12 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { computeGatekeeperDocReadiness } from "@/lib/gatekeeper/readinessServer";
+import { GEMINI_FLASH } from "@/lib/ai/models";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 type Params = Promise<{ dealId: string }>;
 
-const GEMINI_MODEL = "gemini-3-flash-preview";
+const GEMINI_MODEL = GEMINI_FLASH;
 
 function geminiUrl(apiKey: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;

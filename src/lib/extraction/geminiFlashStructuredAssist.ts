@@ -50,8 +50,10 @@ export type StructuredAssistResult = {
 
 // ─── Hard Limits (C1) ────────────────────────────────────────────────────────
 
+import { GEMINI_FLASH } from "@/lib/ai/models";
+
 const STRUCTURED_ASSIST_TIMEOUT_MS = 15_000; // 15s hard timeout (institutional)
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = GEMINI_FLASH;
 const GEMINI_TEMPERATURE = 0.1;
 const MAX_OCR_TEXT_LENGTH = 50_000;  // Truncate to avoid token limits
 const MAX_RETRIES = 1;              // At most 1 retry (C2)

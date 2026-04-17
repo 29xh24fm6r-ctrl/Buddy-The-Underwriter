@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateOmegaExplanation } from "@/core/omega/generateOmegaExplanation";
+import { MODEL_OMEGA } from "@/lib/ai/models";
 import { generateOmegaRecommendations } from "@/core/omega/generateOmegaRecommendations";
 import { generateOmegaRiskNarrative } from "@/core/omega/generateOmegaRiskNarrative";
 import { generateOmegaCommunication } from "@/core/omega/generateOmegaCommunication";
@@ -105,7 +106,7 @@ export async function POST(req: NextRequest) {
           advisory: true,
           generatedAt: new Date().toISOString(),
           contextHash,
-          model: "gemini-2.0-flash",
+          model: MODEL_OMEGA,
         },
       },
     });

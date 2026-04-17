@@ -4,6 +4,7 @@ import fs from "node:fs";
 import type { GoogleAuthOptions } from "google-auth-library";
 import { getVercelOidcToken } from "@/lib/google/getVercelOidcToken";
 import { getVercelWifAuthClient } from "@/lib/gcp/vercelAuth";
+import { GEMINI_FLASH } from "@/lib/ai/models";
 import { resolveAudience, resolveServiceAccountEmail } from "@/lib/gcp/wif";
 
 const WIF_CREDENTIALS_PATH = "/tmp/gcp-wif.json";
@@ -108,7 +109,7 @@ export async function runVertexAdcSmokeTest(): Promise<{ ok: true; model: string
 
   const location =
     process.env.GOOGLE_CLOUD_LOCATION || process.env.GOOGLE_CLOUD_REGION || "us-central1";
-  const model = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+  const model = process.env.GEMINI_MODEL || GEMINI_FLASH;
 
   const googleAuthOptions = await getVertexAuthOptions();
   const vertex = new VertexAI({

@@ -11,8 +11,9 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { AIProvider, RiskInput, RiskOutput, MemoInput, MemoOutput, CommitteeAnswer } from "./provider";
+import { GEMINI_FLASH } from "./models";
 
-export const SHADOW_MODEL_NAME = "gemini-3-flash-preview";
+export const SHADOW_MODEL_NAME = GEMINI_FLASH;
 
 /** Agreement = same letter-grade family (e.g. both "B+" and "B" agree; "B+" vs "C-" disagree). */
 function riskAgree(primary: RiskOutput, shadow: RiskOutput): boolean {

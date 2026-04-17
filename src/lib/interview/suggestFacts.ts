@@ -1,5 +1,6 @@
 // src/lib/interview/suggestFacts.ts
 import { ALLOWED_FACT_KEYS } from "@/lib/interview/factKeys";
+import { OPENAI_MINI } from "@/lib/ai/models";
 
 function mustEnv(name: string): string {
   const v = process.env[name];
@@ -55,7 +56,7 @@ export type SuggestedFact = {
 
 export async function suggestFactsFromBorrowerText(turnText: string): Promise<SuggestedFact[]> {
   const apiKey = mustEnv("OPENAI_API_KEY");
-  const model = process.env.OPENAI_FACT_SUGGEST_MODEL || "gpt-4o-mini";
+  const model = process.env.OPENAI_FACT_SUGGEST_MODEL || OPENAI_MINI;
 
   const body = {
     model,

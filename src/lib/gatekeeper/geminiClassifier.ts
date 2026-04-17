@@ -15,10 +15,11 @@ import "server-only";
 
 import { createHash } from "crypto";
 import type { GatekeeperClassification } from "./types";
+import { MODEL_CLASSIFICATION } from "@/lib/ai/models";
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = MODEL_CLASSIFICATION;
 
 /** Max text chars for head+tail truncation (mirrors OpenAI classifier). */
 const HEAD_CHARS = 8_000;

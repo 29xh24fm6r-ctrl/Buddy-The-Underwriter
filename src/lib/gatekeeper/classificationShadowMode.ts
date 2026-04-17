@@ -22,6 +22,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { classifyWithGeminiText, classifyWithGeminiVision } from "./geminiClassifier";
+import { GEMINI_FLASH } from "@/lib/ai/models";
 
 // ─── Shadow Runner ──────────────────────────────────────────────────────────
 
@@ -91,7 +92,7 @@ async function runShadowAsync(args: {
     primary_model: args.primaryModel,
     primary_type: args.primaryDocType,
     primary_confidence: args.primaryConfidence,
-    shadow_model: "gemini-2.0-flash",
+    shadow_model: GEMINI_FLASH,
     shadow_type: shadowResult?.doc_type ?? null,
     shadow_confidence: shadowResult?.confidence ?? null,
     agree: shadowResult != null

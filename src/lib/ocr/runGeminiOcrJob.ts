@@ -1,6 +1,7 @@
 import "server-only";
 import { VertexAI } from "@google-cloud/vertexai";
 import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
+import { MODEL_OCR } from "@/lib/ai/models";
 
 type GeminiOcrArgs = {
   fileBytes: Buffer;
@@ -61,19 +62,12 @@ function getGeminiModelFromEnv(): string | null {
 function getGeminiModelCandidates(): string[] {
   const envModel = getGeminiModelFromEnv();
 
-  // Order matters: try explicit override first, then sensible defaults.
-  // These model names are Vertex publisher model IDs.
+  // Phase 93: model strings sourced from the central registry. The historical
+  // Vertex fallback chain (gemini-2.0-flash / gemini-1.5-*) has been retired
+  // by Google; MODEL_OCR points at the current supported flash model.
   const candidates = [
     envModel,
-    // Prefer newer “2.0 flash” where available.
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-exp",
-    // Widely available 1.5 models.
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-001",
-    "gemini-1.5-flash-002",
-    "gemini-1.5-pro",
-    "gemini-1.5-pro-001",
+    MODEL_OCR,
   ].filter(Boolean) as string[];
 
   return Array.from(new Set(candidates));

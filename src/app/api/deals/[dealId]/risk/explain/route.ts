@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpenAI } from "@/lib/ai/openaiClient";
 import { retrieveDealChunks } from "@/lib/retrieval/deal";
+import { OPENAI_MINI, OPENAI_EMBEDDINGS } from "@/lib/ai/models";
 
 type Params = Promise<{ dealId: string }>;
 
@@ -15,13 +16,13 @@ export async function POST(req: NextRequest, context: { params: Params }) {
     const openai = getOpenAI();
 
     const emb = await openai.embeddings.create({
-      model: "text-embedding-3-small",
+      model: OPENAI_EMBEDDINGS,
       input: `Explain and justify this risk/pricing headline: ${headline}`,
     });
     const q = emb.data[0]?.embedding ?? [];
     const deal = await retrieveDealChunks({ dealId, queryEmbedding: q, k: 10 });
 
-    const model = "gpt-4o-mini";
+    const model = OPENAI_MINI;
     const completion = await openai.chat.completions.create({
       model,
       temperature: 0.2,

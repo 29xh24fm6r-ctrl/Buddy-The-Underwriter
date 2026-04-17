@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { VertexAI } from "@google-cloud/vertexai";
 import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
+import { GEMINI_FLASH } from "@/lib/ai/models";
 import { getVercelWifAuthClient } from "@/lib/gcp/vercelAuth";
 
 export const runtime = "nodejs";
@@ -51,7 +52,7 @@ export async function GET(req: Request) {
     process.env.GCP_PROJECT_ID;
 
   const location = process.env.GOOGLE_CLOUD_LOCATION || "us-central1";
-  const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+  const model = process.env.GEMINI_MODEL || GEMINI_FLASH;
 
   if (!project) {
     return NextResponse.json(

@@ -17,6 +17,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { getOpenAI } from "@/lib/ai/openaiClient";
 import { retrieveEvidence } from "@/lib/retrieval/retrievalCore";
+import { OPENAI_CHAT } from "@/lib/ai/models";
 import { evaluateAllRules, getMissingFacts } from "@/lib/policy/ruleEngine";
 
 interface DocumentRequest {
@@ -93,7 +94,7 @@ Return JSON array:
 Focus on the 8-12 most important documents. Order by priority.`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: OPENAI_CHAT,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.3,
       response_format: { type: "json_object" },

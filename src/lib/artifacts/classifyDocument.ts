@@ -17,6 +17,7 @@ import "server-only";
 import { VertexAI } from "@google-cloud/vertexai";
 import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
 import { classifyByRules, type RulesClassificationResult } from "./classifyByRules";
+import { MODEL_CLASSIFICATION } from "@/lib/ai/models";
 
 // ---------------------------------------------------------------------------
 // Document type enum
@@ -81,7 +82,7 @@ export type ClassificationResult = {
   periodEnd: string | null;
   /** Which classification tier produced this result */
   tier?: ClassificationTier;
-  /** Model/method identifier (e.g. "docai:TAX_PROCESSOR", "rules:rules_form", "gemini-2.0-flash") */
+  /** Model/method identifier (e.g. "docai:TAX_PROCESSOR", "rules:rules_form", or a Gemini model name) */
   model?: string;
 };
 
@@ -172,7 +173,7 @@ function getGoogleLocation(): string {
 }
 
 function getClassifierModel(): string {
-  return process.env.GEMINI_CLASSIFIER_MODEL || process.env.GEMINI_MODEL || "gemini-2.0-flash";
+  return process.env.GEMINI_CLASSIFIER_MODEL || process.env.GEMINI_MODEL || MODEL_CLASSIFICATION;
 }
 
 // ---------------------------------------------------------------------------

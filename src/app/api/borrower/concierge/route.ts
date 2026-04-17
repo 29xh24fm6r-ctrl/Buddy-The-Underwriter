@@ -17,6 +17,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { getOpenAI } from "@/lib/ai/openaiClient";
 import { retrieveEvidence } from "@/lib/retrieval/retrievalCore";
+import { OPENAI_CHAT, OPENAI_MINI } from "@/lib/ai/models";
 import { evaluateAllRules, getMissingFacts, getNextCriticalFact } from "@/lib/policy/ruleEngine";
 
 interface ConciergeRequest {
@@ -122,7 +123,7 @@ Extract facts in this JSON structure:
 Return ONLY the extracted facts JSON. Use null for unknown values.`;
 
     const extractResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: OPENAI_MINI,
       messages: [{ role: "user", content: extractPrompt }],
       temperature: 0,
       response_format: { type: "json_object" },
@@ -180,7 +181,7 @@ Return JSON:
 }`;
 
     const responseCompletion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: OPENAI_CHAT,
       messages: [{ role: "user", content: responsePrompt }],
       temperature: 0.7,
       response_format: { type: "json_object" },

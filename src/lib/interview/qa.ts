@@ -1,5 +1,6 @@
 // src/lib/interview/qa.ts
 import { LOAN_KNOWLEDGE, type KnowledgeChunk } from "@/lib/interview/loanKnowledge";
+import { OPENAI_MINI } from "@/lib/ai/models";
 
 function mustEnv(name: string): string {
   const v = process.env[name];
@@ -41,7 +42,7 @@ export type QaAnswer = {
 
 export async function answerBorrowerQuestion(question: string): Promise<QaAnswer> {
   const apiKey = mustEnv("OPENAI_API_KEY");
-  const model = process.env.OPENAI_QA_MODEL || "gpt-4o-mini";
+  const model = process.env.OPENAI_QA_MODEL || OPENAI_MINI;
 
   const chunks = selectTopChunks(question, 4);
 

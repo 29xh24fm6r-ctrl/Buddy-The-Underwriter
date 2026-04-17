@@ -2,6 +2,7 @@ import type { EvidenceRef } from "@/lib/evidence/types";
 import { OpenAIProvider } from "@/lib/ai/openaiProvider";
 import { Gemini3FlashProvider } from "@/lib/ai/gemini3FlashProvider";
 import { withShadow } from "@/lib/ai/shadowOrchestrator";
+import { OPENAI_CHAT } from "@/lib/ai/models";
 
 export type RiskInput = {
   dealId: string;
@@ -235,7 +236,7 @@ export function getAIProvider(): AIProvider {
 
   // Shadow mode: OpenAI primary, Gemini 3 Flash shadow for risk + memo
   if (hasShadow && hasOpenAI && hasGemini) {
-    const primaryModelName = process.env.OPENAI_MODEL || "gpt-4o-2024-08-06";
+    const primaryModelName = process.env.OPENAI_MODEL || OPENAI_CHAT;
     return withShadow(new OpenAIProvider(), new Gemini3FlashProvider(), primaryModelName);
   }
 

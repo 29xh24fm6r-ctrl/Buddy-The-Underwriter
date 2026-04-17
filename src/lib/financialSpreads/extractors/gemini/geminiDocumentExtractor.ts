@@ -13,6 +13,7 @@ import { callGeminiForExtraction } from "./geminiClient";
 import { parseGeminiResponse } from "./geminiResponseParser";
 import { normalizePeriod } from "../shared";
 import type { GeminiExtractionPrompt, GeminiExtractionResult } from "./types";
+import { MODEL_EXTRACTION } from "@/lib/ai/models";
 
 // Prompt builders
 import { buildBusinessTaxReturnPrompt, buildBusinessTaxReturnPromptForPdf } from "./prompts/businessTaxReturn";
@@ -135,7 +136,7 @@ export async function extractWithGeminiPrimary(args: {
     items: [],
     rawResponse: null,
     latencyMs,
-    model: "gemini-2.0-flash",
+    model: MODEL_EXTRACTION,
     promptVersion: "",
     failureReason,
   });

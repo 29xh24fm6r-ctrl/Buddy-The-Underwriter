@@ -18,6 +18,7 @@ import {
   getVertexAuthOptions,
 } from "@/lib/gcpAdcBootstrap";
 import type { NormalizedDocument, Tier3Result, EvidenceItem } from "./types";
+import { MODEL_CLASSIFICATION } from "@/lib/ai/models";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -49,7 +50,7 @@ function getClassifierModel(): string {
   return (
     process.env.GEMINI_CLASSIFIER_MODEL ||
     process.env.GEMINI_MODEL ||
-    "gemini-2.5-flash"
+    MODEL_CLASSIFICATION
   );
 }
 

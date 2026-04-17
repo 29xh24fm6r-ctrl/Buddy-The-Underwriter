@@ -63,8 +63,9 @@ function extractFirstJsonObject(text: string): string | null {
   return null;
 }
 
-// gemini-2.0-flash is retired — use gemini-3-flash-preview
-const GEMINI_MODEL = "gemini-3-flash-preview";
+// Phase 93: model strings are centralised in src/lib/ai/models.ts.
+import { GEMINI_FLASH } from "./models";
+const GEMINI_MODEL = GEMINI_FLASH;
 
 function geminiUrl(apiKey: string, model: string = GEMINI_MODEL) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -189,7 +190,7 @@ export async function aiJson<T = Json>(args: {
   system: string;
   user: string;
   jsonSchemaHint: string;
-  /** Override the default gemini-3-flash-preview model. E.g. "gemini-2.5-pro-preview-03-25" for deep-reasoning tasks. */
+  /** Override the default Gemini flash model. E.g. use GEMINI_PRO from @/lib/ai/models for deep-reasoning tasks. */
   model?: string;
   /** Override default 4096 maxOutputTokens — useful for deep-reasoning models that may emit thought traces. */
   maxOutputTokens?: number;

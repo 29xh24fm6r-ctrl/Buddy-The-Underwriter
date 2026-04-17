@@ -1,5 +1,7 @@
 import "server-only";
 
+import { MODEL_RATES } from "@/lib/ai/models";
+
 export type IndexCode = "UST_5Y" | "SOFR" | "PRIME";
 
 export type IndexRate = {
@@ -23,7 +25,7 @@ async function fetchRatesViaGemini(): Promise<Record<IndexCode, IndexRate>> {
   const today = new Date().toISOString().split("T")[0];
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_RATES}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },

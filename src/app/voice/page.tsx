@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { OPENAI_REALTIME } from "@/lib/ai/models";
 
 type Message = {
   role: "user" | "assistant";
@@ -92,7 +93,7 @@ export default function VoicePage() {
 
       // Send offer to OpenAI Realtime API via server proxy
       // This keeps the API key secure on the server side
-      const model = "gpt-4o-realtime-preview-2024-12-17";
+      const model = OPENAI_REALTIME;
 
       const sdpResponse = await fetch("/api/realtime/sdp", {
         method: "POST",

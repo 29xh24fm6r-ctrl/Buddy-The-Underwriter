@@ -17,6 +17,7 @@ import { getOpenAI } from "@/lib/ai/openaiClient";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { retrieveEvidence, type Citation } from "@/lib/retrieval/retrievalCore";
 import { evaluateAllRules, getMissingFacts, getNextCriticalFact } from "@/lib/policy/ruleEngine";
+import { OPENAI_CHAT } from "@/lib/ai/models";
 
 export type CommitteeStance = "APPROVE" | "APPROVE_WITH_CONDITIONS" | "DECLINE";
 
@@ -115,7 +116,7 @@ export async function runCommittee({
         evaluations,
         consensus,
       },
-      model: "gpt-4o",
+      model: OPENAI_CHAT,
       requires_human_review: true,
     })
     .select("id")
@@ -176,7 +177,7 @@ Respond in JSON format:
 }`;
 
   const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: OPENAI_CHAT,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },

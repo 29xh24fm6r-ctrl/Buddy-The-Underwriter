@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 // If you already have Clerk in this repo (you likely do), keep this.
 // If not, swap this auth check to whatever you use.
 import { clerkAuth } from "@/lib/auth/clerkServer";
+import { OPENAI_REALTIME_TRANSCRIBE } from "@/lib/ai/models";
 
 export const runtime = "nodejs";
 
@@ -26,7 +27,7 @@ export async function GET(
   const model = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime";
   const voice = process.env.OPENAI_REALTIME_VOICE || "marin";
   const transcribeModel =
-    process.env.OPENAI_REALTIME_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
+    process.env.OPENAI_REALTIME_TRANSCRIBE_MODEL || OPENAI_REALTIME_TRANSCRIBE;
 
   // Session config:
   // - realtime conversation (speech-to-speech)

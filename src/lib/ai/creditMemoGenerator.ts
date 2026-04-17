@@ -1,10 +1,11 @@
 import { z } from "zod";
+import { GEMINI_FLASH } from "./models";
 
 // ---------------------------------------------------------------------------
 // Gemini HTTP helper
 // ---------------------------------------------------------------------------
 
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = GEMINI_FLASH;
 
 async function geminiGenerate(system: string, userContent: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY!;

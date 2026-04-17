@@ -3,6 +3,7 @@ import { getOpenAI } from "@/lib/ai/openaiClient";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { retrieveDealChunks } from "@/lib/retrieval/deal";
 import { retrieveBankPolicyChunks } from "@/lib/retrieval/policy";
+import { OPENAI_MINI, OPENAI_EMBEDDINGS } from "@/lib/ai/models";
 
 type Params = Promise<{ dealId: string }>;
 
@@ -25,13 +26,13 @@ export async function POST(req: NextRequest, context: { params: Params }) {
   try {
     const openai = getOpenAI();
     const sb = getSupabaseServerClient();
-    const model = "gpt-4o-mini";
+    const model = OPENAI_MINI;
 
     const results: Array<{ key: string; title: string; text: string; citations: any[] }> = [];
 
     for (const s of SECTIONS) {
       const emb = await openai.embeddings.create({
-        model: "text-embedding-3-small",
+        model: OPENAI_EMBEDDINGS,
         input: `Write the memo section: ${s.title}.`,
       });
       const q = emb.data[0]?.embedding ?? [];

@@ -1,10 +1,11 @@
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { getOpenAI } from "@/lib/ai/openaiClient";
+import { OPENAI_EMBEDDINGS } from "@/lib/ai/models";
 import type { RetrievedChunk } from "@/lib/retrieval/types";
 
 export type { RetrievedChunk };
 
-const EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
+const EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || OPENAI_EMBEDDINGS;
 
 export async function embedQuery(text: string): Promise<number[]> {
   const openai = getOpenAI();

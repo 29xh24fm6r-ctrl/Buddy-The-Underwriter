@@ -1,8 +1,9 @@
 import "server-only";
 
 import type { SensitivityScenario, ManagementMember } from "./sbaReadinessTypes";
+import { MODEL_SBA_NARRATIVE } from "@/lib/ai/models";
 
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = MODEL_SBA_NARRATIVE;
 
 const GEMINI_API_URL = (apiKey: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;

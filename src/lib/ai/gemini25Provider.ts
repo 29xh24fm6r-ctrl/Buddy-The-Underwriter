@@ -14,8 +14,9 @@ import "server-only";
 import { z } from "zod";
 import { RiskOutputSchema, MemoOutputSchema, CommitteeAnswerSchema } from "./schemas";
 import type { AIProvider, RiskInput, RiskOutput, MemoInput, MemoOutput, CommitteeAnswer } from "./provider";
+import { GEMINI_PRO } from "./models";
 
-const GEMINI_25_PRO_MODEL = "gemini-2.5-pro-preview-03-25";
+const GEMINI_25_PRO_MODEL = GEMINI_PRO;
 
 function gemini25Url(apiKey: string) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_25_PRO_MODEL}:generateContent?key=${apiKey}`;

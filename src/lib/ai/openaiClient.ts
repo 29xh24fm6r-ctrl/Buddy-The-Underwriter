@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { TraceIds } from "./openaiResilience";
+import { OPENAI_CHAT } from "./models";
 
 export function getOpenAI() {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -25,7 +26,7 @@ export function openaiRequestHeaders(ids: TraceIds) {
 }
 
 export function getModel() {
-  return process.env.OPENAI_MODEL || "gpt-4o-2024-08-06";
+  return process.env.OPENAI_MODEL || OPENAI_CHAT;
 }
 
 export function getTemp() {

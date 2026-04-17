@@ -4,6 +4,7 @@ import "server-only";
 import type { BuddyContextPack } from "@/buddy/brain/types";
 import { VertexAI } from "@google-cloud/vertexai";
 import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
+import { GEMINI_FLASH } from "@/lib/ai/models";
 
 function getGoogleProjectId(): string {
   const projectId =
@@ -24,7 +25,7 @@ function getGoogleLocation(): string {
 }
 
 export async function geminiShadowAnalyze(ctx: BuddyContextPack) {
-  const model = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+  const model = process.env.GEMINI_MODEL ?? GEMINI_FLASH;
   await ensureGcpAdcBootstrap();
   const googleAuthOptions = await getVertexAuthOptions();
   const vertex = new VertexAI({

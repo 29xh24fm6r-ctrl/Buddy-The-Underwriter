@@ -1,6 +1,7 @@
 // TODO Phase 23: evaluate Gemini 2.5 Pro for reasoning workloads
 import OpenAI from "openai";
 import { z } from "zod";
+import { OPENAI_MINI, OPENAI_REASONING } from "@/lib/ai/models";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
@@ -20,7 +21,7 @@ export type UnderwritingDecision = z.infer<typeof UnderwritingDecisionSchema>;
 export function pickModel(task: "default" | "deep_reasoning") {
   // default: fast & strong structured outputs
   // deep_reasoning: o1-preview for complex analysis
-  return task === "deep_reasoning" ? "o1-preview" : "gpt-4o-mini";
+  return task === "deep_reasoning" ? OPENAI_REASONING : OPENAI_MINI;
 }
 
 // ---- 3) Strict structured output call

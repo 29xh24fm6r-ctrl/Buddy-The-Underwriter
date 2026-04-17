@@ -25,12 +25,13 @@
 import "server-only";
 
 import type { NarrativeSection } from "./types";
+import { MODEL_RESEARCH } from "@/lib/ai/models";
 
 // ============================================================================
 // Gemini API caller — returns grounding metadata alongside parsed result
 // ============================================================================
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = MODEL_RESEARCH;
 
 type GroundingSegment = {
   text: string;        // exact text segment that was grounded

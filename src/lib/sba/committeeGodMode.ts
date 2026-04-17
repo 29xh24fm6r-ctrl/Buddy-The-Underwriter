@@ -12,6 +12,7 @@ import { getOpenAI } from "@/lib/ai/openaiClient";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { retrieveEvidence, type Citation } from "@/lib/retrieval/retrievalCore";
 import { evaluateAllRules, getMissingFacts } from "@/lib/policy/ruleEngine";
+import { OPENAI_CHAT } from "@/lib/ai/models";
 
 // ============================================================================
 // Types
@@ -131,7 +132,7 @@ Question: ${question}
 Provide your ${personaDef.name} evaluation.`;
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: OPENAI_CHAT,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },

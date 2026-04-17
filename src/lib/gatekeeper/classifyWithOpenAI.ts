@@ -25,10 +25,11 @@ import { getOpenAI, openaiRequestHeaders } from "@/lib/ai/openaiClient";
 import { withOpenAIResilience } from "@/lib/ai/openaiResilience";
 import { GatekeeperClassificationSchema } from "./schema";
 import type { GatekeeperClassification } from "./types";
+import { OPENAI_MINI } from "@/lib/ai/models";
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
-const DEFAULT_MODEL = "gpt-4o-mini";
+const DEFAULT_MODEL = OPENAI_MINI;
 const PROMPT_VERSION = "gatekeeper_v2";
 
 /** Max text chars for head+tail truncation. */

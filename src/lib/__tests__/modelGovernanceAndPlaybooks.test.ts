@@ -1,5 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { OPENAI_CHAT } from "@/lib/ai/models";
 
 /**
  * Unit tests for Phase H + I:
@@ -56,7 +57,7 @@ const MODEL_REGISTRY: ModelRegistryEntry[] = [
     model_id: "borrower_extraction",
     purpose: "Extract borrower identity fields from uploaded tax returns and supporting documents.",
     provider: "openai",
-    model_version: "gpt-4o-2024-08-06",
+    model_version: OPENAI_CHAT,
     input_scope: ["deal_documents (OCR text)", "document_type classification"],
     output_scope: ["borrower.legal_name", "borrower.entity_type", "borrower.ein", "borrower.naics_code", "borrower.address", "borrower.owners[]"],
     decision_authority: "assistive-only",
@@ -67,7 +68,7 @@ const MODEL_REGISTRY: ModelRegistryEntry[] = [
     model_id: "financial_normalization",
     purpose: "Normalize financial statements from uploaded tax returns and spreads into canonical financial facts.",
     provider: "openai",
-    model_version: "gpt-4o-2024-08-06",
+    model_version: OPENAI_CHAT,
     input_scope: ["deal_documents (OCR text)", "financial_spreads", "rent_roll_rows"],
     output_scope: ["deal_financial_facts.*", "financial_snapshot.dscr", "financial_snapshot.noi_ttm", "financial_snapshot.ltv_*", "financial_snapshot.collateral_*"],
     decision_authority: "assistive-only",
@@ -78,7 +79,7 @@ const MODEL_REGISTRY: ModelRegistryEntry[] = [
     model_id: "risk_factor_analysis",
     purpose: "Analyze underwriting risk factors including policy compliance and concentration risk.",
     provider: "openai",
-    model_version: "gpt-4o-2024-08-06",
+    model_version: OPENAI_CHAT,
     input_scope: ["financial_snapshot", "borrower_profile", "bank_policy_chunks (via pgvector retrieval)", "bank_policy_rules"],
     output_scope: ["decision_snapshot.decision_summary", "decision_snapshot.confidence", "decision_snapshot.confidence_explanation", "decision_snapshot.evidence_snapshot_json", "decision_snapshot.policy_eval_json"],
     decision_authority: "assistive-only",
@@ -89,7 +90,7 @@ const MODEL_REGISTRY: ModelRegistryEntry[] = [
     model_id: "pricing_recommendation",
     purpose: "Generate risk-adjusted pricing recommendations based on financial metrics.",
     provider: "openai",
-    model_version: "gpt-4o-2024-08-06",
+    model_version: OPENAI_CHAT,
     input_scope: ["financial_snapshot", "deal_terms", "bank_pricing_policies", "market_benchmarks"],
     output_scope: ["pricing_quote.indicative_rate", "pricing_quote.spread", "pricing_quote.fees", "pricing_quote.risk_grade"],
     decision_authority: "assistive-only",

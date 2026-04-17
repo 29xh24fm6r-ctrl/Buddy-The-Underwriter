@@ -26,8 +26,9 @@ import type {
   MemoOutput,
   CommitteeAnswer,
 } from "./provider";
+import { GEMINI_FLASH } from "./models";
 
-export const GEMINI_3_FLASH_MODEL = "gemini-3-flash-preview";
+export const GEMINI_3_FLASH_MODEL = GEMINI_FLASH;
 
 function gemini3FlashUrl(apiKey: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_3_FLASH_MODEL}:generateContent?key=${apiKey}`;

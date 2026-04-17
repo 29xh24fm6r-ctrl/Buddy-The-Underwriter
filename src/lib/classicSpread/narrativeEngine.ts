@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { ClassicSpreadInput } from "./types";
+import { MODEL_CLASSIC_SPREAD } from "@/lib/ai/models";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -86,7 +87,7 @@ const SYSTEM_INSTRUCTION =
 // API Call — Gemini 2.0 Flash
 // ---------------------------------------------------------------------------
 
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = MODEL_CLASSIC_SPREAD;
 
 const GEMINI_API_URL = (apiKey: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;

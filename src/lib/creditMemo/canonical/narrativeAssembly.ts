@@ -4,10 +4,12 @@ import { aiJson } from "@/lib/ai/openai";
 import type { CanonicalCreditMemoV1, RatioAnalysisRow, RatioCategory } from "./types";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import crypto from "crypto";
+import { MODEL_NARRATIVE } from "@/lib/ai/models";
 
-// Phase 89: use gemini-2.5-pro for the narrative — deep-reasoning task where
+// Phase 89: use Gemini Pro for the narrative — deep-reasoning task where
 // the model must synthesize 26 ratios across 5 categories into committee prose.
-const NARRATIVE_MODEL = "gemini-2.5-pro-preview-03-25";
+// Phase 93: pulled from the central registry (was hardcoded).
+const NARRATIVE_MODEL = MODEL_NARRATIVE;
 // Pro model with thinking enabled can emit large thought traces alongside
 // the answer. 8192 gives headroom for thinking + narrative output; extractResponseText
 // in openai.ts filters thought parts so only the narrative lands in text.

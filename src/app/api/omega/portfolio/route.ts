@@ -5,6 +5,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { callOmegaGemini, safeParseJSON } from "@/core/omega/omegaGeminiClient";
 import { resolvePortfolioIntelligencePack } from "@/core/portfolio/resolvePortfolioIntelligencePack";
+import { MODEL_OMEGA } from "@/lib/ai/models";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -81,7 +82,7 @@ Return ONLY valid JSON:
         meta: {
           advisory: true,
           generatedAt: new Date().toISOString(),
-          model: "gemini-2.0-flash",
+          model: MODEL_OMEGA,
         },
       },
     });

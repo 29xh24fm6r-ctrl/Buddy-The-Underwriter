@@ -6,7 +6,9 @@ import "server-only";
  * Never writes to canonical tables.
  */
 
-const GEMINI_MODEL = "gemini-2.0-flash";
+import { MODEL_OMEGA } from "@/lib/ai/models";
+
+const GEMINI_MODEL = MODEL_OMEGA;
 
 const GEMINI_API_URL = (apiKey: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;

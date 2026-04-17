@@ -14,13 +14,14 @@ import {
   ensureGcpAdcBootstrap,
   getVertexAuthOptions,
 } from "@/lib/gcpAdcBootstrap";
+import { MODEL_EXTRACTION } from "@/lib/ai/models";
 import type { GeminiExtractionPrompt } from "./types";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = MODEL_EXTRACTION;
 const GEMINI_TEMPERATURE = 0.0; // deterministic — lower than advisory's 0.1
 const GEMINI_PRIMARY_TIMEOUT_MS = 45_000; // 45s hard timeout (native PDF processing is heavier)
 const MAX_RETRIES = 1;
