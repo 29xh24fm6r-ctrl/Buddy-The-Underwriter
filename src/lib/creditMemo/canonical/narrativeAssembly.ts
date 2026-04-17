@@ -12,6 +12,11 @@ const NARRATIVE_MODEL = "gemini-2.5-pro-preview-03-25";
 // the answer. 8192 gives headroom for thinking + narrative output; extractResponseText
 // in openai.ts filters thought parts so only the narrative lands in text.
 const NARRATIVE_MAX_TOKENS = 8192;
+// Phase 92: Pro + thinking + 5-8KB structured input typically takes 30-60s.
+// Route-level maxDuration is 60s; keep 5s of margin. The default 20s
+// AI_TIMEOUT_MS is far too aggressive for this call and was silently
+// failing the generation to the FALLBACK_NARRATIVES path.
+const NARRATIVE_TIMEOUT_MS = 55_000;
 
 export type MemoNarratives = {
   executive_summary: string;
@@ -314,7 +319,18 @@ export async function assembleNarratives(args: {
       jsonSchemaHint: NARRATIVES_SCHEMA,
       model: NARRATIVE_MODEL,
       maxOutputTokens: NARRATIVE_MAX_TOKENS,
+      timeoutMs: NARRATIVE_TIMEOUT_MS,
     });
+    if (!res.ok) {
+      // Phase 92: surface aiJson failures to Vercel logs. Previously the
+      // failure collapsed silently into FALLBACK_NARRATIVES with no signal.
+      console.error(
+        "[assembleNarratives] aiJson failed:",
+        res.error,
+        "model:", res.model,
+        "rawText:", res.rawText?.slice(0, 300),
+      );
+    }
     narratives = res.ok ? res.result : FALLBACK_NARRATIVES;
   } catch (e) {
     console.error("[assembleNarratives] aiJson threw:", e);

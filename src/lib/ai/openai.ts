@@ -182,10 +182,14 @@ export async function aiJson<T = Json>(args: {
   model?: string;
   /** Override default 4096 maxOutputTokens — useful for deep-reasoning models that may emit thought traces. */
   maxOutputTokens?: number;
+  /** Override per-request HTTP timeout (ms). Default = env AI_TIMEOUT_MS or 20_000.
+   *  Set higher than the AI_TIMEOUT_MS default for Pro / thinking-mode calls that can
+   *  take 30-60s. Keep the override strictly below the Vercel route's maxDuration. */
+  timeoutMs?: number;
 }): Promise<AiJsonResult<T>> {
   try {
     const model = args.model ?? GEMINI_MODEL;
-    const timeoutMs = envInt("AI_TIMEOUT_MS", 20000);
+    const timeoutMs = args.timeoutMs ?? envInt("AI_TIMEOUT_MS", 20000);
     const maxRetries = envInt("AI_MAX_RETRIES", 2);
 
     // Deterministic fallback if key missing (keeps builds safe)
