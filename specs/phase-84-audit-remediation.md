@@ -291,19 +291,24 @@ COMMIT;
 
 6. **Emit ledger event:**
    Written to `buddy_system_events` (the system-event surface) because `deal_events.deal_id`
-   is NOT NULL and the completion marker has no deal context. See T-01 AAR for rationale.
+   is NOT NULL and the completion marker has no deal context. `event_type` is constrained
+   to a fixed enum; `'deploy'` is semantically correct (the RLS migration is a schema
+   deployment) and the original `'phase.84.t01a.completed'` string lives in `payload.kind`
+   so downstream queries by kind still work. See T-01 AAR for rationale.
    ```sql
    INSERT INTO buddy_system_events (
      event_type, severity, source_system, resolution_status, payload
    ) VALUES (
-     'phase.84.t01a.completed', 'info', 'phase_84', 'resolved',
+     'deploy', 'info', 'phase_84', 'resolved',
      jsonb_build_object(
+       'kind', 'phase.84.t01a.completed',
        'tables_enabled', 14,
        'batch', 'A',
        'spec_deviations', jsonb_build_array(
          'credit_memo_drafts and credit_memo_snapshots reclassified to deal_only (no bank_id column)',
          'memo_runs and risk_runs split into text-typed deal_only variant (deal_id is text not uuid)',
-         'completion marker written to buddy_system_events instead of deal_events (deal_events.deal_id is NOT NULL)'
+         'completion marker written to buddy_system_events instead of deal_events (deal_events.deal_id is NOT NULL)',
+         'event_type=deploy + payload.kind=phase.84.t01a.completed (buddy_system_events.event_type enum does not include phase.* values)'
        )
      )
    );
