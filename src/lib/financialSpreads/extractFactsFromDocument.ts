@@ -272,7 +272,10 @@ export async function extractFactsFromDocument(args: {
   // ── Gemini primary helper ───────────────────────────────────────────────
   // Shared logic: attempt Gemini primary extraction, write facts if successful.
   // Returns { succeeded, factsWritten } — never throws.
-  async function attemptGeminiPrimary(factType: string): Promise<{
+  async function attemptGeminiPrimary(
+    factType: string,
+    ownerContext?: { ownerType?: string; ownerEntityId?: string | null },
+  ): Promise<{
     succeeded: boolean;
     factsWritten: number;
   }> {
@@ -303,6 +306,8 @@ export async function extractFactsFromDocument(args: {
           sourceDocumentId: args.documentId,
           factType,
           items: gemResult.items,
+          ownerType: ownerContext?.ownerType,
+          ownerEntityId: ownerContext?.ownerEntityId,
         });
         return { succeeded: true, factsWritten: wr.factsWritten };
       }
@@ -501,30 +506,33 @@ export async function extractFactsFromDocument(args: {
     ["PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413"].includes(normDocType)
   ) {
     extractorRan = true;
-    // Try Gemini primary first
-    const gp = await attemptGeminiPrimary("PERSONAL_FINANCIAL_STATEMENT");
+
+    // Resolve owner BEFORE attempting any extraction path (Gemini or deterministic).
+    // Without ownerType = "PERSONAL", GCF template's sumPersonalFacts() cannot see these facts.
+    let ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
+    if (!ownerEntityId) {
+      const taxpayerName = extractTaxpayerName(extractedText);
+      if (taxpayerName) {
+        ownerEntityId = await ensureOwnerEntity(sb, args.dealId, taxpayerName, "individual");
+        if (ownerEntityId) {
+          await sb
+            .from("deal_documents")
+            .update({ assigned_owner_id: ownerEntityId })
+            .eq("id", args.documentId);
+        }
+      }
+    }
+
+    // Try Gemini primary first — now passing owner context so facts land as PERSONAL-owned
+    const gp = await attemptGeminiPrimary("PERSONAL_FINANCIAL_STATEMENT", {
+      ownerType: "PERSONAL",
+      ownerEntityId,
+    });
     if (gp.succeeded) {
       factsWritten += gp.factsWritten;
       extractionPath = "gemini_primary";
     } else {
       try {
-        let ownerEntityId = await resolveOwnerForDocument(sb, args.documentId);
-
-        // If no owner is assigned, try to extract the taxpayer name from OCR
-        // and auto-create an ownership_entities row for this deal.
-        if (!ownerEntityId) {
-          const taxpayerName = extractTaxpayerName(extractedText);
-          if (taxpayerName) {
-            ownerEntityId = await ensureOwnerEntity(sb, args.dealId, taxpayerName, "individual");
-            if (ownerEntityId) {
-              await sb
-                .from("deal_documents")
-                .update({ assigned_owner_id: ownerEntityId })
-                .eq("id", args.documentId);
-            }
-          }
-        }
-
         if (useDeterministic) {
           const result = await extractPfsDeterministic({
             ...deterministicArgs,

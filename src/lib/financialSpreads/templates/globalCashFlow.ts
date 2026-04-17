@@ -130,12 +130,71 @@ export function globalCashFlowTemplate(): SpreadTemplate {
       const adsStressedCell = factToCell(adsStressedFact);
 
       // ── PERSONAL-level aggregation ─────────────────────────────────────────
-      const personalIncome = sumPersonalFacts({
-        facts,
-        factType: "PERSONAL_INCOME",
-        factKey: "TOTAL_PERSONAL_INCOME",
-      });
+      // SBA Personal Income Build-Up:
+      // Per SBA SOP 50 10, global cash flow personal income is the owner's income
+      // from sources OUTSIDE the guaranteed entity. K-1 pass-through income
+      // (SCH_E_K1_PASSIVE_INCOME, SCH_E_K1_NONPASSIVE_INCOME, K1_ORDINARY_INCOME)
+      // is intentionally excluded — it is already captured in business EBITDA.
+      // Using AGI (TOTAL_PERSONAL_INCOME) would double-count pass-through income
+      // or losses, producing materially wrong results.
+      const personalIncomeComponents: Array<{
+        factType: string;
+        factKey: string;
+      }> = [
+        { factType: "PERSONAL_INCOME", factKey: "WAGES_W2" },
+        { factType: "PERSONAL_INCOME", factKey: "SCH_E_RENTAL_TOTAL" },
+        { factType: "PERSONAL_INCOME", factKey: "SCH_E_NET" },
+        { factType: "PERSONAL_INCOME", factKey: "TAXABLE_INTEREST" },
+        { factType: "PERSONAL_INCOME", factKey: "ORDINARY_DIVIDENDS" },
+        { factType: "PERSONAL_INCOME", factKey: "SOCIAL_SECURITY" },
+        { factType: "PERSONAL_INCOME", factKey: "IRA_DISTRIBUTIONS" },
+        { factType: "PERSONAL_INCOME", factKey: "PENSION_ANNUITY" },
+        { factType: "PERSONAL_INCOME", factKey: "SCHED_C_NET" },
+      ];
 
+      // Prefer SCH_E_RENTAL_TOTAL over SCH_E_NET to avoid any K-1 contamination
+      // bundled into the combined Schedule E net figure.
+      let hasRentalTotal = false;
+      for (const f of facts) {
+        if (
+          f.owner_type === "PERSONAL" &&
+          f.fact_type === "PERSONAL_INCOME" &&
+          f.fact_key === "SCH_E_RENTAL_TOTAL" &&
+          typeof f.fact_value_num === "number"
+        ) {
+          hasRentalTotal = true;
+          break;
+        }
+      }
+
+      let personalIncomeTotal = 0;
+      let personalIncomePresent = false;
+      let personalIncomeAsOf: string | null = null;
+
+      for (const component of personalIncomeComponents) {
+        if (component.factKey === "SCH_E_NET" && hasRentalTotal) continue;
+        if (component.factKey === "SCH_E_RENTAL_TOTAL" && !hasRentalTotal) continue;
+
+        const sum = sumPersonalFacts({
+          facts,
+          factType: component.factType,
+          factKey: component.factKey,
+        });
+        if (sum.value !== null) {
+          personalIncomeTotal += sum.value;
+          personalIncomePresent = true;
+          personalIncomeAsOf = maxIsoDate(personalIncomeAsOf, sum.asOf);
+        }
+      }
+
+      const personalIncome = {
+        value: personalIncomePresent ? personalIncomeTotal : null,
+        asOf: personalIncomeAsOf,
+      };
+
+      // Personal debt service: derived annual from monthly is stored under the
+      // same PFS_ANNUAL_DEBT_SERVICE key by pfsDeterministic, so this sum
+      // picks it up automatically.
       const personalDebtService = sumPersonalFacts({
         facts,
         factType: "PERSONAL_FINANCIAL_STATEMENT",
@@ -233,9 +292,9 @@ export function globalCashFlowTemplate(): SpreadTemplate {
           // ── Personal Income Section ────────────────────────────────────────
           {
             key: "GCF_PERSONAL_INCOME",
-            label: "Total Personal Income",
+            label: "Personal Income (ex. business pass-through)",
             section: "PERSONAL",
-            values: [makeCell(personalIncome.value, personalIncome.asOf, "SUM(personal_income)")],
+            values: [makeCell(personalIncome.value, personalIncome.asOf, "SUM(wages+rental+interest+dividends+ss+pensions)")],
           },
           // ── Property Section ───────────────────────────────────────────────
           {

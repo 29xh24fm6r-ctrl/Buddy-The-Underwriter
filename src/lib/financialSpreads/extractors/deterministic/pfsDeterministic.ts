@@ -26,6 +26,7 @@ const VALID_LINE_KEYS = new Set([
   "PFS_CONTINGENT", "PFS_OTHER_LIABILITIES", "PFS_TOTAL_LIABILITIES",
   "PFS_NET_WORTH",
   "PFS_ANNUAL_DEBT_SERVICE", "PFS_LIVING_EXPENSES",
+  "PFS_MORTGAGE_PAYMENT_MO",
   // Phase 82: Joint PFS detection keys (string-valued)
   "PFS_IS_JOINT", "PFS_CO_APPLICANT_NAME",
 ]);
@@ -169,6 +170,14 @@ const LABEL_PATTERNS: Array<{ key: string; patterns: RegExp[] }> = [
     ],
   },
   {
+    key: "PFS_MORTGAGE_PAYMENT_MO",
+    patterns: [
+      /monthly\s+(?:mortgage\s+)?(?:payment|pmt)/i,
+      /(?:mortgage|re[12])\s+payment[s]?.*?(?:mo(?:nthly)?|\$)/i,
+      /payment\s+(?:per\s+)?(?:month|mo\.?)/i,
+    ],
+  },
+  {
     key: "PFS_LIVING_EXPENSES",
     patterns: [
       /(?:annual\s+)?living\s+(?:expenses?|costs?)/i,
@@ -246,6 +255,43 @@ export async function extractPfsDeterministic(
     ownerType: "PERSONAL",
     ownerEntityId: args.ownerEntityId ?? null,
   });
+
+  // SBA GCF requires annual personal debt service. PFS forms often only show
+  // monthly mortgage payments. Derive annual from monthly when the annual
+  // figure wasn't directly extracted.
+  const hasAnnualDS = items.some((i) => i.factKey === "PFS_ANNUAL_DEBT_SERVICE");
+  const monthlyPayment = items.find((i) => i.factKey === "PFS_MORTGAGE_PAYMENT_MO");
+  if (!hasAnnualDS && monthlyPayment && monthlyPayment.value !== null && monthlyPayment.value > 0) {
+    const annualDS = monthlyPayment.value * 12;
+    await upsertDealFinancialFact({
+      dealId: args.dealId,
+      bankId: args.bankId,
+      sourceDocumentId: args.documentId,
+      factType: "PERSONAL_FINANCIAL_STATEMENT",
+      factKey: "PFS_ANNUAL_DEBT_SERVICE",
+      factValueNum: annualDS,
+      confidence: 0.65,
+      factPeriodStart: monthlyPayment.periodStart,
+      factPeriodEnd: monthlyPayment.periodEnd,
+      provenance: {
+        source_type: "DOC_EXTRACT",
+        source_ref: `deal_documents:${args.documentId}`,
+        as_of_date: monthlyPayment.periodEnd,
+        extractor: "pfsExtractor:v2:derived_annual_from_monthly",
+        confidence: 0.65,
+        extraction_path: path,
+        citations: [
+          {
+            page: null,
+            snippet: `Derived: PFS_MORTGAGE_PAYMENT_MO (${monthlyPayment.value}) × 12 = ${annualDS}`,
+          },
+        ],
+        raw_snippets: [],
+      } as FinancialFactProvenance,
+      ownerType: "PERSONAL",
+      ownerEntityId: args.ownerEntityId ?? null,
+    });
+  }
 
   // Phase 82: Detect joint PFS and write string facts
   await writeJointPfsStringFacts(args, path);
