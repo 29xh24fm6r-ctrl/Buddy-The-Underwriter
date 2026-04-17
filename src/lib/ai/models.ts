@@ -104,3 +104,15 @@ export const MODEL_COMMITTEE      = OPENAI_CHAT;   // credit committee
 export const MODEL_CONCIERGE      = OPENAI_CHAT;   // borrower concierge
 export const MODEL_RETRIEVAL      = OPENAI_MINI;   // retrieval reranker
 export const MODEL_INTERVIEW      = OPENAI_CHAT;   // interview QA
+
+// ── Model family predicates ───────────────────────────────────────────────
+// Kept here so call sites never need to hardcode model-prefix strings.
+// Gemini 3.x (3-flash-preview, 3.1-pro-preview, …) warn that sub-1.0
+// temperatures cause looping; callers must omit the temperature field
+// entirely for these models and let the server use its default.
+
+/** True when the model belongs to the Gemini 3.x family. */
+export function isGemini3Model(model: string): boolean {
+  // eslint-disable-next-line no-useless-escape
+  return /^gemini-3(\.\d+)?(-|$)/.test(model);
+}

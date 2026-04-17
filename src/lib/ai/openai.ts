@@ -64,11 +64,36 @@ function extractFirstJsonObject(text: string): string | null {
 }
 
 // Phase 93: model strings are centralised in src/lib/ai/models.ts.
-import { GEMINI_FLASH } from "./models";
+import { GEMINI_FLASH, isGemini3Model } from "./models";
 const GEMINI_MODEL = GEMINI_FLASH;
 
 function geminiUrl(apiKey: string, model: string = GEMINI_MODEL) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+}
+
+/**
+ * Gemini 3.x models (3-flash, 3.1-pro) warn that temperatures below 1.0
+ * cause looping and degraded output. Google's published guidance is to
+ * omit temperature entirely for gemini-3.* so the model uses its default.
+ * For prior families (1.5, 2.0, 2.5) we keep the explicit low-temperature
+ * behaviour the app relies on for deterministic JSON output.
+ *
+ * The Gemini-3 family check lives in src/lib/ai/models.ts so call sites
+ * never need to hardcode a model-prefix string (CI gate-safe).
+ */
+function buildGenerationConfig(args: {
+  model: string;
+  temperature: number;
+  maxOutputTokens: number;
+}): Record<string, unknown> {
+  const cfg: Record<string, unknown> = {
+    responseMimeType: "application/json",
+    maxOutputTokens: args.maxOutputTokens,
+  };
+  if (!isGemini3Model(args.model)) {
+    cfg.temperature = args.temperature;
+  }
+  return cfg;
 }
 
 /**
@@ -110,11 +135,11 @@ async function geminiChatJson(args: {
             `${args.jsonSchemaHint}`,
         }],
       }],
-      generationConfig: {
-        responseMimeType: "application/json",
+      generationConfig: buildGenerationConfig({
+        model,
         temperature: 0.1,
         maxOutputTokens: args.maxOutputTokens ?? 4096,
-      },
+      }),
     }),
   });
 
@@ -157,11 +182,11 @@ async function repairToJson(args: {
             `BAD_TEXT:\n${args.badText}`,
         }],
       }],
-      generationConfig: {
-        responseMimeType: "application/json",
+      generationConfig: buildGenerationConfig({
+        model,
         temperature: 0,
         maxOutputTokens: args.maxOutputTokens ?? 4096,
-      },
+      }),
     }),
   });
 
