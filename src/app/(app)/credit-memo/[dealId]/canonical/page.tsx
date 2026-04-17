@@ -12,6 +12,7 @@ import GenerateNarrativesButton from "@/components/creditMemo/GenerateNarratives
 import RunResearchButton from "@/components/creditMemo/RunResearchButton";
 import MemoCompletionWizard from "@/components/creditMemo/MemoCompletionWizard";
 import MemoDataEntryCard from "@/components/creditMemo/MemoDataEntryCard";
+import BankerReviewPanel from "@/components/creditMemo/BankerReviewPanel";
 import TranscriptUploadPanel from "@/components/deals/TranscriptUploadPanel";
 import BankerVoicePanel from "@/components/deals/BankerVoicePanel";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -214,6 +215,12 @@ export default async function CanonicalCreditMemoPage(props: {
             annualDebtService: res.memo.financial_analysis.debt_service.value,
           }}
         />
+
+        {/* Phase 91 Part B: Banker Review Layer — collapsible 4-tab panel
+            covering business profile, qualitative overrides, covenant review,
+            and pre-submission checklist. */}
+        <BankerReviewPanel dealId={dealId} memo={res.memo} />
+
         <CanonicalMemoTemplate memo={res.memo} />
 
         <SpreadsAppendix dealId={dealId} bankId={bankId} />

@@ -26,16 +26,34 @@ export async function POST(
     const { accepted, rejected } = filterQualitativeOverrides(rawOverrides);
 
     const sb = supabaseAdmin();
+
+    // Phase 91: merge into existing overrides rather than overwrite, so that a
+    // partial submission (e.g. covenant-tab save) does not wipe unrelated keys
+    // from other tabs (business profile, qualitative overrides, etc.).
+    const { data: existing } = await sb
+      .from("deal_memo_overrides")
+      .select("overrides")
+      .eq("deal_id", dealId)
+      .eq("bank_id", bankId)
+      .maybeSingle();
+
+    const current = ((existing?.overrides as Record<string, unknown> | null) ?? {});
+    const merged: Record<string, unknown> = { ...current, ...accepted };
+
     const { error } = await sb
       .from("deal_memo_overrides")
       .upsert(
-        { deal_id: dealId, bank_id: bankId, overrides: accepted, updated_at: new Date().toISOString() },
+        { deal_id: dealId, bank_id: bankId, overrides: merged, updated_at: new Date().toISOString() },
         { onConflict: "deal_id,bank_id" },
       );
 
     if (error) throw error;
 
-    return NextResponse.json({ ok: true, rejected: rejected.length > 0 ? rejected : undefined });
+    return NextResponse.json({
+      ok: true,
+      overrides: merged,
+      rejected: rejected.length > 0 ? rejected : undefined,
+    });
   } catch (e: unknown) {
     rethrowNextErrors(e);
     console.error("[credit-memo/overrides POST]", e);

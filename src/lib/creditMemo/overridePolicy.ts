@@ -64,6 +64,23 @@ export const PERMITTED_OVERRIDE_KEYS = new Set([
   "additional_notes",
   "guarantor_notes",
   "structure_notes",
+
+  // Phase 91 Part B — Banker Review Layer
+  // Qualitative-score override blobs (per-dimension { score, reason }).
+  // These are banker judgement, not computed metrics, so they belong here.
+  "qualitative_override_character",
+  "qualitative_override_capital",
+  "qualitative_override_conditions",
+  "qualitative_override_management",
+  "qualitative_override_business_model",
+  "character_concerns",
+  // Covenant package banker review
+  "covenant_banker_notes",
+  "covenant_adjustments",
+  // Pre-submission checklist state
+  "committee_ready",
+  "committee_reviewed_at",
+  "tabs_viewed",
 ]);
 
 /**

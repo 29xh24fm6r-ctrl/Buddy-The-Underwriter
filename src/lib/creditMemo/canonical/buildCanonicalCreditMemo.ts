@@ -820,27 +820,15 @@ export async function buildCanonicalCreditMemo(args: {
       });
     }
 
-    // ===== Phase BS: Build balance sheet table (permanent fix) =====
-    // Reads directly from SL_ keyed facts in deal_financial_facts.
-    // Fully independent of the BALANCE_SHEET spread row in deal_spreads —
-    // will always populate as long as documents have been extracted.
-    // ===== Phase 88: Build ratio analysis suite =====
-    // 26 ratios across Liquidity/Leverage/Coverage/Profitability/Activity,
-    // each with a Strong/Adequate/Weak assessment and benchmark note.
-    // Applicability gating suppresses inventory/CCC for service companies.
-    const [balanceSheetTable, ratioAnalysisSuite] = await Promise.all([
-      buildBalanceSheetTable({ dealId: args.dealId, bankId }),
-      buildRatioAnalysisSuite({ dealId: args.dealId, bankId }),
-    ]);
-
-    // ===== Phase 90 Part A: Stress test table =====
+    // ===== Phase 90 Part A: Stress test table (computed first — its breakeven
+    //       values feed the Phase 91 DealContext passed into the ratio suite).
     // Nine deterministic scenarios (revenue/ebitda haircuts + rate shocks)
     // on EBITDA vs annualDebtService. Wrapped defensively — failure here
     // must NOT fail the whole memo.
     let stressTable: ReturnType<typeof buildStressTestTable> | null = null;
+    const ebitdaForStress = metricValueFromSnapshot({ snapshot, metric: "ebitda", label: "EBITDA" }).value;
+    const revenueForStress = metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Revenue" }).value;
     try {
-      const ebitdaForStress = metricValueFromSnapshot({ snapshot, metric: "ebitda", label: "EBITDA" }).value;
-      const revenueForStress = metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Revenue" }).value;
       const grossProfit = metricValueFromSnapshot({ snapshot, metric: "gross_profit", label: "Gross Profit" }).value;
       const grossMargin =
         grossProfit !== null && revenueForStress !== null && revenueForStress > 0
@@ -855,6 +843,46 @@ export async function buildCanonicalCreditMemo(args: {
     } catch (err) {
       console.warn("[buildCanonicalCreditMemo] buildStressTestTable failed:", err);
     }
+
+    // ===== Phase 91 Part A: Build DealContext for deal-specific ratio interpretations.
+    // Every field is optional — buildRatioAnalysisSuite falls back to generic
+    // phrasing for any null value, so partial context still produces sensible output.
+    const borrowerNameForContext: string | null =
+      (deal as any)?.borrower_name ?? (deal as any)?.display_name ?? (deal as any)?.name ?? null;
+    const businessTypeForContext: string | null =
+      (borrower as any)?.naics_description
+        ?? (typeof overrides?.business_description === "string"
+              ? String(overrides.business_description).split(/[.\n]/)[0].slice(0, 90)
+              : null);
+    const seasonalityForContext: string | null =
+      typeof overrides?.seasonality === "string" && overrides.seasonality.trim()
+        ? String(overrides.seasonality).trim()
+        : null;
+
+    const ratioDealContext = {
+      borrowerName: borrowerNameForContext,
+      loanAmountDollars: loanAmount.value,
+      annualDebtServiceDollars: financial.annualDebtService.value,
+      revenueDollars: revenueForStress,
+      ebitdaDollars: ebitdaForStress,
+      businessType: businessTypeForContext,
+      seasonalityNote: seasonalityForContext,
+      stressBreakevenRevenue: stressTable?.breakeven_revenue_1x ?? null,
+      stressBreakevenEbitda125x: stressTable?.breakeven_ebitda_125x ?? null,
+    };
+
+    // ===== Phase BS: Build balance sheet table (permanent fix) =====
+    // Reads directly from SL_ keyed facts in deal_financial_facts.
+    // Fully independent of the BALANCE_SHEET spread row in deal_spreads —
+    // will always populate as long as documents have been extracted.
+    // ===== Phase 88+91: Build ratio analysis suite =====
+    // 26 ratios across Liquidity/Leverage/Coverage/Profitability/Activity,
+    // each with a Strong/Adequate/Weak assessment, deal-specific interpretation,
+    // and benchmark note. Suppresses inventory/CCC for service companies.
+    const [balanceSheetTable, ratioAnalysisSuite] = await Promise.all([
+      buildBalanceSheetTable({ dealId: args.dealId, bankId }),
+      buildRatioAnalysisSuite({ dealId: args.dealId, bankId, dealContext: ratioDealContext }),
+    ]);
 
     // ===== Phase 90 Part C: Qualitative assessment =====
     // Deterministic five-dimension scoring (Character / Capital / Conditions /
