@@ -66,16 +66,35 @@ function extractFirstJsonObject(text: string): string | null {
 // gemini-2.0-flash is retired — use gemini-3-flash-preview
 const GEMINI_MODEL = "gemini-3-flash-preview";
 
-function geminiUrl(apiKey: string) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+function geminiUrl(apiKey: string, model: string = GEMINI_MODEL) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+}
+
+/**
+ * Extract text from a Gemini generateContent response.
+ * Filters out parts where `thought === true` (thinking-mode reasoning traces)
+ * and concatenates the remaining text parts. Safe for models with thinking
+ * enabled (gemini-2.5-pro-preview) AND disabled (gemini-3-flash-preview).
+ */
+function extractResponseText(json: any): string {
+  const parts = json?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts) || parts.length === 0) return "";
+  const joined = parts
+    .filter((p: { thought?: boolean }) => !p?.thought)
+    .map((p: { text?: string }) => p?.text ?? "")
+    .join("");
+  return joined;
 }
 
 async function geminiChatJson(args: {
   system: string;
   user: string;
   jsonSchemaHint: string;
+  model?: string;
+  maxOutputTokens?: number;
 }) {
-  const r = await fetch(geminiUrl(process.env.GEMINI_API_KEY!), {
+  const model = args.model ?? GEMINI_MODEL;
+  const r = await fetch(geminiUrl(process.env.GEMINI_API_KEY!, model), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -93,7 +112,7 @@ async function geminiChatJson(args: {
       generationConfig: {
         responseMimeType: "application/json",
         temperature: 0.1,
-        maxOutputTokens: 4096,
+        maxOutputTokens: args.maxOutputTokens ?? 4096,
       },
     }),
   });
@@ -104,16 +123,18 @@ async function geminiChatJson(args: {
     throw new Error(msg);
   }
 
-  const outputText = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  return { raw: json, text: String(outputText) };
+  return { raw: json, text: extractResponseText(json) };
 }
 
 async function repairToJson(args: {
   system: string;
   badText: string;
   jsonSchemaHint: string;
+  model?: string;
+  maxOutputTokens?: number;
 }) {
-  const r = await fetch(geminiUrl(process.env.GEMINI_API_KEY!), {
+  const model = args.model ?? GEMINI_MODEL;
+  const r = await fetch(geminiUrl(process.env.GEMINI_API_KEY!, model), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -131,7 +152,7 @@ async function repairToJson(args: {
       generationConfig: {
         responseMimeType: "application/json",
         temperature: 0,
-        maxOutputTokens: 4096,
+        maxOutputTokens: args.maxOutputTokens ?? 4096,
       },
     }),
   });
@@ -142,8 +163,7 @@ async function repairToJson(args: {
     throw new Error(msg);
   }
 
-  const outputText = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  return String(outputText);
+  return extractResponseText(json);
 }
 
 /**
@@ -158,9 +178,13 @@ export async function aiJson<T = Json>(args: {
   system: string;
   user: string;
   jsonSchemaHint: string;
+  /** Override the default gemini-3-flash-preview model. E.g. "gemini-2.5-pro-preview-03-25" for deep-reasoning tasks. */
+  model?: string;
+  /** Override default 4096 maxOutputTokens — useful for deep-reasoning models that may emit thought traces. */
+  maxOutputTokens?: number;
 }): Promise<AiJsonResult<T>> {
   try {
-    const model = GEMINI_MODEL;
+    const model = args.model ?? GEMINI_MODEL;
     const timeoutMs = envInt("AI_TIMEOUT_MS", 20000);
     const maxRetries = envInt("AI_MAX_RETRIES", 2);
 
@@ -201,6 +225,8 @@ export async function aiJson<T = Json>(args: {
           system: args.system,
           user: args.user,
           jsonSchemaHint: args.jsonSchemaHint,
+          model,
+          maxOutputTokens: args.maxOutputTokens,
         }),
         timeoutMs
       );
@@ -258,6 +284,8 @@ export async function aiJson<T = Json>(args: {
             system: args.system,
             badText: resp.text.slice(0, 12000),
             jsonSchemaHint: args.jsonSchemaHint,
+            model,
+            maxOutputTokens: args.maxOutputTokens,
           }),
           timeoutMs
         );
