@@ -495,6 +495,15 @@ export type CanonicalCreditMemoV1 = {
     exceptions: string[];
   };
 
+  // ── STRESS TESTING (Phase 90 Part A) ─────────────────────────────────────
+  stress_testing: import("./buildStressTestTable").StressTestTable | null;
+
+  // ── COVENANT PACKAGE (Phase 90 Part B) ───────────────────────────────────
+  covenant_package: import("@/lib/covenants/covenantTypes").CovenantPackage | null;
+
+  // ── QUALITATIVE ASSESSMENT (Phase 90 Part C) ─────────────────────────────
+  qualitative_assessment: import("./buildQualitativeAssessment").QualitativeAssessment | null;
+
   // ── META ─────────────────────────────────────────────────────────────────
   meta: {
     notes: string[];

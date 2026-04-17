@@ -1,5 +1,8 @@
 import React from "react";
 import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, RatioAnalysisRow, RatioCategory } from "@/lib/creditMemo/canonical/types";
+import type { StressTestTable, StressScenarioRow } from "@/lib/creditMemo/canonical/buildStressTestTable";
+import type { QualitativeAssessment } from "@/lib/creditMemo/canonical/buildQualitativeAssessment";
+import type { CovenantPackage } from "@/lib/covenants/covenantTypes";
 
 // ── Phase 82: Research Trace types ────────────────────────────────────────
 
@@ -278,6 +281,336 @@ function RatioSuiteSection({ rows }: { rows: RatioAnalysisRow[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── Phase 90 Part A — Stress Analysis (Exhibit D) ──────────────────────────
+
+function stressAssessmentTone(a: StressScenarioRow["assessment"]): string {
+  switch (a) {
+    case "Passes":   return "text-emerald-700 bg-emerald-50 border-emerald-200";
+    case "Marginal": return "text-amber-700 bg-amber-50 border-amber-200";
+    case "Fails":    return "text-red-700 bg-red-50 border-red-200";
+    default:         return "text-gray-600 bg-gray-50 border-gray-200";
+  }
+}
+
+function fmtDscr(v: number | null): string {
+  if (v === null || !Number.isFinite(v)) return "—";
+  return `${v.toFixed(2)}x`;
+}
+
+function fmtDscrDelta(v: number | null): string {
+  if (v === null || !Number.isFinite(v)) return "—";
+  const sign = v >= 0 ? "+" : "";
+  return `${sign}${v.toFixed(2)}`;
+}
+
+function fmtMoneyShort(v: number | null): string {
+  if (v === null || !Number.isFinite(v)) return "—";
+  if (Math.abs(v) >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(v) >= 1_000) return `$${Math.round(v / 1_000)}K`;
+  return `$${Math.round(v).toLocaleString()}`;
+}
+
+function StressAnalysisSection({ table }: { table: StressTestTable | null }) {
+  if (!table) return null;
+
+  return (
+    <div className="mt-4">
+      <div className="text-xs font-semibold text-gray-700 mb-1">
+        Exhibit D — Stress Analysis
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-xs">
+          <thead>
+            <tr>
+              <Th>Scenario</Th>
+              <Th right>Stressed EBITDA</Th>
+              <Th right>Stressed ADS</Th>
+              <Th right>Stressed DSCR</Th>
+              <Th right>vs Baseline</Th>
+              <Th>Assessment</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {table.scenarios.map((s, i) => {
+              const isBaseline = s.key === "BASELINE";
+              return (
+                <tr key={s.key} className={isBaseline ? "bg-gray-100 font-medium" : i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                  <Td bold={isBaseline}>{s.label}</Td>
+                  <Td right>{fmtMoneyShort(s.stressed_ebitda)}</Td>
+                  <Td right>{fmtMoneyShort(s.stressed_ads)}</Td>
+                  <Td right bold>{fmtDscr(s.stressed_dscr)}</Td>
+                  <Td right>{isBaseline ? "—" : fmtDscrDelta(s.dscr_delta)}</Td>
+                  <Td>
+                    <span className={`inline-block px-1.5 py-0.5 rounded border text-[10px] font-semibold ${stressAssessmentTone(s.assessment)}`}>
+                      {s.assessment}
+                    </span>
+                  </Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-3 grid grid-cols-4 gap-2 text-xs">
+        <div className="border border-gray-200 rounded p-2">
+          <div className="text-[10px] text-gray-500 uppercase">Breakeven EBITDA (1.0x)</div>
+          <div className="font-semibold mt-0.5">{fmtMoneyShort(table.breakeven_ebitda_1x)}</div>
+        </div>
+        <div className="border border-gray-200 rounded p-2">
+          <div className="text-[10px] text-gray-500 uppercase">Breakeven EBITDA (1.25x)</div>
+          <div className="font-semibold mt-0.5">{fmtMoneyShort(table.breakeven_ebitda_125x)}</div>
+        </div>
+        <div className="border border-gray-200 rounded p-2">
+          <div className="text-[10px] text-gray-500 uppercase">EBITDA Cushion to 1.25x</div>
+          <div className="font-semibold mt-0.5">
+            {table.revenue_cushion_pct !== null ? `${table.revenue_cushion_pct.toFixed(1)}%` : "—"}
+          </div>
+        </div>
+        <div className="border border-gray-200 rounded p-2">
+          <div className="text-[10px] text-gray-500 uppercase">Worst-Case DSCR</div>
+          <div className="font-semibold mt-0.5">{fmtDscr(table.worst_case_dscr)}</div>
+        </div>
+      </div>
+
+      {table.narrative && (
+        <div className="mt-2 text-xs text-gray-700 italic">{table.narrative}</div>
+      )}
+    </div>
+  );
+}
+
+// ── Phase 90 Part B — Covenant Package (Exhibit E) ─────────────────────────
+
+function severityTone(severity: string): string {
+  switch (severity) {
+    case "required":    return "text-red-700 bg-red-50 border-red-200";
+    case "recommended": return "text-amber-700 bg-amber-50 border-amber-200";
+    case "optional":    return "text-gray-700 bg-gray-50 border-gray-200";
+    default:            return "text-gray-700 bg-gray-50 border-gray-200";
+  }
+}
+
+function CovenantPackageSection({ pkg }: { pkg: CovenantPackage | null }) {
+  if (!pkg) return null;
+
+  return (
+    <div className="mt-4">
+      <div className="text-xs font-semibold text-gray-700 mb-1">
+        Exhibit E — Proposed Covenant Package
+      </div>
+      <div className="mb-2 text-xs text-gray-700">{pkg.rationale}</div>
+
+      {pkg.financial.length > 0 && (
+        <div className="mb-3">
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 mt-2 mb-1">Financial Covenants</div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr>
+                  <Th>Covenant</Th>
+                  <Th right>Threshold</Th>
+                  <Th>Frequency</Th>
+                  <Th>Severity</Th>
+                  <Th>Draft Language</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {pkg.financial.map((c, i) => (
+                  <tr key={c.id} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                    <Td bold>{c.name}</Td>
+                    <Td right>
+                      {c.unit === "percentage" ? `${(c.threshold * 100).toFixed(1)}%` :
+                        c.unit === "dollars"   ? fmtMoneyShort(c.threshold) :
+                        c.threshold.toFixed(2)}
+                      {c.unit === "ratio" && "x"}
+                    </Td>
+                    <Td>{c.testingFrequency}</Td>
+                    <Td>
+                      <span className={`inline-block px-1.5 py-0.5 rounded border text-[10px] font-semibold ${severityTone(c.severity)}`}>
+                        {c.severity}
+                      </span>
+                    </Td>
+                    <Td><span className="text-gray-600">{c.draftLanguage}</span></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {pkg.reporting.length > 0 && (
+        <div className="mb-3">
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 mt-2 mb-1">Reporting Requirements</div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr>
+                  <Th>Requirement</Th>
+                  <Th>Frequency</Th>
+                  <Th right>Deadline (days)</Th>
+                  <Th>Draft Language</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {pkg.reporting.map((c, i) => (
+                  <tr key={c.id} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                    <Td bold>{c.name}</Td>
+                    <Td>{c.frequency}</Td>
+                    <Td right>{c.deadlineDays ?? "—"}</Td>
+                    <Td><span className="text-gray-600">{c.draftLanguage}</span></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {pkg.affirmativeNegative.length > 0 && (
+        <div className="mb-3">
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 mt-2 mb-1">Affirmative &amp; Negative Covenants</div>
+          <ul className="text-xs text-gray-700 list-disc ml-4 space-y-0.5">
+            {pkg.affirmativeNegative.map((c) => (
+              <li key={c.id}>
+                <span className="font-semibold">{c.name}</span> ({c.covenantType}): {c.draftLanguage}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {pkg.springing.length > 0 && (
+        <div className="mb-3">
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 mt-2 mb-1">Springing Covenants</div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr>
+                  <Th>Trigger</Th>
+                  <Th>Condition</Th>
+                  <Th>Remedy</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {pkg.springing.map((s, i) => (
+                  <tr key={s.id} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                    <Td bold>{s.name}</Td>
+                    <Td>{s.triggerCondition}</Td>
+                    <Td>{s.remedy}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Phase 90 Part C — Qualitative Assessment (Exhibit F) ───────────────────
+
+function qualitativeTone(label: string): string {
+  switch (label) {
+    case "Strong":       return "text-emerald-700 bg-emerald-50 border-emerald-200";
+    case "Adequate":     return "text-blue-700 bg-blue-50 border-blue-200";
+    case "Marginal":     return "text-amber-700 bg-amber-50 border-amber-200";
+    case "Weak":         return "text-red-700 bg-red-50 border-red-200";
+    case "Insufficient": return "text-gray-700 bg-gray-50 border-gray-200";
+    default:             return "text-gray-700 bg-gray-50 border-gray-200";
+  }
+}
+
+function ScoreStars({ score }: { score: number }) {
+  const filled = Math.max(0, Math.min(5, Math.round(score)));
+  return (
+    <span className="font-mono text-[11px] text-amber-600">
+      {"★".repeat(filled)}
+      <span className="text-gray-300">{"★".repeat(5 - filled)}</span>
+    </span>
+  );
+}
+
+function QualitativeAssessmentSection({ qa }: { qa: QualitativeAssessment | null }) {
+  if (!qa) return null;
+
+  const dims = [
+    { label: "Character", d: qa.character },
+    { label: "Capital", d: qa.capital },
+    { label: "Conditions", d: qa.conditions },
+    { label: "Management", d: qa.management },
+    { label: "Business Model", d: qa.business_model },
+  ];
+
+  return (
+    <div className="mt-4">
+      <div className="text-xs font-semibold text-gray-700 mb-1">
+        Exhibit F — Qualitative Assessment
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-xs">
+          <thead>
+            <tr>
+              <Th>Dimension</Th>
+              <Th>Score</Th>
+              <Th>Label</Th>
+              <Th>Basis</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {dims.map((row, i) => (
+              <tr key={row.label} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                <Td bold>{row.label}</Td>
+                <Td><ScoreStars score={row.d.score} /> <span className="text-[10px] text-gray-500">({row.d.score}/5)</span></Td>
+                <Td>
+                  <span className={`inline-block px-1.5 py-0.5 rounded border text-[10px] font-semibold ${qualitativeTone(row.d.label)}`}>
+                    {row.d.label}
+                  </span>
+                </Td>
+                <Td><span className="text-gray-700">{row.d.basis}</span></Td>
+              </tr>
+            ))}
+            <tr className="bg-gray-100 font-medium">
+              <Td bold>Composite</Td>
+              <Td>
+                <ScoreStars score={qa.composite_score} />{" "}
+                <span className="text-[10px] text-gray-500">({qa.composite_score.toFixed(1)}/5)</span>
+              </Td>
+              <Td>
+                <span className={`inline-block px-1.5 py-0.5 rounded border text-[10px] font-semibold ${qualitativeTone(qa.composite_label)}`}>
+                  {qa.composite_label}
+                </span>
+              </Td>
+              <Td>—</Td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {qa.key_concerns.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Key Concerns</div>
+          <ul className="text-xs text-gray-700 list-disc ml-4 space-y-0.5">
+            {qa.key_concerns.map((c, i) => <li key={`kc-${i}`}>{c}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {qa.underwriting_questions.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Underwriting Questions</div>
+          <ul className="text-xs text-gray-700 list-disc ml-4 space-y-0.5">
+            {qa.underwriting_questions.map((q, i) => <li key={`uq-${i}`}>{q}</li>)}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -970,6 +1303,15 @@ export default function CanonicalMemoTemplate({
 
       {/* Phase 88: Institutional Ratio Suite — categorized with interpretation */}
       <RatioSuiteSection rows={memo.financial_analysis.ratio_analysis} />
+
+      {/* Phase 90 Part A: Stress Analysis — Exhibit D */}
+      <StressAnalysisSection table={memo.stress_testing} />
+
+      {/* Phase 90 Part B: Covenant Package — Exhibit E */}
+      <CovenantPackageSection pkg={memo.covenant_package} />
+
+      {/* Phase 90 Part C: Qualitative Assessment — Exhibit F */}
+      <QualitativeAssessmentSection qa={memo.qualitative_assessment} />
 
       {/* Repayment Ability */}
       {memo.financial_analysis.repayment_notes.length > 0 && (

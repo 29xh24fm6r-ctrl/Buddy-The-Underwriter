@@ -25,6 +25,10 @@ import type { UnderwritingResults } from "@/lib/finance/underwriting/results";
 import { loadResearchForMemo } from "@/lib/creditMemo/canonical/loadResearchForMemo";
 import { buildBalanceSheetTable } from "@/lib/creditMemo/canonical/buildBalanceSheetTable";
 import { buildRatioAnalysisSuite } from "@/lib/creditMemo/canonical/buildRatioAnalysisSuite";
+import { buildStressTestTable } from "@/lib/creditMemo/canonical/buildStressTestTable";
+import { buildQualitativeAssessment } from "@/lib/creditMemo/canonical/buildQualitativeAssessment";
+import { buildCovenantPackage } from "@/lib/covenants/covenantPackageBuilder";
+import type { CovenantPackage, DealType } from "@/lib/covenants/covenantTypes";
 import { computeEvidenceCoverage } from "@/lib/research/evidenceCoverage";
 
 // ---------------------------------------------------------------------------
@@ -98,6 +102,23 @@ function toConditionsProduct(p: string | null | undefined): ConditionsProductTyp
     case "CRE_TERM": case "REFINANCE": return "CRE";
     case "LINE_OF_CREDIT": return "LOC";
     default: return "TERM";
+  }
+}
+
+/**
+ * Phase 90 Part B — derive CovenantPackage DealType from loan product.
+ */
+function toCovenantDealType(p: string | null | undefined): DealType {
+  switch (p) {
+    case "CRE_TERM":
+    case "REFINANCE":
+      return "real_estate";
+    case "SBA_504":
+      return "mixed_use";
+    case "SBA_7A":
+    case "LINE_OF_CREDIT":
+    default:
+      return "operating_company";
   }
 }
 
@@ -675,6 +696,57 @@ export async function buildCanonicalCreditMemo(args: {
       };
     }
 
+    // ===== Phase 90 Part B: Covenant package =====
+    // The covenant rule engine already exists (src/lib/covenants/). We call
+    // it with the deal's metrics post-recommendation. To avoid table bloat
+    // on every memo render, we first check for an existing package and only
+    // build a new one if none exists. Wrapped in try/catch — a failure here
+    // must NOT fail the whole memo.
+    let covenantPackage: CovenantPackage | null = null;
+    try {
+      const { data: existingPkg } = await (sb as any)
+        .from("buddy_covenant_packages")
+        .select("deal_id, generated_at, risk_grade, deal_type, financial_covenants, reporting_covenants, behavioral_covenants, springing_covenants, rationale, customizations, banker_notes, snapshot_hash, rule_engine_version")
+        .eq("deal_id", args.dealId)
+        .order("generated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingPkg) {
+        covenantPackage = {
+          dealId: String(existingPkg.deal_id),
+          generatedAt: String(existingPkg.generated_at),
+          riskGrade: String(existingPkg.risk_grade),
+          dealType: existingPkg.deal_type as DealType,
+          financial: (existingPkg.financial_covenants ?? []) as any,
+          reporting: (existingPkg.reporting_covenants ?? []) as any,
+          affirmativeNegative: (existingPkg.behavioral_covenants ?? []) as any,
+          springing: (existingPkg.springing_covenants ?? []) as any,
+          rationale: String(existingPkg.rationale ?? ""),
+          customizations: (existingPkg.customizations ?? []) as any,
+          bankerNotes: String(existingPkg.banker_notes ?? ""),
+          snapshotHash: existingPkg.snapshot_hash ?? null,
+          ruleEngineVersion: String(existingPkg.rule_engine_version ?? ""),
+        };
+      } else if (hasMinimalData) {
+        // Only create on first render for deals with usable financial data.
+        covenantPackage = await buildCovenantPackage({
+          dealId: args.dealId,
+          riskGrade: recommendation.risk_grade || "B",
+          dealType: toCovenantDealType(loanReq?.product_type),
+          actualDscr: financial.dscrGlobal.value,
+          actualLeverage: metricValueFromSnapshot({ snapshot, metric: "debt_to_equity", label: "Debt-to-Equity" }).value,
+          actualDebtYield: debtYield.value,
+          actualOccupancy: metricValueFromSnapshot({ snapshot, metric: "occupancy_pct", label: "Occupancy %" }).value,
+          actualGlobalCashFlow: bindings.global.globalCashFlow,
+          loanAmount: loanAmount.value,
+        });
+      }
+    } catch (err) {
+      console.warn("[buildCanonicalCreditMemo] buildCovenantPackage failed:", err);
+      covenantPackage = null;
+    }
+
     // ===== Phase 33: Build debt_coverage_table =====
     const debtCoverageTable: DebtCoverageRow[] = [];
     const structuralAds = pricingRow?.annual_debt_service_est
@@ -761,6 +833,47 @@ export async function buildCanonicalCreditMemo(args: {
       buildRatioAnalysisSuite({ dealId: args.dealId, bankId }),
     ]);
 
+    // ===== Phase 90 Part A: Stress test table =====
+    // Nine deterministic scenarios (revenue/ebitda haircuts + rate shocks)
+    // on EBITDA vs annualDebtService. Wrapped defensively — failure here
+    // must NOT fail the whole memo.
+    let stressTable: ReturnType<typeof buildStressTestTable> | null = null;
+    try {
+      const ebitdaForStress = metricValueFromSnapshot({ snapshot, metric: "ebitda", label: "EBITDA" }).value;
+      const revenueForStress = metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Revenue" }).value;
+      const grossProfit = metricValueFromSnapshot({ snapshot, metric: "gross_profit", label: "Gross Profit" }).value;
+      const grossMargin =
+        grossProfit !== null && revenueForStress !== null && revenueForStress > 0
+          ? grossProfit / revenueForStress
+          : null;
+      stressTable = buildStressTestTable({
+        ebitda: ebitdaForStress,
+        annualDebtService: financial.annualDebtService.value,
+        revenue: revenueForStress,
+        grossMargin,
+      });
+    } catch (err) {
+      console.warn("[buildCanonicalCreditMemo] buildStressTestTable failed:", err);
+    }
+
+    // ===== Phase 90 Part C: Qualitative assessment =====
+    // Deterministic five-dimension scoring (Character / Capital / Conditions /
+    // Management / Business Model) from snapshot + research + overrides.
+    // No LLM calls.
+    let qualitativeAssessment: ReturnType<typeof buildQualitativeAssessment> | null = null;
+    try {
+      qualitativeAssessment = buildQualitativeAssessment({
+        snapshot,
+        ownerEntities,
+        research: researchData,
+        overrides,
+        loanAmount: loanAmount.value,
+        naicsCode: borrower?.naics_code ?? null,
+      });
+    } catch (err) {
+      console.warn("[buildCanonicalCreditMemo] buildQualitativeAssessment failed:", err);
+    }
+
     // ===== Phase 33: Build strengths & weaknesses =====
     const strengths: Array<{ point: string; detail: string | null }> = [];
     const weaknesses: Array<{ point: string; mitigant: string | null }> = [];
@@ -779,6 +892,22 @@ export async function buildCanonicalCreditMemo(args: {
       strengths.push({ point: `Adequate debt service coverage (${financial.dscrGlobal.value.toFixed(2)}x)`, detail: null });
     } else if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value < 1.25) {
       weaknesses.push({ point: `DSCR below policy minimum (${financial.dscrGlobal.value.toFixed(2)}x < 1.25x)`, mitigant: "Enhanced monitoring required" });
+    }
+
+    // ===== Phase 90 Part C: Enrich strengths/weaknesses from qualitative composite =====
+    if (qualitativeAssessment) {
+      const composite = qualitativeAssessment.composite_label;
+      if (composite === "Strong") {
+        strengths.push({
+          point: `Strong qualitative profile (composite ${qualitativeAssessment.composite_score.toFixed(1)}/5)`,
+          detail: qualitativeAssessment.key_strengths.slice(0, 2).join("; ") || null,
+        });
+      } else if (composite === "Marginal" || composite === "Weak") {
+        weaknesses.push({
+          point: `${composite} qualitative profile (composite ${qualitativeAssessment.composite_score.toFixed(1)}/5)`,
+          mitigant: qualitativeAssessment.key_concerns[0] ?? null,
+        });
+      }
     }
 
     // ===== Phase 33: Build eligibility =====
@@ -1002,14 +1131,23 @@ export async function buildCanonicalCreditMemo(args: {
         income_statement_table: incomeStatementTable,
         balance_sheet_table: balanceSheetTable,
         ratio_analysis: ratioAnalysisSuite,
-        breakeven: {
-          required_revenue: null,
-          required_cogs: null,
-          fixed_expenses: null,
-          ebitda_at_breakeven: null,
-          revenue_cushion_pct: null,
-          narrative: "Pending — financial data required to compute breakeven analysis.",
-        },
+        breakeven: stressTable
+          ? {
+              required_revenue: stressTable.breakeven_revenue_1x,
+              required_cogs: null,
+              fixed_expenses: null,
+              ebitda_at_breakeven: stressTable.breakeven_ebitda_125x,
+              revenue_cushion_pct: stressTable.revenue_cushion_pct,
+              narrative: stressTable.narrative,
+            }
+          : {
+              required_revenue: null,
+              required_cogs: null,
+              fixed_expenses: null,
+              ebitda_at_breakeven: null,
+              revenue_cushion_pct: null,
+              narrative: "Pending — financial data required to compute breakeven analysis.",
+            },
         repayment_notes: [],
         projection_feasibility: "Pending",
       },
@@ -1127,6 +1265,11 @@ export async function buildCanonicalCreditMemo(args: {
           };
         }
       })(),
+
+      // Phase 90: stress testing, covenant package, qualitative assessment
+      stress_testing: stressTable,
+      covenant_package: covenantPackage,
+      qualitative_assessment: qualitativeAssessment,
 
       meta: {
         notes: [],
