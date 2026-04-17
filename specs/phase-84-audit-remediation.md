@@ -193,12 +193,14 @@ DECLARE
   -- Tables with direct bank_id column
   tables_with_bank_id text[] := ARRAY[
     'deal_financial_facts','deal_spreads','canonical_memo_narratives',
-    'credit_memo_drafts','credit_memo_snapshots',
     'document_artifacts','deal_truth_events',
     'deal_upload_sessions','deal_upload_session_files'
   ];
   -- Tables with only deal_id — scope via deals lookup
+  -- (credit_memo_drafts, credit_memo_snapshots moved here after schema check
+  --  showed no bank_id column — see Phase 84 T-01 AAR)
   tables_deal_only text[] := ARRAY[
+    'credit_memo_drafts','credit_memo_snapshots',
     'credit_memo_citations','document_ocr_words','document_ocr_page_map',
     'memo_runs','risk_runs'
   ];
