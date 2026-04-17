@@ -375,8 +375,8 @@ describe("V2 adapter: layout contract", () => {
     const { STANDARD_ROWS } = await import("@/lib/financialSpreads/standard/mapping");
     const vm = renderFromFinancialModel(MODEL);
     assert.equal(vm.meta.rowCount, STANDARD_ROWS.length);
-    // 65 rows: BS(21) + IS(17) + CF(4) + Ratios(16) + Exec(7)
-    assert.equal(vm.meta.rowCount, 65);
+    // 88 rows: BS(21) + IS(17) + CF(4) + Ratios(35) + Exec(11) — Phase 85 institutional suite
+    assert.equal(vm.meta.rowCount, 88);
   });
 });
 

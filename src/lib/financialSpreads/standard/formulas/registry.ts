@@ -302,6 +302,132 @@ export const STANDARD_FORMULAS: Record<string, StandardFormula> = {
     sourcePages: [4],
   },
 
+  // ── God-Tier Liquidity ─────────────────────────────────────────────────────
+
+  CASH_RATIO: {
+    id: "CASH_RATIO",
+    expr: "CASH_AND_EQUIVALENTS / TOTAL_CURRENT_LIABILITIES",
+    metricRegistryId: "CASH_RATIO",
+    precision: 2,
+    sourcePages: [4],
+  },
+
+  DAYS_CASH_ON_HAND: {
+    id: "DAYS_CASH_ON_HAND",
+    expr: "CASH_AND_EQUIVALENTS / TOTAL_OPERATING_EXPENSES * 365",
+    metricRegistryId: "DAYS_CASH_ON_HAND",
+    precision: 0,
+    sourcePages: [4],
+  },
+
+  // ── God-Tier Leverage ──────────────────────────────────────────────────────
+
+  FIXED_ASSETS_NW: {
+    id: "FIXED_ASSETS_NW",
+    expr: "FIXED_ASSETS_NET / NET_WORTH",
+    metricRegistryId: "FIXED_ASSETS_NW",
+    precision: 2,
+    sourcePages: [4],
+  },
+
+  CL_NW: {
+    id: "CL_NW",
+    expr: "TOTAL_CURRENT_LIABILITIES / NET_WORTH",
+    metricRegistryId: "CL_NW",
+    precision: 2,
+    sourcePages: [4],
+  },
+
+  DEBT_EBITDA: {
+    id: "DEBT_EBITDA",
+    expr: "TOTAL_LIABILITIES / EBITDA",
+    metricRegistryId: "DEBT_TO_EBITDA",
+    precision: 2,
+    sourcePages: [4],
+  },
+
+  TANGIBLE_NET_WORTH: {
+    id: "TANGIBLE_NET_WORTH",
+    expr: "NET_WORTH - INTANGIBLES_NET",
+    metricRegistryId: "TANGIBLE_NET_WORTH",
+    precision: 0,
+    sourcePages: [4],
+  },
+
+  LIABILITIES_TO_TNW: {
+    id: "LIABILITIES_TO_TNW",
+    expr: "TOTAL_LIABILITIES / TANGIBLE_NET_WORTH",
+    metricRegistryId: "LIABILITIES_TO_TNW",
+    precision: 2,
+    sourcePages: [4],
+  },
+
+  NET_DEBT: {
+    id: "NET_DEBT",
+    expr: "TOTAL_LIABILITIES - CASH_AND_EQUIVALENTS",
+    metricRegistryId: "NET_DEBT",
+    precision: 0,
+    sourcePages: [4],
+  },
+
+  // ── God-Tier Activity / Efficiency ─────────────────────────────────────────
+
+  AR_TURNOVER: {
+    id: "AR_TURNOVER",
+    expr: "TOTAL_REVENUE / ACCOUNTS_RECEIVABLE",
+    metricRegistryId: "AR_TURNOVER",
+    precision: 2,
+    sourcePages: [4],
+  },
+
+  INVENTORY_TURNOVER: {
+    id: "INVENTORY_TURNOVER",
+    expr: "COST_OF_GOODS_SOLD / INVENTORY",
+    metricRegistryId: "INVENTORY_TURNOVER",
+    precision: 2,
+    sourcePages: [4],
+  },
+
+  DIO: {
+    id: "DIO",
+    expr: "INVENTORY / COST_OF_GOODS_SOLD * 365",
+    metricRegistryId: "DIO",
+    precision: 0,
+    sourcePages: [4],
+  },
+
+  DPO: {
+    id: "DPO",
+    expr: "ACCOUNTS_PAYABLE / COST_OF_GOODS_SOLD * 365",
+    metricRegistryId: "DPO",
+    precision: 0,
+    sourcePages: [4],
+  },
+
+  CCC: {
+    id: "CCC",
+    expr: "DSO + DIO - DPO",
+    metricRegistryId: "CCC",
+    precision: 0,
+    sourcePages: [4],
+  },
+
+  FIXED_ASSET_TURNOVER: {
+    id: "FIXED_ASSET_TURNOVER",
+    expr: "TOTAL_REVENUE / FIXED_ASSETS_NET",
+    metricRegistryId: "FIXED_ASSET_TURNOVER",
+    precision: 2,
+    sourcePages: [4],
+  },
+
+  WORKING_CAPITAL_TURNOVER: {
+    id: "WORKING_CAPITAL_TURNOVER",
+    expr: "TOTAL_REVENUE / WORKING_CAPITAL",
+    metricRegistryId: "WORKING_CAPITAL_TURNOVER",
+    precision: 2,
+    sourcePages: [4],
+  },
+
   // ── CRE metrics (kept for T12/RentRoll/GCF templates) ──────────────────────
 
   EBITDA: {

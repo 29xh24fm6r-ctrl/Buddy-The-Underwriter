@@ -105,31 +105,50 @@ const CF_ROWS: StandardRow[] = [
 // ── Ratios ────────────────────────────────────────────────────────────────────
 
 const RATIO_ROWS: StandardRow[] = [
-  // Liquidity
-  { statement: "RATIOS", section: "Liquidity", order: 100, label: "Working Capital", key: "R_WORKING_CAPITAL", formulaId: "WORKING_CAPITAL", precision: 0, sourcePages: [4] },
+  // ── LIQUIDITY ─────────────────────────────────────────────────────────────
+  { statement: "RATIOS", section: "Liquidity", order: 100, label: "Working Capital ($)", key: "R_WORKING_CAPITAL", formulaId: "WORKING_CAPITAL", precision: 0, sourcePages: [4] },
   { statement: "RATIOS", section: "Liquidity", order: 110, label: "Current Ratio", key: "R_CURRENT_RATIO", formulaId: "CURRENT_RATIO", precision: 2, sourcePages: [4] },
-  { statement: "RATIOS", section: "Liquidity", order: 120, label: "Quick Ratio", key: "R_QUICK_RATIO", formulaId: "QUICK_RATIO", precision: 2, sourcePages: [4] },
-  { statement: "RATIOS", section: "Liquidity", order: 130, label: "Net Sales / Working Capital", key: "R_SALES_WORKING_CAPITAL", formulaId: "SALES_WORKING_CAPITAL", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Liquidity", order: 120, label: "Quick Ratio (Acid Test)", key: "R_QUICK_RATIO", formulaId: "QUICK_RATIO", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Liquidity", order: 130, label: "Cash Ratio", key: "R_CASH_RATIO", formulaId: "CASH_RATIO", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Liquidity", order: 140, label: "Days Cash on Hand", key: "R_DAYS_CASH", formulaId: "DAYS_CASH_ON_HAND", precision: 0, sourcePages: [4] },
+  { statement: "RATIOS", section: "Liquidity", order: 150, label: "Net Sales / Working Capital", key: "R_SALES_WORKING_CAPITAL", formulaId: "SALES_WORKING_CAPITAL", precision: 2, sourcePages: [4] },
 
-  // Leverage
+  // ── LEVERAGE ─────────────────────────────────────────────────────────────
   { statement: "RATIOS", section: "Leverage", order: 200, label: "Debt / Worth", key: "R_DEBT_TO_EQUITY", formulaId: "DEBT_TO_EQUITY", precision: 2, sourcePages: [4] },
   { statement: "RATIOS", section: "Leverage", order: 210, label: "Total Liabilities / Total Assets", key: "R_LIABILITIES_ASSETS", formulaId: "LIABILITIES_ASSETS", precision: 4, isPercent: true, sourcePages: [4] },
+  { statement: "RATIOS", section: "Leverage", order: 220, label: "Fixed Assets / Net Worth", key: "R_FIXED_ASSETS_NW", formulaId: "FIXED_ASSETS_NW", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Leverage", order: 230, label: "Current Liabilities / Net Worth", key: "R_CL_NW", formulaId: "CL_NW", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Leverage", order: 240, label: "Debt / EBITDA Multiple", key: "R_DEBT_EBITDA", formulaId: "DEBT_EBITDA", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Leverage", order: 250, label: "Tangible Net Worth", key: "R_TANGIBLE_NW", formulaId: "TANGIBLE_NET_WORTH", precision: 0, sourcePages: [4] },
+  { statement: "RATIOS", section: "Leverage", order: 260, label: "Total Liabilities / Tangible Net Worth", key: "R_LIAB_TNW", formulaId: "LIABILITIES_TO_TNW", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Leverage", order: 270, label: "Net Debt ($)", key: "R_NET_DEBT", formulaId: "NET_DEBT", precision: 0, sourcePages: [4] },
 
-  // Coverage
+  // ── COVERAGE ─────────────────────────────────────────────────────────────
   { statement: "RATIOS", section: "Coverage", order: 300, label: "EBITDA ($)", key: "R_EBITDA_DOLLARS", formulaId: "EBITDA", precision: 0, sourcePages: [4] },
-  { statement: "RATIOS", section: "Coverage", order: 310, label: "Interest Coverage", key: "R_INTEREST_COVERAGE", formulaId: "INTEREST_COVERAGE", precision: 2, sourcePages: [4] },
-  { statement: "RATIOS", section: "Coverage", order: 320, label: "Fixed Charge Coverage", key: "R_FIXED_CHARGE_COVERAGE", formulaId: "FIXED_CHARGE_COVERAGE", precision: 2, sourcePages: [4] },
-  { statement: "RATIOS", section: "Coverage", order: 330, label: "DSCR", key: "R_DSCR", formulaId: "DSCR", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Coverage", order: 310, label: "Interest Coverage (TIE)", key: "R_INTEREST_COVERAGE", formulaId: "INTEREST_COVERAGE", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Coverage", order: 320, label: "Fixed Charge Coverage (FCCR)", key: "R_FIXED_CHARGE_COVERAGE", formulaId: "FIXED_CHARGE_COVERAGE", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Coverage", order: 330, label: "Debt Service Coverage (DSCR)", key: "R_DSCR", formulaId: "DSCR", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Coverage", order: 340, label: "DSCR (Stressed +300bps)", key: "R_DSCR_STRESSED", formulaId: "DSCR_STRESSED_300BPS", precision: 2, sourcePages: [4] },
 
-  // Profitability
+  // ── PROFITABILITY ────────────────────────────────────────────────────────
   { statement: "RATIOS", section: "Profitability", order: 400, label: "Gross Margin %", key: "R_GROSS_MARGIN", formulaId: "GROSS_MARGIN", precision: 4, isPercent: true, sourcePages: [4] },
   { statement: "RATIOS", section: "Profitability", order: 410, label: "Operating Expense %", key: "R_OPEX_PCT", formulaId: "OPEX_PCT", precision: 4, isPercent: true, sourcePages: [4] },
   { statement: "RATIOS", section: "Profitability", order: 420, label: "Operating Profit Margin %", key: "R_OPERATING_PROFIT_MARGIN", formulaId: "OPERATING_PROFIT_MARGIN", precision: 4, isPercent: true, sourcePages: [4] },
-  { statement: "RATIOS", section: "Profitability", order: 430, label: "Net Margin %", key: "R_NET_MARGIN", formulaId: "NET_MARGIN", precision: 4, isPercent: true, sourcePages: [4] },
+  { statement: "RATIOS", section: "Profitability", order: 430, label: "EBITDA Margin %", key: "R_EBITDA_MARGIN", formulaId: "EBITDA_MARGIN", precision: 4, isPercent: true, sourcePages: [4] },
+  { statement: "RATIOS", section: "Profitability", order: 440, label: "Net Profit Margin %", key: "R_NET_MARGIN", formulaId: "NET_MARGIN", precision: 4, isPercent: true, sourcePages: [4] },
+  { statement: "RATIOS", section: "Profitability", order: 450, label: "Return on Assets (ROA)", key: "R_ROA", formulaId: "ROA", precision: 4, isPercent: true, sourcePages: [4] },
+  { statement: "RATIOS", section: "Profitability", order: 460, label: "Return on Equity (ROE)", key: "R_ROE", formulaId: "ROE", precision: 4, isPercent: true, sourcePages: [4] },
 
-  // Activity
-  { statement: "RATIOS", section: "Activity", order: 500, label: "Net AR Days", key: "R_AR_DAYS", formulaId: "AR_DAYS", precision: 0, sourcePages: [4] },
-  { statement: "RATIOS", section: "Activity", order: 510, label: "Net Sales / Total Assets", key: "R_SALES_TOTAL_ASSETS", formulaId: "SALES_TOTAL_ASSETS", precision: 2, sourcePages: [4] },
+  // ── ACTIVITY / EFFICIENCY ────────────────────────────────────────────────
+  { statement: "RATIOS", section: "Activity", order: 500, label: "Net AR Days (DSO)", key: "R_AR_DAYS", formulaId: "AR_DAYS", precision: 0, sourcePages: [4] },
+  { statement: "RATIOS", section: "Activity", order: 510, label: "AR Turnover", key: "R_AR_TURNOVER", formulaId: "AR_TURNOVER", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Activity", order: 520, label: "Inventory Turnover", key: "R_INVENTORY_TURNOVER", formulaId: "INVENTORY_TURNOVER", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Activity", order: 530, label: "Days Inventory Outstanding (DIO)", key: "R_DIO", formulaId: "DIO", precision: 0, sourcePages: [4] },
+  { statement: "RATIOS", section: "Activity", order: 540, label: "Days Payable Outstanding (DPO)", key: "R_DPO", formulaId: "DPO", precision: 0, sourcePages: [4] },
+  { statement: "RATIOS", section: "Activity", order: 550, label: "Cash Conversion Cycle (CCC, days)", key: "R_CCC", formulaId: "CCC", precision: 0, sourcePages: [4] },
+  { statement: "RATIOS", section: "Activity", order: 560, label: "Asset Turnover", key: "R_SALES_TOTAL_ASSETS", formulaId: "SALES_TOTAL_ASSETS", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Activity", order: 570, label: "Fixed Asset Turnover", key: "R_FIXED_ASSET_TURNOVER", formulaId: "FIXED_ASSET_TURNOVER", precision: 2, sourcePages: [4] },
+  { statement: "RATIOS", section: "Activity", order: 580, label: "Working Capital Turnover", key: "R_WC_TURNOVER", formulaId: "WORKING_CAPITAL_TURNOVER", precision: 2, sourcePages: [4] },
 ];
 
 // ── Executive Summary (Key Metrics) ──────────────────────────────────────────
@@ -142,6 +161,10 @@ const EXEC_ROWS: StandardRow[] = [
   { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 140, label: "EBITDA", key: "ES_EBITDA", formulaId: "EBITDA", precision: 0, sourcePages: [] },
   { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 150, label: "DSCR", key: "ES_DSCR", formulaId: "DSCR", precision: 2, sourcePages: [] },
   { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 160, label: "Current Ratio", key: "ES_CURRENT_RATIO", formulaId: "CURRENT_RATIO", precision: 2, sourcePages: [] },
+  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 165, label: "Quick Ratio", key: "ES_QUICK_RATIO", formulaId: "QUICK_RATIO", precision: 2, sourcePages: [] },
+  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 170, label: "Debt / Worth", key: "ES_DEBT_WORTH", formulaId: "DEBT_TO_EQUITY", precision: 2, sourcePages: [] },
+  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 175, label: "EBITDA Margin", key: "ES_EBITDA_MARGIN", formulaId: "EBITDA_MARGIN", precision: 4, isPercent: true, sourcePages: [] },
+  { statement: "EXEC_SUMMARY", section: "Key Metrics", order: 180, label: "Global DSCR", key: "ES_GCF_DSCR", formulaId: "GCF_DSCR", precision: 2, sourcePages: [] },
 ];
 
 // ── Assembled Registry ────────────────────────────────────────────────────────

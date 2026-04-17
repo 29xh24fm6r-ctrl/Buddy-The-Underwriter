@@ -685,6 +685,28 @@ const WORKING_CAPITAL_TURNOVER: MetricDefinition = {
   version: 1,
 };
 
+// ── God Tier Ratios — Asset Composition ─────────────────────────────────────
+
+const FIXED_ASSETS_NW: MetricDefinition = {
+  id: "FIXED_ASSETS_NW",
+  label: "Fixed Assets / Net Worth",
+  expr: "FIXED_ASSETS_NET / NET_WORTH",
+  precision: 2,
+  requiredFacts: ["FIXED_ASSETS_NET", "NET_WORTH"],
+  applicableTo: ALL,
+  version: 1,
+};
+
+const CL_NW: MetricDefinition = {
+  id: "CL_NW",
+  label: "Current Liabilities / Net Worth",
+  expr: "TOTAL_CURRENT_LIABILITIES / NET_WORTH",
+  precision: 2,
+  requiredFacts: ["TOTAL_CURRENT_LIABILITIES", "NET_WORTH"],
+  applicableTo: ALL,
+  version: 1,
+};
+
 // ── God Tier Ratios — Growth ────────────────────────────────────────────────
 
 const REVENUE_GROWTH_PCT: MetricDefinition = {
@@ -783,6 +805,9 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
   CASH_RATIO,
   DAYS_CASH_ON_HAND,
   WORKING_CAPITAL_TURNOVER,
+  // God Tier — Asset Composition
+  FIXED_ASSETS_NW,
+  CL_NW,
   // God Tier — Growth
   REVENUE_GROWTH_PCT,
   EBITDA_GROWTH_PCT,
