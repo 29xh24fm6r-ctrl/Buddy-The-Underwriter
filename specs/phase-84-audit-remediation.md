@@ -196,14 +196,16 @@ DECLARE
     'document_artifacts','deal_truth_events',
     'deal_upload_sessions','deal_upload_session_files'
   ];
-  -- Tables with only deal_id — scope via deals lookup
+  -- Tables with only uuid-typed deal_id — scope via deals lookup
   -- (credit_memo_drafts, credit_memo_snapshots moved here after schema check
   --  showed no bank_id column — see Phase 84 T-01 AAR)
-  tables_deal_only text[] := ARRAY[
+  tables_deal_only_uuid text[] := ARRAY[
     'credit_memo_drafts','credit_memo_snapshots',
-    'credit_memo_citations','document_ocr_words','document_ocr_page_map',
-    'memo_runs','risk_runs'
+    'credit_memo_citations','document_ocr_words','document_ocr_page_map'
   ];
+  -- Tables with text-typed deal_id — cast deals.id to text for predicate
+  -- (memo_runs, risk_runs store deal_id as text, not uuid — see AAR)
+  tables_deal_only_text text[] := ARRAY['memo_runs','risk_runs'];
 BEGIN
   -- Enable RLS + service-role pass-through + bank_id-scoped authenticated policy
   FOREACH t IN ARRAY tables_with_bank_id LOOP
@@ -221,8 +223,8 @@ BEGIN
     );
   END LOOP;
 
-  -- Tables with only deal_id: join to deals.bank_id
-  FOREACH t IN ARRAY tables_deal_only LOOP
+  -- Tables with uuid-typed deal_id: join to deals.bank_id (direct)
+  FOREACH t IN ARRAY tables_deal_only_uuid LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', t);
     EXECUTE format(
       'CREATE POLICY %I ON public.%I FOR ALL TO service_role USING (true) WITH CHECK (true);',
@@ -234,6 +236,25 @@ BEGIN
          USING (EXISTS (
            SELECT 1 FROM public.deals d 
            WHERE d.id = %I.deal_id 
+             AND d.bank_id::text = COALESCE(current_setting('request.jwt.claims', true)::jsonb->>'bank_id', '')
+         ));$q$,
+      'phase84a_' || t || '_tenant_scope', t, t
+    );
+  END LOOP;
+
+  -- Tables with text-typed deal_id: cast deals.id to text for predicate
+  FOREACH t IN ARRAY tables_deal_only_text LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', t);
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR ALL TO service_role USING (true) WITH CHECK (true);',
+      'phase84a_' || t || '_service_role', t
+    );
+    EXECUTE format(
+      $q$CREATE POLICY %I ON public.%I 
+         FOR ALL TO authenticated 
+         USING (EXISTS (
+           SELECT 1 FROM public.deals d 
+           WHERE d.id::text = %I.deal_id 
              AND d.bank_id::text = COALESCE(current_setting('request.jwt.claims', true)::jsonb->>'bank_id', '')
          ));$q$,
       'phase84a_' || t || '_tenant_scope', t, t
