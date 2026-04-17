@@ -1,5 +1,5 @@
 import React from "react";
-import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow } from "@/lib/creditMemo/canonical/types";
+import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, RatioAnalysisRow, RatioCategory } from "@/lib/creditMemo/canonical/types";
 
 // ── Phase 82: Research Trace types ────────────────────────────────────────
 
@@ -177,6 +177,107 @@ function DebtCoverageTable({ rows }: { rows: DebtCoverageRow[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ── Ratio Suite (Phase 88 — institutional ratio analysis, categorized) ────
+
+function formatRatioValue(value: number | null, unit: RatioAnalysisRow["unit"]): string {
+  if (value === null || !Number.isFinite(value)) return "—";
+  switch (unit) {
+    case "percent":
+      return `${(value * 100).toFixed(1)}%`;
+    case "currency":
+      if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+      if (Math.abs(value) >= 1_000) return `$${Math.round(value / 1_000)}K`;
+      return `$${Math.round(value).toLocaleString()}`;
+    case "days":
+      return `${Math.round(value)}d`;
+    case "times":
+      return `${value.toFixed(2)}x`;
+    case "ratio":
+    default:
+      return value.toFixed(2);
+  }
+}
+
+function assessmentTone(a: RatioAnalysisRow["assessment"]): string {
+  switch (a) {
+    case "Strong": return "text-emerald-700 bg-emerald-50 border-emerald-200";
+    case "Adequate": return "text-amber-700 bg-amber-50 border-amber-200";
+    case "Weak": return "text-red-700 bg-red-50 border-red-200";
+    default: return "text-gray-600 bg-gray-50 border-gray-200";
+  }
+}
+
+const RATIO_CATEGORY_ORDER: RatioCategory[] = [
+  "Liquidity",
+  "Leverage",
+  "Coverage",
+  "Profitability",
+  "Activity",
+];
+
+function RatioSuiteSection({ rows }: { rows: RatioAnalysisRow[] }) {
+  if (!rows.length) return null;
+
+  const byCategory = new Map<RatioCategory, RatioAnalysisRow[]>();
+  for (const r of rows) {
+    const cat = (r.category ?? "Liquidity") as RatioCategory;
+    if (!byCategory.has(cat)) byCategory.set(cat, []);
+    byCategory.get(cat)!.push(r);
+  }
+
+  return (
+    <div className="mt-4">
+      <div className="text-xs font-semibold text-gray-700 mb-1">
+        Exhibit C — Institutional Ratio Analysis
+      </div>
+      {RATIO_CATEGORY_ORDER.map((cat) => {
+        const catRows = byCategory.get(cat);
+        if (!catRows || catRows.length === 0) return null;
+        return (
+          <div key={cat} className="mb-3">
+            <div className="text-[11px] uppercase tracking-wide text-gray-500 mt-2 mb-1">
+              {cat}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-xs">
+                <thead>
+                  <tr>
+                    <Th>Ratio</Th>
+                    <Th right>Value</Th>
+                    <Th>Assessment</Th>
+                    <Th>Interpretation</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {catRows.map((r, i) => (
+                    <tr key={`${cat}-${r.metric}-${i}`} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                      <Td bold>{r.metric}</Td>
+                      <Td right bold>{formatRatioValue(r.value, r.unit)}</Td>
+                      <Td>
+                        {r.assessment ? (
+                          <span className={`inline-block px-1.5 py-0.5 rounded border text-[10px] font-semibold ${assessmentTone(r.assessment)}`}>
+                            {r.assessment}
+                          </span>
+                        ) : "—"}
+                      </Td>
+                      <Td>
+                        <div className="text-gray-700">{r.interpretation ?? ""}</div>
+                        {r.benchmark_note && (
+                          <div className="text-[10px] text-gray-500 mt-0.5">{r.benchmark_note}</div>
+                        )}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -866,6 +967,9 @@ export default function CanonicalMemoTemplate({
       {/* Income Statement Table */}
       <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">Exhibit B — Income Statement (Multi-Period)</div>
       <IncomeStatementTable rows={memo.financial_analysis.income_statement_table} />
+
+      {/* Phase 88: Institutional Ratio Suite — categorized with interpretation */}
+      <RatioSuiteSection rows={memo.financial_analysis.ratio_analysis} />
 
       {/* Repayment Ability */}
       {memo.financial_analysis.repayment_notes.length > 0 && (

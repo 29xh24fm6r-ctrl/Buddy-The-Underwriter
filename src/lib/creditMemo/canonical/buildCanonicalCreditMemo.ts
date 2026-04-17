@@ -24,6 +24,7 @@ import { computeUnderwritingVerdict } from "@/lib/finance/underwriting/computeVe
 import type { UnderwritingResults } from "@/lib/finance/underwriting/results";
 import { loadResearchForMemo } from "@/lib/creditMemo/canonical/loadResearchForMemo";
 import { buildBalanceSheetTable } from "@/lib/creditMemo/canonical/buildBalanceSheetTable";
+import { buildRatioAnalysisSuite } from "@/lib/creditMemo/canonical/buildRatioAnalysisSuite";
 import { computeEvidenceCoverage } from "@/lib/research/evidenceCoverage";
 
 // ---------------------------------------------------------------------------
@@ -751,7 +752,14 @@ export async function buildCanonicalCreditMemo(args: {
     // Reads directly from SL_ keyed facts in deal_financial_facts.
     // Fully independent of the BALANCE_SHEET spread row in deal_spreads —
     // will always populate as long as documents have been extracted.
-    const balanceSheetTable = await buildBalanceSheetTable({ dealId: args.dealId, bankId });
+    // ===== Phase 88: Build ratio analysis suite =====
+    // 26 ratios across Liquidity/Leverage/Coverage/Profitability/Activity,
+    // each with a Strong/Adequate/Weak assessment and benchmark note.
+    // Applicability gating suppresses inventory/CCC for service companies.
+    const [balanceSheetTable, ratioAnalysisSuite] = await Promise.all([
+      buildBalanceSheetTable({ dealId: args.dealId, bankId }),
+      buildRatioAnalysisSuite({ dealId: args.dealId, bankId }),
+    ]);
 
     // ===== Phase 33: Build strengths & weaknesses =====
     const strengths: Array<{ point: string; detail: string | null }> = [];
@@ -993,7 +1001,7 @@ export async function buildCanonicalCreditMemo(args: {
         debt_coverage_table: debtCoverageTable,
         income_statement_table: incomeStatementTable,
         balance_sheet_table: balanceSheetTable,
-        ratio_analysis: [],
+        ratio_analysis: ratioAnalysisSuite,
         breakeven: {
           required_revenue: null,
           required_cogs: null,

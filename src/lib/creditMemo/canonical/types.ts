@@ -87,13 +87,29 @@ export type BalanceSheetRow = {
 };
 
 // ── Ratio Analysis Row ────────────────────────────────────────────────────
+export type RatioCategory =
+  | "Liquidity"
+  | "Leverage"
+  | "Coverage"
+  | "Profitability"
+  | "Activity";
+
+export type RatioAssessment = "Strong" | "Adequate" | "Weak" | "N/A";
+
 export type RatioAnalysisRow = {
   metric: string;
+  category?: RatioCategory;
   value: CanonicalMemoNumber;
   industry_avg: CanonicalMemoNumber | null;
   industry_source: string | null;
   unit: "ratio" | "percent" | "days" | "times" | "currency";
   period_label: string;
+  /** Strong/Adequate/Weak/N/A — short verdict for committee skim. */
+  assessment?: RatioAssessment;
+  /** One-sentence interpretation of what this value signals. */
+  interpretation?: string;
+  /** Benchmark context — institutional minimums, SBA thresholds, peer averages. */
+  benchmark_note?: string | null;
 };
 
 // ── Collateral Line Item ──────────────────────────────────────────────────
