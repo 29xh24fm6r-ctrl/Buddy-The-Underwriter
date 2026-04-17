@@ -1,111 +1,147 @@
-# Phase 84 — System Audit Remediation
+# Phase 84 — System Audit Remediation (v2 — Reconciled)
 
 **Status:** Draft for Claude Code / Antigravity execution
-**Authored:** 2026-04-17 (Claude Opus 4.7 audit)
-**Predecessors:** Phase 79 (God Tier Closure) — architecturally complete but 43/43 Omega calls fail live; Phases 72–75 (workflows / governance) — infrastructure shipped but empty tables
-**Scope:** 37 discrete findings across 6 subsystems; 10 executable tickets organized into 4 waves
-**Guardrail:** Every ticket ships with pre-work SQL verification, exact file paths, and a post-deploy acceptance check. Antigravity MUST run the pre-work query before touching code.
+**Authored:** 2026-04-17 (Claude Opus 4.7 audit, v2 reconciled against repo state)
+**Supersedes:** v1 of this spec (commit `2f81a03c`) — see changelog at end
+**Scope:** Reduced from 37 findings / 10 tickets to 30 findings / 10 tickets after reconciliation
+**Guardrail:** Every ticket starts with pre-work that checks whether the fix is already in repo. If yes, the ticket converts to an audit ticket, not a build ticket.
 
 ---
 
-## Orientation
+## Why this was revised
 
-This spec exists because a full audit on April 17 revealed a gap between architectural intent and production reality. The code for many declared systems is present, compiles, and passes guards — but the tables those systems write to are empty, the remote services they call return `Method not found`, and one foundational subsystem (the document classifier) has a 100% live failure rate while a parallel extraction path writes facts without recording runs.
+v1 of this spec asserted several things that turned out to be already fixed in `main`. Specifically:
 
-The audit also found a GLBA compliance wall violation: 82 public tables with tenant columns have RLS disabled. This is the single finding with the highest regulatory consequence.
+| v1 claim | Reality in repo |
+|---|---|
+| "Checklist stuck at `received`, no propagation to `satisfied`" | `create_checklist_match()` DB function flips `missing → received` with monotonic upgrade. `recomputeDealDocumentState.ts` (Phase 66) writes `satisfied/received/missing` into the canonical `deal_document_items` table. `deal_document_snapshots` shows 71–100% readiness on 7 deals. The v1 audit queried the wrong table (`deal_checklist_items`) and missed this. |
+| "Omega 100% failing live" | Pulse-backed RPC calls do fail with `Method not found`. But `OmegaAdvisoryAdapter` (Phase 65A) already checks `OMEGA_MCP_ENABLED === "1"` correctly, and the `/api/deals/[dealId]/state` route has a working `ai_risk_runs` fallback via `synthesizeAdvisoryFromRisk()`. The user-facing Omega panel has a real fallback path. The Phase 79 `underwrite/state` route is the narrower broken path. |
+| "Observer timeout 504s" | `/api/ops/observer/tick` already has `maxDuration=60`. The observer issue is dedup/cooldown, not timeout budget. |
+| "Delete `runRecord.ts` is a viable Option B for T-04" | Wrong. The `agent_workflow_runs` view (Phase 72C) unions `deal_extraction_runs` with a `'document_extraction'` workflow code. Deleting the run ledger table would break the view. Option B is explicitly rejected in v2. |
+| "Roadmap stuck on Phase 53A" | v1 didn't verify current roadmap content first — tickets should reconcile against whatever state exists. |
 
-This phase does not introduce new features. It closes the gap between *"shipped"* and *"working in production against live tenants"*.
-
-**Memory & recency:** Before executing any ticket, Antigravity reads this spec end-to-end, then verifies `BUDDY_PROJECT_ROADMAP.md` reflects a post-Phase-79 state. If the roadmap still shows Phase 79 as current, this spec belongs on top of it.
-
----
-
-## Root-cause storyline (read before ticketing)
-
-The findings are not independent. They fall out of a small number of root causes:
-
-```
-ROOT CAUSE 1 — Document classifier has no OCR text/image on the text path.
-  Evidence: 44/44 DOC_GATEKEEPER_CLASSIFY_FAILED events in 7 days,
-            all with review_reason_code=NO_OCR_OR_IMAGE,
-            Gemini classifier returned null on text path.
-  Downstream consequences:
-    - Documents route to NEEDS_REVIEW with doc_type=UNKNOWN
-    - Parallel extractor path (gemini_primary_v1) writes facts anyway
-      but uses 10 different extractor signatures, none of which call
-      runRecord.ts. deal_extraction_runs stays empty permanently.
-    - extraction_correction_log stays empty (no runs to correct)
-    - agent_skill_evolutions stays empty (no corrections to stage)
-
-ROOT CAUSE 2 — Omega MCP protocol mismatch.
-  Evidence: 43/43 omega.invoked events paired with 43/43 omega.failed,
-            all returning omega_rpc_error: Method not found.
-  Buddy sends JSON-RPC with methods like omega://confidence/evaluate.
-  Pulse MCP at pulse-mcp-651478110010.us-central1.run.app exposes
-  tool-style methods (buddy_ledger_*, memory_*, action_*, trigger_upsert)
-  and does NOT implement the omega:// URI scheme.
-  Downstream: omegaAdvisory is always null in underwrite/state responses.
-
-ROOT CAUSE 3 — Checklist state machine terminates at "received".
-  Evidence: 1,076 items "missing", 180 items "received", 0 items at
-            "satisfied" or any downstream status. checklist_item_matches
-            has 17 auto_applied matches but those never propagate to flip
-            the source checklist item's status.
-  Downstream: readiness = 0% on every deal, committee gate unreachable,
-              deal_decisions empty, canonical_action_executions empty.
-
-ROOT CAUSE 4 — RLS disabled on tenant-bearing tables.
-  82 public tables with deal_id / bank_id / borrower_id columns have
-  RLS disabled. This is a GLBA violation regardless of whether any
-  caller actually abuses it — it is the absence of the second defense
-  wall. Supabase security advisor reports 129 ERROR-level findings.
-
-ROOT CAUSE 5 — Observer watchdog lacks dedup / cooldown.
-  7,028 NO_SPREADS_RENDERED critical events in 48 hours all carry
-  observer_decision=job_marked_dead. Actual spread rendering is healthy
-  (14/14 jobs SUCCEEDED, 34 spread_runs). The observer is re-flagging the
-  same already-dead stale jobs every few seconds.
-
-ROOT CAUSE 6 — No idempotency guard on deal creation.
-  Four "Ellmann & Elmann Part 2" deals created on the same day; two have
-  facts, two are empty shells. User retries produce duplicate deals.
-
-The remaining findings are housekeeping (stale .env.example, 125+ root
-markdown files, empty governance tables that depend on #1–#3 resolving).
-```
-
-**Waves are ordered by dependency, not by priority number.** Fixing Root Cause 1 (classifier OCR) unblocks Root Causes 3, governance table population, and most empty-table findings. Fix 4 (RLS) is parallel-safe and should ship first because it carries the highest regulatory downside.
+**The lesson:** v1 was an audit written before verifying whether the repo had already shipped fixes. v2 verifies first, then prescribes only what is still actually broken.
 
 ---
 
-## Wave structure
+## What is still actually broken (the evidence base for v2)
 
-| Wave | Goal | Tickets | Gates before next wave |
+All of the following were verified as of 2026-04-17 against `origin/main` and the production database:
+
+1. **82 public tables have RLS disabled** — 129 ERROR-level advisor findings. Cross-tenant tables including `deal_financial_facts`, `deal_spreads`, `canonical_memo_narratives`, `document_artifacts`, `deal_truth_events`, `deal_monitoring_*`, `deal_workout_*`. Unchanged since v1.
+
+2. **Document classifier 100% failing** — 44/44 `DOC_GATEKEEPER_CLASSIFY_FAILED` events in 7 days carry `review_reason_code: NO_OCR_OR_IMAGE` and `reasons: ["Gemini classifier returned null on text path"]`. Every document gets `doc_type: UNKNOWN`. This is real and unchanged.
+
+3. **Observer noise** — 7,028 `NO_SPREADS_RENDERED` critical events in 48 hours, all with `observer_decision: job_marked_dead` for the same stale jobs. Actual spreads health is fine (14/14 jobs SUCCEEDED, 34 spread_runs). Dedup/cooldown missing. Unchanged.
+
+4. **`deal_extraction_runs` empty** — 1,366 facts via 10 distinct extractor paths, 0 extraction runs logged. `runRecord.ts` exports are not re-exported from `index.ts` and no extractor call site invokes them. Unchanged. Phase 72C cost-promotion work assumed this table was being populated.
+
+5. **Omega Pulse RPC 100% fails** — 43/43 `omega.invoked` events pair with 43/43 `omega.failed`. `omega_rpc_error: Method not found`. **But** the `/api/deals/[dealId]/state` fallback absorbs this because `synthesizeAdvisoryFromRisk(ai_risk_runs.result_json)` renders the panel. The Phase 79 `/api/deals/[dealId]/underwrite/state` path does NOT have an equivalent fallback — its `omegaAdvisory` field is always null. Narrowed from "everywhere" to "the underwrite/state path specifically."
+
+6. **Four duplicate `Ellmann & Elmann Part 2` deals** from 2026-04-15 — two have facts, two are empty. No idempotency guard on `POST /api/deals/create`. Unchanged.
+
+7. **ChatGPT Fix 11–15 test deals in production** — no `is_test` flag. Unchanged.
+
+8. **Governance tables untested** — `deal_decisions` (0), `agent_approval_events` (0), `canonical_action_executions` (0), `draft_borrower_requests` (0), `agent_skill_evolutions` (0) all empty. These are "infrastructure shipped but never exercised live" — which is the narrower real issue.
+
+9. **`.env.example` stale** — no `OMEGA_MCP_*`, no `CLERK_JWT_KEY`, still has `OPENAI_REALTIME_*`, `USE_GEMINI_OCR=false` default. Unchanged.
+
+10. **Roadmap last-updated marker out of date** — but the actual content past Phase 53A still needs reconciliation, not a blind rewrite.
+
+11. **Samaritus deal (`ffcc9733-...`) deleted from prod** — not blocking any system; out of scope for this phase.
+
+12. **336 dead-lettered outbox events (HTTP 401)** — pre-telemetry-fix artifacts; out of scope for this phase.
+
+---
+
+## What v1 got right and v2 preserves
+
+- Wave structure (dependency order)
+- T-02 classifier/OCR diagnosis flow
+- T-04 wiring `gemini_primary_v1` through `runRecord.ts`
+- T-06 idempotency guard on deal creation
+- T-08 governance smoke test
+- T-10 repo hygiene
+- Execution protocol (pre-work SQL, AAR in `docs/archive/phase-84/`, phantom-commit mitigation)
+
+---
+
+## Ticket delta from v1
+
+| v1 Ticket | v2 Ticket | Delta |
+|---|---|---|
+| T-01 RLS, 62 tables one migration | **T-01 RLS Batch A** (14 highest-risk tables) | Split into staged batches |
+| — | **T-01-B RLS Batch B** (deferred to 84.1) | Pricing/workout/monitoring tables |
+| T-02 Classifier OCR | **T-02 Classifier OCR** | Unchanged — diagnosis flow was correct |
+| T-03 Observer dedup | **T-03 Observer dedup** | Removed timeout claim (already fixed), kept dedup |
+| T-04 `runRecord` wire (Option A or B) | **T-04 `runRecord` wire** | Removed "Option B: delete" — would break `agent_workflow_runs` view |
+| T-05 Add checklist promotion | **T-05 Audit checklist taxonomy split** (rewritten) | Propagation exists; investigate why legacy table diverges from canonical |
+| T-06 Idempotency | **T-06 Idempotency** | Unchanged |
+| T-07 Omega full rewrite | **T-07 Narrow Omega: add fallback to underwrite/state** | Preserves existing fallback, targets only the broken path |
+| T-08 Governance smoke | **T-08 Governance smoke** | Unchanged |
+| T-09 Roadmap + env | **T-09 Roadmap reconcile + env** | Phrased as reconcile-first, not rewrite-blind |
+| T-10 Hygiene | **T-10 Hygiene** | Unchanged |
+
+v1 T-01 is split into A (ship now) and B (84.1 follow-up). T-05 and T-07 are materially rewritten.
+
+---
+
+## Wave structure (v2)
+
+| Wave | Goal | Tickets | Gate |
 |---|---|---|---|
-| 0 | Safety fence — RLS wall up | T-01 | RLS migration passes, no regressions in integration test |
-| 1 | Stop the bleeding — fix classifier + observer noise | T-02, T-03 | 10 successful classifications logged in 24h |
-| 2 | Close the truth loop — runs, checklist, idempotency | T-04, T-05, T-06 | Checklist flips at least 1 deal to ≥50% satisfied |
-| 3 | Restore advisory + governance | T-07, T-08 | Omega returns a non-null advisory at least once |
-| 4 | Housekeeping + memory + hygiene | T-09, T-10 | Roadmap updated, .env.example complete, test deals archived |
+| 0 | Safety fence — staged RLS | T-01 | Batch A migration passes smoke test on at least one production deal |
+| 1 | Stop the bleeding | T-02, T-03 | 10 successful classifications logged in 24h; critical event count drops below 200/24h |
+| 2 | Close the truth loop | T-04, T-05, T-06 | At least one new `deal_extraction_runs` row; legacy vs canonical checklist discrepancy either reconciled or explained |
+| 3 | Restore advisory + governance | T-07, T-08 | `underwrite/state` returns non-null `omegaAdvisory` at least once; 1+ row in each governance table |
+| 4 | Housekeeping | T-09, T-10 | Roadmap + env reconciled against live repo state, test data flagged |
 
 ---
 
-## Wave 0 — Safety fence
+# Wave 0 — Safety fence
 
-### T-01 — Enable RLS on the 32 worst cross-tenant tables
+## T-01 — Staged RLS migration (Batch A)
 
-**Finding reference:** Root Cause 4. Audit advisor output lists 129 ERROR-level RLS findings. Highest-risk subset is the 32 tables with both `deal_id` AND `bank_id` columns exposed without RLS, plus `document_ocr_words` and `document_ocr_page_map` which carry `deal_id` and expose raw OCR content.
+**Finding reference:** 82 public tables with RLS disabled. GLBA defense-in-depth requirement.
 
-**Why this ticket first:**
-RLS migrations are additive and non-breaking when the app uses `supabaseAdmin()` (service role) everywhere. Service-role bypasses RLS, so current traffic is unaffected. The migration adds a defense wall — it does not remove any existing functionality. This is the safest possible first ticket.
+**Why staged:** v1 proposed enabling RLS on 62 tables in one migration. The feedback from repo reconciliation is that this carries too much blast radius for a single migration:
+- Assumes `request.jwt.claims->>'bank_id'` is reliably populated (not yet verified)
+- Adds both `authenticated` and `service_role` policies simultaneously
+- Covers admin/monitoring/workout paths that may have custom access patterns
 
-**Pre-work (Antigravity MUST run this):**
+v2 splits into two batches:
+
+**Batch A (this ticket):** 14 highest-risk tables that carry raw extracted facts, memo content, and document bytes. These are the clear GLBA exposure surface.
+
+**Batch B (Phase 84.1):** pricing, monitoring, renewal, workout, annual review tables. These carry meaningful data but are one step removed from the core fact/memo path, and need individual access-pattern audit before RLS lands.
+
+### Batch A — Tables
+
+```
+deal_financial_facts            -- canonical fact store
+deal_spreads                    -- computed spread output
+canonical_memo_narratives       -- memo content
+credit_memo_drafts              -- draft memos
+credit_memo_snapshots           -- frozen memo state
+credit_memo_citations           -- memo evidence trail
+document_artifacts              -- raw document references
+document_ocr_words              -- raw OCR content (PII risk)
+document_ocr_page_map           -- raw OCR page structure (PII risk)
+deal_truth_events               -- append-only audit trail
+deal_upload_sessions            -- upload metadata
+deal_upload_session_files       -- the 1 ERROR sensitive_columns_exposed row
+memo_runs                       -- memo generation runs
+risk_runs                       -- risk generation runs
+```
+
+### Pre-work (Antigravity MUST run first)
+
+**Step 1 — Confirm RLS is still disabled on Batch A:**
 ```sql
--- Confirm RLS is still disabled on the target tables
 SELECT 
-  c.relname as table_name,
-  c.relrowsecurity as rls_enabled,
-  COUNT(p.policyname) as policy_count
+  c.relname,
+  c.relrowsecurity AS rls_enabled,
+  COUNT(p.policyname) AS policy_count
 FROM pg_class c
 LEFT JOIN pg_policies p ON p.tablename = c.relname AND p.schemaname = 'public'
 WHERE c.relname IN (
@@ -113,111 +149,92 @@ WHERE c.relname IN (
   'credit_memo_drafts','credit_memo_snapshots','credit_memo_citations',
   'document_artifacts','document_ocr_words','document_ocr_page_map',
   'deal_truth_events','deal_upload_sessions','deal_upload_session_files',
-  'deal_spread_runs','deal_spread_jobs','deal_rent_roll_rows',
-  'deal_monitoring_programs','deal_monitoring_obligations',
-  'deal_monitoring_cycles','deal_monitoring_exceptions',
-  'deal_annual_reviews','deal_renewal_prep',
-  'deal_annual_review_cases','deal_renewal_cases',
-  'deal_review_case_requirements','deal_review_case_exceptions',
-  'deal_review_case_outputs','deal_watchlist_cases',
-  'deal_workout_cases','deal_workout_events','deal_workout_action_items',
-  'pricing_scenarios','pricing_decisions','deal_pricing_quotes',
-  'deal_pricing_inputs','rate_index_snapshots',
-  'financial_review_resolutions','builder_decisions',
-  'checklist_item_matches','deal_entities','entity_relationships',
-  'deal_flags','deal_flag_audit','deal_flag_send_packages',
-  'deal_borrower_questions','deal_committee_decisions',
-  'deal_loan_decisions','deal_distribution_snapshots',
-  'deal_distribution_actions','deal_credit_memo_status',
-  'deal_decision_finalization','deal_policy_exceptions',
-  'deal_structuring_selections','deal_structuring_freeze',
-  'structuring_recommendation_snapshots','banker_queue_snapshots',
-  'banker_focus_sessions','banker_queue_acknowledgements',
-  'buddy_research_quality_gates','buddy_covenant_packages',
-  'buddy_borrower_reports','buddy_validation_reports',
-  'memo_runs','risk_runs','borrower_owner_attestations'
+  'memo_runs','risk_runs'
 )
 AND c.relkind = 'r'
 GROUP BY c.relname, c.relrowsecurity
 ORDER BY c.relname;
 ```
-Expected: most rows show `rls_enabled=false, policy_count=0`. Any row showing `rls_enabled=true` should be removed from the migration scope.
 
-**Implementation:**
+Expected: 14 rows, all with `rls_enabled=false, policy_count=0`. Any row showing RLS already enabled → remove from scope.
 
-Create `supabase/migrations/20260418_phase_84_rls_tenant_wall.sql` with content:
+**Step 2 — Verify caller JWT claim contains `bank_id`:**
+```sql
+-- Run from the authenticated role via Supabase SQL editor or a test endpoint:
+SELECT current_setting('request.jwt.claims', true)::jsonb->>'bank_id' AS jwt_bank_id;
+```
+If this returns null for a real authenticated session, the migration's `authenticated` policy will never match — service-role will still work, but the "defense in depth" benefit won't materialize. If null, switch the `authenticated` policy to a function that also checks `auth.uid()` against a `bank_users` mapping.
+
+**Step 3 — Identify any non-service-role callers:**
+```bash
+# In the repo root:
+grep -rn "createServerClient\|createBrowserClient" src/app/api/ | grep -v node_modules | head -20
+```
+Any API route using `createServerClient()` or `createBrowserClient()` (i.e. NOT `supabaseAdmin()`) will be subject to the new policies. Confirm there are no unexpected hits on Batch A tables.
+
+### Implementation
+
+Create `supabase/migrations/20260418_phase_84_rls_tenant_wall_batch_a.sql`:
 
 ```sql
--- Phase 84 T-01 — Tenant isolation wall
+-- Phase 84 T-01 Batch A — Tenant isolation wall (highest-risk tables only)
 -- 
--- Enables RLS on cross-tenant tables. Policies are permissive for
--- service_role (which is what supabaseAdmin() uses) — no runtime impact.
--- The goal is defense-in-depth: if any future code path uses the anon key,
--- tenant data cannot leak.
+-- Enables RLS on 14 tables carrying raw facts, memo content, and OCR bytes.
+-- Service-role bypasses policies (this is what supabaseAdmin() uses).
+-- `authenticated` role gets a bank_id-scoped policy.
+--
+-- Rollback: DROP POLICY phase84a_* + ALTER TABLE ... DISABLE ROW LEVEL SECURITY.
 
 BEGIN;
-
--- Helper: tenant_id extraction from JWT claims (Clerk → bank_id cookie → session)
--- Service-role bypasses all policies, so these policies only fire for anon/authenticated roles.
 
 DO $$
 DECLARE
   t text;
-  tables_with_deal_and_bank text[] := ARRAY[
+  -- Tables with direct bank_id column
+  tables_with_bank_id text[] := ARRAY[
     'deal_financial_facts','deal_spreads','canonical_memo_narratives',
     'credit_memo_drafts','credit_memo_snapshots',
-    'document_artifacts','deal_truth_events','deal_upload_sessions',
-    'deal_upload_session_files','deal_spread_runs','deal_spread_jobs',
-    'deal_rent_roll_rows','deal_monitoring_programs',
-    'deal_monitoring_obligations','deal_monitoring_cycles',
-    'deal_monitoring_exceptions','deal_annual_reviews','deal_renewal_prep',
-    'deal_annual_review_cases','deal_renewal_cases',
-    'deal_review_case_requirements','deal_review_case_exceptions',
-    'deal_review_case_outputs','deal_watchlist_cases',
-    'deal_workout_cases','pricing_scenarios','pricing_decisions',
-    'deal_pricing_quotes','rate_index_snapshots',
-    'financial_review_resolutions','builder_decisions',
-    'checklist_item_matches','banker_queue_snapshots',
-    'banker_focus_sessions','banker_queue_acknowledgements'
+    'document_artifacts','deal_truth_events',
+    'deal_upload_sessions','deal_upload_session_files'
   ];
-  tables_with_deal_only text[] := ARRAY[
-    'credit_memo_citations','deal_borrower_questions','deal_committee_decisions',
-    'deal_credit_memo_status','deal_decision_finalization',
-    'deal_distribution_actions','deal_distribution_snapshots',
-    'deal_entities','entity_relationships','deal_flag_audit',
-    'deal_flag_send_packages','deal_flags','deal_loan_decisions',
-    'deal_policy_exceptions','deal_pricing_inputs',
-    'deal_structuring_freeze','deal_structuring_selections',
-    'deal_watchlist_events','deal_workout_action_items',
-    'deal_workout_events','document_ocr_page_map','document_ocr_words',
-    'memo_runs','risk_runs','structuring_recommendation_snapshots',
-    'buddy_borrower_reports','buddy_covenant_packages',
-    'buddy_research_quality_gates','buddy_validation_reports'
+  -- Tables with only deal_id — scope via deals lookup
+  tables_deal_only text[] := ARRAY[
+    'credit_memo_citations','document_ocr_words','document_ocr_page_map',
+    'memo_runs','risk_runs'
   ];
 BEGIN
-  -- Tables with BOTH deal_id and bank_id: bank_id predicate
-  FOREACH t IN ARRAY tables_with_deal_and_bank LOOP
+  -- Enable RLS + service-role pass-through + bank_id-scoped authenticated policy
+  FOREACH t IN ARRAY tables_with_bank_id LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', t);
     EXECUTE format(
-      'CREATE POLICY %I ON public.%I FOR ALL TO authenticated USING (bank_id::text = COALESCE(current_setting(''request.jwt.claims'', true)::jsonb->>''bank_id'', '''')) WITH CHECK (bank_id::text = COALESCE(current_setting(''request.jwt.claims'', true)::jsonb->>''bank_id'', ''''));',
-      'phase84_' || t || '_tenant_scope', t
+      'CREATE POLICY %I ON public.%I FOR ALL TO service_role USING (true) WITH CHECK (true);',
+      'phase84a_' || t || '_service_role', t
     );
     EXECUTE format(
-      'CREATE POLICY %I ON public.%I FOR ALL TO service_role USING (true) WITH CHECK (true);',
-      'phase84_' || t || '_service_role', t
+      $q$CREATE POLICY %I ON public.%I 
+         FOR ALL TO authenticated 
+         USING (bank_id::text = COALESCE(current_setting('request.jwt.claims', true)::jsonb->>'bank_id', ''))
+         WITH CHECK (bank_id::text = COALESCE(current_setting('request.jwt.claims', true)::jsonb->>'bank_id', ''));$q$,
+      'phase84a_' || t || '_tenant_scope', t
     );
   END LOOP;
 
-  -- Tables with ONLY deal_id: scope via deals.bank_id lookup
-  FOREACH t IN ARRAY tables_with_deal_only LOOP
+  -- Tables with only deal_id: join to deals.bank_id
+  FOREACH t IN ARRAY tables_deal_only LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', t);
     EXECUTE format(
-      'CREATE POLICY %I ON public.%I FOR ALL TO authenticated USING (EXISTS (SELECT 1 FROM public.deals d WHERE d.id = %I.deal_id AND d.bank_id::text = COALESCE(current_setting(''request.jwt.claims'', true)::jsonb->>''bank_id'', '''')));',
-      'phase84_' || t || '_tenant_scope', t, t
+      'CREATE POLICY %I ON public.%I FOR ALL TO service_role USING (true) WITH CHECK (true);',
+      'phase84a_' || t || '_service_role', t
     );
     EXECUTE format(
-      'CREATE POLICY %I ON public.%I FOR ALL TO service_role USING (true) WITH CHECK (true);',
-      'phase84_' || t || '_service_role', t
+      $q$CREATE POLICY %I ON public.%I 
+         FOR ALL TO authenticated 
+         USING (EXISTS (
+           SELECT 1 FROM public.deals d 
+           WHERE d.id = %I.deal_id 
+             AND d.bank_id::text = COALESCE(current_setting('request.jwt.claims', true)::jsonb->>'bank_id', '')
+         ));$q$,
+      'phase84a_' || t || '_tenant_scope', t, t
     );
   END LOOP;
 END$$;
@@ -225,135 +242,169 @@ END$$;
 COMMIT;
 ```
 
-**Note on `borrower_owner_attestations`**: Uses `borrower_id`, not `deal_id`. Left for a T-01-B follow-up so we can scope via borrower→deal→bank lookup in a separate, narrower migration.
+### Post-deploy acceptance
 
-**Also out of scope for this migration but flagged for follow-up:**
-- 46 `security_definer_view` ERROR findings — need per-view review
-- 88 `function_search_path_mutable` WARN findings — bulk fix via `ALTER FUNCTION ... SET search_path = public, pg_temp`
-- 39 `rls_policy_always_true` findings — audit whether service_role-only policies can be tightened
-- `vector` extension in public schema — move to dedicated `extensions` schema
+1. **Pre-work query** re-run. All 14 tables show `rls_enabled=true, policy_count=2`.
 
-These become Phase 84.1 after this wave's acceptance gate passes.
+2. **Advisor delta:**
+   ```sql
+   -- Before: 82 rls_disabled_in_public findings
+   -- After:  ~68 (82 - 14)
+   ```
+   Run `get_advisors type=security` and count `rls_disabled_in_public` entries.
 
-**Post-deploy acceptance:**
-1. Run the pre-work query again. Every target table returns `rls_enabled=true, policy_count=2`.
-2. Supabase advisor `rls_disabled_in_public` count drops by ≥ 62.
-3. Smoke test: `/api/deals/[dealId]/underwrite/state` returns a 200 with non-empty body for a deal owned by the caller's bank. This confirms service-role path is unaffected.
-4. Emit a canonical ledger event `phase.84.t01.completed` via `writeEvent()`.
+3. **Smoke test — service role path (should still work):**
+   ```sql
+   -- Via Supabase SQL editor (service role context):
+   SELECT COUNT(*) FROM deal_financial_facts; -- Should return 1366 or current count
+   SELECT COUNT(*) FROM canonical_memo_narratives; -- Should return current count
+   ```
 
-**Rollback:** Single transaction — revert with `DROP POLICY phase84_*` followed by `ALTER TABLE ... DISABLE ROW LEVEL SECURITY`.
+4. **Smoke test — authenticated caller (should work for own bank):**
+   Hit `GET /api/deals/[realDealId]/state` from a browser session authenticated to that deal's bank. Should return `200` with non-empty body. This confirms the Clerk → Supabase auth path propagates `bank_id` into JWT claims.
+
+5. **Smoke test — authenticated caller, wrong bank (should return empty):**
+   From a browser session authenticated to bank X, query a deal owned by bank Y via a test endpoint. Should return 403 or empty set.
+
+6. **Emit ledger event:**
+   ```sql
+   -- Via apply_migration or a one-off script:
+   INSERT INTO deal_events (kind, payload, created_at) VALUES ('phase.84.t01a.completed', '{}'::jsonb, now());
+   ```
+
+### Rollback
+
+```sql
+BEGIN;
+DO $$
+DECLARE t text;
+BEGIN
+  FOR t IN SELECT tablename FROM pg_policies WHERE policyname LIKE 'phase84a_%' GROUP BY tablename LOOP
+    EXECUTE format('DROP POLICY IF EXISTS phase84a_%I_service_role ON public.%I;', t, t);
+    EXECUTE format('DROP POLICY IF EXISTS phase84a_%I_tenant_scope ON public.%I;', t, t);
+    EXECUTE format('ALTER TABLE public.%I DISABLE ROW LEVEL SECURITY;', t);
+  END LOOP;
+END$$;
+COMMIT;
+```
+
+### Deferred to Phase 84.1 (Batch B)
+
+These tables are deferred to a follow-up because they either (a) live outside the core fact/memo path, or (b) may have admin/operator access patterns worth auditing before RLS lands:
+
+```
+deal_monitoring_programs, deal_monitoring_obligations, deal_monitoring_cycles,
+deal_monitoring_exceptions, deal_annual_reviews, deal_renewal_prep,
+deal_annual_review_cases, deal_renewal_cases,
+deal_review_case_requirements, deal_review_case_exceptions,
+deal_review_case_outputs, deal_watchlist_cases, deal_watchlist_reasons,
+deal_watchlist_events, deal_workout_cases, deal_workout_events,
+deal_workout_action_items, pricing_scenarios, pricing_decisions,
+deal_pricing_inputs, deal_pricing_quotes, pricing_terms,
+rate_index_snapshots, deal_rent_roll_rows, financial_review_resolutions,
+builder_decisions, checklist_item_matches, banker_queue_snapshots,
+banker_focus_sessions, banker_queue_acknowledgements, deal_entities,
+entity_relationships, deal_flags, deal_flag_audit, deal_flag_send_packages,
+deal_borrower_questions, deal_committee_decisions, deal_loan_decisions,
+deal_distribution_snapshots, deal_distribution_actions,
+deal_credit_memo_status, deal_decision_finalization,
+deal_policy_exceptions, deal_policy_exception_actions,
+deal_structuring_selections, deal_structuring_freeze,
+structuring_recommendation_snapshots, deal_spread_runs, deal_spread_jobs,
+buddy_research_quality_gates, buddy_covenant_packages,
+buddy_covenant_overrides, buddy_borrower_reports,
+buddy_validation_reports, buddy_ai_use_cases, buddy_eval_runs,
+buddy_eval_scores, buddy_industry_benchmarks, borrower_owner_attestations,
+bank_policy_rules, bank_loan_product_types, bank_match_hints,
+loan_product_types, platform_capabilities, memo_sections,
+peis_mission_objects, risk_factors
+```
+
+Phase 84.1 also covers: 46 `security_definer_view` ERROR findings, 88 `function_search_path_mutable` WARNs, vector ext in public schema, and the `borrower_owner_attestations` borrower→deal→bank scoping.
 
 ---
 
-## Wave 1 — Stop the bleeding
+# Wave 1 — Stop the bleeding
 
-### T-02 — Document classifier OCR text/image feed
+## T-02 — Document classifier OCR feed
 
-**Finding reference:** Root Cause 1. 44/44 DOC_GATEKEEPER_CLASSIFY_FAILED events with `reasons: ["Gemini classifier returned null on text path"]`, `input_path: "no_ocr_no_image"`. 
+**Finding reference:** 44/44 `DOC_GATEKEEPER_CLASSIFY_FAILED` events in 7 days with `input_path: "no_ocr_no_image"` and `reasons: ["Gemini classifier returned null on text path"]`.
 
-**Why this matters:**
-Every uploaded document goes to `doc_type: UNKNOWN` and lands in NEEDS_REVIEW. A parallel extractor path (`gemini_primary_v1`) happens to write facts anyway — which is why facts exist despite classification failure. But that parallel path masks the fact that the canonical classifier is broken, and every downstream system (checklist match, review queue, SR 11-7 audit trail) depends on the canonical path working.
+*(Unchanged from v1 — the diagnosis flow was correct.)*
 
-**Pre-work:**
+### Pre-work
+
 ```sql
--- Sample 3 recent failures to confirm shape
+-- Sample 3 recent failures
 SELECT 
   created_at,
-  payload->'input'->>'document_id' as document_id,
-  payload->'input'->>'input_path' as input_path,
-  payload->'input'->>'review_reason_code' as reason,
-  payload->'input'->>'latency_ms' as latency_ms
+  payload->'input'->>'document_id' AS document_id,
+  payload->'input'->>'input_path' AS input_path,
+  payload->'input'->>'review_reason_code' AS reason,
+  payload->'input'->>'latency_ms' AS latency_ms
 FROM deal_events
 WHERE kind = 'DOC_GATEKEEPER_CLASSIFY_FAILED'
 ORDER BY created_at DESC
 LIMIT 3;
+```
 
--- Then: for one of those document_ids, check whether OCR text or structured JSON exists
+For one of those `document_id` values, run:
+```sql
 SELECT 
-  (SELECT extracted_text IS NOT NULL FROM document_ocr_results WHERE attachment_id = '<documentId>') as has_ocr,
-  (SELECT fields_json IS NOT NULL FROM document_extracts WHERE attachment_id = '<documentId>' AND status = 'SUCCEEDED') as has_extracts,
-  (SELECT status FROM document_extracts WHERE attachment_id = '<documentId>') as extracts_status;
+  (SELECT extracted_text IS NOT NULL FROM document_ocr_results WHERE attachment_id = '<documentId>') AS has_ocr,
+  (SELECT fields_json IS NOT NULL FROM document_extracts WHERE attachment_id = '<documentId>' AND status = 'SUCCEEDED') AS has_extracts;
 ```
 
-**Three likely causes in priority order (Antigravity diagnoses before coding):**
+### Diagnostic steps (environment first)
 
-1. **`USE_GEMINI_OCR=false` in Vercel production env.**
-   - The default in `.env.example` is `false`. If this was never flipped in Vercel settings, Gemini OCR never runs, and the classifier sees an empty document every time.
-   - Diagnostic: Check Vercel project env vars. If `false` or unset, flip to `true` for Production and Preview environments.
-   - Fix: change the env var. No code change.
+**Step 1 — Check Vercel env:**
+- `USE_GEMINI_OCR` — if `false` or unset, this is the cause
+- `GEMINI_OCR_MODEL` — current value
+- `GEMINI_API_KEY` present
+- `GOOGLE_CLOUD_PROJECT` present
 
-2. **`GEMINI_OCR_MODEL=gemini-2.0-flash-exp` has been deprecated.**
-   - `-exp` suffixes expire. Current supported model tags should be verified against Google Cloud docs.
-   - Diagnostic: Check Vercel env var value.
-   - Fix: update to a current GA model tag (likely `gemini-2.0-flash-001` or equivalent). Update `.env.example` to match.
+Report findings back in chat before writing any code.
 
-3. **The classifier is being invoked *before* OCR completes, with no retry.**
-   - Possible race: upload triggers classifier immediately; OCR job queued but not complete.
-   - Diagnostic: trace the classifier call site in `src/lib/classification/` — does it wait for `document_ocr_results` row or does it proceed on empty?
-   - Fix: add a precondition: if OCR text is empty AND document_extracts.status != 'SUCCEEDED', requeue the classifier with a 30s delay. Cap retries at 3.
-
-**Implementation sequence:**
-
-**Step 1 — Diagnose the env (Antigravity does this first, as a read-only check).**
-```
-Read Vercel project env vars for:
-  - USE_GEMINI_OCR
-  - GEMINI_OCR_MODEL  
-  - GEMINI_API_KEY presence
-  - GOOGLE_CLOUD_PROJECT presence
-```
-Report findings back before writing any code.
-
-**Step 2 — If env is the cause:**
-- Update Vercel env: `USE_GEMINI_OCR=true`, `GEMINI_OCR_MODEL=<current supported tag>`
-- Update `.env.example` to reflect the corrected defaults
-- Emit test document upload; watch for `classification.decided` in `deal_events`
-- No code changes needed
+**Step 2 — If `USE_GEMINI_OCR=false`:**
+- Flip to `true` in Production and Preview environments
+- **Do NOT hardcode a model tag in this spec.** Confirm the currently-supported GA model tag against current Gemini documentation at execution time, then update `GEMINI_OCR_MODEL` accordingly
+- Update `.env.example` to reflect (done in T-09)
+- Upload a test PDF; watch for `classification.decided` in `deal_events` within 60 seconds
 
 **Step 3 — If env is correct but failures continue:**
-- Locate the classifier invocation site. The audit found it references `document_ocr_results.extracted_text` fallback to `document_extracts.fields_json.extractedText`. Both are null on the failing path.
-- Add a precondition guard in whichever route/job calls `classifyWithGemini`:
-  ```typescript
-  // Before calling the classifier:
-  const [ocrRow, extractsRow] = await Promise.all([
-    sb.from("document_ocr_results").select("extracted_text").eq("attachment_id", documentId).maybeSingle(),
-    sb.from("document_extracts").select("fields_json, status").eq("attachment_id", documentId).eq("status","SUCCEEDED").maybeSingle(),
-  ]);
-  const hasText = Boolean(ocrRow.data?.extracted_text) || Boolean(extractsRow.data?.fields_json?.extractedText);
-  if (!hasText) {
-    // Requeue classify job with exponential backoff. Cap at 3 retries.
-    await requeueClassify(documentId, { attempt: (prevAttempt ?? 0) + 1, maxAttempts: 3 });
-    return { ok: false, reason: "awaiting_ocr" };
-  }
-  ```
-
-**Post-deploy acceptance:**
-1. Upload a test PDF to a test deal.
-2. Within 60 seconds, `deal_events` contains `classification.decided` for that `document_id` with `doc_type != UNKNOWN` and `confidence > 0`.
-3. Over 24 hours, `DOC_GATEKEEPER_CLASSIFY_FAILED` count drops to < 5% of attempts (was 100%).
-4. `document_ocr_results.extracted_text IS NOT NULL` for newly-uploaded docs.
-
-### T-03 — Observer dedup / cooldown
-
-**Finding reference:** Root Cause 5. 7,028 `NO_SPREADS_RENDERED` critical events in 48 hours all carry `observer_decision: job_marked_dead` for the same stale jobs, not new failures. Actual spread rendering is healthy (14/14 jobs SUCCEEDED). This is observer noise, not a spreads problem.
-
-**Implementation:**
-
-Locate `src/lib/observer/` or `/api/workers/observer/` (whichever runs the `NO_SPREADS_RENDERED` check). Add a simple dedup key:
+The classifier call site lives in `src/lib/classification/`. Add a precondition guard that refuses to call `classifyWithGemini` if OCR text is not yet available:
 
 ```typescript
-// In the observer's spread check function:
-const dedupKey = `obs:spread:${dealId}:${jobId}:${observer_decision}`;
-const lastFiredMs = await observerLastFired(dedupKey);
-const FIVE_MIN_MS = 5 * 60 * 1000;
-if (lastFiredMs && Date.now() - lastFiredMs < FIVE_MIN_MS) {
-  return; // Skip — we already flagged this within the cooldown window
+const [ocrRow, extractsRow] = await Promise.all([
+  sb.from("document_ocr_results").select("extracted_text").eq("attachment_id", documentId).maybeSingle(),
+  sb.from("document_extracts").select("fields_json, status").eq("attachment_id", documentId).eq("status","SUCCEEDED").maybeSingle(),
+]);
+const hasText = Boolean(ocrRow.data?.extracted_text) || Boolean(extractsRow.data?.fields_json?.extractedText);
+if (!hasText) {
+  await requeueClassify(documentId, { attempt: (prevAttempt ?? 0) + 1, maxAttempts: 3 });
+  return { ok: false, reason: "awaiting_ocr" };
 }
-await observerMarkFired(dedupKey);
-// ... then emit the critical event
 ```
 
-Storage for dedup can be a simple in-memory Map within the observer process (observers are long-running) OR an `observer_dedup` table with `(key text PK, last_fired_at timestamptz)`. Memory is faster; table survives restarts. For this fix, use a table — the observer restart cadence is part of the problem.
+### Post-deploy acceptance
+
+1. Upload a test PDF. Within 60 seconds, `deal_events` contains `classification.decided` for that `document_id` with `doc_type != 'UNKNOWN'` and `confidence > 0`.
+2. Over 24 hours, `DOC_GATEKEEPER_CLASSIFY_FAILED` count drops to < 5% of attempts.
+3. `document_ocr_results.extracted_text IS NOT NULL` for newly-uploaded docs.
+
+---
+
+## T-03 — Observer dedup / cooldown
+
+**Finding reference:** 7,028 `NO_SPREADS_RENDERED` critical events in 48 hours, all with `observer_decision: job_marked_dead` for the same stale jobs. Spreads themselves are healthy (14/14 jobs SUCCEEDED).
+
+**Context correction from v1:** The observer route already has `maxDuration=60` (verified against `src/app/api/ops/observer/tick/route.ts` on 2026-04-17). Timeout budget is not the problem. The observer is repeatedly re-flagging the same already-dead jobs without a cooldown.
+
+### Implementation
+
+Locate the observer alert emission — in `src/lib/aegis/observerLoop.ts` (imported by `/api/ops/observer/tick/route.ts`).
+
+Add a dedup table and a helper:
 
 **Migration:**
 ```sql
@@ -366,37 +417,90 @@ CREATE POLICY observer_dedup_service_role ON public.observer_dedup
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 ```
 
-Apply cooldown windows tuned per check:
-- `NO_SPREADS_RENDERED` → 5 min
-- `stuck_job` → 30 min  
-- generic heartbeat alerts → 5 min
+**Helper (in `src/lib/aegis/observerDedup.ts`):**
+```typescript
+import "server-only";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
-**Post-deploy acceptance:**
-1. `buddy_system_events` with `severity='critical'` drops below 200 per 24h (was 7,028 in 48h → roughly 150 per 24h ceiling).
+export async function shouldFireAlert(key: string, cooldownMs: number): Promise<boolean> {
+  const sb = supabaseAdmin();
+  const { data } = await sb
+    .from("observer_dedup")
+    .select("last_fired_at")
+    .eq("key", key)
+    .maybeSingle();
+
+  if (data?.last_fired_at) {
+    const lastMs = new Date(data.last_fired_at).getTime();
+    if (Date.now() - lastMs < cooldownMs) return false;
+  }
+
+  await sb.from("observer_dedup").upsert(
+    { key, last_fired_at: new Date().toISOString() },
+    { onConflict: "key" }
+  );
+  return true;
+}
+```
+
+**Integration in `observerLoop.ts`:**
+Before every `writeSystemEvent` with `severity='critical'` or `event_type='stuck_job'`, wrap in:
+
+```typescript
+const dedupKey = `obs:${checkName}:${dealId ?? 'global'}:${jobId ?? ''}:${observer_decision ?? ''}`;
+const cooldown = checkName === 'NO_SPREADS_RENDERED' ? 5 * 60_000 :
+                 checkName === 'stuck_job' ? 30 * 60_000 :
+                 5 * 60_000;
+if (!(await shouldFireAlert(dedupKey, cooldown))) continue;
+// then emit the event
+```
+
+### Pre-work
+
+```sql
+-- Sample the top repeating alerts to confirm the dedup key shape
+SELECT 
+  error_message,
+  source_system,
+  payload->>'job_id' AS job_id,
+  payload->>'observer_decision' AS decision,
+  COUNT(*) AS cnt,
+  MIN(created_at) AS first_seen,
+  MAX(created_at) AS last_seen
+FROM buddy_system_events
+WHERE severity = 'critical'
+  AND created_at > NOW() - INTERVAL '48 hours'
+GROUP BY error_message, source_system, payload->>'job_id', payload->>'observer_decision'
+ORDER BY cnt DESC
+LIMIT 10;
+```
+
+### Post-deploy acceptance
+
+1. `buddy_system_events` with `severity='critical'` from source_system='observer' drops below 200 per 24h (was ~3,500).
 2. No single dedup key fires more than once per its cooldown window.
-3. Genuine new failures (different `job_id` or `deal_id`) still fire immediately.
+3. Genuine new failures (new `job_id` or `deal_id`) still fire immediately.
+4. `observer_dedup` table has rows within 15 minutes of the observer running.
 
 ---
 
-## Wave 2 — Close the truth loop
+# Wave 2 — Close the truth loop
 
-### T-04 — Resolve the `deal_extraction_runs` ghost
+## T-04 — Wire `gemini_primary_v1` through `runRecord.ts`
 
-**Finding reference:** Finding #4. `runRecord.ts` exports `createExtractionRun` / `finalizeExtractionRun` and looks production-grade but is dead code — not re-exported from `index.ts`, not called by any of the 10 extractor paths writing facts. `deal_extraction_runs` permanently empty.
+**Finding reference:** `deal_extraction_runs` is permanently empty. 1,366 facts via 10 extractor paths, 0 runs logged. `runRecord.ts` exports are not re-exported from `index.ts` and no extractor call site invokes them.
 
-**Decision required (Antigravity does NOT decide this — product/architect decides):**
-Either (A) wire the 10 extractor paths through `runRecord.ts`, or (B) delete `runRecord.ts` and update the roadmap to match reality.
+**Scope firmed from v1:** `runRecord.ts` is **NOT disposable**. The `agent_workflow_runs` view (Phase 72C) explicitly unions `deal_extraction_runs` with a `'document_extraction'` workflow code and promotes `cost_usd`, `input_tokens`, `output_tokens` columns. Deleting the run ledger would break the view. The only v2 path is wiring, not removal.
 
-**Recommended: Option A, but staged.** Wire the highest-volume extractor (`gemini_primary_v1`, 1,028 facts, 63 docs) first. Every other extractor becomes a follow-up as time permits.
+### Pre-work
 
-**Pre-work:**
 ```sql
--- Confirm which extractors are active
+-- Confirm extractor distribution
 SELECT 
-  provenance->>'extractor' as extractor,
-  COUNT(*) as facts,
-  COUNT(DISTINCT source_document_id) as docs,
-  MAX(created_at)::date as latest
+  provenance->>'extractor' AS extractor,
+  COUNT(*) AS facts,
+  COUNT(DISTINCT source_document_id) AS docs,
+  MAX(created_at)::date AS latest
 FROM deal_financial_facts
 WHERE fact_type != 'EXTRACTION_HEARTBEAT'
   AND created_at > NOW() - INTERVAL '14 days'
@@ -404,9 +508,19 @@ GROUP BY 1
 ORDER BY facts DESC;
 ```
 
-**Implementation sequence:**
+Expected: `gemini_primary_v1` is the top volume path. If it's not, stop and ask — the wiring target may have shifted.
 
-**Step 1 — Re-export the run primitives from the extraction barrel:**
+```sql
+-- Verify agent_workflow_runs view still includes deal_extraction_runs
+SELECT view_definition FROM information_schema.views
+WHERE table_name = 'agent_workflow_runs' AND table_schema = 'public';
+```
+
+If the view no longer includes `deal_extraction_runs` union, the premise of T-04 has shifted — stop and ask.
+
+### Implementation
+
+**Step 1 — Re-export run primitives:**
 
 Edit `src/lib/extraction/index.ts`, add:
 ```typescript
@@ -425,12 +539,13 @@ export {
 } from "./runRecord";
 ```
 
-**Step 2 — Wire `gemini_primary_v1` through the run ledger:**
+**Step 2 — Wrap `extractWithGeminiPrimary`:**
 
-Locate the call site — likely `src/lib/financialSpreads/extractors/gemini/geminiDocumentExtractor.ts` (the `extractWithGeminiPrimary` function called from `extractFactsFromDocument.ts`). Wrap:
+The function lives at `src/lib/financialSpreads/extractors/gemini/geminiDocumentExtractor.ts` (per Phase 80 wiring reference). Wrap body in run lifecycle:
 
 ```typescript
 import { createExtractionRun, finalizeExtractionRun, markRunRunning } from "@/lib/extraction";
+import { GEMINI_FLASH } from "@/lib/ai/models";
 
 export async function extractWithGeminiPrimary(args) {
   const { run, reused } = await createExtractionRun({
@@ -444,7 +559,6 @@ export async function extractWithGeminiPrimary(args) {
   });
 
   if (reused && run.status === "succeeded") {
-    // Idempotent short-circuit
     return { ok: true, items: [], reused: true };
   }
 
@@ -485,151 +599,162 @@ export async function extractWithGeminiPrimary(args) {
 }
 ```
 
-**Step 3 — Add a follow-up ticket stub to the roadmap** for wiring the other 9 extractors (`personalIncomeExtractor`, `materializeFactsFromArtifacts`, `extractFactsFromDocument:v5`, `gemini_primary_schedule_detect`, `backfillCanonicalFactsFromSpreads`, `persistGlobalCashFlow`). Don't do them all in this ticket — scope creep.
+**Step 3 — Document follow-up scope:**
 
-**Post-deploy acceptance:**
-1. Within 2 hours of deploy, `deal_extraction_runs` has ≥ 1 row with `status='succeeded'`.
-2. Within 24 hours, `deal_extraction_runs` row count matches `gemini_primary_v1` documents processed in that window (+/- 10%).
+The other 9 extractors (`personalIncomeExtractor`, `materializeFactsFromArtifacts`, `extractFactsFromDocument:v5`, `gemini_primary_schedule_detect`, `backfillCanonicalFactsFromSpreads`, `persistGlobalCashFlow`) are explicitly deferred to Phase 84.1. Do not wire them in this ticket.
+
+### Post-deploy acceptance
+
+1. Within 2 hours, `deal_extraction_runs` has ≥ 1 row with `status='succeeded'`.
+2. Within 24 hours, `deal_extraction_runs` row count is within 10% of `gemini_primary_v1` doc count in that window.
 3. `deal_extraction_runs.cost_usd` is non-null for ≥ 50% of new rows.
-4. Operator console (`/ops/agents`) shows a non-empty `document_extraction` workflow row count.
+4. Operator console (`/ops/agents`) shows non-empty `document_extraction` workflow rows.
 
-### T-05 — Checklist state machine wire-through
+---
 
-**Finding reference:** Root Cause 3. 1,076 items `missing`, 180 items `received`, zero items `satisfied`. `checklist_item_matches` shows 17 `auto_applied` matches but those never propagate to flip the source item's status.
+## T-05 — Audit checklist taxonomy split (rewritten from v1)
 
-**Pre-work:**
+**Finding reference:** v1 said "no checklist items reach `satisfied`". That was based on `deal_checklist_items` (the legacy table). The canonical Phase 66 table `deal_document_items` actually shows **20 satisfied, 44 received, 15 missing** across 9 deals. `deal_document_snapshots` shows **71–100% readiness** on 7 deals. The propagation system IS working.
+
+**v2 premise:** Buddy has two parallel "checklist" systems:
+
+1. **Legacy** — `deal_checklist_items` table. Flipped `missing → received` by `create_checklist_match()` DB function (SECURITY DEFINER, monotonic upgrade only). `reconcileChecklistForDeal()` in `src/lib/checklist/engine.ts` emits `checklist.reconciled` events (verified: 65 events in past 7 days) and `deal.checklist.updated` + `deal.borrower.completed` when thresholds hit. No `received → satisfied` promotion path exists on this table — this is by design; the function explicitly notes "monotonic upgrade."
+
+2. **Canonical Phase 66** — `deal_document_items` + `deal_document_snapshots`. Written by `src/lib/documentTruth/recomputeDealDocumentState.ts`. This table has the full `missing/received/satisfied` taxonomy and is what drives `ReadinessPanel` via the cockpit-state endpoint.
+
+The v1 audit query (which showed 0 `satisfied`) looked at the **legacy** table. That's not a bug — legacy never had `satisfied`. This was a reader error in the audit, not a propagation failure.
+
+### The real questions this ticket must answer
+
+1. **Which table do production cockpit panels read from?**
+   - `CanonicalChecklistPanel` (Phase 67) should read from `cockpit-state.document_state.requirements` which reads from canonical. Verify.
+   - Any UI surface still reading the legacy table is a latent bug.
+
+2. **Are there any stale readers of `deal_checklist_items.status='satisfied'`?**
+   - That would be broken code (the legacy table never writes `satisfied`). Must be grep'd.
+
+3. **Should the legacy table be retired?**
+   - If all readers moved to canonical, `deal_checklist_items` is dead weight. Retirement goes in Phase 84.1.
+
+### Pre-work
+
+**Query A — Legacy vs canonical discrepancy:**
 ```sql
--- Confirm: matches exist but items stuck at "received"
+SELECT
+  (SELECT COUNT(*) FROM deal_checklist_items WHERE status='satisfied') AS legacy_satisfied,
+  (SELECT COUNT(*) FROM deal_checklist_items WHERE status='received')  AS legacy_received,
+  (SELECT COUNT(*) FROM deal_checklist_items WHERE status='missing')   AS legacy_missing,
+  (SELECT COUNT(*) FROM deal_document_items WHERE checklist_status='satisfied') AS canon_satisfied,
+  (SELECT COUNT(*) FROM deal_document_items WHERE checklist_status='received')  AS canon_received,
+  (SELECT COUNT(*) FROM deal_document_items WHERE checklist_status='missing')   AS canon_missing;
+```
+Expected as of 2026-04-17: legacy_satisfied=0, legacy_received=180, legacy_missing=1076; canon_satisfied=20, canon_received=44, canon_missing=15.
+
+**Query B — Active DB triggers on `deal_checklist_items`:**
+```sql
 SELECT 
-  (SELECT COUNT(*) FROM checklist_item_matches WHERE status='auto_applied') as auto_applied_matches,
-  (SELECT COUNT(DISTINCT checklist_item_id) FROM checklist_item_matches WHERE status='auto_applied') as matched_items,
-  (SELECT COUNT(*) FROM deal_checklist_items WHERE status='satisfied') as satisfied_items,
-  (SELECT COUNT(*) FROM deal_checklist_items WHERE status='received') as received_items;
-
--- Sample a matched item that's stuck at "received"
-SELECT dci.id, dci.status, dci.requirement_code, cim.status as match_status, cim.document_id
-FROM deal_checklist_items dci
-JOIN checklist_item_matches cim ON cim.checklist_item_id = dci.id
-WHERE cim.status = 'auto_applied' AND dci.status = 'received'
-LIMIT 3;
+  t.tgname AS trigger_name,
+  pg_get_triggerdef(t.oid) AS definition
+FROM pg_trigger t
+JOIN pg_class c ON c.oid = t.tgrelid
+WHERE c.relname = 'deal_checklist_items'
+  AND NOT t.tgisinternal;
 ```
 
-**Implementation:**
+**Query C — Grep the codebase for legacy readers:**
+```bash
+grep -rn "deal_checklist_items" src/app/api/ src/components/ src/app/\(app\)/ | grep -v __tests__ | grep -v ".test." | grep -v "from.*deal_checklist_items"
+```
+Filter to reads (not writes). Any UI component or API route reading `.status='satisfied'` from this table is a latent bug.
 
-Locate the reconciliation function that runs after `checklist_item_matches` is written. Likely in `src/lib/checklist/` or `src/lib/deal_document/`. The function that fires on `checklist.reconciled` events is the integration point.
+**Query D — Confirm cockpit-state reads canonical:**
+```bash
+grep -rn "deal_document_items\|deal_document_snapshots" src/app/api/deals/
+```
 
-Add a post-match status promotion step:
+### Implementation (contingent on pre-work)
+
+**If Query A confirms the expected split (canonical healthy, legacy no `satisfied` path):**
+
+1. Add a deprecation comment to the legacy table and function:
+   ```sql
+   COMMENT ON TABLE public.deal_checklist_items IS 
+     'LEGACY as of Phase 66. Canonical truth is deal_document_items + deal_document_snapshots. 
+      This table is still written by create_checklist_match() but should not be read by new code. 
+      Retirement tracked in Phase 84.1.';
+
+   COMMENT ON FUNCTION public.create_checklist_match IS
+     'LEGACY: writes to deal_checklist_items. New code should use the Phase 66 canonical 
+      recomputeDealDocumentState pipeline (writes deal_document_items + deal_document_snapshots).';
+   ```
+
+2. Write a one-page audit report at `docs/archive/phase-84/T05-checklist-taxonomy-audit.md` capturing:
+   - Query A numbers
+   - Query B output (triggers list)
+   - Query C output (any legacy readers in UI/API)
+   - Query D output (canonical readers confirmed)
+   - Decision: retire legacy in 84.1, OR bridge legacy to canonical, OR accept dual-track
+
+**If Query C shows production UI paths still reading legacy:**
+- Flag each as a follow-up ticket for Phase 84.1
+- In this ticket, add a `/api/ops/health` query that surfaces the legacy/canonical discrepancy
+
+**If Query D shows cockpit-state NOT reading canonical:**
+- Stop and escalate. The Phase 67 AAR claimed this was wired. This would be a serious regression.
+
+### Post-deploy acceptance
+
+1. Audit report file exists at `docs/archive/phase-84/T05-checklist-taxonomy-audit.md` with all four query outputs.
+2. If legacy readers were found, each is ticketed in Phase 84.1.
+3. Legacy table + function have deprecation comments attached.
+
+**Explicit non-goals for this ticket:**
+- Do NOT add a `satisfied` promotion to the legacy table. Doing so would widen the legacy/canonical split instead of closing it.
+- Do NOT bridge legacy and canonical via a trigger — that locks in the dual-track.
+- Do NOT rewrite any production reader without a separate ticket.
+
+---
+
+## T-06 — Deal creation idempotency guard
+
+*(Unchanged from v1 — no repo-state conflicts.)*
+
+**Finding reference:** Four duplicate `Ellmann & Elmann Part 2` deals on 2026-04-15 — two with facts, two empty shells. No idempotency guard on `POST /api/deals/create`.
+
+### Implementation
+
+**Layer 1 — Idempotency-key header:**
+
+In `src/app/api/deals/create/route.ts` (confirm canonical create route via `grep -rn "POST.*deals.*create" src/app/api/`):
 
 ```typescript
-// After a checklist_item_matches row is written with status='auto_applied':
-async function promoteChecklistItemStatus(itemId: string, dealId: string, bankId: string) {
-  const sb = supabaseAdmin();
-  
-  // Read the current item
-  const { data: item } = await sb
-    .from("deal_checklist_items")
-    .select("id, status, requirement_code, deal_id")
-    .eq("id", itemId)
-    .maybeSingle();
-    
-  if (!item) return;
-  if (item.status === "satisfied" || item.status === "waived") return; // already terminal
-  
-  // Check the match meets the satisfaction criteria:
-  //  - At least one auto_applied or banker_approved match exists
-  //  - That match's document has doc_type != UNKNOWN
-  //  - That document has extraction_quality_status != "SUSPECT" (from D1 gate)
-  const { data: qualifyingMatches } = await sb
-    .from("checklist_item_matches")
-    .select("document_id, deal_documents!inner(ai_doc_type, extraction_quality_status)")
-    .eq("checklist_item_id", itemId)
-    .in("status", ["auto_applied", "banker_approved"]);
-    
-  const satisfied = (qualifyingMatches ?? []).some((m: any) =>
-    m.deal_documents?.ai_doc_type && 
-    m.deal_documents.ai_doc_type !== "UNKNOWN" &&
-    m.deal_documents.extraction_quality_status !== "SUSPECT"
-  );
-  
-  if (satisfied) {
-    await sb
-      .from("deal_checklist_items")
-      .update({ 
-        status: "satisfied", 
-        satisfied_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .eq("id", itemId);
-      
-    await writeEvent({
-      dealId,
-      kind: "checklist.item_satisfied",
-      scope: "checklist",
-      action: "item_satisfied",
-      meta: { item_id: itemId, requirement_code: item.requirement_code },
-    });
-  }
-}
-```
-
-Wire this into the point where `checklist_item_matches` INSERT completes — either a Postgres trigger or a post-insert hook in the match-application code.
-
-**Backfill migration (run once after deploy):**
-```sql
--- Backfill: promote items that already have qualifying matches
-UPDATE deal_checklist_items dci
-SET status = 'satisfied', satisfied_at = now(), updated_at = now()
-WHERE status = 'received'
-  AND EXISTS (
-    SELECT 1 FROM checklist_item_matches cim
-    JOIN deal_documents dd ON dd.id = cim.document_id
-    WHERE cim.checklist_item_id = dci.id
-      AND cim.status IN ('auto_applied','banker_approved')
-      AND COALESCE(dd.ai_doc_type,'UNKNOWN') <> 'UNKNOWN'
-      AND COALESCE(dd.extraction_quality_status,'') <> 'SUSPECT'
-  );
-```
-
-**Post-deploy acceptance:**
-1. After backfill, at least one deal has ≥ 1 item at `status='satisfied'`.
-2. Uploading a new document to an existing deal flips the corresponding checklist item to `satisfied` within 2 minutes.
-3. `ReadinessPanel` for that deal shows a percentage > 0%.
-4. A `checklist.item_satisfied` event appears in `deal_events` for each flipped item.
-
-### T-06 — Deal creation idempotency guard
-
-**Finding reference:** Root Cause 6. Four duplicate "Ellmann & Elmann Part 2" deals on April 15 — two with facts, two empty shells.
-
-**Implementation:**
-
-Two-layer defense:
-
-**Layer 1 — Idempotency key header in `/api/deals/create`:**
-
-```typescript
-// Accept optional Idempotency-Key header from the client
 const idempotencyKey = req.headers.get("idempotency-key");
 
 if (idempotencyKey) {
-  // Check if this key has been seen in the last 24 hours
   const { data: prior } = await sb
     .from("deal_creation_idempotency")
-    .select("deal_id, created_at")
+    .select("deal_id")
     .eq("key", idempotencyKey)
     .eq("bank_id", bankId)
     .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
     .maybeSingle();
-    
+
   if (prior?.deal_id) {
-    // Return the already-created deal
     return NextResponse.json({ ok: true, deal_id: prior.deal_id, reused: true });
   }
-  
-  // Will insert after creation succeeds
+}
+
+// ... after successful deal insert:
+if (idempotencyKey) {
+  await sb.from("deal_creation_idempotency").insert({
+    key: idempotencyKey,
+    bank_id: bankId,
+    deal_id: newDealId,
+  });
 }
 ```
 
-**Layer 2 — Time-window uniqueness guard (fallback for clients without the header):**
+**Layer 2 — Time-window uniqueness trigger:**
 
 ```sql
 CREATE TABLE IF NOT EXISTS public.deal_creation_idempotency (
@@ -643,7 +768,6 @@ ALTER TABLE public.deal_creation_idempotency ENABLE ROW LEVEL SECURITY;
 CREATE POLICY dci_service_role ON public.deal_creation_idempotency
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- Prevent duplicate-name creation within 60 seconds per bank
 CREATE OR REPLACE FUNCTION public.check_duplicate_deal_creation()
 RETURNS trigger AS $$
 BEGIN
@@ -668,16 +792,12 @@ CREATE TRIGGER trg_check_duplicate_deal
   EXECUTE FUNCTION check_duplicate_deal_creation();
 ```
 
-**Cleanup of existing duplicates:**
-
-Don't delete user data without confirmation. Instead, flag:
+**Cleanup (additive, does not delete):**
 
 ```sql
--- Add a column if it doesn't exist (safe additive change)
 ALTER TABLE deals ADD COLUMN IF NOT EXISTS duplicate_of uuid REFERENCES deals(id);
 
--- Flag the two empty duplicates as duplicates of the real ones
--- (Actual UUIDs substituted at runtime from pre-work query)
+-- Flag the two empty Ellmann duplicates
 UPDATE deals SET duplicate_of = (
   SELECT id FROM deals 
   WHERE name = 'Ellmann & Elmann Part 2' 
@@ -693,191 +813,123 @@ WHERE name = 'Ellmann & Elmann Part 2'
   );
 ```
 
-Banker can later decide to delete the flagged duplicates via UI. Do not bulk-delete in this migration.
+### Post-deploy acceptance
 
-**Post-deploy acceptance:**
-1. Attempting to POST `/api/deals/create` twice in 60 seconds with the same `name` + `bank_id` returns 409 on the second attempt.
-2. Attempting with an `Idempotency-Key` header twice returns `reused: true` on the second call.
-3. The four Ellmann duplicates: the two empty shells have `duplicate_of` set pointing to a real sibling.
+1. `POST /api/deals/create` with same `name` + `bank_id` twice in 60s returns 409 on second attempt.
+2. `POST /api/deals/create` with same `Idempotency-Key` twice returns `reused: true`.
+3. The two empty Ellmann shells have `duplicate_of` populated.
 
 ---
 
-## Wave 3 — Restore advisory + governance
+# Wave 3 — Restore advisory + governance
 
-### T-07 — Omega protocol mismatch
+## T-07 — Narrow Omega fix: `underwrite/state` fallback
 
-**Finding reference:** Root Cause 2. 43/43 Omega invocations fail with `omega_rpc_error: Method not found`. Buddy sends JSON-RPC methods like `omega://confidence/evaluate`; Pulse MCP exposes tool-style methods (`buddy_ledger_list`, `memory_search`, `action_execute`, etc.).
+**Finding reference (narrowed from v1):** Pulse-backed `omega://` RPC calls fail 100% with `Method not found`. The user-facing `/api/deals/[dealId]/state` route already has a working `ai_risk_runs` fallback via `synthesizeAdvisoryFromRisk()` (verified against `src/core/omega/OmegaAdvisoryAdapter.ts`). The narrow problem is that the Phase 79 `/api/deals/[dealId]/underwrite/state` route does NOT use that fallback — its `omegaAdvisory` field is always null.
 
-**Decision required:** Choose ONE:
+**Decision:** Do not rewrite `invokeOmega` with a full Pulse-adapter layer in this ticket. That was v1's scope. It adds complexity for partial value — Pulse's actual advisory surface isn't mature enough to translate `omega://confidence/evaluate` meaningfully. Instead, preserve the existing fallback and extend it to `underwrite/state`.
 
-**Option A — Rewrite Buddy to call Pulse's actual tool surface.**
-Cheaper. Pulse tools already exist. Buddy's `invokeOmega` becomes a thin translator.
+If/when Pulse ships native `omega://` handlers or a richer advisory tool, T-07-B in Phase 84.1 can do the full adapter.
 
-**Option B — Add `omega://` resource handlers to Pulse.**
-Cleaner conceptual separation. Pulse stays tool-based for other clients; adds an RPC dispatcher for Buddy's resource-style calls.
+### Pre-work
 
-**Recommendation: Option A.** Fewer moving parts, no coordinated deploy across two codebases. Pulse tools already exist in production and are stable.
-
-**Pre-work (Antigravity confirms):**
 ```sql
--- Confirm the exact resource strings Buddy is calling
-SELECT DISTINCT payload->>'resource' as resource, COUNT(*) 
+-- Confirm which resources Buddy is calling and the exact failure mode
+SELECT 
+  payload->>'resource' AS resource,
+  payload->>'error' AS error,
+  COUNT(*) AS count
 FROM buddy_signal_ledger
-WHERE type = 'omega.invoked'
-GROUP BY 1
-ORDER BY 2 DESC;
+WHERE type IN ('omega.invoked','omega.failed','omega.succeeded')
+  AND created_at > NOW() - INTERVAL '7 days'
+GROUP BY payload->>'resource', payload->>'error'
+ORDER BY count DESC;
 ```
 
-Expected resources based on audit:
-- `omega://confidence/evaluate`
-- `omega://state/underwriting_case/{dealId}`
-- `omega://traces/{dealId}`
-- `omega://events/write`
-- `omega://advisory/deal-focus`
+```bash
+# Confirm the state route HAS the fallback (should be present per Phase 65A)
+grep -n "synthesizeAdvisoryFromRisk\|ai_risk_runs" src/app/api/deals/\[dealId\]/state/route.ts
 
-**Implementation:**
+# Confirm underwrite/state does NOT have the fallback yet
+grep -n "synthesizeAdvisoryFromRisk\|ai_risk_runs" src/app/api/deals/\[dealId\]/underwrite/state/route.ts
+```
 
-Create `src/lib/omega/pulseAdapter.ts`:
+Expected state: first grep returns 2+ hits, second grep returns 0.
+
+### Implementation
+
+In `src/app/api/deals/[dealId]/underwrite/state/route.ts`:
+
+Find the existing Omega call (Phase 79 added `invokeOmega` with `redactForOmega` after `buildTrustLayer`). Wrap the result with the same fallback pattern used in `state/route.ts`:
 
 ```typescript
-import "server-only";
-import type { OmegaResult } from "./invokeOmega";
+import { synthesizeAdvisoryFromRisk, type AiRiskResult } from "@/core/omega/OmegaAdvisoryAdapter";
 
-/**
- * Map Buddy's omega:// resource URIs to Pulse MCP tool calls.
- * 
- * This adapter exists because Pulse MCP exposes tool-style methods
- * (buddy_ledger_*, memory_*, action_*) rather than the omega:// URI
- * scheme Buddy originally designed for. Until Pulse adds native
- * omega:// handlers, this adapter translates.
- */
-export type ResourceMapping = {
-  pulseToolName: string;
-  buildParams: (payload: unknown, uri: string) => Record<string, unknown>;
-  mapResponse: (raw: unknown) => unknown;
-};
+// ... existing Phase 79 Omega call:
+const omegaResult = await invokeOmega({
+  resource: "omega://confidence/evaluate",
+  correlationId,
+  payload: redactForOmega({ dealId, bankId, lifecycleStage, trustLayer }),
+});
 
-const RESOURCE_MAP: Record<string, ResourceMapping> = {
-  "omega://events/write": {
-    pulseToolName: "buddy_ledger_write",
-    buildParams: (p: any) => ({
-      event_type: p?.kind ?? "unknown",
-      status: p?.status ?? "success",
-      deal_id: p?.dealId,
-      payload: p,
-    }),
-    mapResponse: (r: any) => ({ ok: true, written: r }),
-  },
-  "omega://confidence/evaluate": {
-    pulseToolName: "memory_search",
-    buildParams: (p: any) => ({
-      query: `confidence ${p?.dealId ?? ""} ${p?.dimension ?? ""}`.trim(),
-      limit: 10,
-    }),
-    mapResponse: (r: any) => ({
-      confidence: 50, // Default until Pulse provides native confidence scoring
-      signals: Array.isArray(r) ? r.map((x: any) => x?.content ?? "").slice(0, 5) : [],
-    }),
-  },
-  // Pattern match for /omega:\/\/state\/underwriting_case\/[uuid]/
-  // and /omega:\/\/traces\/[uuid]/ handled by a regex in the caller.
-};
-
-// Also match pattern URIs
-export function resolveResourceMapping(uri: string): ResourceMapping | null {
-  if (RESOURCE_MAP[uri]) return RESOURCE_MAP[uri];
-  
-  if (/^omega:\/\/state\/underwriting_case\/[0-9a-f-]+$/i.test(uri)) {
-    const dealId = uri.split("/").pop()!;
-    return {
-      pulseToolName: "buddy_ledger_deal",
-      buildParams: () => ({ deal_id: dealId, limit: 50 }),
-      mapResponse: (r: any) => ({ deal_id: dealId, events: r }),
-    };
+// Phase 84 T-07: If Pulse unavailable or returned nothing, fall back to ai_risk_runs
+let omegaAdvisory: unknown = null;
+if (omegaResult.ok && omegaResult.data) {
+  omegaAdvisory = omegaResult.data;
+} else {
+  try {
+    const { data: riskRow } = await sb
+      .from("ai_risk_runs")
+      .select("result_json")
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (riskRow?.result_json) {
+      omegaAdvisory = synthesizeAdvisoryFromRisk(riskRow.result_json as AiRiskResult);
+    }
+  } catch {
+    // Fallback is best-effort — keep omegaAdvisory null
   }
-  
-  if (/^omega:\/\/traces\/[0-9a-f-]+$/i.test(uri)) {
-    const dealId = uri.split("/").pop()!;
-    return {
-      pulseToolName: "buddy_ledger_list",
-      buildParams: () => ({ deal_id: dealId, hours: 168, limit: 200 }),
-      mapResponse: (r: any) => ({ deal_id: dealId, traces: r }),
-    };
-  }
-  
-  if (uri === "omega://advisory/deal-focus") {
-    return {
-      pulseToolName: "memory_search",
-      buildParams: (p: any) => ({ query: `deal ${p?.dealId ?? ""}`, limit: 20 }),
-      mapResponse: (r: any) => ({ advisory: r }),
-    };
-  }
-  
-  return null;
 }
+
+// ... existing response:
+return NextResponse.json({
+  ...,
+  omegaAdvisory,  // non-null when either Pulse OR ai_risk_runs has data
+});
 ```
 
-Update `src/lib/omega/invokeOmega.ts` — replace the `mcpCall` function body:
+### What this explicitly does NOT do
 
-```typescript
-async function mcpCall<T>(resource: string, payload: unknown): Promise<T> {
-  const baseUrl = getOmegaMcpUrl();
-  if (!baseUrl) throw new Error("omega_not_connected: OMEGA_MCP_URL not configured");
+- Does not rewrite `invokeOmega` with a protocol adapter
+- Does not add new methods to Pulse
+- Does not break the existing `/api/deals/[dealId]/state` fallback path
+- Does not silence the `omega.failed` events — those still fire for observability
 
-  const { resolveResourceMapping } = await import("./pulseAdapter");
-  const mapping = resolveResourceMapping(resource);
-  
-  if (!mapping) {
-    // Resource not implemented on Pulse — fail fast, don't flood the ledger
-    throw new Error(`omega_unsupported_resource: ${resource}`);
-  }
-  
-  const apiKey = getOmegaMcpApiKey();
-  const requestId = `buddy-${++_jsonRpcSeq}-${Date.now().toString(36)}`;
-  
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-  };
-  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-  
-  // Translate to tool-call shape
-  const body = JSON.stringify({
-    jsonrpc: "2.0",
-    id: requestId,
-    method: "tools/call",
-    params: {
-      name: mapping.pulseToolName,
-      arguments: mapping.buildParams(payload ?? {}, resource),
-    },
-  });
+### Post-deploy acceptance
 
-  const response = await fetch(baseUrl, { method: "POST", headers, body });
-  if (!response.ok) {
-    throw new Error(`omega_http_${response.status}: ${response.statusText || "request failed"}`);
-  }
-  
-  const json = await response.json() as any;
-  if (json.error) throw new Error(`omega_rpc_error: ${json.error.message ?? `code ${json.error.code}`}`);
-  if (json.result === undefined) throw new Error("omega_rpc_empty: no result in response");
-  
-  return mapping.mapResponse(json.result) as T;
-}
-```
+1. For any deal with a non-null `ai_risk_runs` row, `GET /api/deals/[dealId]/underwrite/state` returns a non-null `omegaAdvisory` with at least a `grade` or `advisory` string field.
+2. `buddy_signal_ledger` events ratio unchanged — still 100% `omega.failed` from Pulse, because this ticket doesn't change Pulse calls. That's expected.
+3. The user-facing `/api/deals/[dealId]/state` route continues to return its Phase 65A fallback correctly (regression check).
+4. If `ai_risk_runs` is also empty for a deal, `omegaAdvisory` is `null`, and downstream UI handles this gracefully (no crash).
 
-**Post-deploy acceptance:**
-1. Within 1 hour, `buddy_signal_ledger` shows at least 1 `omega.succeeded` event.
-2. `omega.failed / omega.invoked` ratio drops below 50% (was 100%).
-3. `/api/deals/[dealId]/underwrite/state` returns a non-null `omegaAdvisory` for at least one deal.
-4. If any resource remains unsupported, the error is `omega_unsupported_resource:<uri>` (not `Method not found`) — distinguishable in logs.
+### Phase 84.1 follow-up
 
-### T-08 — Exercise the governance tables (smoke test)
+If bankers ask for real-time Pulse-backed advisories (beyond the ai_risk_runs static snapshot), that work is T-07-B:
+- Define which Pulse tools (e.g. `memory_search`, `buddy_ledger_list`) can substitute for each `omega://` resource
+- Build a proper adapter in `src/lib/omega/pulseAdapter.ts`
+- Replace `Method not found` errors with `omega_unsupported_resource` in the ledger for clearer observability
 
-**Finding reference:** Findings #9, #19–#24. Governance tables populated but never exercised — `deal_decisions`, `agent_approval_events`, `agent_skill_evolutions`, `canonical_action_executions`, `draft_borrower_requests`, `borrower_request_campaigns` all at 0 rows.
+---
 
-**Decision note:** These tables shouldn't be populated artificially. The better play is a scripted end-to-end smoke test that exercises each governance path with real data.
+## T-08 — Governance smoke test
 
-**Implementation:**
+*(Unchanged from v1.)*
+
+**Finding reference:** `deal_decisions` (0), `agent_approval_events` (0), `canonical_action_executions` (0), `draft_borrower_requests` (0), `agent_skill_evolutions` (0). Phase 72–75 infrastructure present but never exercised live.
+
+### Implementation
 
 Create `scripts/phase-84-governance-smoke.ts`:
 
@@ -885,224 +937,251 @@ Create `scripts/phase-84-governance-smoke.ts`:
 #!/usr/bin/env tsx
 /**
  * Phase 84 T-08 — Governance smoke test.
- * 
- * Drives one real deal through the approve → decline → escalate paths,
- * creates a draft borrower request, approves it, and exercises the
- * canonical action execution path. Produces verifiable rows in:
+ *
+ * Drives a staging deal through approve / draft-borrower-request / approve-draft /
+ * execute-action paths to produce verifiable rows in:
  *   - deal_decisions
- *   - agent_approval_events  
+ *   - draft_borrower_requests + agent_approval_events
  *   - canonical_action_executions
- *   - draft_borrower_requests
- * 
- * Designed to run against a staging/dev deal only. Hard-fails if deal
- * is not flagged test=true or bank_id is not the staging bank.
+ *
+ * Safety: requires STAGING_BANK_ID env. Hard-fails if deal isn't in staging bank
+ * or isn't flagged is_test=true (after T-10 flags test deals).
  */
 
 const STAGING_BANK_ID = process.env.STAGING_BANK_ID;
 const TEST_DEAL_ID = process.argv[2];
+const API_BASE = process.env.BUDDY_API_BASE ?? "http://localhost:3000";
+const CRON_SECRET = process.env.CRON_SECRET; // needed for worker routes
 
 if (!STAGING_BANK_ID || !TEST_DEAL_ID) {
   console.error("Usage: tsx scripts/phase-84-governance-smoke.ts <dealId>");
-  console.error("Requires STAGING_BANK_ID env var.");
+  console.error("Required env: STAGING_BANK_ID, BUDDY_API_BASE, CRON_SECRET");
   process.exit(1);
 }
 
-// Steps:
-// 1. POST /api/deals/{id}/actions with action=approve — should insert into deal_decisions
-// 2. POST /api/deals/{id}/draft-borrower-request — should insert into draft_borrower_requests
-// 3. POST /api/admin/agent-approvals with approve=true — should insert into agent_approval_events  
-// 4. POST /api/deals/{id}/execute-action — should insert into canonical_action_executions
-// 5. Verify all 4 rows exist via direct supabase query
+// 1. Fetch the deal and confirm it's in the staging bank
+// 2. POST /api/deals/{dealId}/actions  { action: "approve" }
+//    → assert deal_decisions row appears
+// 3. POST /api/deals/{dealId}/draft-borrower-request { requirements: [...] }
+//    → assert draft_borrower_requests row appears
+// 4. POST /api/admin/agent-approvals { draftId, approve: true }
+//    → assert agent_approval_events row appears with valid snapshot
+// 5. POST /api/deals/{dealId}/execute-action { actionType: "..." }
+//    → assert canonical_action_executions row appears
+// 6. Print a summary with row counts per table
 ```
 
-**Post-deploy acceptance:**
-1. After running the script, `deal_decisions` has ≥ 1 row.
-2. `agent_approval_events` has ≥ 1 row with `decision='approved'` + valid snapshot.
-3. `canonical_action_executions` has ≥ 1 row.
-4. `draft_borrower_requests` has ≥ 1 row with non-null `approved_snapshot`.
+### Pre-work
+
+Identify or designate a staging bank + test deal. Flag the deal `is_test=true` (T-10 adds this column; run T-10 Part B first or add the flag inline).
+
+### Post-deploy acceptance
+
+After running the script:
+1. `deal_decisions` has ≥ 1 row
+2. `agent_approval_events` has ≥ 1 row with `decision='approved'` and a populated `approved_snapshot`
+3. `canonical_action_executions` has ≥ 1 row
+4. `draft_borrower_requests` has ≥ 1 row with non-null `approved_snapshot`
 
 ---
 
-## Wave 4 — Housekeeping + memory
+# Wave 4 — Housekeeping
 
-### T-09 — `.env.example` reconciliation + roadmap update
+## T-09 — Roadmap + env reconciliation
 
-**Implementation:**
+**Shift from v1:** "Reconcile, don't rewrite blind."
 
-**Part A — Update `.env.example`:**
+### Pre-work
 
-```diff
-- # OpenAI Realtime Voice (Step 4)
-- OPENAI_API_KEY=sk-...
-- 
-- # Buddy builder observer (build-mode only)
-- BUDDY_BUILDER_MODE=1
-- OPENAI_REALTIME_MODEL=gpt-realtime
-- OPENAI_REALTIME_VOICE=marin
-- OPENAI_REALTIME_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe
-+ # OpenAI — used only for chatAboutDeal (Gemini migration queued, P3)
-+ OPENAI_API_KEY=
+```bash
+# Read current roadmap state before editing
+head -80 BUDDY_PROJECT_ROADMAP.md
 
-- # Mistral OCR (deprecated/disabled)
-- # MISTRAL_API_KEY=
-- # USE_MISTRAL_OCR=false
-
-# ─── Gemini OCR (Vertex AI) ──────────────────────────────────────────────
-GEMINI_SERVICE_ACCOUNT_JSON=
-- USE_GEMINI_OCR=false
-+ USE_GEMINI_OCR=true
-- # Optional: override OCR model
-- GEMINI_OCR_MODEL=gemini-2.0-flash-exp
-+ # OCR model — use a current supported GA tag
-+ GEMINI_OCR_MODEL=gemini-2.0-flash-001
-
-+ # ─── Clerk ───────────────────────────────────────────────────────────────
-+ # Local JWT verification key (RSA public key) — eliminates cold-start BAPI calls
-+ CLERK_JWT_KEY=
-
-+ # ─── Omega Advisory (Phase 79 / Phase 84) ───────────────────────────────
-+ OMEGA_MCP_ENABLED=0
-+ OMEGA_MCP_URL=
-+ OMEGA_MCP_API_KEY=
-+ OMEGA_MCP_TIMEOUT_MS=4000
-+ OMEGA_MCP_KILL_SWITCH=0
+# Confirm phase AARs present on main
+ls AAR_PHASE_*.md | sort
 ```
 
-**Part B — Update `BUDDY_PROJECT_ROADMAP.md`:**
+Then read Vercel project env vars directly (or from the Vercel dashboard):
+- `USE_GEMINI_OCR` — current value
+- `GEMINI_OCR_MODEL` — current value
+- `OMEGA_MCP_ENABLED`, `OMEGA_MCP_URL`, `OMEGA_MCP_API_KEY`, `OMEGA_MCP_TIMEOUT_MS`, `OMEGA_MCP_KILL_SWITCH`
+- `CLERK_JWT_KEY` present/absent
+- `OPENAI_REALTIME_*` — should be removed
 
-Add a "Current State — April 17, 2026" section replacing the outdated "Phase 53A complete + ..." header. Mark shipped phases:
-- Phase 57C, 66, 67, 68, 69, 70: shipped
-- Phase 71 (A/B/C), 72–74, 75, 78, 79: shipped  
-- Phase 80 (lease + credit memo): new extractors live, wiring complete, awaiting live test
-- Phase 84: this spec
+### Implementation
 
-**Post-deploy acceptance:**
-1. `.env.example` contains `OMEGA_MCP_*` and `CLERK_JWT_KEY`.
-2. `.env.example` no longer references `OPENAI_REALTIME_*`.
-3. `BUDDY_PROJECT_ROADMAP.md` "Last Updated" line shows the current date.
+**Part A — `.env.example` reconciliation:**
 
-### T-10 — Repo hygiene + test data flagging
+- Add `OMEGA_MCP_*` entries (all five)
+- Add `CLERK_JWT_KEY` entry with comment explaining purpose
+- Remove `OPENAI_REALTIME_*` (voice is fully Gemini since Phase 51)
+- Change `USE_GEMINI_OCR` default to `true`
+- Do NOT hardcode a replacement `GEMINI_OCR_MODEL` value — instead leave a comment pointing to current Gemini docs
 
-**Implementation:**
+**Part B — `BUDDY_PROJECT_ROADMAP.md` reconciliation:**
 
-**Part A — Root markdown archival:**
+Do NOT replace the header with a hardcoded list. Instead:
+
+1. Read current AAR files (`ls AAR_PHASE_*.md`)
+2. Build the shipped-phase list dynamically from AAR filenames
+3. Update "Last Updated" line to current date
+4. Add a "Phase 84 — in progress" stub at the top with a pointer to this spec
+5. Preserve the rest of the roadmap content (existing phase decompositions, build rules, etc.)
+
+The goal is to anchor the top of the file to current reality without losing the historical record below.
+
+### Post-deploy acceptance
+
+1. `.env.example` diff applied correctly (verify via `git diff .env.example`).
+2. `BUDDY_PROJECT_ROADMAP.md` header reflects current state and references this spec.
+3. No regression in existing roadmap content — verify via `git diff --stat BUDDY_PROJECT_ROADMAP.md` shows only additive/header changes.
+
+---
+
+## T-10 — Repo hygiene + test-data flagging
+
+*(Unchanged from v1.)*
+
+### Implementation
+
+**Part A — Archive 125+ root markdown files:**
 
 ```bash
 mkdir -p docs/archive/phase-pre-84/
-git mv AAR_PHASE_*.md docs/archive/phase-pre-84/
-git mv PHASE_*_SPEC.md docs/archive/phase-pre-84/
-git mv PHASE_*_TICKETS.md docs/archive/phase-pre-84/
-git mv PHASE_4_FILES.txt docs/archive/phase-pre-84/
+git mv AAR_PHASE_*.md docs/archive/phase-pre-84/ 2>/dev/null || true
+git mv PHASE_*_SPEC.md docs/archive/phase-pre-84/ 2>/dev/null || true
+git mv PHASE_*_TICKETS.md docs/archive/phase-pre-84/ 2>/dev/null || true
+git mv PHASE_4_FILES.txt docs/archive/phase-pre-84/ 2>/dev/null || true
 ```
 
-Keep at root only: `README.md`, `BUDDY_PROJECT_ROADMAP.md`, `BUDDY_BUILD_RULES.md`, `DEPLOYMENT.md`, `HOTFIX_LOG.md`.
+Preserve AAR references if any other Phase 84 tickets expect root-level paths during execution — rename only AFTER T-01 through T-08 complete.
+
+Keep at root: `README.md`, `BUDDY_PROJECT_ROADMAP.md`, `BUDDY_BUILD_RULES.md`, `DEPLOYMENT.md`, `HOTFIX_LOG.md`.
 
 Remove zero-byte artifacts: `funnel`, `node`, `buddy-the-underwriter@0.1.0`.
 
-**Part B — Flag test deals:**
+**Part B — Test-data flagging:**
 
 ```sql
--- Flag ChatGPT Fix 11-15 and the empty Ellmann duplicates as test data
 ALTER TABLE deals ADD COLUMN IF NOT EXISTS is_test boolean NOT NULL DEFAULT false;
 
 UPDATE deals SET is_test = true 
-WHERE name ILIKE 'ChatGPT Fix%' OR duplicate_of IS NOT NULL;
+WHERE name ILIKE 'ChatGPT Fix%' 
+   OR duplicate_of IS NOT NULL;
 ```
 
-Update dashboard queries to filter `WHERE is_test = false` for production metrics.
+Update dashboard/analytics queries to filter `WHERE is_test = false`.
 
-**Part C — Sweep `runRecord.ts` if Option B was chosen in T-04:**
+### Post-deploy acceptance
 
-If the product decision was to delete `runRecord.ts`, do it now. Otherwise skip this.
-
-**Post-deploy acceptance:**
-1. Root directory has ≤ 15 files (currently ~125 markdown files + loose artifacts).
-2. Production dashboards show 2 deals (the real Ellmann + real ChatGPT-Fix-N if any are kept), not 9.
+1. Root directory has ≤ 15 files.
+2. Production dashboards show non-test deals only (Ellmann real + any others).
+3. Zero-byte artifacts removed from repo root.
 
 ---
 
-## Out of scope — Phase 84.1 backlog
+# Out of scope — Phase 84.1 backlog
 
-These were identified during the audit but deferred to a follow-up phase:
-
-1. **Samaritus deal restoration** — decide whether to recreate, pick a new canonical test deal, or accept the loss. Not blocking any system.
-2. **336 dead-lettered outbox replay** — build a replay script with the new Bearer token. Historical audit gap, not a current-state problem.
-3. **Re-extraction orchestrator actual retry** — currently simulated. Needs the run-ledger from T-04 first.
-4. **Wire 9 other extractors through runRecord.ts** — T-04 only covers `gemini_primary_v1`.
-5. **Security definer view audit** — 46 ERROR findings. Per-view review needed.
-6. **Function search_path bulk fix** — 88 WARN findings.
-7. **`rls_policy_always_true` tightening** — 39 WARN findings where service_role-only policies may be tightenable.
-8. **Vector extension schema migration** — move from `public` to `extensions` schema.
-9. **Clerk JWT verification migration** — if `CLERK_JWT_KEY` is not yet set in Vercel, set it. Not a code change.
+1. **Samaritus deal restoration** — decide whether to recreate, pick a new canonical test deal, or accept the loss
+2. **336 dead-lettered outbox replay** — with new Bearer token
+3. **Re-extraction orchestrator actual retry** — currently simulated; depends on T-04
+4. **Wire the other 9 extractors through `runRecord.ts`** — `personalIncomeExtractor`, `materializeFactsFromArtifacts`, `extractFactsFromDocument:v5`, `gemini_primary_schedule_detect`, `backfillCanonicalFactsFromSpreads`, `persistGlobalCashFlow`, etc.
+5. **RLS Batch B** — 60+ remaining tables (monitoring, pricing, workout, renewal, annual review, etc.)
+6. **46 `security_definer_view` ERROR findings** — per-view review
+7. **88 `function_search_path_mutable` WARN findings** — bulk fix
+8. **`rls_policy_always_true` tightening** — 39 findings
+9. **Vector ext schema migration** — move from `public` to `extensions`
+10. **Clerk JWT verification setup** — set `CLERK_JWT_KEY` in Vercel if not already
+11. **T-05 follow-up: retire `deal_checklist_items`** if the audit confirms no production readers
+12. **T-07-B: Full Pulse adapter** for real-time Omega if product needs richer advisories beyond `ai_risk_runs` fallback
 
 ---
 
-## Execution protocol for Antigravity
+# Execution protocol for Antigravity
 
-**Before ANY ticket:**
-1. Read this spec end-to-end.
-2. Run the pre-work SQL for that ticket.
-3. Report pre-work findings in chat before writing code.
+**Before every ticket:**
+1. Read this spec end-to-end once
+2. Run the ticket's pre-work SQL and diagnostic commands
+3. Report pre-work findings back in chat
+4. **Confirm the ticket is still needed.** If pre-work shows the fix is already in place (e.g. a DB function already handles what the ticket proposes), convert the ticket to an audit ticket and skip implementation
 
 **During a ticket:**
-1. Only touch files named in the ticket's Implementation section.
-2. If a file path is ambiguous, ask — do not guess.
-3. Write the migration / code changes.
-4. Commit with message `Phase 84 T-NN — <title>`.
+1. Only touch files named in the Implementation section
+2. If a file path is ambiguous or differs from the spec, ask — do not guess
+3. Commit with message `Phase 84 T-NN — <title>`
 
-**After a ticket:**
-1. Run the post-deploy acceptance checks as SQL queries.
-2. Emit an `AAR_PHASE_84_T0N.md` file in `docs/archive/phase-84/` with:
-   - Pre-work results
-   - Files changed (with line counts)
-   - Acceptance results (SQL output)
+**After every ticket:**
+1. Run the post-deploy acceptance checks as actual SQL queries
+2. Create `docs/archive/phase-84/AAR_PHASE_84_T0N.md` with:
+   - Pre-work results (verbatim SQL output)
+   - Files changed (list with line counts)
+   - Acceptance results (verbatim SQL output)
    - Deviations from spec with rationale
+3. Verify the AAR file exists on `origin/main` via GitHub API read at `ref: main` — phantom-commit mitigation
 
-**Phantom commit mitigation:**
-After every AAR, verify the committed files exist on `origin/main` via GitHub API read at `ref: main`. Do NOT trust reported SHAs alone.
-
----
-
-## Success criteria for the phase as a whole
-
-| Criterion | Pre-Phase-84 | Target |
-|---|---|---|
-| RLS-disabled public tables (tenant-bearing) | 82 | < 5 |
-| 24h `DOC_GATEKEEPER_CLASSIFY_FAILED` rate | ~100% | < 5% |
-| 24h `NO_SPREADS_RENDERED` critical events | ~3,500 | < 100 |
-| `deal_extraction_runs` row count | 0 | ≥ 10 in 7 days |
-| Deals with ≥ 1 satisfied checklist item | 0 | ≥ 5 |
-| `omega.succeeded` / `omega.invoked` ratio | 0% | ≥ 50% |
-| `deal_decisions` row count | 0 | ≥ 1 |
-| Duplicate deal creations (same name, same bank, <60s apart) | yes | blocked |
-| `.env.example` completeness | partial | matches Vercel prod |
-
-When all 9 success criteria hold for 72 hours, Phase 84 is closed and Phase 84.1 (backlog above) begins.
+**Cross-ticket dependencies:**
+- T-02 (classifier) must complete BEFORE T-04 acceptance testing — if the classifier is broken, extraction runs won't fire for new docs and T-04 acceptance won't land
+- T-01 (RLS) must complete BEFORE any external user testing of T-07/T-08
+- T-10 Part B (test flag) should run BEFORE T-08 (governance smoke test)
 
 ---
 
-## Appendix — Full findings → ticket crosswalk
+# Success criteria for the phase as a whole
 
-| # | Finding | Addressed by |
+| Criterion | Pre-Phase-84 | v2 Target | Source |
+|---|---|---|---|
+| RLS-disabled cross-tenant tables (Batch A scope) | 14 | 0 | T-01 |
+| 24h `DOC_GATEKEEPER_CLASSIFY_FAILED` rate | ~100% | < 5% | T-02 |
+| 24h `NO_SPREADS_RENDERED` critical events | ~3,500 | < 200 | T-03 |
+| `deal_extraction_runs` row count | 0 | ≥ 10 in 7 days | T-04 |
+| Checklist taxonomy audit delivered | no | yes | T-05 |
+| Duplicate deals by (bank_id, name, 60s window) | possible | blocked | T-06 |
+| `/api/deals/[dealId]/underwrite/state` returns non-null `omegaAdvisory` | never | yes for deals with ai_risk_runs | T-07 |
+| Governance tables each have ≥ 1 row | no | yes | T-08 |
+| `.env.example` matches Vercel prod | partial | yes | T-09 |
+| Root directory file count | ~125 | ≤ 15 | T-10 |
+
+When all 10 criteria hold for 72 hours, Phase 84 is closed and Phase 84.1 opens.
+
+---
+
+# Changelog: v1 → v2
+
+| Change | Reason |
+|---|---|
+| T-01 split into Batch A (14 tables, this phase) and Batch B (60+ tables, 84.1) | v1 migration blast radius too broad for one shot |
+| T-03 removed "timeout" framing | `maxDuration=60` already set on observer route |
+| T-04 removed "Option B: delete runRecord.ts" | Would break `agent_workflow_runs` view (Phase 72C union); Phase 72C cost-promotion work depends on the table |
+| T-05 rewritten from "build propagation" to "audit the dual-table split" | Propagation (`create_checklist_match()`, `recomputeDealDocumentState`, `reconcileChecklistForDeal`) already exists in repo — v1 queried the legacy table and missed the canonical Phase 66 path |
+| T-07 scope narrowed from "full Pulse adapter" to "extend existing ai_risk_runs fallback to underwrite/state" | `OmegaAdvisoryAdapter` + `synthesizeAdvisoryFromRisk()` fallback already lives in `state/route.ts`; the full adapter is deferred to 84.1 |
+| T-09 phrased as "reconcile" not "rewrite" | Current roadmap state must be verified before editing |
+| Pre-work on every ticket now includes an "is it already fixed?" check | v1 spec assumed several things were still broken that were in fact already fixed |
+| Success criteria table more granular (10 rows vs 9) with source-ticket column | Easier tracking during execution |
+
+---
+
+## Appendix — Full findings → ticket crosswalk (v2)
+
+| # | Finding | Addressed by (v2) |
 |---|---|---|
-| 1 | 82 tables RLS disabled (GLBA wall) | T-01 |
+| 1 | 82 tables RLS disabled | T-01 (Batch A, 14 tables) + 84.1 (Batch B, remainder) |
 | 2 | Document classifier 100% failing | T-02 |
-| 3 | Checklist stuck at "received" | T-05 |
+| 3 | "Checklist stuck" — audit correction | T-05 (audit only — propagation works) |
 | 4 | `deal_extraction_runs` empty | T-04 |
 | 5 | Re-extraction orchestrator simulated | 84.1 (depends on T-04) |
 | 6 | Material drift detected 11×/7d | Resolves with T-02 + T-04 |
 | 7 | Reconciliation runs on bad data | Resolves with T-02 |
-| 8 | Omega 100% failing live | T-07 |
+| 8 | Omega Pulse calls 100% fail | T-07 (narrow: extend fallback); 84.1 for full adapter |
 | 9 | Phase 80 lease/credit memo no facts | Resolves with T-02 |
 | 10 | Output contracts half-wired | 84.1 |
 | 11 | `runRecord.ts` dead code | T-04 |
-| 12 | Spreads worker dying every 30 min | T-03 (observer noise, not real failure) |
-| 13 | 7,028 NO_SPREADS_RENDERED events/48h | T-03 |
-| 14 | 336 dead-lettered outbox (HTTP 401) | 84.1 |
-| 15 | No outbox activity in 45h | Resolves with T-02 (uploads resume) |
-| 16 | Cron borrower-reminders 504 | Resolves with T-05 (schedule populates) |
-| 17 | `/api/admin/spreads/backfill-gcf-facts` 504 | Out of scope — admin-only tool, bump maxDuration separately |
-| 18 | 0 ai_risk_runs for 8/9 deals | Resolves with T-05 (committee gate unblocks risk run) |
+| 12 | Spreads worker alerts | T-03 (dedup, not timeout) |
+| 13 | 7,028 NO_SPREADS_RENDERED events | T-03 |
+| 14 | 336 dead-lettered outbox | 84.1 |
+| 15 | No outbox activity in 45h | Resolves with T-02 |
+| 16 | Cron borrower-reminders 504 | 84.1 (unrelated to propagation — no reminders scheduled) |
+| 17 | `/api/admin/spreads/backfill-gcf-facts` 504 | 84.1 (admin tool) |
+| 18 | 0 ai_risk_runs for 8/9 deals | Not addressed here — resolves as deals advance |
 | 19 | `deal_decisions` empty | T-08 |
 | 20 | `agent_approval_events` empty | T-08 |
 | 21 | `agent_skill_evolutions` empty | 84.1 (depends on T-04) |
@@ -1110,19 +1189,14 @@ When all 9 success criteria hold for 72 hours, Phase 84 is closed and Phase 84.1
 | 23 | `canonical_action_executions` empty | T-08 |
 | 24 | `draft_borrower_requests` empty | T-08 |
 | 25 | `borrower_request_campaigns` empty | T-08 |
-| 26 | Samaritus deleted | 84.1 |
+| 26 | Samaritus deleted | 84.1 (not blocking) |
 | 27 | 4 duplicate Ellmann deals | T-06 |
 | 28 | ChatGPT Fix 11-15 in prod | T-10 |
 | 29 | `ownership_entities` weak linking | Resolves with T-02 |
-| 30 | 46 security_definer_view ERROR | 84.1 |
-| 31 | 39 rls_policy_always_true WARN | 84.1 |
-| 32 | 88 function_search_path_mutable | 84.1 |
-| 33 | vector ext in public schema | 84.1 |
-| 34 | 1 deal_voice_session row | Not a code issue — feature adoption |
-| 35 | Memory file outdated | T-09 |
-| 36 | `.env.example` stale | T-09 |
-| 37 | 125+ root markdown files | T-10 |
+| 30 | Memory file outdated | T-09 |
+| 31 | `.env.example` stale | T-09 |
+| 32 | 125+ root markdown files | T-10 |
 
 ---
 
-**End of spec.**
+**End of spec v2.**
