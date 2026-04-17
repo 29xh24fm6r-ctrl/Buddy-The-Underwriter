@@ -42,6 +42,13 @@ function IntakeProcessingKick({ dealId }: { dealId: string }) {
   } | null>(null);
   const [kicking, setKicking] = useState(false);
   const [kickResult, setKickResult] = useState<string | null>(null);
+  // now() held in state so age stays stable across re-renders until the tick
+  const [nowMs, setNowMs] = useState<number>(0);
+  useEffect(() => {
+    setNowMs(Date.now());
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,8 +80,8 @@ function IntakeProcessingKick({ dealId }: { dealId: string }) {
   if (status.intake_phase !== "CONFIRMED_READY_FOR_PROCESSING") return null;
   if (!status.outbox_stalled) return null;
 
-  const age = status.outbox_created_at
-    ? Date.now() - new Date(status.outbox_created_at).getTime()
+  const age = status.outbox_created_at && nowMs > 0
+    ? nowMs - new Date(status.outbox_created_at).getTime()
     : 0;
 
   async function handleKick() {

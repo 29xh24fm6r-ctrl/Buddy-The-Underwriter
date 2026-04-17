@@ -71,9 +71,10 @@ type PreflightStatus = {
 
 // ── Helpers ──
 
-function relativeTime(iso: string | null): string {
+function relativeTime(iso: string | null, nowMs: number): string {
   if (!iso) return "never";
-  const diff = Date.now() - new Date(iso).getTime();
+  if (nowMs === 0) return "…"; // pre-mount — avoid SSR/CSR divergence
+  const diff = nowMs - new Date(iso).getTime();
   if (diff < 60_000) return "just now";
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
@@ -132,6 +133,13 @@ export function PipelinePanel({ dealId, isAdmin = false }: Props) {
   const [recomputeMsg, setRecomputeMsg] = useState<string | null>(null);
   const [preflight, setPreflight] = useState<PreflightStatus | null>(null);
   const [preflightBusy, setPreflightBusy] = useState(false);
+  // now() held in state so relativeTime() output is stable across SSR + client hydration
+  const [nowMs, setNowMs] = useState<number>(0);
+  useEffect(() => {
+    setNowMs(Date.now());
+    const t = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -311,7 +319,7 @@ export function PipelinePanel({ dealId, isAdmin = false }: Props) {
                 )}
                 {data?.docs.lastUploadedAt && (
                   <span className="ml-2">
-                    Last: {relativeTime(data.docs.lastUploadedAt)}
+                    Last: {relativeTime(data.docs.lastUploadedAt, nowMs)}
                   </span>
                 )}
               </div>
@@ -340,7 +348,7 @@ export function PipelinePanel({ dealId, isAdmin = false }: Props) {
                 {data ? `${data.facts.total} facts` : "--"}
                 {data?.facts.lastCreatedAt && (
                   <span className="ml-2">
-                    Last: {relativeTime(data.facts.lastCreatedAt)}
+                    Last: {relativeTime(data.facts.lastCreatedAt, nowMs)}
                   </span>
                 )}
               </div>
@@ -383,7 +391,7 @@ export function PipelinePanel({ dealId, isAdmin = false }: Props) {
                 )}
                 {data?.spreads.lastUpdatedAt && (
                   <span className="ml-2">
-                    Last: {relativeTime(data.spreads.lastUpdatedAt)}
+                    Last: {relativeTime(data.spreads.lastUpdatedAt, nowMs)}
                   </span>
                 )}
               </div>
@@ -473,7 +481,7 @@ export function PipelinePanel({ dealId, isAdmin = false }: Props) {
                     )}
                   </div>
                   <span className="text-white/30 shrink-0">
-                    {relativeTime(e.created_at)}
+                    {relativeTime(e.created_at, nowMs)}
                   </span>
                 </div>
               ))}
