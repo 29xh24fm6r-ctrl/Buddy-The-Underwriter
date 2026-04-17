@@ -2,7 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
-import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
+import { SENTINEL_UUID, upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
 import { reconcileAegisFindingsForSpread } from "@/lib/aegis/reconcileSpreadFindings";
 import type { RenderedSpread, RentRollRow, SpreadType } from "@/lib/financialSpreads/types";
 
@@ -162,7 +162,72 @@ export async function renderSpread(args: {
     console.error("[renderSpread] writeSpreadLineItems failed:", lineItemErr);
   }
 
+  // ── Persist GCF computed metrics back to deal_financial_facts ─────────────
+  // Required so Standard spread Exec Summary, snapshot, and credit memo
+  // can reference GCF_GLOBAL_CASH_FLOW and GCF_DSCR without re-computing.
+  if (args.spreadType === "GLOBAL_CASH_FLOW") {
+    persistGcfComputedFacts({
+      dealId: args.dealId,
+      bankId: args.bankId,
+      rendered,
+    }).catch((err) => {
+      console.warn("[renderSpread] persistGcfComputedFacts fire-and-forget failed:", err?.message);
+    });
+  }
+
   return { ok: true as const };
+}
+
+/**
+ * After a successful GCF spread render, persist the computed GCF metrics
+ * back to deal_financial_facts so the Standard spread, snapshot, and
+ * credit memo can reference them.
+ *
+ * Only writes non-null computed values. Idempotent — upsertDealFinancialFact
+ * handles conflicts.
+ */
+async function persistGcfComputedFacts(args: {
+  dealId: string;
+  bankId: string;
+  rendered: RenderedSpread;
+}): Promise<void> {
+  const PERSIST_KEYS: Array<{ rowKey: string; factKey: string }> = [
+    { rowKey: "GCF_GLOBAL_CASH_FLOW", factKey: "GCF_GLOBAL_CASH_FLOW" },
+    { rowKey: "GCF_DSCR",             factKey: "GCF_DSCR" },
+    { rowKey: "GCF_CASH_AVAILABLE",   factKey: "GCF_CASH_AVAILABLE" },
+  ];
+
+  for (const spec of PERSIST_KEYS) {
+    const row = args.rendered.rows?.find((r) => r.key === spec.rowKey);
+    const cell = row?.values?.[0] as { value?: unknown } | undefined;
+    const raw = cell?.value;
+    const value = typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+
+    if (value === null) continue;
+
+    try {
+      await upsertDealFinancialFact({
+        dealId: args.dealId,
+        bankId: args.bankId,
+        sourceDocumentId: SENTINEL_UUID,
+        factType: "FINANCIAL_ANALYSIS",
+        factKey: spec.factKey,
+        factValueNum: value,
+        confidence: 0.85,
+        provenance: {
+          source_type: "SPREAD",
+          source_ref: "deal_spreads:GLOBAL_CASH_FLOW",
+          as_of_date: args.rendered.asOf ?? null,
+          extractor: "gcfTemplate:v3:persisted",
+        },
+        ownerType: "DEAL",
+        ownerEntityId: SENTINEL_UUID,
+      });
+    } catch (err: any) {
+      // Non-fatal — GCF spread is already rendered; persistence is supplemental
+      console.warn(`[renderSpread] persistGcfComputedFacts failed for ${spec.factKey}:`, err?.message);
+    }
+  }
 }
 
 /**
