@@ -119,6 +119,13 @@ async function geminiChatJson(args: {
 
   const json = await r.json().catch(() => null);
   if (!r.ok) {
+    // Phase 92 diagnostic: surface the raw Gemini error body to Vercel logs
+    // so we can see the actual HTTP status and Google error payload when a
+    // call fails (quota, key, region, safety filter, invalid model, etc.).
+    console.error(
+      "[geminiChatJson] status:", r.status,
+      "body:", JSON.stringify(json)?.slice(0, 500),
+    );
     const msg = json?.error?.message || `gemini_error_status_${r.status}`;
     throw new Error(msg);
   }
@@ -159,6 +166,10 @@ async function repairToJson(args: {
 
   const json = await r.json().catch(() => null);
   if (!r.ok) {
+    console.error(
+      "[repairToJson] status:", r.status,
+      "body:", JSON.stringify(json)?.slice(0, 500),
+    );
     const msg = json?.error?.message || `gemini_repair_error_status_${r.status}`;
     throw new Error(msg);
   }

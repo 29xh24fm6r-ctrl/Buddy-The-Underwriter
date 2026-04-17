@@ -214,10 +214,16 @@ function computeInputHash(input: Record<string, any>): string {
   return crypto.createHash("sha256").update(json).digest("hex").slice(0, 16);
 }
 
+export type AssembleNarrativesResult = {
+  narratives: MemoNarratives;
+  /** Present when aiJson failed or threw and we fell back. Absent on success/cache-hit. */
+  aiError?: string;
+};
+
 export async function assembleNarratives(args: {
   memo: CanonicalCreditMemoV1;
   forceRegenerate?: boolean;
-}): Promise<MemoNarratives> {
+}): Promise<AssembleNarrativesResult> {
   const { memo } = args;
   const sb = supabaseAdmin();
   const input = buildNarrativeInput(memo);
@@ -238,7 +244,7 @@ export async function assembleNarratives(args: {
         .maybeSingle();
 
       if (!cacheErr && cached?.narratives) {
-        return cached.narratives as MemoNarratives;
+        return { narratives: cached.narratives as MemoNarratives };
       }
     } catch {
       // table may not have input_hash column — fall through to generation
@@ -310,6 +316,7 @@ export async function assembleNarratives(args: {
   // Wrap aiJson in try/catch — if it throws (network, auth, quota), return
   // the fallback narratives rather than propagating a 500 to the route.
   let narratives: MemoNarratives;
+  let aiError: string | undefined;
   try {
     const res = await aiJson<MemoNarratives>({
       scope: "credit_memo_narratives",
@@ -330,32 +337,41 @@ export async function assembleNarratives(args: {
         "model:", res.model,
         "rawText:", res.rawText?.slice(0, 300),
       );
+      // Bubble the error reason up to the caller so the route can include
+      // it in the response body for diagnosis.
+      aiError = res.error
+        + (res.rawText ? ` | rawText: ${res.rawText.slice(0, 200)}` : "");
     }
     narratives = res.ok ? res.result : FALLBACK_NARRATIVES;
-  } catch (e) {
+  } catch (e: any) {
     console.error("[assembleNarratives] aiJson threw:", e);
     narratives = FALLBACK_NARRATIVES;
+    aiError = `threw: ${String(e?.message ?? e)}`;
   }
 
-  // Cache result — fire-and-forget, failure is non-fatal
-  try {
-    await (sb as any)
-      .from("canonical_memo_narratives")
-      .upsert(
-        {
-          deal_id: memo.deal_id,
-          bank_id: memo.bank_id,
-          input_hash: inputHash,
-          narratives,
-          generated_at: new Date().toISOString(),
-        },
-        { onConflict: "deal_id,bank_id,input_hash" },
-      );
-  } catch {
-    // non-fatal
+  // Cache result — fire-and-forget, failure is non-fatal.
+  // Skip caching when we fell back, so a future retry can regenerate
+  // instead of permanently serving the "unavailable" strings from cache.
+  if (!aiError) {
+    try {
+      await (sb as any)
+        .from("canonical_memo_narratives")
+        .upsert(
+          {
+            deal_id: memo.deal_id,
+            bank_id: memo.bank_id,
+            input_hash: inputHash,
+            narratives,
+            generated_at: new Date().toISOString(),
+          },
+          { onConflict: "deal_id,bank_id,input_hash" },
+        );
+    } catch {
+      // non-fatal
+    }
   }
 
-  return narratives;
+  return { narratives, aiError };
 }
 
 /**

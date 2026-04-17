@@ -29,7 +29,7 @@ export async function POST(
     }
 
     // Generate narratives
-    const narratives = await assembleNarratives({
+    const { narratives, aiError } = await assembleNarratives({
       memo: memoResult.memo,
       forceRegenerate,
     });
@@ -41,6 +41,7 @@ export async function POST(
       ok: true,
       narratives,
       memo: enrichedMemo,
+      aiError,
     });
   } catch (e: unknown) {
     rethrowNextErrors(e);
