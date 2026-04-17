@@ -290,9 +290,23 @@ COMMIT;
    From a browser session authenticated to bank X, query a deal owned by bank Y via a test endpoint. Should return 403 or empty set.
 
 6. **Emit ledger event:**
+   Written to `buddy_system_events` (the system-event surface) because `deal_events.deal_id`
+   is NOT NULL and the completion marker has no deal context. See T-01 AAR for rationale.
    ```sql
-   -- Via apply_migration or a one-off script:
-   INSERT INTO deal_events (kind, payload, created_at) VALUES ('phase.84.t01a.completed', '{}'::jsonb, now());
+   INSERT INTO buddy_system_events (
+     event_type, severity, source_system, resolution_status, payload
+   ) VALUES (
+     'phase.84.t01a.completed', 'info', 'phase_84', 'resolved',
+     jsonb_build_object(
+       'tables_enabled', 14,
+       'batch', 'A',
+       'spec_deviations', jsonb_build_array(
+         'credit_memo_drafts and credit_memo_snapshots reclassified to deal_only (no bank_id column)',
+         'memo_runs and risk_runs split into text-typed deal_only variant (deal_id is text not uuid)',
+         'completion marker written to buddy_system_events instead of deal_events (deal_events.deal_id is NOT NULL)'
+       )
+     )
+   );
    ```
 
 ### Rollback
