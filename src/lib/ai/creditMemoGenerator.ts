@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GEMINI_FLASH } from "./models";
+import { GEMINI_FLASH, isGemini3Model } from "./models";
 
 // ---------------------------------------------------------------------------
 // Gemini HTTP helper
@@ -19,11 +19,10 @@ async function geminiGenerate(system: string, userContent: string): Promise<stri
         role: "user",
         parts: [{ text: `${system}\n\n${userContent}` }],
       }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        temperature: 0.2,
-        maxOutputTokens: 8192,
-      },
+      // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures.
+      generationConfig: isGemini3Model(GEMINI_MODEL)
+        ? { responseMimeType: "application/json", maxOutputTokens: 8192 }
+        : { responseMimeType: "application/json", temperature: 0.2, maxOutputTokens: 8192 },
     }),
   });
 

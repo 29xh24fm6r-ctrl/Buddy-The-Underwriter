@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { ClassicSpreadInput } from "./types";
-import { MODEL_CLASSIC_SPREAD } from "@/lib/ai/models";
+import { MODEL_CLASSIC_SPREAD, isGemini3Model } from "@/lib/ai/models";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -119,7 +119,10 @@ export async function generateSpreadNarrative(
             text: `${SYSTEM_INSTRUCTION}\n\nAnalyze the following financial spread data and write a narrative analysis:\n\n${financialData}`,
           }],
         }],
-        generationConfig: { maxOutputTokens: 1500, temperature: 0.3 },
+        // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures.
+        generationConfig: isGemini3Model(GEMINI_MODEL)
+          ? { maxOutputTokens: 1500 }
+          : { maxOutputTokens: 1500, temperature: 0.3 },
       }),
     });
 

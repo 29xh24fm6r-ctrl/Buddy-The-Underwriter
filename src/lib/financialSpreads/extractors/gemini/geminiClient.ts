@@ -14,7 +14,7 @@ import {
   ensureGcpAdcBootstrap,
   getVertexAuthOptions,
 } from "@/lib/gcpAdcBootstrap";
-import { MODEL_EXTRACTION } from "@/lib/ai/models";
+import { MODEL_EXTRACTION, isGemini3Model } from "@/lib/ai/models";
 import type { GeminiExtractionPrompt } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -121,12 +121,16 @@ export async function callGeminiForExtraction(args: {
         ? STRICT_RETRY_INSTRUCTION
         : args.prompt.systemInstruction;
 
+      // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures.
+      const generationConfig: Record<string, unknown> = {
+        responseMimeType: "application/json",
+      };
+      if (!isGemini3Model(GEMINI_MODEL)) {
+        generationConfig.temperature = isRetry ? 0.0 : GEMINI_TEMPERATURE;
+      }
       const model = vertexAI.getGenerativeModel({
         model: GEMINI_MODEL,
-        generationConfig: {
-          temperature: isRetry ? 0.0 : GEMINI_TEMPERATURE,
-          responseMimeType: "application/json",
-        },
+        generationConfig,
       });
 
       // Native PDF path: send the actual document as inlineData + instructions

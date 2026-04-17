@@ -50,7 +50,7 @@ export type StructuredAssistResult = {
 
 // ─── Hard Limits (C1) ────────────────────────────────────────────────────────
 
-import { GEMINI_FLASH } from "@/lib/ai/models";
+import { GEMINI_FLASH, isGemini3Model } from "@/lib/ai/models";
 
 const STRUCTURED_ASSIST_TIMEOUT_MS = 15_000; // 15s hard timeout (institutional)
 const GEMINI_MODEL = GEMINI_FLASH;
@@ -148,12 +148,18 @@ export async function extractStructuredAssist(args: {
         ? STRICT_RETRY_SYSTEM_INSTRUCTION
         : prompt.systemInstruction;
 
+      // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures with
+      // looping/degraded output. Omit temperature for 3.x; keep explicit
+      // low-temp for 2.x families.
+      const generationConfig: Record<string, unknown> = {
+        responseMimeType: "application/json",
+      };
+      if (!isGemini3Model(GEMINI_MODEL)) {
+        generationConfig.temperature = isRetry ? 0.0 : GEMINI_TEMPERATURE;
+      }
       const model = vertexAI.getGenerativeModel({
         model: GEMINI_MODEL,
-        generationConfig: {
-          temperature: isRetry ? 0.0 : GEMINI_TEMPERATURE,
-          responseMimeType: "application/json",
-        },
+        generationConfig,
       });
 
       const generatePromise = model.generateContent({

@@ -34,18 +34,16 @@ export const GEMINI_FLASH = "gemini-3-flash-preview";
 
 /**
  * Deep reasoning model — thinking mode, complex analysis.
- * Replaces: gemini-2.5-pro-preview-03-25 (RETIRED — the dated preview
- *           alias is no longer served).
+ * Replaces: gemini-2.5-pro-preview-03-25 (RETIRED), gemini-2.5-pro (previous alias).
  *
- * Phase 93 NOTE: ListModels could not be called from the build
- * environment (no GEMINI_API_KEY locally). Using the stable
- * unversioned alias "gemini-2.5-pro" per the Phase 93 fallback rule.
- * A production operator should run:
- *   GET https://generativelanguage.googleapis.com/v1beta/models?key=$KEY&pageSize=100
- * and update this constant if the API returns a more specific stable
- * alias for the current Pro model.
+ * Phase 93 follow-up: flipped to gemini-3.1-pro-preview after the
+ * temperature fix (buildGenerationConfig omits temperature for
+ * gemini-3.x models) was verified in production — 33s, ok:true,
+ * no aiError, real narrative output on a live memo run.
+ *
+ * Currently used only by the credit memo narrative lane (MODEL_NARRATIVE).
  */
-export const GEMINI_PRO = "gemini-2.5-pro";
+export const GEMINI_PRO = "gemini-3.1-pro-preview";
 
 // ── OPENAI — Legacy stack (existing, not migrating in this phase) ─────────
 

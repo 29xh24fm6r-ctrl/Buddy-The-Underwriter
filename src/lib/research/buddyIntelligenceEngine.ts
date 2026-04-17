@@ -25,7 +25,7 @@
 import "server-only";
 
 import type { NarrativeSection } from "./types";
-import { MODEL_RESEARCH } from "@/lib/ai/models";
+import { MODEL_RESEARCH, isGemini3Model } from "@/lib/ai/models";
 
 // ============================================================================
 // Gemini API caller — returns grounding metadata alongside parsed result
@@ -55,7 +55,11 @@ async function callGeminiGrounded<T>(args: {
   const empty: GeminiGroundedResult<T> = { result: null, sourceUrls: [], segments: [] };
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${args.apiKey}`;
 
-  const generationConfig: Record<string, unknown> = { temperature: 0.1 };
+  // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures.
+  const generationConfig: Record<string, unknown> = {};
+  if (!isGemini3Model(GEMINI_MODEL)) {
+    generationConfig.temperature = 0.1;
+  }
   if (!args.useGrounding) {
     generationConfig.responseMimeType = "application/json";
   }
