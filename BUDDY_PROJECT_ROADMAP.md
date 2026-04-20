@@ -1,8 +1,9 @@
 # Buddy The Underwriter — Project Roadmap
 # Institutional-Grade Commercial Lending AI Platform
 
-**Last Updated: March 30, 2026**
-**Status: Phase 57C complete + underwriting platform through Phase 57B / 56R.1 + Phase 54 (cockpit truth) + Phase 66 (document foundation) + Phase 67 (UI wiring)**
+**Last Updated: April 20, 2026**
+**Status: Phase 84 closing (9 of 10 tickets complete) — see `docs/archive/phase-84/` for per-ticket AARs.**
+**Most recent architectural work: Phases 68–83 (ignite wizard, joint-filer intelligence, proof-of-truth, classification supremacy, lease/credit-memo). Historical phase AARs + specs in `docs/archive/phase-pre-84/` after T-10A archival.**
 
 ---
 
@@ -204,7 +205,7 @@ Browser
 
 ## Current State — Active Deals
 
-**Deal ffcc9733** — Samaritus Management LLC (primary active test deal)
+**Deal ffcc9733** — Samaritus Management LLC — ~~*primary active test deal*~~ **DELETED from prod during pre-Phase-84 cleanup. New canonical test deal TBD. See Phase 84.1 backlog (T-08-G production-activity baseline).**
 - 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368. DSCR = 4.27x.
 - ✅ AI Risk: BB+ grade, 975 bps
 - ✅ BIE: LIVE — 9 memo subsections with Gemini-written content
@@ -386,6 +387,18 @@ Browser
 
 ---
 
+## Phase 84 ✅ — System Audit Remediation (closing)
+
+10-ticket phase closing 37 audit findings across 4 waves. RLS batch A, document classifier fix, observer dedup audit, runRecord wiring, checklist taxonomy audit, idempotency guard, narrow Omega fallback, governance writers audit, env/roadmap reconciliation, repo hygiene.
+
+See `docs/archive/phase-84/` for per-ticket AARs and audit docs.
+
+**Meta-finding:** zero non-test deals in production database — flagged as **T-08-G** (top of Phase 84.1 backlog) for product/sales clarification before prioritizing further governance build work.
+
+**Wave 1 lesson:** T-02, T-03, T-06 all had partial existing-state fixes shipped between spec drafting and execution. "Stop the bleeding" tickets have a structural risk of being already-fixed by the time they queue. Pre-work earns its keep.
+
+---
+
 ## Progress Tracker
 
 | Phase | Description | Status | PR / Commit |
@@ -421,6 +434,11 @@ Browser
 | Corpus Expansion | 10+ verified docs across industries | 🔴 Queued | — |
 | **Phase 57** | **SBA Borrower Readiness Module** — 5-pass forward model, 3-scenario sensitivity, break-even, Gemini narrative, PDFKit package | **✅ Complete** | **0c777d2** |
 | **Phase 58A** | **SBA Risk Profile Enhancement** — 4-factor scorer (industry/age/term/location), NAICS default benchmarks, new business protocol | **✅ Complete** | **0eb522a** |
+| Phase 65A | Omega Advisory Panel — Pulse state view, ai_risk_runs fallback, compliance wall | ✅ Complete | see `docs/archive/phase-pre-84/AAR_PHASE_65A_OMEGA_PANEL.md` |
+| Phases 68–70 | See `docs/archive/phase-pre-84/` for per-phase AARs | ✅ Complete | — |
+| Phases 71–75 | Agent group + governance foundation (writers queued in Phase 84.1) | ✅ Complete | — |
+| Phases 78–83 | Memo evidence metadata, joint-filer intelligence, proof-of-truth, classification supremacy, Ignite Wizard | ✅ Complete | — |
+| **Phase 84** | **System audit remediation** — 10 tickets, 4 audit-only conversions, 6 implementations. See `docs/archive/phase-84/` | **🟡 Closing** | **9/10 complete** |
 
 ---
 
@@ -540,11 +558,12 @@ creating new underwriting control planes.
 
 ## Next Phases (priority order)
 
-1. **Canonical Credit Memo Facts** — Replace `deal_memo_overrides` dependency for computed fields. Keep overrides only for qualitative banker-supplied narrative.
-2. **Observability** — Activate telemetry/Pulse/event flow. Tables exist but event forwarding not flowing.
-3. **Model Engine V2** — Enable feature flag + seeding once observability exists.
-4. **Borrower Intake** — Replace the stopgap wizard per core architecture.
-5. **Corpus Expansion** — Needed for bank confidence and model quality.
+1. **Phase 84.1 backlog** — see `docs/archive/phase-84/` for generated tickets, including the gating **T-08-G** (production activity baseline). Until T-08-G is answered ("are there any live paying banks?"), the rest of 84.1 priority ordering is provisional. Tickets queued: T-08-A (recon rarity), T-08-C (executeCanonicalAction never invoked), T-08-E (wire analyst-correction UI), T-08-B/D/F (governance writers), RLS Batch B, fact re-parenting, `.update()/.insert()` silent-error audit.
+2. **Canonical Credit Memo Facts** — Replace `deal_memo_overrides` dependency for computed fields. Keep overrides only for qualitative banker-supplied narrative.
+3. **Observability** — Activate telemetry/Pulse/event flow. Tables exist but event forwarding not flowing.
+4. **Model Engine V2** — Enable feature flag + seeding once observability exists.
+5. **Borrower Intake** — Replace the stopgap wizard per core architecture.
+6. **Corpus Expansion** — Needed for bank confidence and model quality.
 
 ---
 
