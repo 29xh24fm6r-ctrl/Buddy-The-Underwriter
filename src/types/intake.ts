@@ -49,7 +49,7 @@ export type IntakeLoanData = {
   type: LoanType | "";
 };
 
-export type IntakeStep = 1 | 2 | 3 | 4 | 5;
+export type IntakeStep = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type IntakeStepKey =
   | "business"

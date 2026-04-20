@@ -22,23 +22,29 @@ export async function GET(_: Request, ctx: { params: Promise<{ token: string }> 
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  const docs = (data ?? []).map((r: any) => ({
+    upload_id: r.upload_id,
+    filename: r.uploads.original_filename,
+    mime_type: r.uploads.mime_type,
+    bytes: r.uploads.bytes,
+    checklist_key: r.checklist_key,
+    doc_type: r.doc_type,
+    status: r.status,
+    confidence: r.confidence,
+    storage: {
+      bucket: r.uploads.storage_bucket,
+      path: r.uploads.storage_path,
+    },
+    updated_at: r.updated_at,
+    created_at: r.uploads.created_at,
+  }));
+
+  // Phase 85A.3 — add ok + count additively for the intake form's client fetch.
+  // Existing consumers reading { deal_id, docs } remain unchanged.
   return NextResponse.json({
+    ok: true,
     deal_id: link.deal_id,
-    docs: (data ?? []).map((r: any) => ({
-      upload_id: r.upload_id,
-      filename: r.uploads.original_filename,
-      mime_type: r.uploads.mime_type,
-      bytes: r.uploads.bytes,
-      checklist_key: r.checklist_key,
-      doc_type: r.doc_type,
-      status: r.status,
-      confidence: r.confidence,
-      storage: {
-        bucket: r.uploads.storage_bucket,
-        path: r.uploads.storage_path,
-      },
-      updated_at: r.updated_at,
-      created_at: r.uploads.created_at,
-    })),
+    count: docs.length,
+    docs,
   });
 }

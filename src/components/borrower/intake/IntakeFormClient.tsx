@@ -19,6 +19,7 @@ import type {
   IntakeStepKey,
   IntakeSaveResponse,
 } from "@/types/intake";
+import { PortalUploadDropzone } from "./PortalUploadDropzone";
 
 // ─── Constants ───
 
@@ -54,10 +55,11 @@ const STEP_LABELS = [
   "Business Address",
   "Owners",
   "Loan Request",
+  "Documents",
   "Review & Submit",
 ];
 
-const TOTAL_STEPS = STEP_LABELS.length as 5;
+const TOTAL_STEPS = STEP_LABELS.length as 6;
 
 // ─── Props ───
 
@@ -143,6 +145,33 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
     amount: (app?.loan_amount?.toString() ?? loanSection?.amount?.toString() ?? deal?.loan_amount?.toString() ?? "") as string,
     type: ((app?.loan_type ?? loanSection?.type ?? (deal?.deal_type === "SBA" ? "SBA" : "")) as IntakeLoanData["type"]),
   });
+
+  // Phase 85A.3 — track uploaded document count for Step 5 + review
+  const [uploadCount, setUploadCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadUploadCount() {
+      try {
+        const res = await fetch(`/api/portal/${token}/docs`);
+        const json = await res.json();
+        if (cancelled) return;
+        // Route returns { ok: true, count, docs: [...] } (85A.3) OR
+        // { deal_id, docs: [...] } (pre-85A.3) — handle both shapes.
+        if (typeof json?.count === "number") {
+          setUploadCount(json.count);
+        } else if (Array.isArray(json?.docs)) {
+          setUploadCount(json.docs.length);
+        }
+      } catch {
+        // non-fatal
+      }
+    }
+    loadUploadCount();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   // --- Auto-save debounce ---
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -567,6 +596,36 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
 
         {step === 5 && (
           <>
+            <h2 className="text-lg font-semibold text-white">Upload Documents</h2>
+            <p className="text-sm text-gray-400">
+              Upload any financial documents you have available. Your banker
+              will let you know if anything else is needed.
+            </p>
+
+            <PortalUploadDropzone
+              token={token}
+              dealId={dealId}
+              onUploadComplete={() => setUploadCount((prev) => prev + 1)}
+            />
+
+            {uploadCount > 0 && (
+              <div className="bg-green-900/20 border border-green-800 rounded-lg px-4 py-3">
+                <p className="text-sm text-green-300 font-medium">
+                  {uploadCount} document{uploadCount !== 1 ? "s" : ""} uploaded so far
+                </p>
+              </div>
+            )}
+
+            <div className="bg-blue-900/20 border border-blue-800 rounded-lg px-4 py-3 text-xs text-blue-300">
+              Don&apos;t have everything right now? No problem — you can upload more
+              documents after submitting your application. Your banker will send
+              you a checklist of anything that&apos;s still needed.
+            </div>
+          </>
+        )}
+
+        {step === 6 && (
+          <>
             <h2 className="text-lg font-semibold text-white">Review & Submit</h2>
             <div className="space-y-4 text-sm">
               <div>
@@ -611,6 +670,14 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
                   {loan.amount && <p><span className="text-gray-500">Amount:</span> ${Number(loan.amount.replace(/[^0-9.]/g, "")).toLocaleString()}</p>}
                   {loan.purpose && <p><span className="text-gray-500">Purpose:</span> {loan.purpose}</p>}
                 </div>
+              </div>
+              <div className="border-t border-neutral-800 pt-3">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Documents</h3>
+                <p className="text-gray-300 text-sm">
+                  {uploadCount > 0
+                    ? `${uploadCount} document${uploadCount !== 1 ? "s" : ""} uploaded`
+                    : "No documents uploaded yet"}
+                </p>
               </div>
             </div>
           </>
