@@ -105,6 +105,13 @@ export async function loadSBAAssumptionsPrefill(
             },
           ]
         : [],
+      // Phase BPG — sources-of-funds defaults; banker/borrower fills in
+      equityInjectionAmount: 0,
+      equityInjectionSource: "cash_savings",
+      sellerFinancingAmount: 0,
+      sellerFinancingTermMonths: 0,
+      sellerFinancingRate: 0,
+      otherSources: [],
     },
     managementTeam: [],
   };

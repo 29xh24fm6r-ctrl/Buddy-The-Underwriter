@@ -47,6 +47,12 @@ function mergeAssumptions(
       termMonths: 120,
       interestRate: 0.0725,
       existingDebt: [],
+      equityInjectionAmount: 0,
+      equityInjectionSource: "cash_savings",
+      sellerFinancingAmount: 0,
+      sellerFinancingTermMonths: 0,
+      sellerFinancingRate: 0,
+      otherSources: [],
     },
     managementTeam: prefilled.managementTeam ?? [],
   };

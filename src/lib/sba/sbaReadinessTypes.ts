@@ -80,6 +80,17 @@ export interface SBAAssumptions {
     revenueImpactStartMonth?: number;
     revenueImpactPct?: number;
     revenueImpactDescription?: string;
+    // Phase BPG — Sources of funds (equity injection + seller carry + other)
+    equityInjectionAmount: number;
+    equityInjectionSource:
+      | "cash_savings"
+      | "401k_rollover"
+      | "gift"
+      | "other";
+    sellerFinancingAmount: number;
+    sellerFinancingTermMonths: number;
+    sellerFinancingRate: number;
+    otherSources: Array<{ description: string; amount: number }>;
   };
 
   // Section 5: Management Team (1+ required)
@@ -196,3 +207,21 @@ export interface GeneratePackageResponse {
 export interface GetLatestPackageResponse {
   package: SBAPackageData | null;
 }
+
+// ─── Phase BPG — Re-exports for business-plan sub-modules ────────────────────
+// Consumer components can import these contract types from a single entrypoint.
+
+export type { BalanceSheetYear } from "./sbaBalanceSheetProjector";
+export type {
+  GuarantorCashFlow,
+  GlobalCashFlowResult,
+} from "./sbaGlobalCashFlow";
+export type {
+  SourcesAndUsesResult,
+  SourceLine,
+  UseLine,
+  EquityInjectionCheck,
+  EquityInjectionSource,
+} from "./sbaSourcesAndUses";
+export type { BenchmarkWarning } from "./sbaAssumptionBenchmarks";
+export type { CoachingTip } from "./sbaAssumptionCoach";

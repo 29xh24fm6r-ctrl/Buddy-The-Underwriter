@@ -105,6 +105,16 @@ export async function GET(
           termMonths: prefilled.loanImpact?.termMonths ?? 120,
           interestRate: prefilled.loanImpact?.interestRate ?? 0.0725,
           existingDebt: prefilled.loanImpact?.existingDebt ?? [],
+          equityInjectionAmount:
+            prefilled.loanImpact?.equityInjectionAmount ?? 0,
+          equityInjectionSource:
+            prefilled.loanImpact?.equityInjectionSource ?? "cash_savings",
+          sellerFinancingAmount:
+            prefilled.loanImpact?.sellerFinancingAmount ?? 0,
+          sellerFinancingTermMonths:
+            prefilled.loanImpact?.sellerFinancingTermMonths ?? 0,
+          sellerFinancingRate: prefilled.loanImpact?.sellerFinancingRate ?? 0,
+          otherSources: prefilled.loanImpact?.otherSources ?? [],
         };
       }
     }
