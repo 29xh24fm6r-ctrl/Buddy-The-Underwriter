@@ -8,6 +8,9 @@ import type {
   SensitivityScenario,
   UseOfProceedsLine,
   ManagementMember,
+  BalanceSheetYear,
+  SourcesAndUsesResult,
+  GlobalCashFlowResult,
 } from "./sbaReadinessTypes";
 
 // ---------------------------------------------------------------------------
@@ -25,6 +28,15 @@ const PAGE_MARGIN = 40;
 const HEADER_HEIGHT = 50;
 const FOOTER_HEIGHT = 40;
 const ROW_HEIGHT = 16;
+
+const BRAND_NAVY = "#0f1e3c";
+const BRAND_GREY = "#6b7280";
+const SERIES_GREY = "#94a3b8";
+const SERIES_NAVY = "#1e3a8a";
+const SERIES_BLUE = "#2563eb";
+const SERIES_AMBER = "#d97706";
+const DSCR_RED = "#cc0000";
+const PASS_GREEN = "#15803d";
 
 const SBA_DSCR_THRESHOLD = 1.25;
 
@@ -53,7 +65,7 @@ function fmtDscr(val: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// PDF helpers
+// Types
 // ---------------------------------------------------------------------------
 
 interface RenderInput {
@@ -69,6 +81,19 @@ interface RenderInput {
   businessOverviewNarrative: string;
   sensitivityNarrative: string;
   managementTeam: ManagementMember[];
+  // Phase BPG additions — all optional so callers can opt in.
+  executiveSummary?: string;
+  industryAnalysis?: string;
+  marketingStrategy?: string;
+  operationsPlan?: string;
+  swotStrengths?: string;
+  swotWeaknesses?: string;
+  swotOpportunities?: string;
+  swotThreats?: string;
+  franchiseSection?: string;
+  sourcesAndUses?: SourcesAndUsesResult;
+  balanceSheetProjections?: BalanceSheetYear[];
+  globalCashFlow?: GlobalCashFlowResult;
 }
 
 type DocState = {
@@ -78,12 +103,16 @@ type DocState = {
   input: RenderInput;
 };
 
+// ---------------------------------------------------------------------------
+// Page chrome
+// ---------------------------------------------------------------------------
+
 function drawPageHeader(s: DocState, sectionTitle: string) {
   const { doc, input } = s;
   const rightEdge = doc.page.width - PAGE_MARGIN;
 
   doc.font(FONT_BOLD).fontSize(FONT_SIZE_TITLE);
-  doc.text("SBA Business Plan & Financial Projections", PAGE_MARGIN, PAGE_MARGIN, {
+  doc.text("Business Plan & Financial Projections", PAGE_MARGIN, PAGE_MARGIN, {
     width: rightEdge - PAGE_MARGIN,
   });
 
@@ -149,8 +178,509 @@ function checkPageBreak(s: DocState, neededHeight: number, sectionTitle: string)
   }
 }
 
+function renderNarrativeBody(s: DocState, text: string, sectionTitle: string) {
+  if (!text) return;
+  const { doc } = s;
+  const maxWidth = doc.page.width - PAGE_MARGIN * 2;
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+  // Simple paragraph renderer with page breaks
+  const paragraphs = text.split(/\n\n+/);
+  for (const p of paragraphs) {
+    checkPageBreak(s, 40, sectionTitle);
+    doc.text(p, PAGE_MARGIN, s.y, { width: maxWidth, lineGap: 2 });
+    s.y = doc.y + 10;
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Section renderers
+// Phase BPG — New page renderers
+// ---------------------------------------------------------------------------
+
+/** Cover page — branded header bar, title, borrower, loan, date, confidentiality. */
+function renderCoverPage(s: DocState) {
+  const { doc, input } = s;
+  const pageW = doc.page.width;
+  const pageH = doc.page.height;
+
+  // Navy top bar
+  doc.rect(0, 0, pageW, 90).fill(BRAND_NAVY);
+
+  doc.fillColor("#ffffff").font(FONT_BOLD).fontSize(22);
+  doc.text("Buddy", PAGE_MARGIN, 32, { width: pageW - PAGE_MARGIN * 2 });
+  doc.font(FONT_NORMAL).fontSize(11);
+  doc.text("Institutional Underwriting", PAGE_MARGIN, 60);
+
+  // Title block, centered vertically
+  const titleY = pageH / 3;
+  doc.fillColor(BRAND_NAVY).font(FONT_BOLD).fontSize(28);
+  doc.text("Business Plan &", PAGE_MARGIN, titleY, {
+    width: pageW - PAGE_MARGIN * 2,
+    align: "center",
+  });
+  doc.text("Financial Projections", PAGE_MARGIN, titleY + 34, {
+    width: pageW - PAGE_MARGIN * 2,
+    align: "center",
+  });
+
+  // Borrower
+  doc.fillColor("#000000").font(FONT_BOLD).fontSize(18);
+  doc.text(input.dealName, PAGE_MARGIN, titleY + 100, {
+    width: pageW - PAGE_MARGIN * 2,
+    align: "center",
+  });
+
+  // Loan type + amount
+  doc.font(FONT_NORMAL).fontSize(13).fillColor(BRAND_GREY);
+  doc.text(
+    `${input.loanType.replace(/_/g, " ").toUpperCase()} — $${input.loanAmount.toLocaleString()}`,
+    PAGE_MARGIN,
+    titleY + 130,
+    { width: pageW - PAGE_MARGIN * 2, align: "center" },
+  );
+
+  // Date
+  const dateStr = new Date().toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  doc.text(dateStr, PAGE_MARGIN, titleY + 150, {
+    width: pageW - PAGE_MARGIN * 2,
+    align: "center",
+  });
+
+  // Confidentiality block near bottom
+  const confY = pageH - 160;
+  doc.fillColor("#000000").font(FONT_BOLD).fontSize(10);
+  doc.text("CONFIDENTIAL", PAGE_MARGIN, confY, {
+    width: pageW - PAGE_MARGIN * 2,
+    align: "center",
+  });
+  doc.font(FONT_NORMAL).fontSize(8).fillColor(BRAND_GREY);
+  doc.text(
+    "This business plan contains confidential and proprietary information of the borrower. " +
+      "Recipients agree not to disclose its contents to any third party without written permission.",
+    PAGE_MARGIN,
+    confY + 16,
+    { width: pageW - PAGE_MARGIN * 2, align: "center" },
+  );
+
+  doc.fillColor("#000000");
+  s.pageNum = 1;
+  s.y = pageH;
+}
+
+/** Table of contents — 14 sections with dot leaders and estimated page numbers. */
+function renderTableOfContents(
+  s: DocState,
+  entries: Array<{ label: string; page: number }>,
+) {
+  const { doc } = s;
+  newPage(s, "Table of Contents");
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+  const maxWidth = doc.page.width - PAGE_MARGIN * 2;
+  const pageColWidth = 30;
+  const labelColWidth = maxWidth - pageColWidth - 4;
+
+  for (const entry of entries) {
+    checkPageBreak(s, ROW_HEIGHT + 2, "Table of Contents (cont.)");
+    const rowY = s.y;
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+    doc.text(entry.label, PAGE_MARGIN, rowY, {
+      width: labelColWidth,
+    });
+    doc.text(String(entry.page), PAGE_MARGIN + labelColWidth + 4, rowY, {
+      width: pageColWidth,
+      align: "right",
+    });
+    // Dot leader
+    doc
+      .strokeColor(BRAND_GREY)
+      .dash(1, { space: 3 })
+      .moveTo(PAGE_MARGIN + 180, rowY + 10)
+      .lineTo(PAGE_MARGIN + labelColWidth, rowY + 10)
+      .stroke()
+      .undash()
+      .strokeColor("#000000");
+    s.y = rowY + ROW_HEIGHT + 2;
+  }
+}
+
+/** Revenue bar chart — gray bars for actual (year 0), navy for projected (years 1-3). */
+function renderRevenueChart(s: DocState) {
+  const { doc, input } = s;
+  const chartY = s.y;
+  const chartH = 160;
+  const chartW = doc.page.width - PAGE_MARGIN * 2;
+  const labelW = 70;
+  const plotX = PAGE_MARGIN + labelW;
+  const plotW = chartW - labelW - 10;
+  const allYears = [input.baseYear, ...input.annualProjections];
+  const maxRev = Math.max(...allYears.map((y) => y.revenue), 1);
+  const barGap = 20;
+  const barCount = allYears.length;
+  const barW = (plotW - barGap * (barCount - 1)) / barCount;
+
+  // Axis
+  doc
+    .strokeColor(BRAND_GREY)
+    .moveTo(plotX, chartY)
+    .lineTo(plotX, chartY + chartH)
+    .lineTo(plotX + plotW, chartY + chartH)
+    .stroke();
+
+  for (let i = 0; i < barCount; i++) {
+    const yr = allYears[i];
+    const barX = plotX + i * (barW + barGap);
+    const barH = (yr.revenue / maxRev) * (chartH - 20);
+    const topY = chartY + chartH - barH;
+    const fill = yr.label === "Actual" ? SERIES_GREY : SERIES_NAVY;
+    doc.rect(barX, topY, barW, barH).fill(fill);
+    // Value label above bar
+    doc
+      .fillColor("#000000")
+      .font(FONT_BOLD)
+      .fontSize(8)
+      .text(
+        `$${fmtCurrency(Math.round(yr.revenue))}`,
+        barX,
+        topY - 12,
+        { width: barW, align: "center" },
+      );
+    // X-axis label
+    doc
+      .fillColor(BRAND_GREY)
+      .font(FONT_NORMAL)
+      .fontSize(8)
+      .text(
+        yr.label === "Actual" ? "Base Year" : `Year ${yr.year}`,
+        barX,
+        chartY + chartH + 4,
+        { width: barW, align: "center" },
+      );
+  }
+  doc.fillColor("#000000").strokeColor("#000000");
+  s.y = chartY + chartH + 30;
+}
+
+/** DSCR line chart with 1.25x threshold line. */
+function renderDSCRChart(s: DocState) {
+  const { doc, input } = s;
+  const chartY = s.y;
+  const chartH = 140;
+  const chartW = doc.page.width - PAGE_MARGIN * 2;
+  const labelW = 60;
+  const plotX = PAGE_MARGIN + labelW;
+  const plotW = chartW - labelW - 10;
+
+  const scenarios: Array<{ name: string; color: string; dscrs: number[] }> = [];
+  for (const sc of input.sensitivityScenarios) {
+    const color =
+      sc.name === "base"
+        ? SERIES_NAVY
+        : sc.name === "upside"
+          ? SERIES_BLUE
+          : SERIES_AMBER;
+    scenarios.push({
+      name: sc.label,
+      color,
+      dscrs: [sc.dscrYear1, sc.dscrYear2, sc.dscrYear3],
+    });
+  }
+  if (scenarios.length === 0) {
+    scenarios.push({
+      name: "Base",
+      color: SERIES_NAVY,
+      dscrs: [
+        input.annualProjections[0]?.dscr ?? 0,
+        input.annualProjections[1]?.dscr ?? 0,
+        input.annualProjections[2]?.dscr ?? 0,
+      ],
+    });
+  }
+  const allD = scenarios.flatMap((sc) => sc.dscrs);
+  const dMax = Math.max(...allD, SBA_DSCR_THRESHOLD * 1.2, 1);
+  const dMin = 0;
+
+  // Axes
+  doc
+    .strokeColor(BRAND_GREY)
+    .moveTo(plotX, chartY)
+    .lineTo(plotX, chartY + chartH)
+    .lineTo(plotX + plotW, chartY + chartH)
+    .stroke();
+
+  // 1.25x threshold red line
+  const thresholdY =
+    chartY + chartH - ((SBA_DSCR_THRESHOLD - dMin) / (dMax - dMin)) * chartH;
+  doc
+    .strokeColor(DSCR_RED)
+    .dash(3, { space: 3 })
+    .moveTo(plotX, thresholdY)
+    .lineTo(plotX + plotW, thresholdY)
+    .stroke()
+    .undash();
+  doc
+    .fillColor(DSCR_RED)
+    .font(FONT_BOLD)
+    .fontSize(7)
+    .text("SBA 1.25x min", plotX + plotW - 80, thresholdY - 10, {
+      width: 80,
+      align: "right",
+    });
+
+  // Series
+  const xs = [0.2, 0.5, 0.85].map((f) => plotX + plotW * f);
+  for (const sc of scenarios) {
+    doc.strokeColor(sc.color).lineWidth(1.5);
+    for (let i = 0; i < sc.dscrs.length - 1; i++) {
+      const y1 =
+        chartY + chartH - ((sc.dscrs[i] - dMin) / (dMax - dMin)) * chartH;
+      const y2 =
+        chartY +
+        chartH -
+        ((sc.dscrs[i + 1] - dMin) / (dMax - dMin)) * chartH;
+      doc.moveTo(xs[i], y1).lineTo(xs[i + 1], y2).stroke();
+    }
+    // Dots + labels
+    for (let i = 0; i < sc.dscrs.length; i++) {
+      const yy =
+        chartY + chartH - ((sc.dscrs[i] - dMin) / (dMax - dMin)) * chartH;
+      doc.fillColor(sc.color).circle(xs[i], yy, 3).fill();
+    }
+  }
+
+  // X-axis labels
+  doc.fillColor(BRAND_GREY).font(FONT_NORMAL).fontSize(8);
+  for (let i = 0; i < 3; i++) {
+    doc.text(`Year ${i + 1}`, xs[i] - 15, chartY + chartH + 4, {
+      width: 30,
+      align: "center",
+    });
+  }
+
+  // Legend
+  let legX = PAGE_MARGIN;
+  const legY = chartY + chartH + 22;
+  doc.font(FONT_NORMAL).fontSize(8);
+  for (const sc of scenarios) {
+    doc.rect(legX, legY, 10, 8).fill(sc.color);
+    doc.fillColor("#000000").text(sc.name, legX + 14, legY, { width: 80 });
+    legX += 100;
+  }
+
+  doc.fillColor("#000000").strokeColor("#000000").lineWidth(1);
+  s.y = chartY + chartH + 40;
+}
+
+/** Section 13 — Sources & Uses table with equity injection pass/fail callout. */
+function renderSection13_SourcesAndUses(s: DocState) {
+  const { doc, input } = s;
+  const su = input.sourcesAndUses;
+  if (!su) {
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+    doc.text("Sources & Uses data not available.", PAGE_MARGIN, s.y);
+    s.y += 20;
+    return;
+  }
+  const maxWidth = doc.page.width - PAGE_MARGIN * 2;
+  const colW = maxWidth / 2 - 10;
+
+  // Two-column header
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+  doc.text("Sources", PAGE_MARGIN, s.y, { width: colW });
+  doc.text("Uses", PAGE_MARGIN + colW + 20, s.y, { width: colW });
+  s.y += ROW_HEIGHT;
+
+  doc
+    .moveTo(PAGE_MARGIN, s.y - 2)
+    .lineTo(PAGE_MARGIN + maxWidth, s.y - 2)
+    .lineWidth(0.3)
+    .stroke(BRAND_GREY);
+
+  const leftStartY = s.y;
+  const rightStartY = s.y;
+
+  // Sources column
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+  let ySrc = leftStartY;
+  for (const src of su.sources) {
+    doc.text(src.label, PAGE_MARGIN, ySrc, { width: colW - 90 });
+    doc.text(
+      `$${fmtCurrency(Math.round(src.amount))}`,
+      PAGE_MARGIN + colW - 90,
+      ySrc,
+      { width: 90, align: "right" },
+    );
+    ySrc += ROW_HEIGHT;
+  }
+  ySrc += 4;
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+  doc.text("Total Sources", PAGE_MARGIN, ySrc, { width: colW - 90 });
+  doc.text(
+    `$${fmtCurrency(Math.round(su.totalSources))}`,
+    PAGE_MARGIN + colW - 90,
+    ySrc,
+    { width: 90, align: "right" },
+  );
+
+  // Uses column
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+  let yUse = rightStartY;
+  const useX = PAGE_MARGIN + colW + 20;
+  for (const use of su.uses) {
+    doc.text(use.label, useX, yUse, { width: colW - 90 });
+    doc.text(
+      `$${fmtCurrency(Math.round(use.amount))}`,
+      useX + colW - 90,
+      yUse,
+      { width: 90, align: "right" },
+    );
+    yUse += ROW_HEIGHT;
+  }
+  yUse += 4;
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+  doc.text("Total Uses", useX, yUse, { width: colW - 90 });
+  doc.text(
+    `$${fmtCurrency(Math.round(su.totalUses))}`,
+    useX + colW - 90,
+    yUse,
+    { width: 90, align: "right" },
+  );
+
+  s.y = Math.max(ySrc, yUse) + 24;
+
+  // Equity injection callout
+  const ei = su.equityInjection;
+  const boxColor = ei.passes ? PASS_GREEN : DSCR_RED;
+  const boxH = 56;
+  checkPageBreak(s, boxH + 10, "Section 13: Sources & Uses (cont.)");
+  doc.rect(PAGE_MARGIN, s.y, maxWidth, boxH).stroke(boxColor);
+
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor(boxColor);
+  doc.text(
+    ei.passes ? "Equity Injection — Meets SBA Minimum" : "Equity Injection — Below SBA Minimum",
+    PAGE_MARGIN + 10,
+    s.y + 8,
+    { width: maxWidth - 20 },
+  );
+
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).fillColor("#000000");
+  const line = `Required minimum: ${fmtPct(ei.minimumPct)} — Actual: ${fmtPct(ei.actualPct)} ($${fmtCurrency(Math.round(ei.actualAmount))})${ei.shortfallAmount > 0 ? ` — Shortfall: $${fmtCurrency(ei.shortfallAmount)}` : ""}`;
+  doc.text(line, PAGE_MARGIN + 10, s.y + 28, { width: maxWidth - 20 });
+
+  s.y += boxH + 14;
+}
+
+function renderBalanceSheetTable(s: DocState) {
+  const { doc, input } = s;
+  const bs = input.balanceSheetProjections ?? [];
+  if (bs.length === 0) {
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+    doc.text("Balance sheet projections not available.", PAGE_MARGIN, s.y);
+    s.y += 20;
+    return;
+  }
+
+  const colLabels = ["", ...bs.map((b) => (b.label === "Actual" ? "Base Year" : `Year ${b.year}`))];
+  const colWidths = [140, ...bs.map(() => 90)];
+  const startX = PAGE_MARGIN;
+
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+  let x = startX;
+  for (let i = 0; i < colLabels.length; i++) {
+    doc.text(colLabels[i], x, s.y, { width: colWidths[i], align: i > 0 ? "right" : "left" });
+    x += colWidths[i];
+  }
+  s.y += ROW_HEIGHT;
+  doc
+    .moveTo(startX, s.y - 2)
+    .lineTo(startX + colWidths.reduce((a, b) => a + b, 0), s.y - 2)
+    .lineWidth(0.3)
+    .stroke("#cccccc");
+
+  const rows: Array<{ label: string; get: (b: BalanceSheetYear) => number; bold?: boolean; ratio?: boolean }> = [
+    { label: "Cash", get: (b) => b.cash },
+    { label: "Accounts Receivable", get: (b) => b.accountsReceivable },
+    { label: "Inventory", get: (b) => b.inventory },
+    { label: "Total Current Assets", get: (b) => b.totalCurrentAssets, bold: true },
+    { label: "Fixed Assets", get: (b) => b.fixedAssets },
+    { label: "Total Assets", get: (b) => b.totalAssets, bold: true },
+    { label: "Accounts Payable", get: (b) => b.accountsPayable },
+    { label: "Short-Term Debt", get: (b) => b.shortTermDebt },
+    { label: "Long-Term Debt", get: (b) => b.longTermDebt },
+    { label: "Total Liabilities", get: (b) => b.totalLiabilities, bold: true },
+    { label: "Total Equity", get: (b) => b.totalEquity, bold: true },
+    { label: "Current Ratio", get: (b) => b.currentRatio, ratio: true },
+    { label: "Debt to Equity", get: (b) => b.debtToEquity, ratio: true },
+    { label: "Working Capital", get: (b) => b.workingCapital, bold: true },
+  ];
+
+  for (const row of rows) {
+    checkPageBreak(s, ROW_HEIGHT + 4, "Projected Balance Sheet (cont.)");
+    doc.font(row.bold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+    x = startX;
+    doc.text(row.label, x, s.y, { width: colWidths[0] });
+    x += colWidths[0];
+    for (let i = 0; i < bs.length; i++) {
+      const v = row.get(bs[i]);
+      const display = row.ratio ? v.toFixed(2) : `$${fmtCurrency(Math.round(v))}`;
+      doc.text(display, x, s.y, { width: colWidths[i + 1], align: "right" });
+      x += colWidths[i + 1];
+    }
+    s.y += ROW_HEIGHT;
+  }
+  s.y += 8;
+}
+
+function renderGlobalCashFlow(s: DocState) {
+  const { doc, input } = s;
+  const gcf = input.globalCashFlow;
+  if (!gcf) {
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+    doc.text("Global cash flow data not available.", PAGE_MARGIN, s.y);
+    s.y += 20;
+    return;
+  }
+  const maxWidth = doc.page.width - PAGE_MARGIN * 2;
+
+  const lines: Array<[string, string]> = [
+    ["Business EBITDA", `$${fmtCurrency(Math.round(gcf.businessEbitda))}`],
+    ["+ Total Net Personal Cash", `$${fmtCurrency(Math.round(gcf.totalNetPersonalCash))}`],
+    ["= Global Cash Available", `$${fmtCurrency(Math.round(gcf.globalCashAvailable))}`],
+    ["Business Debt Service", `$${fmtCurrency(Math.round(gcf.globalDebtService))}`],
+    ["Global DSCR", fmtDscr(gcf.globalDSCR)],
+    ["Meets SBA Minimum (1.25x)", gcf.meetsSbaThreshold ? "Yes" : "No"],
+  ];
+
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+  for (const [label, value] of lines) {
+    checkPageBreak(s, ROW_HEIGHT + 4, "Global Cash Flow (cont.)");
+    doc.text(label, PAGE_MARGIN, s.y, { width: maxWidth - 120 });
+    doc.text(value, PAGE_MARGIN + maxWidth - 120, s.y, {
+      width: 120,
+      align: "right",
+    });
+    s.y += ROW_HEIGHT;
+  }
+
+  if (gcf.guarantorsWithNegativeCashFlow > 0) {
+    s.y += 4;
+    doc.fillColor("#b45309").font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+    doc.text(
+      `Warning: ${gcf.guarantorsWithNegativeCashFlow} guarantor(s) with negative personal cash flow.`,
+      PAGE_MARGIN,
+      s.y,
+      { width: maxWidth },
+    );
+    doc.fillColor("#000000");
+    s.y += ROW_HEIGHT;
+  }
+  s.y += 8;
+}
+
+// ---------------------------------------------------------------------------
+// Existing sections (retained, may be reordered)
 // ---------------------------------------------------------------------------
 
 function renderSection1_BusinessOverview(s: DocState) {
@@ -172,7 +702,6 @@ function renderSection2_Projections(s: DocState) {
   const colWidths = [140, 95, 95, 95, 95];
   const startX = PAGE_MARGIN;
 
-  // Header row
   doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
   let x = startX;
   for (let i = 0; i < colLabels.length; i++) {
@@ -198,7 +727,7 @@ function renderSection2_Projections(s: DocState) {
   ];
 
   for (const row of rows) {
-    checkPageBreak(s, ROW_HEIGHT + 4, "Section 2: 3-Year Financial Projections (cont.)");
+    checkPageBreak(s, ROW_HEIGHT + 4, "Financial Projections (cont.)");
     doc.font(row.bold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
     x = startX;
     doc.text(row.label, x, s.y, { width: colWidths[0] });
@@ -211,9 +740,8 @@ function renderSection2_Projections(s: DocState) {
         display = fmtPct(val);
       } else if (row.label === "DSCR") {
         display = fmtDscr(val);
-        // Red if below SBA threshold
         if (val < SBA_DSCR_THRESHOLD && i > 0) {
-          doc.fillColor("#cc0000");
+          doc.fillColor(DSCR_RED);
         }
       } else {
         display = `$${fmtCurrency(val)}`;
@@ -229,8 +757,6 @@ function renderSection2_Projections(s: DocState) {
 
 function renderSection3_MonthlyCF(s: DocState) {
   const { doc, input } = s;
-
-  // Monthly table — 13 columns (label + 12 months), smaller font
   const labelW = 100;
   const monthW = 36;
   const startX = PAGE_MARGIN;
@@ -256,7 +782,7 @@ function renderSection3_MonthlyCF(s: DocState) {
   ];
 
   for (const row of monthlyRows) {
-    checkPageBreak(s, ROW_HEIGHT + 4, "Section 3: Monthly Cash Flow — Year 1 (cont.)");
+    checkPageBreak(s, ROW_HEIGHT + 4, "Monthly Cash Flow — Year 1 (cont.)");
     doc.font(row.bold ? FONT_BOLD : FONT_NORMAL).fontSize(7);
     x = startX;
     doc.text(row.label, x, s.y, { width: labelW });
@@ -264,9 +790,8 @@ function renderSection3_MonthlyCF(s: DocState) {
 
     for (const mp of input.monthlyProjections) {
       const val = row.getter(mp);
-      // Red for negative cumulative cash
       if (row.label === "Cumulative Cash" && val < 0) {
-        doc.fillColor("#cc0000");
+        doc.fillColor(DSCR_RED);
       }
       doc.text(fmtCurrency(Math.round(val)), x, s.y, { width: monthW, align: "right" });
       doc.fillColor("#000000");
@@ -292,7 +817,7 @@ function renderSection4_BreakEven(s: DocState) {
 
   doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
   for (const line of lines) {
-    checkPageBreak(s, ROW_HEIGHT + 4, "Section 4: Break-Even Analysis (cont.)");
+    checkPageBreak(s, ROW_HEIGHT + 4, "Break-Even Analysis (cont.)");
     doc.text(line, PAGE_MARGIN, s.y, { width: maxWidth });
     s.y += ROW_HEIGHT;
   }
@@ -310,14 +835,11 @@ function renderSection4_BreakEven(s: DocState) {
     doc.fillColor("#000000");
     s.y = doc.y + 8;
   }
-
   s.y += 8;
 }
 
 function renderSection5_Sensitivity(s: DocState) {
   const { doc, input } = s;
-
-  // Sensitivity table
   const colWidths = [120, 70, 65, 65, 65, 70];
   const colLabels = ["Scenario", "Y1 Revenue", "DSCR Y1", "DSCR Y2", "DSCR Y3", "SBA 1.25x"];
   const startX = PAGE_MARGIN;
@@ -340,20 +862,18 @@ function renderSection5_Sensitivity(s: DocState) {
     doc.text(`$${fmtCurrency(scenario.revenueYear1)}`, x, s.y, { width: colWidths[1], align: "right" });
     x += colWidths[1];
 
-    // DSCR values — red if below threshold
     for (const dscr of [scenario.dscrYear1, scenario.dscrYear2, scenario.dscrYear3]) {
-      if (dscr < SBA_DSCR_THRESHOLD) doc.fillColor("#cc0000");
+      if (dscr < SBA_DSCR_THRESHOLD) doc.fillColor(DSCR_RED);
       doc.text(fmtDscr(dscr), x, s.y, { width: 65, align: "right" });
       doc.fillColor("#000000");
       x += 65;
     }
 
-    // Pass/fail
     if (scenario.passesSBAThreshold) {
-      doc.fillColor("#15803d");
+      doc.fillColor(PASS_GREEN);
       doc.text("\u2713 Pass", x, s.y, { width: colWidths[5], align: "right" });
     } else {
-      doc.fillColor("#cc0000");
+      doc.fillColor(DSCR_RED);
       doc.text("\u2717 Below 1.25x", x, s.y, { width: colWidths[5], align: "right" });
     }
     doc.fillColor("#000000");
@@ -362,10 +882,9 @@ function renderSection5_Sensitivity(s: DocState) {
 
   s.y += 12;
 
-  // Gemini sensitivity narrative
   if (input.sensitivityNarrative) {
     const maxWidth = doc.page.width - PAGE_MARGIN * 2;
-    checkPageBreak(s, 80, "Section 5: Sensitivity Analysis (cont.)");
+    checkPageBreak(s, 80, "Sensitivity Analysis (cont.)");
     doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
     doc.text("Commentary", PAGE_MARGIN, s.y);
     s.y += 14;
@@ -375,8 +894,48 @@ function renderSection5_Sensitivity(s: DocState) {
   }
 }
 
+function renderUseOfProceeds(s: DocState) {
+  const { doc, input } = s;
+  const colWidths = [140, 220, 100, 60];
+  const colLabels = ["Category", "Description", "Amount", "% of Total"];
+  const startX = PAGE_MARGIN;
+
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+  let x = startX;
+  for (let i = 0; i < colLabels.length; i++) {
+    doc.text(colLabels[i], x, s.y, {
+      width: colWidths[i],
+      align: i >= 2 ? "right" : "left",
+    });
+    x += colWidths[i];
+  }
+  s.y += ROW_HEIGHT;
+  doc.moveTo(startX, s.y - 2).lineTo(startX + 520, s.y - 2).lineWidth(0.3).stroke("#cccccc");
+
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+  for (const row of input.useOfProceeds) {
+    checkPageBreak(s, ROW_HEIGHT + 2, "Use of Proceeds (cont.)");
+    x = startX;
+    doc.text(row.category, x, s.y, { width: colWidths[0] });
+    x += colWidths[0];
+    doc.text(row.description || "", x, s.y, { width: colWidths[1] });
+    x += colWidths[1];
+    doc.text(`$${fmtCurrency(Math.round(row.amount))}`, x, s.y, {
+      width: colWidths[2],
+      align: "right",
+    });
+    x += colWidths[2];
+    doc.text(fmtPct(row.pctOfTotal), x, s.y, {
+      width: colWidths[3],
+      align: "right",
+    });
+    s.y += ROW_HEIGHT;
+  }
+  s.y += 8;
+}
+
 // ---------------------------------------------------------------------------
-// Main render function
+// Main render function — 14-page professional business plan
 // ---------------------------------------------------------------------------
 
 export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
@@ -390,25 +949,144 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     const s: DocState = { doc, y: 0, pageNum: 1, input };
 
-    // === Section 1: Business Overview ===
-    drawPageHeader(s, "Section 1: Business Overview");
+    // === Page 1: Cover ===
+    renderCoverPage(s);
+
+    // === Page 2: Table of Contents ===
+    // Estimated page numbers — content lays out on successive pages.
+    const tocEntries: Array<{ label: string; page: number }> = [
+      { label: "1. Executive Summary", page: 3 },
+      { label: "2. Company Description", page: 4 },
+      { label: "3. Industry Analysis", page: 5 },
+      { label: "4. Products, Services & Marketing Strategy", page: 6 },
+      { label: "5. Operations Plan & Management Team", page: 7 },
+      { label: "6. SWOT Analysis", page: 8 },
+      { label: "7. Financial Projections & Revenue Chart", page: 9 },
+      { label: "8. Projected Balance Sheet", page: 10 },
+      { label: "9. Monthly Cash Flow — Year 1", page: 11 },
+      { label: "10. Break-Even Analysis", page: 12 },
+      { label: "11. Sensitivity Analysis & DSCR Chart", page: 13 },
+      { label: "12. Global Cash Flow", page: 14 },
+      { label: "13. Sources & Uses of Funds", page: 15 },
+      { label: "14. Use of Proceeds", page: 16 },
+    ];
+    if (input.franchiseSection) {
+      tocEntries.push({ label: "Franchise Overview", page: 17 });
+    }
+    renderTableOfContents(s, tocEntries);
+
+    // === Page 3: Executive Summary ===
+    newPage(s, "1. Executive Summary");
+    if (input.executiveSummary) {
+      renderNarrativeBody(s, input.executiveSummary, "1. Executive Summary (cont.)");
+    } else {
+      s.doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+      s.doc.text("Executive summary not available.", PAGE_MARGIN, s.y);
+      s.y += ROW_HEIGHT;
+    }
+
+    // === Page 4: Company Description ===
+    newPage(s, "2. Company Description");
     renderSection1_BusinessOverview(s);
 
-    // === Section 2: 3-Year Financial Projections ===
-    newPage(s, "Section 2: 3-Year Financial Projections");
-    renderSection2_Projections(s);
+    // === Page 5: Industry Analysis ===
+    newPage(s, "3. Industry Analysis");
+    if (input.industryAnalysis) {
+      renderNarrativeBody(s, input.industryAnalysis, "3. Industry Analysis (cont.)");
+    } else {
+      s.doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+      s.doc.text("Industry analysis not available.", PAGE_MARGIN, s.y);
+      s.y += ROW_HEIGHT;
+    }
 
-    // === Section 3: Monthly Cash Flow — Year 1 ===
-    newPage(s, "Section 3: Monthly Cash Flow \u2014 Year 1");
+    // === Page 6: Products/Marketing ===
+    newPage(s, "4. Products, Services & Marketing Strategy");
+    if (input.marketingStrategy) {
+      renderNarrativeBody(
+        s,
+        input.marketingStrategy,
+        "4. Products, Services & Marketing Strategy (cont.)",
+      );
+    }
+
+    // === Page 7: Operations & Team ===
+    newPage(s, "5. Operations Plan & Management Team");
+    if (input.operationsPlan) {
+      renderNarrativeBody(
+        s,
+        input.operationsPlan,
+        "5. Operations Plan & Management Team (cont.)",
+      );
+    }
+
+    // === Page 8: SWOT ===
+    newPage(s, "6. SWOT Analysis");
+    const swotSections: Array<[string, string | undefined]> = [
+      ["Strengths", input.swotStrengths],
+      ["Weaknesses", input.swotWeaknesses],
+      ["Opportunities", input.swotOpportunities],
+      ["Threats", input.swotThreats],
+    ];
+    for (const [label, body] of swotSections) {
+      doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+      doc.text(label, PAGE_MARGIN, s.y);
+      s.y += ROW_HEIGHT;
+      doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+      if (body) {
+        renderNarrativeBody(s, body, "6. SWOT Analysis (cont.)");
+      } else {
+        doc.text(`${label} not available.`, PAGE_MARGIN, s.y);
+        s.y += ROW_HEIGHT;
+      }
+    }
+
+    // === Page 9: Financial Projections + Revenue Chart ===
+    newPage(s, "7. Financial Projections");
+    renderSection2_Projections(s);
+    checkPageBreak(s, 220, "7. Financial Projections (cont.)");
+    doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+    doc.text("Revenue by Year", PAGE_MARGIN, s.y);
+    s.y += 14;
+    renderRevenueChart(s);
+
+    // === Page 10: Projected Balance Sheet ===
+    newPage(s, "8. Projected Balance Sheet");
+    renderBalanceSheetTable(s);
+
+    // === Page 11: Monthly Cash Flow ===
+    newPage(s, "9. Monthly Cash Flow — Year 1");
     renderSection3_MonthlyCF(s);
 
-    // === Section 4: Break-Even Analysis ===
-    newPage(s, "Section 4: Break-Even Analysis");
+    // === Page 12: Break-Even ===
+    newPage(s, "10. Break-Even Analysis");
     renderSection4_BreakEven(s);
 
-    // === Section 5: Sensitivity Analysis ===
-    newPage(s, "Section 5: Sensitivity Analysis");
+    // === Page 13: Sensitivity + DSCR Chart ===
+    newPage(s, "11. Sensitivity Analysis");
     renderSection5_Sensitivity(s);
+    checkPageBreak(s, 200, "11. Sensitivity Analysis (cont.)");
+    doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+    doc.text("DSCR Scenarios vs SBA Minimum", PAGE_MARGIN, s.y);
+    s.y += 14;
+    renderDSCRChart(s);
+
+    // === Page 14: Global Cash Flow ===
+    newPage(s, "12. Global Cash Flow");
+    renderGlobalCashFlow(s);
+
+    // === Page 15: Sources & Uses ===
+    newPage(s, "13. Sources & Uses of Funds");
+    renderSection13_SourcesAndUses(s);
+
+    // === Page 16: Use of Proceeds ===
+    newPage(s, "14. Use of Proceeds");
+    renderUseOfProceeds(s);
+
+    // === Optional: Franchise section ===
+    if (input.franchiseSection) {
+      newPage(s, "Franchise Overview");
+      renderNarrativeBody(s, input.franchiseSection, "Franchise Overview (cont.)");
+    }
 
     // Final footer on last page
     drawPageFooter(s);
