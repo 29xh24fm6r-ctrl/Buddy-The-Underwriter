@@ -914,65 +914,24 @@ If bankers ask for real-time Pulse-backed advisories (beyond the ai_risk_runs st
 
 ---
 
-## T-08 — Governance smoke test
+## T-08 — Governance smoke test (CONVERTED TO AUDIT-ONLY)
 
-*(Unchanged from v1.)*
+**Status:** CLOSED as audit-only. No script, no synthetic fixture inserts. See [docs/archive/phase-84/T08-governance-writers-audit.md](../docs/archive/phase-84/T08-governance-writers-audit.md) and [docs/archive/phase-84/AAR_PHASE_84_T08.md](../docs/archive/phase-84/AAR_PHASE_84_T08.md).
 
-**Finding reference:** `deal_decisions` (0), `agent_approval_events` (0), `canonical_action_executions` (0), `draft_borrower_requests` (0), `agent_skill_evolutions` (0). Phase 72–75 infrastructure present but never exercised live.
+**Why:** Pre-work revealed v2's premise was wrong at multiple layers.
+- **3 of 6 governance tables have no writer anywhere in the repo** (`agent_approval_events`, `draft_borrower_requests`, `borrower_request_campaigns`) — schemas landed in Phase 73 / pre-64 / post-close-monitoring but the writers were never built.
+- **2 of 6 tables have working writers** (`canonical_action_executions` at `src/core/actions/execution/executeCanonicalAction.ts`, `agent_skill_evolutions` at `src/lib/learningLoop/evolutionStager.ts`) — but neither has ever been invoked. One is starved of upstream input (`extraction_correction_log` has 0 rows, so `logCorrection()` is never called); the other has never been triggered by any banker workflow (`deriveNextActions()` likely returns empty for current deals, or the Execute Action UI surface isn't wired).
+- **1 of 6 tables has a writer gated on reconciliation status** (`deal_decisions` via `/actions/approve`). Only 2 reconciliation runs have ever completed across the entire DB lifetime (2026-04-03 and 2026-04-14), both `CONFLICTS`. No deal has ever produced `CLEAN` or `FLAGS`.
+- **Headline finding beyond the per-table map:** 0 non-test deals exist in the entire database. All 9 deals carry `is_test = true` after T-06 flagged the Ellmann cluster + the 5 ChatGPT Fix test deals. Every "empty table" finding in Phase 84 is consistent with a DB that has no real production activity, not a DB with broken infrastructure.
+- **Endpoint paths in v2 were speculative.** `/api/admin/agent-approvals` doesn't exist. `/api/deals/[dealId]/draft-borrower-request` doesn't exist. The actual `borrower-request` route writes to a different system (Phase 73 portal invites, not Phase 75 AI-draft governance).
 
-### Implementation
+Synthetic fixture inserts (Option B in the planning conversation) were rejected because they would have polluted governance tables with `source: phase_84_t08_smoke` marker rows that every future audit, dashboard, or compliance review would need to filter out. That's the kind of band-aid that survives indefinitely and undermines the truth source.
 
-Create `scripts/phase-84-governance-smoke.ts`:
+### What T-08 delivered
 
-```typescript
-#!/usr/bin/env tsx
-/**
- * Phase 84 T-08 — Governance smoke test.
- *
- * Drives a staging deal through approve / draft-borrower-request / approve-draft /
- * execute-action paths to produce verifiable rows in:
- *   - deal_decisions
- *   - draft_borrower_requests + agent_approval_events
- *   - canonical_action_executions
- *
- * Safety: requires STAGING_BANK_ID env. Hard-fails if deal isn't in staging bank
- * or isn't flagged is_test=true (after T-10 flags test deals).
- */
+7 Phase 84.1 ticket stubs (T-08-A through T-08-G), with **T-08-G (production activity baseline)** as the gating priority. Until T-08-G is answered (are there any live banks using Buddy today?), the priority ordering of the other 6 tickets is undefined. Full stubs in the audit doc.
 
-const STAGING_BANK_ID = process.env.STAGING_BANK_ID;
-const TEST_DEAL_ID = process.argv[2];
-const API_BASE = process.env.BUDDY_API_BASE ?? "http://localhost:3000";
-const CRON_SECRET = process.env.CRON_SECRET; // needed for worker routes
-
-if (!STAGING_BANK_ID || !TEST_DEAL_ID) {
-  console.error("Usage: tsx scripts/phase-84-governance-smoke.ts <dealId>");
-  console.error("Required env: STAGING_BANK_ID, BUDDY_API_BASE, CRON_SECRET");
-  process.exit(1);
-}
-
-// 1. Fetch the deal and confirm it's in the staging bank
-// 2. POST /api/deals/{dealId}/actions  { action: "approve" }
-//    → assert deal_decisions row appears
-// 3. POST /api/deals/{dealId}/draft-borrower-request { requirements: [...] }
-//    → assert draft_borrower_requests row appears
-// 4. POST /api/admin/agent-approvals { draftId, approve: true }
-//    → assert agent_approval_events row appears with valid snapshot
-// 5. POST /api/deals/{dealId}/execute-action { actionType: "..." }
-//    → assert canonical_action_executions row appears
-// 6. Print a summary with row counts per table
-```
-
-### Pre-work
-
-Identify or designate a staging bank + test deal. Flag the deal `is_test=true` (T-10 adds this column; run T-10 Part B first or add the flag inline).
-
-### Post-deploy acceptance
-
-After running the script:
-1. `deal_decisions` has ≥ 1 row
-2. `agent_approval_events` has ≥ 1 row with `decision='approved'` and a populated `approved_snapshot`
-3. `canonical_action_executions` has ≥ 1 row
-4. `draft_borrower_requests` has ≥ 1 row with non-null `approved_snapshot`
+Tables remain empty after T-08 closes. That is the correct state — they reflect reality, not broken infrastructure.
 
 ---
 
