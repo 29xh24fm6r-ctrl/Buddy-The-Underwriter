@@ -116,7 +116,10 @@ export async function classifyWithGeminiText(
         generationConfig: {
           responseMimeType: "application/json",
           temperature: 0.0,
-          maxOutputTokens: 512,
+          maxOutputTokens: 2048,
+          thinkingConfig: {
+            thinkingLevel: "low",
+          },
         },
       }),
     });
@@ -135,6 +138,12 @@ export async function classifyWithGeminiText(
     const json = await resp.json();
     const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
     const finishReason = json.candidates?.[0]?.finishReason;
+    if (finishReason && finishReason !== "STOP") {
+      console.warn("[GeminiClassifier][text] unexpected finishReason on success path", {
+        finishReason,
+        ocrTextLength: ocrText.length,
+      });
+    }
     const result = parseGeminiResult(text);
     if (!result) {
       console.warn("[GeminiClassifier][text] parseGeminiResult returned null", {
@@ -181,7 +190,10 @@ export async function classifyWithGeminiVision(
         generationConfig: {
           responseMimeType: "application/json",
           temperature: 0.0,
-          maxOutputTokens: 512,
+          maxOutputTokens: 2048,
+          thinkingConfig: {
+            thinkingLevel: "low",
+          },
         },
       }),
     });
@@ -201,6 +213,12 @@ export async function classifyWithGeminiVision(
     const json = await resp.json();
     const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
     const finishReason = json.candidates?.[0]?.finishReason;
+    if (finishReason && finishReason !== "STOP") {
+      console.warn("[GeminiClassifier][vision] unexpected finishReason on success path", {
+        finishReason,
+        mimeType,
+      });
+    }
     const result = parseGeminiResult(text);
     if (!result) {
       console.warn("[GeminiClassifier][vision] parseGeminiResult returned null", {
