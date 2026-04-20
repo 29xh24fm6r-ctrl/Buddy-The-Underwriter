@@ -24,11 +24,13 @@ export async function loadSBAAssumptionsPrefill(
     .maybeSingle();
 
   // 3. Base revenue from financial facts (most recent)
+  // T-85-PROBE-1: column is fact_value_num (not value_numeric); fact keys in DB
+  // are bare (TOTAL_REVENUE, not TOTAL_REVENUE_IS). Query both for fallback.
   const { data: revFact } = await sb
     .from("deal_financial_facts")
-    .select("value_numeric")
+    .select("fact_value_num")
     .eq("deal_id", dealId)
-    .eq("fact_key", "TOTAL_REVENUE_IS")
+    .in("fact_key", ["TOTAL_REVENUE_IS", "TOTAL_REVENUE"])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -36,9 +38,9 @@ export async function loadSBAAssumptionsPrefill(
   // 4. COGS from financial facts
   const { data: cogsFact } = await sb
     .from("deal_financial_facts")
-    .select("value_numeric")
+    .select("fact_value_num")
     .eq("deal_id", dealId)
-    .eq("fact_key", "TOTAL_COGS_IS")
+    .in("fact_key", ["TOTAL_COGS_IS", "COST_OF_GOODS_SOLD", "COGS"])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -46,7 +48,7 @@ export async function loadSBAAssumptionsPrefill(
   // 5. Annual debt service (existing) from financial facts
   const { data: adsFact } = await sb
     .from("deal_financial_facts")
-    .select("value_numeric")
+    .select("fact_value_num")
     .eq("deal_id", dealId)
     .eq("fact_key", "ADS")
     .order("created_at", { ascending: false })
@@ -54,8 +56,9 @@ export async function loadSBAAssumptionsPrefill(
     .maybeSingle();
 
   const structure = structureSection?.data as Record<string, unknown> | null;
-  const revenue = revFact?.value_numeric ?? 0;
-  const cogs = cogsFact?.value_numeric ?? 0;
+  const revenue = Number(revFact?.fact_value_num ?? 0);
+  const cogs = Number(cogsFact?.fact_value_num ?? 0);
+  const adsValue = Number(adsFact?.fact_value_num ?? 0);
   const cogsPercent = revenue > 0 ? Math.min(0.95, cogs / revenue) : 0.5;
 
   return {
@@ -92,12 +95,12 @@ export async function loadSBAAssumptionsPrefill(
       termMonths:
         (structure?.desired_term_months as number | undefined) ?? 120,
       interestRate: 0.0725, // SBA prime + 2.75 default; banker must confirm
-      existingDebt: adsFact?.value_numeric
+      existingDebt: adsValue
         ? [
             {
               description: "Existing debt obligations (from spread)",
               currentBalance: 0,
-              monthlyPayment: adsFact.value_numeric / 12,
+              monthlyPayment: adsValue / 12,
               remainingTermMonths: 60,
             },
           ]

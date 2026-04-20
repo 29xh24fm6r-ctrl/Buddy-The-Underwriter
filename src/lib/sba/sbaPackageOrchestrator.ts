@@ -87,33 +87,75 @@ export async function generateSBAPackage(
   }
 
   // Pull base year facts
+  // T-85-PROBE-1: column is fact_value_num (not value_numeric); fact keys in DB
+  // are bare (TOTAL_REVENUE, COST_OF_GOODS_SOLD, etc.) while legacy code queried
+  // _IS-suffixed keys that were never populated. Query both and fall back.
+  // Also derive EBITDA from NET_INCOME + INTEREST + DEPRECIATION + TAX when the
+  // EBITDA fact itself is absent (currently 0 rows repo-wide).
   const { data: facts } = await sb
     .from("deal_financial_facts")
-    .select("fact_key, value_numeric")
+    .select("fact_key, fact_value_num")
     .eq("deal_id", dealId)
     .in("fact_key", [
-      "TOTAL_REVENUE_IS",
-      "TOTAL_COGS_IS",
+      // Revenue
+      "TOTAL_REVENUE_IS", "TOTAL_REVENUE",
+      // COGS
+      "TOTAL_COGS_IS", "COST_OF_GOODS_SOLD", "COGS",
+      // Operating expenses
+      "TOTAL_OPERATING_EXPENSES_IS", "TOTAL_OPERATING_EXPENSES",
+      // Net income
       "NET_INCOME",
+      // EBITDA (may not exist — derive below)
       "EBITDA",
-      "DEPRECIATION_IS",
-      "TOTAL_OPERATING_EXPENSES_IS",
+      // Depreciation
+      "DEPRECIATION_IS", "DEPRECIATION",
+      // Interest (for EBITDA derivation)
+      "INTEREST_EXPENSE",
+      // Tax (for EBITDA derivation)
+      "TOTAL_TAX",
+      // ADS
       "ADS",
     ])
     .order("created_at", { ascending: false });
 
-  const getFact = (key: string) =>
-    (facts ?? []).find((f: { fact_key: string }) => f.fact_key === key)
-      ?.value_numeric ?? 0;
+  // Fallback-chain fact lookup: try primary key, then each fallback in order.
+  const getFact = (primaryKey: string, ...fallbackKeys: string[]): number => {
+    const allKeys = [primaryKey, ...fallbackKeys];
+    for (const key of allKeys) {
+      const found = (facts ?? []).find(
+        (f: { fact_key: string }) => f.fact_key === key,
+      );
+      if (found?.fact_value_num != null) {
+        return Number(found.fact_value_num);
+      }
+    }
+    return 0;
+  };
+
+  const revenue = getFact("TOTAL_REVENUE_IS", "TOTAL_REVENUE");
+  const cogs = getFact("TOTAL_COGS_IS", "COST_OF_GOODS_SOLD", "COGS");
+  const opex = getFact("TOTAL_OPERATING_EXPENSES_IS", "TOTAL_OPERATING_EXPENSES");
+  const depreciation = getFact("DEPRECIATION_IS", "DEPRECIATION");
+  const netIncome = getFact("NET_INCOME");
+  const interestExpense = getFact("INTEREST_EXPENSE");
+  const totalTax = getFact("TOTAL_TAX");
+
+  // EBITDA: try direct fact first, then derive from components
+  let ebitda = getFact("EBITDA");
+  if (ebitda === 0 && netIncome !== 0) {
+    ebitda = netIncome + interestExpense + depreciation + totalTax;
+  }
+
+  const ads = getFact("ADS");
 
   const baseYear = buildBaseYear({
-    revenue: getFact("TOTAL_REVENUE_IS"),
-    cogs: getFact("TOTAL_COGS_IS"),
-    operatingExpenses: getFact("TOTAL_OPERATING_EXPENSES_IS"),
-    ebitda: getFact("EBITDA"),
-    depreciation: getFact("DEPRECIATION_IS"),
-    netIncome: getFact("NET_INCOME"),
-    existingDebtServiceAnnual: getFact("ADS"),
+    revenue,
+    cogs,
+    operatingExpenses: opex,
+    ebitda,
+    depreciation,
+    netIncome,
+    existingDebtServiceAnnual: ads,
   });
 
   // Run model passes
