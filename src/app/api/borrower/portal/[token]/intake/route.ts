@@ -215,7 +215,6 @@ export async function POST(
             tenant_id: ctx.bankId,
             status: "draft",
             sba7a_ineligibility_reasons: {},
-            sba7a_candidate: isSba,
             ...loanFields,
           });
         if (error) {
