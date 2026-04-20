@@ -368,71 +368,91 @@ Phase 84.1 also covers: 46 `security_definer_view` ERROR findings, 88 `function_
 
 # Wave 1 — Stop the bleeding
 
-## T-02 — Document classifier OCR feed
+## T-02 — Document classifier output truncation (root cause revised)
 
-**Finding reference:** 44/44 `DOC_GATEKEEPER_CLASSIFY_FAILED` events in 7 days with `input_path: "no_ocr_no_image"` and `reasons: ["Gemini classifier returned null on text path"]`.
+**Finding reference (post-execution revision):** 89 distinct documents across Apr 1 → Apr 20 emitted `DOC_GATEKEEPER_CLASSIFY_FAILED` with `reasons: ["Gemini classifier returned null on text path"]` and `review_reason_code: NO_OCR_OR_IMAGE`. The 44/44 figure in v2 was only the Apr 15 burst — the real scope is larger and the failures are deterministic, not transient.
 
-*(Unchanged from v1 — the diagnosis flow was correct.)*
+### Actual root cause (two compounding bugs)
 
-### Pre-work
+**Bug A — Output-token truncation (the primary failure):**
+
+`classifyWithGeminiText` and `classifyWithGeminiVision` in `src/lib/gatekeeper/geminiClassifier.ts` set `generationConfig.maxOutputTokens: 512`. This number was inherited from the Phase 24 OpenAI classifier (`src/lib/gatekeeper/classifyWithOpenAI.ts` — same 512, two sites). OpenAI tolerated the cap because `zodResponseFormat` enforces the schema server-side and returns valid JSON regardless of cap. Gemini returns raw JSON text; any cap-induced truncation causes `JSON.parse` to throw, which `parseGeminiResult` catches and returns `null`, which `runGatekeeperForDocument` interprets as `no_ocr_no_image` / `NO_OCR_OR_IMAGE`. The misleading label made the bug look like an OCR-availability issue for weeks.
+
+**Bug B — Silent-write swallowing (why Bug A was invisible):**
+
+`stampDocument` in `src/lib/gatekeeper/runGatekeeper.ts` awaited `.update()` without destructuring `{ error }`. Supabase JS returns CHECK constraint violations, RLS blocks, and permission errors in-band on the response object — **`.update()` does not throw**. The `try/catch` in `stampDocument` therefore never fired on constraint errors. This let a second bug (CHECK constraint drift, below) silently discard 9 `PERSONAL_FINANCIAL_STATEMENT` classifications across weeks while callers received phantom "success" returns.
+
+**Bug C — Enum drift on `deal_documents.gatekeeper_doc_type` (Bug B's trigger):**
+
+`GatekeeperDocType` in `src/lib/gatekeeper/types.ts` includes `PERSONAL_FINANCIAL_STATEMENT`, but the DB CHECK constraint `deal_documents_gatekeeper_doc_type_check` was never migrated to add it. Classifier output → DB CHECK rejection → silently swallowed by Bug B.
+
+### Pre-work (revised)
 
 ```sql
--- Sample 3 recent failures
-SELECT 
-  created_at,
-  payload->'input'->>'document_id' AS document_id,
-  payload->'input'->>'input_path' AS input_path,
-  payload->'input'->>'review_reason_code' AS reason,
-  payload->'input'->>'latency_ms' AS latency_ms
-FROM deal_events
-WHERE kind = 'DOC_GATEKEEPER_CLASSIFY_FAILED'
-ORDER BY created_at DESC
-LIMIT 3;
+-- 1. Scope: count unique failed docs across the full history
+SELECT COUNT(DISTINCT payload->'input'->>'document_id') AS unique_failed_docs,
+       MIN(created_at) AS earliest, MAX(created_at) AS latest,
+       COUNT(*) AS event_count
+FROM deal_events WHERE kind = 'DOC_GATEKEEPER_CLASSIFY_FAILED';
+
+-- 2. Pick a failed doc with known-good OCR for probe target
+SELECT dd.id, length(ocr.extracted_text) AS ocr_len
+FROM deal_documents dd
+JOIN document_ocr_results ocr ON ocr.attachment_id = dd.id
+WHERE dd.gatekeeper_review_reason_code = 'NO_OCR_OR_IMAGE'
+  AND length(ocr.extracted_text) > 10000
+LIMIT 1;
+
+-- 3. Drift audit: compare TS enum vs DB CHECK constraint
+SELECT pg_get_constraintdef(oid)
+FROM pg_constraint
+WHERE conrelid = 'public.deal_documents'::regclass
+  AND conname = 'deal_documents_gatekeeper_doc_type_check';
+-- Cross-reference GatekeeperDocType in src/lib/gatekeeper/types.ts
 ```
 
-For one of those `document_id` values, run:
-```sql
-SELECT 
-  (SELECT extracted_text IS NOT NULL FROM document_ocr_results WHERE attachment_id = '<documentId>') AS has_ocr,
-  (SELECT fields_json IS NOT NULL FROM document_extracts WHERE attachment_id = '<documentId>' AND status = 'SUCCEEDED') AS has_extracts;
-```
+### Implementation
 
-### Diagnostic steps (environment first)
+**Step 1 — Observability (`src/lib/gatekeeper/geminiClassifier.ts`):**
 
-**Step 1 — Check Vercel env:**
-- `USE_GEMINI_OCR` — if `false` or unset, this is the cause
-- `GEMINI_OCR_MODEL` — current value
-- `GEMINI_API_KEY` present
-- `GOOGLE_CLOUD_PROJECT` present
+Add `console.warn` at each of the 8 null-return exit points (4 each in `classifyWithGeminiText` and `classifyWithGeminiVision`): missing API key, non-ok HTTP response, `parseGeminiResult` null return, thrown exception. HTTP warns include `status/statusText/bodyPreview/model`. Parse-null warns include `finishReason` and `rawTextPreview`. Throw warns include `error.message/error.name`.
 
-Report findings back in chat before writing any code.
+Also log `finishReason` on the success path when it is anything other than `"STOP"` — surfaces `MAX_TOKENS`, `SAFETY`, `RECITATION` even when JSON happens to parse cleanly.
 
-**Step 2 — If `USE_GEMINI_OCR=false`:**
-- Flip to `true` in Production and Preview environments
-- **Do NOT hardcode a model tag in this spec.** Confirm the currently-supported GA model tag against current Gemini documentation at execution time, then update `GEMINI_OCR_MODEL` accordingly
-- Update `.env.example` to reflect (done in T-09)
-- Upload a test PDF; watch for `classification.decided` in `deal_events` within 60 seconds
-
-**Step 3 — If env is correct but failures continue:**
-The classifier call site lives in `src/lib/classification/`. Add a precondition guard that refuses to call `classifyWithGemini` if OCR text is not yet available:
+**Step 2 — Token cap + thinking cap (`src/lib/gatekeeper/geminiClassifier.ts`):**
 
 ```typescript
-const [ocrRow, extractsRow] = await Promise.all([
-  sb.from("document_ocr_results").select("extracted_text").eq("attachment_id", documentId).maybeSingle(),
-  sb.from("document_extracts").select("fields_json, status").eq("attachment_id", documentId).eq("status","SUCCEEDED").maybeSingle(),
-]);
-const hasText = Boolean(ocrRow.data?.extracted_text) || Boolean(extractsRow.data?.fields_json?.extractedText);
-if (!hasText) {
-  await requeueClassify(documentId, { attempt: (prevAttempt ?? 0) + 1, maxAttempts: 3 });
-  return { ok: false, reason: "awaiting_ocr" };
-}
+generationConfig: {
+  responseMimeType: "application/json",
+  temperature: 0.0,
+  maxOutputTokens: 2048,            // was 512 — truncated PTRs with multi-reason output
+  thinkingConfig: {
+    thinkingLevel: "low",            // caps Gemini 3 reasoning budget for strict-schema tasks
+  },
+},
 ```
+
+Apply to both text and vision paths. Gemini 3 family counts reasoning tokens against the output budget; `thinkingLevel: "low"` gives the JSON response enough headroom at 2048.
+
+**Step 3 — CHECK constraint migration:**
+
+Drop and re-add `deal_documents_gatekeeper_doc_type_check` with `PERSONAL_FINANCIAL_STATEMENT` in the allowed array. Migration name `phase_84_t02b_gatekeeper_doc_type_add_pfs`.
+
+**Step 4 — Fix silent-write bug in `stampDocument`:**
+
+Destructure `{ error }` from `.update()`. If truthy, `console.error` with `code/message/hint` and throw. Re-throw in outer catch so the fail-closed path in `runGatekeeperForDocument` converts to NEEDS_REVIEW instead of returning a phantom success.
+
+**Step 5 — Bulk reclassify:**
+
+Write `scripts/phase-84-t02-reclassify-failed-batch.ts` with safety bounds (`--confirm` flag required, `MAX_DOCS` cap, concurrency 3, summary table). Iterate every doc that ever emitted `DOC_GATEKEEPER_CLASSIFY_FAILED` and is currently UNKNOWN / needs_review. Call `runGatekeeperForDocument({ forceReclassify: true })`.
 
 ### Post-deploy acceptance
 
-1. Upload a test PDF. Within 60 seconds, `deal_events` contains `classification.decided` for that `document_id` with `doc_type != 'UNKNOWN'` and `confidence > 0`.
-2. Over 24 hours, `DOC_GATEKEEPER_CLASSIFY_FAILED` count drops to < 5% of attempts.
-3. `document_ocr_results.extracted_text IS NOT NULL` for newly-uploaded docs.
+1. Probe `scripts/phase-84-t02-reclassify-probe.ts` against a known-failed doc returns `doc_type` ≠ UNKNOWN, `input_path: "text"`, `needs_review: false`, no observability warnings fired.
+2. Production DB row for that doc is stamped with the correct doc type + `gatekeeper_model: gemini-3-flash-preview` + a fresh `gatekeeper_classified_at`.
+3. Bulk batch resolution: ≥ 95% of ever-failed docs now have `gatekeeper_doc_type != 'UNKNOWN'`. Remaining UNKNOWNs have `reviewReasonCode: UNKNOWN_DOC_TYPE` (legitimate model-can't-classify), not `NO_OCR_OR_IMAGE`.
+4. `DOC_GATEKEEPER_CLASSIFY_FAILED` count in the 15 minutes following batch re-run = 0.
+5. `[Gatekeeper] stampDocument write failed` log line present in Vercel for any future constraint violation (the new error-handling path) — validates Bug B fix catches future drift loudly.
 
 ---
 
