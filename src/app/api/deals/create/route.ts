@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { checkDuplicateDeal } from "@/lib/deals/checkDuplicateDeal";
 
 export const runtime = "nodejs";
 
@@ -133,6 +134,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ── Phase 84 T-06: Idempotency guard (app-layer mirror of RPC-level guard) ─
+    const dupCheck = await checkDuplicateDeal({
+      bankId,
+      name: dealName,
+      createdByUserId: userId,
+    });
+    if (dupCheck.ok && dupCheck.isDuplicate) {
+      return NextResponse.json(
+        { ok: true, dealId: dupCheck.existingDealId, reused: true },
+        { status: 200 },
+      );
+    }
+
     // ── Rule 3: Atomic deal insert with all required system records ───────
     const dealId = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -149,6 +163,7 @@ export async function POST(req: NextRequest) {
       risk_score: 0,
       created_at: now,
       updated_at: now,
+      created_by_user_id: userId,
     });
 
     if (dealError) {

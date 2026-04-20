@@ -163,10 +163,16 @@ export async function handleCreateUploadSession(
         );
       }
 
-      const row = bootstrap.data[0] as { deal_id: string; session_id: string; expires_at: string };
+      const row = bootstrap.data[0] as {
+        deal_id: string;
+        session_id: string;
+        expires_at: string;
+        reused?: boolean;
+      };
       dealId = row.deal_id;
       sessionId = row.session_id;
       expiresAt = row.expires_at;
+      const reused = Boolean(row.reused);
 
       // =======================================================================
       // IMPORTANT: deal_bootstrap_create executes on the PRIMARY database.
@@ -175,7 +181,8 @@ export async function handleCreateUploadSession(
       // Downstream retry logic in /files/record is defensive only.
       // =======================================================================
       // Set deal_mode if specified (quick_look or full_underwrite)
-      if (body.dealMode === "quick_look") {
+      // — but only on fresh creates; reused deals keep their existing mode.
+      if (body.dealMode === "quick_look" && !reused) {
         await sb.from("deals").update({ deal_mode: "quick_look" }).eq("id", dealId);
       }
 
@@ -185,6 +192,7 @@ export async function handleCreateUploadSession(
         bankId,
         dealMode: body.dealMode ?? "full_underwrite",
         source: "deals/new",
+        reused,
       });
 
       await logLedgerEvent({

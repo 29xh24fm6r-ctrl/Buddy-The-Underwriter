@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { isSandboxBank } from "@/lib/tenant/sandbox";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { checkDuplicateDeal } from "@/lib/deals/checkDuplicateDeal";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -49,11 +51,15 @@ export async function POST(req: Request) {
     const isDemoBank = await isSandboxBank(bankId).catch(() => false);
     const dealId = randomUUID();
 
+    // Phase 84 T-06: pull clerk userId for dedup scoping + created_by_user_id stamping
+    const { userId: createdByUserId } = await clerkAuth().catch(() => ({ userId: null as string | null }));
+
     const baseInsertData: Record<string, any> = {
       id: dealId,
       bank_id: bankId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      created_by_user_id: createdByUserId,
     };
 
     if (isDemoBank) {
@@ -68,6 +74,27 @@ export async function POST(req: Request) {
       if (!existing?.error && existing?.data?.id) {
         return NextResponse.json(
           { ok: true, deal: existing.data, dealId: existing.data.id, reused: true, request_id: requestId },
+          { status: 200 },
+        );
+      }
+    }
+
+    // Phase 84 T-06: user-scoped dedup (4h window) — covers banker re-submit burst
+    if (createdByUserId) {
+      const dupCheck = await checkDuplicateDeal({
+        bankId,
+        name,
+        createdByUserId,
+      });
+      if (dupCheck.ok && dupCheck.isDuplicate) {
+        return NextResponse.json(
+          {
+            ok: true,
+            deal: { id: dupCheck.existingDealId, borrower_name: name },
+            dealId: dupCheck.existingDealId,
+            reused: true,
+            request_id: requestId,
+          },
           { status: 200 },
         );
       }
