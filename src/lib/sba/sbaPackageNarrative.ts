@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SensitivityScenario, ManagementMember } from "./sbaReadinessTypes";
-import { MODEL_SBA_NARRATIVE } from "@/lib/ai/models";
+import { MODEL_SBA_NARRATIVE, isGemini3Model } from "@/lib/ai/models";
 
 const GEMINI_MODEL = MODEL_SBA_NARRATIVE;
 
@@ -24,16 +24,26 @@ async function callGeminiJSON(prompt: string): Promise<string> {
     return "";
   }
 
+  // Phase 2 — Gemini 3.x family (e.g. gemini-3.1-pro-preview) needs a non-zero
+  // thinkingBudget to produce quality output and MUST NOT carry a temperature
+  // field (the server warns and can loop below 1.0). Non-3.x models keep the
+  // previous fast-path config.
+  const isGemini3 = isGemini3Model(GEMINI_MODEL);
+  const generationConfig: Record<string, unknown> = {
+    responseMimeType: "application/json",
+    maxOutputTokens: 8192,
+    thinkingConfig: { thinkingBudget: isGemini3 ? 1024 : 0 },
+  };
+  if (!isGemini3) {
+    generationConfig.temperature = 0.7;
+  }
+
   const resp = await fetch(GEMINI_API_URL(apiKey), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        maxOutputTokens: 4096,
-        thinkingConfig: { thinkingBudget: 0 },
-      },
+      generationConfig,
     }),
   });
 
@@ -52,7 +62,7 @@ async function callGeminiJSON(prompt: string): Promise<string> {
   return text;
 }
 
-/** Call 1: Section 1 — Business Overview */
+/** Call 1: Section 1 — Business Overview (Phase 2 — richer context). */
 export async function generateBusinessOverviewNarrative(params: {
   dealName: string;
   loanType: string;
@@ -61,27 +71,40 @@ export async function generateBusinessOverviewNarrative(params: {
   revenueStreamNames: string[];
   useOfProceedsDescription: string;
   researchSummary?: string;
+  // Phase 2 additions
+  city?: string | null;
+  state?: string | null;
+  managementBios?: string;
+  borrowerProfile?: string | null;
 }): Promise<string> {
+  const locationLine = params.city
+    ? `${params.city}${params.state ? `, ${params.state}` : ""}`
+    : "Location not specified";
+
   const prompt = `You are writing a business plan narrative for an SBA ${params.loanType.replace("_", " ").toUpperCase()} loan application.
 Tone: professional, factual, optimistic but grounded. Write in third person.
 RULES: Do NOT invent market statistics. Do NOT use superlatives. Do NOT mention loan approval, denial, creditworthiness, or risk grade.
-Every claim must be directly supportable from the inputs provided.
+Every claim must be directly supportable from the inputs provided. Name the borrower, their city/state, and each management team member by name.
 
 Borrower: ${params.dealName}
+Location: ${locationLine}
 Loan amount: $${params.loanAmount.toLocaleString()}
-Management team: ${JSON.stringify(params.managementTeam)}
+
+Management team with bios:
+${params.managementBios || JSON.stringify(params.managementTeam)}
+
 Revenue streams: ${params.revenueStreamNames.join(", ")}
 Use of proceeds: ${params.useOfProceedsDescription}
-Market research context: ${params.researchSummary ?? "Not available"}
 
+${params.borrowerProfile ? `Borrower profile from Buddy research:\n${params.borrowerProfile}\n` : ""}${params.researchSummary ? `Other market research context:\n${params.researchSummary}\n` : ""}
 Return ONLY valid JSON with this exact shape and no other text:
 {
-  "companyDescription": "2 paragraphs: what the business does, how long it has operated, key markets served",
-  "productsAndServices": "1 paragraph: what products or services are offered",
-  "marketOpportunity": "1 paragraph: market context from research only — no invented statistics",
-  "managementTeam": "1–2 sentences per team member: name, title, years in industry, relevant background",
-  "useOfProceeds": "1 paragraph: how loan proceeds will be deployed and expected business impact",
-  "fullNarrative": "all five sections joined with section headers: Company Description, Products & Services, Market Opportunity, Management Team, Use of Proceeds"
+  "companyDescription": "2 paragraphs: what the business does, how long it has operated, key markets served, by name and location.",
+  "productsAndServices": "1 paragraph: what products or services are offered.",
+  "marketOpportunity": "1 paragraph: market context from the supplied research only — no invented statistics.",
+  "managementTeam": "1–2 sentences per team member by name: title, years in industry, relevant background.",
+  "useOfProceeds": "1 paragraph: how loan proceeds will be deployed and expected business impact.",
+  "fullNarrative": "all five sections joined with section headers: Company Description, Products & Services, Market Opportunity, Management Team, Use of Proceeds."
 }`;
 
   try {
@@ -101,7 +124,7 @@ Return ONLY valid JSON with this exact shape and no other text:
 const STANDARD_GUARDRAILS =
   "Do NOT invent market statistics. Do NOT use superlatives. Do NOT mention loan approval, denial, creditworthiness, or risk grade.";
 
-/** Phase BPG — Executive summary (≤400 words). */
+/** Phase BPG / Phase 2 — Executive summary (≤500 words) with full deal context. */
 export async function generateExecutiveSummary(params: {
   dealName: string;
   loanType: string;
@@ -113,25 +136,55 @@ export async function generateExecutiveSummary(params: {
   dscrYear1: number;
   projectedRevenueYear1: number;
   yearsInBusiness?: number;
+  // Phase 2 additions
+  managementBios?: string; // formatted "Name (Title, X% ownership, Y years): bio"
+  city?: string | null;
+  state?: string | null;
+  borrowerProfile?: string | null; // from research extractor
+  creditThesis?: string | null; // from research extractor
+  equityInjectionPct?: number; // 0-1 decimal
 }): Promise<string> {
+  const locationLine = params.city
+    ? `${params.city}${params.state ? `, ${params.state}` : ""}`
+    : "Location not specified";
+  const dscrPasses = params.dscrYear1 >= 1.25;
+
   const prompt = `You are writing the executive summary for an SBA ${params.loanType.replace(/_/g, " ").toUpperCase()} business plan.
 ${STANDARD_GUARDRAILS}
-Maximum 400 words. Write in third person, professional and grounded tone. Every claim must be supportable from the inputs.
+Maximum 500 words. Third person, professional, grounded.
+
+CRITICAL INSTRUCTION: This must read like it was written specifically about ${params.dealName}. Use the borrower's name, their specific loan amount, their specific city/state, their specific management team members by name, and their specific DSCR. A reader should know within the first sentence exactly which business this plan is about.
+
+OPENING SENTENCE TEMPLATE (adapt to the data):
+"${params.dealName}, a ${params.industryDescription || "small"} business located in ${locationLine}, is requesting a $${params.loanAmount.toLocaleString()} SBA ${params.loanType.replace(/_/g, " ")} loan to ${params.useOfProceedsDescription}."
 
 Borrower: ${params.dealName}
+Location: ${locationLine}
 Industry: ${params.industryDescription}
 Years in business: ${params.yearsInBusiness ?? "Not specified"}
 Requested loan: $${params.loanAmount.toLocaleString()}
 Use of proceeds: ${params.useOfProceedsDescription}
 Revenue streams: ${params.revenueStreamNames.join(", ") || "Not specified"}
-Management: ${params.managementLeadNames.join(", ") || "Not specified"}
-Projected Year 1 revenue: $${Math.round(params.projectedRevenueYear1).toLocaleString()}
-Year 1 DSCR: ${params.dscrYear1.toFixed(2)}x
+Management team (names): ${params.managementLeadNames.join(", ") || "Not specified"}
 
-Return ONLY valid JSON with this exact shape:
-{
-  "executiveSummary": "A single 400-word narrative covering: (1) company and industry, (2) request and use of proceeds, (3) revenue streams and year-1 outlook, (4) management strength, (5) debt service capacity stated as a factual DSCR. No headers — flowing prose."
-}`;
+Management team with bios:
+${params.managementBios || "Bios not supplied"}
+
+Projected Year 1 revenue: $${Math.round(params.projectedRevenueYear1).toLocaleString()}
+Year 1 DSCR: ${params.dscrYear1.toFixed(2)}x (SBA minimum: 1.25x — ${dscrPasses ? "PASSES" : "BELOW THRESHOLD"})
+Equity injection: ${params.equityInjectionPct !== undefined ? `${(params.equityInjectionPct * 100).toFixed(1)}%` : "Not specified"}
+
+${params.borrowerProfile ? `Borrower research context:\n${params.borrowerProfile}\n` : ""}${params.creditThesis ? `Credit thesis:\n${params.creditThesis}\n` : ""}
+Structure the narrative as:
+1. Opening sentence as templated above.
+2. Business overview and operating history (2–3 sentences).
+3. Revenue model and year-1 projected performance (2–3 sentences with actual numbers).
+4. Management strength — reference each team member by name with their relevant experience.
+5. Debt service capacity — state the projected DSCR as a fact, note the cushion above or the gap below SBA's 1.25x minimum.
+6. Closing statement on why this request is structured to succeed.
+
+Return ONLY valid JSON:
+{ "executiveSummary": "..." }`;
 
   try {
     const text = await callGeminiJSON(prompt);
@@ -146,26 +199,49 @@ Return ONLY valid JSON with this exact shape:
   }
 }
 
-/** Phase BPG — Industry analysis (NAICS-anchored). */
+/** Phase BPG / Phase 2 — Industry analysis with structured research injection. */
 export async function generateIndustryAnalysis(params: {
   dealName: string;
   naicsCode: string | null;
   industryDescription: string;
-  researchSummary?: string;
+  researchSummary?: string; // legacy fallback
+  // Phase 2 additions — labeled sections from extractResearchForBusinessPlan
+  industryOverview?: string | null;
+  industryOutlook?: string | null;
+  competitiveLandscape?: string | null;
+  regulatoryEnvironment?: string | null;
+  marketIntelligence?: string | null;
 }): Promise<string> {
+  const section = (title: string, body: string | null | undefined) =>
+    body ? `=== ${title} (from Buddy research) ===\n${body}\n\n` : "";
+
+  const anyResearch =
+    params.industryOverview ||
+    params.industryOutlook ||
+    params.competitiveLandscape ||
+    params.regulatoryEnvironment ||
+    params.marketIntelligence ||
+    params.researchSummary;
+
   const prompt = `You are writing the industry analysis section for an SBA business plan.
 ${STANDARD_GUARDRAILS}
-Anchor the analysis on the provided NAICS code and borrower's industry description. Do not cite figures that are not in the provided research context.
+
+CRITICAL: Use ONLY the research data provided below. Do NOT invent any statistics, market sizes, growth rates, or competitor names that are not explicitly stated in the research context. If a research section is missing or says "data not available", acknowledge the gap honestly rather than filling it with generic filler.
 
 Borrower: ${params.dealName}
-NAICS code: ${params.naicsCode ?? "Not provided"}
-Industry description: ${params.industryDescription}
-Research context: ${params.researchSummary ?? "Not provided — write a conservative, descriptive overview without specific statistics."}
+NAICS: ${params.naicsCode ?? "Not provided"}
+Industry: ${params.industryDescription}
+
+${section("INDUSTRY OVERVIEW", params.industryOverview)}${section("INDUSTRY OUTLOOK", params.industryOutlook)}${section("COMPETITIVE LANDSCAPE", params.competitiveLandscape)}${section("REGULATORY ENVIRONMENT", params.regulatoryEnvironment)}${section("LOCAL MARKET INTELLIGENCE", params.marketIntelligence)}${!anyResearch ? "(No Buddy research available — write a conservative, descriptive overview without specific statistics.)\n" : ""}
+Write 4-5 paragraphs covering:
+1. Industry landscape and size (from research ONLY — no invented numbers).
+2. Growth drivers and demand trends.
+3. Competitive positioning for ${params.dealName}.
+4. Regulatory or input-cost considerations.
+5. Local market context if geographic data is available.
 
 Return ONLY valid JSON:
-{
-  "industryAnalysis": "3-4 paragraphs: industry landscape, typical customer profile and demand drivers, competitive dynamics, regulatory or input-cost factors borrowers in this NAICS should acknowledge."
-}`;
+{ "industryAnalysis": "..." }`;
 
   try {
     const text = await callGeminiJSON(prompt);
@@ -180,28 +256,39 @@ Return ONLY valid JSON:
   }
 }
 
-/** Phase BPG — Marketing strategy + Operations plan. */
+/** Phase BPG / Phase 2 — Marketing strategy + Operations plan. */
 export async function generateMarketingAndOperations(params: {
   dealName: string;
   industryDescription: string;
   revenueStreamNames: string[];
   plannedHires: Array<{ role: string; annualSalary: number }>;
   useOfProceedsDescription: string;
+  // Phase 2 additions
+  city?: string | null;
+  state?: string | null;
+  marketIntelligence?: string | null;
+  competitiveLandscape?: string | null;
 }): Promise<{ marketingStrategy: string; operationsPlan: string }> {
+  const locationLine = params.city
+    ? `${params.city}${params.state ? `, ${params.state}` : ""}`
+    : "Location not specified";
+
   const prompt = `You are writing the Marketing Strategy and Operations Plan sections of an SBA business plan.
 ${STANDARD_GUARDRAILS}
-Ground every statement in the borrower inputs.
+Ground every statement in the borrower inputs. Reference the borrower's actual city/state and actual planned hires by role.
 
 Borrower: ${params.dealName}
+Location: ${locationLine}
 Industry: ${params.industryDescription}
 Revenue streams: ${params.revenueStreamNames.join(", ") || "Not specified"}
 Planned hires: ${params.plannedHires.map((h) => `${h.role} ($${h.annualSalary.toLocaleString()}/yr)`).join("; ") || "None specified"}
 Use of proceeds: ${params.useOfProceedsDescription}
 
+${params.marketIntelligence ? `Local market intelligence (from research):\n${params.marketIntelligence}\n` : ""}${params.competitiveLandscape ? `Competitive landscape (from research):\n${params.competitiveLandscape}\n` : ""}
 Return ONLY valid JSON:
 {
   "marketingStrategy": "2-3 paragraphs: target customer, channels, pricing and sales approach, how loan proceeds (if marketing-related) will grow demand.",
-  "operationsPlan": "2-3 paragraphs: facility and location, staffing plan linked to the planned hires above, key suppliers or workflow, how the loan strengthens operations."
+  "operationsPlan": "2-3 paragraphs: facility and location (reference actual city/state), staffing plan linked to the planned hires above by role, key suppliers or workflow, how the loan strengthens operations."
 }`;
 
   try {
@@ -230,7 +317,7 @@ Return ONLY valid JSON:
   }
 }
 
-/** Phase BPG — SWOT analysis. */
+/** Phase BPG / Phase 2 — SWOT analysis with deal-specific anchoring. */
 export async function generateSWOTAnalysis(params: {
   dealName: string;
   industryDescription: string;
@@ -238,6 +325,11 @@ export async function generateSWOTAnalysis(params: {
   revenueStreamNames: string[];
   dscrYear1: number;
   marginOfSafetyPct: number;
+  // Phase 2 additions
+  managementBios?: string;
+  borrowerProfile?: string | null;
+  competitiveLandscape?: string | null;
+  industryOutlook?: string | null;
 }): Promise<{
   strengths: string;
   weaknesses: string;
@@ -246,21 +338,26 @@ export async function generateSWOTAnalysis(params: {
 }> {
   const prompt = `You are writing a SWOT analysis for an SBA business plan.
 ${STANDARD_GUARDRAILS}
-Keep each section to 3-5 concise bullet-style sentences. Concrete, specific, grounded in the inputs.
+Keep each section to 3-5 concise bullet-style sentences.
+
+CRITICAL: Strengths and weaknesses must reference specific facts about THIS business — team members by name, specific DSCR numbers, specific margin of safety percentage. Generic SWOT items like "strong management team" without naming anyone are unacceptable. Opportunities and threats should cite the provided industry outlook or competitive landscape facts when available.
 
 Borrower: ${params.dealName}
 Industry: ${params.industryDescription}
-Management: ${JSON.stringify(params.managementTeam)}
 Revenue streams: ${params.revenueStreamNames.join(", ")}
 Year 1 DSCR: ${params.dscrYear1.toFixed(2)}x
 Break-even margin of safety: ${(params.marginOfSafetyPct * 100).toFixed(1)}%
 
+Management team detail:
+${params.managementBios || JSON.stringify(params.managementTeam)}
+
+${params.borrowerProfile ? `Borrower profile from research:\n${params.borrowerProfile}\n` : ""}${params.competitiveLandscape ? `Competitive landscape:\n${params.competitiveLandscape}\n` : ""}${params.industryOutlook ? `Industry outlook:\n${params.industryOutlook}\n` : ""}
 Return ONLY valid JSON:
 {
-  "strengths": "Internal positives — team experience, existing revenue base, DSCR cushion, operational advantages.",
-  "weaknesses": "Internal constraints — concentration risk, thin margins, experience gaps, working capital needs.",
-  "opportunities": "External tailwinds the borrower could capture — market trends, expansion channels, adjacent segments.",
-  "threats": "External risks — competitive, regulatory, input cost volatility, macro sensitivity."
+  "strengths": "Internal positives — team experience (by name), DSCR cushion (actual number), margin-of-safety (actual %), operational advantages.",
+  "weaknesses": "Internal constraints — concentration risk, thin margins, experience gaps named specifically, working capital needs.",
+  "opportunities": "External tailwinds the borrower could capture — cite industry outlook facts if provided.",
+  "threats": "External risks — competitive, regulatory, input cost volatility, macro sensitivity. Cite competitive landscape facts if provided."
 }`;
 
   try {
