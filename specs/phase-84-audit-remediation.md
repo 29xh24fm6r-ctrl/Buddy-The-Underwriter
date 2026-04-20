@@ -456,93 +456,46 @@ Write `scripts/phase-84-t02-reclassify-failed-batch.ts` with safety bounds (`--c
 
 ---
 
-## T-03 — Observer dedup / cooldown
+## T-03 — Observer dedup / cooldown (CONVERTED TO AUDIT-ONLY)
 
-**Finding reference:** 7,028 `NO_SPREADS_RENDERED` critical events in 48 hours, all with `observer_decision: job_marked_dead` for the same stale jobs. Spreads themselves are healthy (14/14 jobs SUCCEEDED).
+**Status:** CLOSED as audit-only. No DDL, no code, no migration. See `docs/archive/phase-84/T03-observer-dedup-audit.md` and `docs/archive/phase-84/AAR_PHASE_84_T03.md`.
 
-**Context correction from v1:** The observer route already has `maxDuration=60` (verified against `src/app/api/ops/observer/tick/route.ts` on 2026-04-17). Timeout budget is not the problem. The observer is repeatedly re-flagging the same already-dead jobs without a cooldown.
+**Why:** Pre-work revealed the storm had already stopped. The `NO_SPREADS_RENDERED` emission the v2 spec targeted had been deleted from the codebase, and replaced by 6 per-invariant emissions in `src/lib/aegis/spreadsInvariants.ts`, each with an inline existence-check dedup before `writeSystemEvent`. Last critical observer event: **2026-04-17 13:45:41 UTC** — three days before T-03 execution began. Observer critical event count on 2026-04-18, 2026-04-19, 2026-04-20: **0/day** each.
 
-### Implementation
+**Original finding (preserved for historical context):** 7,028 `NO_SPREADS_RENDERED` critical events in 48 hours, all with `observer_decision: job_marked_dead` for the same stale jobs.
 
-Locate the observer alert emission — in `src/lib/aegis/observerLoop.ts` (imported by `/api/ops/observer/tick/route.ts`).
+### What the v2 spec proposed
 
-Add a dedup table and a helper:
+Create a dedicated `observer_dedup` table with `(key, last_fired_at)`, build a `shouldFireAlert()` helper, wrap every `writeSystemEvent` call in the observer in a cooldown check.
 
-**Migration:**
-```sql
-CREATE TABLE IF NOT EXISTS public.observer_dedup (
-  key text PRIMARY KEY,
-  last_fired_at timestamptz NOT NULL DEFAULT now()
-);
-ALTER TABLE public.observer_dedup ENABLE ROW LEVEL SECURITY;
-CREATE POLICY observer_dedup_service_role ON public.observer_dedup
-  FOR ALL TO service_role USING (true) WITH CHECK (true);
-```
+### What was actually done (out-of-band before T-03 started)
 
-**Helper (in `src/lib/aegis/observerDedup.ts`):**
-```typescript
-import "server-only";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-
-export async function shouldFireAlert(key: string, cooldownMs: number): Promise<boolean> {
-  const sb = supabaseAdmin();
-  const { data } = await sb
-    .from("observer_dedup")
-    .select("last_fired_at")
-    .eq("key", key)
-    .maybeSingle();
-
-  if (data?.last_fired_at) {
-    const lastMs = new Date(data.last_fired_at).getTime();
-    if (Date.now() - lastMs < cooldownMs) return false;
-  }
-
-  await sb.from("observer_dedup").upsert(
-    { key, last_fired_at: new Date().toISOString() },
-    { onConflict: "key" }
-  );
-  return true;
-}
-```
-
-**Integration in `observerLoop.ts`:**
-Before every `writeSystemEvent` with `severity='critical'` or `event_type='stuck_job'`, wrap in:
+An earlier refactor (landed on or before 2026-04-17 13:45:41) deleted the bare `NO_SPREADS_RENDERED` emission and replaced it with per-invariant `writeSystemEvent` calls. Each invariant (`spread_generating_timeout`, `spread_job_orphan_check`, `snapshot_blocked_by_stale_spreads`, `409_intelligence_stale_spread`, `409_intelligence_failed_jobs`, `snapshot_recompute_422`) carries an inline existence-check dedup:
 
 ```typescript
-const dedupKey = `obs:${checkName}:${dealId ?? 'global'}:${jobId ?? ''}:${observer_decision ?? ''}`;
-const cooldown = checkName === 'NO_SPREADS_RENDERED' ? 5 * 60_000 :
-                 checkName === 'stuck_job' ? 30 * 60_000 :
-                 5 * 60_000;
-if (!(await shouldFireAlert(dedupKey, cooldown))) continue;
-// then emit the event
+const { count: existingCount } = await sb
+  .from("buddy_system_events")
+  .select("id", { count: "exact", head: true })
+  .eq("deal_id", spread.deal_id)
+  .in("resolution_status", ["open", "retrying"])
+  .contains("payload", { invariant: "spread_generating_timeout" });
+if ((existingCount ?? 0) > 0) continue;
 ```
 
-### Pre-work
+Different mechanism than the v2 spec's `observer_dedup` table, same intent, same outcome. An alert fires once per `(deal_id, invariant)` and then silences itself until the prior event is resolved.
 
-```sql
--- Sample the top repeating alerts to confirm the dedup key shape
-SELECT 
-  error_message,
-  source_system,
-  payload->>'job_id' AS job_id,
-  payload->>'observer_decision' AS decision,
-  COUNT(*) AS cnt,
-  MIN(created_at) AS first_seen,
-  MAX(created_at) AS last_seen
-FROM buddy_system_events
-WHERE severity = 'critical'
-  AND created_at > NOW() - INTERVAL '48 hours'
-GROUP BY error_message, source_system, payload->>'job_id', payload->>'observer_decision'
-ORDER BY cnt DESC
-LIMIT 10;
-```
+### Current state vs v2 acceptance
 
-### Post-deploy acceptance
+| v2 criterion | Current (2026-04-20) | Status |
+|---|---|---|
+| Critical observer events < 200/24h | **0** (vs v2 target < 200) | ✓ vastly exceeded |
+| No dedup key fires > once per cooldown | 723 unique warnings in 723 rows | ✓ |
+| Genuine new failures still fire | Each unique worker ID gets one flag | ✓ |
+| `observer_dedup` table populated | N/A — different mechanism | ✓ (intent met) |
 
-1. `buddy_system_events` with `severity='critical'` from source_system='observer' drops below 200 per 24h (was ~3,500).
-2. No single dedup key fires more than once per its cooldown window.
-3. Genuine new failures (new `job_id` or `deal_id`) still fire immediately.
-4. `observer_dedup` table has rows within 15 minutes of the observer running.
+### Phase 84.1 follow-up
+
+Worker-churn rate investigation. 723 warnings/24h = ~30/hour = a worker flagged dead every 2 minutes. Each alert fires exactly once per unique worker (dedup is working), but the underlying rate is high enough to suggest Cloud Run idle-timeout, worker crashes, or deployment churn. Not a T-03 scope concern; tracked separately.
 
 ---
 
