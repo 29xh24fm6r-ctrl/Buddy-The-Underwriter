@@ -17,9 +17,13 @@ import type {
   IntakeLoanData,
   IntakeStep,
   IntakeStepKey,
+  IntakeStepContent,
   IntakeSaveResponse,
 } from "@/types/intake";
 import { PortalUploadDropzone } from "./PortalUploadDropzone";
+import { AssumptionInterview } from "./AssumptionInterview";
+
+const SBA_LOAN_TYPES = ["SBA", "sba_7a", "sba_504", "sba_express"];
 
 // ─── Constants ───
 
@@ -50,7 +54,7 @@ const US_STATES = [
   "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
 ];
 
-const STEP_LABELS = [
+const STEP_LABELS_NON_SBA = [
   "Business Info",
   "Business Address",
   "Owners",
@@ -59,7 +63,29 @@ const STEP_LABELS = [
   "Review & Submit",
 ];
 
-const TOTAL_STEPS = STEP_LABELS.length as 6;
+const STEP_LABELS_SBA = [
+  "Business Info",
+  "Business Address",
+  "Owners",
+  "Loan Request",
+  "Financial Projections",
+  "Documents",
+  "Review & Submit",
+];
+
+function contentAt(s: number, isSba: boolean): IntakeStepContent {
+  if (s === 1) return "business";
+  if (s === 2) return "address";
+  if (s === 3) return "owners";
+  if (s === 4) return "loan";
+  if (isSba) {
+    if (s === 5) return "projections";
+    if (s === 6) return "documents";
+    return "review";
+  }
+  if (s === 5) return "documents";
+  return "review";
+}
 
 // ─── Props ───
 
@@ -146,6 +172,11 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
     type: ((app?.loan_type ?? loanSection?.type ?? (deal?.deal_type === "SBA" ? "SBA" : "")) as IntakeLoanData["type"]),
   });
 
+  const isSba = SBA_LOAN_TYPES.includes(loan.type);
+  const STEP_LABELS = isSba ? STEP_LABELS_SBA : STEP_LABELS_NON_SBA;
+  const TOTAL_STEPS = STEP_LABELS.length as 6 | 7;
+  const currentContent = contentAt(step, isSba);
+
   // Phase 85A.3 — track uploaded document count for Step 5 + review
   const [uploadCount, setUploadCount] = useState(0);
 
@@ -214,30 +245,43 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
 
   // Auto-save on data change
   useEffect(() => {
-    if (step === 1) debouncedSave("business", business as unknown as Record<string, unknown>);
-  }, [business, step, debouncedSave]);
+    if (currentContent === "business") debouncedSave("business", business as unknown as Record<string, unknown>);
+  }, [business, currentContent, debouncedSave]);
 
   useEffect(() => {
-    if (step === 2) debouncedSave("address", address as unknown as Record<string, unknown>);
-  }, [address, step, debouncedSave]);
+    if (currentContent === "address") debouncedSave("address", address as unknown as Record<string, unknown>);
+  }, [address, currentContent, debouncedSave]);
 
   useEffect(() => {
-    if (step === 3) debouncedSave("owners", { owners } as unknown as Record<string, unknown>);
-  }, [owners, step, debouncedSave]);
+    if (currentContent === "owners") debouncedSave("owners", { owners } as unknown as Record<string, unknown>);
+  }, [owners, currentContent, debouncedSave]);
 
   useEffect(() => {
-    if (step === 4) debouncedSave("loan", loan as unknown as Record<string, unknown>);
-  }, [loan, step, debouncedSave]);
+    if (currentContent === "loan") debouncedSave("loan", loan as unknown as Record<string, unknown>);
+  }, [loan, currentContent, debouncedSave]);
 
   // --- Navigation ---
-  const goNext = useCallback(() => {
+  const goNext = useCallback(async () => {
     if (step === 1 && !business.legal_name.trim()) {
       setError("Business legal name is required.");
       return;
     }
+    // Phase 85-BPG-A — on leaving the SBA Financial Projections step, mark
+    // assumptions as confirmed so the downstream forward model can run.
+    if (currentContent === "projections") {
+      try {
+        await fetch(`/api/borrower/portal/${token}/sba-assumptions`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ patch: { status: "confirmed" } }),
+        });
+      } catch {
+        // non-fatal — banker can reconfirm later
+      }
+    }
     if (step < TOTAL_STEPS) setStep((s) => (s + 1) as IntakeStep);
     setError(null);
-  }, [step, business.legal_name]);
+  }, [step, business.legal_name, currentContent, token, TOTAL_STEPS]);
 
   const goBack = useCallback(() => {
     if (step > 1) setStep((s) => (s - 1) as IntakeStep);
@@ -322,7 +366,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
 
       {/* Step content */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 space-y-5">
-        {step === 1 && (
+        {currentContent === "business" && (
           <>
             <h2 className="text-lg font-semibold text-white">Business Information</h2>
             <div>
@@ -367,7 +411,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
           </>
         )}
 
-        {step === 2 && (
+        {currentContent === "address" && (
           <>
             <h2 className="text-lg font-semibold text-white">Business Address</h2>
             <div>
@@ -415,7 +459,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
           </>
         )}
 
-        {step === 3 && (
+        {currentContent === "owners" && (
           <>
             <h2 className="text-lg font-semibold text-white">Business Owners</h2>
             <p className="text-sm text-gray-400">
@@ -561,7 +605,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
           </>
         )}
 
-        {step === 4 && (
+        {currentContent === "loan" && (
           <>
             <h2 className="text-lg font-semibold text-white">Loan Request</h2>
             <div>
@@ -594,7 +638,11 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
           </>
         )}
 
-        {step === 5 && (
+        {currentContent === "projections" && (
+          <AssumptionInterview token={token} dealId={dealId} />
+        )}
+
+        {currentContent === "documents" && (
           <>
             <h2 className="text-lg font-semibold text-white">Upload Documents</h2>
             <p className="text-sm text-gray-400">
@@ -624,7 +672,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
           </>
         )}
 
-        {step === 6 && (
+        {currentContent === "review" && (
           <>
             <h2 className="text-lg font-semibold text-white">Review & Submit</h2>
             <div className="space-y-4 text-sm">

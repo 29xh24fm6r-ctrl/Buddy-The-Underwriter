@@ -49,14 +49,24 @@ export type IntakeLoanData = {
   type: LoanType | "";
 };
 
-export type IntakeStep = 1 | 2 | 3 | 4 | 5 | 6;
+export type IntakeStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 export type IntakeStepKey =
   | "business"
   | "address"
   | "owners"
   | "loan"
+  | "projections"
   | "submit";
+
+export type IntakeStepContent =
+  | "business"
+  | "address"
+  | "owners"
+  | "loan"
+  | "projections"
+  | "documents"
+  | "review";
 
 export type IntakeSaveRequest = {
   step: IntakeStepKey;

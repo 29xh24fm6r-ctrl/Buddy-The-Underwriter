@@ -3,3 +3,4 @@
 
 export { IntakeFormClient } from "./IntakeFormClient";
 export { PortalUploadDropzone } from "./PortalUploadDropzone";
+export { AssumptionInterview } from "./AssumptionInterview";
