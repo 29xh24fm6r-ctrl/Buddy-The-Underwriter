@@ -50,7 +50,10 @@ export async function GET(
       .eq("deal_id", dealId)
       .maybeSingle();
 
-    const prefilled = await loadSBAAssumptionsPrefill(dealId);
+    const prefillRaw = await loadSBAAssumptionsPrefill(dealId);
+    // Phase 2 — peel off the non-schema _prefillMeta sibling so the client
+    // receives a clean Partial<SBAAssumptions> plus a top-level prefillMeta.
+    const { _prefillMeta, ...prefilled } = prefillRaw;
 
     const assumptions = assumptionsRow
       ? {
@@ -65,7 +68,11 @@ export async function GET(
         }
       : null;
 
-    return NextResponse.json({ assumptions, prefilled });
+    return NextResponse.json({
+      assumptions,
+      prefilled,
+      prefillMeta: _prefillMeta ?? null,
+    });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });
