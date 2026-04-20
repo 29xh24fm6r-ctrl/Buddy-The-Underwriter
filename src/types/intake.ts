@@ -1,5 +1,6 @@
 // src/types/intake.ts
 // Phase 85A — Shared types for borrower intake flow
+// Phase 85A.2 — Extended from 4-step to 5-step (added Owners as step 3)
 
 export const ENTITY_TYPES = [
   "LLC",
@@ -33,15 +34,29 @@ export type IntakeAddressData = {
   state_of_formation: string;
 };
 
+export type IntakeOwnerData = {
+  id: string;           // client-generated UUID for keying
+  full_name: string;
+  title: string;
+  ownership_pct: string; // stored as string for form input, parsed on save
+  ssn_last4: string;
+  years_in_industry: string;
+};
+
 export type IntakeLoanData = {
   purpose: string;
   amount: string;
   type: LoanType | "";
 };
 
-export type IntakeStep = 1 | 2 | 3 | 4;
+export type IntakeStep = 1 | 2 | 3 | 4 | 5;
 
-export type IntakeStepKey = "business" | "address" | "loan" | "submit";
+export type IntakeStepKey =
+  | "business"
+  | "address"
+  | "owners"
+  | "loan"
+  | "submit";
 
 export type IntakeSaveRequest = {
   step: IntakeStepKey;

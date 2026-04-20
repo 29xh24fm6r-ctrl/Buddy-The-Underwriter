@@ -183,11 +183,20 @@ export function PortalClient({ token }: { token: string }) {
       subtitle={deal?.name ? `Deal: ${deal.name}` : "Review extracted data and confirm your documents."}
       left={
         <div className="space-y-4">
+          {/* Phase 85A.2 — bridge from legacy portal to new intake form */}
+          <a
+            href={`/portal/${token}/apply`}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            <Icon name="arrow_forward_ios" className="h-4 w-4 text-white" />
+            Start Application
+          </a>
+
           {/* Borrower Magic Status */}
           <BorrowerMagicStatus token={token} />
 
           {/* Next Upload Card */}
-          <BorrowerNextUploadCard 
+          <BorrowerNextUploadCard
             token={token}
             onUploadClick={() => alert("Upload flow: use /upload/[token] (wired separately)")}
           />

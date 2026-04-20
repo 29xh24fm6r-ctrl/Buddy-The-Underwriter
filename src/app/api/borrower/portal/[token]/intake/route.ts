@@ -175,6 +175,104 @@ export async function POST(
       return NextResponse.json<IntakeSaveResponse>({ ok: true });
     }
 
+    // ─── STEP: owners ───
+    // Phase 85A.2 — Upsert each owner into ownership_entities via
+    // select-then-insert/update (the table has no unique constraint on
+    // (deal_id, display_name), so .upsert(..., { onConflict: ... }) would
+    // fail with 42P10). Matches the pattern already used for
+    // borrower_applications above.
+    if (step === "owners") {
+      const d = data as { owners?: Array<Record<string, string>> };
+      const ownersList = Array.isArray(d.owners) ? d.owners : [];
+
+      for (const owner of ownersList) {
+        const displayName = owner.full_name?.trim();
+        if (!displayName) continue;
+
+        const pct = owner.ownership_pct
+          ? parseFloat(owner.ownership_pct)
+          : null;
+        const years = owner.years_in_industry
+          ? parseInt(owner.years_in_industry, 10)
+          : null;
+
+        const ownerFields = {
+          entity_type: "individual",
+          display_name: displayName,
+          ownership_pct: Number.isFinite(pct as number) ? pct : null,
+          title: owner.title?.trim() || null,
+          tax_id_last4: owner.ssn_last4?.trim() || null,
+          meta_json: {
+            years_in_industry: Number.isFinite(years as number) ? years : null,
+            source: "borrower_intake",
+          },
+          confidence: 1.0,
+        };
+
+        const { data: existingOwner } = await sb
+          .from("ownership_entities")
+          .select("id")
+          .eq("deal_id", ctx.dealId)
+          .eq("display_name", displayName)
+          .limit(1)
+          .maybeSingle();
+
+        if (existingOwner) {
+          const { error } = await sb
+            .from("ownership_entities")
+            .update(ownerFields)
+            .eq("id", existingOwner.id);
+          if (error) {
+            console.error(
+              "[intake/owners] update ownership_entities:",
+              error.code,
+              error.details,
+              error.hint,
+            );
+          }
+        } else {
+          const { error } = await sb
+            .from("ownership_entities")
+            .insert({
+              deal_id: ctx.dealId,
+              ...ownerFields,
+            });
+          if (error) {
+            console.error(
+              "[intake/owners] insert ownership_entities:",
+              error.code,
+              error.details,
+              error.hint,
+            );
+          }
+        }
+      }
+
+      // Persist the complete owners array to deal_builder_sections for resume.
+      const { error: secErr } = await sb
+        .from("deal_builder_sections")
+        .upsert(
+          {
+            deal_id: ctx.dealId,
+            section_key: "owners",
+            data: { owners: ownersList },
+            completed: ownersList.length > 0,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "deal_id,section_key" },
+        );
+      if (secErr) {
+        console.error(
+          "[intake/owners] upsert deal_builder_sections:",
+          secErr.code,
+          secErr.details,
+          secErr.hint,
+        );
+      }
+
+      return NextResponse.json<IntakeSaveResponse>({ ok: true });
+    }
+
     // ─── STEP: loan ───
     if (step === "loan") {
       const d = data as Record<string, string>;
