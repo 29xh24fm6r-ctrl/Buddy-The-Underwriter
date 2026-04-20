@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type {
   SBAAssumptions,
   RevenueStream,
@@ -9,8 +9,44 @@ import type {
   PlannedCapex,
   ExistingDebtItem,
   ManagementMember,
+  CoachingTip,
 } from "@/lib/sba/sbaReadinessTypes";
 import { computeAssumptionsCompletionPct } from "@/lib/sba/sbaAssumptionsValidator";
+import { getAssumptionCoachingTips } from "@/lib/sba/sbaAssumptionCoach";
+
+// ─── Phase BPG — coaching tip callout ───────────────────────────────────────
+
+function CoachingCallout({ tip }: { tip: CoachingTip }) {
+  const styles: Record<CoachingTip["severity"], string> = {
+    info: "border-blue-500 bg-blue-50 text-blue-900",
+    warning: "border-amber-500 bg-amber-50 text-amber-900",
+    concern: "border-red-500 bg-red-50 text-red-900",
+  };
+  return (
+    <div
+      className={`mt-2 rounded-md border-l-4 px-3 py-2 text-xs ${styles[tip.severity]}`}
+    >
+      <div className="font-semibold">{tip.title}</div>
+      <div>{tip.message}</div>
+    </div>
+  );
+}
+
+interface GuarantorRow {
+  entity_id: string;
+  display_name: string | null;
+  entity_type: string | null;
+  ownership_pct: number;
+  w2_salary: number;
+  other_personal_income: number;
+  personal_income_notes: string;
+  mortgage_payment: number;
+  auto_payments: number;
+  student_loans: number;
+  credit_card_minimums: number;
+  other_personal_debt: number;
+  personal_debt_notes: string;
+}
 
 interface Props {
   dealId: string;
@@ -112,7 +148,81 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
     workingCapital: false,
     loan: false,
     management: false,
+    guarantors: false,
   });
+
+  // Phase BPG — coaching tips (recomputed on every state change)
+  const coachingTips = useMemo<CoachingTip[]>(
+    () => getAssumptionCoachingTips({ assumptions }),
+    [assumptions],
+  );
+  const tipsByField = useMemo(() => {
+    const byField = new Map<string, CoachingTip[]>();
+    for (const t of coachingTips) {
+      const list = byField.get(t.field) ?? [];
+      list.push(t);
+      byField.set(t.field, list);
+    }
+    return byField;
+  }, [coachingTips]);
+
+  // Phase BPG — guarantor cashflow (loaded + saved via the API)
+  const [guarantors, setGuarantors] = useState<GuarantorRow[]>([]);
+  const [guarantorsLoaded, setGuarantorsLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadGuarantors() {
+      try {
+        const res = await fetch(`/api/deals/${dealId}/sba/guarantor-cashflow`);
+        const json = await res.json();
+        if (cancelled) return;
+        if (json.ok) setGuarantors(json.guarantors ?? []);
+      } catch {
+        // non-fatal
+      } finally {
+        if (!cancelled) setGuarantorsLoaded(true);
+      }
+    }
+    loadGuarantors();
+    return () => {
+      cancelled = true;
+    };
+  }, [dealId]);
+
+  const saveGuarantors = useCallback(async () => {
+    try {
+      await fetch(`/api/deals/${dealId}/sba/guarantor-cashflow`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          guarantors.map((g) => ({
+            entity_id: g.entity_id,
+            w2_salary: g.w2_salary,
+            other_personal_income: g.other_personal_income,
+            personal_income_notes: g.personal_income_notes || null,
+            mortgage_payment: g.mortgage_payment,
+            auto_payments: g.auto_payments,
+            student_loans: g.student_loans,
+            credit_card_minimums: g.credit_card_minimums,
+            other_personal_debt: g.other_personal_debt,
+            personal_debt_notes: g.personal_debt_notes || null,
+          })),
+        ),
+      });
+    } catch {
+      // non-fatal
+    }
+  }, [dealId, guarantors]);
+
+  const updateGuarantor = useCallback(
+    (entityId: string, patch: Partial<GuarantorRow>) => {
+      setGuarantors((prev) =>
+        prev.map((g) => (g.entity_id === entityId ? { ...g, ...patch } : g)),
+      );
+    },
+    [],
+  );
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -917,6 +1027,174 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
                 />
               </div>
             </div>
+
+            {/* Phase BPG — Sources of Funds */}
+            <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.02] p-3 space-y-3">
+              <div className="text-xs font-semibold text-white/70">
+                Sources of Funds
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className={labelCls}>Equity Injection ($)</label>
+                  <input
+                    className={inputCls}
+                    type="number"
+                    value={assumptions.loanImpact.equityInjectionAmount || ""}
+                    onChange={(e) =>
+                      update({
+                        loanImpact: {
+                          ...assumptions.loanImpact,
+                          equityInjectionAmount: Number(e.target.value) || 0,
+                        },
+                      })
+                    }
+                    placeholder="e.g. 50000"
+                  />
+                  {(tipsByField.get("loanImpact.equityInjectionAmount") ?? []).map(
+                    (t, i) => (
+                      <CoachingCallout key={i} tip={t} />
+                    ),
+                  )}
+                </div>
+                <div>
+                  <label className={labelCls}>Source</label>
+                  <select
+                    className={inputCls}
+                    value={assumptions.loanImpact.equityInjectionSource ?? "cash_savings"}
+                    onChange={(e) =>
+                      update({
+                        loanImpact: {
+                          ...assumptions.loanImpact,
+                          equityInjectionSource: e.target.value as SBAAssumptions["loanImpact"]["equityInjectionSource"],
+                        },
+                      })
+                    }
+                  >
+                    <option value="cash_savings">Cash Savings</option>
+                    <option value="401k_rollover">401(k) Rollover</option>
+                    <option value="gift">Gift</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className={labelCls}>Seller Financing ($)</label>
+                <input
+                  className={inputCls}
+                  type="number"
+                  value={assumptions.loanImpact.sellerFinancingAmount || ""}
+                  onChange={(e) =>
+                    update({
+                      loanImpact: {
+                        ...assumptions.loanImpact,
+                        sellerFinancingAmount: Number(e.target.value) || 0,
+                      },
+                    })
+                  }
+                  placeholder="0 if none"
+                />
+              </div>
+              {(assumptions.loanImpact.sellerFinancingAmount ?? 0) > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className={labelCls}>Seller Term (months)</label>
+                    <input
+                      className={inputCls}
+                      type="number"
+                      value={assumptions.loanImpact.sellerFinancingTermMonths || ""}
+                      onChange={(e) =>
+                        update({
+                          loanImpact: {
+                            ...assumptions.loanImpact,
+                            sellerFinancingTermMonths: Number(e.target.value) || 0,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Seller Rate (%)</label>
+                    <input
+                      className={inputCls}
+                      type="number"
+                      step="0.01"
+                      value={(assumptions.loanImpact.sellerFinancingRate ?? 0) * 100 || ""}
+                      onChange={(e) =>
+                        update({
+                          loanImpact: {
+                            ...assumptions.loanImpact,
+                            sellerFinancingRate: Number(e.target.value) / 100 || 0,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <div className="text-xs text-white/50">Other Sources</div>
+                {(assumptions.loanImpact.otherSources ?? []).map((o, idx) => (
+                  <div key={idx} className="grid grid-cols-5 gap-2">
+                    <input
+                      className={inputCls + " col-span-3"}
+                      value={o.description}
+                      placeholder="Description"
+                      onChange={(e) => {
+                        const next = [...(assumptions.loanImpact.otherSources ?? [])];
+                        next[idx] = { ...next[idx], description: e.target.value };
+                        update({
+                          loanImpact: { ...assumptions.loanImpact, otherSources: next },
+                        });
+                      }}
+                    />
+                    <input
+                      className={inputCls + " col-span-1"}
+                      type="number"
+                      value={o.amount || ""}
+                      placeholder="Amount"
+                      onChange={(e) => {
+                        const next = [...(assumptions.loanImpact.otherSources ?? [])];
+                        next[idx] = { ...next[idx], amount: Number(e.target.value) || 0 };
+                        update({
+                          loanImpact: { ...assumptions.loanImpact, otherSources: next },
+                        });
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="text-xs text-red-400 hover:text-red-300"
+                      onClick={() => {
+                        const next = (assumptions.loanImpact.otherSources ?? []).filter(
+                          (_, i) => i !== idx,
+                        );
+                        update({
+                          loanImpact: { ...assumptions.loanImpact, otherSources: next },
+                        });
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="text-sm text-blue-400 hover:text-blue-300"
+                  onClick={() => {
+                    const next = [
+                      ...(assumptions.loanImpact.otherSources ?? []),
+                      { description: "", amount: 0 },
+                    ];
+                    update({
+                      loanImpact: { ...assumptions.loanImpact, otherSources: next },
+                    });
+                  }}
+                >
+                  + Add Other Source
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -1017,6 +1295,150 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
         )}
       </div>
 
+      {/* Phase BPG — Section 6: Guarantor Cash Flow (20%+ owners) */}
+      <div>
+        <SectionHeader
+          title="6. Guarantor Cash Flow"
+          complete={guarantors.length > 0}
+          open={!!openSections.guarantors}
+          onToggle={() => toggleSection("guarantors")}
+        />
+        {openSections.guarantors && (
+          <div className="mt-2 space-y-3 pl-2">
+            {!guarantorsLoaded && (
+              <div className="text-xs text-white/50">Loading guarantors…</div>
+            )}
+            {guarantorsLoaded && guarantors.length === 0 && (
+              <div className="text-xs text-white/50">
+                No owners with 20%+ ownership were found for this deal.
+                Add owners via the Intake flow first.
+              </div>
+            )}
+            {guarantors.map((g) => (
+              <div
+                key={g.entity_id}
+                className="rounded-lg border border-white/10 bg-white/[0.02] p-3 space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-white/80">
+                    {g.display_name ?? "Guarantor"}
+                  </span>
+                  <span className="text-xs text-white/50">
+                    {g.ownership_pct.toFixed(1)}% ownership
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className={labelCls}>W-2 / Salary ($)</label>
+                    <input
+                      className={inputCls}
+                      type="number"
+                      value={g.w2_salary || ""}
+                      onChange={(e) =>
+                        updateGuarantor(g.entity_id, {
+                          w2_salary: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Other Personal Income ($)</label>
+                    <input
+                      className={inputCls}
+                      type="number"
+                      value={g.other_personal_income || ""}
+                      onChange={(e) =>
+                        updateGuarantor(g.entity_id, {
+                          other_personal_income: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className={labelCls}>Mortgage Payment ($/mo)</label>
+                    <input
+                      className={inputCls}
+                      type="number"
+                      value={g.mortgage_payment || ""}
+                      onChange={(e) =>
+                        updateGuarantor(g.entity_id, {
+                          mortgage_payment: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Auto Payments ($/mo)</label>
+                    <input
+                      className={inputCls}
+                      type="number"
+                      value={g.auto_payments || ""}
+                      onChange={(e) =>
+                        updateGuarantor(g.entity_id, {
+                          auto_payments: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className={labelCls}>Student Loans ($/mo)</label>
+                    <input
+                      className={inputCls}
+                      type="number"
+                      value={g.student_loans || ""}
+                      onChange={(e) =>
+                        updateGuarantor(g.entity_id, {
+                          student_loans: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>CC Minimums ($/mo)</label>
+                    <input
+                      className={inputCls}
+                      type="number"
+                      value={g.credit_card_minimums || ""}
+                      onChange={(e) =>
+                        updateGuarantor(g.entity_id, {
+                          credit_card_minimums: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Other Debt ($/mo)</label>
+                    <input
+                      className={inputCls}
+                      type="number"
+                      value={g.other_personal_debt || ""}
+                      onChange={(e) =>
+                        updateGuarantor(g.entity_id, {
+                          other_personal_debt: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            {guarantors.length > 0 && (
+              <button
+                type="button"
+                onClick={saveGuarantors}
+                className="text-sm rounded-md border border-white/20 px-3 py-1.5 text-white/80 hover:bg-white/[0.06]"
+              >
+                Save Guarantor Cash Flow
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Confirm / Reopen button */}
       <div className="pt-2">
         {isConfirmed ? (
@@ -1029,7 +1451,10 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
         ) : (
           <button
             disabled={completionPct < 100}
-            onClick={handleConfirm}
+            onClick={async () => {
+              await saveGuarantors();
+              await handleConfirm();
+            }}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Confirm Assumptions
