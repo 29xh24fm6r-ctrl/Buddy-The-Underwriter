@@ -779,101 +779,58 @@ grep -rn "deal_document_items\|deal_document_snapshots" src/app/api/deals/
 
 ## T-06 — Deal creation idempotency guard
 
-*(Unchanged from v1 — no repo-state conflicts.)*
+**Finding reference:** Four duplicate `Ellmann & Elmann Part 2` deals on 2026-04-15 — two with facts, two empty shells. The duplicates were created by the same banker re-submitting over a 79-minute span (intervals 35 min, 16 min, 28 min), not by client-side retries. Root cause: perceived-failure re-submit driven by the T-02 classifier bug (first uploads produced 0 facts → banker thought it broke → created new deal → repeat). The 60s trigger window in v1/v2 would have caught zero of these.
 
-**Finding reference:** Four duplicate `Ellmann & Elmann Part 2` deals on 2026-04-15 — two with facts, two empty shells. No idempotency guard on `POST /api/deals/create`.
+### Revised guard shape (post pre-work)
+
+**Primary: RPC-level dedup inside `deal_bootstrap_create`.** Before INSERT, look for an existing deal with matching `(bank_id, created_by_user_id, lower(trim(name)))` created within a configurable window (default 4h, override via `SET app.deal_dedup_window`). On hit, reuse the existing `deal_id` and create a fresh upload session pointing at it. Returns a new `reused boolean` column so callers can distinguish cache hits.
+
+**Secondary: app-layer helper `checkDuplicateDeal` at direct-insert routes.** Mirrors the RPC predicate exactly. Used by `/api/deals/create` and `/api/deals/route.ts` (the two routes that bypass the RPC). Fail-open on lookup error — the RPC remains the authoritative backstop.
+
+**Deferred: `Idempotency-Key` header opt-in.** Tracked as **T-06-B** in Phase 84.1. The current failure mode (banker re-submit) is fully covered by the user-scoped window; `Idempotency-Key` is for well-behaved clients with stable keys, of which we have zero evidence today.
+
+**Route coverage:**
+
+| Route | Protection |
+|---|---|
+| `POST /api/deals/create` | app-layer helper (direct insert) |
+| `POST /api/deals/bootstrap` | RPC-level (via `deal_bootstrap_create`) |
+| `POST /api/uploads/sessions` | RPC-level (via `deal_bootstrap_create`) |
+| `POST /api/deals/route.ts` | app-layer helper (direct insert) |
+| `POST /api/deals/new/upload-session` | n/a — returns 410 (deprecated) |
+| `POST /api/deals/seed` | n/a — blocked in production |
+| `POST /api/builder/deals/mint` | intentionally bypassed (bulk builder) |
+| `POST /api/sandbox/seed`, `POST /api/admin/demo/hygiene/reset` | intentionally bypassed (demo/sandbox) |
 
 ### Implementation
 
-**Layer 1 — Idempotency-key header:**
+**Migration 1 — schema (`20260420140000_phase_84_t06_idempotency_guard_schema.sql`):**
+- `ALTER TABLE deals ADD COLUMN IF NOT EXISTS created_by_user_id text, duplicate_of uuid REFERENCES deals(id)`
+- Backfill `created_by_user_id` from earliest `deal_upload_sessions` per deal
+- `CREATE INDEX idx_deals_dedup_lookup ON deals (bank_id, created_by_user_id, lower(trim(name)), created_at DESC) WHERE duplicate_of IS NULL`
+- Flag the Ellmann cluster (canonical = `7d76458d-...`, 3 duplicates pointed at it, all 4 `is_test=true`). Fact re-parenting (540 facts, 1213 events, ~1883 rows across 8 tables) deferred to Phase 84.1.
 
-In `src/app/api/deals/create/route.ts` (confirm canonical create route via `grep -rn "POST.*deals.*create" src/app/api/`):
+**Migration 2 — RPC body (`20260420150000_phase_84_t06_idempotency_guard_rpc.sql`):**
+- `DROP FUNCTION deal_bootstrap_create(uuid, text, text, text, uuid, text, text, text)` (required because return type changes)
+- Recreate with dedup branch + `reused boolean` column in the return TABLE
+- Populates `created_by_user_id` on new inserts
+- Always creates a fresh upload session (reused deals get a new session; expired existing sessions aren't re-used)
 
-```typescript
-const idempotencyKey = req.headers.get("idempotency-key");
+**App-layer:**
+- `src/lib/deals/checkDuplicateDeal.ts` — helper with same predicate as RPC, fail-open, user-scoped
+- `/api/deals/create/route.ts` — calls helper before `.insert()`, stamps `created_by_user_id` on INSERT
+- `/api/deals/route.ts` — calls helper after demo-bank path, stamps `created_by_user_id`
+- `src/lib/uploads/createUploadSessionApi.ts` — reads `reused` from the RPC row, skips quick_look mode patch on reused deals, logs the flag
 
-if (idempotencyKey) {
-  const { data: prior } = await sb
-    .from("deal_creation_idempotency")
-    .select("deal_id")
-    .eq("key", idempotencyKey)
-    .eq("bank_id", bankId)
-    .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-    .maybeSingle();
+### Post-deploy acceptance
 
-  if (prior?.deal_id) {
-    return NextResponse.json({ ok: true, deal_id: prior.deal_id, reused: true });
-  }
-}
-
-// ... after successful deal insert:
-if (idempotencyKey) {
-  await sb.from("deal_creation_idempotency").insert({
-    key: idempotencyKey,
-    bank_id: bankId,
-    deal_id: newDealId,
-  });
-}
-```
-
-**Layer 2 — Time-window uniqueness trigger:**
-
-```sql
-CREATE TABLE IF NOT EXISTS public.deal_creation_idempotency (
-  key text NOT NULL,
-  bank_id uuid NOT NULL,
-  deal_id uuid NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (key, bank_id)
-);
-ALTER TABLE public.deal_creation_idempotency ENABLE ROW LEVEL SECURITY;
-CREATE POLICY dci_service_role ON public.deal_creation_idempotency
-  FOR ALL TO service_role USING (true) WITH CHECK (true);
-
-CREATE OR REPLACE FUNCTION public.check_duplicate_deal_creation()
-RETURNS trigger AS $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM deals 
-    WHERE bank_id = NEW.bank_id 
-      AND lower(trim(name)) = lower(trim(NEW.name))
-      AND created_at > now() - interval '60 seconds'
-      AND id <> NEW.id
-  ) THEN
-    RAISE EXCEPTION 'duplicate_deal_within_window: a deal with this name was just created (within 60s)'
-      USING ERRCODE = '23505';
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
-
-DROP TRIGGER IF EXISTS trg_check_duplicate_deal ON deals;
-CREATE TRIGGER trg_check_duplicate_deal
-  BEFORE INSERT ON deals
-  FOR EACH ROW
-  EXECUTE FUNCTION check_duplicate_deal_creation();
-```
-
-**Cleanup (additive, does not delete):**
-
-```sql
-ALTER TABLE deals ADD COLUMN IF NOT EXISTS duplicate_of uuid REFERENCES deals(id);
-
--- Flag the two empty Ellmann duplicates
-UPDATE deals SET duplicate_of = (
-  SELECT id FROM deals 
-  WHERE name = 'Ellmann & Elmann Part 2' 
-    AND id IN (SELECT deal_id FROM deal_financial_facts GROUP BY deal_id HAVING COUNT(*) > 100)
-  ORDER BY created_at ASC LIMIT 1
-)
-WHERE name = 'Ellmann & Elmann Part 2'
-  AND id IN (
-    SELECT d.id FROM deals d 
-    LEFT JOIN deal_financial_facts dff ON dff.deal_id = d.id 
-    GROUP BY d.id 
-    HAVING COUNT(dff.id) = 0
-  );
-```
+1. Both migrations in `supabase_migrations.schema_migrations`: `phase_84_t06_idempotency_guard_schema`, `phase_84_t06_idempotency_guard_rpc`.
+2. `deal_bootstrap_create` called twice with same `(bank_id, name, user_id)` within 4h → second returns `reused=true` + same `deal_id`.
+3. Different name → `reused=false` + new `deal_id`.
+4. Same name + bank, different user → `reused=false` + new `deal_id`.
+5. Different bank → `reused=false` + new `deal_id`.
+6. `/api/deals/create` with same name+user+bank within 4h → second returns 200 with `reused: true` (not 201).
+7. Ellmann graph intact: 3 duplicates point at `7d76458d`, canonical has `duplicate_of = NULL`.
 
 ### Post-deploy acceptance
 
