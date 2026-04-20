@@ -29,6 +29,7 @@ import {
 } from "./sbaGlobalCashFlow";
 import { validateAgainstBenchmarks } from "./sbaAssumptionBenchmarks";
 import { crossFillSBAForms } from "./sbaFormCrossFill";
+import { extractResearchForBusinessPlan } from "./sbaResearchExtractor";
 import type { SBAAssumptions } from "./sbaReadinessTypes";
 
 const SBA_DSCR_THRESHOLD = 1.25;
@@ -277,17 +278,11 @@ export async function generateSBAPackage(
   const industryDescription = (app?.industry as string | null) ?? "";
   const businessEin = (app?.business_ein as string | null) ?? null;
 
-  const { data: researchRow } = await sb
-    .from("buddy_research_narratives")
-    .select("sections")
-    .eq("deal_id", dealId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const researchSummary = researchRow?.sections
-    ? JSON.stringify(researchRow.sections).slice(0, 2000)
-    : undefined;
+  // Phase 2 — replace the legacy 2KB JSON.stringify dump with structured
+  // per-section extraction via sbaResearchExtractor. The narrative prompts
+  // below consume each section individually.
+  const research = await extractResearchForBusinessPlan(dealId);
+  const researchSummary = research.industryOverview ?? undefined;
 
   const proceedsDescription =
     useOfProceeds.length > 0
@@ -299,6 +294,16 @@ export async function generateSBAPackage(
           .join(", ")
       : "General business purposes";
 
+  // Phase 2 — shared context strings for the narrative prompts.
+  const managementBios = assumptions.managementTeam
+    .map(
+      (m) =>
+        `${m.name} (${m.title}, ${m.ownershipPct ?? 0}% ownership, ${m.yearsInIndustry} years in industry): ${m.bio || "Bio not provided"}`,
+    )
+    .join("\n");
+  const dealCity = (deal?.city as string | null) ?? null;
+  const dealState = (deal?.state as string | null) ?? null;
+
   // Gemini Call 1
   const businessOverviewNarrative = await generateBusinessOverviewNarrative({
     dealName: deal?.name ?? "Borrower",
@@ -308,6 +313,10 @@ export async function generateSBAPackage(
     revenueStreamNames: assumptions.revenueStreams.map((s) => s.name),
     useOfProceedsDescription: proceedsDescription,
     researchSummary,
+    city: dealCity,
+    state: dealState,
+    managementBios,
+    borrowerProfile: research.borrowerProfile,
   });
 
   // Gemini Call 2
@@ -338,12 +347,25 @@ export async function generateSBAPackage(
       dscrYear1: dscrYear1Base,
       projectedRevenueYear1: annualProjections[0]?.revenue ?? 0,
       yearsInBusiness,
+      // Phase 2
+      managementBios,
+      city: dealCity,
+      state: dealState,
+      borrowerProfile: research.borrowerProfile,
+      creditThesis: research.creditThesis,
+      equityInjectionPct: sourcesAndUses.equityInjection.actualPct,
     }),
     generateIndustryAnalysis({
       dealName: deal?.name ?? "Borrower",
       naicsCode,
       industryDescription,
       researchSummary,
+      // Phase 2 — structured research sections
+      industryOverview: research.industryOverview,
+      industryOutlook: research.industryOutlook,
+      competitiveLandscape: research.competitiveLandscape,
+      regulatoryEnvironment: research.regulatoryEnvironment,
+      marketIntelligence: research.marketIntelligence,
     }),
     generateMarketingAndOperations({
       dealName: deal?.name ?? "Borrower",
@@ -351,6 +373,11 @@ export async function generateSBAPackage(
       revenueStreamNames: assumptions.revenueStreams.map((r) => r.name),
       plannedHires: plannedHiresForOps,
       useOfProceedsDescription: proceedsDescription,
+      // Phase 2
+      city: dealCity,
+      state: dealState,
+      marketIntelligence: research.marketIntelligence,
+      competitiveLandscape: research.competitiveLandscape,
     }),
     generateSWOTAnalysis({
       dealName: deal?.name ?? "Borrower",
@@ -359,6 +386,11 @@ export async function generateSBAPackage(
       revenueStreamNames: assumptions.revenueStreams.map((r) => r.name),
       dscrYear1: dscrYear1Base,
       marginOfSafetyPct: breakEven.marginOfSafetyPct,
+      // Phase 2
+      managementBios,
+      borrowerProfile: research.borrowerProfile,
+      competitiveLandscape: research.competitiveLandscape,
+      industryOutlook: research.industryOutlook,
     }),
   ]);
 
