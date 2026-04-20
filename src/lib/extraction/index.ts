@@ -49,3 +49,21 @@ export {
   detectEntityConflict,
   type EntityConflictResult,
 } from "./entityConflictGuard";
+
+// Run lifecycle — server-only (pulls server-only transitively).
+// Do NOT import these from CI guard tests — use direct subpath `./runRecord` if needed.
+// Added Phase 84 T-04 to unblock extractor wire-up.
+export {
+  createExtractionRun,
+  finalizeExtractionRun,
+  markRunRunning,
+  getLatestExtractionRun,
+  computeInputHash,
+  computeOutputHash as computeRunOutputHash,
+  CURRENT_PROMPT_VERSION,
+  CURRENT_SCHEMA_VERSION,
+  type ExtractionRunRow,
+  type ExtractionRunStatus,
+  type CreateRunArgs,
+  type FinalizeRunArgs,
+} from "./runRecord";
