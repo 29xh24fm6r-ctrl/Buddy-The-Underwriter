@@ -131,8 +131,12 @@ export async function GET(
       console.warn("[underwrite/state] trust layer failed — degrading safely:", err);
     }
 
-    // Omega advisory annotation — Phase 79
+    // Omega advisory annotation — Phase 79 + Phase 84 T-07 fallback
     // OCC SR 11-7 boundary: Omega NEVER mutates canonical state. Advisory only.
+    // If Pulse is unavailable (100% of calls today return "Method not found"),
+    // fall back to synthesizing from the deal's latest ai_risk_runs row.
+    // The shape below is translated from OmegaAdvisoryState to preserve this
+    // route's declared contract.
     let omegaAdvisory: {
       confidence: number;
       risk_emphasis: string[];
@@ -163,9 +167,51 @@ export async function GET(
 
       if (omegaResult.ok) {
         omegaAdvisory = omegaResult.data;
+      } else {
+        // Phase 84 T-07: Pulse unavailable → fall back to ai_risk_runs.
+        // Shape-translate synthesizeAdvisoryFromRisk's OmegaAdvisoryState
+        // into this route's 4-field contract. Keep best-effort: any lookup
+        // or synthesis failure silently leaves omegaAdvisory null.
+        try {
+          const { synthesizeAdvisoryFromRisk } = await import(
+            "@/core/omega/OmegaAdvisoryAdapter"
+          );
+          const { data: riskRow } = await sb
+            .from("ai_risk_runs")
+            .select("result_json")
+            .eq("deal_id", dealId)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (riskRow?.result_json) {
+            const risk = riskRow.result_json as {
+              grade?: string;
+              factors?: Array<{
+                label: string;
+                direction: "positive" | "negative" | "neutral";
+                rationale: string;
+                confidence?: number;
+              }>;
+            };
+            const synthesized = synthesizeAdvisoryFromRisk(risk);
+            omegaAdvisory = {
+              confidence: synthesized.confidence,
+              risk_emphasis: synthesized.riskEmphasis,
+              recommended_focus: synthesized.advisory || null,
+              advisory_grade: risk.grade ?? null,
+            };
+          }
+        } catch (fallbackErr) {
+          console.warn(
+            "[underwrite/state] ai_risk_runs fallback failed",
+            fallbackErr,
+          );
+        }
       }
-    } catch {
+    } catch (outerErr) {
       // Non-fatal — Omega unavailable does not block this route
+      console.warn("[underwrite/state] omega advisory block failed", outerErr);
     }
 
     // Fire-and-forget reconciliation trigger
