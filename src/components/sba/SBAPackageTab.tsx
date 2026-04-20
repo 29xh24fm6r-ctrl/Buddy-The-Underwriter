@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { SBAAssumptions, SBAPackageData } from "@/lib/sba/sbaReadinessTypes";
+import type { SBAAssumptions, SBAPackageData, PrefillMeta } from "@/lib/sba/sbaReadinessTypes";
 import AssumptionInterview from "./AssumptionInterview";
 import SBAPackageViewer from "./SBAPackageViewer";
 import SBARiskProfilePanel from "./SBARiskProfilePanel";
@@ -15,6 +15,7 @@ interface Props {
   initialAssumptions: SBAAssumptions | null;
   initialPackage: SBAPackageData | null;
   prefilled: Partial<SBAAssumptions>;
+  prefillMeta?: PrefillMeta | null;
 }
 
 export default function SBAPackageTab({
@@ -24,6 +25,7 @@ export default function SBAPackageTab({
   initialAssumptions,
   initialPackage,
   prefilled,
+  prefillMeta,
 }: Props) {
   const [packageData, setPackageData] = useState<SBAPackageData | null>(initialPackage);
   const [generating, setGenerating] = useState(false);
@@ -102,6 +104,7 @@ export default function SBAPackageTab({
               dealId={dealId}
               initial={initialAssumptions}
               prefilled={prefilled}
+              prefillMeta={prefillMeta}
               onConfirmed={handleGenerate}
             />
           </div>

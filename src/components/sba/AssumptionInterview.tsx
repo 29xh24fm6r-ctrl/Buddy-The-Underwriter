@@ -10,9 +10,25 @@ import type {
   ExistingDebtItem,
   ManagementMember,
   CoachingTip,
+  PrefillMeta,
 } from "@/lib/sba/sbaReadinessTypes";
 import { computeAssumptionsCompletionPct } from "@/lib/sba/sbaAssumptionsValidator";
 import { getAssumptionCoachingTips } from "@/lib/sba/sbaAssumptionCoach";
+import SBAGenerationProgress from "./SBAGenerationProgress";
+
+// Phase 2 — NAICS industry-typical badge shown next to prefilled fields.
+function NAICSBadge({ meta }: { meta: PrefillMeta | null | undefined }) {
+  if (!meta?.benchmarkApplied) return null;
+  const label = meta.naicsLabel ?? meta.industryLabel ?? "this industry";
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-400 border border-blue-500/20">
+      <span className="material-symbols-outlined" style={{ fontSize: 12 }}>
+        insights
+      </span>
+      Industry typical for {label}
+    </span>
+  );
+}
 
 // ─── Phase BPG — coaching tip callout ───────────────────────────────────────
 
@@ -53,6 +69,8 @@ interface Props {
   initial: SBAAssumptions | null;
   prefilled: Partial<SBAAssumptions>;
   onConfirmed: () => void;
+  // Phase 2 — NAICS metadata from the prefill API
+  prefillMeta?: PrefillMeta | null;
 }
 
 function mergeAssumptions(
@@ -136,7 +154,7 @@ function SectionHeader({
   );
 }
 
-export default function AssumptionInterview({ dealId, initial, prefilled, onConfirmed }: Props) {
+export default function AssumptionInterview({ dealId, initial, prefilled, onConfirmed, prefillMeta }: Props) {
   const [assumptions, setAssumptions] = useState<SBAAssumptions>(() =>
     mergeAssumptions(initial, prefilled, dealId),
   );
@@ -267,6 +285,73 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
     [autoSave],
   );
 
+  // Phase 2 — live generation progress streamed from the SSE endpoint.
+  const [generating, setGenerating] = useState(false);
+  const [genStep, setGenStep] = useState("Starting...");
+  const [genPct, setGenPct] = useState(0);
+  const [genError, setGenError] = useState<string | null>(null);
+
+  async function runStreamingGenerate() {
+    setGenerating(true);
+    setGenStep("Starting...");
+    setGenPct(0);
+    setGenError(null);
+
+    try {
+      const res = await fetch(`/api/deals/${dealId}/sba/generate`, {
+        method: "POST",
+      });
+
+      if (!res.body) {
+        setGenError("Streaming not supported by this browser.");
+        setGenerating(false);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // SSE events are separated by two newlines.
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+        for (const ev of events) {
+          const line = ev.startsWith("data: ") ? ev.slice(6) : ev;
+          if (!line.trim()) continue;
+          try {
+            const data = JSON.parse(line) as {
+              step: string;
+              pct: number;
+              error?: string;
+            };
+            setGenStep(data.step);
+            setGenPct(data.pct);
+            if (data.step === "error" && data.error) {
+              setGenError(data.error);
+              setGenerating(false);
+            }
+            if (data.step === "complete") {
+              // Allow the 100% frame to render, then dismiss.
+              setTimeout(() => {
+                setGenerating(false);
+                onConfirmed();
+              }, 500);
+            }
+          } catch {
+            // ignore malformed frame
+          }
+        }
+      }
+    } catch (e) {
+      setGenError(e instanceof Error ? e.message : "Network error");
+      setGenerating(false);
+    }
+  }
+
   const handleConfirm = async () => {
     const next = { ...assumptions, status: "confirmed" as const };
     setAssumptions(next);
@@ -276,7 +361,9 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ patch: { status: "confirmed" } }),
       });
-      onConfirmed();
+      // Phase 2 — fire generation immediately; onConfirmed fires after
+      // streaming completes (or the error callback clears the overlay).
+      await runStreamingGenerate();
     } catch {
       // revert
       setAssumptions((prev) => ({ ...prev, status: "complete" }));
@@ -395,6 +482,30 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
 
   return (
     <div className="space-y-3">
+      {/* Phase 2 — generation progress overlay */}
+      <SBAGenerationProgress step={genStep} pct={genPct} generating={generating} />
+
+      {genError && (
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+          Generation failed: {genError}
+        </div>
+      )}
+
+      {/* Phase 2 — NAICS prefill summary banner */}
+      {prefillMeta?.benchmarkApplied && (
+        <div className="flex items-center gap-2 rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-300">
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+            insights
+          </span>
+          We pre-filled industry-typical defaults for
+          {" "}
+          <span className="font-semibold">
+            {prefillMeta.naicsLabel ?? prefillMeta.industryLabel}
+          </span>
+          {prefillMeta.naicsCode ? ` (NAICS ${prefillMeta.naicsCode})` : ""}. Adjust any field that doesn&apos;t match your specific business.
+        </div>
+      )}
+
       {/* Progress bar */}
       <div className="flex items-center gap-3">
         <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
@@ -465,7 +576,10 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <div>
-                    <label className={labelCls}>Y1 Growth %</label>
+                    <div className="flex items-center gap-1 mb-1">
+                      <label className={labelCls + " mb-0"}>Y1 Growth %</label>
+                      <NAICSBadge meta={prefillMeta} />
+                    </div>
                     <input
                       className={inputCls}
                       type="number"
@@ -547,6 +661,7 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
                 <label className={labelCls}>
                   COGS % Y1
                   {initial === null && <PrefilledBadge />}
+                  <span className="ml-1"><NAICSBadge meta={prefillMeta} /></span>
                 </label>
                 <input
                   className={inputCls}
@@ -796,7 +911,10 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
         {openSections.workingCapital && (
           <div className="mt-2 pl-2 grid grid-cols-3 gap-3">
             <div>
-              <label className={labelCls}>Days Sales Outstanding</label>
+              <div className="flex items-center gap-1 mb-1">
+                <label className={labelCls + " mb-0"}>Days Sales Outstanding</label>
+                <NAICSBadge meta={prefillMeta} />
+              </div>
               <input
                 className={inputCls}
                 type="number"
@@ -812,7 +930,10 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
               />
             </div>
             <div>
-              <label className={labelCls}>Days Payable Outstanding</label>
+              <div className="flex items-center gap-1 mb-1">
+                <label className={labelCls + " mb-0"}>Days Payable Outstanding</label>
+                <NAICSBadge meta={prefillMeta} />
+              </div>
               <input
                 className={inputCls}
                 type="number"
@@ -1209,6 +1330,15 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
         />
         {openSections.management && (
           <div className="mt-2 space-y-3 pl-2">
+            {/* Phase 2 — hint when team was auto-filled from ownership */}
+            {assumptions.managementTeam.length > 0 &&
+              assumptions.managementTeam.every((m) => !m.bio && m.yearsInIndustry === 0) && (
+                <div className="rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-300">
+                  Pre-filled from deal ownership records — please add each
+                  member&apos;s years of experience and a short bio so the
+                  business plan narrative reads accurately.
+                </div>
+              )}
             {assumptions.managementTeam.map((member, idx) => (
               <div
                 key={idx}

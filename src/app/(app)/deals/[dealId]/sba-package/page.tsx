@@ -93,6 +93,9 @@ export default async function SBAPackagePage({
       }
     : null;
 
+  // Phase 2 — peel off the _prefillMeta sibling for prop cleanliness.
+  const { _prefillMeta: prefillMeta, ...prefilledClean } = prefilled;
+
   return (
     <SBAPackageTab
       dealId={dealId}
@@ -100,7 +103,8 @@ export default async function SBAPackagePage({
       dealType={(deal as any).deal_type ?? null}
       initialAssumptions={assumptions}
       initialPackage={packageData}
-      prefilled={prefilled}
+      prefilled={prefilledClean}
+      prefillMeta={prefillMeta ?? null}
     />
   );
 }
