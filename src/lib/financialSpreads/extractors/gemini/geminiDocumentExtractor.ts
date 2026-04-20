@@ -14,6 +14,13 @@ import { parseGeminiResponse } from "./geminiResponseParser";
 import { normalizePeriod } from "../shared";
 import type { GeminiExtractionPrompt, GeminiExtractionResult } from "./types";
 import { MODEL_EXTRACTION } from "@/lib/ai/models";
+import {
+  createExtractionRun,
+  finalizeExtractionRun,
+  markRunRunning,
+  computeRunOutputHash,
+} from "@/lib/extraction";
+import type { ExtractionFailureCode } from "@/lib/extraction";
 
 // Prompt builders
 import { buildBusinessTaxReturnPrompt, buildBusinessTaxReturnPromptForPdf } from "./prompts/businessTaxReturn";
@@ -113,6 +120,23 @@ function getDocTypeConfig(
 }
 
 // ---------------------------------------------------------------------------
+// Failure-reason → standardized failure-code mapping (Phase 84 T-04)
+// ---------------------------------------------------------------------------
+
+function mapFailureReasonToCode(
+  reason: string | null | undefined,
+): ExtractionFailureCode {
+  const r = (reason ?? "").toLowerCase();
+  if (!r) return "UNKNOWN_FATAL";
+  if (r.includes("timeout")) return "STRUCTURED_TIMEOUT";
+  if (r.includes("unsupported_doc_type") || r.includes("classification")) return "CLASSIFICATION_UNKNOWN";
+  if (r.includes("zero_items") || r.includes("schema")) return "STRUCTURED_SCHEMA_MISMATCH";
+  if (r.includes("parse") || r.includes("json") || r.includes("invalid")) return "STRUCTURED_INVALID_JSON";
+  if (r.includes("ocr")) return "OCR_FAILED";
+  return "UNKNOWN_FATAL";
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 
@@ -141,11 +165,79 @@ export async function extractWithGeminiPrimary(args: {
     failureReason,
   });
 
+  // ── Phase 84 T-04: Run ledger lifecycle wrapping ──────────────────────
+  // Create or reuse a run row keyed on (document_id, input_hash, engine_version).
+  // If creation itself fails, extraction still proceeds — the ledger is
+  // observational only and must never block the underlying work. Any
+  // createExtractionRun failure is caught and logged.
+  const ledgerStart = Date.now();
+  let runId: string | null = null;
+  try {
+    const { run } = await createExtractionRun({
+      dealId: args.dealId,
+      documentId: args.documentId,
+      ocrText: args.ocrText ?? "",
+      canonicalType: args.docType,
+      yearHint: args.docYear ?? null,
+      structuredEngine: "gemini",
+      structuredModel: MODEL_EXTRACTION,
+    });
+    runId = run.id;
+    await markRunRunning(run.id);
+  } catch (ledgerErr) {
+    console.warn("[GeminiDocumentExtractor] run ledger create failed (non-fatal)", {
+      documentId: args.documentId,
+      error: ledgerErr instanceof Error ? ledgerErr.message : String(ledgerErr),
+    });
+    // runId stays null — finalize calls below become no-ops
+  }
+
+  const finalizeLedger = async (
+    result: GeminiExtractionResult,
+  ): Promise<void> => {
+    if (!runId) return;
+    try {
+      await finalizeExtractionRun({
+        runId,
+        dealId: args.dealId,
+        documentId: args.documentId,
+        status: result.ok ? "succeeded" : "failed",
+        failureCode: result.ok ? null : mapFailureReasonToCode(result.failureReason),
+        outputHash: result.ok && result.items.length > 0
+          ? computeRunOutputHash(result.items)
+          : null,
+        metrics: {
+          canonicalType: args.docType,
+          taxYear: args.docYear ?? null,
+          item_count: result.items.length,
+          latency_ms: result.latencyMs ?? (Date.now() - ledgerStart),
+          prompt_version: result.promptVersion || null,
+          model: result.model || MODEL_EXTRACTION,
+          // Cost / token fields are not yet surfaced from the Gemini client.
+          // When they become available, populate cost_estimate_usd, tokens_in,
+          // tokens_out here — runRecord.finalizeExtractionRun promotes those
+          // keys into the cost_usd / input_tokens / output_tokens columns.
+          cost_estimate_usd: null,
+          tokens_in: null,
+          tokens_out: null,
+        },
+      });
+    } catch (finalizeErr) {
+      console.warn("[GeminiDocumentExtractor] run ledger finalize failed (non-fatal)", {
+        documentId: args.documentId,
+        runId,
+        error: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
+      });
+    }
+  };
+
   try {
     // 1. Select prompt based on doc type
     const config = getDocTypeConfig(args.docType);
     if (!config) {
-      return emptyResult("unsupported_doc_type");
+      const result = emptyResult("unsupported_doc_type");
+      await finalizeLedger(result);
+      return result;
     }
 
     // 2. Build prompt — native PDF path skips OCR text in prompt
@@ -162,10 +254,12 @@ export async function extractWithGeminiPrimary(args: {
     });
 
     if (!clientResult.ok || !clientResult.rawJson) {
-      return emptyResult(
+      const result = emptyResult(
         clientResult.failureReason ?? "client_failure",
         clientResult.latencyMs,
       );
+      await finalizeLedger(result);
+      return result;
     }
 
     // 4. Resolve periods
@@ -288,7 +382,7 @@ export async function extractWithGeminiPrimary(args: {
       promptVersion: prompt.promptVersion,
     });
 
-    return {
+    const result: GeminiExtractionResult = {
       ok: items.length > 0,
       items,
       rawResponse,
@@ -297,12 +391,16 @@ export async function extractWithGeminiPrimary(args: {
       promptVersion: prompt.promptVersion,
       failureReason: items.length === 0 ? "zero_items_parsed" : undefined,
     };
+    await finalizeLedger(result);
+    return result;
   } catch (err: any) {
     console.warn("[GeminiDocumentExtractor] Failed", {
       documentId: args.documentId,
       docType: args.docType,
       error: err?.message || String(err),
     });
-    return emptyResult(err?.message || "unknown_error");
+    const result = emptyResult(err?.message || "unknown_error");
+    await finalizeLedger(result);
+    return result;
   }
 }
