@@ -639,7 +639,11 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
         )}
 
         {currentContent === "projections" && (
-          <AssumptionInterview token={token} dealId={dealId} />
+          <AssumptionInterview
+            token={token}
+            dealId={dealId}
+            onConfirmAndContinue={goNext}
+          />
         )}
 
         {currentContent === "documents" && (

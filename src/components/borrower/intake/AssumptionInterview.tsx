@@ -19,6 +19,22 @@ import { ProjectionDashboard } from "./ProjectionDashboard";
 type Props = {
   token: string;
   dealId: string;
+  // Phase 85-BPG-ELITE — invoked when borrower confirms the auto-generated
+  // projections from the presentation phase. Lets the parent step advance.
+  onConfirmAndContinue?: () => void;
+};
+
+// Phase 85-BPG-ELITE — three-phase flow:
+//   researching  → spinner while POST /research-projections runs
+//   presenting   → research briefing card + auto-computed dashboard + CTAs
+//   editing      → original 5-section form
+type Phase = "researching" | "presenting" | "editing";
+
+type ResearchBriefing = {
+  narrative: string;
+  context: Record<string, unknown> | null;
+  confidenceLevel: string;
+  dataSources: string[];
 };
 
 type SubStep =
@@ -41,11 +57,19 @@ const inputCls =
 
 const labelCls = "block text-sm font-medium text-gray-300 mb-1.5";
 
-export function AssumptionInterview({ token, dealId }: Props) {
+export function AssumptionInterview({
+  token,
+  dealId,
+  onConfirmAndContinue,
+}: Props) {
   const [loading, setLoading] = useState(true);
   const [subStep, setSubStep] = useState<SubStep>("revenue");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<Phase>("researching");
+  const [researchBriefing, setResearchBriefing] =
+    useState<ResearchBriefing | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   // ── Section state ───────────────────────────────────────────────────────
   const [revenueStreams, setRevenueStreams] = useState<RevenueStream[]>([]);
@@ -63,10 +87,35 @@ export function AssumptionInterview({ token, dealId }: Props) {
   const [interestRate, setInterestRate] = useState("7.25");
   const [mgmtTeam, setMgmtTeam] = useState<ManagementMember[]>([]);
 
-  // ── Load existing + prefilled ──────────────────────────────────────────
+  // ── Phase 85-BPG-ELITE: research → present → (optionally) edit ────────
   useEffect(() => {
     let cancelled = false;
-    async function load() {
+    async function init() {
+      let briefing: ResearchBriefing | null = null;
+      // 1. Trigger research-powered auto-generation. Non-fatal on failure;
+      //    we still fall through to the regular load + form below.
+      try {
+        const resRes = await fetch(
+          `/api/borrower/portal/${token}/research-projections`,
+          { method: "POST" },
+        );
+        const resJson = await resRes.json();
+        if (!cancelled && resJson?.ok && resJson.researchNarrative) {
+          briefing = {
+            narrative: String(resJson.researchNarrative),
+            context: resJson.researchContext ?? null,
+            confidenceLevel: String(resJson.confidenceLevel ?? "medium"),
+            dataSources: Array.isArray(resJson.dataSources)
+              ? resJson.dataSources.map(String)
+              : [],
+          };
+        }
+      } catch {
+        // Non-fatal — fall through to existing form.
+      }
+      if (cancelled) return;
+
+      // 2. Hydrate state from the (possibly just-generated) assumptions.
       try {
         const res = await fetch(
           `/api/borrower/portal/${token}/sba-assumptions`,
@@ -74,6 +123,8 @@ export function AssumptionInterview({ token, dealId }: Props) {
         const json = await res.json();
         if (cancelled) return;
         if (!json.ok) {
+          setResearchBriefing(briefing);
+          setPhase(briefing ? "presenting" : "editing");
           setLoading(false);
           return;
         }
@@ -81,6 +132,8 @@ export function AssumptionInterview({ token, dealId }: Props) {
         // Prefer existing saved assumptions; fall back to prefilled defaults.
         const data = json.assumptions ?? json.prefilled;
         if (!data) {
+          setResearchBriefing(briefing);
+          setPhase(briefing ? "presenting" : "editing");
           setLoading(false);
           return;
         }
@@ -121,17 +174,44 @@ export function AssumptionInterview({ token, dealId }: Props) {
           );
         }
         if (data.managementTeam?.length) setMgmtTeam(data.managementTeam);
+
+        // If we have a research briefing, present it; otherwise drop straight
+        // into the form. If borrower already confirmed elsewhere, also edit.
+        const status = (json?.assumptions?.status ?? null) as string | null;
+        const wantsPresent = !!briefing && status !== "confirmed";
+        setResearchBriefing(briefing);
+        setPhase(wantsPresent ? "presenting" : "editing");
       } catch {
         setError("Failed to load projections data");
+        setResearchBriefing(briefing);
+        setPhase(briefing ? "presenting" : "editing");
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
-    load();
+    init();
     return () => {
       cancelled = true;
     };
   }, [token]);
+
+  // Confirm the auto-generated assumptions and (optionally) advance.
+  const confirmAndContinue = useCallback(async () => {
+    setConfirming(true);
+    try {
+      await fetch(`/api/borrower/portal/${token}/sba-assumptions`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patch: { status: "confirmed" } }),
+      });
+      onConfirmAndContinue?.();
+    } catch {
+      // If the network fails we leave the user on the presenting screen with
+      // the dashboard intact — they can retry by clicking Continue again.
+    } finally {
+      setConfirming(false);
+    }
+  }, [token, onConfirmAndContinue]);
 
   // ── Debounced save ─────────────────────────────────────────────────────
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -281,14 +361,81 @@ export function AssumptionInterview({ token, dealId }: Props) {
   const canGoBack = subStepIdx > 0;
   const canGoForward = subStepIdx < SUB_STEPS.length - 1;
 
-  if (loading) {
+  // ── Phase 85-BPG-ELITE: researching ────────────────────────────────────
+  if (loading || phase === "researching") {
     return (
-      <div className="text-sm text-gray-400 py-4">
-        Loading projections data…
+      <div className="space-y-4 py-12 text-center">
+        <div
+          className="inline-block w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"
+          aria-hidden
+        />
+        <h2 className="text-lg font-semibold text-white">
+          Buddy is researching your industry
+        </h2>
+        <p className="text-sm text-gray-400">
+          Analyzing market data, competitive landscape, and industry
+          benchmarks…
+        </p>
       </div>
     );
   }
 
+  // ── Phase 85-BPG-ELITE: presenting research findings ───────────────────
+  if (phase === "presenting" && researchBriefing) {
+    return (
+      <div className="space-y-5">
+        <h2 className="text-lg font-semibold text-white">
+          Here&apos;s what I found
+        </h2>
+
+        <div className="bg-gradient-to-b from-blue-950/40 to-neutral-900 border border-blue-800/30 rounded-xl p-5 space-y-4">
+          <div className="flex items-center gap-2 text-xs text-blue-400">
+            <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
+            Buddy&apos;s Industry Research
+          </div>
+
+          <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-line">
+            {researchBriefing.narrative}
+          </div>
+
+          {researchBriefing.dataSources.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {researchBriefing.dataSources.map((src) => (
+                <span
+                  key={src}
+                  className="text-[10px] px-2 py-1 rounded-full bg-neutral-800 text-gray-400 border border-neutral-700"
+                >
+                  {src}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <ProjectionDashboard token={token} assumptions={assembledAssumptions} />
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            type="button"
+            onClick={() => setPhase("editing")}
+            className="px-6 py-3 rounded-lg border border-neutral-700 text-gray-300 text-sm font-medium hover:bg-neutral-800 transition min-h-[44px]"
+          >
+            I want to adjust
+          </button>
+          <button
+            type="button"
+            onClick={confirmAndContinue}
+            disabled={confirming}
+            className="flex-1 px-6 py-3 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition disabled:opacity-60 min-h-[44px]"
+          >
+            {confirming ? "Confirming…" : "Looks great — continue"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Phase: editing (original 5-section form) ───────────────────────────
   return (
     <div className="space-y-5">
       <h2 className="text-lg font-semibold text-white">Financial Projections</h2>
