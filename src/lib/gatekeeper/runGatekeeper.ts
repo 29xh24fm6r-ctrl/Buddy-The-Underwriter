@@ -332,7 +332,7 @@ async function stampDocument(
   result: GatekeeperResult,
 ): Promise<void> {
   try {
-    await (sb as any)
+    const { error } = await (sb as any)
       .from("deal_documents")
       .update({
         gatekeeper_doc_type: result.doc_type,
@@ -354,11 +354,30 @@ async function stampDocument(
             : null,
       })
       .eq("id", input.documentId);
+
+    if (error) {
+      // Supabase returns CHECK / RLS / permission errors in-band on the response
+      // object rather than throwing. Without this check, constraint violations
+      // are silently discarded and callers think the write succeeded — bug
+      // discovered during Phase 84 T-02 when PERSONAL_FINANCIAL_STATEMENT
+      // classifications were silently failing the gatekeeper_doc_type CHECK.
+      console.error("[Gatekeeper] stampDocument write failed", {
+        documentId: input.documentId,
+        docType: result.doc_type,
+        errorCode: (error as any).code,
+        errorMessage: (error as any).message,
+        errorHint: (error as any).hint,
+      });
+      throw new Error(
+        `stampDocument failed for ${input.documentId}: ${(error as any).code} ${(error as any).message}`,
+      );
+    }
   } catch (e) {
     console.error("[Gatekeeper] stampDocument failed", {
       documentId: input.documentId,
       error: String((e as any)?.message ?? e),
     });
+    throw e;
   }
 }
 
