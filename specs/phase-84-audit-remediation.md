@@ -1127,10 +1127,15 @@ Remove zero-byte artifacts: `funnel`, `node`, `buddy-the-underwriter@0.1.0`.
 ```sql
 ALTER TABLE deals ADD COLUMN IF NOT EXISTS is_test boolean NOT NULL DEFAULT false;
 
-UPDATE deals SET is_test = true 
-WHERE name ILIKE 'ChatGPT Fix%' 
-   OR duplicate_of IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_deals_is_test
+  ON public.deals (is_test)
+  WHERE is_test = false;
+
+UPDATE deals SET is_test = true
+WHERE name ILIKE 'ChatGPT Fix%';
 ```
+
+**T-06 coordination:** the v2 spec's original UPDATE also included `OR duplicate_of IS NOT NULL`, but `duplicate_of` is a column **T-06 adds** (does not exist at the time T-10 Part B runs). Removed here; T-06 is responsible for flagging duplicate deals in its own cleanup step. When T-06 adds `duplicate_of`, its migration must also `UPDATE deals SET is_test=true WHERE duplicate_of IS NOT NULL` in the same transaction.
 
 Update dashboard/analytics queries to filter `WHERE is_test = false`.
 
