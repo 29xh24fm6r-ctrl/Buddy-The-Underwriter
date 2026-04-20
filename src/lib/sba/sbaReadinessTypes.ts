@@ -208,6 +208,15 @@ export interface GetLatestPackageResponse {
   package: SBAPackageData | null;
 }
 
+// ─── Phase 2 — Smart prefill metadata ────────────────────────────────────────
+
+export interface PrefillMeta {
+  naicsCode: string | null;
+  naicsLabel: string | null;
+  industryLabel: string | null;
+  benchmarkApplied: boolean;
+}
+
 // ─── Phase BPG — Re-exports for business-plan sub-modules ────────────────────
 // Consumer components can import these contract types from a single entrypoint.
 

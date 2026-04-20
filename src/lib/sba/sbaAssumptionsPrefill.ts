@@ -1,7 +1,12 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { SBAAssumptions } from "./sbaReadinessTypes";
+import type { SBAAssumptions, PrefillMeta } from "./sbaReadinessTypes";
+import { findBenchmarkByNaics } from "./sbaAssumptionBenchmarks";
+
+export type PrefilledAssumptions = Partial<SBAAssumptions> & {
+  _prefillMeta?: PrefillMeta;
+};
 
 /**
  * Phase BPG — Check whether franchise enrichment is possible against the
@@ -90,11 +95,53 @@ async function loadFranchiseContext(
 
 export async function loadSBAAssumptionsPrefill(
   dealId: string,
-): Promise<Partial<SBAAssumptions>> {
+): Promise<PrefilledAssumptions> {
   const sb = supabaseAdmin();
 
   // Phase BPG — best-effort franchise enrichment (gracefully null today).
   await loadFranchiseContext(dealId);
+
+  // Phase 2 — NAICS-driven smart prefill: pull naics/industry from the
+  // borrower application to replace hardcoded defaults with industry medians.
+  const { data: app } = await sb
+    .from("borrower_applications")
+    .select("naics, industry")
+    .eq("deal_id", dealId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const naicsCode = (app?.naics as string | null) ?? null;
+  const industryLabel = (app?.industry as string | null) ?? null;
+  const bench = findBenchmarkByNaics(naicsCode);
+
+  // Management team auto-fill from ownership entities
+  const { data: owners } = await sb
+    .from("deal_ownership_entities")
+    .select("id, display_name, entity_type")
+    .eq("deal_id", dealId)
+    .eq("entity_type", "individual");
+
+  const { data: interests } = await sb
+    .from("deal_ownership_interests")
+    .select("owner_entity_id, ownership_pct")
+    .eq("deal_id", dealId);
+
+  const managementTeam = (owners ?? []).map(
+    (owner: { id: string; display_name: string | null }) => {
+      const interest = (interests ?? []).find(
+        (i: { owner_entity_id: string }) => i.owner_entity_id === owner.id,
+      );
+      const pct = Number(interest?.ownership_pct ?? 0);
+      return {
+        name: owner.display_name ?? "",
+        title: pct >= 50 ? "Owner / CEO" : "Partner",
+        ownershipPct: pct,
+        yearsInIndustry: 0,
+        bio: "",
+      };
+    },
+  );
 
   // 1. Deal scalar fields
   const { data: deal } = await sb
@@ -147,7 +194,29 @@ export async function loadSBAAssumptionsPrefill(
   const revenue = Number(revFact?.fact_value_num ?? 0);
   const cogs = Number(cogsFact?.fact_value_num ?? 0);
   const adsValue = Number(adsFact?.fact_value_num ?? 0);
-  const cogsPercent = revenue > 0 ? Math.min(0.95, cogs / revenue) : 0.5;
+
+  // Phase 2 — NAICS-driven defaults replace 10/8/6 / 45 / 30 / 0.5 generics
+  const defaultGrowthY1 = bench?.revenueGrowthMedian ?? 0.1;
+  const defaultGrowthY2 = bench
+    ? bench.revenueGrowthMedian * 0.8
+    : 0.08;
+  const defaultGrowthY3 = bench
+    ? bench.revenueGrowthMedian * 0.6
+    : 0.06;
+  const defaultDSO = bench?.dsoMedian ?? 45;
+  const defaultDPO = bench?.dpoMedian ?? 30;
+  const cogsPercent =
+    revenue > 0 ? Math.min(0.95, cogs / revenue) : (bench?.cogsMedian ?? 0.5);
+  const streamName = industryLabel
+    ? `${industryLabel} Revenue`
+    : "Primary Revenue";
+
+  const meta: PrefillMeta = {
+    naicsCode,
+    naicsLabel: bench?.label ?? null,
+    industryLabel,
+    benchmarkApplied: bench !== null,
+  };
 
   return {
     revenueStreams:
@@ -155,11 +224,11 @@ export async function loadSBAAssumptionsPrefill(
         ? [
             {
               id: "stream_primary",
-              name: "Primary Revenue",
+              name: streamName,
               baseAnnualRevenue: revenue,
-              growthRateYear1: 0.1,
-              growthRateYear2: 0.08,
-              growthRateYear3: 0.06,
+              growthRateYear1: defaultGrowthY1,
+              growthRateYear2: defaultGrowthY2,
+              growthRateYear3: defaultGrowthY3,
               pricingModel: "flat",
               seasonalityProfile: null,
             },
@@ -174,8 +243,8 @@ export async function loadSBAAssumptionsPrefill(
       plannedCapex: [],
     },
     workingCapital: {
-      targetDSO: 45,
-      targetDPO: 30,
+      targetDSO: defaultDSO,
+      targetDPO: defaultDPO,
       inventoryTurns: null,
     },
     loanImpact: {
@@ -201,6 +270,7 @@ export async function loadSBAAssumptionsPrefill(
       sellerFinancingRate: 0,
       otherSources: [],
     },
-    managementTeam: [],
+    managementTeam,
+    _prefillMeta: meta,
   };
 }
