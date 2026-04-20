@@ -18,7 +18,7 @@ export interface BenchmarkWarning {
   naicsCode?: string;
 }
 
-interface NAICSBenchmark {
+export interface NAICSBenchmark {
   code: string;
   label: string;
   // All values as decimals (0.05 = 5%).
@@ -64,7 +64,9 @@ const BENCHMARKS: Record<string, NAICSBenchmark> = {
   "532120": { code: "532120", label: "Truck/RV/Trailer Rental", revenueGrowthMedian: 0.05, revenueGrowthMax: 0.25, cogsMedian: 0.50, cogsHigh: 0.65, dsoMedian: 15, dsoHigh: 40, dpoMedian: 20, fixedCostEscalationMedian: 0.03, fixedCostEscalationHigh: 0.06 },
 };
 
-function findBenchmark(naics: string | null | undefined): NAICSBenchmark | null {
+export function findBenchmarkByNaics(
+  naics: string | null | undefined,
+): NAICSBenchmark | null {
   if (!naics) return null;
   if (BENCHMARKS[naics]) return BENCHMARKS[naics];
   // Try 5-digit parent
@@ -80,7 +82,7 @@ export function validateAgainstBenchmarks(
   naicsCode: string | null | undefined,
 ): BenchmarkWarning[] {
   const warnings: BenchmarkWarning[] = [];
-  const bench = findBenchmark(naicsCode);
+  const bench = findBenchmarkByNaics(naicsCode);
 
   // Growth rates per-stream (year 1 used; year 2/3 flagged if >40% any year)
   for (const stream of assumptions.revenueStreams ?? []) {
