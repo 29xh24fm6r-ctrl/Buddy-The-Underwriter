@@ -95,7 +95,10 @@ export async function classifyWithGeminiText(
   ocrText: string,
 ): Promise<GeminiClassifyResult | null> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) {
+    console.warn("[GeminiClassifier][text] GEMINI_API_KEY missing");
+    return null;
+  }
 
   const truncated = truncateText(ocrText);
 
@@ -118,12 +121,35 @@ export async function classifyWithGeminiText(
       }),
     });
 
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      const bodyPreview = await resp.text().catch(() => "<unreadable>");
+      console.warn("[GeminiClassifier][text] non-ok HTTP response", {
+        status: resp.status,
+        statusText: resp.statusText,
+        bodyPreview: bodyPreview.slice(0, 500),
+        model: GEMINI_MODEL,
+      });
+      return null;
+    }
 
     const json = await resp.json();
     const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    return parseGeminiResult(text);
-  } catch {
+    const finishReason = json.candidates?.[0]?.finishReason;
+    const result = parseGeminiResult(text);
+    if (!result) {
+      console.warn("[GeminiClassifier][text] parseGeminiResult returned null", {
+        finishReason,
+        rawTextPreview: String(text).slice(0, 500),
+        ocrTextLength: ocrText.length,
+      });
+    }
+    return result;
+  } catch (err) {
+    console.warn("[GeminiClassifier][text] fetch or parse threw", {
+      error: err instanceof Error ? err.message : String(err),
+      errorName: err instanceof Error ? err.name : "unknown",
+      ocrTextLength: ocrText.length,
+    });
     return null;
   }
 }
@@ -135,7 +161,10 @@ export async function classifyWithGeminiVision(
   mimeType: string,
 ): Promise<GeminiClassifyResult | null> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) {
+    console.warn("[GeminiClassifier][vision] GEMINI_API_KEY missing");
+    return null;
+  }
 
   try {
     const resp = await fetch(geminiUrl(apiKey), {
@@ -157,12 +186,36 @@ export async function classifyWithGeminiVision(
       }),
     });
 
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      const bodyPreview = await resp.text().catch(() => "<unreadable>");
+      console.warn("[GeminiClassifier][vision] non-ok HTTP response", {
+        status: resp.status,
+        statusText: resp.statusText,
+        bodyPreview: bodyPreview.slice(0, 500),
+        model: GEMINI_MODEL,
+        mimeType,
+      });
+      return null;
+    }
 
     const json = await resp.json();
     const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    return parseGeminiResult(text);
-  } catch {
+    const finishReason = json.candidates?.[0]?.finishReason;
+    const result = parseGeminiResult(text);
+    if (!result) {
+      console.warn("[GeminiClassifier][vision] parseGeminiResult returned null", {
+        finishReason,
+        rawTextPreview: String(text).slice(0, 500),
+        mimeType,
+      });
+    }
+    return result;
+  } catch (err) {
+    console.warn("[GeminiClassifier][vision] fetch or parse threw", {
+      error: err instanceof Error ? err.message : String(err),
+      errorName: err instanceof Error ? err.name : "unknown",
+      mimeType,
+    });
     return null;
   }
 }
