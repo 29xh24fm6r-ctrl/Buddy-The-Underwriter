@@ -1,15 +1,40 @@
 "use client";
 
-import type { SBAPackageData } from "@/lib/sba/sbaReadinessTypes";
+import { useState } from "react";
+import type {
+  SBAPackageData,
+  BalanceSheetYear,
+  GlobalCashFlowResult,
+} from "@/lib/sba/sbaReadinessTypes";
 import DSCRAlertBanner from "./DSCRAlertBanner";
+import SBAVersionHistory from "./SBAVersionHistory";
+
+// Phase BPG — the viewer may be given a package row that includes new columns
+// (global_dscr, global_cash_flow, balance_sheet_projections). SBAPackageData
+// does not yet carry them, so we allow a broader shape on top of the base.
+type ExtendedPkg = SBAPackageData & {
+  globalDscr?: number | null;
+  globalCashFlow?: GlobalCashFlowResult | null;
+  balanceSheetProjections?: BalanceSheetYear[] | null;
+};
 
 interface Props {
   dealId: string;
-  pkg: SBAPackageData;
+  pkg: ExtendedPkg;
   generating: boolean;
   onRegenerate: () => void;
   onSubmit: () => void;
 }
+
+const SECTIONS = [
+  { id: "summary", label: "Executive Summary" },
+  { id: "company", label: "Company" },
+  { id: "industry", label: "Industry" },
+  { id: "swot", label: "SWOT" },
+  { id: "financials", label: "Financials" },
+  { id: "sensitivity", label: "Sensitivity" },
+  { id: "sources", label: "Sources & Uses" },
+];
 
 function dscrColor(val: number): string {
   if (val >= 1.25) return "text-emerald-400";
@@ -37,8 +62,30 @@ export default function SBAPackageViewer({
 
   const breakEven = pkg.breakEven;
 
+  const [activeSection, setActiveSection] = useState<string>("summary");
+  const globalDscr = pkg.globalDscr ?? pkg.globalCashFlow?.globalDSCR ?? null;
+  const balanceSheet = pkg.balanceSheetProjections ?? [];
+
   return (
     <div className="space-y-4">
+      {/* Phase BPG — Section navigation tabs */}
+      <div className="flex flex-wrap gap-1 border-b border-white/10 pb-1">
+        {SECTIONS.map((sec) => (
+          <button
+            key={sec.id}
+            type="button"
+            onClick={() => setActiveSection(sec.id)}
+            className={`text-xs rounded-t-md px-3 py-1.5 border-b-2 transition ${
+              activeSection === sec.id
+                ? "border-blue-400 text-white"
+                : "border-transparent text-white/60 hover:text-white/80"
+            }`}
+          >
+            {sec.label}
+          </button>
+        ))}
+      </div>
+
       {/* DSCR Alert Banner */}
       <DSCRAlertBanner
         dealId={dealId}
@@ -46,6 +93,88 @@ export default function SBAPackageViewer({
         failingYears={failingYears}
         lowestDscr={lowestDscr}
       />
+
+      {/* Phase BPG — Global DSCR card */}
+      {globalDscr !== null && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-2">
+          <h3 className="text-sm font-semibold text-white/80">
+            Global DSCR (Business + Guarantors)
+          </h3>
+          <div className="flex items-baseline gap-3">
+            <span
+              className={`text-2xl font-mono ${
+                globalDscr >= 1.25
+                  ? "text-emerald-400"
+                  : globalDscr >= 1.0
+                    ? "text-amber-400"
+                    : "text-red-400"
+              }`}
+            >
+              {globalDscr.toFixed(2)}x
+            </span>
+            <span className="text-xs text-white/50">SBA minimum: 1.25x</span>
+          </div>
+          {pkg.globalCashFlow?.guarantorsWithNegativeCashFlow ? (
+            <div className="text-xs text-amber-300">
+              {pkg.globalCashFlow.guarantorsWithNegativeCashFlow} guarantor(s)
+              with negative personal cash flow.
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* Phase BPG — Balance sheet summary card */}
+      {balanceSheet.length > 0 && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-2">
+          <h3 className="text-sm font-semibold text-white/80">
+            Projected Balance Sheet
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-white/50">
+                  <th className="text-left py-1 pr-3"></th>
+                  {balanceSheet.map((bs) => (
+                    <th key={bs.year} className="text-right py-1 px-2">
+                      {bs.label === "Actual" ? "Base" : `Y${bs.year}`}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(
+                  [
+                    ["Total Assets", (b: BalanceSheetYear) => b.totalAssets],
+                    [
+                      "Total Liabilities",
+                      (b: BalanceSheetYear) => b.totalLiabilities,
+                    ],
+                    ["Total Equity", (b: BalanceSheetYear) => b.totalEquity],
+                    ["Current Ratio", (b: BalanceSheetYear) => b.currentRatio],
+                    ["Debt to Equity", (b: BalanceSheetYear) => b.debtToEquity],
+                  ] as const
+                ).map(([label, getter]) => (
+                  <tr key={label} className="border-t border-white/5">
+                    <td className="py-1 pr-3 text-white/70">{label}</td>
+                    {balanceSheet.map((bs) => (
+                      <td
+                        key={bs.year}
+                        className="text-right py-1 px-2 font-mono text-white/70"
+                      >
+                        {label.includes("Ratio") || label.includes("Equity")
+                          ? label.includes("Ratio") || label === "Debt to Equity"
+                            ? getter(bs).toFixed(2)
+                            : `$${Math.round(getter(bs)).toLocaleString()}`
+                          : `$${Math.round(getter(bs)).toLocaleString()}`}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* DSCR Summary Card */}
       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-2">
@@ -193,6 +322,9 @@ export default function SBAPackageViewer({
           {pkg.status === "submitted" ? "Submitted" : "Mark as Submitted"}
         </button>
       </div>
+
+      {/* Phase BPG — Version history timeline */}
+      <SBAVersionHistory dealId={dealId} />
     </div>
   );
 }
