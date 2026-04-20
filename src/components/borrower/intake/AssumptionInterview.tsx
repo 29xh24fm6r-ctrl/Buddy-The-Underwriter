@@ -5,14 +5,16 @@
 // Auto-prefills from deal_financial_facts + intake owners/loan; debounced
 // save to buddy_sba_assumptions via the portal-token route.
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type {
   RevenueStream,
   FixedCostCategory,
   PlannedHire,
   PlannedCapex,
   ManagementMember,
+  SBAAssumptions,
 } from "@/lib/sba/sbaReadinessTypes";
+import { ProjectionDashboard } from "./ProjectionDashboard";
 
 type Props = {
   token: string;
@@ -39,7 +41,7 @@ const inputCls =
 
 const labelCls = "block text-sm font-medium text-gray-300 mb-1.5";
 
-export function AssumptionInterview({ token }: Props) {
+export function AssumptionInterview({ token, dealId }: Props) {
   const [loading, setLoading] = useState(true);
   const [subStep, setSubStep] = useState<SubStep>("revenue");
   const [saving, setSaving] = useState(false);
@@ -221,6 +223,53 @@ export function AssumptionInterview({ token }: Props) {
     loading,
     debouncedSave,
   ]);
+
+  // Assemble the full SBAAssumptions shape for the live projection dashboard.
+  // Mirrors the patch built inside save(), plus dealId/status that save omits.
+  const assembledAssumptions: SBAAssumptions = useMemo(
+    () => ({
+      dealId,
+      status: "draft",
+      revenueStreams,
+      costAssumptions: {
+        cogsPercentYear1: parseFloat(cogsY1) / 100 || 0.5,
+        cogsPercentYear2: parseFloat(cogsY2) / 100 || 0.5,
+        cogsPercentYear3: parseFloat(cogsY3) / 100 || 0.5,
+        fixedCostCategories: fixedCosts,
+        plannedHires: hires,
+        plannedCapex: capex,
+      },
+      workingCapital: {
+        targetDSO: parseInt(dso, 10) || 45,
+        targetDPO: parseInt(dpo, 10) || 30,
+        inventoryTurns: invTurns ? parseInt(invTurns, 10) : null,
+      },
+      loanImpact: {
+        loanAmount: parseFloat(loanAmount.replace(/[^0-9.]/g, "")) || 0,
+        termMonths: parseInt(termMonths, 10) || 120,
+        interestRate: (parseFloat(interestRate) || 7.25) / 100,
+        existingDebt: [],
+      },
+      managementTeam: mgmtTeam,
+    }),
+    [
+      dealId,
+      revenueStreams,
+      cogsY1,
+      cogsY2,
+      cogsY3,
+      fixedCosts,
+      hires,
+      capex,
+      dso,
+      dpo,
+      invTurns,
+      loanAmount,
+      termMonths,
+      interestRate,
+      mgmtTeam,
+    ],
+  );
 
   const subStepIdx = SUB_STEPS.findIndex((s) => s.key === subStep);
   const canGoBack = subStepIdx > 0;
@@ -943,6 +992,9 @@ export function AssumptionInterview({ token }: Props) {
           </button>
         </div>
       )}
+
+      {/* Live projection dashboard — recalculates client-side on every edit */}
+      <ProjectionDashboard token={token} assumptions={assembledAssumptions} />
 
       {/* Sub-step navigation */}
       <div className="flex gap-3 pt-2">

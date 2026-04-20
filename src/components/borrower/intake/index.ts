@@ -4,3 +4,4 @@
 export { IntakeFormClient } from "./IntakeFormClient";
 export { PortalUploadDropzone } from "./PortalUploadDropzone";
 export { AssumptionInterview } from "./AssumptionInterview";
+export { ProjectionDashboard } from "./ProjectionDashboard";
