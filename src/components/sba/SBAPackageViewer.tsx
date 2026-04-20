@@ -8,6 +8,7 @@ import type {
 } from "@/lib/sba/sbaReadinessTypes";
 import DSCRAlertBanner from "./DSCRAlertBanner";
 import SBAVersionHistory from "./SBAVersionHistory";
+import SBACCOReviewDashboard from "./SBACCOReviewDashboard";
 
 // Phase BPG — the viewer may be given a package row that includes new columns
 // (global_dscr, global_cash_flow, balance_sheet_projections). SBAPackageData
@@ -63,6 +64,7 @@ export default function SBAPackageViewer({
   const breakEven = pkg.breakEven;
 
   const [activeSection, setActiveSection] = useState<string>("summary");
+  const [reviewOpen, setReviewOpen] = useState(false);
   const globalDscr = pkg.globalDscr ?? pkg.globalCashFlow?.globalDSCR ?? null;
   const balanceSheet = pkg.balanceSheetProjections ?? [];
 
@@ -321,10 +323,46 @@ export default function SBAPackageViewer({
         >
           {pkg.status === "submitted" ? "Submitted" : "Mark as Submitted"}
         </button>
+
+        {/* Phase 2 — CCO review entry point */}
+        <button
+          type="button"
+          onClick={() => setReviewOpen(true)}
+          className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-300 hover:bg-blue-500/15"
+        >
+          Open CCO Review
+        </button>
       </div>
 
       {/* Phase BPG — Version history timeline */}
       <SBAVersionHistory dealId={dealId} />
+
+      {/* Phase 2 — CCO review dashboard (modal overlay) */}
+      {reviewOpen && (
+        <div
+          className="fixed inset-0 z-40 flex items-stretch justify-center bg-black/70 p-4 overflow-y-auto"
+          onClick={() => setReviewOpen(false)}
+        >
+          <div
+            className="relative mx-auto w-full max-w-5xl rounded-2xl border border-white/10 bg-[#0a0f1a] p-6 my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">
+                CCO Review Dashboard
+              </h3>
+              <button
+                type="button"
+                onClick={() => setReviewOpen(false)}
+                className="text-sm text-white/60 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+            <SBACCOReviewDashboard dealId={dealId} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
