@@ -832,24 +832,26 @@ Expected state: first grep returns 2+ hits, second grep returns 0.
 
 In `src/app/api/deals/[dealId]/underwrite/state/route.ts`:
 
-Find the existing Omega call (Phase 79 added `invokeOmega` with `redactForOmega` after `buildTrustLayer`). Wrap the result with the same fallback pattern used in `state/route.ts`:
+**Critical:** the two routes use different `omegaAdvisory` shapes — you cannot dump `synthesizeAdvisoryFromRisk`'s `OmegaAdvisoryState` into this route's response without translation.
+
+- `/api/deals/[dealId]/state` consumers read `OmegaAdvisoryState` directly: `{ confidence, advisory, riskEmphasis, traceRef, stale, staleReason }` (camelCase).
+- `/api/deals/[dealId]/underwrite/state` consumers expect a 4-field domain shape: `{ confidence, risk_emphasis, recommended_focus, advisory_grade }` (snake_case, includes `advisory_grade` which doesn't exist in `OmegaAdvisoryState`).
+
+The correct pattern is **shape translation** in the fallback branch:
 
 ```typescript
-import { synthesizeAdvisoryFromRisk, type AiRiskResult } from "@/core/omega/OmegaAdvisoryAdapter";
+// at top of file (alongside existing imports)
+// — keep the existing dynamic imports of invokeOmega/redactForOmega —
 
-// ... existing Phase 79 Omega call:
-const omegaResult = await invokeOmega({
-  resource: "omega://confidence/evaluate",
-  correlationId,
-  payload: redactForOmega({ dealId, bankId, lifecycleStage, trustLayer }),
-});
-
-// Phase 84 T-07: If Pulse unavailable or returned nothing, fall back to ai_risk_runs
-let omegaAdvisory: unknown = null;
-if (omegaResult.ok && omegaResult.data) {
+if (omegaResult.ok) {
   omegaAdvisory = omegaResult.data;
 } else {
+  // Phase 84 T-07: Pulse unavailable → fall back to ai_risk_runs.
+  // Translate OmegaAdvisoryState into this route's declared 4-field contract.
   try {
+    const { synthesizeAdvisoryFromRisk } = await import(
+      "@/core/omega/OmegaAdvisoryAdapter"
+    );
     const { data: riskRow } = await sb
       .from("ai_risk_runs")
       .select("result_json")
@@ -857,20 +859,37 @@ if (omegaResult.ok && omegaResult.data) {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+
     if (riskRow?.result_json) {
-      omegaAdvisory = synthesizeAdvisoryFromRisk(riskRow.result_json as AiRiskResult);
+      const risk = riskRow.result_json as {
+        grade?: string;
+        factors?: Array<{
+          label: string;
+          direction: "positive" | "negative" | "neutral";
+          rationale: string;
+          confidence?: number;
+        }>;
+      };
+      const synthesized = synthesizeAdvisoryFromRisk(risk);
+      omegaAdvisory = {
+        confidence: synthesized.confidence,
+        risk_emphasis: synthesized.riskEmphasis,
+        recommended_focus: synthesized.advisory || null,
+        advisory_grade: risk.grade ?? null,
+      };
     }
-  } catch {
-    // Fallback is best-effort — keep omegaAdvisory null
+  } catch (fallbackErr) {
+    console.warn("[underwrite/state] ai_risk_runs fallback failed", fallbackErr);
   }
 }
-
-// ... existing response:
-return NextResponse.json({
-  ...,
-  omegaAdvisory,  // non-null when either Pulse OR ai_risk_runs has data
-});
 ```
+
+Mapping choices:
+- `synthesized.riskEmphasis` (array of negative-factor labels) → `risk_emphasis` — direct.
+- `synthesized.advisory` (human-readable "Risk grade: X. Strengths: .... Watch: ...") → `recommended_focus`. Not a perfect semantic match (the original intent of `recommended_focus` was a banker-targeting hint), but the closest signal available. Documented in AAR as semantic compromise.
+- `risk.grade` → `advisory_grade` — `synthesizeAdvisoryFromRisk`'s return shape does not expose `grade` as a standalone field, so read it directly from the source `result_json`.
+
+**Consumer audit note:** grep for `omegaAdvisory\|advisory_grade\|recommended_focus\|risk_emphasis` across `src/components/` and `src/app/` returns zero non-route hits today. The route declares the shape but no UI reads it. This means the translation is forward-looking (no current UI regression risk) but still the right call to preserve the declared contract.
 
 ### What this explicitly does NOT do
 
