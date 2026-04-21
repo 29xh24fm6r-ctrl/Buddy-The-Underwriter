@@ -7,6 +7,17 @@ import SBAPackageViewer from "./SBAPackageViewer";
 import SBARiskProfilePanel from "./SBARiskProfilePanel";
 import SBAGuaranteeCard from "./SBAGuaranteeCard";
 import SBAEtranReadinessPanel from "./SBAEtranReadinessPanel";
+import SBADiscoveryInterview from "./SBADiscoveryInterview";
+
+interface BorrowerStorySummary {
+  dealId: string;
+  originStory: string | null;
+  competitiveInsight: string | null;
+  idealCustomer: string | null;
+  growthStrategy: string | null;
+  biggestRisk: string | null;
+  personalVision: string | null;
+}
 
 interface Props {
   dealId: string;
@@ -16,6 +27,18 @@ interface Props {
   initialPackage: SBAPackageData | null;
   prefilled: Partial<SBAAssumptions>;
   prefillMeta?: PrefillMeta | null;
+  initialBorrowerStory?: BorrowerStorySummary | null;
+}
+
+function storyHasMinimum(story: BorrowerStorySummary | null | undefined): boolean {
+  if (!story) return false;
+  const nonEmpty = (s: string | null) =>
+    typeof s === "string" && s.trim().length > 0;
+  return (
+    nonEmpty(story.originStory) &&
+    nonEmpty(story.competitiveInsight) &&
+    nonEmpty(story.growthStrategy)
+  );
 }
 
 export default function SBAPackageTab({
@@ -26,9 +49,13 @@ export default function SBAPackageTab({
   initialPackage,
   prefilled,
   prefillMeta,
+  initialBorrowerStory,
 }: Props) {
   const [packageData, setPackageData] = useState<SBAPackageData | null>(initialPackage);
   const [generating, setGenerating] = useState(false);
+  const [discoveryComplete, setDiscoveryComplete] = useState<boolean>(
+    storyHasMinimum(initialBorrowerStory ?? null),
+  );
 
   const handleGenerate = useCallback(async () => {
     setGenerating(true);
@@ -94,20 +121,45 @@ export default function SBAPackageTab({
       </div>
 
       <div className="flex gap-6">
-        {/* Left panel: Assumption Interview */}
-        <div className="w-[55%] min-w-0">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm p-5">
-            <h3 className="text-sm font-semibold text-white/80 mb-3">
-              Assumption Interview
-            </h3>
-            <AssumptionInterview
-              dealId={dealId}
-              initial={initialAssumptions}
-              prefilled={prefilled}
-              prefillMeta={prefillMeta}
-              onConfirmed={handleGenerate}
-            />
-          </div>
+        {/* Left panel: Discovery → Assumption Interview */}
+        <div className="w-[55%] min-w-0 space-y-4">
+          <SBADiscoveryInterview
+            dealId={dealId}
+            initialStory={initialBorrowerStory ?? null}
+            onComplete={() => setDiscoveryComplete(true)}
+          />
+
+          {discoveryComplete ? (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm p-5">
+              <h3 className="text-sm font-semibold text-white/80 mb-3">
+                Assumption Interview
+              </h3>
+              <AssumptionInterview
+                dealId={dealId}
+                initial={initialAssumptions}
+                prefilled={prefilled}
+                prefillMeta={prefillMeta}
+                onConfirmed={handleGenerate}
+              />
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.02] backdrop-blur-sm p-5">
+              <h3 className="text-sm font-semibold text-white/40 mb-2">
+                Assumption Interview
+              </h3>
+              <p className="text-xs text-white/40 leading-relaxed">
+                Complete or skip the discovery interview above to unlock the
+                assumption interview.
+              </p>
+              <button
+                type="button"
+                onClick={() => setDiscoveryComplete(true)}
+                className="mt-3 text-xs text-blue-400 hover:text-blue-300"
+              >
+                Skip discovery for now
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Right panel: Package Viewer */}

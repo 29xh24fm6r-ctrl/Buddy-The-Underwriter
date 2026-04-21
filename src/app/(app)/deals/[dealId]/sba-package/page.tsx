@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { loadSBAAssumptionsPrefill } from "@/lib/sba/sbaAssumptionsPrefill";
+import { loadBorrowerStory } from "@/lib/sba/sbaBorrowerStory";
 import SBAPackageTab from "@/components/sba/SBAPackageTab";
 import type { SBAAssumptions, SBAPackageData } from "@/lib/sba/sbaReadinessTypes";
 
@@ -40,21 +41,23 @@ export default async function SBAPackagePage({
   }
 
   // Parallel fetches
-  const [assumptionsResult, packageResult, prefilled] = await Promise.all([
-    sb
-      .from("buddy_sba_assumptions")
-      .select("*")
-      .eq("deal_id", dealId)
-      .maybeSingle(),
-    sb
-      .from("buddy_sba_packages")
-      .select("*")
-      .eq("deal_id", dealId)
-      .order("generated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    loadSBAAssumptionsPrefill(dealId),
-  ]);
+  const [assumptionsResult, packageResult, prefilled, borrowerStory] =
+    await Promise.all([
+      sb
+        .from("buddy_sba_assumptions")
+        .select("*")
+        .eq("deal_id", dealId)
+        .maybeSingle(),
+      sb
+        .from("buddy_sba_packages")
+        .select("*")
+        .eq("deal_id", dealId)
+        .order("generated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      loadSBAAssumptionsPrefill(dealId),
+      loadBorrowerStory(dealId),
+    ]);
 
   const assumptions: SBAAssumptions | null = assumptionsResult.data
     ? {
@@ -105,6 +108,7 @@ export default async function SBAPackagePage({
       initialPackage={packageData}
       prefilled={prefilledClean}
       prefillMeta={prefillMeta ?? null}
+      initialBorrowerStory={borrowerStory}
     />
   );
 }
