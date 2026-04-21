@@ -95,7 +95,9 @@ export function parseSbaDirectoryXlsx(buffer: Buffer): ParseResult {
   const headerMapping: Record<string, keyof Omit<SbaDirectoryRow, 'raw_json'>> = {};
 
   for (const header of originalHeaders) {
-    const normalized = header.toLowerCase().trim();
+    // SBA headers sometimes contain runs of whitespace (e.g. "IS AN  ADDENDUM NEEDED?"
+    // with two spaces). Collapse to a single space so the map matches.
+    const normalized = header.toLowerCase().trim().replace(/\s+/g, ' ');
     if (COLUMN_MAP[normalized]) {
       headerMapping[header] = COLUMN_MAP[normalized]!;
     }

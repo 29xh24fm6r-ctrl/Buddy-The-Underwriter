@@ -205,13 +205,24 @@ function deriveAddendumType(row: SbaDirectoryRow): string | null {
   return null;
 }
 
-/** Normalize an effective-date string. Accepts ISO (YYYY-MM-DD) or ISO timestamps;
- *  returns null for anything that isn't a plausible date. The parser already
- *  converts Date objects to ISO strings. */
+/** Normalize an effective-date string to ISO (YYYY-MM-DD).
+ *  Accepts: ISO (YYYY-MM-DD...) from cellDates:true conversion,
+ *  or US-style MM/DD/YYYY that the SBA xlsx uses in text-formatted date cells.
+ *  Returns null for anything unparseable. */
 function normalizeEffectiveDate(raw: string | null): string | null {
   if (!raw) return null;
-  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
-  return match ? match[1]! : null;
+
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+  const us = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (us) {
+    const mm = us[1]!.padStart(2, '0');
+    const dd = us[2]!.padStart(2, '0');
+    return `${us[3]}-${mm}-${dd}`;
+  }
+
+  return null;
 }
 
 /** Multi-row UPSERT of franchise_brands, in chunks. One round-trip per chunk.
