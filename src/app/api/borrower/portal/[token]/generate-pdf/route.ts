@@ -16,7 +16,13 @@ import {
 } from "@/lib/sba/sbaForwardModelBuilder";
 import { renderBorrowerProjectionPDF } from "@/lib/sba/sbaBorrowerPDFRenderer";
 import { generateActionableRoadmap } from "@/lib/sba/sbaActionableRoadmap";
+import { loadBorrowerStory } from "@/lib/sba/sbaBorrowerStory";
 import type { SBAAssumptions } from "@/lib/sba/sbaReadinessTypes";
+import type {
+  Milestone,
+  KPITarget,
+  RiskContingency,
+} from "@/lib/sba/sbaBusinessPlanRoadmap";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -221,6 +227,28 @@ export async function POST(
       assumptions.revenueStreams[0]?.growthRateYear1 ?? 0.05,
   });
 
+  // God Tier additions — load the most recent SBA package for this deal so we
+  // can surface the plan thesis, milestone timeline, KPI dashboard, and risk
+  // contingency matrix in the borrower PDF. The story is loaded in parallel
+  // for the "Your Vision" page. All fields are optional — the renderer skips
+  // sections whose data is absent.
+  const [borrowerStory, packageRow] = await Promise.all([
+    loadBorrowerStory(ctx.dealId),
+    sb
+      .from("buddy_sba_packages")
+      .select("plan_thesis, milestone_timeline, kpi_dashboard, risk_contingency_matrix")
+      .eq("deal_id", ctx.dealId)
+      .order("generated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then((r) => r.data as {
+        plan_thesis: string | null;
+        milestone_timeline: Milestone[] | null;
+        kpi_dashboard: KPITarget[] | null;
+        risk_contingency_matrix: RiskContingency[] | null;
+      } | null),
+  ]);
+
   const pdfBuffer = await renderBorrowerProjectionPDF({
     businessName: deal?.name ?? "Your Business",
     loanAmount: assumptions.loanImpact.loanAmount || deal?.loan_amount || 0,
@@ -237,6 +265,11 @@ export async function POST(
       day: "numeric",
       year: "numeric",
     }),
+    planThesis: packageRow?.plan_thesis ?? null,
+    milestoneTimeline: packageRow?.milestone_timeline ?? null,
+    kpiDashboard: packageRow?.kpi_dashboard ?? null,
+    riskContingencyMatrix: packageRow?.risk_contingency_matrix ?? null,
+    borrowerStory,
   });
 
   const pdfPath = `borrower-projections/${ctx.dealId}/${Date.now()}.pdf`;

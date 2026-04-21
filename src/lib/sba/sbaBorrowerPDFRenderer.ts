@@ -13,6 +13,13 @@ import type {
   BreakEvenResult,
   SensitivityScenario,
 } from "./sbaReadinessTypes";
+import type {
+  Milestone,
+  MilestoneCategory,
+  KPITarget,
+  RiskContingency,
+} from "./sbaBusinessPlanRoadmap";
+import type { BorrowerStory } from "./sbaBorrowerStory";
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
@@ -75,6 +82,12 @@ export interface BorrowerPDFInput {
   researchBriefing: string;
   actionableRoadmap: string;
   generatedDate: string;
+  // God Tier Business Plan additions — all OPTIONAL; pages are skipped when absent
+  planThesis?: string | null;
+  milestoneTimeline?: Milestone[] | null;
+  kpiDashboard?: KPITarget[] | null;
+  riskContingencyMatrix?: RiskContingency[] | null;
+  borrowerStory?: BorrowerStory | null;
 }
 
 type DocState = {
@@ -698,6 +711,300 @@ function renderSensitivity(s: DocState) {
   s.y += 10;
 }
 
+// ─── God Tier — "Your Vision" page (borrower's own words) ─────────────────
+
+function hasStorySubstance(story: BorrowerStory | null | undefined): boolean {
+  if (!story) return false;
+  const nonEmpty = (s: string | null) =>
+    typeof s === "string" && s.trim().length > 0;
+  return (
+    nonEmpty(story.originStory) ||
+    nonEmpty(story.competitiveInsight) ||
+    nonEmpty(story.personalVision)
+  );
+}
+
+function renderYourVisionPage(s: DocState) {
+  const { doc, input } = s;
+  const story = input.borrowerStory;
+  if (!hasStorySubstance(story)) return;
+  const maxWidth = doc.page.width - PAGE_MARGIN * 2;
+
+  if (input.planThesis && input.planThesis.trim().length > 0) {
+    doc.font(FONT_BOLD).fontSize(FONT_SIZE_HEADER).fillColor(BRAND_NAVY);
+    doc.text("The thesis of your plan", PAGE_MARGIN, s.y, { width: maxWidth });
+    s.y += 20;
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).fillColor("#000000");
+    doc.text(input.planThesis.trim(), PAGE_MARGIN, s.y, {
+      width: maxWidth,
+      lineGap: 3,
+    });
+    s.y = doc.y + 18;
+  }
+
+  const renderQuoteBlock = (heading: string, body: string | null) => {
+    if (!body || body.trim().length === 0) return;
+    checkPageBreak(s, 80, "Your Vision (cont.)");
+    doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor(BRAND_NAVY);
+    doc.text(heading, PAGE_MARGIN, s.y, { width: maxWidth });
+    s.y += 16;
+
+    // Left accent bar
+    const blockTop = s.y;
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).fillColor("#1f2937");
+    doc.text(`"${body.trim()}"`, PAGE_MARGIN + 14, s.y, {
+      width: maxWidth - 14,
+      lineGap: 3,
+    });
+    const blockBottom = doc.y;
+    doc
+      .rect(PAGE_MARGIN, blockTop - 2, 3, blockBottom - blockTop + 4)
+      .fill(BRAND_BLUE);
+    doc.fillColor("#000000");
+    s.y = blockBottom + 16;
+  };
+
+  if (story?.originStory) renderQuoteBlock("Why you started this", story.originStory);
+  if (story?.competitiveInsight)
+    renderQuoteBlock("Your edge", story.competitiveInsight);
+  if (story?.idealCustomer)
+    renderQuoteBlock("Who you serve", story.idealCustomer);
+  if (story?.growthStrategy)
+    renderQuoteBlock("How you'll grow", story.growthStrategy);
+  if (story?.personalVision)
+    renderQuoteBlock("What success looks like", story.personalVision);
+}
+
+// ─── God Tier — "Your First-Year Milestones" ──────────────────────────────
+
+function milestoneColor(category: MilestoneCategory): string {
+  switch (category) {
+    case "funding":
+      return "#7c3aed"; // purple
+    case "operations":
+      return BRAND_BLUE;
+    case "hiring":
+      return "#d97706"; // amber
+    case "revenue":
+      return PASS_GREEN;
+    case "growth":
+      return "#0891b2"; // cyan
+  }
+}
+
+function renderMilestoneTimeline(s: DocState, milestones: Milestone[]) {
+  const { doc } = s;
+  const maxWidth = doc.page.width - PAGE_MARGIN * 2;
+  const sorted = [...milestones].sort((a, b) => a.month - b.month);
+
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).fillColor(BRAND_GREY);
+  doc.text(
+    "A month-by-month sequence of the specific milestones you're working toward — every line below has a measurable success signal so you'll know when you hit it.",
+    PAGE_MARGIN,
+    s.y,
+    { width: maxWidth, lineGap: 2 },
+  );
+  doc.fillColor("#000000");
+  s.y = doc.y + 14;
+
+  for (const m of sorted) {
+    checkPageBreak(s, 70, "Your First-Year Milestones (cont.)");
+    const cardTop = s.y;
+    const accentColor = milestoneColor(m.category);
+
+    // Month pill
+    const pillW = 58;
+    doc.rect(PAGE_MARGIN, cardTop, pillW, 22).fill(accentColor);
+    doc.fillColor("#ffffff").font(FONT_BOLD).fontSize(9);
+    doc.text(`Month ${m.month}`, PAGE_MARGIN, cardTop + 6, {
+      width: pillW,
+      align: "center",
+    });
+
+    // Title + category
+    const titleX = PAGE_MARGIN + pillW + 10;
+    const titleW = maxWidth - pillW - 10;
+    doc.fillColor("#000000").font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+    doc.text(m.title, titleX, cardTop, { width: titleW });
+    const afterTitleY = doc.y;
+
+    if (m.tiedToProceeds) {
+      doc.font(FONT_NORMAL).fontSize(FONT_SIZE_SMALL).fillColor(accentColor);
+      doc.text(`${m.category.toUpperCase()} · funded by loan proceeds`, titleX, afterTitleY, {
+        width: titleW,
+      });
+    } else {
+      doc.font(FONT_NORMAL).fontSize(FONT_SIZE_SMALL).fillColor(BRAND_GREY);
+      doc.text(m.category.toUpperCase(), titleX, afterTitleY, { width: titleW });
+    }
+
+    let bodyY = doc.y + 4;
+    if (m.description) {
+      doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).fillColor("#1f2937");
+      doc.text(m.description, titleX, bodyY, { width: titleW, lineGap: 2 });
+      bodyY = doc.y + 4;
+    }
+    if (m.successMetric) {
+      doc.font(FONT_BOLD).fontSize(FONT_SIZE_SMALL).fillColor(BRAND_NAVY);
+      doc.text(`Success signal: `, titleX, bodyY, { continued: true });
+      doc.font(FONT_NORMAL).fillColor("#1f2937");
+      doc.text(m.successMetric, { width: titleW });
+      bodyY = doc.y + 2;
+    }
+
+    doc.fillColor("#000000");
+    s.y = bodyY + 10;
+  }
+}
+
+// ─── God Tier — "Numbers to Watch" (KPI Dashboard) ────────────────────────
+
+function renderKpiDashboard(s: DocState, kpis: KPITarget[]) {
+  const { doc } = s;
+  const maxWidth = doc.page.width - PAGE_MARGIN * 2;
+
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).fillColor(BRAND_GREY);
+  doc.text(
+    "These are the numbers the best operators in your industry watch most closely. Track them, and you'll catch trouble before it shows up in revenue.",
+    PAGE_MARGIN,
+    s.y,
+    { width: maxWidth, lineGap: 2 },
+  );
+  doc.fillColor("#000000");
+  s.y = doc.y + 14;
+
+  const cardW = (maxWidth - 14) / 2;
+  const cardPad = 10;
+
+  for (let i = 0; i < kpis.length; i += 2) {
+    checkPageBreak(s, 120, "Numbers to Watch (cont.)");
+    const row = [kpis[i], kpis[i + 1]].filter(Boolean) as KPITarget[];
+    const rowTop = s.y;
+
+    let maxRowY = rowTop;
+    row.forEach((kpi, colIdx) => {
+      const cardX = PAGE_MARGIN + colIdx * (cardW + 14);
+      const textX = cardX + cardPad;
+      const textW = cardW - cardPad * 2;
+      const cardTop = rowTop;
+      let innerY = cardTop + cardPad;
+
+      doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor(BRAND_NAVY);
+      doc.text(kpi.name, textX, innerY, { width: textW });
+      innerY = doc.y + 4;
+
+      doc.font(FONT_BOLD).fontSize(12).fillColor(BRAND_BLUE);
+      doc.text(kpi.targetValue, textX, innerY, { width: textW });
+      innerY = doc.y + 2;
+
+      doc.font(FONT_NORMAL).fontSize(FONT_SIZE_SMALL).fillColor(BRAND_GREY);
+      doc.text(
+        `${kpi.frequency.toUpperCase()} · Watch below ${kpi.warningThreshold}`,
+        textX,
+        innerY,
+        { width: textW },
+      );
+      innerY = doc.y + 6;
+
+      doc.font(FONT_NORMAL).fontSize(FONT_SIZE_SMALL).fillColor("#1f2937");
+      doc.text(kpi.relevance, textX, innerY, { width: textW, lineGap: 2 });
+      innerY = doc.y + cardPad;
+
+      // Card border
+      doc
+        .rect(cardX, cardTop, cardW, innerY - cardTop)
+        .lineWidth(0.75)
+        .stroke(BRAND_GREY);
+
+      if (innerY > maxRowY) maxRowY = innerY;
+    });
+
+    doc.fillColor("#000000");
+    s.y = maxRowY + 12;
+  }
+}
+
+// ─── God Tier — "Your Safety Net" (Risk Contingency Matrix) ──────────────
+
+function severityColor(severity: "low" | "medium" | "high"): string {
+  switch (severity) {
+    case "low":
+      return PASS_GREEN;
+    case "medium":
+      return "#d97706";
+    case "high":
+      return DSCR_RED;
+  }
+}
+
+function renderRiskContingencyMatrix(s: DocState, risks: RiskContingency[]) {
+  const { doc } = s;
+  const maxWidth = doc.page.width - PAGE_MARGIN * 2;
+
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).fillColor(BRAND_GREY);
+  doc.text(
+    "If any of these triggers fire, you already have a plan. Each action below is specific and dollar-denominated — pick up and execute.",
+    PAGE_MARGIN,
+    s.y,
+    { width: maxWidth, lineGap: 2 },
+  );
+  doc.fillColor("#000000");
+  s.y = doc.y + 14;
+
+  for (const r of risks) {
+    checkPageBreak(s, 120, "Your Safety Net (cont.)");
+    const cardTop = s.y;
+    const color = severityColor(r.severity);
+
+    // Severity pill
+    const pillW = 56;
+    doc.rect(PAGE_MARGIN, cardTop, pillW, 22).fill(color);
+    doc.fillColor("#ffffff").font(FONT_BOLD).fontSize(9);
+    doc.text(r.severity.toUpperCase(), PAGE_MARGIN, cardTop + 6, {
+      width: pillW,
+      align: "center",
+    });
+
+    const textX = PAGE_MARGIN + pillW + 10;
+    const textW = maxWidth - pillW - 10;
+
+    doc.fillColor("#000000").font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+    doc.text(r.risk, textX, cardTop, { width: textW });
+    let innerY = doc.y + 4;
+
+    if (r.trigger) {
+      doc.font(FONT_BOLD).fontSize(FONT_SIZE_SMALL).fillColor(BRAND_NAVY);
+      doc.text("Trigger: ", textX, innerY, { continued: true });
+      doc.font(FONT_NORMAL).fillColor("#1f2937");
+      doc.text(r.trigger, { width: textW });
+      innerY = doc.y + 2;
+    }
+    if (r.impact) {
+      doc.font(FONT_BOLD).fontSize(FONT_SIZE_SMALL).fillColor(BRAND_NAVY);
+      doc.text("Impact: ", textX, innerY, { continued: true });
+      doc.font(FONT_NORMAL).fillColor("#1f2937");
+      doc.text(r.impact, { width: textW });
+      innerY = doc.y + 6;
+    }
+
+    doc.font(FONT_BOLD).fontSize(FONT_SIZE_SMALL).fillColor(BRAND_NAVY);
+    doc.text("Your response:", textX, innerY, { width: textW });
+    innerY = doc.y + 2;
+
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_SMALL).fillColor("#1f2937");
+    r.actions.forEach((action, idx) => {
+      doc.text(`${idx + 1}. ${action}`, textX + 8, innerY, {
+        width: textW - 8,
+        lineGap: 2,
+      });
+      innerY = doc.y + 2;
+    });
+
+    doc.fillColor("#000000");
+    s.y = innerY + 12;
+  }
+}
+
 // ─── Main render function ─────────────────────────────────────────────────
 
 export function renderBorrowerProjectionPDF(
@@ -715,6 +1022,12 @@ export function renderBorrowerProjectionPDF(
 
     // === Page 1: Cover ===
     renderCoverPage(s);
+
+    // === Page 1.5 (God Tier): Your Vision — when story is present ===
+    if (hasStorySubstance(input.borrowerStory) || (input.planThesis && input.planThesis.trim().length > 0)) {
+      newPage(s, "Your Vision");
+      renderYourVisionPage(s);
+    }
 
     // === Page 2: Research & Industry Overview ===
     newPage(s, "Industry & Market Overview");
@@ -800,6 +1113,24 @@ export function renderBorrowerProjectionPDF(
       );
       doc.fillColor("#000000");
       s.y += ROW_HEIGHT;
+    }
+
+    // === God Tier — Your First-Year Milestones ===
+    if (input.milestoneTimeline && input.milestoneTimeline.length > 0) {
+      newPage(s, "Your First-Year Milestones");
+      renderMilestoneTimeline(s, input.milestoneTimeline);
+    }
+
+    // === God Tier — Numbers to Watch ===
+    if (input.kpiDashboard && input.kpiDashboard.length > 0) {
+      newPage(s, "Numbers to Watch");
+      renderKpiDashboard(s, input.kpiDashboard);
+    }
+
+    // === God Tier — Your Safety Net ===
+    if (input.riskContingencyMatrix && input.riskContingencyMatrix.length > 0) {
+      newPage(s, "Your Safety Net");
+      renderRiskContingencyMatrix(s, input.riskContingencyMatrix);
     }
 
     drawPageFooter(s);
