@@ -3,9 +3,36 @@ import { parseSbaDirectoryXlsx, hashRow } from './xlsxParser.js';
 import { computeDiff } from './diffEngine.js';
 import type { SyncRunStats, SbaDirectoryRow } from './types.js';
 
-const SBA_DIRECTORY_URL =
-  process.env.SBA_DIRECTORY_URL ||
-  'https://www.sba.gov/sites/default/files/franchise_directory.xlsx';
+const SBA_DIRECTORY_PAGE =
+  'https://www.sba.gov/document/support-sba-franchise-directory';
+
+/** Scrape the SBA directory page to find the current .xlsx download link */
+async function discoverXlsxUrl(): Promise<string> {
+  console.log(`[franchise-sync] fetching directory page: ${SBA_DIRECTORY_PAGE}`);
+  const response = await fetch(SBA_DIRECTORY_PAGE);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch SBA directory page: ${response.status}`);
+  }
+  const html = await response.text();
+
+  // The download link is an <a> tag with href ending in .xlsx
+  // Example: href="/sites/default/files/2026-04/Franchise%20Directory%20Apr%2017%202026.xlsx"
+  const match = html.match(/href="([^"]*\.xlsx)"/i);
+  if (!match || !match[1]) {
+    throw new Error(
+      'Could not find .xlsx download link on SBA directory page. ' +
+        'The page structure may have changed.'
+    );
+  }
+
+  let url = match[1];
+  if (url.startsWith('/')) {
+    url = `https://www.sba.gov${url}`;
+  }
+
+  console.log(`[franchise-sync] discovered xlsx URL: ${url}`);
+  return url;
+}
 
 export async function syncSbaDirectory(pool: Pool): Promise<SyncRunStats> {
   const stats: SyncRunStats = {
@@ -26,8 +53,9 @@ export async function syncSbaDirectory(pool: Pool): Promise<SyncRunStats> {
   const startTime = Date.now();
 
   try {
-    console.log(`[franchise-sync] downloading SBA directory xlsx from ${SBA_DIRECTORY_URL}`);
-    const response = await fetch(SBA_DIRECTORY_URL);
+    const xlsxUrl = await discoverXlsxUrl();
+    console.log(`[franchise-sync] downloading SBA directory xlsx from ${xlsxUrl}`);
+    const response = await fetch(xlsxUrl);
     if (!response.ok) {
       throw new Error(
         `Failed to download SBA directory: ${response.status} ${response.statusText}`
