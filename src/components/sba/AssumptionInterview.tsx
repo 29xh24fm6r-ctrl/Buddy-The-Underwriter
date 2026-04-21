@@ -14,6 +14,8 @@ import type {
 } from "@/lib/sba/sbaReadinessTypes";
 import { computeAssumptionsCompletionPct } from "@/lib/sba/sbaAssumptionsValidator";
 import { getAssumptionCoachingTips } from "@/lib/sba/sbaAssumptionCoach";
+import { getConceptExplanation } from "@/lib/sba/sbaConceptExplainer";
+import type { DraftedAssumptions } from "@/lib/sba/sbaAssumptionDrafter";
 import SBAGenerationProgress from "./SBAGenerationProgress";
 
 // Phase 2 — NAICS industry-typical badge shown next to prefilled fields.
@@ -154,6 +156,441 @@ function SectionHeader({
   );
 }
 
+// ─── Phase 3 — Mode switcher ─────────────────────────────────────────────
+
+type Mode = "guided" | "form" | "conversational";
+
+function ModeSwitcher({
+  mode,
+  onChange,
+  includeChat = false,
+}: {
+  mode: Mode;
+  onChange: (m: Mode) => void;
+  includeChat?: boolean;
+}) {
+  const base =
+    "flex-1 inline-flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-medium transition";
+  const active = "bg-blue-600 text-white";
+  const inactive = "text-white/60 hover:text-white";
+  return (
+    <div className="inline-flex items-center gap-1 rounded-full bg-white/5 p-1">
+      <button
+        type="button"
+        onClick={() => onChange("guided")}
+        className={`${base} ${mode === "guided" ? active : inactive}`}
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+          smart_toy
+        </span>
+        Guided
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("form")}
+        className={`${base} ${mode === "form" ? active : inactive}`}
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+          edit_note
+        </span>
+        Form
+      </button>
+      {includeChat && (
+        <button
+          type="button"
+          onClick={() => onChange("conversational")}
+          className={`${base} ${mode === "conversational" ? active : inactive}`}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+            chat
+          </span>
+          Chat
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Phase 3 — Plain-English explain tooltip ────────────────────────────
+
+function ExplainButton({
+  conceptKey,
+  naicsCode,
+  value,
+}: {
+  conceptKey: string;
+  naicsCode: string | null;
+  value?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const explanation = getConceptExplanation(conceptKey, naicsCode, value);
+  return (
+    <span className="relative inline-flex align-baseline">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="ml-1 inline-flex text-blue-400/40 hover:text-blue-400"
+        aria-label={`Explain ${explanation.term}`}
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+          help_outline
+        </span>
+      </button>
+      {open && (
+        <div className="absolute z-20 left-0 top-5 w-72 rounded-lg border border-blue-500/20 bg-blue-950/90 p-3 text-xs shadow-lg">
+          <div className="font-semibold text-blue-300">{explanation.term}</div>
+          <p className="mt-1 text-white/70">{explanation.plainEnglish}</p>
+          <p className="mt-1 text-white/60">
+            <strong>Why it matters:</strong> {explanation.whyItMatters}
+          </p>
+          <p className="mt-1 text-white/60">
+            <strong>Typical range:</strong> {explanation.goodRange}
+          </p>
+          {explanation.yourValue && (
+            <p className="mt-1 text-white/80">
+              <strong>Your value:</strong> {explanation.yourValue}
+            </p>
+          )}
+        </div>
+      )}
+    </span>
+  );
+}
+
+// ─── Phase 3 — Guided review cards ──────────────────────────────────────
+
+const fmtMoney = (n: number): string => {
+  if (!Number.isFinite(n)) return "$0";
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `${sign}$${Math.round(abs / 1_000).toLocaleString()}K`;
+  return `${sign}$${Math.round(abs).toLocaleString()}`;
+};
+const fmtPct = (n: number, digits = 1): string =>
+  Number.isFinite(n) ? `${(n * 100).toFixed(digits)}%` : "0%";
+
+type ReviewCardKey =
+  | "revenue"
+  | "costs"
+  | "workingCapital"
+  | "loan"
+  | "management";
+
+function GuidedReview({
+  assumptions,
+  reasoning,
+  loading,
+  draftError,
+  prefillMeta,
+  sectionApprovals,
+  toggleApproval,
+  openForEdit,
+  onGenerate,
+  generating,
+  completionPct,
+}: {
+  dealId: string;
+  assumptions: SBAAssumptions;
+  reasoning: Partial<DraftedAssumptions["reasoning"]>;
+  loading: boolean;
+  draftError: string | null;
+  prefillMeta: PrefillMeta | null;
+  sectionApprovals: Record<string, boolean>;
+  toggleApproval: (key: string) => void;
+  openForEdit: (key: ReviewCardKey) => void;
+  onGenerate: () => void;
+  generating: boolean;
+  completionPct: number;
+}) {
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center">
+        <div className="mx-auto mb-4 inline-flex h-10 w-10 items-center justify-center">
+          <span className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+        </div>
+        <h3 className="text-base font-semibold text-white">
+          Buddy is analyzing your business…
+        </h3>
+        <p className="mt-2 text-xs text-white/50">
+          Reading your financial statements, researching your industry,
+          analyzing market conditions, and drafting your assumptions.
+        </p>
+      </div>
+    );
+  }
+
+  if (draftError) {
+    return (
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200">
+        Could not draft assumptions automatically: {draftError}. Switch to Form
+        mode to fill them in manually.
+      </div>
+    );
+  }
+
+  const naicsCode = prefillMeta?.naicsCode ?? null;
+  const allApproved: ReviewCardKey[] = [
+    "revenue",
+    "costs",
+    "workingCapital",
+    "loan",
+    "management",
+  ];
+  const everythingApproved =
+    allApproved.every((k) => !!sectionApprovals[k]);
+
+  return (
+    <div className="space-y-3">
+      <ReviewCard
+        cardKey="revenue"
+        icon="trending_up"
+        title="Revenue Projection"
+        approved={!!sectionApprovals.revenue}
+        onApprove={() => toggleApproval("revenue")}
+        onEdit={() => openForEdit("revenue")}
+        reasoning={reasoning.revenueRationale}
+      >
+        {assumptions.revenueStreams.length === 0 ? (
+          <p className="text-white/50">No revenue streams drafted yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {assumptions.revenueStreams.map((s) => (
+              <div key={s.id} className="space-y-0.5">
+                <div className="text-white/80">
+                  <span className="font-medium">{s.name || "Stream"}</span>
+                  : {fmtMoney(s.baseAnnualRevenue)}/year
+                </div>
+                <div className="text-white/50 flex items-center flex-wrap gap-1">
+                  Growth:
+                  <span>{fmtPct(s.growthRateYear1, 0)}</span>
+                  <ExplainButton
+                    conceptKey="revenueGrowth"
+                    naicsCode={naicsCode}
+                    value={s.growthRateYear1}
+                  />
+                  <span className="text-white/30">→</span>
+                  <span>{fmtPct(s.growthRateYear2, 0)}</span>
+                  <span className="text-white/30">→</span>
+                  <span>{fmtPct(s.growthRateYear3, 0)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </ReviewCard>
+
+      <ReviewCard
+        cardKey="costs"
+        icon="payments"
+        title="Cost Structure"
+        approved={!!sectionApprovals.costs}
+        onApprove={() => toggleApproval("costs")}
+        onEdit={() => openForEdit("costs")}
+        reasoning={reasoning.costRationale}
+      >
+        <div className="flex items-center gap-1 text-white/80">
+          COGS:
+          <span className="font-medium">
+            {fmtPct(assumptions.costAssumptions.cogsPercentYear1, 0)}
+          </span>
+          of revenue
+          <ExplainButton
+            conceptKey="cogs"
+            naicsCode={naicsCode}
+            value={assumptions.costAssumptions.cogsPercentYear1}
+          />
+          <span className="text-white/40 ml-2">
+            · Gross Margin:{" "}
+            {fmtPct(1 - assumptions.costAssumptions.cogsPercentYear1, 0)}
+          </span>
+        </div>
+        <div className="mt-1 text-white/50">
+          {assumptions.costAssumptions.fixedCostCategories.length} fixed cost
+          {assumptions.costAssumptions.fixedCostCategories.length === 1
+            ? " category"
+            : " categories"}
+          {assumptions.costAssumptions.plannedHires.length > 0 &&
+            ` · ${assumptions.costAssumptions.plannedHires.length} planned hire${assumptions.costAssumptions.plannedHires.length === 1 ? "" : "s"}`}
+          {assumptions.costAssumptions.plannedCapex.length > 0 &&
+            ` · ${assumptions.costAssumptions.plannedCapex.length} capex item${assumptions.costAssumptions.plannedCapex.length === 1 ? "" : "s"}`}
+        </div>
+      </ReviewCard>
+
+      <ReviewCard
+        cardKey="workingCapital"
+        icon="schedule"
+        title="Working Capital"
+        approved={!!sectionApprovals.workingCapital}
+        onApprove={() => toggleApproval("workingCapital")}
+        onEdit={() => openForEdit("workingCapital")}
+        reasoning={reasoning.workingCapitalRationale}
+      >
+        <div className="flex items-center flex-wrap gap-1 text-white/80">
+          DSO: <span className="font-medium">{assumptions.workingCapital.targetDSO} days</span>
+          <ExplainButton conceptKey="dso" naicsCode={naicsCode} value={assumptions.workingCapital.targetDSO} />
+          <span className="text-white/40 ml-2">·</span>
+          DPO: <span className="font-medium">{assumptions.workingCapital.targetDPO} days</span>
+          <ExplainButton conceptKey="dpo" naicsCode={naicsCode} value={assumptions.workingCapital.targetDPO} />
+        </div>
+        {assumptions.workingCapital.inventoryTurns != null && (
+          <div className="mt-1 text-white/50">
+            Inventory turns: {assumptions.workingCapital.inventoryTurns}×/yr
+          </div>
+        )}
+      </ReviewCard>
+
+      <ReviewCard
+        cardKey="loan"
+        icon="request_quote"
+        title="Loan & Funding"
+        approved={!!sectionApprovals.loan}
+        onApprove={() => toggleApproval("loan")}
+        onEdit={() => openForEdit("loan")}
+        reasoning={reasoning.equityRationale}
+      >
+        <div className="space-y-1">
+          <div className="flex items-center flex-wrap gap-1 text-white/80">
+            Loan: <span className="font-medium">{fmtMoney(assumptions.loanImpact.loanAmount)}</span>
+            <span className="text-white/40 ml-2">·</span>
+            {assumptions.loanImpact.termMonths} months
+            <ExplainButton conceptKey="termMonths" naicsCode={naicsCode} value={assumptions.loanImpact.termMonths} />
+            <span className="text-white/40 ml-2">·</span>
+            {fmtPct(assumptions.loanImpact.interestRate, 2)}
+            <ExplainButton conceptKey="interestRate" naicsCode={naicsCode} value={assumptions.loanImpact.interestRate} />
+          </div>
+          <div className="flex items-center flex-wrap gap-1 text-white/70">
+            Equity injection: <span className="font-medium">{fmtMoney(assumptions.loanImpact.equityInjectionAmount)}</span>
+            <ExplainButton conceptKey="equityInjection" naicsCode={naicsCode} value={assumptions.loanImpact.equityInjectionAmount} />
+          </div>
+          {assumptions.loanImpact.sellerFinancingAmount > 0 && (
+            <div className="text-white/70">
+              Seller financing: {fmtMoney(assumptions.loanImpact.sellerFinancingAmount)}
+              {assumptions.loanImpact.sellerFinancingTermMonths
+                ? ` over ${assumptions.loanImpact.sellerFinancingTermMonths} mo`
+                : ""}
+            </div>
+          )}
+        </div>
+      </ReviewCard>
+
+      <ReviewCard
+        cardKey="management"
+        icon="group"
+        title="Management Team"
+        approved={!!sectionApprovals.management}
+        onApprove={() => toggleApproval("management")}
+        onEdit={() => openForEdit("management")}
+        reasoning={reasoning.managementRationale}
+      >
+        {assumptions.managementTeam.length === 0 ? (
+          <p className="text-white/50">No management team on file yet.</p>
+        ) : (
+          <div className="space-y-1">
+            {assumptions.managementTeam.map((m, i) => (
+              <div key={i} className="text-white/80">
+                <span className="font-medium">{m.name || "Unnamed"}</span>
+                <span className="text-white/50"> · {m.title}</span>
+                {m.ownershipPct != null && (
+                  <span className="text-white/40"> · {fmtPct(m.ownershipPct, 0)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </ReviewCard>
+
+      {/* Final CTA appears once every section has been approved. */}
+      {everythingApproved && (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-2">
+          <h3 className="text-sm font-semibold text-emerald-300">
+            You&apos;ve approved every section — ready to generate.
+          </h3>
+          <p className="text-xs text-white/60">
+            Buddy will confirm these assumptions and build your 3-year business
+            plan. This takes about 45–60 seconds.
+          </p>
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={generating || completionPct < 100}
+            className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {generating ? "Generating…" : "Generate My Business Plan"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReviewCard({
+  cardKey: _cardKey,
+  icon,
+  title,
+  approved,
+  onApprove,
+  onEdit,
+  reasoning,
+  children,
+}: {
+  cardKey: ReviewCardKey;
+  icon: string;
+  title: string;
+  approved: boolean;
+  onApprove: () => void;
+  onEdit: () => void;
+  reasoning: string | undefined;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-semibold text-white/90 flex items-center gap-2">
+          <span className="material-symbols-outlined text-blue-400" style={{ fontSize: 18 }}>
+            {icon}
+          </span>
+          {title}
+          {approved && (
+            <span className="text-emerald-400 text-xs">✓ Approved</span>
+          )}
+        </h3>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="text-xs text-blue-400 hover:text-blue-300"
+        >
+          Edit
+        </button>
+      </div>
+
+      <div className="text-sm text-white/70 space-y-1">{children}</div>
+
+      {reasoning && (
+        <div className="rounded-lg bg-blue-500/5 border border-blue-500/10 p-3">
+          <div className="flex items-center gap-1 text-xs text-blue-400 font-medium mb-1">
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+              psychology
+            </span>
+            Why Buddy chose these values
+          </div>
+          <p className="text-xs text-white/50">{reasoning}</p>
+        </div>
+      )}
+
+      {!approved && (
+        <button
+          type="button"
+          onClick={onApprove}
+          className="w-full rounded-lg border border-emerald-500/30 bg-emerald-500/10 py-2 text-sm font-medium text-emerald-400 hover:bg-emerald-500/20"
+        >
+          Looks Good ✓
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function AssumptionInterview({ dealId, initial, prefilled, onConfirmed, prefillMeta }: Props) {
   const [assumptions, setAssumptions] = useState<SBAAssumptions>(() =>
     mergeAssumptions(initial, prefilled, dealId),
@@ -168,6 +605,21 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
     management: false,
     guarantors: false,
   });
+
+  // Phase 3 — "The Consultant Experience": mode switcher + AI-drafted review.
+  // Default is Guided (Buddy presents a completed draft). Form is the
+  // escape hatch for power users / bankers who want raw inputs.
+  // Widen to Mode (guided|form|conversational) — Step 10 wires in the third
+  // option via the mode switcher prop.
+  const [mode, setMode] = useState<Mode>("guided");
+  const [draftLoading, setDraftLoading] = useState(true);
+  const [draftedReasoning, setDraftedReasoning] = useState<
+    Partial<DraftedAssumptions["reasoning"]>
+  >({});
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [sectionApprovals, setSectionApprovals] = useState<
+    Record<string, boolean>
+  >({});
 
   // Phase BPG — coaching tips (recomputed on every state change)
   const coachingTips = useMemo<CoachingTip[]>(
@@ -207,6 +659,61 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
       cancelled = true;
     };
   }, [dealId]);
+
+  // Phase 3 — fetch an AI-drafted set of assumptions on mount when the
+  // borrower hasn't already confirmed a prior draft. Non-fatal: on any
+  // failure we just drop into the form with whatever prefill is there.
+  useEffect(() => {
+    let cancelled = false;
+    async function draft() {
+      // Already confirmed or we have a persisted draft — don't clobber.
+      if (initial && (initial.revenueStreams?.length ?? 0) > 0) {
+        setDraftLoading(false);
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/deals/${dealId}/sba/draft-assumptions`,
+          { method: "POST" },
+        );
+        const json = await res.json();
+        if (cancelled) return;
+        if (json.ok && json.assumptions) {
+          setAssumptions((prev) => ({
+            ...prev,
+            ...(json.assumptions as SBAAssumptions),
+            dealId,
+          }));
+          setDraftedReasoning(json.reasoning ?? {});
+        } else if (!json.ok) {
+          setDraftError(json.error ?? "Could not draft assumptions");
+        }
+      } catch {
+        if (!cancelled)
+          setDraftError("Network error while drafting assumptions");
+      } finally {
+        if (!cancelled) setDraftLoading(false);
+      }
+    }
+    draft();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dealId]);
+
+  const toggleApproval = useCallback((key: string) => {
+    setSectionApprovals((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+  const openForEdit = useCallback((key: string) => {
+    setOpenSections((prev) => ({ ...prev, [key]: true }));
+    setMode("form");
+    // scroll the form section into view shortly after mode flip
+    setTimeout(() => {
+      const el = document.getElementById(`section-${key}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }, []);
 
   const saveGuarantors = useCallback(async () => {
     try {
@@ -490,6 +997,34 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
           Generation failed: {genError}
         </div>
       )}
+
+      {/* Phase 3 — mode switcher: Guided (Buddy leads) vs Form (raw inputs) */}
+      <ModeSwitcher mode={mode} onChange={setMode} />
+
+      {/* Phase 3 — guided review mode (default). Buddy presents the draft. */}
+      {mode === "guided" && (
+        <GuidedReview
+          dealId={dealId}
+          assumptions={assumptions}
+          reasoning={draftedReasoning}
+          loading={draftLoading}
+          draftError={draftError}
+          prefillMeta={prefillMeta ?? null}
+          sectionApprovals={sectionApprovals}
+          toggleApproval={toggleApproval}
+          openForEdit={openForEdit}
+          onGenerate={async () => {
+            await saveGuarantors();
+            await handleConfirm();
+          }}
+          generating={generating}
+          completionPct={completionPct}
+        />
+      )}
+
+      {/* Phase 3 — form mode (power users): original multi-section form. */}
+      {mode === "form" && (
+      <>
 
       {/* Phase 2 — NAICS prefill summary banner */}
       {prefillMeta?.benchmarkApplied && (
@@ -1591,6 +2126,9 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
           </button>
         )}
       </div>
+
+      </>
+      )}
     </div>
   );
 }
