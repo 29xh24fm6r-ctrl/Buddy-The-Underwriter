@@ -97,6 +97,10 @@ buddy-the-underwriter-full.zip
 # buddy-core-worker build artifacts
 services/buddy-core-worker/node_modules/
 services/buddy-core-worker/dist/
+
+# franchise-sync-worker build artifacts
+services/franchise-sync-worker/node_modules/
+services/franchise-sync-worker/dist/
 .env*.local
 gh_2.65.0_linux_amd64/
 
