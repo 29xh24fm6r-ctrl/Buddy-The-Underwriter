@@ -20,12 +20,17 @@ import { computeCompositeFeasibility } from "./feasibilityScorer";
 import { generateFeasibilityNarratives } from "./feasibilityNarrative";
 import { renderFeasibilityPDF } from "./feasibilityRenderer";
 import { runFranchiseComparison } from "./franchiseComparator";
+import { extractBIEMarketData } from "./bieMarketExtractor";
 import type {
   FeasibilityResult,
   ManagementMemberLite,
   PlannedHireLite,
   TradeAreaData,
 } from "./types";
+
+// Phase 2 Gap B — SSE callers pass an onProgress to stream step updates.
+// Defaults to no-op so existing synchronous callers are unaffected.
+export type FeasibilityProgressCallback = (step: string, pct: number) => void;
 
 // Defensive shapes for jsonb columns — we never trust the DB to match
 // our compile-time SBA types perfectly.
@@ -83,9 +88,14 @@ function pickObject(val: unknown): Record<string, unknown> {
 export async function generateFeasibilityStudy(params: {
   dealId: string;
   bankId: string;
+  onProgress?: FeasibilityProgressCallback;
 }): Promise<FeasibilityResult> {
   const sb = supabaseAdmin();
   const { dealId, bankId } = params;
+  const progress: FeasibilityProgressCallback =
+    params.onProgress ?? (() => {});
+
+  progress("Loading deal data…", 5);
 
   // ── 1. Deal metadata ────────────────────────────────────────────
   // Only select columns that actually exist on deals today. Franchise +
@@ -107,6 +117,7 @@ export async function generateFeasibilityStudy(params: {
     .maybeSingle();
 
   // ── 3. BIE research (never throws) ─────────────────────────────
+  progress("Extracting research intelligence…", 15);
   const research = await extractResearchForBusinessPlan(dealId).catch(
     () => ({
       industryOverview: null,
@@ -120,6 +131,12 @@ export async function generateFeasibilityStudy(params: {
       threeToFiveYearOutlook: null,
     }),
   );
+
+  // ── 3b. BIE structured market data (Phase 2 Gap A) ─────────────
+  // Pulls numeric claims + trend direction + risk signals out of the BIE
+  // research claim graph so market demand and location suitability get
+  // data-driven scores instead of neutral defaults.
+  const bieMarket = await extractBIEMarketData(dealId).catch(() => null);
 
   // ── 4. SBA package (latest version) ────────────────────────────
   const { data: sbaPackageRaw } = await sb
@@ -163,10 +180,23 @@ export async function generateFeasibilityStudy(params: {
   // ── 9. Franchise detection (v1: always false) ──────────────────
   const isFranchise = false;
 
-  // ── 10. Trade area data (v1: null; v2 integrates Census API) ───
-  const tradeArea: TradeAreaData | null = null;
+  // ── 10. Trade area data from BIE (Phase 2 Gap A) ───────────────
+  // In v1 this was always null; in v2 we use the BIE-extracted numeric
+  // claims so market demand + location suitability can score against real
+  // demographics, competitor counts, and trend signals.
+  const tradeArea: TradeAreaData | null = bieMarket
+    ? {
+        populationRadius5mi: bieMarket.populationMentioned,
+        populationRadius10mi: null,
+        medianHouseholdIncome: bieMarket.medianIncomeMentioned,
+        populationGrowthRate5yr: null,
+        competitorCount: bieMarket.competitorCountMentioned,
+        totalBusinesses: null,
+      }
+    : null;
 
   // ── 11. Run all 4 dimension analyses ───────────────────────────
+  progress("Analyzing market demand…", 25);
 
   const projAnnual = pickArray<{ revenue?: number | null }>(
     sbaPackage?.projections_annual,
@@ -250,6 +280,7 @@ export async function generateFeasibilityStudy(params: {
 
   const loanImpactObj = pickObject(assumptions?.loan_impact);
 
+  progress("Evaluating financial viability…", 35);
   const financialViability = analyzeFinancialViability({
     dscrYear1Base: pickNumber(sbaPackage?.dscr_year1_base),
     dscrYear2Base: pickNumber(sbaPackage?.dscr_year2_base),
@@ -287,6 +318,7 @@ export async function generateFeasibilityStudy(params: {
         (pickNumber(loanImpactObj.loanTermYears) ?? 10) * 12) || 120,
   });
 
+  progress("Assessing operational readiness…", 45);
   const operationalReadiness = analyzeOperationalReadiness({
     managementTeam,
     plannedHires,
@@ -304,16 +336,25 @@ export async function generateFeasibilityStudy(params: {
     zipCode: null,
     research: {
       marketIntelligence: research.marketIntelligence,
-      areaSpecificRisks: null,
-      realEstateMarket: null,
-      trendDirection: null,
+      areaSpecificRisks: bieMarket?.areaSpecificRisksText ?? null,
+      realEstateMarket: bieMarket?.realEstateMarketText ?? null,
+      trendDirection: bieMarket?.trendDirection ?? null,
     },
-    tradeArea: null,
+    tradeArea: tradeArea
+      ? {
+          unemploymentRate: bieMarket?.unemploymentRateMentioned ?? null,
+          medianHouseholdIncome: tradeArea.medianHouseholdIncome,
+          populationGrowthRate5yr: null,
+          commercialVacancyRate: null,
+          medianRentPsf: null,
+        }
+      : null,
     property: null,
   });
 
   // ── 12. Composite score ────────────────────────────────────────
 
+  progress("Computing composite feasibility score…", 55);
   const composite = computeCompositeFeasibility({
     marketDemand,
     financialViability,
@@ -341,6 +382,7 @@ export async function generateFeasibilityStudy(params: {
 
   // ── 14. Narratives ─────────────────────────────────────────────
 
+  progress("Writing consultant narratives…", 65);
   const narratives = await generateFeasibilityNarratives({
     dealName: deal.name ?? "Borrower",
     city: deal.city,
@@ -359,6 +401,7 @@ export async function generateFeasibilityStudy(params: {
 
   // ── 15. Render PDF + upload to storage ─────────────────────────
 
+  progress("Rendering feasibility report…", 85);
   let pdfUrl: string | null = null;
   try {
     const pdfBuffer = await renderFeasibilityPDF({
@@ -395,6 +438,7 @@ export async function generateFeasibilityStudy(params: {
 
   // ── 16. Determine next version_number & persist ───────────────
 
+  progress("Saving results…", 95);
   const { data: latest } = await sb
     .from("buddy_feasibility_studies")
     .select("version_number")
@@ -444,6 +488,7 @@ export async function generateFeasibilityStudy(params: {
     return { ok: false, error: "Failed to persist study" };
   }
 
+  progress("Complete!", 100);
   return {
     ok: true,
     studyId: (study as { id?: string } | null)?.id,
