@@ -19,10 +19,12 @@ import type {
 
 const FONT_NORMAL = "Helvetica";
 const FONT_BOLD = "Helvetica-Bold";
-const FONT_SIZE_BODY = 9;
+// Phase 3 — premium typography: slightly larger body & section type for
+// better readability while keeping the existing page layout intact.
+const FONT_SIZE_BODY = 10;
 const FONT_SIZE_HEADER = 11;
-const FONT_SIZE_TITLE = 14;
-const FONT_SIZE_SECTION = 12;
+const FONT_SIZE_TITLE = 16;
+const FONT_SIZE_SECTION = 14;
 const FONT_SIZE_SMALL = 7;
 const PAGE_MARGIN = 40;
 const HEADER_HEIGHT = 50;
@@ -176,6 +178,100 @@ function checkPageBreak(s: DocState, neededHeight: number, sectionTitle: string)
   if (s.y + neededHeight > bottomLimit) {
     newPage(s, sectionTitle);
   }
+}
+
+// ─── Phase 3 — Insight callout box ──────────────────────────────────────
+// Blue-tinted box with a left accent bar. Used before each major financial
+// table so the reader gets a one-sentence takeaway before the numbers.
+function renderInsightCallout(s: DocState, text: string, sectionTitle = "") {
+  const { doc } = s;
+  const maxWidth = doc.page.width - PAGE_MARGIN * 2;
+  const boxH = 50;
+  checkPageBreak(s, boxH + 10, sectionTitle);
+
+  doc.rect(PAGE_MARGIN, s.y, maxWidth, boxH).fill("#eff6ff");
+  doc.rect(PAGE_MARGIN, s.y, 4, boxH).fill("#2563eb");
+
+  doc.fillColor("#1e40af").font(FONT_BOLD).fontSize(8);
+  doc.text("KEY INSIGHT", PAGE_MARGIN + 14, s.y + 8, { width: maxWidth - 24 });
+  doc.fillColor("#1e3a5f").font(FONT_NORMAL).fontSize(9);
+  doc.text(text, PAGE_MARGIN + 14, s.y + 22, {
+    width: maxWidth - 24,
+    lineGap: 1,
+  });
+  doc.fillColor("#000000");
+  s.y += boxH + 8;
+}
+
+// ─── Phase 3 — Key metrics dashboard ────────────────────────────────────
+// 4 metric tiles in a row. Green top-stripe + green-tinted bg when the
+// metric passes its SBA threshold, red otherwise. Rendered on the
+// Executive Summary page, after the narrative text.
+function renderKeyMetricsDashboard(s: DocState) {
+  const { doc, input } = s;
+  const boxW = (doc.page.width - PAGE_MARGIN * 2 - 30) / 4;
+  const boxH = 70;
+  checkPageBreak(s, boxH + 20, "Key Metrics");
+
+  const y1 = input.annualProjections[0];
+  const dscrY1 = y1?.dscr ?? 0;
+  const breakEven = input.breakEven;
+  const su = input.sourcesAndUses;
+  const gcf = input.globalCashFlow;
+
+  const metrics: Array<{
+    label: string;
+    value: string;
+    sub: string;
+    pass: boolean;
+  }> = [
+    {
+      label: "DSCR Year 1",
+      value: dscrY1 >= 99 ? "—" : fmtDscr(dscrY1),
+      sub: "SBA Min: 1.25x",
+      pass: dscrY1 >= SBA_DSCR_THRESHOLD,
+    },
+    {
+      label: "Break-Even Safety",
+      value: fmtPct(breakEven.marginOfSafetyPct),
+      sub: breakEven.flagLowMargin ? "Below 10%" : "Adequate cushion",
+      pass: !breakEven.flagLowMargin,
+    },
+    {
+      label: "Equity Injection",
+      value: su ? fmtPct(su.equityInjection.actualPct) : "N/A",
+      sub: su ? `Min: ${fmtPct(su.equityInjection.minimumPct)}` : "",
+      pass: su?.equityInjection.passes ?? true,
+    },
+    {
+      label: "Global DSCR",
+      value: gcf ? fmtDscr(gcf.globalDSCR) : "N/A",
+      sub: "Business + Personal",
+      pass: gcf ? gcf.globalDSCR >= SBA_DSCR_THRESHOLD : true,
+    },
+  ];
+
+  for (let i = 0; i < metrics.length; i++) {
+    const x = PAGE_MARGIN + i * (boxW + 10);
+    const m = metrics[i];
+    const borderColor = m.pass ? "#16a34a" : "#dc2626";
+    const bgColor = m.pass ? "#f0fdf4" : "#fef2f2";
+
+    doc.rect(x, s.y, boxW, boxH).fill(bgColor);
+    doc.rect(x, s.y, boxW, 3).fill(borderColor);
+
+    doc.fillColor("#374151").font(FONT_NORMAL).fontSize(8);
+    doc.text(m.label, x + 8, s.y + 10, { width: boxW - 16 });
+
+    doc.fillColor(borderColor).font(FONT_BOLD).fontSize(16);
+    doc.text(m.value, x + 8, s.y + 24, { width: boxW - 16 });
+
+    doc.fillColor("#6b7280").font(FONT_NORMAL).fontSize(7);
+    doc.text(m.sub, x + 8, s.y + 48, { width: boxW - 16 });
+  }
+
+  doc.fillColor("#000000");
+  s.y += boxH + 14;
 }
 
 function renderNarrativeBody(s: DocState, text: string, sectionTitle: string) {
@@ -701,15 +797,21 @@ function renderSection2_Projections(s: DocState) {
   const colLabels = ["", "Base Year", "Year 1", "Year 2", "Year 3"];
   const colWidths = [140, 95, 95, 95, 95];
   const startX = PAGE_MARGIN;
+  const tableW = colWidths.reduce((a, b) => a + b, 0);
 
-  doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+  // Phase 3 — navy header row with white text
+  doc.rect(startX, s.y - 2, tableW, ROW_HEIGHT + 2).fill("#0f1e3c");
+  doc.fillColor("#ffffff").font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
   let x = startX;
   for (let i = 0; i < colLabels.length; i++) {
-    doc.text(colLabels[i], x, s.y, { width: colWidths[i], align: i > 0 ? "right" : "left" });
+    doc.text(colLabels[i], x + 4, s.y + 2, {
+      width: colWidths[i] - 8,
+      align: i > 0 ? "right" : "left",
+    });
     x += colWidths[i];
   }
+  doc.fillColor("#000000");
   s.y += ROW_HEIGHT;
-  doc.moveTo(startX, s.y - 2).lineTo(startX + 520, s.y - 2).lineWidth(0.3).stroke("#cccccc");
 
   const rows: Array<{ label: string; values: number[]; bold?: boolean; pct?: boolean }> = [
     { label: "Revenue", values: allYears.map((y) => y.revenue) },
@@ -726,27 +828,53 @@ function renderSection2_Projections(s: DocState) {
     { label: "DSCR", values: allYears.map((y) => y.dscr) },
   ];
 
-  for (const row of rows) {
+  for (let rIdx = 0; rIdx < rows.length; rIdx++) {
+    const row = rows[rIdx];
     checkPageBreak(s, ROW_HEIGHT + 4, "Financial Projections (cont.)");
+
+    // Phase 3 — alternating row background; subtle light-blue for bold (subtotal) rows
+    const bg = row.bold ? "#eff6ff" : rIdx % 2 === 0 ? "#f8fafc" : "#ffffff";
+    doc.rect(startX, s.y - 1, tableW, ROW_HEIGHT + 1).fill(bg);
+
     doc.font(row.bold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
     x = startX;
-    doc.text(row.label, x, s.y, { width: colWidths[0] });
+    doc.fillColor("#000000");
+    doc.text(row.label, x + 4, s.y + 2, { width: colWidths[0] - 8 });
     x += colWidths[0];
 
     for (let i = 0; i < row.values.length; i++) {
       const val = row.values[i];
       let display: string;
+      let cellBg: string | null = null;
       if (row.pct) {
         display = fmtPct(val);
       } else if (row.label === "DSCR") {
         display = fmtDscr(val);
-        if (val < SBA_DSCR_THRESHOLD && i > 0) {
-          doc.fillColor(DSCR_RED);
+        if (i > 0 && val < 99) {
+          if (val < SBA_DSCR_THRESHOLD) {
+            cellBg = "#fef2f2";
+            doc.fillColor(DSCR_RED);
+          } else {
+            cellBg = "#f0fdf4";
+            doc.fillColor("#16a34a");
+          }
         }
       } else {
         display = `$${fmtCurrency(val)}`;
       }
-      doc.text(display, x, s.y, { width: colWidths[i + 1], align: "right" });
+      if (cellBg) {
+        doc.rect(x, s.y - 1, colWidths[i + 1], ROW_HEIGHT + 1).fill(cellBg);
+        // re-assert font color since fill() resets state in some pdfkit builds
+        if (row.label === "DSCR") {
+          doc.fillColor(
+            row.values[i] < SBA_DSCR_THRESHOLD ? DSCR_RED : "#16a34a",
+          );
+        }
+      }
+      doc.text(display, x + 4, s.y + 2, {
+        width: colWidths[i + 1] - 8,
+        align: "right",
+      });
       doc.fillColor("#000000");
       x += colWidths[i + 1];
     }
@@ -985,6 +1113,12 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
       s.y += ROW_HEIGHT;
     }
 
+    // Phase 3 — premium: key metrics dashboard on the Executive Summary
+    // page. Four tiles (DSCR Y1, Break-Even Safety, Equity Injection,
+    // Global DSCR) with SBA threshold pass/fail color coding.
+    s.y += 6;
+    renderKeyMetricsDashboard(s);
+
     // === Page 4: Company Description ===
     newPage(s, "2. Company Description");
     renderSection1_BusinessOverview(s);
@@ -1042,6 +1176,17 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 9: Financial Projections + Revenue Chart ===
     newPage(s, "7. Financial Projections");
+    {
+      const y1 = input.annualProjections[0];
+      const dscrY1 = y1?.dscr ?? 0;
+      const insight =
+        dscrY1 >= 1.5
+          ? `${input.dealName} generates $${fmtCurrency(Math.round(y1?.ebitda ?? 0))} in Year 1 EBITDA against $${fmtCurrency(Math.round(y1?.totalDebtService ?? 0))} in annual debt service — a ${fmtDscr(dscrY1)} coverage ratio providing ${Math.round((dscrY1 - 1) * 100)}% cushion above the SBA 1.25x minimum.`
+          : dscrY1 >= SBA_DSCR_THRESHOLD
+            ? `${input.dealName} meets the SBA 1.25x DSCR threshold at ${fmtDscr(dscrY1)} in Year 1. Break-even margin of safety is ${fmtPct(input.breakEven.marginOfSafetyPct)}.`
+            : `Year 1 projected DSCR of ${fmtDscr(dscrY1)} falls below the SBA 1.25x minimum. Assumption review is recommended before submission.`;
+      renderInsightCallout(s, insight, "7. Financial Projections");
+    }
     renderSection2_Projections(s);
     checkPageBreak(s, 220, "7. Financial Projections (cont.)");
     doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
@@ -1055,10 +1200,31 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 11: Monthly Cash Flow ===
     newPage(s, "9. Monthly Cash Flow — Year 1");
+    {
+      const months = input.monthlyProjections ?? [];
+      let tightestMonth = 0;
+      let minCum = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < months.length; i++) {
+        if (months[i].cumulativeCash < minCum) {
+          minCum = months[i].cumulativeCash;
+          tightestMonth = i + 1;
+        }
+      }
+      if (months.length > 0) {
+        const insight = `The tightest month for cash is Month ${tightestMonth} with a cumulative cash position of $${fmtCurrency(Math.round(minCum))}. Monitoring working capital during this window keeps operations funded.`;
+        renderInsightCallout(s, insight, "9. Monthly Cash Flow — Year 1");
+      }
+    }
     renderSection3_MonthlyCF(s);
 
     // === Page 12: Break-Even ===
     newPage(s, "10. Break-Even Analysis");
+    {
+      const be = input.breakEven;
+      const y1Rev = input.annualProjections[0]?.revenue ?? 0;
+      const insight = `${input.dealName} needs $${fmtCurrency(Math.round(be.breakEvenRevenue))} in annual revenue to cover all costs. Projected Year 1 revenue of $${fmtCurrency(Math.round(y1Rev))} provides a ${fmtPct(be.marginOfSafetyPct)} safety cushion${be.flagLowMargin ? " — below the 10% threshold SBA underwriters typically want to see" : ""}.`;
+      renderInsightCallout(s, insight, "10. Break-Even Analysis");
+    }
     renderSection4_BreakEven(s);
 
     // === Page 13: Sensitivity + DSCR Chart ===
@@ -1072,10 +1238,22 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 14: Global Cash Flow ===
     newPage(s, "12. Global Cash Flow");
+    if (input.globalCashFlow) {
+      const gcf = input.globalCashFlow;
+      const insight = `Including personal cash flow, the combined coverage ratio is ${fmtDscr(gcf.globalDSCR)}. Business EBITDA of $${fmtCurrency(Math.round(gcf.businessEbitda))} plus net personal cash of $${fmtCurrency(Math.round(gcf.totalNetPersonalCash))} covers $${fmtCurrency(Math.round(gcf.globalDebtService))} of total debt service.`;
+      renderInsightCallout(s, insight, "12. Global Cash Flow");
+    }
     renderGlobalCashFlow(s);
 
     // === Page 15: Sources & Uses ===
     newPage(s, "13. Sources & Uses of Funds");
+    if (input.sourcesAndUses) {
+      const ei = input.sourcesAndUses.equityInjection;
+      const insight = ei.passes
+        ? `Equity injection of ${fmtPct(ei.actualPct)} ($${fmtCurrency(Math.round(ei.actualAmount))}) exceeds the SBA minimum of ${fmtPct(ei.minimumPct)} — a meaningful commitment of borrower capital.`
+        : `Equity injection of ${fmtPct(ei.actualPct)} falls short of the SBA minimum ${fmtPct(ei.minimumPct)} by $${fmtCurrency(ei.shortfallAmount)}. Additional equity or alternate sources are needed.`;
+      renderInsightCallout(s, insight, "13. Sources & Uses of Funds");
+    }
     renderSection13_SourcesAndUses(s);
 
     // === Page 16: Use of Proceeds ===
