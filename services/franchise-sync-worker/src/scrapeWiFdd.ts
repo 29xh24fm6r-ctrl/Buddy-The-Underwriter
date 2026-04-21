@@ -101,6 +101,46 @@ function pickMostRecent(
   return { chosen: sorted[0]!, reason };
 }
 
+/** Compute one retry-variant of a brand name for WI DFI search. WI DFI's
+ *  server-side search is leading-prefix-like: "McDonalds" does not match
+ *  DB rows stored as "McDonald's" because of the apostrophe, but the
+ *  shorter query "McDonald" matches both. And "Dunkin' Donuts" misses the
+ *  "Dunkin'" trade name, but "Dunkin" finds it.
+ *
+ *  Returns null when no useful variant is available. The caller should only
+ *  retry when the first search produces zero Registered rows. */
+export function queryVariant(original: string): string | null {
+  const trimmed = original.trim();
+
+  // Drop leading "The " for multi-word phrases
+  const noThe = trimmed.replace(/^the\s+/i, '');
+  const words = noThe.split(/\s+/);
+
+  // Multi-word: first word, apostrophes stripped. Must differ from original
+  // (case-insensitive) and be >=4 chars to be useful.
+  if (words.length >= 2) {
+    const firstNoApos = (words[0] ?? '').replace(/['’‘`]/g, '').trim();
+    if (
+      firstNoApos.length >= 4 &&
+      firstNoApos.toLowerCase() !== trimmed.toLowerCase()
+    ) {
+      return firstNoApos;
+    }
+  }
+
+  // Single-word purely-alphabetic (with optional apostrophes): strip trailing
+  // character to form a prefix. Handles McDonalds → McDonald plural-drop case.
+  // Require length >= 7 so we don't over-truncate short names like "Kumon".
+  if (/^[A-Za-z'’‘`]+$/.test(trimmed) && trimmed.length >= 7) {
+    const noApos = trimmed.replace(/['’‘`]/g, '');
+    if (noApos.length >= 6) {
+      const truncated = noApos.slice(0, -1);
+      if (truncated.toLowerCase() !== trimmed.toLowerCase()) return truncated;
+    }
+  }
+  return null;
+}
+
 export interface ScrapeOptions {
   batchSize?: number;
   delayMs?: number;
@@ -219,7 +259,23 @@ export async function scrapeWiFddBatch(
         if (stats.processed > 1) await sleep(delayMs);
 
         console.log(`[wi-fdd] (${stats.processed}/${brandsRes.rows.length}) searching: ${brand.brand_name}`);
-        const results = await searchWiDfi(brand.brand_name);
+        let results = await searchWiDfi(brand.brand_name);
+
+        // If the first query returned zero Registered rows, retry once with a
+        // shorter variant (WI DFI's search is apostrophe/prefix-sensitive).
+        const hasRegistered = (rs: WiDfiSearchResult[]) =>
+          rs.some((r) => r.detailUrl && r.status.toLowerCase() === 'registered');
+        if (!hasRegistered(results)) {
+          const variant = queryVariant(brand.brand_name);
+          if (variant) {
+            await sleep(delayMs);
+            console.log(`[wi-fdd] retry variant: "${variant}"`);
+            const retryResults = await searchWiDfi(variant);
+            if (hasRegistered(retryResults)) {
+              results = retryResults; // variant found a Registered row — use it
+            }
+          }
+        }
 
         if (results.length === 0) {
           stats.skippedNoMatch++;

@@ -30,7 +30,7 @@ gcloud run deploy "$SERVICE" \
   --cpu 1 \
   --memory 512Mi \
   --timeout 3600 \
-  --set-env-vars "NODE_ENV=production" \
+  --set-env-vars "NODE_ENV=production,GCS_BUCKET=buddy-franchise-fdds" \
   --set-secrets "BUDDY_DB_URL=BUDDY_DB_URL:latest,CRON_SECRET=CRON_SECRET:latest,BUDDY_DB_CA_BUNDLE=buddy-db-ca-bundle:latest" \
   --no-allow-unauthenticated
 
