@@ -261,7 +261,19 @@ function renderCoverPage(s: DocState) {
   const centerX = doc.page.width / 2;
   const rightEdge = doc.page.width - PAGE_MARGIN;
 
-  // Title
+  // Phase 2 — top branding bar (matches SBA business-plan cover)
+  doc.rect(0, 0, doc.page.width, 80).fill(BRAND_NAVY);
+  doc.font(FONT_BOLD).fontSize(11).fillColor("#ffffff");
+  doc.text("BUDDY THE UNDERWRITER", PAGE_MARGIN, 30, {
+    width: doc.page.width - PAGE_MARGIN * 2,
+  });
+  doc.text("FEASIBILITY STUDY", doc.page.width - PAGE_MARGIN - 200, 30, {
+    width: 200,
+    align: "right",
+  });
+  doc.fillColor("#000000");
+
+  // Title (shifted down to clear the branding bar)
   doc.font(FONT_BOLD).fontSize(36).fillColor(BRAND_NAVY);
   doc.text("Feasibility Study", PAGE_MARGIN, 140, {
     width: rightEdge - PAGE_MARGIN,
@@ -341,6 +353,123 @@ function renderCoverPage(s: DocState) {
   doc.fillColor("#000000");
 }
 
+// Phase 2 — radar chart for the 4 dimension scores. Drawn on the
+// scorecard page, below the score bars.
+function renderRadarChart(s: DocState) {
+  const { doc, input } = s;
+  const cx = doc.page.width / 2;
+  const cy = s.y + 100;
+  const radius = 80;
+
+  const dims = [
+    { label: "Market", score: input.composite.marketDemand.score },
+    { label: "Financial", score: input.composite.financialViability.score },
+    { label: "Operations", score: input.composite.operationalReadiness.score },
+    { label: "Location", score: input.composite.locationSuitability.score },
+  ];
+
+  // Concentric rings at 25 / 50 / 75 / 100
+  for (const ring of [25, 50, 75, 100]) {
+    const r = (ring / 100) * radius;
+    doc.save();
+    doc.opacity(0.15);
+    const points = dims.map((_, i) => {
+      const angle = Math.PI / 2 + (i * Math.PI * 2) / dims.length;
+      return { x: cx + r * Math.cos(angle), y: cy - r * Math.sin(angle) };
+    });
+    doc.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      doc.lineTo(points[i].x, points[i].y);
+    }
+    doc.closePath().stroke("#666666");
+    doc.restore();
+  }
+
+  // Score polygon
+  const scorePoints = dims.map((d, i) => {
+    const r = (d.score / 100) * radius;
+    const angle = Math.PI / 2 + (i * Math.PI * 2) / dims.length;
+    return { x: cx + r * Math.cos(angle), y: cy - r * Math.sin(angle) };
+  });
+
+  doc.save();
+  doc.opacity(0.25);
+  doc.moveTo(scorePoints[0].x, scorePoints[0].y);
+  for (let i = 1; i < scorePoints.length; i++) {
+    doc.lineTo(scorePoints[i].x, scorePoints[i].y);
+  }
+  doc.closePath().fill(scoreColor(input.composite.overallScore));
+  doc.restore();
+
+  doc.moveTo(scorePoints[0].x, scorePoints[0].y);
+  for (let i = 1; i < scorePoints.length; i++) {
+    doc.lineTo(scorePoints[i].x, scorePoints[i].y);
+  }
+  doc
+    .closePath()
+    .lineWidth(2)
+    .stroke(scoreColor(input.composite.overallScore));
+
+  // Labels
+  const labelOffset = radius + 20;
+  for (let i = 0; i < dims.length; i++) {
+    const angle = Math.PI / 2 + (i * Math.PI * 2) / dims.length;
+    const lx = cx + labelOffset * Math.cos(angle);
+    const ly = cy - labelOffset * Math.sin(angle);
+    doc.font(FONT_BOLD).fontSize(8).fillColor("#374151");
+    doc.text(`${dims[i].label} (${dims[i].score})`, lx - 35, ly - 4, {
+      width: 70,
+      align: "center",
+    });
+  }
+
+  doc.fillColor("#000000");
+  s.y = cy + radius + 40;
+}
+
+// Phase 2 — severity bar rendered above the per-flag list on the
+// Risk Assessment page. Proportional widths by severity.
+function renderRiskMatrix(s: DocState) {
+  const { doc, input } = s;
+  const flags = input.composite.allFlags;
+  if (!flags.length) return;
+
+  const critical = flags.filter((f) => f.severity === "critical").length;
+  const warning = flags.filter((f) => f.severity === "warning").length;
+  const info = flags.filter((f) => f.severity === "info").length;
+  const total = flags.length;
+
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor("#000000");
+  doc.text(
+    `Risk Summary: ${critical} critical, ${warning} warning, ${info} informational`,
+    PAGE_MARGIN,
+    s.y,
+  );
+  s.y += 20;
+
+  const barW = 300;
+  const barH = 12;
+  const x = PAGE_MARGIN;
+
+  if (critical > 0) {
+    const w = (critical / total) * barW;
+    doc.rect(x, s.y, w, barH).fill("#dc2626");
+  }
+  if (warning > 0) {
+    const w = (warning / total) * barW;
+    const offset = (critical / total) * barW;
+    doc.rect(x + offset, s.y, w, barH).fill("#d97706");
+  }
+  if (info > 0) {
+    const w = (info / total) * barW;
+    const offset = ((critical + warning) / total) * barW;
+    doc.rect(x + offset, s.y, w, barH).fill("#2563eb");
+  }
+
+  doc.fillColor("#000000");
+  s.y += barH + 16;
+}
+
 function renderScorecardPage(s: DocState) {
   const { doc, input } = s;
   newPage(s, "Feasibility Scorecard");
@@ -403,6 +532,10 @@ function renderScorecardPage(s: DocState) {
     );
     s.y = doc.y + 8;
   }
+
+  // Phase 2 — radar chart showing the 4 dimensions at a glance.
+  s.y += 8;
+  renderRadarChart(s);
 }
 
 // ─── Main entry ──────────────────────────────────────────────────────────
@@ -554,6 +687,7 @@ export function renderFeasibilityPDF(
 
     // Risk Assessment
     newPage(s, "Risk Assessment");
+    renderRiskMatrix(s);
     renderFlagList(s, input.composite.allFlags);
     checkPageBreak(s, 80, "Risk Assessment (cont.)");
     renderNarrativeBody(
