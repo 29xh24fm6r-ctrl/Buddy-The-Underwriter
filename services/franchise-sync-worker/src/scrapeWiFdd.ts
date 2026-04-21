@@ -15,6 +15,92 @@ import {
 } from './wiDfiScraper.js';
 import { uploadFddToGcs, estimatePageCount } from './gcsUploader.js';
 
+/** Normalize a brand/legal/trade name so comparisons survive apostrophe drift,
+ *  ® / ™ / ° marks, parenthetical qualifiers, legal-entity suffixes, and
+ *  leading "the". Used for tolerant cross-source matching. */
+export function normalizeBrand(raw: string | null | undefined): string {
+  if (!raw) return '';
+  let s = raw.toLowerCase();
+  // Strip parenthetical qualifiers: "The UPS Store® (Traditional)" → "The UPS Store®"
+  s = s.replace(/\([^)]*\)/g, ' ');
+  // Strip trademark/registered/copyright marks
+  s = s.replace(/[®©™°]/g, ' ');
+  // Strip apostrophes (straight + curly) rather than spacing — "McDonald's" → "mcdonalds"
+  s = s.replace(/['’‘`]/g, '');
+  // Strip other punctuation to spaces
+  s = s.replace(/[^\p{L}\p{N}\s]/gu, ' ');
+  // Collapse whitespace
+  s = s.replace(/\s+/g, ' ').trim();
+  // Drop leading "the "
+  s = s.replace(/^the\s+/, '');
+  // Drop common legal-entity suffix tokens from the END
+  const suffixRe = /\s+(llc|inc|corp|corporation|company|co|ltd|limited|holdings|franchising|franchisor|usa)\b/g;
+  // Apply up to 3 times so "McDonalds USA LLC" collapses all the way
+  for (let i = 0; i < 3; i++) {
+    const before = s;
+    s = s.replace(suffixRe, '').trim();
+    if (s === before) break;
+  }
+  return s;
+}
+
+/** Pick the best WI DFI candidate for an SBA brand name.
+ *  Returns the chosen result + a one-word reason for the match, or null. */
+export function matchWiDfiCandidate(
+  sbaBrandName: string,
+  candidates: WiDfiSearchResult[]
+): { chosen: WiDfiSearchResult; reason: string } | null {
+  const current = candidates.filter(
+    (r) => r.detailUrl && r.status.toLowerCase() === 'registered'
+  );
+  if (current.length === 0) return null;
+
+  const want = normalizeBrand(sbaBrandName);
+  if (!want) return null;
+
+  const withNormalized = current.map((r) => ({
+    r,
+    tradeN: normalizeBrand(r.tradeName),
+    legalN: normalizeBrand(r.legalName),
+  }));
+
+  // 1. Exact normalized match on trade name
+  const exact = withNormalized.filter((c) => c.tradeN === want);
+  if (exact.length > 0) return pickMostRecent(exact.map((c) => c.r), 'exact_trade');
+
+  // 2. Normalized brand contained in normalized trade (e.g., want="ups store",
+  //    trade="ups store traditional")
+  const tradeSuper = withNormalized.filter(
+    (c) => c.tradeN && c.tradeN.includes(want)
+  );
+  if (tradeSuper.length > 0) return pickMostRecent(tradeSuper.map((c) => c.r), 'trade_contains_brand');
+
+  // 3. Normalized trade contained in normalized brand (e.g., want="dunkin donuts",
+  //    trade="dunkin")
+  const brandSuper = withNormalized.filter(
+    (c) => c.tradeN && want.includes(c.tradeN) && c.tradeN.length >= 3
+  );
+  if (brandSuper.length > 0) return pickMostRecent(brandSuper.map((c) => c.r), 'brand_contains_trade');
+
+  // 4. Legal name contains brand tokens (for rows where trade is &nbsp;/blank)
+  const legalHit = withNormalized.filter(
+    (c) => c.legalN && c.legalN.includes(want)
+  );
+  if (legalHit.length > 0) return pickMostRecent(legalHit.map((c) => c.r), 'legal_contains_brand');
+
+  return null;
+}
+
+function pickMostRecent(
+  rows: WiDfiSearchResult[],
+  reason: string
+): { chosen: WiDfiSearchResult; reason: string } {
+  const sorted = rows.slice().sort((a, b) =>
+    (b.effectiveDate ?? '').localeCompare(a.effectiveDate ?? '')
+  );
+  return { chosen: sorted[0]!, reason };
+}
+
 export interface ScrapeOptions {
   batchSize?: number;
   delayMs?: number;
@@ -135,20 +221,6 @@ export async function scrapeWiFddBatch(
         console.log(`[wi-fdd] (${stats.processed}/${brandsRes.rows.length}) searching: ${brand.brand_name}`);
         const results = await searchWiDfi(brand.brand_name);
 
-        // Match on TRADE NAME (column 3) case-insensitively. WI DFI stores
-        // the SBA-familiar brand name in trade name; legal name is e.g.
-        // "DOCTOR'S ASSOCIATES LLC" vs trade name "Subway".
-        const target = brand.brand_name.trim().toLowerCase();
-        const byTrade = results.filter(
-          (r) => r.tradeName.toLowerCase() === target
-        );
-        const candidates = byTrade.length > 0 ? byTrade : results;
-
-        // Only rows with a clickable Details link are current/registered
-        const current = candidates.filter(
-          (r) => r.detailUrl && r.status.toLowerCase() === 'registered'
-        );
-
         if (results.length === 0) {
           stats.skippedNoMatch++;
           console.log(`[wi-fdd] no results for "${brand.brand_name}"`);
@@ -156,21 +228,24 @@ export async function scrapeWiFddBatch(
           continue;
         }
 
-        if (current.length === 0) {
+        // Normalized cross-source match: apostrophes, ®, "(Traditional)",
+        // legal suffixes all get stripped. Exact → substring → legal-contains.
+        const match = matchWiDfiCandidate(brand.brand_name, results);
+        if (!match) {
           stats.skippedNoCurrentRegistration++;
+          const currentCount = results.filter(
+            (r) => r.detailUrl && r.status.toLowerCase() === 'registered'
+          ).length;
           console.log(
-            `[wi-fdd] "${brand.brand_name}" has ${results.length} historical filings but no current Registered (all expired)`
+            `[wi-fdd] "${brand.brand_name}": ${results.length} filings (${currentCount} currently Registered) but no normalized match`
           );
           consecutiveErrors = 0;
           continue;
         }
 
         stats.matched++;
-        // Pick the most recent effective date
-        const sorted = current.slice().sort((a, b) =>
-          (b.effectiveDate ?? '').localeCompare(a.effectiveDate ?? '')
-        );
-        const chosen = sorted[0]!;
+        const chosen = match.chosen;
+        console.log(`[wi-fdd] match_reason=${match.reason}`);
 
         // Rate limit between search and detail fetch
         await sleep(delayMs);
